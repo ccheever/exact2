@@ -1443,7 +1443,4 @@ fn refusals_from_the_app_diaries_name_the_fix() {
         assert_eq!(id, "type-refused-idiom", "{call}: {message}");
         assert!(message.contains(says), "{call}: {message}");
     }
-    let e = contract::compile("component App\n  view\n    text toString(length([1, 2]))\n")
-        .unwrap_err();
-    assert!(e.message.contains("LLP 1088 §9's follow-up"), "{e}");
 }

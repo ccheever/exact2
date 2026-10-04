@@ -93,6 +93,17 @@ theorem ValTyL.cons_inv {vs : List Value} {t ts} (h : ValTyL p vs (t :: ts)) :
     ∃ w ws, vs = w :: ws ∧ ValTy p w t ∧ ValTyL p ws ts := by
   cases vs <;> simp_all [ValTyL]
   exact ⟨_, _, ⟨rfl, rfl⟩, h⟩
+/-- A list literal's items, each of its own type, are of the type they meet in. -/
+theorem ValTyL.unifyAll : ∀ {vs : List Value} {ts : List Ty} {u : Ty},
+    ValTyL p vs ts → Ty.unifyAll ts = .some u → ValTys p vs u
+  | [], [], _, _, _ => trivial
+  | v :: vs, t :: ts, u, h, hu => by
+    simp only [ValTyL] at h
+    simp only [Ty.unifyAll, Option.bind_eq_some_iff] at hu
+    obtain ⟨w, hw, hu⟩ := hu
+    have hle := Ty.unify_le hu
+    exact ⟨h.1.mono hle.1, ValTys.of_mem fun x hx => ((ValTyL.unifyAll h.2 hw).mem x hx).mono hle.2⟩
+  | [], _ :: _, _, h, _ | _ :: _, [], _, h, _ => by simp [ValTyL] at h
 end
 
 theorem display_ok {p : Program} {v : Value} {t : Ty} (h : ValTy p v t) (ht : t.displayable = true) :
@@ -870,7 +881,9 @@ theorem ty_sound_aux {p : Program} (hfn : ProgOK p) {E : Err → Prop}
       | str => simp [eval, GoodW, ValTy]
       | bool => simp [eval, GoodW, ValTy]
       | none => simp [eval, GoodW, ValTy]
-      | emptyList => simp [eval, GoodW, ValTy, ValTys]
+      | list h hu =>
+        simp only [eval]
+        exact GoodW.bind (ihL hc h) fun vs hvs => by simpa [GoodW, ValTy] using hvs.unifyAll hu
       | some h =>
         simp only [eval]
         exact GoodW.bind (ihE hc h) fun v hv => by simpa [GoodW, ValTy] using hv

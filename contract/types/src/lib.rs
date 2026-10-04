@@ -637,7 +637,8 @@ pub(crate) fn source_argument(
 ) -> Result<Ty, TypeError> {
     fn untyped_literal(e: &Expr) -> bool {
         match e {
-            Expr::EmptyList(_) | Expr::None(_) => true,
+            Expr::None(_) => true,
+            Expr::List(items, _) => items.iter().all(untyped_literal),
             Expr::Some(inner, _) => untyped_literal(inner),
             _ => false,
         }
@@ -699,10 +700,30 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
             Ty::String
         }
         Expr::None(_) => Ty::Option(Box::new(Ty::Unknown)),
+        // `[a, b]`'s items unify as the arms of `?:` do (LLP 1088 §9.1).
         // `[]` is a `list<?>` as `none` is an `option<?>`: the other arm of a
         // `match` or `?:`, a declared `list<T>`, or a write into the state
         // it initializes fills the `?` through `unify`.
-        Expr::EmptyList(_) => Ty::List(Box::new(Ty::Unknown)),
+        Expr::List(items, _) => {
+            let mut item = Ty::Unknown;
+            for (i, x) in items.iter().enumerate() {
+                let t = infer(x, scope, shapes)?;
+                item = match item.unify(&t) {
+                    Some(u) => u,
+                    None => {
+                        return err(
+                            "type-list-item",
+                            format!(
+                                "a list's items have one type: item {} is `{t}`, the items before it `{item}`",
+                                i + 1
+                            ),
+                            x.span(),
+                        )
+                    }
+                };
+            }
+            Ty::List(Box::new(item))
+        }
         Expr::Some(inner, _) => Ty::Option(Box::new(infer(inner, scope, shapes)?)),
         Expr::NamedArg(_, _, span) => {
             return err(

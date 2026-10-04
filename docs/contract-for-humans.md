@@ -231,8 +231,10 @@ The `some` branch's binding exists only in that branch. Both arms are required.
 A state initialized to `none` needs enough information elsewhere, usually an
 action's assignment of `some(...)`, to infer the element type. Actions and the
 view see that type, but derives are typed first: match such a state in the view,
-not in a derive. Similarly, `[]` needs an inferable list element type. A nonempty list literal such as `[1, 2]` is not
-supported; obtain lists from sources, record fields, or list operations.
+not in a derive. Similarly, `[]` needs an inferable list element type. A list
+literal such as `[1, 2]` holds its items, which share one type; a list the screen
+keeps for the session (a selection, open ids) is built in Contract, and a list the
+app keeps across launches comes from the data module.
 
 ## State, derives, and actions
 

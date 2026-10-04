@@ -424,12 +424,10 @@ impl Rewriter<'_> {
 
     fn expr(&mut self, e: &mut Expr) -> R {
         match e {
-            Expr::Number(..)
-            | Expr::Str(..)
-            | Expr::Bool(..)
-            | Expr::None(_)
-            | Expr::EmptyList(_)
-            | Expr::Ident(..) => Ok(()),
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {
+                Ok(())
+            }
+            Expr::List(items, _) => self.exprs(items),
             Expr::Template(parts, _) => {
                 for part in parts {
                     if let TemplatePart::Expr(e) = part {

@@ -36,6 +36,12 @@ component A
   view
     text formatDate(0, 0, kind)
 ---
+== type-list-item
+component A
+  state xs = [1, "two"]
+  view
+    text "a"
+---
 == type-operand
 component A
   derive x = 1 + "a"

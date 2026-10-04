@@ -561,7 +561,7 @@ fn an_empty_list_is_typed_from_its_context_and_runs() {
 
 /// An `[]` nothing types is refused where it is written, not as a cycle;
 /// a state only `[]` initializes is refused as a state nothing writes; a
-/// list literal with items is not Contract.
+/// list literal's items have one type (LLP 1088 §9.1).
 #[test]
 fn an_empty_list_nothing_types_is_refused_where_it_is_written() {
     let e = contract::compile("component A\n  derive xs = []\n  view\n    text join(xs, \",\")\n")
@@ -587,11 +587,14 @@ fn an_empty_list_nothing_types_is_refused_where_it_is_written() {
     .unwrap_err();
     assert_eq!(e.id, "type-branches", "{e}");
     assert_eq!(e.message, "branches disagree: `string` and `list<?>`");
-    let e = contract::compile("component A\n  derive xs = [1, 2]\n  view\n    text \"a\"\n")
+    let e = contract::compile("component A\n  derive xs = [1, \"2\"]\n  view\n    text \"a\"\n")
         .unwrap_err();
-    assert_eq!(e.id, "syntax-expected", "{e}");
-    assert!(e.message.contains("`[]` is the empty list"), "{e}");
-    assert_eq!((e.span.line, e.span.col), (2, 16), "{e}");
+    assert_eq!(e.id, "type-list-item", "{e}");
+    assert_eq!(
+        e.message,
+        "a list's items have one type: item 2 is `string`, the items before it `number`"
+    );
+    assert_eq!((e.span.line, e.span.col), (2, 19), "{e}");
     // A `fn` returning a declared `list<T>` and a `list<T>` prop type it.
     contract::compile(
         "fn nothing(): list<number> = []\ncomponent A\n  view\n    column\n      B(xs=[])\n      text `${length(nothing())}`\ncomponent B\n  props\n    xs: list<string>\n  view\n    text join(xs, \",\")\n",
@@ -643,4 +646,61 @@ fn an_empty_list_nothing_types_is_refused_where_it_is_written() {
         assert_eq!(e.id, "type-cannot-infer", "{src}: {e}");
         assert_eq!((e.span.line, e.span.col), (line, col), "{src}: {e}");
     }
+}
+
+/// Two rows, as `list-construction.contract` shapes them.
+struct Rows;
+
+impl DataSource for Rows {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        match source {
+            "rows" => Ok(Value::list(
+                ["a", "b"]
+                    .iter()
+                    .map(|id| Value::record(vec![Value::str(id), Value::str(&id.to_uppercase())]))
+                    .collect(),
+            )),
+            _ => Err(DataError::UnknownSource(source.into())),
+        }
+    }
+}
+
+fn shown<D: DataSource>(r: &Runner<D>, id: &str) -> String {
+    let k = r.kernel();
+    k.node_by_key(k.find_by_test_id(id)[0])
+        .unwrap()
+        .props
+        .iter()
+        .find_map(|(p, v)| match v {
+            PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// LLP 1088 §9.1: `[a, b]` is a list of its items, written across lines
+/// with a trailing comma, its items' types met as a ternary's arms are.
+#[test]
+fn a_list_literal_is_its_items() {
+    let plan = contract::bake(
+        contract::compile(&corpus("list-construction.contract")).unwrap(),
+        Rows,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        Plan::decode(&plan.encode()).unwrap(),
+        Rows,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(shown(&r, "tabs"), "inbox,sent");
+    assert_eq!(shown(&r, "scores"), "2");
+    assert_eq!(shown(&r, "lengths"), "2,0,2");
+    r.act("pick", vec![Value::str("b")]).unwrap();
+    assert_eq!(shown(&r, "picked"), "b");
+    assert_eq!(shown(&r, "lengths"), "2,1,2");
+    r.act("clear", vec![]).unwrap();
+    assert_eq!(shown(&r, "picked"), "");
 }

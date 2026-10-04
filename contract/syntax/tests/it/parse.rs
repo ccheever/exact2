@@ -329,8 +329,14 @@ fn rejections_carry_stable_ids_and_spans() {
             "syntax-expected-declaration",
             3,
         ),
-        // `[]` is the empty list; a list literal with items is not Contract.
-        ("component A\n  derive xs = [1, 2]\n", "syntax-expected", 2),
+        // A list literal's items are separated by commas, and the web's
+        // spread is refused with the `concat` it means (LLP 1088 §9.1).
+        ("component A\n  derive xs = [1 2]\n", "syntax-expected", 2),
+        (
+            "component A\n  derive xs = [...ys, 1]\n",
+            "syntax-refused-idiom",
+            2,
+        ),
     ];
     for (src, id, line) in cases {
         let err = parse(src).unwrap_err();

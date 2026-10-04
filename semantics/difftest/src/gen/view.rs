@@ -323,12 +323,7 @@ impl Gen<'_> {
                 self.items(ctx, depth - 1, indent + 4, out);
             }
             4 => {
-                let t = loop {
-                    let t = self.held(&ctx.heads, false);
-                    if self.makeable(&ctx.heads, &Ty::list(t.clone()), false) {
-                        break t;
-                    }
-                };
+                let t = self.held(&ctx.heads, false);
                 let list = self.expr(&ctx.heads, &Ty::list(t.clone()), 2, false);
                 let it = self.fresh("it");
                 let ix = self.fresh("ix");

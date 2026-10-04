@@ -497,14 +497,13 @@ impl Parser {
                         }
                         self.expect_punct("==")?;
                         let value = self.expr()?;
-                        if !matches!(
-                            value,
-                            Expr::Number(..)
-                                | Expr::Str(..)
-                                | Expr::Bool(..)
-                                | Expr::None(_)
-                                | Expr::EmptyList(_)
-                        ) {
+                        let empty = matches!(&value, Expr::List(items, _) if items.is_empty());
+                        if !empty
+                            && !matches!(
+                                value,
+                                Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_)
+                            )
+                        {
                             return Err(SyntaxError {
                                 id: "syntax-expected-step",
                                 message: "`expect state name ==` takes a number, a string, a bool, `none`, or `[]`".into(),

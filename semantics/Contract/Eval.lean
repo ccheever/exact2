@@ -184,7 +184,7 @@ def eval : Nat → Env → Bool → Locals → Expr → Result Value
   | .str s => .ok (.str s)
   | .bool b => .ok (.bool b)
   | .none => .ok .none
-  | .emptyList => .ok (.list [])
+  | .list items => do .ok (.list (← evalList fuel env inFn ls items))
   | .some e => do .ok (.some (← eval fuel env inFn ls e))
   | .template parts => do
     let ss ← evalDisplays fuel env inFn ls parts

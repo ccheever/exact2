@@ -57,7 +57,8 @@ def freeNames (bound : List String) : Expr → List String
   | .letE x v b => freeNames bound v ++ freeNames (x :: bound) b
   | .arrow ps b => freeNames (ps ++ bound) b
   | .template parts => freeNamesList bound parts
-  | .num _ | .str _ | .bool _ | .none | .emptyList => []
+  | .list items => freeNamesList bound items
+  | .num _ | .str _ | .bool _ | .none => []
 def freeNamesList (bound : List String) : List Expr → List String
   | [] => []
   | e :: es => freeNames bound e ++ freeNamesList bound es
@@ -81,7 +82,8 @@ def allNames : Expr → List String
   | .letE x v b => x :: (allNames v ++ allNames b)
   | .arrow ps b => ps ++ allNames b
   | .template parts => allNamesList parts
-  | .num _ | .str _ | .bool _ | .none | .emptyList => []
+  | .list items => allNamesList items
+  | .num _ | .str _ | .bool _ | .none => []
 def allNamesList : List Expr → List String
   | [] => []
   | e :: es => allNames e ++ allNamesList es
@@ -209,7 +211,8 @@ def substExpr (s : Subst) : Expr → Expr
     let (ps', s') := enterParams b ps s ps
     .arrow ps' (substExpr s' b)
   | .template parts => .template (substList s parts)
-  | e@(.num _) | e@(.str _) | e@(.bool _) | e@.none | e@.emptyList => e
+  | .list items => .list (substList s items)
+  | e@(.num _) | e@(.str _) | e@(.bool _) | e@.none => e
 def substList (s : Subst) : List Expr → List Expr
   | [] => []
   | e :: es => substExpr s e :: substList s es
@@ -338,7 +341,8 @@ def freshen (records : List String) : Expr → StateM Nat Expr
     let fields ← freshenFields records fields
     pure (.record s base fields)
   | .template parts => return .template (← freshenList records parts)
-  | e@(.num _) | e@(.str _) | e@(.bool _) | e@.none | e@.emptyList | e@(.var _) => pure e
+  | .list items => return .list (← freshenList records items)
+  | e@(.num _) | e@(.str _) | e@(.bool _) | e@.none | e@(.var _) => pure e
 def freshenList (records : List String) : List Expr → StateM Nat (List Expr)
   | [] => pure []
   | e :: es => do
@@ -368,7 +372,8 @@ def dependencies (idx : String → Option Nat) : Expr → List Nat
   | .letE _ v b => dependencies idx v ++ dependencies idx b
   | .arrow _ b => dependencies idx b
   | .template parts => dependenciesList idx parts
-  | .num _ | .str _ | .bool _ | .none | .emptyList => []
+  | .list items => dependenciesList idx items
+  | .num _ | .str _ | .bool _ | .none => []
 def dependenciesList (idx : String → Option Nat) : List Expr → List Nat
   | [] => []
   | e :: es => dependencies idx e ++ dependenciesList idx es
@@ -426,7 +431,8 @@ def summarize (n : Nat) (idx : String → Option Nat) (sums : List Summary) : Ex
       | .none => Summary.new n
     summarizeFields n idx sums acc fields
   | .template parts => summarizeList n idx sums (Summary.new n) parts
-  | .num _ | .str _ | .bool _ | .none | .emptyList => Summary.new n
+  | .list items => summarizeList n idx sums (Summary.new n) items
+  | .num _ | .str _ | .bool _ | .none => Summary.new n
 def summarizeList (n : Nat) (idx : String → Option Nat) (sums : List Summary) (acc : Summary) :
     List Expr → Summary
   | [] => acc
@@ -485,6 +491,7 @@ def place (cx : DCx) : Nat → List Nat → Bool → Expr → Expr
       | .record s base fields =>
         .record s (base.map (place cx fuel bound' false)) (fields.map fun (n, x) => (n, place cx fuel bound' false x))
       | .template parts => .template (parts.map (place cx fuel bound' false))
+      | .list items => .list (items.map (place cx fuel bound' false))
       | e => e
     lets.foldr (fun (d, v) body => .letE (cx.names.getD d "") v body) body
 
@@ -503,7 +510,8 @@ def exprNames : Expr → List String
   | .letE _ v b => exprNames v ++ exprNames b
   | .arrow _ b => exprNames b
   | .template parts => exprNamesList parts
-  | .num _ | .str _ | .bool _ | .none | .emptyList => []
+  | .list items => exprNamesList items
+  | .num _ | .str _ | .bool _ | .none => []
 def exprNamesList : List Expr → List String
   | [] => []
   | e :: es => exprNames e ++ exprNamesList es
@@ -761,7 +769,8 @@ mutual
 /-- Whether `e` holds a `none` or `[]` outside a `typed`: a leaf whose
 element type only a declaration can say. -/
 def untypedLeaf : Expr → Bool
-  | .none | .emptyList => true
+  | .none => true
+  | .list items => items.isEmpty || untypedLeafList items
   | .typed .. | .num _ | .str _ | .bool _ | .var _ | .arrow .. => false
   | .template parts => untypedLeafList parts
   | .some x | .member x _ | .named _ x | .unary _ x => untypedLeaf x

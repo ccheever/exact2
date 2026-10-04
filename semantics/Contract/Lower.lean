@@ -202,7 +202,9 @@ def compile : Nat → Program → Nat → Scope → Nat → Expr → Except Stri
   | .str s => .ok ([.str s], .string)
   | .bool b => .ok ([.bool b], .bool)
   | .none => .ok ([.none], .option .bot)
-  | .emptyList => .ok ([.list 0], .list .bot)
+  | .list items => do
+    let (c, ts) ← compileArgs fuel p depth sc n items
+    .ok (c ++ [.list items.length], .list (ts.foldr STy.join .bot))
   | .some e => do
     let (c, t) ← compile fuel p depth sc n e
     .ok (c ++ [.some], .option t)

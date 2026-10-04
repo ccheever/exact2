@@ -388,7 +388,13 @@ impl Emitter<'_> {
             Expr::Str(s, _) => format!("(.str {})", string(s)),
             Expr::Bool(b, _) => format!("(.bool {b})"),
             Expr::None(_) => ".none".into(),
-            Expr::EmptyList(_) => ".emptyList".into(),
+            Expr::List(items, _) => {
+                let items = items
+                    .iter()
+                    .map(|x| self.expr(x))
+                    .collect::<Result<Vec<_>, _>>()?;
+                format!("(.list [{}])", items.join(", "))
+            }
             Expr::Some(inner, _) => format!("(.some {})", self.expr(inner)?),
             Expr::Template(parts, _) => {
                 let ps = parts

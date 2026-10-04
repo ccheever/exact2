@@ -219,11 +219,6 @@ impl Gen<'_> {
             out.push_str(&format!("{pad}{slot} = {e}\n"));
             return;
         }
-        if !self.makeable(env, t, false) {
-            let e = self.lit(t, true);
-            out.push_str(&format!("{pad}{slot} = {e}\n"));
-            return;
-        }
         let name = self.fresh("l");
         let e = self.expr(env, t, d, false);
         let shown = self.show(&name, t);

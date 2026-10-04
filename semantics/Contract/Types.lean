@@ -214,7 +214,8 @@ inductive HasTy (p : Program) (G : Scope) : Scope → Expr → Ty → Prop
   | str : HasTy p G Γ (.str s) .string
   | bool : HasTy p G Γ (.bool b) .bool
   | none : HasTy p G Γ .none (.option .unknown)
-  | emptyList : HasTy p G Γ .emptyList (.list .unknown)
+  /-- `[a, b]`: the items' types meet (`[]` is a `list<?>`). -/
+  | list : ListTy p G Γ items ts → Ty.unifyAll ts = .some t → HasTy p G Γ (.list items) (.list t)
   | some : HasTy p G Γ e t → HasTy p G Γ (.some e) (.option t)
   /-- Each part a number, bool or string. -/
   | template : ListTy p G Γ parts ts → (∀ t ∈ ts, t.displayable = true) →

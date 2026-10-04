@@ -214,6 +214,21 @@ theorem vty_join_right {a : STy} : ∀ {b : STy} {sh v}, VTy sh v b → VTy sh v
     cases b <;> simp [STy.join] <;> (try split) <;> (try subst_vars) <;>
       first | exact h | exact VTy.top' | exact absurd h VTy.not_bot
 
+/-- What a function of values of `a` to values of `b` makes of a list's items. -/
+theorem VTyAll.imp {sh a b} (f : ∀ {v}, VTy sh v a → VTy sh v b) :
+    ∀ {xs : List Value}, VTyAll sh xs a → VTyAll sh xs b
+  | [], _ => trivial
+  | _ :: xs, h => ⟨f h.1, VTyAll.imp f (xs := xs) h.2⟩
+
+/-- A list literal's items, each of its own type, are of their join. -/
+theorem VTys.joinAll {sh} : ∀ {vs : List Value} {ts : List STy}, VTys sh vs ts →
+    VTyAll sh vs (ts.foldr STy.join .bot)
+  | [], [], _ => trivial
+  | _ :: _, _ :: _, h => by
+    rw [VTys.cons_iff] at h
+    exact ⟨vty_join_left h.1, VTyAll.imp (fun hv => vty_join_right hv) (VTys.joinAll h.2)⟩
+  | [], _ :: _, h | _ :: _, [], h => by simp [VTys] at h
+
 /-! ## Strict operators -/
 
 /-- The opcode a strict operator compiles to answers what `binop` answers,

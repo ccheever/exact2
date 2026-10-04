@@ -149,7 +149,10 @@ theorem fsound_aux {ce : CEnv} {C : CComponent} {c : String} {id : InstId}
       | str => simp [ceval] at h; subst h; exact .str
       | bool => simp [ceval] at h; subst h; exact .bool
       | none => simp [ceval] at h; subst h; exact .none
-      | emptyList => simp [ceval] at h; subst h; exact .emptyList
+      | list items =>
+        simp only [ceval, Except.bind_ok_iff] at h
+        obtain ⟨a, h1, h2⟩ := h; simp at h2; subst h2
+        exact .list (ihL h1 (by simpa [Plain] using hp))
       | some e =>
         simp only [ceval, Except.bind_ok_iff] at h
         obtain ⟨a, h1, h2⟩ := h; simp at h2; subst h2
@@ -420,7 +423,9 @@ theorem fcE (hC : ce.comp c = .ok C) {inFn ls e v} (h : EvalR (frameEnv ce C c i
   | .str => ⟨1, rfl⟩
   | .bool => ⟨1, rfl⟩
   | .none => ⟨1, rfl⟩
-  | .emptyList => ⟨1, rfl⟩
+  | .list h1 => by
+    obtain ⟨n, h1⟩ := fcL hC h1 hf (by simpa [Plain] using hp) (by simpa [fv] using hs)
+    exact ⟨n + 1, by simp only [ceval, Except.bind_ok_iff]; exact ⟨_, h1, rfl⟩⟩
   | .some h1 => by
     obtain ⟨n, h1⟩ := fcE hC h1 hf (by simpa [Plain] using hp) (by simpa [fv] using hs)
     exact ⟨n + 1, by simp only [ceval, Except.bind_ok_iff]; exact ⟨_, h1, rfl⟩⟩

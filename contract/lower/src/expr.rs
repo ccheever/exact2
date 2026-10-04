@@ -106,9 +106,15 @@ pub(crate) fn compile(
             asm.simple(Opcode::None);
             Ty::Option(Box::new(Ty::Unknown))
         }
-        Expr::EmptyList(_) => {
-            asm.list(0);
-            Ty::List(Box::new(Ty::Unknown))
+        // `[a, b]` (LLP 1088 §9.1): the items, then `List n`.
+        Expr::List(items, _) => {
+            let mut item = Ty::Unknown;
+            for x in items {
+                let t = compile(l, asm, x, scope, locals)?;
+                item = item.unify(&t).unwrap_or(Ty::Unknown);
+            }
+            asm.list(items.len() as u32);
+            Ty::List(Box::new(item))
         }
         Expr::Some(inner, _) => {
             let t = compile(l, asm, inner, scope, locals)?;

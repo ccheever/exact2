@@ -97,7 +97,7 @@ fn literal(e: &Expr) -> Option<String> {
         Expr::Str(s, _) => quote(s),
         Expr::Bool(b, _) => b.to_string(),
         Expr::None(_) => "none".into(),
-        Expr::EmptyList(_) => "[]".into(),
+        Expr::List(items, _) if items.is_empty() => "[]".into(),
         _ => return None,
     })
 }

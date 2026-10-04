@@ -167,7 +167,8 @@ fn record_constructors(file: &File) -> BTreeSet<String> {
 fn untyped_leaf(e: &Expr) -> bool {
     use crate::ast::TemplatePart;
     match e {
-        Expr::None(_) | Expr::EmptyList(_) => true,
+        Expr::None(_) => true,
+        Expr::List(items, _) => items.is_empty() || items.iter().any(untyped_leaf),
         Expr::Typed(..)
         | Expr::Number(..)
         | Expr::Str(..)

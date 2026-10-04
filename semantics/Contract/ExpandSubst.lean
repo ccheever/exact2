@@ -94,7 +94,7 @@ theorem xferE {e₁ e₂ : Env} (hs : Same e₁ e₂) {inFn ls e v}
   | .str => .str
   | .bool => .bool
   | .none => .none
-  | .emptyList => .emptyList
+  | .list h => .list (xferL hs h hf)
   | .some h => .some (xferE hs h hf)
   | .template h => .template (xferD hs h hf)
   | .local h => .local h
@@ -199,7 +199,8 @@ theorem mem_free : ∀ (e : Expr) (B : List String) (y : String),
     simp only [List.mem_append] at h3
     grind
   | .template parts, B, y => by simp only [freeNames]; exact mem_freeList parts B y
-  | .num _, B, y | .str _, B, y | .bool _, B, y | .none, B, y | .emptyList, B, y => by
+  | .list items, B, y => by simp only [freeNames]; exact mem_freeList items B y
+  | .num _, B, y | .str _, B, y | .bool _, B, y | .none, B, y => by
     simp [freeNames]
 theorem mem_freeList : ∀ (es : List Expr) (B : List String) (y : String),
     y ∈ freeNamesList B es ↔ y ∈ freeNamesList [] es ∧ y ∉ B
@@ -233,7 +234,8 @@ def Small : Expr → Bool
   | .matchOpt s _ a b => Small s && Small a && Small b
   | .letE _ v b => Small v && Small b
   | .template parts => SmallList parts
-  | .var _ | .num _ | .str _ | .bool _ | .none | .emptyList => true
+  | .list items => SmallList items
+  | .var _ | .num _ | .str _ | .bool _ | .none => true
 def SmallList : List Expr → Bool
   | [] => true
   | e :: es => Small e && SmallList es
@@ -316,7 +318,7 @@ theorem wkE {env : Env} {inFn L L' e v} (h : EvalR env inFn L e v) (hs : Small e
   | .str => .str
   | .bool => .bool
   | .none => .none
-  | .emptyList => .emptyList
+  | .list h => .list (wkL h (by simpa [Small] using hs) (by simpa [freeNames] using ha))
   | .some h => .some (wkE h (by simpa [Small] using hs) (by simpa [freeNames] using ha))
   | .template h => .template (wkD h (by simpa [Small] using hs) (by simpa [freeNames] using ha))
   | .local hl => by rename_i x; exact .local ((ha x (by simp [freeNames])) ▸ hl)
@@ -644,7 +646,8 @@ def callHeads : Expr → List String
   | .letE _ v b => callHeads v ++ callHeads b
   | .arrow _ b => callHeads b
   | .template parts => callHeadsList parts
-  | .var _ | .num _ | .str _ | .bool _ | .none | .emptyList => []
+  | .list items => callHeadsList items
+  | .var _ | .num _ | .str _ | .bool _ | .none => []
 def callHeadsList : List Expr → List String
   | [] => []
   | e :: es => callHeads e ++ callHeadsList es
@@ -669,7 +672,8 @@ def Plain : Expr → Bool
   | .binary _ a b => Plain a && Plain b
   | .ternary a b c => Plain a && Plain b && Plain c
   | .template parts => PlainList parts
-  | .var _ | .num _ | .str _ | .bool _ | .none | .emptyList => true
+  | .list items => PlainList items
+  | .var _ | .num _ | .str _ | .bool _ | .none => true
 def PlainList : List Expr → Bool
   | [] => true
   | e :: es => Plain e && PlainList es
@@ -741,7 +745,8 @@ def fv : Expr → List String
   | .letE x v b => fv v ++ (fv b).filter (· != x)
   | .arrow ps b => (fv b).filter (fun y => !ps.contains y)
   | .template parts => fvList parts
-  | .num _ | .str _ | .bool _ | .none | .emptyList => []
+  | .list items => fvList items
+  | .num _ | .str _ | .bool _ | .none => []
 def fvOpt : Option Expr → List String
   | .some b => fv b
   | .none => []
@@ -799,7 +804,9 @@ theorem fv_sub_all : ∀ (e : Expr) {y : String}, y ∈ fv e → y ∈ allNames 
     exact .inr (fv_sub_all b h.1)
   | .template parts, y, h => by
     simp only [fv] at h; simp only [allNames]; exact fvList_sub_all parts h
-  | .num _, y, h | .str _, y, h | .bool _, y, h | .none, y, h | .emptyList, y, h => by simp [fv] at h
+  | .list items, y, h => by
+    simp only [fv] at h; simp only [allNames]; exact fvList_sub_all items h
+  | .num _, y, h | .str _, y, h | .bool _, y, h | .none, y, h => by simp [fv] at h
 theorem fvList_sub_all : ∀ (es : List Expr) {y : String}, y ∈ fvList es → y ∈ allNamesList es
   | [], y, h => by simp [fvList] at h
   | e :: es, y, h => by
@@ -913,7 +920,10 @@ theorem sfE {e₁ e₂ : Env} (hs : Same e₁ e₂) {inFn ls e v} (h : EvalR e�
   | .str => by simp only [substExpr]; exact .str
   | .bool => by simp only [substExpr]; exact .bool
   | .none => by simp only [substExpr]; exact .none
-  | .emptyList => by simp only [substExpr]; exact .emptyList
+  | .list h => by
+    simp only [substExpr]
+    exact .list (sfL hs h hf hm (by simpa [fv] using hA) (by simpa [Plain] using hp)
+      (by simpa [callHeads] using hh))
   | .some h => by
     simp only [substExpr]
     exact .some (sfE hs h hf hm (by simpa [fv] using hA) (by simpa [Plain] using hp)

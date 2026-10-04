@@ -199,6 +199,9 @@ at CSS.
 
 - Types are `number`, `string`, `bool`, declared shapes, `option<T>`, `list<T>`,
   and `action` for behavior interfaces. Do not emit authored `any` or object types.
+- `[a, b, c]` is a list of its items, which may span lines and keep a trailing
+  comma; the items have one type, met as a ternary's arms are (`[none,
+  some(1)]` is a `list<option<number>>`; `[1, "a"]` is `type-list-item`).
 - `none` and `[]` need an inferable element type. A state initialized by either
   usually gets that information from later assignments; a typed argument or
   the other conditional/match arm can also supply it.
@@ -233,8 +236,8 @@ at CSS.
   the web (`end > start` for `"HH:MM"` times). `slice(s, 0, -1)`,
   `replaceAll(s, find, with)` and `toLowerCase(s)` are the web's string methods.
 - Standard calls are free functions, not methods: `trim(s)`, `includes(s, q)`.
-  There are no nonempty list literals, object literals, general lambdas, array
-  indexing, assignment expressions, or JavaScript built-ins by implication.
+  There are no object literals, spreads, general lambdas, array indexing,
+  assignment expressions, or JavaScript built-ins by implication.
 - `fn` parameters and return types are explicit. Its body is one expression over
   its parameters and standard calls (including `now()`), without component-state
   capture or recursion. Pass an app value in; do not invent an ambient reference.

@@ -253,9 +253,10 @@ binary        = unary { binary-op unary } ;
 unary         = ( "-" | "not" | "!" ) unary | postfix ;
 postfix       = primary { "." FIELD } ;
 primary       = NUMBER | STRING | TEMPLATE | "true" | "false" | "none"
-              | "some" "(" expr ")" | "[" "]" | IDENT
+              | "some" "(" expr ")" | list | IDENT
               | IDENT "(" [ arguments ] ")"
               | "(" expr ")" | inline-match ;
+list          = "[" [ expr { "," expr } [ "," ] ] "]" ;
 arguments     = argument { "," argument } [ "," ] ;
 argument      = expr | arrow | FIELD "=" expr ;
 arrow         = ( IDENT | "(" [ IDENT { "," IDENT } ] ")" ) "=>" expr ;
@@ -290,8 +291,10 @@ as the callbacks to `map` and `filter`, with at most item and index parameters;
 they are not first-class values or event handlers.
 
 An app-declared shape's call constructs a record: either all named fields, or one
-positional base followed by zero or more replacements. A list literal can only
-be empty. There is no object literal, method call, bracket indexing, assignment
+positional base followed by zero or more replacements. A `list` literal is
+a list of its items, left to right; their types meet as a ternary's arms do (`type-list-item` when they do
+not), and a trailing comma is kept. There is no spread (`[...xs, x]` is
+refused), object literal, method call, bracket indexing, assignment
 expression, `??`, `?.`, or `===`. `any` in an internal roster signature describes
 special typing; it is not a source-language type annotation.
 
