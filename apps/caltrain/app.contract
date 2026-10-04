@@ -251,9 +251,11 @@ component Content
               text station.name font-size="1.5em" font-weight=700 testId="station-name" aria-level=1
               text `${distanceText(station.distance)} · ${walkText(station.distance)}` font-size="0.75em" color="#666666"
             column gap=6 align-items="flex-end"
-              // The development host's Reload, as its dev menu has it.
-              button press=reloadApp aria-label="Reload" testId="reload" padding=8 border-radius=8 background-color="#eeeeee"
-                text "Reload" font-size="0.75em" font-weight=600
+              // The development host's Reload, as its dev menu has it. Only a
+              // TV shows it: a Siri Remote has no gesture for the dev menu.
+              when tv
+                button press=reloadApp aria-label="Reload" testId="reload" padding=8 border-radius=8 background-color="#eeeeee"
+                  text "Reload" font-size="0.75em" font-weight=600
               button press=openStations aria-label="Change station" testId="change-station" padding=8 border-radius=8 background-color="#eeeeee"
                 text "Change station" font-size="0.8125em" font-weight=600
               button press=openDeck aria-label="Open web deck" testId="open-deck" padding=8 border-radius=8 background-color="#eeeeee"
