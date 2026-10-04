@@ -986,8 +986,15 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         return s.tagged({ ...r, tapped: node.id, target, delivery: 'runner', carrier: host, mode: timing });
       }
       // A target out of view is scrolled into it first, as a person (and Playwright's actionability) would: ledger F7, shop F11.
-      // An explicit contact point (`drag … from`, `down at`) is the author's, in today's view: it is not moved.
-      const scrolled = opts.wheel || opts.history !== undefined || opts.drag?.from || opts.at ? null : await s.reveal(node.id);
+      // An explicit contact point (`drag … from`, `down at`) is the author's: a visible one is not moved; one out of view
+      // brings its view's middle in, as an unspecified point would (the host's reveal scrolls a view, not a point).
+      const explicit = opts.drag?.from ?? opts.at, pointOut = async () => {
+        const l = await s.layout(), b = l.nodes.find((n) => n.id === node.id), vp = l.viewport;
+        if (!b || !vp) return false;
+        const x = b.x + explicit[0], y = b.y + explicit[1];
+        return x < 0 || y < 0 || x > vp.w || y > vp.h;
+      };
+      const scrolled = opts.wheel || opts.history !== undefined || (explicit && !await pointOut()) ? null : await s.reveal(node.id);
       // @ref LLP 1080.000 §11 — one whole gesture: press, one straight drag, hold, lift.
       if (opts.drag) return dragTap({ s, carrier, node, target, host, timing, tapRefusal, scrolled }, opts.drag);
       const kind = opts.history !== undefined ? 'history' : opts.pinch !== undefined ? 'pinch' : opts.down ? 'down' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : opts.contextmenu ? 'contextmenu' : opts.dblclick ? 'dblclick' : 'press';
