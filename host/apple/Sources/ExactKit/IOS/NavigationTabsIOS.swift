@@ -125,6 +125,7 @@ extension NavigationHost {
         }()
         mount(holder, in: parent, at: p.root)
         tabOwner = holder
+        tint(tabs.tablist)
         // Kept under the agent too, where the authored tablist shows in the
         // bar's place: a real touch refuses it (LLP 1080.000 D7).
         adoptedTablist = tabs.tablist.id
@@ -249,6 +250,27 @@ extension NavigationHost {
             if face.badge != nil || had { item.badgeValue = face.badge }
         }
         tabItems = signature
+        tint(tabs.tablist)
+    }
+
+    /// The tablist's `accent-color` tints the bar's selected item, as it
+    /// tints a control (recipes F20, shop F28); `auto` keeps the system's.
+    /// The row is inherited, as in CSS, and reaches the host only on the
+    /// node that sets it: the nearest ancestor that does is read. Resolved
+    /// per appearance, so dark mode follows.
+    func tint(_ list: NodeView) {
+        guard let bar = tabController?.tabBar else { return }
+        var view: UIView? = list
+        while let at = view, (at as? NodeView)?.channels("accent_color", dark: false) == nil { view = at.superview }
+        let source = view as? NodeView
+        let wanted = [source?.channels("accent_color", dark: false), source?.channels("accent_color", dark: true)]
+        guard wanted != tabTint else { return }
+        tabTint = wanted
+        bar.tintColor = source.map { source in
+            UIColor { [weak source] traits in
+                source?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .tintColor
+            }
+        }
     }
 
     /// The bar would select `controller`: press its authored tab.
@@ -284,6 +306,7 @@ extension NavigationHost {
         tabNavigations = [:]
         tabPanels = []
         tabItems = []
+        tabTint = nil
         adoptedTablist = nil
     }
 

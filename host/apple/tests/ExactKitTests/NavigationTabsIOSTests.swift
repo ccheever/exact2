@@ -78,6 +78,18 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertFalse(tabs.tabBar.isHidden)
         XCTAssertEqual(tabs.viewControllers?.map { $0.tabBarItem.title }, ["Home", "Second"])
         XCTAssertTrue(try node(session, "tabs").isHidden, "the bar takes the authored tablist's place")
+        // The container paints where the panels are among the root's
+        // children: under the tablist after them, as CSS paints a later
+        // sibling over an earlier one (shop F21, recipes F23).
+        let root = try node(session, "navigation"), list = try node(session, "tabs")
+        let order = root.subviews.map { ObjectIdentifier($0) }
+        XCTAssertLessThan(try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(tabs.view))), try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(list))), "the tablist after the panels paints over the container")
+        XCTAssertGreaterThan(try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(tabs.view))), try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(try node(session, "panels")))), "the container paints over the panels' box")
+        // The tablist's `accent-color` is the bar's tint (recipes F20, shop F28).
+        let tint = try XCTUnwrap(tabs.tabBar.tintColor).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+        var rgb: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        tint.getRed(&rgb.0, green: &rgb.1, blue: &rgb.2, alpha: &rgb.3)
+        XCTAssertEqual([rgb.0, rgb.1, rgb.2].map { Int(($0 * 255).rounded()) }, [0x38, 0x38, 0xf5])
         let home = try XCTUnwrap(tabs.viewControllers?[0] as? UINavigationController)
         let second = try XCTUnwrap(tabs.viewControllers?[1] as? UINavigationController)
         XCTAssertEqual(second.viewControllers.count, 1, "another tab's stack is built too")

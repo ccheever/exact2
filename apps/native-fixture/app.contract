@@ -340,8 +340,9 @@ component NativeFixture
                       exact-screen testId="screen" width="100%" height=96
                       text "Second" testId="second-top"
                       column testId="tall-second" height=1600 background-color="#eef2ff"
-      // Hidden on Chat and Photo, so the tab bar hides for them (§9.10).
-      row role="tablist" aria-label="Tabs" testId="tabs" display=(top(nav).name == "chat" or top(nav).name == "photo" ? "none" : "flex") flex-shrink=0 height=56 border-top-width=1 border-top-style="solid" border-color="#e5e7eb" align-items="stretch"
+      // Hidden on Chat and Photo, so the tab bar hides for them (§9.10);
+      // its accent tints the bar's selected item.
+      row role="tablist" aria-label="Tabs" testId="tabs" accent-color="#3838f5" display=(top(nav).name == "chat" or top(nav).name == "photo" ? "none" : "flex") flex-shrink=0 height=56 border-top-width=1 border-top-style="solid" border-color="#e5e7eb" align-items="stretch"
         button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=selectTab("home") testId="tab-home" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=2
           image (nav.tab == "home" ? "symbol:home-fill" : "symbol:home") width=22 height=22
           text "Home" font-size=11
