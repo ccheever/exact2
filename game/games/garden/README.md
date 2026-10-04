@@ -16,7 +16,9 @@ Walk with WASD or the stick. **E** plants the seed in your hand on the tile
 under you, or harvests what is ripe there. You start with 20¢ and one carrot.
 The outline marks that tile: cyan when empty, amber while growing or regrowing,
 green when fruit is ready. Crops stand to one side of the tile's centre so you
-can see them beside your character.
+can see them beside your character. Outside the plots, the prompt gives a
+direction, WASD key and approximate distance back to the nearest plot. It
+updates as you walk and follows the garden when you expand it.
 
 - **Shop**: fourteen seeds from Common to Divine. Stock rolls every five
   minutes; rarer seeds appear less often. Buy, then hold a seed (`×N`).
@@ -47,7 +49,10 @@ times.
 `AI_GATEWAY_API_KEY=… bun proof.mjs web --playtest` (or `macos`) lets Jev try
 the first two orders through the HUD and E key. It gets visible text and
 enabled controls, with up to 48 decisions. Add `--full-market` for all five
-orders, walking and the first five crops, capped at 96 decisions. It cannot
+orders, walking and the first five crops, capped at 96 decisions. Add
+`--start-outside` with `--full-market` to walk beyond the north edge before
+Jev takes control, testing the public return guidance with the same policy.
+It cannot
 use stress tools or write the world. `artifacts/<host>/jev-*` holds the transcript, outcome and
 screenshot. This is exploratory play on the agent clock, not deterministic
 proof or a claim about visual perception or real-time input latency.

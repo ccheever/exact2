@@ -464,10 +464,35 @@ pub fn command(w: &mut World, cmd: &str) {
     }
 }
 
-/// The player's tile and what E would do there.
+/// The player's tile and what E would do there, or a direction back to it.
 pub fn prompt(w: &World) -> (Option<[u16; 2]>, String) {
-    let Some(tile) = w.global_position("player").and_then(|p| tile_at(w, p)) else {
+    let Some(player) = w.global_position("player") else {
         return (None, String::new());
+    };
+    let Some(tile) = tile_at(w, player) else {
+        // Aim at the nearest plot's centre, beyond its boundary. The larger
+        // axis always leads inward; once it is crossed the prompt can turn
+        // the corner. No scan of the garden or saved navigation state.
+        let last = w.resource::<Farm>().size.saturating_sub(1) as f32;
+        let x = (player.x / TILE).round().clamp(0.0, last) * TILE;
+        let z = -(-player.z / TILE).round().clamp(0.0, last) * TILE;
+        let delta = Vec3::new(x - player.x, 0.0, z - player.z);
+        let direction = if delta.x.abs() >= delta.z.abs() {
+            if delta.x > 0.0 {
+                "east (D)"
+            } else {
+                "west (A)"
+            }
+        } else if delta.z > 0.0 {
+            "south (S)"
+        } else {
+            "north (W)"
+        };
+        let metres = delta.length().round().max(1.0) as u32;
+        return (
+            None,
+            format!("Return to garden: {direction} · about {metres} m"),
+        );
     };
     let now = now_ms(w);
     let farm = w.resource::<Farm>();

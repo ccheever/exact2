@@ -421,6 +421,114 @@ fn order_guidance_tracks_equipped_seed_and_movement_between_empty_tiles() {
 }
 
 #[test]
+fn a_lost_player_can_follow_the_public_prompt_after_restore() {
+    let mut game = new(7);
+    // The native Jev run ended near (1.89, -12), north of the last row.
+    game.key_down("KeyD");
+    game.run(500.0);
+    game.key_up("KeyD");
+    game.run(100.0);
+    game.key_down("KeyW");
+    game.run(4_000.0);
+    game.key_up("KeyW");
+    game.run(100.0);
+    assert_eq!(
+        game.world().require::<Transform>("player").position.z,
+        -12.0
+    );
+    assert_eq!(
+        game.world().published("plot").unwrap().text(),
+        "Outside the garden"
+    );
+    assert!(game
+        .world()
+        .published("prompt")
+        .unwrap()
+        .text()
+        .starts_with("Return to garden: south (S)"));
+    game.tap("KeyE");
+    game.run(100.0);
+    assert_eq!(game.world().resource::<Farm>().seeds[0], 1);
+    assert_eq!(game.world().resource::<Census>().plants, 0);
+    let saved = game.save().unwrap();
+    let mut restored = new(7);
+    restored.restore(&saved).unwrap();
+    for sim in [&mut game, &mut restored] {
+        sim.key_down("KeyS");
+        sim.run(500.0);
+        sim.key_up("KeyS");
+        sim.run(100.0);
+        assert_eq!(
+            sim.world().published("plot").unwrap().text(),
+            "Plot 2, 6 · Empty"
+        );
+        assert_eq!(
+            sim.world().published("prompt").unwrap().text(),
+            "E: plant Carrot (1 left)"
+        );
+        sim.tap("KeyE");
+        sim.run(100.0);
+        assert_eq!(sim.world().resource::<Census>().plants, 1);
+    }
+    assert!(game.save().unwrap() == restored.save().unwrap());
+}
+
+#[test]
+fn return_guidance_reaches_the_garden_from_every_edge_and_corner() {
+    use exact_game::Vec3;
+    use garden_logic::farm;
+    for size in [farm::START_SIZE, 16] {
+        for (x, z) in [
+            (-1., 0.),
+            (1., 0.),
+            (0., -1.),
+            (0., 1.),
+            (-1., -1.),
+            (-1., 1.),
+            (1., -1.),
+            (1., 1.),
+        ] {
+            let mut game = new(7);
+            farm::resize(game.world_mut(), size);
+            let edge = size as f32 * 2.0;
+            game.world_mut().require_mut::<Transform>("player").position =
+                Vec3::new(x * edge, 0.9, z * edge);
+            game.run(100.0);
+            // Read only the same instructions a player sees; the next step
+            // may turn a corner. No hidden position chooses the movement.
+            for _ in 0..40 {
+                let prompt = game.world().published("prompt").unwrap().text().to_owned();
+                if prompt.starts_with("E: plant") {
+                    break;
+                }
+                let key = [
+                    ("north (W)", "KeyW"),
+                    ("east (D)", "KeyD"),
+                    ("south (S)", "KeyS"),
+                    ("west (A)", "KeyA"),
+                ]
+                .into_iter()
+                .find(|(direction, _)| prompt.contains(direction))
+                .unwrap_or_else(|| panic!("no return direction: {prompt:?}"))
+                .1;
+                game.key_down(key);
+                game.run(500.0);
+                game.key_up(key);
+                game.run(100.0);
+            }
+            let p = game.world().require::<Transform>("player").position;
+            assert!(
+                farm::tile_at(game.world(), p).is_some(),
+                "lost at {p:?}, size {size}"
+            );
+            assert!(game.world().require::<Visible>("plot-north").0);
+            assert_eq!(sheckles(&game), farm::START_SHECKLES);
+            assert_eq!(game.world().resource::<Farm>().seeds[0], 1);
+        }
+    }
+}
+
+#[test]
 fn plot_outline_tracks_growth_harvest_movement_and_restore() {
     let mut game = new(7);
     let color = |game: &Sim<Garden>| game.world().require::<Material>("plot-north").color;

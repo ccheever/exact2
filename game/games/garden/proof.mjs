@@ -265,18 +265,69 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await marketBack.world('world').save(resolve(out, 'market-restored.world'));
   check('market continuation saves are byte-identical', readFileSync(resolve(out, 'market-continued.world')).equals(readFileSync(resolve(out, 'market-restored.world'))));
   await marketBack.close();
+
+  // Reproduce the native Jev run's north-boundary trap using ordinary keys.
+  // The return trip reads the public prompt, including after a fresh restore.
+  const lost = await open({fresh:true, epoch:EPOCH});
+  await lost.tap('play');
+  const lg = lost.world('world');
+  await lg.hold('KeyD', 500);
+  await lg.run(100);
+  await lg.hold('KeyW', 4_000);
+  await lg.run(100);
+  t = await lost.tree();
+  check('outside the north edge gives the direction back', text(t, 'plot')?.startsWith('Outside the garden') && text(t, 'prompt')?.startsWith('Return to garden: south (S)'), text(t, 'prompt'));
+  if (host !== 'linux') await lost.screenshot(resolve(out, 'lost.png'));
+  await lg.save(resolve(out, 'outside.world'));
+  const returnAndPlant = async session => {
+    const g = session.world('world');
+    for (let step = 0; step < 20; step++) {
+      const prompt = text(await session.tree(), 'prompt') ?? '';
+      if (!prompt.startsWith('Return to garden:')) break;
+      const key = prompt.match(/\(([WASD])\)/)?.[1];
+      check('the return prompt names a movement key', !!key, prompt);
+      if (!key) break;
+      await g.hold(`Key${key}`, 500);
+      await g.run(100);
+    }
+    const tree = await session.tree();
+    check('following the prompt reaches a usable plot', text(tree, 'plot')?.startsWith('Plot 2, 6 · Empty') && text(tree, 'prompt') === 'E: plant Carrot (1 left)', [text(tree, 'plot'), text(tree, 'prompt')]);
+    await g.tap('KeyE');
+    await g.run(100);
+    check('the recovered player can plant', text(await session.tree(), 'census')?.startsWith('1 plants'));
+    return g.snapshot();
+  };
+  const returned = await returnAndPlant(lost);
+  await lg.save(resolve(out, 'returned.world'));
+  pinSave('recovery', resolve(out, 'returned.world'));
+  if (host !== 'linux') await lost.screenshot(resolve(out, 'returned.png'));
+  await lost.close();
+  const lostBack = await open({fresh:true, world:resolve(out, 'outside.world'), epoch:EPOCH});
+  await lostBack.tap('play');
+  check('a fresh process follows the same return guidance', JSON.stringify(await returnAndPlant(lostBack)) === JSON.stringify(returned));
+  await lostBack.world('world').save(resolve(out, 'returned-restored.world'));
+  check('returning and planting saves are byte-identical', readFileSync(resolve(out, 'returned.world')).equals(readFileSync(resolve(out, 'returned-restored.world'))));
+  await lostBack.close();
 });
 
 // Jev sees the player's text and enabled controls, and acts through those
 // controls. It does not inspect the farm, inject money or use the stress tools.
 async function playtest({open, out, log}) {
+  const fullMarket = process.argv.includes('--full-market');
+  const startOutside = process.argv.includes('--start-outside');
+  if (startOutside && !fullMarket) throw new Error('--start-outside needs --full-market for movement controls');
   const s = await open({epoch:EPOCH});
   await s.tap('play');
   const game = s.world('world');
   await game.run(100);
+  if (startOutside) {
+    await game.hold('KeyD', 500);
+    await game.run(100);
+    await game.hold('KeyW', 4_000);
+    await game.run(100);
+  }
   const transcript = resolve(out, 'jev-decisions.jsonl');
   writeFileSync(transcript, '');
-  const fullMarket = process.argv.includes('--full-market');
   const crops = fullMarket ? ['carrot','strawberry','blueberry','tomato','corn'] : ['carrot','strawberry','blueberry'];
   const walking = {north:'KeyW', east:'KeyD', south:'KeyS', west:'KeyA'};
   const recent = [];
@@ -332,7 +383,7 @@ async function playtest({open, out, log}) {
     if (fullMarket ? objective.startsWith('Market regular') : objective.startsWith('Market order 3')) break;
   }
   const tree = await s.tree();
-  const outcome = {fullMarket, strawberryHarvests, purse:purseOf(tree), census:text(tree,'census'),
+  const outcome = {fullMarket, startOutside, strawberryHarvests, purse:purseOf(tree), census:text(tree,'census'),
     objective:text(tree,'objective'), prompt:text(tree,'prompt'), last:text(tree,'last'), world:await game.snapshot()};
   writeFileSync(resolve(out, 'jev-outcome.json'), JSON.stringify(outcome, null, 2));
   log(`JEV outcome: ${strawberryHarvests} strawberry harvests · ${outcome.purse}¢ · ${outcome.census}`);

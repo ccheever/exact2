@@ -814,3 +814,45 @@ are centred and readable, with the crop spacing and active plot retained.
 Both optional descendant scans are unavailable; all owned carriers close.
 Artifacts: `artifacts/main-c2-{web,macos}/`. Rivals diary 006 records the shared
 checks. No Garden logic or Jev policy changed; recovery guidance remains next.
+
+## Returning from outside the garden (2026-10-04)
+
+The previous native Jev run completed three market orders, walked west at
+choice 27, then repeatedly headed north until clamped at `(1.8905318, -12)`.
+The HUD said "Outside the garden"; its prompt was blank. The starting six-row
+garden ends at z=-11, so north cannot get this player back. The earlier market
+policy/economy batch remains closed; this is a separate public-feedback defect.
+
+The prompt now gives an inward direction, its WASD key and approximate distance
+to the nearest plot. It aims at that plot's centre, chooses the larger axis,
+and recomputes while walking, so a corner can need two directions. Re-entering
+restores the ordinary planting/harvesting prompt and outline. The calculation
+uses the garden size and player position only, with no plant scan, navigation
+resource or extra engine API. Expansion follows the same bounds as `tile_at`.
+
+Two new regressions fail on the blank prompt before the change. The recorded
+north-boundary position is reached with ordinary movement; pressing E outside
+spends no seed, and a southward return plus planting continues byte-identically
+after save/restore. The other test follows only the published direction from
+every edge and corner of both six- and sixteen-row gardens. All 19 simulation
+tests and three crop tests pass; four measurement tests stay ignored. Strict
+Clippy with the determinism config passes for the library and simulation tests.
+Applying that config to all targets also rejects the existing measurement
+files' deliberate `Instant` use; no simulation lint is waived. Formatting passes.
+
+The real-host proof adds the same lost-position journey and a fresh-process
+return, using only keys and visible prompts. Initial web/macOS runs have zero
+failures in 92.6/30.1 s, with equal inputs, pins, six world observations and
+nine saves. Both process audits pass. Lost/returned captures on both hosts were
+inspected; the instruction is readable and the player can plant on returning.
+Artifacts: `artifacts/return-{web,macos}/`. These runs remain UNVERIFIED until
+the strict collector accepts the new recovery save below.
+
+Unchanged full-market Jev runs complete all five orders in 64 web decisions
+(3,291¢, 664.7 game seconds) and 66 native decisions (3,084¢); neither leaves
+the plots. They establish ordinary play but do not exercise recovery.
+`--start-outside`, added to the existing playtest with `--full-market`, walks
+to the recorded north-boundary trap before handing control over. It keeps the
+model, goal, choices and decision budget unchanged; no world mutation or extra
+model-only observation sets up the case. Both first runs buy one carrot seed,
+then choose `walk_south` on decision two and plant on decision three.
