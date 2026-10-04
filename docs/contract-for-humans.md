@@ -974,7 +974,7 @@ title, an optional second `text` (a value) or a `column` of two texts (a
 subtitle), and an optional trailing accessory — a `forward-chevron` or
 `checkmark` image, a checkbox or switch `input`, or a `button` holding only
 `image "symbol:info"`. `destructive` draws a row red. Any other row is custom
-and keeps its own views.
+and keeps its own views. A section written `background-color="transparent"` has no card: its rows sit on the list's background with no separators, as a profile header does (LLP 1084 §6.2).
 
 ```text
 list appearance="auto" listStyle="inset-grouped" flex=1

@@ -245,16 +245,29 @@ final class GroupedListIOSTests: XCTestCase {
     func testACardlessSectionsCellsAreClear() throws {
         var card = false
         let p = presenter {
-            var m = self.model(custom: true)
+            var m = self.model()
             m.sections[1].card = card
             return m
         }
-        let clear = try cell(p, 21).backgroundConfiguration
-        XCTAssertEqual(clear?.backgroundColor, .clear, "no card")
+        XCTAssertEqual(try cell(p, 20).backgroundConfiguration?.backgroundColor, .clear, "a standard row: no card")
         XCTAssertNotEqual(try cell(p, 10).backgroundConfiguration?.backgroundColor, .clear, "the other section keeps its card")
+        // Pressed, a pressable row still highlights.
+        let pressed = try cell(p, 20)
+        var state = pressed.configurationState
+        state.isHighlighted = true
+        pressed.configurationUpdateHandler?(pressed, state)
+        XCTAssertNotEqual(pressed.backgroundConfiguration?.backgroundColor, .clear, "highlighted while pressed")
+        state.isHighlighted = false
+        pressed.configurationUpdateHandler?(pressed, state)
+        XCTAssertEqual(pressed.backgroundConfiguration?.backgroundColor, .clear)
+        // An otherwise unchanged standard row is configured again when its
+        // section gains its card back, and loses it again.
         card = true
         p.apply(wireBatch([["op": "props", "id": 3, "set": ["testId": "s1"], "clear": [String]()]]))
-        XCTAssertNotEqual(try cell(p, 21).backgroundConfiguration?.backgroundColor, .clear, "the card is back")
+        XCTAssertNotEqual(try cell(p, 20).backgroundConfiguration?.backgroundColor, .clear, "the card is back")
+        card = false
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["testId": "s1b"], "clear": [String]()]]))
+        XCTAssertEqual(try cell(p, 20).backgroundConfiguration?.backgroundColor, .clear, "and gone again")
     }
 
     func testCustomRowsGoBackInTheirOrder() throws {

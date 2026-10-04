@@ -257,7 +257,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             let s = section(at: index)
             c.headerMode = s?.header == nil ? .none : .supplementary
             c.footerMode = s?.footer == nil ? .none : .supplementary
+            #if !os(tvOS)
             c.showsSeparators = s?.card ?? true
+            #endif
             let section = NSCollectionLayoutSection.list(using: c, layoutEnvironment: environment)
             // A plain list's footer stays under its rows, as its header
             // stays at their top: UIKit pins both by default.
@@ -357,9 +359,20 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         guard let row = rows[id] else { return }
         interact(cell, id)
         cell.accessibilityIdentifier = host.presenter.views[id]?.props["testId"]
-        // A card-less section's rows sit on the list's background.
+        // A card-less section's rows sit on the list's background; a
+        // pressable standard row still shows UIKit's highlight while pressed.
         let card = model.sections.first { $0.rows.contains { $0.view == id } }?.card ?? true
-        cell.backgroundConfiguration = card ? cell.defaultBackgroundConfiguration() : .clear()
+        if card {
+            cell.configurationUpdateHandler = nil
+            cell.backgroundConfiguration = cell.defaultBackgroundConfiguration()
+        } else {
+            let highlights = row.pressable && !row.custom && !row.disabled
+            cell.configurationUpdateHandler = { cell, state in
+                cell.backgroundConfiguration = highlights && (state.isHighlighted || state.isSelected)
+                    ? cell.defaultBackgroundConfiguration().updated(for: state) : .clear()
+            }
+            cell.backgroundConfiguration = .clear()
+        }
         if row.custom {
             cell.contentConfiguration = nil
             cell.accessories = []
