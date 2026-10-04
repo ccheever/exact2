@@ -197,6 +197,8 @@ child. `autofocus` is the bare boolean convenience spelling.
 
 A deeper element line is treated as an attribute continuation only when it starts
 with `name=`; once child nodes begin, later lines are children, not continuations.
+Continuations may sit deeper than the children that follow them; `fmt` moves them
+to the children's level.
 A repeated attribute on one element is refused. A component use takes named
 arguments; its name starts uppercase to distinguish it from an element.
 
@@ -373,6 +375,8 @@ native `foreignObject`.
 Style and prop names come from [`schema.json`](../kernel/tables/schema.json) and
 [`tags.rs`](../contract/lower/src/tags.rs), including shorthands and contextual
 restrictions. This document does not duplicate their changing property tables.
+`padding`, `margin`, `inset`, `border-width`, `border-style` and `border-color` take
+CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40).
 CSS hyphens are part of the authored name. `testId` and admitted host-specific
 props retain their declared spelling.
 

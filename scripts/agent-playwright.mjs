@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { launchFacts, refuseStale, warnStale, webChanges } from './agent-launch.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
-import { resolveApp, webDist as defaultWebDist } from './app.mjs';
+import { resolveApp, webBuildCommand, webDist as defaultWebDist } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const INSTALL = 'bunx playwright@1.63.0 install firefox webkit';
@@ -51,9 +51,8 @@ function worldFile(path) {
   return bytes;
 }
 
-const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
 async function assertDist(dist, app) {
-  if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, '.exact-build.json')}; run EXACT_APP_DIR=${quote(app.dir)} EXACT_WEB_DIST=${quote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`);
+  if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, '.exact-build.json')}; run ${webBuildCommand(app, dist)}`);
 }
 
 async function files({ plan, pageURL, app, webDist }) {
