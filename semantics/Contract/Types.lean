@@ -408,6 +408,9 @@ structure WellTyped (p : Program) : Prop where
   /-- A task's interval is a number literal (the compiler's
   `lower-timer-literal`). -/
   taskLiterals : ∀ t ∈ p.tasks, ∃ b, t.ms = .num b
+  /-- A gated task's gate and key are well typed (the compiler's
+  `type-task-gate`, `type-task-key`; LLP 1092 D9). -/
+  taskGates : ∀ t ∈ p.tasks, ∀ e ∈ t.gate.toList ++ t.key.toList, ∃ u, HasTy p (compScope p) [] e u
   view : NodesTy p (compScope p) [] p.view
 
 end Contract

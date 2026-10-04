@@ -1,0 +1,22 @@
+// A timer whose action sends a `queue` mutation twice (LLP 1092 D3): the
+// waiting send is asked after the timer's commit and before the next
+// timer due, inside one advance.
+shape Beat
+  n: number
+
+component App
+  state count = 0
+  mutation beat as shape Beat queue
+  derive last = match beat { case some(b) => b.n, case none => -1 }
+  action tick
+    count = count + 1
+    send beat = heartbeat(count)
+    send beat = heartbeat(count + 100)
+  task t mount
+    every(50, tick)
+  view
+    text `${count} ${last}` testId="count"
+
+test "beats"
+  clock +200
+  expect state count == 4

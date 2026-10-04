@@ -77,9 +77,12 @@ impl Gen<'_> {
         if self.rng.chance(1, 3) {
             let t = self.base_ty();
             let name = "m0".to_string();
+            // Never two sends to one mutation without `queue` (D12).
+            let queue = self.size.schedule && self.rng.chance(1, 2);
             decls.push_str(&format!(
-                "  mutation {name} as shape {}\n",
-                self.ty_name(&t)
+                "  mutation {name} as shape {}{}\n",
+                self.ty_name(&t),
+                if queue { " queue" } else { "" }
             ));
             let args = (0..self.rng.range(0, 2))
                 .map(|_| self.scalar_ty())
@@ -88,6 +91,7 @@ impl Gen<'_> {
                 name: name.clone(),
                 source: "send0".into(),
                 args,
+                queue,
             });
             env.vars.push((name, Ty::opt(t)));
         }
@@ -196,7 +200,24 @@ impl Gen<'_> {
                     let ms = self.rng.pick(&[1, 100, 500]);
                     format!("after({ms}, {a})")
                 };
-                out.push_str(&format!("  task t{k} mount\n    {line}\n"));
+                // A gate and a key over the states alone: never `now()`,
+                // directly or through a derive or a `fn` (D9, D12).
+                let start = if self.size.schedule && self.rng.chance(1, 2) {
+                    let mut genv = root.states_env.clone();
+                    genv.now = false;
+                    genv.fns = 0;
+                    let gate = self.expr(&genv, &Ty::Bool, 2, false);
+                    let kt = self.scalar_ty();
+                    let key = self.expr(&genv, &kt, 2, false);
+                    match self.rng.below(3) {
+                        0 => format!("when {gate}"),
+                        1 => format!("when {gate} key={key}"),
+                        _ => format!("key={key}"),
+                    }
+                } else {
+                    "mount".to_string()
+                };
+                out.push_str(&format!("  task t{k} {start}\n    {line}\n"));
                 self.targets.clock = true;
             }
         }

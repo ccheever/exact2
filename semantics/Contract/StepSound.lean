@@ -71,23 +71,32 @@ def OutcomeOK : Outcome → Prop
 
 /-! ## Well-typed configurations -/
 
-/-- Every timer runs an action that exists and takes no parameters. -/
+/-- Every timer runs an action that exists and takes no parameters, and a
+gated one's gate and key are well typed (LLP 1092 D9). -/
 def TimersOK (p : Program) (timers : List Timer) : Prop :=
-  ∀ tm ∈ timers, ∃ a, p.actions.find? (·.name == tm.action) = .some a ∧ a.params = []
+  ∀ tm ∈ timers, (∃ a, p.actions.find? (·.name == tm.action) = .some a ∧ a.params = []) ∧
+    ∀ e ∈ tm.gate.toList ++ tm.key.toList, ∃ u, HasTy p (compScope p) [] e u
+
+/-- The gate step keeps timers well formed: it moves only their deadlines. -/
+theorem TimersOK.gateStep {p : Program} {ts ts' slots st now} (h : TimersOK p ts)
+    (hg : gateStep p slots st now ts = .ok ts') : TimersOK p ts' := fun tm' hm => by
+  obtain ⟨tm, htm, ha, hgate, hkey⟩ := gateStep_mem hg tm' hm
+  obtain ⟨hact, hgk⟩ := h tm htm
+  exact ⟨by rw [ha]; exact hact, by rw [hgate, hkey]; exact hgk⟩
 
 /-- A well-typed configuration. Its slots are present and every derive and
 resource settled, unless nothing can run (no element, no timer: the
 configuration of a refused boot). -/
 structure ConfigOK (p : Program) (c : Config) : Prop where
   slots : SlotsOK p c.slots
-  present : (SlotsPresent p c.slots ∧ Complete p c.settled) ∨ (c.view = [] ∧ c.timers = [])
+  present : (SlotsPresent p c.slots ∧ Complete p c.settled) ∨ (c.view = [] ∧ c.timers = [] ∧ c.queued = [])
   settled : SettledOK p c.settled
   store : StoreOK p c.store
   view : ViewOK p c.view
   timers : TimersOK p c.timers
 
 theorem ConfigOK.empty {p : Program} : ConfigOK p Config.empty :=
-  ⟨SlotsOK.nil, .inr ⟨rfl, rfl⟩, SettledOK.empty, StoreOK.nil, ViewOK.nil, fun _ h => nomatch h⟩
+  ⟨SlotsOK.nil, .inr ⟨rfl, rfl, rfl⟩, SettledOK.empty, StoreOK.nil, ViewOK.nil, fun _ h => nomatch h⟩
 
 /-- The environment an action or a handler's arguments evaluate in. -/
 theorem ConfigOK.envGood {p : Program} {c : Config} (hc : ConfigOK p c) (hpres : SlotsPresent p c.slots)
@@ -175,6 +184,48 @@ theorem mapM_goodW {α β} {E : Err → Prop} {f : α → Result β} : ∀ {xs :
     exact GoodW.bind (h x (by simp)) fun _ _ =>
       GoodW.bind (mapM_goodW fun y hy => h y (by simp [hy])) fun _ _ => trivial
 
+/-! ## Gated tasks (LLP 1092) -/
+
+theorem GoodW.map {α β} {E : Err → Prop} {P : α → Prop} {Q : β → Prop} {r : Result α} {f : α → β}
+    (h : GoodW E P r) (hf : ∀ a, P a → Q (f a)) : GoodW E Q (f <$> r) := by
+  cases r with
+  | ok a => exact hf a h
+  | error e => exact h
+
+/-- The gate step fails only legitimately: every gate and key is well
+typed in the component's scope, and a key that is no key is a refusal. -/
+theorem gateStep_good {p : Program} (hp : WellTyped p) {slots st now ts}
+    (henv : EnvOKE p Strict (compScope p)
+      { prog := p, slots, derives := st.derives, resources := st.resources, now })
+    (hts : TimersOK p ts) : GoodW Strict (fun _ => True) (gateStep p slots st now ts) := by
+  have hfn : ProgOK p := ⟨hp.fns, hp.routeShapes⟩
+  have hE : ∀ e, Legit e → e ≠ .pending → Strict e := fun _ h hn => ⟨h, hn⟩
+  unfold gateStep
+  refine mapM_goodW fun tm htm => ?_
+  have hg := (hts tm htm).2
+  unfold gateTimer
+  refine GoodW.map (P := fun _ => True) ?_ fun _ _ => trivial
+  unfold gateState
+  split
+  · trivial
+  · refine GoodW.bind (P := fun _ => True) ?_ fun on _ => ?_
+    · unfold gateOn
+      split
+      · trivial
+      · next g hgate =>
+        obtain ⟨u, hu⟩ := hg g (by simp [hgate])
+        exact GoodW.bind (eval_sound_E hfn hE henv LocalsOK.nil hu) fun _ _ => trivial
+    · split
+      · trivial
+      · refine GoodW.bind (P := fun _ => True) ?_ fun _ _ => trivial
+        unfold gateKey
+        split
+        · trivial
+        · next k hkey =>
+          obtain ⟨u, hu⟩ := hg k (by simp [hkey])
+          exact GoodW.bind (eval_sound_E hfn hE henv LocalsOK.nil hu) fun v _ =>
+            GoodW.bind (rowKey_good hE v) fun _ _ => trivial
+
 /-! ## Actions -/
 
 /-- **An action is safe.** In a well-typed configuration whose slots are
@@ -213,9 +264,11 @@ theorem runAction_sound {p : Program} (hp : WellTyped p) {o c name args rows c' 
   next fx hx =>
   rw [hx] at hexec
   split at h
+  · exact keep h (refusedS _)
+  split at h
   · next e he =>
     refine keep h ?_
-    have : GoodW Strict (fun _ => True) (fx.sends.mapM fun (m, src, vs) => do
+    have : GoodW Strict (fun _ => True) ((splitSends p c fx.sends).1.mapM fun (m, src, vs) => do
         let v ← o.ask src vs
         let ty := ((p.mutations.find? (·.name == m)).map (·.ty)).getD .unknown
         if !conforms p v ty then throw (Err.refused s!"mutation `{m}` answered with the wrong shape")
@@ -254,7 +307,7 @@ theorem runAction_sound {p : Program} (hp : WellTyped p) {o c name args rows c' 
       · next hconf =>
         simp only [Except.pure_ok_iff] at hf
         subst hf
-        have hm := hsends _ hmem
+        have hm := hsends _ (splitSends_sub hmem)
         obtain ⟨hty, md, hmd⟩ := slotTy_mutation hp.names hm
         simp only [hty, conforms]
         simpa using hconf
@@ -263,19 +316,97 @@ theorem runAction_sound {p : Program} (hp : WellTyped p) {o c name args rows c' 
     (hc.store.applyRowWrites (rows := rows) hrow) hc.settled
   split at h
   · next e he => rw [he] at hup; exact keep h hup
-  · next st view live hu =>
-    rw [hu] at hup
-    obtain ⟨hst, hcm, hv, hl⟩ := hup
+  next st r hu =>
+  rw [hu] at hup
+  obtain ⟨hst, hcm, hr⟩ := hup
+  have hg : GoodW Strict (fun _ => True)
+      (gateStep p (applyWrites c.slots (answered ++ fx.writes)) st c.now c.timers) :=
+    gateStep_good hp (EnvGood.envOKE hp ⟨rfl, hok, hpres', RowsOK.nil, hst.1, hst.2⟩ hcm) hc.timers
+  split at h
+  · next e he => rw [he] at hg; exact keep h hg
+  next timers ht =>
+  cases r with
+  | ok vl =>
+    obtain ⟨view, live⟩ := vl
+    obtain ⟨hv, hl⟩ := hr
     simp only [Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
-    exact ⟨⟨hok, .inl ⟨hpres', hcm⟩, hst, hl, hv, hc.timers⟩, trivial⟩
-  · next st e hu =>
-    rw [hu] at hup
-    obtain ⟨hst, hcm, he⟩ := hup
+    exact ⟨⟨hok, .inl ⟨hpres', hcm⟩, hst, hl, hv, hc.timers.gateStep ht⟩, trivial⟩
+  | error e =>
     simp only [Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
     exact ⟨⟨hok, .inl ⟨hpres', hcm⟩, hst, hc.store.applyRowWrites hrow, hc.view, hc.timers⟩,
-      Legitimate.of_strict he⟩
+      Legitimate.of_strict hr⟩
+
+/-! ## A queued send's commit -/
+
+/-- **A queued send's commit is safe** (LLP 1092 D3): it asks its source
+as an action's send does, and commits, or refuses or poisons legitimately. -/
+theorem nextCommit_sound {p : Program} (hp : WellTyped p) {o c m c' out}
+    (hc : ConfigOK p c) (hlive : SlotsPresent p c.slots ∧ Complete p c.settled) (hq : isQueue p m = true)
+    (h : nextCommit p o c m = (c', out)) : ConfigOK p c' ∧ OutcomeOK out := by
+  obtain ⟨hpres, hcomp⟩ := hlive
+  have refusedS : ∀ w, Strict (.refused w) := fun _ => ⟨trivial, by simp⟩
+  have keep : ∀ {c₁ : Config} {e}, (c₁, Outcome.refused e) = (c', out) → ConfigOK p c₁ → Strict e →
+      ConfigOK p c' ∧ OutcomeOK out := fun h' hc₁ he => by
+    simp only [Prod.mk.injEq] at h'; rw [← h'.1, ← h'.2]; exact ⟨hc₁, Legitimate.of_strict he⟩
+  have hc' : ∀ q s, ConfigOK p { c with queued := q, stalled := s } := fun _ _ =>
+    ⟨hc.slots, .inl ⟨hpres, hcomp⟩, hc.settled, hc.store, hc.view, hc.timers⟩
+  have hmut : isMutation p m = true := by
+    simp only [isQueue, List.any_eq_true, Bool.and_eq_true, beq_iff_eq] at hq
+    obtain ⟨md, hmd, rfl, -⟩ := hq
+    simp only [isMutation, List.any_eq_true, beq_iff_eq]
+    exact ⟨md, hmd, rfl⟩
+  simp only [nextCommit] at h
+  split at h
+  · exact keep h hc (refusedS _)
+  split at h
+  · simp only [Prod.mk.injEq] at h; obtain ⟨rfl, rfl⟩ := h; exact ⟨hc, trivial⟩
+  next q src vs _ =>
+  have hask := ask_legit o src vs ""
+  split at h
+  · next e he => rw [he] at hask; exact keep h (hc' _ c.stalled) hask
+  next v _ =>
+  split at h
+  · exact keep h (hc' _ c.stalled) (refusedS _)
+  next hconf =>
+  have hok : SlotsOK p (setSlot c.slots m (.some v)) := by
+    obtain ⟨hty, -⟩ := slotTy_mutation hp.names hmut
+    exact hc.slots.applyWrites (ws := [(m, .some v)]) (by simpa [hty, conforms] using hconf)
+  have hpres' : SlotsPresent p (setSlot c.slots m (.some v)) := hpres.of_keys (setSlot_keys _ _ _)
+  split at h
+  · exact keep h (hc' c.queued _) (refusedS _)
+  have hup := update_good (o := o) (now := c.now) (prev := c.settled) (force := []) hp hok hpres' hc.store
+    hc.settled
+  split at h
+  · next e he => rw [he] at hup; exact keep h (hc' c.queued _) hup
+  next st r hu =>
+  rw [hu] at hup
+  obtain ⟨hst, hcm, hr⟩ := hup
+  have hg : GoodW Strict (fun _ => True) (gateStep p (setSlot c.slots m (.some v)) st c.now c.timers) :=
+    gateStep_good hp (EnvGood.envOKE hp ⟨rfl, hok, hpres', RowsOK.nil, hst.1, hst.2⟩ hcm) hc.timers
+  split at h
+  · next e he => rw [he] at hg; exact keep h (hc' c.queued _) hg
+  next timers ht =>
+  cases r with
+  | ok vl =>
+    obtain ⟨view, live⟩ := vl
+    obtain ⟨hv, hl⟩ := hr
+    simp only [Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl⟩ := h
+    exact ⟨⟨hok, .inl ⟨hpres', hcm⟩, hst, hl, hv, hc.timers.gateStep ht⟩, trivial⟩
+  | error e =>
+    simp only [Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl⟩ := h
+    exact ⟨⟨hok, .inl ⟨hpres', hcm⟩, hst, hc.store, hc.view, hc.timers⟩, Legitimate.of_strict hr⟩
+
+/-- What an advance drains has a send waiting. -/
+theorem drainable_queued {p c m} (h : drainable p c = .some m) : c.queued ≠ [] := by
+  intro hq
+  simp only [drainable, Option.map_eq_some_iff] at h
+  obtain ⟨md, hmd, -⟩ := h
+  have := List.find?_some hmd
+  simp [hq] at this
 
 /-! ## Dispatch -/
 
@@ -312,7 +443,7 @@ theorem dispatch_sound {p : Program} (hp : WellTyped p) {o c target event payloa
   · exact keep h (refusedS _)
   next n hn =>
   have hin := findTestId_in hn
-  have hlive := hc.present.resolve_right fun ⟨hv, _⟩ => hin.ne_nil hv
+  have hlive := hc.present.resolve_right fun ⟨hv, _, _⟩ => hin.ne_nil hv
   split at h
   · exact keep h (refusedS _)
   next ev a args hh =>
@@ -420,15 +551,25 @@ theorem advance_go_sound {p : Program} (hp : WellTyped p) {o due finish}
     split
     · exact ⟨hc, Legitimate.refused _⟩
     split
+    · next m hm =>
+      have hpres := hc.present.resolve_right fun ⟨_, _, hq⟩ => drainable_queued hm hq
+      generalize hr : nextCommit p o c m = r
+      obtain ⟨c₂, out₂⟩ := r
+      obtain ⟨hc₂, hout₂⟩ := nextCommit_sound hp hc hpres (drainable_queue hm) hr
+      cases out₂ with
+      | ok => exact advance_go_sound hp hdue hfinish n c₂ hc₂
+      | refused => exact ⟨hc₂, hout₂⟩
+      | poisoned => exact ⟨hc₂, hout₂⟩
+    split
     · obtain ⟨h1, h2⟩ := hfinish c hc; rw [h2]; exact ⟨h1, trivial⟩
     next tm i hd =>
     have htm := hdue c tm i hd
-    have hpres := hc.present.resolve_right fun ⟨_, ht⟩ => by simp [ht] at htm
-    obtain ⟨a, ha, hpa⟩ := hc.timers tm htm
+    have hpres := hc.present.resolve_right fun ⟨_, ht, _⟩ => by simp [ht] at htm
+    obtain ⟨⟨a, ha, hpa⟩, hgk⟩ := hc.timers tm htm
     have hset : ∀ x, TimersOK p (c.timers.set i { tm with next := x }) := fun x y hy => by
       rcases List.mem_or_eq_of_mem_set hy with hy | rfl
       · exact hc.timers y hy
-      · exact ⟨a, ha, hpa⟩
+      · exact ⟨⟨a, ha, hpa⟩, hgk⟩
     dsimp only
     generalize (if tm.once = true then F64.posInf else tm.next + tm.interval) = x
     generalize hr : runAction p o { c with timers := c.timers.set i { tm with next := x }, now := tm.next }
@@ -547,10 +688,15 @@ theorem boot_configOK {p : Program} (hp : WellTyped p) (o : Oracle) : ConfigOK p
   have hpres : SlotsPresent p slots := (initSlots_present hi).of_keys (lateSlots_keys hl)
   have hsettled := settle_settledOK N.resources SettledOK.empty hst
   have hcomp := settle_complete hst
-  have htimers : TimersOK p timers := by
+  have htimers₀ : TimersOK p timers := by
     intro tm htm
-    obtain ⟨t, htk, he⟩ := List.mem_map.mp (startTimers_actions ht tm htm)
-    rw [← he]; exact hp.taskActions t htk
+    obtain ⟨t, htk, ha, hg, hk⟩ := startTimers_tasks ht tm htm
+    refine ⟨by rw [ha]; exact hp.taskActions t htk, ?_⟩
+    rw [hg, hk]; exact hp.taskGates t htk
+  split at hb
+  · exact empty hb
+  next timers' ht' =>
+  have htimers : TimersOK p timers' := htimers₀.gateStep ht'
   dsimp only at hb
   split at hb
   · next view live hr =>

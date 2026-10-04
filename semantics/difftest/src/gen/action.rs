@@ -190,7 +190,7 @@ impl Gen<'_> {
     fn unsent(&self) -> Vec<super::Mutation> {
         self.mutations
             .iter()
-            .filter(|m| !self.sent.contains(&m.name))
+            .filter(|m| m.queue || !self.sent.contains(&m.name))
             .cloned()
             .collect()
     }
@@ -198,7 +198,11 @@ impl Gen<'_> {
     /// The earlier actions this path may call: none sends what it has sent.
     fn callees(&self) -> Vec<usize> {
         (0..self.callable)
-            .filter(|&j| self.sends[j].iter().all(|m| !self.sent.contains(m)))
+            .filter(|&j| {
+                self.sends[j].iter().all(|m| {
+                    !self.sent.contains(m) || self.mutations.iter().any(|q| &q.name == m && q.queue)
+                })
+            })
             .collect()
     }
 

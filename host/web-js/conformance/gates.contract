@@ -24,13 +24,13 @@ component Gates
   action tick
     n = n + 1
     log = `${log} T${n}@${now()}`
-    if n % 3 == 0
+    if n % 3 == 2
       on = false
   action fly
     flying = not flying
   action step
     framed = framed + 1
-    if framed % 30 == 0
+    if framed % 30 == 29
       flying = false
   task hide when toast != "" key=until
     after(5000, expire)

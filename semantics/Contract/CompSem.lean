@@ -654,6 +654,10 @@ def cboot (p : CProgram) (o : Oracle) : CConfig × Outcome :=
     | .error e => (empty, .refused e)
     | .ok timers =>
       if rp.mutations.any (·.andThen.isSome) then (empty, .refused (.unsupported "`then`")) else
+      -- Queued sends and gated tasks (LLP 1092) are the flat semantics'
+      -- alone: `difftest expansion` writes programs without them.
+      if rp.mutations.any (·.queue) || rp.tasks.any (fun t => t.gate.isSome || t.key.isSome) then
+        (empty, .refused (.unsupported "queued sends and gated tasks")) else
       match settle rp o slots 0 with
       | .error e => (empty, .refused e)
       | .ok st =>

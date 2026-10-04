@@ -350,8 +350,19 @@ def taskAction (p : Program) (t : TaskDecl) : Bool :=
   match p.actions.find? (·.name == t.action) with
   | .some a => a.params.isEmpty
   | .none => false
+/-- A gated task's gate is a bool and its key a string, number or bool
+(the compiler's `type-task-gate`, `type-task-key`; LLP 1092 D9). -/
+def taskGate (p : Program) (t : TaskDecl) : Bool :=
+  (match t.gate with
+    | .some g => inferLe p (compScope p) [] g .bool
+    | .none => true) &&
+  (match t.key with
+    | .some k => match infer p (compScope p) [] k with
+      | .some .string | .some .number | .some .bool => true
+      | _ => false
+    | .none => true)
 def checkTask (p : Program) (t : TaskDecl) : Bool :=
-  inferLe p (compScope p) [] t.ms .number && taskAction p t && (t.ms matches .num _)
+  inferLe p (compScope p) [] t.ms .number && taskAction p t && (t.ms matches .num _) && taskGate p t
 
 /-- The checker: every part well typed. -/
 def check (p : Program) : Bool :=
@@ -793,7 +804,8 @@ theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
   refine {
     shapes := ?_, names := hnames, routeShapes := hrs, routerSlot := hrslot, states := hst, derivesComplete := hdt, resourcesComplete := hrt,
     mutations := hmt, params := ?_, fns := ?_, rootInits := ?_, lateInits := ?_, derives := ?_,
-    resources := ?_, actions := ?_, tasks := ?_, taskActions := ?_, taskLiterals := ?_, view := checkNodes_sound _ hview }
+    resources := ?_, actions := ?_, tasks := ?_, taskActions := ?_, taskLiterals := ?_, taskGates := ?_,
+    view := checkNodes_sound _ hview }
   · intro sh hs f hf
     simp only [checkShapes, List.all_eq_true] at hsh
     exact hsh sh hs f hf
@@ -817,19 +829,45 @@ theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
   · intro a ha; exact checkStmts_sound _ (hacts a ha)
   · intro t ht
     simp only [checkTask, Bool.and_eq_true] at htasks
-    exact inferLe_sound (htasks t ht).1.1
+    exact inferLe_sound (htasks t ht).1.1.1
   · intro t ht
     simp only [checkTask, Bool.and_eq_true] at htasks
-    have := (htasks t ht).1.2
+    have := (htasks t ht).1.1.2
     simp only [taskAction] at this
     split at this
     · next a ha => exact ⟨a, ha, by simpa using this⟩
     · simp at this
   · intro t ht
     simp only [checkTask, Bool.and_eq_true] at htasks
-    have := (htasks t ht).2
+    have := (htasks t ht).1.2
     split at this
     · next b hb => exact ⟨b, hb⟩
     · simp at this
+  · intro t ht e he
+    simp only [checkTask, Bool.and_eq_true] at htasks
+    have := (htasks t ht).2
+    simp only [taskGate, Bool.and_eq_true] at this
+    obtain ⟨hg, hk⟩ := this
+    rcases List.mem_append.mp he with he | he
+    · cases hgt : t.gate with
+      | none => rw [hgt] at he; cases he
+      | some g =>
+        rw [hgt] at he hg
+        simp only [Option.toList, List.mem_singleton] at he
+        subst he
+        obtain ⟨u, hu, -⟩ := inferLe_sound hg
+        exact ⟨u, hu⟩
+    · cases hkt : t.key with
+      | none => rw [hkt] at he; cases he
+      | some k =>
+        rw [hkt] at he hk
+        simp only [Option.toList, List.mem_singleton] at he
+        subst he
+        simp only at hk
+        split at hk
+        · next u hu => exact ⟨_, infer_sound _ hu⟩
+        · next u hu => exact ⟨_, infer_sound _ hu⟩
+        · next u hu => exact ⟨_, infer_sound _ hu⟩
+        · simp at hk
 
 end Contract
