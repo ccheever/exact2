@@ -254,7 +254,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let nav = makeNavigation(first: first.first?.node)
         parent.addChild(nav)
         p.root.addSubview(nav.view)
-        nav.view.setPaintForeground()
+        nav.view.setPaintForeground(aboveAuthored: false)
         nav.view.frame = p.root.bounds
         nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         nav.didMove(toParent: parent)
@@ -356,7 +356,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             let nav = makeNavigation(first: route)
             owner.addChild(nav)
             root.addSubview(nav.view)
-            nav.view.setPaintForeground()
+            nav.view.setPaintForeground(aboveAuthored: false)
             nav.view.frame = root.bounds
             nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             nav.didMove(toParent: owner)

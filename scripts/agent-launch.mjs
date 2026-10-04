@@ -21,6 +21,37 @@ export async function removeBrowserProfile(profile) {
   }
 }
 
+/** Existing Windows shutdown sequence, with evidence retained on refusal. The
+ * helper result never establishes browser exit; only the owned child does.
+ * `terminate` is the process boundary used by the owned-live refusal fixture. */
+export async function closeWindowsBrowser(child, cdp, exited, profile, terminate = pid =>
+  spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {encoding:'utf8', windowsHide:true, timeout:2000, maxBuffer:1 << 20})) {
+  const start = performance.now(), elapsed = () => Math.round(performance.now() - start);
+  const detail = {}, wait = async () => {
+    let timer;
+    try { await Promise.race([exited, new Promise(resolve => { timer = setTimeout(resolve, 2000); })]); }
+    finally { clearTimeout(timer); }
+  };
+  const bounded = value => value == null ? null : String(value).slice(-2048);
+  try { await cdp.send('Browser.close', {}, undefined, 2000); detail.cdp = {outcome:'reply', ms:elapsed()}; }
+  catch (error) { detail.cdp = {error:bounded(error.message), ms:elapsed()}; }
+  await wait();
+  detail.graceMs = elapsed();
+  if (child.exitCode === null && child.signalCode === null) {
+    const began = performance.now();
+    try {
+      const result = terminate(child.pid);
+      detail.taskkill = {ms:Math.round(performance.now() - began), status:result.status, signal:result.signal,
+        error:bounded(result.error?.message), stdout:bounded(result.stdout), stderr:bounded(result.stderr)};
+    } catch (error) { detail.taskkill = {ms:Math.round(performance.now() - began), error:bounded(error.message)}; }
+  }
+  await wait();
+  if (child.exitCode === null && child.signalCode === null) {
+    Object.assign(detail, {totalMs:elapsed(), exitCode:child.exitCode, signalCode:child.signalCode});
+    throw new Error(`Chrome ${child.pid} did not exit; owned profile retained at ${profile}; shutdown ${JSON.stringify(detail)}`);
+  }
+}
+
 /** One browser lookup for the agent and its tests: an explicit override,
  * otherwise the platform's ordinary Chromium installation. A bare CHROME
  * name is resolved through PATH before a test decides whether to skip. */

@@ -36,6 +36,13 @@ guide's rules don't make obvious.
   an overlay at the board level. (Authoring bench, LLP 1087, t4-kanban: two builders,
   5 and 10 minutes, 2026-10-04.)
 
+- **The content of an overlay vanishes behind its own background.** Cause: a
+  background box with `position="absolute"` (a dimmer, a gradient) paints
+  over every later sibling that is not positioned, as CSS orders it. Before
+  LLP 1083.000 the Apple hosts painted in tree order and hid this. Fix: give
+  the content `position="relative"`, or give the background `z-index=-1`
+  inside a parent that stacks. (Signal Clone's call screen, build 16.)
+
 ## Lists and scrolling
 
 - **A tap that changes one row of a long list takes ~80 ms on the web.** Cause: the

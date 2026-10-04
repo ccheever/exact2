@@ -866,7 +866,7 @@ function bakeMetadata(app, target, env) {
   if (env.EXACT_UPDATE_TRUST === 'production') return JSON.parse(ask());
   const seen = (path) => { try { const info = statSync(path); return [info.mtimeMs, info.size]; } catch { return null; } };
   const fixed = ['Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml', '.cargo/config.toml'].map(file => resolve(app.workspace, file));
-  const kept = resolve(app.target, 'bake-metadata', `${buildHash(canonicalBuild([args, app.workspace, env.CARGO_TARGET_DIR ?? null, env.RUSTUP_TOOLCHAIN ?? null, env.CARGO_HOME ?? null])).slice(0, 16)}.json`);
+  const kept = resolve(app.target, 'bake-metadata', `${buildHash(canonicalBuild([args, app.workspace, env.CARGO_TARGET_DIR ?? null, env.CARGO_BUILD_BUILD_DIR ?? null, env.RUSTUP_TOOLCHAIN ?? null, env.CARGO_HOME ?? null])).slice(0, 16)}.json`);
   try {
     const was = JSON.parse(readFileSync(kept, 'utf8'));
     if (was.watched.every(([path, at]) => canonicalBuild(seen(path)) === canonicalBuild(at))) return was.metadata;

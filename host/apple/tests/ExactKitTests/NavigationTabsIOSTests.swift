@@ -69,6 +69,31 @@ final class NavigationTabsIOSTests: XCTestCase {
         if tabs.delegate?.tabBarController?(tabs, shouldSelect: target) ?? true { tabs.selectedIndex = index }
     }
 
+    /// Regression (590d73531): a root overlay with a z-index after the
+    /// tablist, the pattern docs/agent-pitfalls.md gives for full-screen
+    /// overlays, paints and takes touches over the native tab container. Dense
+    /// ranks had put the container over every authored sibling, so the
+    /// overlay was laid out, in the tree, and invisible (LLP 1083.000 D4).
+    func testARootOverlayWithAZIndexIsOverTheNativeTabs() throws {
+        let session = try fixture("tabs-overlay")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        // Pressed directly: the button may sit below the fold of the home tab.
+        session.presenter.press(try node(session, "show-overlay").id)
+        let overlayNode = { session.presenter.views.values.first { $0.props["testId"] == "root-overlay" } }
+        until("the overlay mounts") { overlayNode() != nil }
+        let overlay = try node(session, "root-overlay")
+        let parent = try XCTUnwrap(overlay.superview)
+        XCTAssertTrue(tabs.view.superview === parent, "the overlay and the tab container are siblings")
+        XCTAssertGreaterThan(overlay.layer.zPosition, tabs.view.layer.zPosition, "the overlay paints over the tabs")
+        let middle = overlay.convert(CGPoint(x: overlay.bounds.midX, y: overlay.bounds.midY), to: nil)
+        let hit = try XCTUnwrap(overlay.window?.hitTest(middle, with: nil))
+        XCTAssertTrue(hit.isDescendant(of: overlay), "and takes the touch: \(type(of: hit))")
+        let close = try node(session, "hide-overlay")
+        let reply = Agent(session: session).tap(["id": Int(close.id)])
+        XCTAssertEqual(reply["pressed"] as? Int, Int(close.id), "\(reply)")
+        until("the overlay closes") { overlayNode() == nil }
+    }
+
     func testEveryTabKeepsItsStackItsScrollAndItsDraftAndReselectPopsToRoot() throws {
         let session = try fixture("tabs")
         let navigation = session.presenter.navigation
