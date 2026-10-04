@@ -40,7 +40,7 @@ enum FocusSearch {
 
     /// The focus items `container` gives UIKit's focus search: the views
     /// UIKit may focus inside it, shown and in `rect`.
-    fileprivate static func items(_ container: UIView, in rect: CGRect) -> [any UIFocusItem] {
+    static func items(_ container: UIView, in rect: CGRect) -> [any UIFocusItem] {
         guard let window = container.window else { return [] }
         return candidates.allObjects.filter { view in
             guard view.window === window, view.isDescendant(of: container) else { return false }

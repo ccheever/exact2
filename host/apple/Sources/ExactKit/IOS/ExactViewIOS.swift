@@ -131,6 +131,13 @@ public final class ExactView: UIView {
         fit()
     }
 
+    /// A viewport returning from a presentation comes back on top; the
+    /// navigation stage goes back above it.
+    public override func didAddSubview(_ subview: UIView) {
+        super.didAddSubview(subview)
+        if subview === session.presenter.viewport { session.presenter.navigation.stage.follow() }
+    }
+
     public override func willMove(toWindow newWindow: UIWindow?) {
         // Child didMoveToWindow callbacks can retry focus before our own
         // didMoveToWindow. Wait until their native owners have been installed.
@@ -170,6 +177,7 @@ public final class ExactView: UIView {
     /// the batch sets animate with the keyboard (LLP 1008 §9).
     func fit() {
         let presenter = session.presenter
+        defer { presenter.navigation.stage.follow() }
         // Containment may synchronously lay us out during a partial batch.
         // Let the next layout read the fully mounted tree before resizing it.
         if presenter.applying {

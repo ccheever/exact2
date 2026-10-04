@@ -1384,7 +1384,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // A pressed node that did not take the focus: the field being edited
         // loses it, as a click on a button blurs a page's input.
         let inside = touches.first.map(pressInside) ?? false
-        if !isFirstResponder && presenter?.contextRetainsFocus(self) != true { presenter?.viewport.endEditing(true) }
+        if !isFirstResponder && presenter?.contextRetainsFocus(self) != true { presenter?.endEditing() }
         if inside, presenter?.views[id] === self { presenter?.press(id); finishPointerPress() }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {

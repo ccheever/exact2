@@ -76,6 +76,39 @@ final class RouteController: UIViewController {
     }
 }
 
+/// Where Exact's navigation and tab controllers' views live: beside the
+/// viewport, never inside it. UIKit lays out the bars of a navigation
+/// controller with a scroll view above it as content, so on iPhone Duo the
+/// vertical bar's items would sit under the status bar and the camera, where
+/// a tap no longer reaches them. The stage goes wherever the viewport goes
+/// (the session's view, or a presentation), mirrors its geometry and places
+/// each controller's view where its node is; a touch on nothing passes
+/// through to the viewport.
+final class NavigationStage: UIView {
+    weak var viewport: UIScrollView?
+    weak var anchor: NodeView?
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        return hit === self ? nil : hit
+    }
+
+    override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
+
+    func follow() {
+        guard let viewport, let home = viewport.superview, anchor != nil else { return }
+        if superview !== home || home.subviews.firstIndex(of: self) != (home.subviews.firstIndex(of: viewport) ?? 0) + 1 {
+            home.insertSubview(self, aboveSubview: viewport)
+        }
+        if transform != viewport.transform { transform = viewport.transform }
+        if bounds != viewport.bounds { bounds = viewport.bounds }
+        if center != viewport.center { center = viewport.center }
+        guard let anchor, anchor.isDescendant(of: viewport) else { return }
+        let frame = anchor.convert(anchor.bounds, to: viewport)
+        for view in subviews where view.frame != frame { view.frame = frame }
+    }
+}
+
 final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureRecognizerDelegate {
     unowned let presenter: Presenter
     var primaryNavigation: UINavigationController?
@@ -96,6 +129,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// What holds the tabs: Exact's tab controller, or a container the app's
     /// `tabContainer` hook returned (LLP 1075.003 §3.6).
     var tabOwner: UIViewController?
+    let stage = NavigationStage()
     var tabsHooked = false, tabContainerAsked = false, routerTab = -1
     var tabNavigations: [UInt32: UINavigationController] = [:]
     var tabPanels: [UInt32] = []
@@ -230,6 +264,25 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         return Projection(root: root, tabs: tabs, stacks: stacks, at: at, selected: range.upperBound - 1, wanted: wanted)
     }
 
+    /// A controller's view goes on the stage beside the viewport, placed
+    /// where the navigation root is; before the session's view has a home
+    /// for it, or for another root, it goes inside the root as before.
+    func host(_ view: UIView, at root: NodeView) {
+        if stage.anchor == nil, let home = presenter.viewport.superview, home === presenter.session?.view {
+            stage.viewport = presenter.viewport
+            stage.anchor = root
+        }
+        if stage.anchor === root {
+            stage.follow()
+            stage.addSubview(view)
+            stage.follow()
+        } else {
+            root.addSubview(view)
+            view.frame = root.bounds
+            view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        }
+    }
+
     private func installPrimary(_ p: Projection, first: [RouteController]) {
         guard primaryNavigation == nil else { return }
         // Find the containing controller before installing our child.
@@ -242,9 +295,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         }
         let nav = makeNavigation(first: first.first?.node)
         parent.addChild(nav)
-        p.root.addSubview(nav.view)
-        nav.view.frame = p.root.bounds
-        nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        host(nav.view, at: p.root)
         nav.didMove(toParent: parent)
         primaryNavigation = nav
         prepareRoutes(first, in: nav)
@@ -343,9 +394,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             guard presenter.modals.canPresent(from: owner, route: route) else { return }
             let nav = makeNavigation(first: route)
             owner.addChild(nav)
-            root.addSubview(nav.view)
-            nav.view.frame = root.bounds
-            nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            host(nav.view, at: root)
             nav.didMove(toParent: owner)
             presentedNavigations.append(nav)
             prepareRoutes(Array(wanted[part]), in: nav)
@@ -359,8 +408,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                                      preceding: preceding, owner: owner)
         }
         if let top = modalNavigation ?? primaryOwner {
-            top.view.frame = root.bounds
-            root.bringSubviewToFront(top.view)
+            if top.view.superview === stage {
+                stage.follow()
+            } else {
+                top.view.frame = root.bounds
+                root.bringSubviewToFront(top.view)
+            }
             top.view.layoutIfNeeded()
         }
         for (id, c) in controllers where !routeIDs.contains(id) { end(c) }
@@ -492,13 +545,16 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     func move(to parent: UIViewController, mount: () -> Void) {
-        guard let nav = modalNavigation ?? primaryOwner, nav.parent !== parent else { mount(); return }
+        guard let nav = modalNavigation ?? primaryOwner, nav.parent !== parent else { mount(); stage.follow(); return }
         let container = nav.view.superview
         nav.willMove(toParent: nil)
         nav.view.removeFromSuperview()
         nav.removeFromParent()
         parent.addChild(nav)
         mount()
+        // The stage goes with the viewport before the controller's view
+        // returns to it, so that view is inside its new parent's.
+        stage.follow()
         container?.addSubview(nav.view)
         nav.didMove(toParent: parent)
     }
@@ -730,6 +786,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         primaryNavigation?.view.removeFromSuperview()
         primaryNavigation?.removeFromParent()
         primaryNavigation = nil
+        stage.anchor = nil
         container = nil
         logicalChildren = [:]
         refitForBars()

@@ -117,6 +117,12 @@ final class Presenter {
     /// keyboard.
     var keyboardInset: CGFloat = 0
 
+    /// Ends editing in the viewport and in the navigation stage beside it.
+    @discardableResult func endEditing() -> Bool {
+        let inViewport = viewport.endEditing(true)
+        return navigation.stage.endEditing(true) || inViewport
+    }
+
     var hasKeyboardEditor: Bool {
         views.values.contains { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }
             || hasNativeKeyboardEditor
@@ -127,7 +133,7 @@ final class Presenter {
     /// its own fields, so the page resizes above it.
     var hasNativeKeyboardEditor: Bool {
         guard let responder = FirstResponder.current as? UIView, responder is UIKeyInput else { return false }
-        return responder.isDescendant(of: viewport)
+        return responder.isDescendant(of: viewport) || responder.isDescendant(of: navigation.stage)
     }
 
     /// A notification describes the keyboard's target, not its current
@@ -500,7 +506,7 @@ final class Presenter {
             return
         }
         // `endEditing` resigns text editors only; a focused control resigns itself.
-        if !viewport.endEditing(true), let held = views.values.first(where: { $0.isFirstResponder }) { _ = held.resignFirstResponder() }
+        if !endEditing(), let held = views.values.first(where: { $0.isFirstResponder }) { _ = held.resignFirstResponder() }
     }
 
     /// The events beyond press and change (LLP 1005 §3).

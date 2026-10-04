@@ -139,7 +139,7 @@ extension Agent {
                   let property = path.split(separator: ".").first else { return false }
             return ["bounds", "position", "transform", "sublayerTransform", "anchorPoint", "zPosition"].contains(String(property))
         }
-        var pending: [UIView] = [presenter.viewport]
+        var pending: [UIView] = [presenter.viewport, presenter.navigation.stage]
         while let view = pending.popLast() {
             guard !view.isHidden, view.alpha > 0 else { continue }
             if view.layer.animationKeys()?.contains(where: { key in
@@ -604,7 +604,7 @@ extension Agent {
         }
         // Nothing took the focus: the field being edited loses it (a page
         // blurs its input on a click anywhere else), and the keyboard goes.
-        if !took && !presenter.contextRetainsFocus(n ?? v) { presenter.viewport.endEditing(true) }
+        if !took && !presenter.contextRetainsFocus(n ?? v) { presenter.endEditing() }
         var pressed: Any = NSNull()
         if let element { presenter.press(element); pressed = Int(element) }
         if let action, presenter.views[action.id] === action { presenter.press(action.id); action.finishPointerPress(); pressed = Int(action.id) }
@@ -803,8 +803,12 @@ extension Agent {
         let captured = presenter.views.values.filter { Capture.web[$0.id] != nil || $0.kind == "canvas" }
         for node in captured { node.setNeedsDisplay(); node.layer.displayIfNeeded() }
         session.natives.redrawForCapture()
+        // The navigation stage mirrors the viewport beside it.
+        let stage = presenter.navigation.stage
+        let stageCaptured = captureView === vp && stage.superview === vp.superview && !stage.subviews.isEmpty
         let png = UIGraphicsImageRenderer(size: size, format: format).pngData { _ in
             captureView.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+            if stageCaptured { stage.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true) }
         }
         Capture.capturing = false
         #if !targetEnvironment(simulator)

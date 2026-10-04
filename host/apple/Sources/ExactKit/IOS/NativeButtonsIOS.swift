@@ -72,7 +72,7 @@ extension NodeView {
             at = view.superview
         }
         guard let target, presenter.views[target.id] === target else { return }
-        if !target.isFirstResponder && presenter.contextRetainsFocus(target) != true { presenter.viewport.endEditing(true) }
+        if !target.isFirstResponder && presenter.contextRetainsFocus(target) != true { presenter.endEditing() }
         presenter.press(target.id)
         target.finishPointerPress()
     }

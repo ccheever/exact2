@@ -254,10 +254,19 @@ extension CollectionHost {
         recognizer.delaysTouchesBegan = false
         recognizer.delaysTouchesEnded = false
         viewport.addGestureRecognizer(recognizer)
+        // Routes' lists sit on the navigation stage beside the viewport.
+        let staged = CollectionContact(target: nil, action: nil)
+        staged.collections = self
+        staged.cancelsTouchesInView = false
+        staged.delaysTouchesBegan = false
+        staged.delaysTouchesEnded = false
+        let stage = presenter?.navigation.stage
+        stage?.addGestureRecognizer(staged)
         let observer = NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification,
             object: nil, queue: .main) { [weak self] _ in self?.releaseInteractionLater() }
-        stopTracking = { [weak viewport] in
+        stopTracking = { [weak viewport, weak stage] in
             viewport?.removeGestureRecognizer(recognizer)
+            stage?.removeGestureRecognizer(staged)
             NotificationCenter.default.removeObserver(observer)
         }
     }

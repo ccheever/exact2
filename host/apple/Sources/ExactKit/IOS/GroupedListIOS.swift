@@ -546,7 +546,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     func collectionView(_ view: UICollectionView, didSelectItemAt path: IndexPath) {
         view.deselectItem(at: path, animated: !ExactEnv.agentFreezes)
         guard let id = source.itemIdentifier(for: path), pressable(id) else { return }
-        host.presenter.viewport.endEditing(true)
+        host.presenter.endEditing()
         host.presenter.press(id)
     }
 }
