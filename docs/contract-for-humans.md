@@ -578,8 +578,12 @@ arguments, not state, and is answered once at build. See
 
 The app build bakes initial resource values into its plan for first paint. At
 build there is no network, storage, store write or native module; a source that
-needs a request is left unbaked and asked at run time. Generate the interface
-rather than guessing it:
+needs a request is left unbaked and asked at run time. A baked value is only
+the first frame: every host asks the TypeScript module again at launch (a native
+host once the module loads after first pixel), even for a source with no
+arguments, so what the module knows at launch reaches the view. `logs` names
+each resource that showed a build-time answer and what its ask answered. Generate
+the interface rather than guessing it:
 
 ```sh
 cargo run -q -p contract -- types path/to/app.contract -o /tmp/app.contract.d.ts
