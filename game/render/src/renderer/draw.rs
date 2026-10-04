@@ -122,12 +122,24 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             self.models
                 .custom_data(&self.queue, |slot| hooks.instance_data(slot));
         }
-        // Soft particles read the opaque depth: it is retained, and the
-        // translucent pass splits from the opaque one (not under a scene copy,
-        // whose continuation draws them hard).
-        let soft = self.quads.wants_soft() && !needs.contains(crate::Needs::SCENE_COPY);
-        let (scene_copy, retained) =
-            self.prepare_targets(size, needs, frame.ambient_occlusion.is_some() || soft);
+        // This frame's quads and translucent order first: the split below
+        // follows the soft particles actually drawn.
+        self.quads
+            .frame::<ASSETS>(frame, &self.models.textures, !self.cull.keep_all);
+        self.select_levels(frame);
+        self.order_translucent(frame);
+        self.quads.order::<ASSETS>(&self.device, &self.queue);
+        // Soft particles read the opaque depth: the translucent pass splits from
+        // the opaque one (not under a scene copy, whose continuation draws them
+        // hard). Depth stays retained once they have drawn, so toggling them
+        // never recreates the targets (and drops bloom and SSAO).
+        let soft = self.quads.soft_drawn() && !needs.contains(crate::Needs::SCENE_COPY);
+        self.soft_retained |= soft;
+        let (scene_copy, retained) = self.prepare_targets(
+            size,
+            needs,
+            frame.ambient_occlusion.is_some() || self.soft_retained,
+        );
         self.quads.soft_pass(
             &self.device,
             &self.queue,
@@ -158,8 +170,18 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         {
             self.rebind();
         }
+        // A visible sky map draws once resident; the procedural sky until then.
+        self.sky_ready = frame.environment_map.is_some_and(|m| {
+            m.visible
+                && self
+                    .models
+                    .textures
+                    .get(m.texture)
+                    .is_some_and(|t| t.active)
+        });
         let mut uniform = frame::uniform(
             frame,
+            self.sky_ready,
             cascades.as_ref(),
             size,
             &self.environment.irradiance,
@@ -168,11 +190,6 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         // An authored map's intensity scales its filtered light at sample time.
         uniform[31] *= self.environment.ambient_scale();
         self.queue.write_buffer(&self.uniform, 0, bytes(&uniform));
-        self.quads
-            .frame::<ASSETS>(frame, &self.models.textures, !self.cull.keep_all);
-        self.select_levels(frame);
-        self.order_translucent(frame);
-        self.quads.order::<ASSETS>(&self.device, &self.queue);
         self.prepare_cull(frame, cascades.as_ref(), hooks.materials());
         let mut state = Resolved {
             size,

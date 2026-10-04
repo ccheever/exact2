@@ -152,10 +152,15 @@ fn sky_texture() -> asset::TextureData {
     }
 }
 fn sky(gpu: &Gpu, look: glam::Vec3, visible: bool, rotation: f32) -> [u8; 4] {
+    sky_with(gpu, look, visible, rotation, true)
+}
+fn sky_with(gpu: &Gpu, look: glam::Vec3, visible: bool, rotation: f32, resident: bool) -> [u8; 4] {
     use exact_game_render::{EnvironmentMapInput, FrameInput, Renderer};
     let format = exact_gpu::wgpu::TextureFormat::Rgba8Unorm;
     let mut r = Renderer::new(&gpu.device, &gpu.queue, format);
-    r.add_texture("sky.tex", &sky_texture()).unwrap();
+    if resident {
+        r.add_texture("sky.tex", &sky_texture()).unwrap();
+    }
     let texture = gpu
         .device
         .create_texture(&exact_gpu::wgpu::TextureDescriptor {
@@ -212,6 +217,9 @@ fn an_environment_map_can_be_the_visible_sky_turned_by_its_yaw() {
         "half a turn shows the other half: {turned:?}"
     );
     assert_eq!(hidden, [0, 0, 0, 255], "not visible: the background stays");
+    // Visible but still streaming: the authored background, not a placeholder.
+    let pending = sky_with(&gpu, -glam::Vec3::Z, true, 0., false);
+    assert_eq!(pending, [0, 0, 0, 255], "until resident: {pending:?}");
 }
 
 struct Terrain;

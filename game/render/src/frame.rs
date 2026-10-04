@@ -3,9 +3,10 @@ use glam::Vec3;
 
 pub(crate) const FLOATS: usize = 184;
 
-pub(crate) fn has_sky(frame: &FrameInput<'_>) -> bool {
+/// Whether the sky pass draws; `map` is a visible environment map resident.
+pub(crate) fn has_sky(frame: &FrameInput<'_>, map: bool) -> bool {
     let e = frame.environment;
-    if frame.environment_map.is_some_and(|m| m.visible) {
+    if map {
         return true;
     }
     if e.background.is_some() {
@@ -20,6 +21,7 @@ pub(crate) fn has_sky(frame: &FrameInput<'_>) -> bool {
 
 pub(crate) fn uniform(
     frame: &FrameInput<'_>,
+    map: bool,
     cascades: Option<&Cascades>,
     size: (u32, u32),
     irradiance: &[f32; 36],
@@ -45,7 +47,7 @@ pub(crate) fn uniform(
         data[40..43].copy_from_slice(&fill.color.to_array());
     }
     data[44..48].copy_from_slice(&lights);
-    if has_sky(frame) {
+    if has_sky(frame, map) {
         data[48..64].copy_from_slice(&(frame.proj * frame.view).inverse().to_cols_array());
     }
     data[64..68].copy_from_slice(&(-frame.view.row(2)).to_array());
@@ -74,7 +76,7 @@ pub(crate) fn uniform(
     data[140] = size.0 as f32;
     data[141] = size.1 as f32;
     data[144..180].copy_from_slice(irradiance);
-    if let Some(map) = frame.environment_map.filter(|m| m.visible) {
+    if let Some(map) = frame.environment_map.filter(|_| map) {
         data[180] = map.intensity.max(1e-9);
         data[181] = map.rotation;
         data[182] = map.rgbm.max(0.);

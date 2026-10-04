@@ -501,9 +501,15 @@ impl Quads {
             self.soft_layout = Some(soft);
         }
     }
-    /// Whether any emitter's look fades softly into the scene.
+    /// Whether any emitter's look fades softly into the scene (soft pipelines).
     pub fn wants_soft(&self) -> bool {
         self.looks.iter().any(|l| l.value.soft > 0.)
+    }
+    /// Whether this frame draws any soft particle (after `order`).
+    pub fn soft_drawn(&self) -> bool {
+        self.draws
+            .iter()
+            .any(|d| matches!(d.kind, Kind::Particle(_, _, true)))
     }
     /// Bind this frame's multisampled scene depth for soft particles (`None`
     /// draws them hard, as without a split translucent pass).

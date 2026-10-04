@@ -565,3 +565,51 @@ fn r14_unprepared_particle_draw_names_the_refusal() {
     });
     r.quads.order::<false>(&gpu.device, &gpu.queue);
 }
+
+#[test]
+fn soft_looks_without_drawn_particles_keep_one_forward_pass() {
+    let Some(gpu) = crate::test_device::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let mut w = World::new(60, 0);
+    // A soft emitter that has emitted nothing.
+    w.spawn((
+        Transform::default(),
+        Emitter {
+            rate: 0.,
+            ..Default::default()
+        },
+        ParticleLook {
+            soft: 1.,
+            ..Default::default()
+        },
+    ));
+    let mut renderer =
+        crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    let mut feed = crate::Feed::default();
+    feed.feed(&w, &mut renderer).unwrap();
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: 16,
+            height: 16,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let frame = crate::FrameInput::default();
+    renderer.draw(&texture.create_view(&Default::default()), (16, 16), &frame);
+    assert!(
+        !renderer.quads.soft_active(),
+        "no soft particle drawn: no split"
+    );
+    assert!(
+        !renderer.targets.retained,
+        "the forward depth stays transient"
+    );
+}

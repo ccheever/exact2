@@ -527,7 +527,9 @@ impl Default for Opacity {
 pub struct NodeMaterial {
     /// The model node's name.
     pub node: String,
-    /// Linear RGBA multiplying the node's base colour (alpha for blended nodes).
+    /// Linear RGBA multiplying the node's base colour. Alpha multiplies the
+    /// base alpha: it fades blended nodes, and on a MASK node it moves where
+    /// the cutout falls (alpha under the material's cutoff is cut).
     pub color: [f32; 4],
     /// Linear emission added to the node.
     pub emissive: [f32; 3],

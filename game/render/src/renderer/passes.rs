@@ -245,7 +245,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             state.times[2] = start.map(|s| s.elapsed());
             self.scene_viewport(&mut pass, state.size, false);
         }
-        if frame::has_sky(frame) {
+        if frame::has_sky(frame, self.sky_ready) {
             pass.set_pipeline(&self.pipelines.sky);
             pass.set_bind_group(0, &self.scene_binds[self.current], &[0]);
             pass.draw(0..3, 0..1);
