@@ -583,11 +583,16 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// its active route (D1), and not a pan a `swiperight` node or a canvas
     /// owns, nor more vertical than horizontal.
     func popMayBegin(_ gestureRecognizer: UIGestureRecognizer, from start: CGPoint?, in view: UIView?, velocity: CGPoint) -> Bool {
+        // tvOS has no interactive pop gesture.
+        #if os(tvOS)
+        let owner: UINavigationController? = nil
+        #else
         let owner = allNavigations.first { nav in
             if nav.interactivePopGestureRecognizer === gestureRecognizer { return true }
             if #available(iOS 26.0, *) { return nav.interactiveContentPopGestureRecognizer === gestureRecognizer }
             return false
         }
+        #endif
         if let owner, owner !== navigation { return false }
         let depth = navigation?.viewControllers.count ?? 0
         let control = backControl

@@ -5,7 +5,7 @@
 // log records each touch the window dispatched, after UIKit dispatched it
 // (D5): window dispatch only — never a recognizer's outcome, a cancellation
 // or a handled press, which `state` and `tree` answer.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// The app's window: an ordinary `UIWindow` that, under the agent only,
@@ -107,6 +107,10 @@ extension Agent {
 
     /// The scene's interface orientation, by UIKit's name for it.
     static func orientation(_ scene: UIWindowScene?) -> String {
+        #if os(tvOS)
+        // tvOS has no interface orientation.
+        return "unknown"
+        #else
         switch scene?.effectiveGeometry.interfaceOrientation {
         case .portrait: return "portrait"
         case .portraitUpsideDown: return "portraitUpsideDown"
@@ -114,6 +118,7 @@ extension Agent {
         case .landscapeRight: return "landscapeRight"
         default: return "unknown"
         }
+        #endif
     }
 
     /// The private touch forms of `tap` (LLP 1080.000 D4/D5), or nil.

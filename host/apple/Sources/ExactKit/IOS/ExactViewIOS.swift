@@ -63,11 +63,14 @@ public final class ExactView: UIView {
         // Without this the page stayed laid out above keys that had left —
         // the bottom of the list missing after a swipe back. Fitting is
         // idempotent, so fit again when the keyboard has settled.
+        // tvOS has no keyboard frame notifications.
+        #if !os(tvOS)
         keyboardSettled = [UIResponder.keyboardDidHideNotification, UIResponder.keyboardDidChangeFrameNotification].map { name in
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.fit() }
             }
         }
+        #endif
         session.presenter.observeKeyboard()
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
         // A hinge moving from flat to a book angle changes the division

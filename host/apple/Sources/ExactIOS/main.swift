@@ -124,7 +124,10 @@ func agentReady() {
 let launchColor = UIColor(named: "ExactLaunch") ?? .white
 
 final class Controller: UIViewController {
+    // tvOS has no pointer lock.
+    #if !os(tvOS)
     override var prefersPointerLocked: Bool { ExactPointerLock.preferred }
+    #endif
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = launchColor

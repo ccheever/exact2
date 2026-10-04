@@ -53,12 +53,19 @@ final class CanvasInput {
               let words = try? JSONSerialization.jsonObject(with: data) as? [String: String] else { return false }
         return words["pointer-lock"] == "true"
     }
+    #if os(tvOS)
+    // tvOS has no pointer lock.
+    private var sceneLocked: Bool { false }
+    #else
     private var sceneLocked: Bool { view?.window?.windowScene?.pointerLockState?.isLocked == true }
+    #endif
     private func lock() {
         guard !locking, lockable, let input = GCMouse.current?.mouseInput else { return }
         CanvasInput.lockOwner?.unlock()
         locking = true; CanvasInput.lockOwner = self
+        #if !os(tvOS)
         view?.window?.rootViewController?.setNeedsUpdateOfPrefersPointerLocked()
+        #endif
         input.mouseMovedHandler = { [weak self] _, dx, dy in self?.locked(dx: CGFloat(dx), dy: CGFloat(-dy), bit: 0, down: false) }
         for (bit, button) in [(1, input.leftButton), (2, input.rightButton), (4, input.middleButton)] {
             button?.pressedChangedHandler = { [weak self] _, _, down in self?.locked(dx: 0, dy: 0, bit: bit, down: down) }
@@ -72,7 +79,9 @@ final class CanvasInput {
             input.mouseMovedHandler = nil
             for button in [input.leftButton, input.rightButton, input.middleButton] { button?.pressedChangedHandler = nil }
         }
+        #if !os(tvOS)
         view?.window?.rootViewController?.setNeedsUpdateOfPrefersPointerLocked()
+        #endif
     }
     /// The press that asked for the lock went out as a touch whose up the
     /// locked scene never delivers: end every live touch before GCMouse speaks.
@@ -122,9 +131,14 @@ final class CanvasInput {
             if sceneLocked { cancelTouches(); continue } // the locked mouse speaks through GCMouse
             let from = phase == "down" ? p : source.local(touch.previousLocation(in: nil))
             // An iPad's mouse or trackpad (an indirect pointer) reports its buttons.
+            #if os(tvOS)
+            // tvOS has no mouse buttons.
+            let mouse = false, buttons = phase == "up" || phase == "cancel" ? 0 : 1
+            #else
             let mouse = touch.type == .indirectPointer, mask = event?.buttonMask ?? []
             let buttons = phase == "up" || phase == "cancel" ? 0 : !mouse ? 1
                 : (mask.contains(.primary) ? 1 : 0) | (mask.contains(.secondary) ? 2 : 0) | (mask.contains(.button(3)) ? 4 : 0)
+            #endif
             view.canvases?.input(view, ["t": "pointer", "phase": phase, "id": id, "x": p.x, "y": p.y, "dx": p.x - from.x, "dy": p.y - from.y, "kind": mouse ? "mouse" : "touch", "buttons": buttons], timestamp: touch.timestamp)
             if phase == "up" || phase == "cancel" { touches.removeValue(forKey: token) }
             sent = true

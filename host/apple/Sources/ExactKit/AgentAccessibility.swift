@@ -66,7 +66,7 @@ extension Agent {
     /// viewport, and on macOS a sheet attached to its window.
     private func axRoots(_ view: ExactView) -> [AnyObject] {
         var roots: [AnyObject] = [view]
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         // A modal layer moves the viewport into a presented controller (ModalIOS).
         var v: UIView? = presenter.viewport
         while let s = v?.superview, !(s is UIWindow) { v = s }
@@ -133,7 +133,7 @@ extension Presenter {
         // A scroll view's indicators and other unexposed views cost visits too.
         var w = AxWalk(limit: limit, budget: 5 * limit + 64, excluded: excluded, foreign: foreign, modalRoot: modalRoot, limits: limits)
         for root in roots where !w.stopped { visit(root, parent: nil, depth: 0, exclusion: [], into: &w) }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         markModalLeaks(&w)
         let platform = "iOS \(UIDevice.current.systemVersion)", source = "uikit", order = "containment"
         var known = ["alpha", "reading-order"]
@@ -145,7 +145,7 @@ extension Presenter {
         if w.segments { known.append("segments") }
         var coverage: [String: Any] = ["roots": roots.map { String(describing: type(of: $0)) }, "complete": !w.stopped && w.more == 0 && w.limits.isEmpty,
                                        "visited": w.visited, "limits": known]
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         if !Self.axRuntimeLoaded {
             coverage["complete"] = false
             w.limits.append(["root": "process", "reason": "UIKit's accessibility runtime is not loaded (no assistive technology or automation is on), so it derives no labels, frames or field elements; on a simulator: xcrun simctl spawn <udid> defaults write com.apple.Accessibility ApplicationAccessibilityEnabled -bool true, then relaunch"])
@@ -164,7 +164,7 @@ extension Presenter {
         }
         // The states this runtime can observe (D6): UIKit's expanded status needs iOS 18.
         var observes = ["checked", "disabled"]
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         if #available(iOS 18, *) { observes.append("expanded") }
         #else
         observes += ["level", "expanded"]
@@ -186,7 +186,7 @@ extension Presenter {
         w.visited += 1
         if w.visited > w.budget || depth > 64 { w.stopped = true; return }
         if w.foreign(obj) { return } // another session's surface
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         var exclusion = exclusion
         if let v = obj as? UIView {
             if v.isHidden { exclusion.append("hidden") }
@@ -238,7 +238,7 @@ extension Presenter {
         #endif
     }
 
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     static func isModal(_ obj: AnyObject) -> Bool { (obj as? NSObject)?.accessibilityViewIsModal == true && ((obj as? UIView).map { $0.window != nil && !$0.isHidden } ?? true) }
     /// UIKit loads the code that answers accessibility (a button's derived
     /// label, a view's frame, a field as an element) only for an assistive
@@ -349,7 +349,7 @@ extension Presenter {
         var states: [String: Any] = [:]
         var native: [String: Any] = ["class": String(describing: type(of: obj))]
         if Self.underSegments(obj) { w.segments = true }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         let o = obj as! NSObject
         let traits = o.accessibilityTraits
         let names = Self.traitNames.filter { traits.contains($0.0) }.map(\.1)
@@ -361,7 +361,7 @@ extension Presenter {
         if secure { states["protected"] = true }
         if traits.contains(.notEnabled) { states["disabled"] = true }
         if traits.contains(.selected) { states["selected"] = true }
-        if #available(iOS 18, *) {
+        if #available(iOS 18, tvOS 18, *) {
             switch o.accessibilityExpandedStatus { case .expanded: states["expanded"] = true; case .collapsed: states["expanded"] = false; default: break }
         }
         let editable = obj is UITextField || obj is UITextView
@@ -435,7 +435,7 @@ extension Presenter {
     private func axOwner(_ obj: AnyObject) -> (UInt32?, String) {
         if let n = obj as? NodeView { return (n.id, "self") }
         if let owned = obj as? AgentOwned, let id = owned.agentViewId { return (id, "owner") }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         if let e = obj as? UIAccessibilityElement, let n = e.accessibilityContainer as? NodeView { return (n.id, "owner") }
         var v = (obj as? UIView)?.superview
         let control = obj is UIControl
@@ -455,7 +455,7 @@ extension Presenter {
     /// A segment or tab bar item the host projected from a tablist (D5's
     /// segment join is not built: such an element joins its tablist).
     private static func underSegments(_ obj: AnyObject) -> Bool {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         var v: UIView? = (obj as? UIView) ?? ((obj as? UIAccessibilityElement)?.accessibilityContainer as? UIView)
         while let s = v { if s is UISegmentedControl || s is UITabBar { return true }; v = s.superview }
         #else
@@ -468,7 +468,7 @@ extension Presenter {
     private func axTestId(_ id: UInt32?) -> String? { id.flatMap { views[$0]?.props["testId"] ?? inlineText($0)?.props["testId"] } }
     private func round2(_ x: CGFloat) -> Double { (Double(x) * 100).rounded() / 100 }
 
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// An element outside a session-owned modal view, and outside the
     /// siblings UIKit's rule hides, is reachable around it: `outsideModal`.
     private func markModalLeaks(_ w: inout AxWalk) {
