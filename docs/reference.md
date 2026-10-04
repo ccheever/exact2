@@ -190,7 +190,10 @@ line to add when none is.
 
 An app says what it opens with `file_handlers` in `app.json` — the W3C Web App
 Manifest's own key — and the macOS bake derives `CFBundleDocumentTypes` from
-it. A path from the command line, from Finder, from ⌘O, or from a link inside
+it. Each MIME type it accepts must be one the Apple hosts map to a system type
+(`DOCUMENT_UTIS` in `scripts/app.mjs`; `application/octet-stream` is
+`public.data`); every build refuses another when it reads the manifest, the
+web's included. A path from the command line, from Finder, from ⌘O, or from a link inside
 a document all arrive at the same place: the app's `open-file` node
 (LLP 1033 D3). `exact uninstall <app>` takes both halves away.
 

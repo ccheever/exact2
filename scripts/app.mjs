@@ -547,9 +547,42 @@ export function readManifest(dir, name) {
   // LLP 1069.008 D4: a device's usage text is derived from its grant, never hand-written.
   const problems = validate(parsed, schema(), '', schema()).map((p) => /^host\.(ios|macos)\.permissions: /.test(p)
     ? `${p.split(':')[0]}: deleted (LLP 1069.008); declare the device in the source's grants as \`device.<name> <strings key>\` (e.g. \`device.microphone purpose.microphone\`) and put the text in strings/<locale>.json` : p);
-  if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed));
+  if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed), ...documentTypeProblems(parsed));
   if (problems.length) throw new Error(`${path} does not conform to scripts/app.schema.json:\n  ${problems.join('\n  ')}`);
   return { host: {}, deploy: {}, ...parsed };
+}
+
+// The UTI each `file_handlers` MIME type names on Apple platforms (LLP 1033
+// D1). `inode/directory` is the one deviation from IANA's registry —
+// freedesktop's spelling for a folder, because the web has no MIME type for
+// one and an app that opens a directory (the LLP reader) must be able to say
+// so. An unmapped type is refused rather than guessed (LLP 0382: fail
+// closed, loudly), when any build reads the manifest: the web's too, so a
+// manifest the web accepts is one every host builds (files diary F12). The
+// common document and image types are here (ledger diary F9), and IANA's
+// generic binary is Apple's generic data (files diary F12: `.bin`, `.dat`).
+export const DOCUMENT_UTIS = {
+  'text/markdown': 'net.daringfireball.markdown',
+  'text/plain': 'public.plain-text',
+  'text/html': 'public.html',
+  'text/csv': 'public.comma-separated-values-text',
+  'text/tab-separated-values': 'public.tab-separated-values-text',
+  'application/json': 'public.json',
+  'application/pdf': 'com.adobe.pdf',
+  'application/zip': 'public.zip-archive',
+  'application/octet-stream': 'public.data',
+  'image/png': 'public.png',
+  'image/jpeg': 'public.jpeg',
+  'image/gif': 'com.compuserve.gif',
+  'image/webp': 'org.webmproject.webp',
+  'image/svg+xml': 'public.svg-image',
+  'inode/directory': 'public.folder',
+};
+
+function documentTypeProblems(manifest) {
+  return (manifest.file_handlers ?? []).flatMap((handler, i) => Object.keys(handler.accept)
+    .filter((mime) => !Object.hasOwn(DOCUMENT_UTIS, mime))
+    .map((mime) => `file_handlers[${i}].accept: ${mime} names no type the Apple hosts map (they map ${Object.keys(DOCUMENT_UTIS).join(', ')})`));
 }
 
 let cachedSchema = null;
