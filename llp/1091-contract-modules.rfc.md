@@ -1,7 +1,7 @@
 # LLP 1091: Contract modules
 
 **Type:** RFC
-**Status:** Accepted by Charlie (r1, 2026-10-04: "Approve recs" on §7). r2 resolves round 1 (Astra max, Grok 4.7 xhigh: both SOUND WITH CHANGES; §9). Stage 1 built on r2; stage 2 not started
+**Status:** Accepted by Charlie (r1, 2026-10-04: "Approve recs" on §7). r2 resolves round 1 (Astra max, Grok 4.7 xhigh: both SOUND WITH CHANGES; §9). Stage 1 landed (7cdf080e2); stage 2 built
 **Systems:** Contract loader (`contract/cli/src/{sources.rs,symbols.rs,map.rs,rust.rs,lean.rs}`), syntax (`contract/syntax`), the TS bake's capture (`js/bake`), the web build's capture (`host/web-js/build.mjs`), the dev loop and `build.rs` rebuild tracking, `exact new` (`game/new.mjs`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
@@ -227,11 +227,11 @@ types. That's the right answer, and the first time it's been expressible.
 
 `use Activity from "exact:motion"` resolves to a `.contract` file compiled
 into the compiler (`contract/lib/motion.contract`, `include_str!`), loaded
-like any other file under the source path `exact:motion`. The first two:
+like any other file under the source path `exact:motion`. The first:
 
-- `exact:motion` — `timeline Activity` (LLP 1055.002 D8), and the shared
-  keyframes the corpus re-declares (`spin`, `pulse`, `fade-in`, `shimmer`
-  if they're the same everywhere; to confirm when implementing).
+- `exact:motion` — `timeline Activity` (LLP 1055.002 D8). As built it
+  carries no keyframes: the corpus's spinners don't agree on one `spin`,
+  and no consumer asked for a shared one.
 - Nothing else until a consumer asks. Every built-in is a source file an
   author can read, not compiler magic.
 
@@ -243,9 +243,12 @@ A specifier that isn't `./…` or `exact:…` is a package:
 `use Button from "@acme/ui"` or `"@acme/ui/button.contract"`.
 
 - Resolution follows Node: walk up from the using file to
-  `node_modules/@acme/ui/package.json`. The bare name maps to the package's
-  `exports["."]` if it ends `.contract`, else `index.contract`. A subpath maps
-  through `exports` when present, else to the file at that path.
+  `node_modules/@acme/ui/package.json`. `exports` maps `.` and `./sub` to a
+  string, or to an object's `contract` or else `default` condition; as in
+  Node, a package with `exports` offers only what it lists. Without
+  `exports`, the bare name is `index.contract` and a subpath the file at
+  that path. A bare `card.contract` is a mistaken relative path, refused
+  with `contract-use-path`, not looked up as a package.
 - A package's own relative `use`s must stay inside the package's canonical
   root, by the same rule that keeps an app's inside the app today. Symlinks
   are followed first, so `bun link` and `"file:../ui"` work.
@@ -366,7 +369,22 @@ Stage 2:
 
 1. **Stage 1, scope (2026-10-05).** One commit: syntax, loader, symbols, map,
    rust, diagnostics, app migrations, docs. No executor or plan change.
-2. **Stage 2, reach (2026-10-06).** `exact:` built-ins with `exact:motion`;
+2. **Stage 2, reach (built 2026-10-04).** As built:
+   `contract/cli/src/resolve.rs` (specifiers), `contract/lib/motion.contract`,
+   `contract::source_graph` and `contract sources` (the graph, on failure
+   too), `contract::rerun_if_changed` in every app `build.rs`, the wasm dev
+   session's watch of every used file, the JS dev loop's watch of each
+   package root (`.gen/dev-sources.json`, written by `exact-web-js
+   --dev-reload`), the TS bake staging packages under `node_modules/<name>`
+   (two copies of one name refused) and relocating through each, deploy
+   capturing the repository of a package linked from outside the app and
+   Exact (a registry package is pinned by the captured `bun.lock`), `exact
+   new` writing `package.json`, and `@exact/reading` (`packages/reading`, a
+   Bun workspace) shared by `apps/markdown` and `apps/llp`: the block model,
+   `Runs` and `SchemeButton`. Their `Blocks` had diverged in layout and stay
+   each app's. Lexy is not in this repository; its move to `exact:motion` is
+   its owner's. Planned as:
+   **Stage 2, reach (2026-10-06).** `exact:` built-ins with `exact:motion`;
    package resolution; the source list and its consumers; `exact new` writes
    `package.json`; `Blocks` shared between markdown and llp as the consumer.
 

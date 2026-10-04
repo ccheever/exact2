@@ -1,0 +1,7 @@
+// `exact:motion` (LLP 1091 D8): motion every app can name, compiled into the
+// compiler. `use Activity from "exact:motion"`.
+
+// The one app-wide rhythm for loading indicators (LLP 1055.002 D8): every
+// spinner, skeleton and pulse on it keeps one phase, wherever it is drawn
+// and whenever it appeared.
+timeline Activity

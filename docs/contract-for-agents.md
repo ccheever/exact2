@@ -149,6 +149,7 @@ compile complete examples, parse authored tests, and check local links.
 | Form | Placement | Meaning |
 | --- | --- | --- |
 | `use A, B as C from "./file.contract"` | File | Names from another file; nothing unnamed comes along (LLP 1091) |
+| `use Card from "@acme/ui"` / `use Activity from "exact:motion"` | File | A package's names (from `node_modules`), or a built-in's |
 | `shape Name` | File | Finite record with typed fields |
 | `fn name(arg: T): U = expr` | File | Effect-free, nonrecursive expression function |
 | `style Name` | File | Literal style attributes |
