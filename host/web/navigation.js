@@ -31,12 +31,17 @@ const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationK
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 
+/** The selected route's Back control (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not. */
+const backControl = nav => { const route = selectedRoute(nav); return route && [...route.querySelectorAll("[id]")].find(node => node.id === nav.getAttribute("navigationBack")); };
+/** Press the Back control; else why it was not pressed. */
 function pressBack(nav) {
-  const route = selectedRoute(nav);
-  if (!route || ["modal", "fullscreen"].includes(route.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none") return;
-  const control = [...route.querySelectorAll("[id]")].find(node => node.id === nav.getAttribute("navigationBack"));
-  if (control && !control.matches(":disabled") && !control.closest("[inert]")
-      && control.getClientRects().length && getComputedStyle(control).visibility === "visible") control.click();
+  const route = selectedRoute(nav), control = backControl(nav);
+  if (!route) return "no route is selected";
+  if (["modal", "fullscreen"].includes(route.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none") return `route ${route.getAttribute("navigationKey")} is closedby="none"`;
+  if (!control) return `route ${route.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control`;
+  if (control.matches(":disabled") || control.closest("[inert]") || !control.getClientRects().length || getComputedStyle(control).visibility !== "visible")
+    return `its id="${control.id}" control is disabled, inert or not shown`;
+  control.click();
 }
 
 function go(to, from, finish = () => {}) {
@@ -83,11 +88,16 @@ function popped({ j, state, url }) {
   const target = owned ? entry.url : url;
   const nav = root.querySelector("[navigationBack]");
   const routes = routesOf(nav), selected = routes.indexOf(selectedRoute(nav));
-  const back = owned && j === cursor - 1 && selected > 0
+  // A completed pop presses the selected route's Back control. A route with
+  // none (a screen with no Back button) still goes back, as the web's Back
+  // does: the root's `navigate` with the entry's URL, as any other traversal.
+  const beneath = owned && j === cursor - 1 && selected > 0
     && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
+  const back = beneath && !!backControl(nav);
+  let why = null;
   pop = {};
   try {
-    if (back) pressBack(nav);
+    if (back) why = pressBack(nav);
     else navigate(target);
     const accepted = back ? last?.top === entry.id : pop.op?.url === target;
     if (accepted) {
@@ -103,8 +113,8 @@ function popped({ j, state, url }) {
         commit(op);
       }
     } else {
-      if (back) log("history: Back refused; restoring the entry");
-      else log(`history: navigate ${JSON.stringify(target)} refused; restoring the entry`);
+      if (back) log(`history: Back refused: ${why ?? `pressing the Back control did not select entry ${entry.id}`}; restoring the entry`);
+      else log(`history: ${beneath ? `Back to ${JSON.stringify(target)} refused: route ${nav.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control, and` : `navigate ${JSON.stringify(target)} refused:`} the navigation root's navigate handler (navigate=…) committed no router change, or the root has none; restoring the entry`);
       if (j !== null && j !== cursor) go(cursor, j);
       else history.replaceState(written[cursor], "", location.origin + written[cursor].url);
     }

@@ -447,7 +447,7 @@ the way Twitter's web app behaves.
 | on `popstate` to index `j` | delivered as |
 |---|---|
 | an expected echo | consumed |
-| `j == cursor-1` and `written[j].id` is the key of the route directly beneath the selected one | a completed pop: press the `navigationBack` control, as Escape on a sheet does (`glue.js:1486-1493`) and as a finished swipe does (1035.001 D2). If the commit selected that key, stamp the accepted entry with its id and URL; otherwise use the refusal/redirect rule below |
+| `j == cursor-1`, `written[j].id` is the key of the route directly beneath the selected one, and the selected route has a `navigationBack` control (*amended 2026-10-03*: a route with none — a screen with no Back button — goes back by the next row, as the web's Back always does) | a completed pop: press the `navigationBack` control, as Escape on a sheet does (`glue.js:1486-1493`) and as a finished swipe does (1035.001 D2). If the commit selected that key, stamp the accepted entry with its id and URL; otherwise use the refusal/redirect rule below |
 | anything else (Forward, a multi-step Back, a tab switch undone, an entry this page did not write) | the root's `navigate` handler with `written[j].url` (or `location.pathname + search`). If the commit's `router` op lands on that url, `written[j].id` takes the new top's id; otherwise use the refusal/redirect rule below |
 
 A commit with no router change is a refusal: `history.go(cursor-j)` restores
