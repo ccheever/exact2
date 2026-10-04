@@ -26,6 +26,7 @@ pub mod dataset;
 pub mod expr;
 mod fonts;
 mod grouped;
+mod handlers;
 mod keyframes;
 mod lint;
 mod media;
@@ -1410,91 +1411,7 @@ impl<'a> Lowerer<'a> {
                 *surface = Some(self.b.surface(name, &codes));
             }
             tags::AttrTarget::Handler(event) => {
-                // HTML submits implicitly from a single-line input, never a
-                // textarea, whose Enter breaks the line: one behaviour on
-                // every host (kanban F21, chat F2 in the x2apps diaries).
-                if event == "submit" && tag == "textarea" {
-                    return err(
-                        "lower-handler-tag",
-                        "a `textarea` has no `submit`: its Enter breaks the line, as HTML's does; for Enter to send, take the key's event (`key=compose` with `action compose(k: string, e: KeyboardEvent)`) and, when `k == \"Enter\" and not e.shiftKey`, send and call `preventDefault()`",
-                        a.span,
-                    );
-                }
-                let (name, args): (&str, &[Expr]) = match &a.value {
-                    Expr::Ident(n, _) => (n, &[]),
-                    Expr::Call(n, args, _) => (n, args),
-                    _ => {
-                        return err(
-                            "lower-handler",
-                            "a handler is an action name or `action(args)`",
-                            a.span,
-                        )
-                    }
-                };
-                let Some(ai) = self.root.actions.iter().position(|x| x.name == name) else {
-                    return err(
-                        "lower-unknown-action",
-                        format!("`{name}` is not an action of the root"),
-                        a.span,
-                    );
-                };
-                // The view is inlined, so a handler behind a child's `action`
-                // prop names the real action here: its arity is checked now,
-                // not at dispatch (LLP 1006 §8's circle-back; LLP 1017 P1b).
-                let params = self.root.actions[ai].params.len();
-                let valid = contract_analyze::handler_arity(event, args.len())
-                    .is_some_and(|range| range.contains(&params));
-                if !valid {
-                    let params: Vec<(String, Ty)> = (self.root.actions[ai].params.iter())
-                        .map(|p| p.name.clone())
-                        .zip(self.types.components[0].actions[ai].iter().cloned())
-                        .collect();
-                    let arg_types: Vec<Option<Ty>> = args
-                        .iter()
-                        .map(|a| contract_types::infer(a, scope, &self.types.shapes).ok())
-                        .collect();
-                    return err(
-                        "lower-handler-arity",
-                        contract_analyze::handler_arity_message(
-                            event, control, name, args, &params, &arg_types,
-                        ),
-                        a.span,
-                    );
-                }
-                if event == "reorderdrop"
-                    && self.types.components[0].actions[ai][args.len()..]
-                        != [Ty::String, Ty::Option(Box::new(Ty::String))]
-                {
-                    return err(
-                        "lower-handler-type",
-                        "`reorderdrop` supplies string and option<string>",
-                        a.span,
-                    );
-                }
-                if matches!(
-                    event,
-                    "pan"
-                        | "panrelease"
-                        | "heightrelease"
-                        | "transformgeometry"
-                        | "transformrelease"
-                ) && self.types.components[0].actions[ai][args.len()..]
-                    .iter()
-                    .any(|ty| *ty != Ty::Number)
-                {
-                    return err(
-                        "lower-handler-type",
-                        format!("`{event}` supplies only numeric payload parameters"),
-                        a.span,
-                    );
-                }
-                let mut codes = Vec::new();
-                for arg in args {
-                    codes.push(self.expr_code(arg, scope, locals)?);
-                }
-                let kind =
-                    EventKind::from_name(event).expect("tag table admitted an unknown handler");
-                handlers.push((kind, self.actions[ai], codes));
+                self.handler(tag, event, control, a, scope, locals, handlers)?;
             }
         }
         Ok(())
