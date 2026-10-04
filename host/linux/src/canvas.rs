@@ -143,9 +143,16 @@ thread_local! {
     static FINISHED: RefCell<Option<Vec<u32>>> = const { RefCell::new(None) };
     /// The last finished recording's scrollers and the offsets drawn at.
     static GROUPS: RefCell<Vec<(u32, (f32, f32))>> = const { RefCell::new(Vec::new()) };
-    /// Pictures the reader has not fetched yet, by id.
-    static PENDING: RefCell<std::collections::BTreeMap<u32, Picture>> =
-        const { RefCell::new(std::collections::BTreeMap::new()) };
+}
+
+/// Pictures the reader has not fetched yet, by id: one map for the process,
+/// as a reader may fetch them on its own thread while the host runs on
+/// another (LLP 1072 on Android).
+static PENDING: std::sync::Mutex<std::collections::BTreeMap<u32, Picture>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+fn pending() -> std::sync::MutexGuard<'static, std::collections::BTreeMap<u32, Picture>> {
+    PENDING.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// The recording backend.
@@ -394,7 +401,7 @@ impl Recorder {
                 self.string(&path);
             }
         }
-        PENDING.with(|p| p.borrow_mut().insert(id, image.clone()));
+        pending().insert(id, image.clone());
         id
     }
 }
@@ -432,7 +439,7 @@ impl Backend for Recorder {
         for (k, id) in dead {
             self.images.remove(&k);
             self.ops.extend([IMAGE_FREE, id]);
-            PENDING.with(|p| p.borrow_mut().remove(&id));
+            pending().remove(&id);
         }
     }
 
@@ -1193,6 +1200,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
         wanted
     }
 
+    /// The scroller [`CanvasHost::scroll`] moves, once a scroll found it.
+    pub fn feed(&self) -> Option<ViewId> {
+        self.feed
+    }
+
     /// Device pixels per logical pixel.
     pub fn scale(&self) -> f32 {
         self.scale
@@ -1385,17 +1397,5 @@ impl<D: DataSource + Default> CanvasHost<D> {
 
 /// A picture announced by `IMAGE_DEF`, once (premultiplied RGBA rows).
 fn image(id: u32) -> Option<Picture> {
-    PENDING.with(|p| p.borrow_mut().remove(&id))
-}
-
-/// What this thread's recorder announced and the reader has not fetched yet,
-/// to [`give_pending`] to the thread that runs the host from now on (it
-/// booted on another, LLP 1076).
-pub fn take_pending() -> std::collections::BTreeMap<u32, Picture> {
-    PENDING.with(|p| std::mem::take(&mut *p.borrow_mut()))
-}
-
-/// The pictures [`take_pending`] took on the booting thread.
-pub fn give_pending(pending: std::collections::BTreeMap<u32, Picture>) {
-    PENDING.with(|p| p.borrow_mut().extend(pending));
+    pending().remove(&id)
 }
