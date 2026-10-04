@@ -64,7 +64,7 @@ const page = `<style>
     presence.live.after(batch, views);
   }
   const readOut = x => x, now = () => 0, preferences = () => 0;
-  const positionContexts = () => {}, onPreferences = () => {};
+  const positionContexts = () => {}, onPreferences = () => {}, onFold = () => {}, foldBits = () => 0;
   const wasm = { exact_resize: () => JSON.stringify(window.resizeBatch) };
   ${resize}
   window.fixture = html => {
@@ -239,4 +239,47 @@ check('reordering equal siblings keeps a surface anchored when its owner has the
   await evaluate('batch({ops:[{op:"children",id:"row",ids:["b","card","a"]}]})');
   expect(await evaluate('document.getElementById("card").getBoundingClientRect().y')).toBe(before);
   expect(await evaluate('surface().getBoundingClientRect().y')).toBeCloseTo(before, 1);
+});
+
+check('ghosts stay above authored z and isolate their parent until its last exit ends', async () => {
+  await fixture(`<div id="holder" style="position:relative">
+    <div id="card" style="width:100px;height:40px"></div>
+    <div id="second" style="width:100px;height:40px"></div>
+    <div id="ranked" style="position:absolute;z-index:2147483645;width:100px;height:40px"></div>
+  </div>`);
+  await evaluate(`batch({ops:[{op:'exit',id:'card',css:'pulse 1000ms linear both'},
+    {op:'exit',id:'second',css:'pulse 2000ms linear both'}]}); seek(0)`);
+  expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('isolate');
+  expect(await evaluate('[...document.querySelectorAll("[data-exiting]")].map(el => el.style.zIndex)')).toEqual(['2147483646', '2147483646']);
+  await evaluate(`document.getAnimations().find(a => a.effect.getTiming().duration === 1000).finish(); Promise.resolve()`);
+  expect(await evaluate('document.querySelectorAll("[data-exiting]").length')).toBe(1);
+  expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('isolate');
+  // Replacing cssText while a ghost lives cannot drop the temporary trap.
+  await style('position:relative;color:blue', 'holder');
+  expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('isolate');
+  await evaluate('document.getAnimations().forEach(a => a.finish()); Promise.resolve()');
+  expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('');
+});
+
+check('a finished or cancelled ghost restores the parents current isolation row', async () => {
+  for (const initial of ['', 'auto', 'isolate']) {
+    for (const updated of ['', 'auto', 'isolate']) {
+      await fixture(`<div id="holder" style="position:relative;${initial ? `isolation:${initial}` : ''}"><div id="card" style="width:100px;height:40px"></div></div>`);
+      await evaluate(`leave('pulse 1000ms linear both'); seek(0)`);
+      await style(`position:relative;${updated ? `isolation:${updated}!important` : ''}`, 'holder');
+      expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('isolate');
+      await evaluate('document.getAnimations().forEach(a => a.cancel()); Promise.resolve()');
+      expect(await evaluate('document.getElementById("holder").style.isolation')).toBe(updated);
+      expect(await evaluate('document.getElementById("holder").style.getPropertyPriority("isolation")')).toBe(updated ? 'important' : '');
+    }
+  }
+});
+
+check('layout resizing uses its parents structural isolation without animating it', async () => {
+  await fixture(`<div id="holder" style="position:relative;isolation:isolate"><div id="card" style="${card};isolation:isolate"></div></div>`);
+  await style(card.replace('40px', '140px') + ';isolation:isolate');
+  await evaluate('seek(500)');
+  expect(await evaluate('surface().getBoundingClientRect().height')).toBeCloseTo(90, 2);
+  expect(await evaluate('document.getElementById("holder").getAnimations().length')).toBe(0);
+  expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('isolate');
 });

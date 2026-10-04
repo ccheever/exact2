@@ -122,6 +122,14 @@ function createPresence(root) {
   // the animations that show its size, and the surface's stand-in.
   const flips = new WeakMap();
   const surfaces = new Set();
+  // A ghost cannot escape its parent's turn (LLP 1083.000 D4). Keep the
+  // parent's current row beneath this temporary write, including changes
+  // made by a later batch, and restore it when the last ghost ends.
+  const ghostParents = new Map();
+  const restoreIsolation = (el, held) => {
+    if (held.value) el.style.setProperty('isolation', held.value, held.priority);
+    else el.style.removeProperty('isolation');
+  };
   let frame = null;
   let first = new Map();
 
@@ -194,7 +202,7 @@ function createPresence(root) {
   // anchor, whatever its parent's alignment), and in it a box with the
   // element's background, border, radius, shadow and own transforms, placed
   // over the element's laid-out box. Behind its content in the parent's
-  // stacking context, which the parent isolates for the while.
+  // stacking context, isolated structurally by the kernel.
   function surface(el, place) {
     const cs = getComputedStyle(el), stand = document.createElement('div'), box = document.createElement('div');
     stand.setAttribute('data-exiting', ''); stand.setAttribute('aria-hidden', 'true'); stand.inert = true;
@@ -234,8 +242,7 @@ function createPresence(root) {
       parts.push(
         sf.stand.animate(moved, timing),
         sf.box.animate(frames(s => { const [bw, bh] = size(s); return { width: `${bw}px`, height: `${bh}px` }; }), timing),
-        sf.hide,
-        el.parentElement.animate([0, 1].map(offset => ({ isolation: 'isolate', offset })), hold));
+        sf.hide);
       // A box that clips its children clips them to the shown box.
       if (sf.clips && sf.clipPath === 'none') {
         parts.push(el.animate([{ overflow: 'visible' }, { overflow: 'visible' }], hold),
@@ -278,6 +285,12 @@ function createPresence(root) {
           if (at) first.set(el, [at, going(el)]);
         }
       }
+      // Let this commit update the underlying row before reapplying the
+      // ghost policy in after(). Both run in the same task, before paint.
+      for (const [parent, held] of ghostParents) {
+        restoreIsolation(parent, held);
+        held.released = true;
+      }
       for (const op of batch.ops ?? []) if (op.op === 'exit') this.exit(views.get(op.id), op.css);
     },
     exit(el, css) {
@@ -297,15 +310,28 @@ function createPresence(root) {
       s.transition = 'none';
       s.position = 'absolute'; s.left = `${box[0]}px`; s.top = `${box[1]}px`;
       s.width = `${box[2]}px`; s.height = `${box[3]}px`; s.boxSizing = 'border-box'; s.pointerEvents = 'none';
-      // Above its old siblings, as native brings it to front: one that moves
-      // (a transform) would otherwise paint over it in tree order.
-      s.zIndex = '1';
+      // Above all authored z-indices and just below the Arrange lift.
+      s.zIndex = '2147483646';
+      const parent = el.parentElement;
+      let held = ghostParents.get(parent);
+      if (!held) {
+        held = { count: 0, value: parent.style.getPropertyValue('isolation'), priority: parent.style.getPropertyPriority('isolation'), released: false };
+        ghostParents.set(parent, held);
+      }
+      held.count++;
+      if (!held.released) parent.style.setProperty('isolation', 'isolate');
       // After its own animations, which keep playing: a name it already
       // plays is a second entry, which starts now.
       const playing = new Set(el.getAnimations()), list = s.animation;
       s.animation = list && list !== 'none' ? `${list}, ${css}` : css;
       const leaving = el.getAnimations().filter(a => a.animationName !== undefined && !playing.has(a));
-      const done = () => el.remove();
+      const done = () => {
+        el.remove();
+        if (--held.count === 0) {
+          restoreIsolation(parent, held);
+          ghostParents.delete(parent);
+        }
+      };
       Promise.all(leaving.map(a => a.finished)).then(done, done);
     },
     // Whether a destroyed view stays in the page: a leaving one and its subtree.
@@ -314,6 +340,15 @@ function createPresence(root) {
     // whose box moved plays back from where it was. All are measured before
     // any starts, so no move reads another's first frame.
     after(batch, views) {
+      const restyled = new Set((batch.ops ?? []).filter(op => op.op === 'style').map(op => views.get(op.id)));
+      for (const [parent, held] of ghostParents) {
+        if (held.released || restyled.has(parent)) {
+          held.value = parent.style.getPropertyValue('isolation');
+          held.priority = parent.style.getPropertyPriority('isolation');
+          held.released = false;
+        }
+        parent.style.setProperty('isolation', 'isolate');
+      }
       for (const op of batch.ops ?? []) {
         if (op.op !== 'create' && op.op !== 'style') continue;
         const el = views.get(op.id);
