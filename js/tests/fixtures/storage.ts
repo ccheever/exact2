@@ -106,6 +106,11 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join("\n")};
   }
+  // An independent read, on no chain (minesweeper F10).
+  if (op === "peek") {
+    try { return {text: value + ":" + String.fromCharCode(...new Uint8Array(await storage.fs.readFile(storage.fs.directories.data + "/note")))}; }
+    catch (_) { return {text: value + ":empty"}; }
+  }
   if (op === "read-at") return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(storage.fs.directories.data + "/" + value)))};
   if (op === "read") return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(path)))};
   if (op === "refused") {

@@ -1363,18 +1363,32 @@ impl DataSource for Module {
 
     /// Calls whose requests the runner let go are dropped, here and in the
     /// prelude with the fetches they wait on (LLP 1016 D5).
+    /// A re-ask with equal arguments (a `refresh`) shares its key with the
+    /// call it replaced; only the continuation token tells them apart, so a
+    /// call whose token is not the one in flight goes too (minesweeper F10:
+    /// a read replaced by its own refresh kept its turn open forever, and the
+    /// refresh, deferred behind it, never ran).
     fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
-        let keep: HashSet<Key> = in_flight
+        let keep: HashMap<Key, Option<u64>> = in_flight
             .iter()
-            .map(|f| Module::key(Some(f.target), f.source, f.args))
+            .map(|f| {
+                (
+                    Module::key(Some(f.target), f.source, f.args),
+                    f.continuation,
+                )
+            })
             .collect();
         let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.parked)
             .into_iter()
-            .partition(|(key, _)| key.0.is_some() && !keep.contains(key));
+            .partition(|(key, parked)| {
+                key.0.is_some()
+                    && !matches!(keep.get(key), Some(None))
+                    && keep.get(key) != Some(&Some(parked.call))
+            });
         self.parked = kept;
         let (ended, open): (Vec<_>, Vec<_>) = std::mem::take(&mut self.streams)
             .into_iter()
-            .partition(|(key, _)| key.0.is_some() && !keep.contains(key));
+            .partition(|(key, _)| key.0.is_some() && !keep.contains_key(key));
         self.streams = open;
         self.forget_calls(
             gone.into_iter()

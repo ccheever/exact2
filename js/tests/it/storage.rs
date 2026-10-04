@@ -810,7 +810,8 @@ component App
 /// promise chain, a mutation that `refreshes` a storage-backed listing (asked
 /// when sent and again when it lands), a save that refuses bad input before
 /// touching storage, and filter changes that replace a listing between its
-/// storage steps. Driven as the Apple bridge drives it: let-go work still
+/// storage steps, beside an independent read replaced mid-read by new
+/// arguments or a refresh (minesweeper F10). Driven as the Apple bridge drives it: let-go work still
 /// runs and its reply is dropped; held work runs when released.
 #[test]
 fn queued_answers_survive_refreshes_refusals_and_replaced_turns() {
@@ -823,13 +824,17 @@ component App
   state q = "a"
   mutation saved as shape Result refreshes listing
   resource listing = work("count", q) as shape Result else work("placeholder", "")
+  resource peeked = work("peek", q) as shape Result else work("placeholder", "")
   action save(op: string, value: string)
     send saved = work(op, value)
   action search(v: string)
     q = v
+  action reload
+    refresh peeked
   view
     column
       text listing.text testId="listing"
+      text peeked.text testId="peeked"
       match saved
         case some(r)
           text r.text testId="saved"
@@ -949,6 +954,26 @@ component App
     settle(&mut runner, &mut held, &mut work);
     assert_eq!(read(&runner, "saved"), "y:2");
     assert_eq!(read(&runner, "listing"), ":2");
+    // An independent read replaced mid-read, by new arguments or by a
+    // refresh with the same ones, leaves later reads working (minesweeper F10).
+    runner
+        .act("save", vec![Value::str("file"), Value::str("peeked")])
+        .unwrap();
+    settle(&mut runner, &mut held, &mut work);
+    for q in ["e", "f", "g"] {
+        runner.act("search", vec![Value::str(q)]).unwrap();
+        emit(&mut runner, &mut held, &mut work);
+        step(&mut runner, &mut held, &mut work);
+    }
+    settle(&mut runner, &mut held, &mut work);
+    assert_eq!(read(&runner, "peeked"), "g:peeked");
+    assert_eq!(read(&runner, "listing"), "g:2");
+    runner.act("search", vec![Value::str("h")]).unwrap();
+    emit(&mut runner, &mut held, &mut work);
+    runner.act("reload", vec![]).unwrap();
+    settle(&mut runner, &mut held, &mut work);
+    assert_eq!(read(&runner, "peeked"), "h:peeked");
+    assert_eq!(read(&runner, "listing"), "h:2");
     assert!(!runner.has_pending(), "everything settled");
     let refusals: Vec<&str> = runner
         .journal()
