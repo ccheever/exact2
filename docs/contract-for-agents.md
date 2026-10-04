@@ -475,6 +475,13 @@ and `inert`; any other known name (`color`, `value`, `command`, `href`) is refus
 so give the module prop another name. Do not
 turn a missing widget or canvas operation into invented Contract syntax.
 
+Haptics are already there (LLP 1077 D14). `press-haptic` (`selection`,
+`impact-light|medium|heavy|soft|rigid`) plays at touch-down without a round
+trip, as `press-scale` does. `haptic("selection" | "impact-…" | "success" |
+"warning" | "error")` is a host command an action runs, for example when a
+drag crosses a threshold. iOS uses the feedback generators; the web vibrates
+where it can; Linux does nothing.
+
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
 `exactSurface`, `exactTime`); the bake refuses a declared field the source does
 not have. Use dimensions, media preferences, page facts,

@@ -56,6 +56,13 @@ guide's rules don't make obvious.
   experiments: each commits per scroll frame. (Signal Clone, build 2; QUEUE has
   the host side.)
 
+- **A custom row in a grouped list overflows its card on the right.** Cause:
+  the sheet already gives each row its margin (16 pt, or 56 pt after an icon)
+  and a 16-pt trailing padding. A custom row with `width="100%"` adds the
+  margin on top and runs 16 pt past the card. Fix: leave custom row content
+  at its natural width (`flex-grow=1` on the part that should stretch), not
+  `width="100%"`. (Signal Clone, build 15.)
+
 ## Native presentation and navigation (iOS)
 
 - **Edge-swipe back does nothing.** Cause: the pop gesture presses the control named
@@ -137,6 +144,14 @@ guide's rules don't make obvious.
   (LLP 1086 reading-list example, 2026-10-04.)
 
 ## Working on exact2 itself
+
+- **A platform feature looks missing, and you start building it.** Cause: the
+  feature already exists under a name you did not search for. Haptics
+  (`haptic()`, `press-haptic`) were proposed as a new gap after they had
+  landed. Fix: before calling something missing, search
+  `docs/contract-for-agents.md` and the LLP index (`ls llp/`, then `grep -ril
+  <term> llp`). Name the LLP that lacks it when you report the gap. (Signal
+  Clone, 2026-10-04.)
 
 - **Conformance fails on apps you didn't touch.** Cause: `host/web-js/conform.mjs`
   compares against wasm dists under `--wasm-root` (default `/tmp/e3-wasm`, shared by
