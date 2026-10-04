@@ -1314,7 +1314,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             presenter?.selection.begin(self, event: event)
             return
         }
-        if isParagraph, !pressable, !hasPressableAncestor {
+        if selectsText {
             window?.makeFirstResponder(self)
             presenter?.selection.begin(self, event: event)
             return
@@ -1331,6 +1331,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             pressed = true
         } else { super.mouseDown(with: event) }
     }
+    /// A paragraph's drag selects its text unless a press takes it: its
+    /// own handler (a `<span onClick>`, spreadsheet F12) or an ancestor's.
+    var selectsText: Bool { isParagraph && !pressable && !hasPressableAncestor }
     var hasPressableAncestor: Bool {
         var next = superview
         while let view = next {
@@ -1347,7 +1350,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // A gesture that engages ends the press (the chain clears `pressed`).
         if presenter?.mouseChain.drag(event) == true { return }
         pressFollows(inside: pressInside(event.locationInWindow))
-        if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
+        if selectsText { presenter?.selection.drag(event) }
         else { super.mouseDragged(with: event) }
     }
     override func rightMouseUp(with event: NSEvent) {
@@ -1376,7 +1379,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             if inlineTarget(at: local(event.locationInWindow), handler: "press")?.id == run { _ = activateInline(run) }
             return
         }
-        if isParagraph && !hasPressableAncestor { presenter?.selection.end(self, event: event); return }
+        if selectsText { presenter?.selection.end(self, event: event); return }
         guard !disabled else { pressed = false; return }
         guard pressed else { return super.mouseUp(with: event) }
         pressed = false
