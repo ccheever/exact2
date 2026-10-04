@@ -363,3 +363,31 @@ fn drawn_state_follows_live_arguments_and_edits_without_a_tick() {
     s.run(0.);
     assert_eq!(s.world().require::<Bob>("crate").height, 7.);
 }
+
+#[test]
+fn present_clears_sparse_rows_across_many_slots() {
+    // Rows far apart in a large world: each present erases exactly the old ones.
+    struct Sparse;
+    impl Game for Sparse {
+        const ID: &'static str = "sparse";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            for _ in 0..20_000 {
+                w.spawn(Transform::default());
+            }
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+        fn present(w: &mut World, _: &()) {
+            let n = w.tick() as u32;
+            for index in [n % 64, 7_000 + n % 64, 19_999 - n % 64] {
+                let e = w.entities().find(|e| e.index() == index).unwrap();
+                w.insert(e, Bob::default());
+            }
+        }
+    }
+    let mut s = Sim::<Sparse>::new(()).unwrap();
+    let started = std::time::Instant::now();
+    s.run(1000.);
+    eprintln!("60 presents over 20,000 slots: {:?}", started.elapsed());
+    assert_eq!(s.world().query::<&Bob>().iter().count(), 3);
+}
