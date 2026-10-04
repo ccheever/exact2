@@ -867,3 +867,11 @@ and the Linux headless CPU renderer without claiming display frame timing.
 - **macOS on-screen border parity, not reproduced after rebuild (2026-10-02):** the earlier `square4 light` screenshot mismatch (mean 64.1133, 42.8571% beyond 48) did not recur in a rebuilt full host suite (522 tests, one skipped, zero failures) or two focused runs. The final focused run used unchanged test/paint code with all diagnostic logging removed: square4 mean 1.16, 0.04% beyond 48, within the existing band. No threshold was widened and no rendering fix is claimed. Revisit if it recurs; logs `/tmp/exact-followup-mac.log` and `/tmp/exact-followup-border-final.log`.
 
 - Agent tree parity for uncontrolled inputs: after typing, the wasm host reports the authored model value while the JS host reports the live DOM value. Bind conformance inputs when checking authored state; reconcile unbound input inspection separately.
+
+- **Gaps the Ocho phone app hit on iOS** (2026-10-03, `apps/ocho-mobile` on branch `ocho/client`; each worked around in the app):
+  - Data-source replies are parsed and committed on the main thread (`Session.swift`'s wake → `pump`): an 800 KB JSON reply every few seconds dropped frames while scrolling.
+  - A re-ask with new arguments drops the request in flight and its reply is never parsed (LLP 1016 D5), but nothing tells a source that keeps its own in-flight flag; an equal request is kept (LLP 1054.000.000 D3), so a source's retry of a hung request waits on the same one.
+  - `transition` cannot animate `filter` (only translate/scale/rotate/opacity); a `filter` entry in the list silently disables the whole transition.
+  - A native module view cannot report its intended size; a growing composer reports height through `message` and the app sizes its box.
+  - `backgroundMaterial="glass"` is a glass effect behind an Exact box, not UIKit's glass controls (`UIButton.Configuration.glass()`, glass containers that merge); the app uses native module views for buttons and its composer.
+  - A back swipe painted only the part of the incoming route visible as it began; fixed by painting each frame of the transition, but a device report says half the screen still fills in late.

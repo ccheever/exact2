@@ -17,6 +17,8 @@ import UIKit
 final class MenuHost {
     private weak var presenter: Presenter?
     private var overlays: [UInt32: UIButton] = [:]
+    /// The target and press shape each overlay's menu was built for.
+    private var menuShapes: [UInt32: String] = [:]
     private var confirmation: Confirmation?
     /// Under the agent, the popovers open in their painted presentation
     /// (LLP 1021 D4), by `id`: each in the top layer while open, as macOS's
@@ -153,24 +155,41 @@ final class MenuHost {
             button.accessibilityLabel = v.props["accessibilityLabel"] ?? title(of: v)
             button.accessibilityIdentifier = v.props["testId"] ?? v.props["id"]
             button.isEnabled = !v.disabled
-            let invokerId = v.id
+            // One menu per invoker and press shape, kept across batches: it
+            // reads its rows each time it opens, so a batch (a poll's answer,
+            // every second) has nothing to change in it, and replacing it
+            // would reload a menu that is open — UIKit shows its "Loading…"
+            // row again each time.
             let hasPress = v.handlers.contains("press")
-            button.menu = UIMenu(children: [
-                UIDeferredMenuElement.uncached { [weak self, weak pop] completion in
-                    if hasPress { self?.presenter?.press(invokerId) }
-                    // The runner applies the press on its own thread; the
-                    // items are read after it has (80 ms is invisible under
-                    // the menu's own presentation).
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                        completion(pop.map { self?.items(of: $0) ?? [] } ?? [])
+            let shape = "\(target)|\(hasPress)"
+            if menuShapes[v.id] != shape || button.menu == nil {
+                menuShapes[v.id] = shape
+                let invokerId = v.id
+                button.menu = UIMenu(children: [
+                    UIDeferredMenuElement.uncached { [weak self] completion in
+                        // The popover by name now: the node a batch made
+                        // when the menu was built may since be another.
+                        let rows = { self?.popover(named: target).map { self?.items(of: $0) ?? [] } ?? [] }
+                        guard hasPress else { completion(rows()); return }
+                        self?.presenter?.press(invokerId)
+                        // The runner applies the press on its own thread; the
+                        // items are read after it has (80 ms is invisible under
+                        // the menu's own presentation).
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { completion(rows()) }
                     }
-                }
-            ])
+                ])
+            }
         }
         for (id, b) in overlays where !live.contains(id) {
             b.removeFromSuperview()
             overlays[id] = nil
+            menuShapes[id] = nil
         }
+    }
+
+    /// A live popover by its id.
+    private func popover(named name: String) -> NodeView? {
+        presenter?.views.values.first { $0.props["id"] == name && ($0.props["popover"] != nil || isDialog($0)) }
     }
 
     private func live(_ node: NodeView) -> Bool { presenter?.views[node.id] === node }
