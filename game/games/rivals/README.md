@@ -47,7 +47,10 @@ its collision layer, so shots and bodies pass through until the respawn.
 Bots see with rays (every sixth tick, staggered), react after 0.2–0.3 s, aim
 with an error that shrinks while they track, strafe at a preferred range, take
 cover to reload or when hurt, switch to the knife up close and to rockets at
-mid range, and hop when the capsule stalls on an edge. A brain produces the same
+mid range, and hop when the capsule stalls on an edge. While hunting or seeking
+cover, they sweep a capsule ahead and hold a short detour around obstructions.
+After searching a last sighting or losing it for five seconds, they choose a
+new search destination. A brain produces the same
 `Intent` the player's input does, so bots move under the player's rules.
 
 ## Files

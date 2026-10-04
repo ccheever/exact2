@@ -85,9 +85,14 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await d.tap('play');
   const duel = d.world('world');
   await duel.key_down('KeyF');
-  let elapsed = 0, incoming;
+  let elapsed = 0, incoming, detourAt = 0;
   while (elapsed < 9000 && !incoming) {
     await duel.run(100); elapsed += 100;
+    const brain = await duel.get('bot-1', 'Brain');
+    if (!detourAt && brain.detour_until > elapsed / 1000) {
+      detourAt = elapsed;
+      await duel.save(resolve(out, 'detour.world'));
+    }
     incoming = text(await d.tree(), 'incoming-direction');
   }
   check('a received hit shows its direction and a compass heading', incoming?.startsWith('Hit from ') && !!node(await d.tree(), 'incoming-arrow') && text(await d.tree(), 'heading')?.startsWith('Facing '), incoming);
@@ -115,6 +120,18 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('Restart clears the score', text(reset, 'you-kills') === '0' && text(reset, 'rival-kills') === '0' && text(reset, 'hp') === '100');
   check('Restart returns focus to the game', node(reset, 'world')?.focused === true);
   await d.close();
+  check('the hunting bot takes an obstacle detour before engaging', detourAt > 0, detourAt);
+  if (detourAt) {
+    const back = await open({fresh:true, world:resolve(out, 'detour.world')});
+    await back.tap('play');
+    const g = back.world('world');
+    await g.run(9000 - detourAt);
+    await g.key_up('KeyF');
+    check('fresh process continues a mid-detour fight identically', JSON.stringify(await g.snapshot()) === JSON.stringify(checkpoint));
+    await g.save(resolve(out, 'detour-continued.world'));
+    check('mid-detour continuation saves are byte-identical', readFileSync(resolve(out, 'fight.world')).equals(readFileSync(resolve(out, 'detour-continued.world'))));
+    await back.close();
+  }
   const restored = await open({fresh:true, world:resolve(out, 'fight.world')});
   await restored.tap('play');
   const loaded = restored.world('world');

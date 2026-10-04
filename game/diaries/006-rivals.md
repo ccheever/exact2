@@ -762,3 +762,39 @@ overlay, controls and scene retain their matching appearance. Artifacts:
 Garden diary 004 records the integration conflicts, the three games' refreshed
 grants dependency locks, passing root/engine/surface verification, the corrected
 generated-type fixture, and the advisory semantics check blocked by missing Lean.
+
+## A hunting bot stuck beside the ramp (2026-10-04)
+
+The last native Jev duel stopped at 4–4. Its bot was pressing into the central
+ramp at `[1.650, 0.910, 3.870]`, hunting a remembered player position across the
+ramp while the player searched along the arena wall. Recreating those positions
+in a fresh encounter with seed 7 reproduces the obstruction: the bot moves only
+4 mm in ten seconds. This isolates the geometry; it is not an exact replay of
+the old fight's score, recoil and random state.
+
+The first implementation fixes that case. Hunting and cover movement sweep the
+fighter's capsule against static arena geometry, compare seven detour directions,
+and hold the selected direction for 0.3 seconds while it remains clear. A short
+capsule-foot clearance excludes the support floor. The bot clears the ramp and
+sees the player within one second, then fires and damages the player within
+three. Its skill, reaction, accuracy, weapons and Jev controller are unchanged.
+
+Inspection also found that reaching a last sighting selected a search destination
+only to overwrite it on the next tick. A searched or five-second-old sighting
+now releases the target and commits to a new destination away from the bot.
+Arrival, timeout and a byte-identical save/restore during the detour are tested.
+All 25 game tests pass (four timing experiments ignored); clippy passes after
+three pre-existing warnings were corrected for the current stable toolchain.
+
+The normal Linux proof, extended to save an ordinary duel during a detour and
+continue it in a fresh process, has zero behavioral failures in 33.2 s including
+builds. Its process audit passes. It reports `UNVERIFIED` pending the intentional
+baseline collection; no old pin was silently accepted. Artifact: `ramp-linux/`.
+
+The existing release timing experiment now includes the supported maximum of
+24 bots. In a separate run after compilation finished, 1/7/24 bots average
+18.3/66.8/291.8 microseconds per live tick; their p99s are 30.2/111.1/939.8.
+The maximum with 24 bots is **8.63 ms**, slightly over the 8.33 ms tick budget;
+the first run also hit 8.75 ms. This is a repeatable tail to investigate, not a
+claim that every frame meets budget or a before/after performance comparison.
+Logs are `/tmp/exact2-rivals-ramp-{tests,clippy,bench-isolated}.log`.

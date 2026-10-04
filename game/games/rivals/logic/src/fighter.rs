@@ -130,7 +130,7 @@ pub fn spawn(w: &mut World, slot: u32, label: &str, bot: bool, color: [f32; 3]) 
     };
     f.reset_loadout();
     let root = w.spawn_named(
-        label.to_string(),
+        label,
         (
             Transform::at(0.0, 0.92, 0.0),
             CapsuleController {

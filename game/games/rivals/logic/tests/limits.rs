@@ -54,7 +54,7 @@ fn time_ticks(sim: &mut Sim<Rivals>, ticks: u32) -> (f64, f64, f64, f64) {
 #[test]
 #[ignore]
 fn bench_bots() {
-    for bots in [1, 3, 7, 11, 15, 23] {
+    for bots in [1, 3, 7, 11, 15, 24] {
         let mut sim = live(ffa(bots));
         sim.key_down("KeyF");
         time_ticks(&mut sim, 120);

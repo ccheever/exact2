@@ -617,11 +617,7 @@ pub fn publish(w: &World, args: &Options, viewport: Vec2) {
         you_won: r.winner == "player",
         sliding: me.sliding(now),
         sprinting: false,
-        accuracy: if me.shots > 0 {
-            me.hits * 100 / me.shots
-        } else {
-            0
-        },
+        accuracy: (me.hits * 100).checked_div(me.shots).unwrap_or(0),
         feed: r.feed.clone(),
         marks: r.marks.clone(),
         contacts: if drill_done || r.over(now) {

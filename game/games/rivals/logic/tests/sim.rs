@@ -368,6 +368,92 @@ fn duel_bot_fights_back() {
     assert!(player.deaths >= 1, "bot never killed a passive player");
 }
 
+#[test]
+fn hunting_bot_escapes_the_side_of_the_central_ramp() {
+    use exact_game::Vec3;
+    use rivals_logic::{bots::Brain, fighter};
+    let mut sim = game(Options {
+        bots: 1,
+        ..Options::default()
+    });
+    let player = sim.world().named("player").unwrap();
+    let bot = sim.world().named("bot-1").unwrap();
+    // The final positions and last sighting from jev-pointer-macos. A fresh
+    // encounter isolates the ramp obstruction from score, recoil and respawns.
+    fighter::place(sim.world_mut(), player, [-21.639706, 19.99394]);
+    fighter::place(sim.world_mut(), bot, [1.6498584, 3.8703682]);
+    let start = sim.world().require::<exact_game::Transform>(bot).position;
+    {
+        let mut brain = sim.world_mut().require_mut::<Brain>(bot);
+        brain.target = Some(1);
+        brain.last_seen = Vec3::new(-21.639965, 0.91, 8.313441);
+        brain.goal = brain.last_seen;
+        brain.wander_until = 30.0;
+    }
+    sim.run(50.0);
+    assert!(sim.world().require::<Brain>(bot).detour_until > 0.05);
+    let saved = sim.save().unwrap();
+    let mut restored = game(Options {
+        bots: 1,
+        ..Options::default()
+    });
+    restored.restore_bound(&saved).unwrap();
+    for s in [&mut sim, &mut restored] {
+        s.run(950.0);
+        let at = s.world().require::<exact_game::Transform>(bot).position;
+        assert!((at - start).length() > 3.0, "bot stayed at the ramp: {at}");
+        assert!(
+            s.world().require::<Brain>(bot).visible,
+            "bot did not reacquire the player"
+        );
+        s.run(2000.0);
+        assert!(
+            fighter(s, "bot-1").shots > 0,
+            "bot never fired after escaping"
+        );
+        assert!(
+            fighter(s, "player").hp < 100.0 || fighter(s, "player").deaths > 0,
+            "escaped bot never hit the player"
+        );
+    }
+    assert_eq!(sim.save().unwrap(), restored.save().unwrap());
+}
+
+#[test]
+fn hunting_bot_commits_to_a_new_destination_after_searching_a_sighting() {
+    use exact_game::{Transform, Vec3};
+    use rivals_logic::{bots::Brain, fighter};
+    // Arrival and timeout both retire the remembered sighting. Central cover
+    // hides the live player, so the bot must choose another search destination.
+    for expired in [false, true] {
+        let mut sim = game(Options {
+            bots: 1,
+            ..Options::default()
+        });
+        let bot = sim.world().named("bot-1").unwrap();
+        fighter::place(sim.world_mut(), bot, [0.0, -3.3]);
+        {
+            let mut brain = sim.world_mut().require_mut::<Brain>(bot);
+            brain.target = Some(1);
+            brain.last_seen = Vec3::new(0.0, 0.92, if expired { 10.0 } else { -3.3 });
+            brain.goal = brain.last_seen;
+            brain.wander_until = if expired { 0.0 } else { 30.0 };
+        }
+        sim.run(10.0);
+        let goal = sim.world().require::<Brain>(bot).goal;
+        let at = sim.world().require::<Transform>(bot).position;
+        assert!((goal - at).length() > 3.0);
+        assert_eq!(sim.world().require::<Brain>(bot).target, None);
+        sim.run(100.0);
+        assert_eq!(
+            sim.world().require::<Brain>(bot).goal,
+            goal,
+            "the chosen search destination was overwritten"
+        );
+        assert_eq!(sim.world().require::<Brain>(bot).target, None);
+    }
+}
+
 /// A scripted, aggressive player: strafes, jumps, slides, sprays and flicks the
 /// mouse. Every input is a key edge or an absolute pointer move at a stamp.
 fn scripted(sim: &mut Sim<Rivals>, seconds: u32) {

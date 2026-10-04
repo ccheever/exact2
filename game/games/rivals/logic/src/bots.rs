@@ -38,6 +38,9 @@ pub struct Brain {
     pub cover_until: f32,
     pub stalled: f32,
     pub wander_until: f32,
+    /// A short obstacle detour, held across ticks instead of alternating sides.
+    pub detour: Vec3,
+    pub detour_until: f32,
     pub head_bias: bool,
 }
 
@@ -115,7 +118,7 @@ pub fn think(w: &World, e: Entity, all: &[Seen], covers: &[Vec3]) -> Intent {
     }
     let eye = me.at + Vec3::new(0.0, EYE, 0.0);
     // Sight: re-check every few ticks (rays are the expensive part), staggered.
-    if (w.tick() + me.slot as u64) % SIGHT_EVERY == 0 {
+    if (w.tick() + me.slot as u64).is_multiple_of(SIGHT_EVERY) {
         let mut best: Option<(f32, u32, bool)> = None;
         for other in all.iter().filter(|o| o.slot != me.slot && o.alive) {
             let d = (other.at - me.at).length();
@@ -139,6 +142,7 @@ pub fn think(w: &World, e: Entity, all: &[Seen], covers: &[Vec3]) -> Intent {
                 }
                 b.target = Some(slot);
                 b.visible = true;
+                b.wander_until = now + 5.0;
                 b.plan = if b.plan == Plan::Cover {
                     Plan::Cover
                 } else {
@@ -231,12 +235,6 @@ pub fn think(w: &World, e: Entity, all: &[Seen], covers: &[Vec3]) -> Intent {
             intent.reload = true;
         }
     } else {
-        // Not in sight: look where we are heading.
-        let heading = b.goal - me.at;
-        if heading.length() > 1.0 {
-            let dy = exact_game::math::wrap_angle(yaw_to(me.at, b.goal) - yaw);
-            intent.yaw = dy.clamp(-4.0 * dt, 4.0 * dt);
-        }
         intent.pitch = (-pitch).clamp(-2.0 * dt, 2.0 * dt);
         if ammo < 20 && weapon == Weapon::Rifle {
             intent.reload = true;
@@ -288,7 +286,16 @@ pub fn think(w: &World, e: Entity, all: &[Seen], covers: &[Vec3]) -> Intent {
                 b.goal
             };
             if (goal - me.at).length() < 2.0 || now >= b.wander_until {
-                b.goal = *w.pick(covers).unwrap_or(&Vec3::ZERO);
+                // Once the last sighting is searched, commit to a new place.
+                // Keeping target here overwrote that choice with last_seen on
+                // the next tick, or picked a different cover point every tick.
+                b.target = None;
+                let next: Vec<_> = covers
+                    .iter()
+                    .copied()
+                    .filter(|p| (*p - me.at).length() > 3.0)
+                    .collect();
+                b.goal = *w.pick(&next).unwrap_or(&Vec3::ZERO);
                 b.wander_until = now + w.rand(3.0..6.0);
             } else if target.is_some() {
                 b.goal = goal;
@@ -298,6 +305,15 @@ pub fn think(w: &World, e: Entity, all: &[Seen], covers: &[Vec3]) -> Intent {
             intent.sprint = true;
             intent.slide = w.chance(0.4 * dt);
         }
+    }
+    if b.plan != Plan::Fight && wish.length_squared() > 0.0 {
+        let to = b.goal - me.at;
+        let distance = Vec3::new(to.x, 0.0, to.z).length();
+        wish = steer(w, me.at, wish, distance, now, &mut b);
+    }
+    if !b.visible && wish.length_squared() > 0.0 {
+        let dy = exact_game::math::wrap_angle(yaw_to(me.at, me.at + wish) - yaw);
+        intent.yaw = dy.clamp(-4.0 * dt, 4.0 * dt);
     }
     // Stuck against an edge: hop (crates are jumpable) and flip the strafe.
     let moving = Vec3::new(me.velocity.x, 0.0, me.velocity.z).length();
@@ -315,4 +331,47 @@ pub fn think(w: &World, e: Entity, all: &[Seen], covers: &[Vec3]) -> Intent {
     let right = Vec3::new(-fwd.z, 0.0, fwd.x);
     intent.stick = Vec3::new(wish.dot(right), 0.0, -wish.dot(fwd));
     intent
+}
+
+/// Look ahead with the same capsule width and head height as the fighter.
+/// The feet are lifted 4 cm so the support floor is not an obstacle. Only the
+/// static arena participates; this does not reveal another fighter's position.
+fn steer(w: &World, at: Vec3, wish: Vec3, distance: f32, now: f32, brain: &mut Brain) -> Vec3 {
+    let shape = physics::Shape::Capsule {
+        radius: fighter::RADIUS,
+        height: fighter::HEIGHT - 0.04,
+    };
+    let pose = Transform::at(at.x, at.y + 0.02, at.z);
+    let ahead = distance.min(2.0);
+    let clearance = |dir: Vec3| {
+        physics::sweep(w, &shape, pose, dir * ahead, arena::WORLD).map_or(ahead, |hit| hit.distance)
+    };
+    if now < brain.detour_until && clearance(brain.detour) >= ahead.min(0.5) {
+        return brain.detour;
+    }
+    if clearance(wish) >= ahead {
+        brain.detour = Vec3::ZERO;
+        brain.detour_until = 0.0;
+        return wish;
+    }
+    let side = Vec3::new(-wish.z, 0.0, wish.x);
+    let mut best = (f32::NEG_INFINITY, wish);
+    for dir in [
+        wish + side,
+        wish - side,
+        side,
+        -side,
+        -wish + side,
+        -wish - side,
+        -wish,
+    ] {
+        let dir = dir.normalize();
+        let score = clearance(dir) * 2.0 + dir.dot(wish) + dir.dot(brain.detour) * 0.2;
+        if score > best.0 {
+            best = (score, dir);
+        }
+    }
+    brain.detour = best.1;
+    brain.detour_until = now + 0.3;
+    brain.detour
 }
