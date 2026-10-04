@@ -138,6 +138,12 @@ Colours are `light-dark()` pairs of §2's values.
 ## 4. What is declared, not fixed
 
 - **The sheet is iOS 27's inset-grouped look on every other host.** It is not macOS's grouped form or a GTK list. Like the native-button looks, it is a stated approximation.
+- **What the fallbacks draw differently from UIKit, seen in the comparison sheets (§6), each deliberate:**
+  - *The web's switch is a checkbox.* Chrome has no `switch` attribute. LLP 1069.001 D1 says a browser without it draws a checkbox that ARIA still announces as a switch, and the sheet does not restyle a control.
+  - *The web's row titles look heavier than UIKit's.* The sheet sets no weight: the title is `system-ui` at 400. The agent's web screenshot is rendered at 1×, without UIKit's 3× hinting, so the glyphs read heavier.
+  - *The web's chevrons are faint.* A role symbol is a stroked path in a 24-unit box (LLP 1035.004.000). At the chevron's 14-pt box the stroke is about 1.2 px. A larger box would draw Apple's glyph too large on macOS, which fits `chevron.forward` to the box.
+  - *Linux draws no leading symbols, chevrons, checkmark or info button.* Linux has no symbol path: a `symbol:` image is an empty em square there (LLP 1035.004.000 D4).
+  - *Linux's section headers look bold.* The header is 600, UIKit's semibold. The Linux host's pinned face, DejaVu Sans, has no semibold, so 600 draws Bold.
 - **The sheet is fixed at 17 pt.** Dynamic type is UIKit's, on iOS.
 - **The sheet has no pressed highlight.** A web row is a `button` and keeps the button's own focus ring.
 - **Symbols on the web are role paths in a 24-unit box** (LLP 1035.004.000), so a sheet-sized chevron draws a little smaller there than UIKit's glyph. An `sf/` name draws nothing on the web or Linux, as everywhere.
