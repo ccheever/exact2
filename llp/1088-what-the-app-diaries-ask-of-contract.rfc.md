@@ -793,6 +793,8 @@ D7.3 as specified, on every host:
   whole list, the ancestor's `key` included). Driven on the web and macOS
   with a scratch app: Tab from a `tabindex=0` box with no handler, `-1`
   skipped and focused by tap, the bound value joining the order, Shift-Tab.
+  `host/web-js/conformance/tabindex.{contract,steps}` holds the two web
+  renderers to the same focus (10 steps equal in Chrome).
 
 ### Stage 3, 2026-10-04 (branch `fix/impl1088`)
 
@@ -803,7 +805,8 @@ D1 and D2 as specified, with these differences:
   index past any end clamps exactly as `undefined` and `Infinity` do. The
   roster row says `"optional": ["Number.MAX_VALUE"]`; `plan/build.rs`
   generates `Stdlib::min_arity()` and `Stdlib::defaults()`.
-- **No `Types.roster_calls`.** The checker admits `min_arity..=arity` only in
+- **No `Types.roster_calls`.** `Stdlib::omitted(given)` names the defaults
+  a call leaves out. The checker admits `min_arity..=arity` only in
   its roster arm, after scoped actions and props (so `action slice(by)`
   keeps its arity), and lowering's roster arm, which every expression call
   that is not a `fn` or a record reaches, fills the defaults. `lean.rs`
@@ -848,6 +851,16 @@ D1 and D2 as specified, with these differences:
   functions, both comparisons, the trap (a refused action keeps its state),
   `at`, `join`, `includes` and `formatDate`, 13 steps equal in Chrome. The
   Firefox and WebKit runs are the async lane's.
+- **Metrics** (`host/web/build.mjs --wasm`, brotli-11 `app.wasm`, against
+  origin/main 423e4c4bc). Caltrain, which uses neither: 335.59 → 336.92 KiB,
+  the always-linked roster code (`exact_runner::strings`' `order`, `slice`,
+  `replace_all`, as `trim` is core) and stage 2's and the diary's rows; the
+  case tables are not newly linked (a names build of each shows the same
+  case-mapping symbols, and neither `lowercase_bounded` nor
+  `linked_lowercase`). A scratch app calling `toLowerCase`: 308.48 KiB,
+  against 302.15 KiB for the same app without the call (+6.33 KiB, the
+  tables `text_transform` links), and its wasm build lowercases. The JS
+  target never reaches the tables.
 - **Tests.** `strings.rs` (runner: indices, NaN, ±∞, cuts, `$` forms, the
   split-pair byte boundary at 8/7, 400/399, 11/10, the quadratic trap,
   order across U+E000); `case.rs` (kernel); `search.rs` and
