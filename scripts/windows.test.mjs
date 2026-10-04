@@ -1,13 +1,28 @@
 import {test, expect} from 'bun:test';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
-import {filesystem, filesystemErrorCode} from './filesystem.mjs';
+import {closeFilesystemReader, filesystem, filesystemErrorCode} from './filesystem.mjs';
 import {packagedBuildChanges} from './agent-launch.mjs';
 import {runCaps} from './caps.mjs';
 import {binaryenArchive, binaryenVersion} from './exact.mjs';
+import {listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
+
+test('public web inventory and owned reads agree on native Windows paths', async () => {
+  const root=mkdtempSync(resolve(tmpdir(),'exact static paths '));
+  try {
+    mkdirSync(resolve(root,'stages'));
+    writeFileSync(resolve(root,'index.html'),'game');
+    writeFileSync(resolve(root,'stages/inspection.wasm'),'inspection');
+    expect(listPublicFiles(root)).toEqual(['index.html','stages/inspection.wasm']);
+    expect(readStaticFile(root,'/').body.toString()).toBe('game');
+    expect((await readStaticFileAsync(root,'/stages/inspection.wasm')).body.toString()).toBe('inspection');
+    expect((await publicFileCards(root)).map(file=>[file.name,file.bytes])).toEqual([['index.html',4],['stages/inspection.wasm',10]]);
+    for (const path of ['/stages/../../secret','/stages/%2e%2e/%2e%2e/secret','/stages\\inspection.wasm']) expect(staticFile(root,path)).toBeNull();
+  } finally { closeFilesystemReader(); rmSync(root,{recursive:true,force:true}); }
+});
 
 test('setup selects supported pinned Binaryen archives on Windows and Unix', () => {
   expect(binaryenArchive('version_132','win32','x64')).toBe('binaryen-version_132-x86_64-windows.tar.gz');
