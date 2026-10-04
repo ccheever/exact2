@@ -34,6 +34,11 @@ const calls: Record<string, () => unknown> = {
   "intl-format-getter": () => formatGetter.call(dateFormatter)(),
   "intl-format-computed": () => new globalThis["In" + "tl"]["DateTime" + "Format"]()["for" + "mat"](),
   "intl-parts-prototype": () => Intl.DateTimeFormat.prototype.formatToParts.call(dateFormatter),
+  timeout: () => setTimeout(() => {}, 0),
+  interval: () => setInterval(() => {}, 1000),
+  "computed-timeout": () => (globalThis as any)["set" + "Timeout"](() => {}, 0),
+  frame: () => requestAnimationFrame(() => {}),
+  performance: () => performance.now(),
 };
 
 const atInit: Record<string, string> = {};

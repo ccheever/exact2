@@ -128,8 +128,9 @@ export async function prepare(payload, admitted, id = nextId++) {
   };
   try {
     storage = createStorage(win, admitted, () => context.owner);
-    // Disable accidental browser I/O before the module captures globals.
-    for (const key of ['XMLHttpRequest', 'WebSocket', 'EventSource', 'setTimeout', 'setInterval', 'requestAnimationFrame']) {
+    // Disable accidental browser I/O before the module captures globals; the
+    // prelude refuses timers and the clock, by name, as Hermes does.
+    for (const key of ['XMLHttpRequest', 'WebSocket', 'EventSource']) {
       Object.defineProperty(win, key, { value: () => { throw new Error(`${key} is unavailable in data sources`); }, configurable: false });
     }
     // A LAN dev page has no `crypto.subtle`: the realm's SHA-256 digest is

@@ -303,7 +303,11 @@ const how = opt('--render') ?? 'rust';
 // Oxc resolves lexical bindings, so an authored local `fetch` stays local.
 const scopedModule = (code, id) => {
   if (!ts || id.startsWith(gen + '/') || id.startsWith(realpathSync(gen) + '/') || !/\.[cm]?[jt]sx?$/.test(id)) return null;
-  const result = transformSync(id, code, { inject: { fetch: [resolve(gen, 'ts-fetch.js'), 'fetch'], ...Object.fromEntries(['globalThis', 'window', 'self'].map(name => [name, [resolve(gen, 'ts-fetch.js'), 'appGlobal']])) } });
+  // And the clock, timers and Math.random refused by name (LLP 1027.000 D3).
+  const bound = ['fetch', 'Date', 'Math', 'Intl', 'setTimeout', 'setInterval', 'requestAnimationFrame', 'requestIdleCallback',
+    'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance'];
+  const result = transformSync(id, code, { inject: { ...Object.fromEntries(bound.map(name => [name, [resolve(gen, 'ts-fetch.js'), name]])),
+    ...Object.fromEntries(['globalThis', 'window', 'self'].map(name => [name, [resolve(gen, 'ts-fetch.js'), 'appGlobal']])) } });
   if (result.errors.length) throw new Error(result.errors.map(e => e.message).join('\n'));
   return result.code;
 };

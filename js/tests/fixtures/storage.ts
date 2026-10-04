@@ -7,7 +7,25 @@ const grants = "fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/not
 // database operations. The second answer's storage calls run in a later microtask.
 let tail: Promise<unknown> = Promise.resolve();
 
-async function answer(_source:string, args:unknown[], store:Store, storage:Storage, native:{available:boolean; call(request:Record<string,unknown>):Record<string,unknown>; later(request:Record<string,unknown>):Promise<Record<string,unknown>>}|null) {
+// Writes an answer starts and does not await (kanban F22): the answer is
+// given before they land, and they must land all the same.
+function answer(source:string, args:unknown[], store:Store, storage:Storage, native:any) {
+  const op = String(args[0]), value = String(args[1]);
+  if (op === "unawaited") {
+    storage.fs.atomicWriteFile(storage.fs.directories.data + "/unawaited", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
+    return {text:"answered"};
+  }
+  if (op === "queued") {
+    tail = tail.then(async () => {
+      await storage.fs.mkdir(storage.fs.directories.data + "/queued");
+      await storage.fs.atomicWriteFile(storage.fs.directories.data + "/queued/file", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
+    });
+    return Promise.resolve({text:"answered"});
+  }
+  return work(source, args, store, storage, native);
+}
+
+async function work(_source:string, args:unknown[], store:Store, storage:Storage, native:{available:boolean; call(request:Record<string,unknown>):Record<string,unknown>; later(request:Record<string,unknown>):Promise<Record<string,unknown>>}|null) {
   const op = String(args[0]), value = String(args[1]);
   if (op === 'later') {
     if (!native?.available) return {text: 'no native module'};
@@ -22,6 +40,21 @@ async function answer(_source:string, args:unknown[], store:Store, storage:Stora
     } catch(error:any) { return {text:error.message}; }
   }
   if (op === "placeholder") return {text: ""};
+  // Ledger's shape (ledger F12): every answer queued on one chain, a listing
+  // that reads, and a save that refuses bad input before touching storage.
+  if (op === "count" || op === "invalid") {
+    const run = tail.then(async () => {
+      if (op === "invalid") return {text: "invalid"};
+      const db = await storage.sqlite.open("app:/data/notes.db");
+      try {
+        await db.execute("CREATE TABLE IF NOT EXISTS notes (body TEXT UNIQUE)");
+        const rows = await db.query("SELECT count(*) FROM notes");
+        return {text: value + ":" + String(rows.rows[0][0])};
+      } finally { await db.close(); }
+    });
+    tail = run.catch(() => {});
+    return run;
+  }
   if (op === "serial") {
     const run = tail.then(async () => {
       const db = await storage.sqlite.open("app:/data/notes.db");
@@ -58,6 +91,27 @@ async function answer(_source:string, args:unknown[], store:Store, storage:Stora
     try { return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(path)))}; }
     catch (_) { return {text:"empty"}; }
   }
+  // Refusals carry a stable code beside their message (kanban F28).
+  if (op === "codes") {
+    const data = storage.fs.directories.data, out: string[] = [];
+    const steps: (() => Promise<unknown>)[] = [
+      () => storage.fs.readFile(data + "/absent"),
+      () => storage.fs.writeFile("app:/cache/no", new Uint8Array([1])),
+      () => storage.fs.readdir(data + "/note"),
+      () => storage.fs.mkdir(data + "/full").then(() => storage.fs.writeFile(data + "/full/x", new Uint8Array([1]))).then(() => storage.fs.rm(data + "/full")),
+      () => storage.sqlite.open("app:/data/other.db"),
+    ];
+    for (const step of steps) {
+      try { await step(); out.push("ok"); } catch (e:any) { out.push(e.kind + " " + e.code + " " + e.message); }
+    }
+    return {text: out.join("\n")};
+  }
+  // An independent read, on no chain (minesweeper F10).
+  if (op === "peek") {
+    try { return {text: value + ":" + String.fromCharCode(...new Uint8Array(await storage.fs.readFile(storage.fs.directories.data + "/note")))}; }
+    catch (_) { return {text: value + ":empty"}; }
+  }
+  if (op === "read-at") return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(storage.fs.directories.data + "/" + value)))};
   if (op === "read") return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(path)))};
   if (op === "refused") {
     try { await storage.fs.writeFile("app:/cache/no", new Uint8Array([1])); }
@@ -66,7 +120,7 @@ async function answer(_source:string, args:unknown[], store:Store, storage:Stora
   }
   if (op === "bake") {
     try { await storage.fs.readFile(path); }
-    catch (e:any) { return {text:e.kind + ":" + e.message}; }
+    catch (e:any) { return {text:e.kind + ":" + e.code + ":" + e.message}; }
     return {text:"read at bake"};
   }
   if (op === "fetch") {
