@@ -179,7 +179,7 @@ extension PaintView {
         #endif
         if let picture = (self as? NodeView)?.boxFilter?.picture {
             if picture.zPosition != value { picture.zPosition = value }
-            #if os(iOS)
+            #if os(iOS) || os(tvOS)
             Shadow.active?.rank(picture, value)
             #endif
         }
@@ -205,7 +205,7 @@ extension NSView {
 }
 #endif
 
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 /// A leaf has no UIView, but it still occludes siblings for input. Runs
 /// retain each border box: the gaps between their shapes remain hittable.
 final class FlatHit {
