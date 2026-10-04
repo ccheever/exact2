@@ -205,7 +205,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// never a Tab stop on the web. An explicit `tabindex` makes any box
     /// focusable, and a Tab stop only when ≥ 0 (LLP 1088 D7.3).
     override var acceptsFirstResponder: Bool {
-        if disabled || inert || isHiddenOrHasHiddenAncestor { return false }
+        if formDisabled || inert || isHiddenOrHasHiddenAncestor { return false }
         if field != nil || textArea != nil { return false }
         return props["semanticTag"] == "dialog" || isParagraph || explicitTabIndex != nil || tabbable
     }
@@ -220,7 +220,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// skip every non-field).
     override var canBecomeKeyView: Bool { acceptsFirstResponder && tabbable }
     override func becomeFirstResponder() -> Bool {
-        guard !disabled else { return false }
+        guard !formDisabled else { return false }
         let ok = super.becomeFirstResponder()
         if ok { presenter?.collections.pinsChanged() }
         if ok, handlers.contains("focus") { presenter?.focus(id) }

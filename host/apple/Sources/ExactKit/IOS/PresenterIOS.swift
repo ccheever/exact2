@@ -432,7 +432,7 @@ final class Presenter {
     /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is one
     /// by kind; an explicit negative never, though a tap still focuses it.
     private static func tabbable(_ v: NodeView) -> Bool {
-        if v.disabled || v.bounds.width == 0 || v.bounds.height == 0 { return false }
+        if v.formDisabled || v.bounds.width == 0 || v.bounds.height == 0 { return false }
         if let index = v.explicitTabIndex, index < 0 { return false }
         return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder
     }
@@ -477,7 +477,7 @@ final class Presenter {
             ancestor = view.superview
         }
         // The mounted window is a prerequisite, never another session's.
-        if let reason = NavigationRules.focusRefusal(mounted: target.window != nil, disabled: target.disabled,
+        if let reason = NavigationRules.focusRefusal(mounted: target.window != nil, disabled: target.formDisabled,
                                                      zeroSize: target.bounds.width == 0 || target.bounds.height == 0,
                                                      hiddenAncestor: hidden, inertAncestor: inert) {
             session?.log("focus \"\(name)\" refused: \(reason)")

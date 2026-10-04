@@ -416,7 +416,8 @@ fn frame_reads_a_box_with_the_scroll_above_it_applied() {
 /// HTML's `tabindex` and Tab (LLP 1088 D7.3): an explicit value makes a plain
 /// box focusable and, ≥ 0, a Tab stop, positive values first; a negative
 /// one takes a tap and `autofocus` but Tab skips it; absent is never `0`;
-/// disabled, inert and hidden boxes are skipped; a bound value moves a box
+/// a disabled button, inert and hidden boxes are skipped, and a disabled
+/// box is not (`disabled` means nothing on a div, as in Chrome); a bound value moves a box
 /// in and out; Tab and Shift-Tab walk and wrap, from no focus to the first
 /// or the last; an ancestor's `key` hears a key the focused box bubbles.
 #[test]
@@ -439,6 +440,7 @@ fn tabindex_makes_tab_stops_and_tab_walks_them() {
       box tabindex=1 testId="one" width=40 height=20
       box tabindex=(open ? 0 : -1) testId="bound" width=40 height=20
       box tabindex=0 disabled=true testId="disabled" width=40 height=20
+      button "Off" disabled=true tabindex=0 testId="off" height=20
       box inert=true
         box tabindex=0 testId="inert" width=40 height=20
       box tabindex=0 display="none" testId="hidden" width=40 height=20
@@ -471,16 +473,16 @@ fn tabindex_makes_tab_stops_and_tab_walks_them() {
             .unwrap_or("")
             .to_string()
     };
-    let walked: Vec<String> = (0..6).map(|_| tab(&mut p, false)).collect();
+    let walked: Vec<String> = (0..7).map(|_| tab(&mut p, false)).collect();
     assert_eq!(
         walked,
-        ["one", "two", "", "zero", "reveal", "one"],
+        ["one", "two", "", "zero", "reveal", "disabled", "one"],
         "positive first, then tree order (the column hears keys, so the web makes it a stop); \
-         -1, plain, disabled, inert, hidden skipped; wraps"
+         -1, plain, the disabled button, inert, hidden skipped; the disabled box is a stop; wraps"
     );
     assert_eq!(
         tab(&mut p, true),
-        "reveal",
+        "disabled",
         "Shift-Tab walks back, wrapping"
     );
     let keys = |p: &Presenter<Keeps>| {
@@ -508,5 +510,5 @@ fn tabindex_makes_tab_stops_and_tab_walks_them() {
         "from no focus, Tab takes the first"
     );
     p.focus = None;
-    assert_eq!(tab(&mut p, true), "bound", "and Shift-Tab the last");
+    assert_eq!(tab(&mut p, true), "disabled", "and Shift-Tab the last");
 }

@@ -160,12 +160,13 @@ final class AccessibilityTests: XCTestCase {
     /// HTML's `tabindex` (LLP 1088 D7.3): an explicit value makes a plain box
     /// focusable and, ≥ 0, a Tab stop, positive values first; a negative one
     /// takes a click but leaves Tab, a key handler's node included; absent is
-    /// never `0`; disabled, inert and hidden boxes stay out; a change while
-    /// mounted moves it in or out.
+    /// never `0`; a disabled button, inert and hidden boxes stay out, while a
+    /// disabled box is a stop (`disabled` means nothing on a div, as in
+    /// Chrome); a change while mounted moves it in or out.
     func testTabindexMakesABoxFocusableAndOrdersTab() {
         let (p, w, first, other) = fixture()
-        func box(_ id: UInt32, _ props: [String: String]) -> NodeView {
-            let n = NodeView(id: id, kind: "view", presenter: p)
+        func box(_ id: UInt32, _ props: [String: String], kind: String = "view") -> NodeView {
+            let n = NodeView(id: id, kind: kind, presenter: p)
             n.applyProps(set: props, clear: [])
             n.frame = NSRect(x: 0, y: CGFloat(id) * 10, width: 100, height: 10)
             p.root.addSubview(n); p.views[id] = n
@@ -176,15 +177,17 @@ final class AccessibilityTests: XCTestCase {
         keyed.handlers = ["key"]
         let disabled = box(15, ["tabIndex": "0", "disabled": "true"]), inert = box(16, ["tabIndex": "0", "inert": "true"])
         let hidden = box(17, ["tabIndex": "0"]); hidden.isHidden = true
+        let off = box(18, ["tabIndex": "0", "disabled": "true"], kind: "button")
         p.syncKeyViewLoop()
         XCTAssertFalse(plain.acceptsFirstResponder, "absent is not tabindex=0")
         XCTAssertTrue(stop.canBecomeKeyView, "tabindex=0 makes a box with no handler a stop")
         XCTAssertTrue(skipped.acceptsFirstResponder && !skipped.canBecomeKeyView, "-1: focusable, not a stop")
         XCTAssertTrue(keyed.acceptsFirstResponder && !keyed.canBecomeKeyView, "-1 takes a key handler's node out of Tab")
-        for n in [disabled, inert, hidden] { XCTAssertFalse(n.acceptsFirstResponder || Presenter.tabbable(n) && !n.inert && !n.isHidden, "\(n.id) stays out") }
+        XCTAssertTrue(disabled.canBecomeKeyView, "a disabled box is a stop, as Chrome's <div disabled>")
+        for n in [off, inert, hidden] { XCTAssertFalse(n.acceptsFirstResponder || Presenter.tabbable(n) && !n.inert && !n.isHidden, "\(n.id) stays out") }
         XCTAssertTrue(early.nextKeyView === first, "a positive tabindex goes first, then tree order")
         XCTAssertTrue(first.nextKeyView === other && other.nextKeyView === stop)
-        XCTAssertTrue(stop.nextKeyView === early, "the loop wraps to the positive one")
+        XCTAssertTrue(stop.nextKeyView === disabled && disabled.nextKeyView === early, "the loop wraps to the positive one")
         XCTAssertTrue(w.makeFirstResponder(other))
         w.selectNextKeyView(nil)
         XCTAssertTrue(w.firstResponder === stop, "Tab lands on the box itself")

@@ -17,7 +17,7 @@ use std::{
 };
 
 #[path = "surface_controls.rs"]
-mod controls;
+pub(crate) mod controls;
 mod pixels;
 mod shaders;
 

@@ -72,12 +72,13 @@ final class KeyboardFocusIOSTests: XCTestCase {
 
     /// HTML's `tabindex` (LLP 1088 D7.3): an explicit value makes a plain box
     /// focusable and, ≥ 0, a Tab stop, positive first; a negative one takes
-    /// the focus but not Tab; absent is never `0`; disabled stays out.
+    /// the focus but not Tab; absent is never `0`; a disabled button stays
+    /// out, and a disabled box is a stop (Chrome's `<div disabled>`).
     func testTabindexMakesABoxFocusableAndOrdersTab() {
         let (p, first, _, field, last) = fixture()
         defer { withExtendedLifetime(p) {} }
-        func box(_ id: UInt32, _ props: [String: String]) -> NodeView {
-            let n = NodeView(id: id, kind: "view", presenter: p)
+        func box(_ id: UInt32, _ props: [String: String], kind: String = "view") -> NodeView {
+            let n = NodeView(id: id, kind: kind, presenter: p)
             n.applyProps(set: props, clear: [])
             n.frame = CGRect(x: 220, y: CGFloat(id) * 20, width: 100, height: 10)
             p.root.addSubview(n); p.views[id] = n
@@ -85,8 +86,10 @@ final class KeyboardFocusIOSTests: XCTestCase {
         }
         let stop = box(10, ["tabIndex": "0"]), plain = box(11, [:]), early = box(12, ["tabIndex": "1"])
         let skipped = box(13, ["tabIndex": "-1"]), disabled = box(14, ["tabIndex": "0", "disabled": "true"])
+        let off = box(15, ["tabIndex": "0", "disabled": "true"], kind: "button")
         XCTAssertFalse(plain.canBecomeFirstResponder, "absent is not tabindex=0")
-        XCTAssertFalse(disabled.canBecomeFirstResponder)
+        XCTAssertTrue(disabled.canBecomeFirstResponder, "disabled means nothing on a box")
+        XCTAssertFalse(off.canBecomeFirstResponder, "a disabled button is out")
         XCTAssertTrue(skipped.becomeFirstResponder(), "-1 takes the focus by tap or script")
         p.moveFocus(backward: false)
         XCTAssertTrue(early.isFirstResponder, "from a node out of the order, Tab starts at the first: a positive tabindex")
@@ -97,9 +100,11 @@ final class KeyboardFocusIOSTests: XCTestCase {
         p.moveFocus(backward: false); p.moveFocus(backward: false)
         XCTAssertTrue(stop.isFirstResponder, "tabindex=0 with no handler is a stop, in tree order")
         p.moveFocus(backward: false)
-        XCTAssertTrue(early.isFirstResponder, "the order wraps, skipping -1 and the disabled box")
+        XCTAssertTrue(disabled.isFirstResponder, "then the disabled box")
+        p.moveFocus(backward: false)
+        XCTAssertTrue(early.isFirstResponder, "the order wraps, skipping -1 and the disabled button")
         p.moveFocus(backward: true)
-        XCTAssertTrue(stop.isFirstResponder)
+        XCTAssertTrue(disabled.isFirstResponder)
     }
 
     /// UIKit's focus search (`FocusSearch`) finds nothing in a tree of
