@@ -752,7 +752,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             guard child.bounds.contains(p) else { continue }
             if let hit = child.hitTest(p, with: event) { return hit }
         }
-        return self
+        // Missed by every child: the canvas itself, unless it lets the
+        // touch through (`pointer-events: none`, as `ordinary` says).
+        return style["pointer_events"]?.string == "none" ? nil : self
     }
 
 
