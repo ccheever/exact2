@@ -9,22 +9,21 @@ const get = (e, n) => e.getAttribute("data-exact-" + n);
 const record = e => e.$paint ??= { z: false, level0: false, isolated: false, cz: false, c0: false };
 // src/paint.rs folds literals and emits only each binding's contribution.
 // A row clearing its flag never clears another row's stacking contribution.
-const facts = e => e.$paintFacts ??= e.getAttributeNames().reduce((bits, k) =>
+const facts = e => e.$paintWaiting ? record(e).bits : e.$paintFacts ??= e.getAttributeNames().reduce((bits, k) =>
   k === "data-exact-f" || k.startsWith("data-exact-f-") ? bits | Number(e.getAttribute(k)) : bits, 0);
 
-/** Keep the server's own facts and descendant potentials for a row whose
- * bindings wait for an adoption slice. Both server renderers write these. */
+/** Keep authored inputs and descendant potentials while bindings wait for
+ * adoption. Parent display and sibling exclusions remain live inputs. */
 export function paintWait(e) {
-  const [bits, z] = JSON.parse(get(e, "paint"));
-  Object.assign(record(e), { z: Z && !!(bits & 16), level0: !!(bits & 32), own: {
-    positioned: !!(bits & 1), stacks: !!(bits & 2), policy: !!(bits & 4), outside: !!(bits & 8),
-    isolation: !!(bits & 64), root: !!(bits & 128), z,
-  }, layout: LAYOUT && !!(bits & 256), exclusion: FLOW && !!(bits & 512) });
+  const [bits, zi] = JSON.parse(get(e, "paint"));
+  Object.assign(record(e), { z: Z && !!(bits & 16), level0: !!(bits & 32), bits, zi });
   e.$paintWaiting = true;
 }
 
-const layout = e => LAYOUT && (e.$paintWaiting ? record(e).layout : !!(facts(e) & 256));
-const excludes = e => FLOW && (e.$paintWaiting ? record(e).exclusion : (facts(e) & 1536) === 1536);
+const layout = e => LAYOUT && !!(facts(e) & 256);
+const excludes = e => FLOW && (facts(e) & 1536) === 1536;
+// A waiting row's children are opaque; its summary keeps this policy bit.
+const holdsLayout = e => LAYOUT && !e.$paintWaiting && Array.from(e.children).some(c => !c.hasAttribute("data-exiting") && layout(c));
 
 /** A structural edit can change both a list and its holder's policy. */
 export function paintList(p) {
@@ -36,16 +35,15 @@ export function paintList(p) {
 export function paintFacts(e) { e.$paintFacts = null; paintList(e); }
 
 function own(e, parent, exclusion) {
-  if (e.$paintWaiting) return record(e).own;
   const bits = facts(e), root = !!(bits & 128), positioned = !!(bits & 1);
-  const zi = Z ? get(e, "zi") : null, z = zi !== null && (positioned || (facts(parent) & 4096)) ? Number(zi) : null;
+  const zi = Z ? (e.$paintWaiting ? record(e).zi : get(e, "zi")) : null, z = zi !== null && (positioned || (facts(parent) & 4096)) ? Number(zi) : null;
   const authored = !!(bits & 2) || z !== null;
   const policy = !!(bits & 4)
     || (BUTTON && (bits & 24576) === 24576 && ((bits & 32768) || (bits & 196608) === 196608))
     || (FLOW && (bits & 2048) && exclusion)
-    || (LAYOUT && Array.from(e.children).some(c => !c.hasAttribute("data-exiting") && layout(c)));
+    || holdsLayout(e);
   return { positioned, stacks: authored || !!policy, policy: !!policy && !authored, z,
-    isolation: !!(bits & 64), outside: !e.hasAttribute("data-exact-f") || !!(bits & 8), root };
+    isolation: !!(bits & 64), outside: (!e.$paintWaiting && !e.hasAttribute("data-exact-f")) || !!(bits & 8), root };
 }
 
 export function paintFlush() {
@@ -85,9 +83,8 @@ export function paintFlush() {
       Object.assign(r, { own: o, isolated, policy: o.policy, cz, c0 });
       if (globalThis.__exactRender) {
         // Same compact summary as the Rust document emitter.
-        const bits = +o.positioned | (+o.stacks << 1) | (+o.policy << 2) | (+o.outside << 3)
-          | (+r.z << 4) | (+r.level0 << 5) | (+o.isolation << 6) | (+o.root << 7) | (+layout(c) << 8) | (+excludes(c) << 9);
-        c.setAttribute("data-exact-paint", JSON.stringify([bits, o.z]));
+        const bits = facts(c) | (+r.z << 4) | (+r.level0 << 5) | (+holdsLayout(c) << 2);
+        c.setAttribute("data-exact-paint", JSON.stringify([bits, Z ? get(c, "zi") : null]));
       }
       z ||= cz; level0 ||= c0;
     }

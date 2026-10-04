@@ -45,6 +45,20 @@ try {
       const rendered = (await renderer(dir)('/')).html;
       const rust = readFileSync(resolve(dir, 'rust.html'), 'utf8');
       const page = await browser.newPage();
+      const steps = JSON.parse(readFileSync(resolve(dir, 'steps.json')));
+      const driveSteps = async (waiting = false) => {
+        for (const step of steps) {
+          await page.evaluate(id => document.querySelector(`[data-testid="${id}"]`).click(), step.action);
+          if (waiting) assert.ok(await page.evaluate(() => document.querySelector('[data-testid="row-200"]').$paintWaiting), 'binding changes leave keyed rows waiting');
+          assert.deepEqual(await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-testid]')].map(e => {
+            const r = e.$paint, o = r.own;
+            return [e.dataset.testid, { positioned: o.positioned, stacks: o.stacks, z: o.z, policy: o.policy, isolated: r.isolated,
+              rank: o.z !== null && o.z !== 0 ? 2 * o.z : o.outside ? 0 : o.positioned || o.stacks || r.isolated ? 1 : 0 }];
+          }))), step.paint, `kernel paint after ${step.action}${waiting ? ' while waiting' : ''}`);
+          assert.deepEqual(await page.evaluate(readIsolation), step.isolation, `after ${step.action}`);
+          assert.deepEqual(await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-testid]')].map(e => [e.dataset.testid, getComputedStyle(e).zIndex]))), step.zIndex, 'authored z-index remains exact and clamped');
+        }
+      };
       const sliced = names[i].startsWith('sliced keyed');
       if (sliced) await page.addInitScript(() => {
         // Deterministic budgets, with adoption tasks driven one at a time.
@@ -53,19 +67,21 @@ try {
         globalThis.adoptionSlices = [];
         globalThis.scheduler = { postTask: f => { adoptionSlices.push(f); return Promise.resolve(); } };
       });
-      const check = async (html, adopt = false) => {
+      const check = async (html, mode = 'static') => {
         pages.set(`/${i}/index.html`, html);
         await page.goto(`${server.url}${i}/index.html`);
-        if (adopt) await page.waitForFunction(() => globalThis.ready);
+        if (mode !== 'static') await page.waitForFunction(() => globalThis.ready);
+        if (mode === 'adopt') assert.ok((await page.evaluate(() => journal)).some(s => s.includes('adopted the document')), 'server document adopts without rebuilding');
         const result = await page.evaluate(readIsolation);
-        if (adopt && sliced && (await page.evaluate(() => journal)).some(s => s.includes('adopted the document'))) {
+        if (mode === 'adopt' && sliced) {
           assert.deepEqual(result, expected, 'waiting rows retain server isolation');
           assert.ok(await page.evaluate(() => adoptionSlices.length > 0), 'the list exceeded the initial budget');
+          await driveSteps(true);
           assert.ok(await page.evaluate(() => {
             const row = document.querySelector('[data-testid="row-200"]');
-            const waiting = row.$n === undefined;
+            const waiting = row.$paintWaiting;
             row.dispatchEvent(new Event('pointerdown', { bubbles: true }));
-            return waiting && row.$n !== undefined;
+            return waiting && !row.$paintWaiting;
           }), 'input adopts a waiting row');
           assert.deepEqual(await page.evaluate(readIsolation), expected, 'event-triggered adoption flushes paint');
           for (let slice = 0; await page.evaluate(() => adoptionSlices.length); slice++) {
@@ -78,23 +94,17 @@ try {
       };
       const expected = await check(withoutScripts(shell).replace('<div id="exact-root"></div>', `<div id="exact-root">${rust}</div>`));
       assert.deepEqual(await check(withoutScripts(rendered)), expected, 'JS server before adoption');
-      assert.deepEqual(await check(shell, true), expected, 'fresh JS client');
-      for (const step of JSON.parse(readFileSync(resolve(dir, 'steps.json')))) {
-        await page.evaluate(id => document.querySelector(`[data-testid="${id}"]`).click(), step.action);
-        assert.deepEqual(await page.evaluate(readIsolation), step.isolation, `after ${step.action}`);
-        assert.deepEqual(await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-testid]')].map(e => [e.dataset.testid, getComputedStyle(e).zIndex]))), step.zIndex, 'authored z-index remains exact and clamped');
-      }
+      assert.deepEqual(await check(shell, 'client'), expected, 'fresh JS client');
+      await driveSteps();
       // Keep the server checkpoint, but load the fixture entry directly so
       // adoption is deterministic and independent of capture scheduling.
       const adopted = rendered.replace(/<script>[^]*?<\/script>/, '') + '<script src="./app.js"></script>';
-      assert.deepEqual(await check(adopted, true), expected, 'adopted JS document');
-      assert.ok((await page.evaluate(() => journal)).some(s => s.includes('adopted the document')));
+      assert.deepEqual(await check(adopted, 'adopt'), expected, 'adopted JS document');
       const fromRust = adopted.replace(/<div id="exact-root">[^]*?<\/div>(?=<script type="application\/vnd.exact.checkpoint")/, `<div id="exact-root">${rust}</div>`);
       assert.notEqual(fromRust, adopted, 'Rust document substituted');
-      assert.deepEqual(await check(fromRust, true), expected, 'adopted Rust document');
+      assert.deepEqual(await check(fromRust, 'adopt'), expected, 'adopted Rust document');
       const stale = fromRust.replace(/<div([^>]*data-testid[^>]*)>/g, (tag, attrs) => attrs.includes('style="') ? tag.replace(/style="([^"]*)"/, (_, css) => `style="${css}isolation:isolate;"`) : `<div${attrs} style="isolation:isolate">`);
-      assert.deepEqual(await check(stale, true), expected, 'adoption drops stale isolation even without candidacy');
-      assert.ok((await page.evaluate(() => journal)).some(s => s.includes('adopted the document')));
+      assert.deepEqual(await check(stale, 'adopt'), expected, 'adoption drops stale isolation even without candidacy');
       await page.close();
     } catch (e) { failures.push(`${names[i]}: ${e.stack}`); }
   }

@@ -156,9 +156,81 @@ component Paint
     let long = contract::bake(long, ManyItems).unwrap();
     write_case(&dir.join(labels.len().to_string()), &long, &[]);
     labels.push("sliced keyed adoption preserves server paint facts");
+    compare_cases(&dir, &labels);
+}
+
+#[test]
+fn waiting_rows_recompute_parent_and_sibling_facts_against_kernel() {
+    exact_web::link(exact_web_capabilities::ALL);
+    let dir = std::env::temp_dir().join(format!("exact-js-waiting-paint-{}", std::process::id()));
+    let mut labels = Vec::new();
+    for display in ["block", "flex", "grid"] {
+        let source = format!(
+            r#"shape Item
+  id: number
+component Paint
+  resource items = items() as shape list<Item>
+  state display = "{display}"
+  action flex
+    display = "flex"
+  action grid
+    display = "grid"
+  action block
+    display = "block"
+  view
+    box
+      button "Flex" testId="flex" press=flex
+      button "Grid" testId="grid" press=grid
+      button "Block" testId="block" press=block
+      box testId="waiting-list" display=display
+        box testId="positioned" position="relative"
+        each item in items key=item.id
+          box testId=`row-${{item.id}}` position="static" z-index=(item.id == 198 ? 0 : item.id == 199 ? 2147483647 : item.id == 200 ? -2147483648 : item.id <= 100 ? 2 : -2)
+"#
+        );
+        let plan = contract::bake(contract::compile(&source).unwrap(), ManyItems).unwrap();
+        write_case(
+            &dir.join(labels.len().to_string()),
+            &plan,
+            &["flex", "block", "grid", "block", display],
+        );
+        labels.push(format!("sliced keyed z-index initially {display}"));
+    }
+    for exclusion in [false, true] {
+        let source = format!(
+            r#"shape Item
+  id: number
+component Paint
+  resource items = items() as shape list<Item>
+  state exclusion = {exclusion}
+  action toggle
+    exclusion = not exclusion
+  view
+    box
+      button "Toggle" testId="toggle" press=toggle
+      box testId="waiting-list" position="relative"
+        box testId="exclusion" position=(exclusion ? "absolute" : "static") wrap-flow="both" width=20 height=20
+        each item in items key=item.id
+          text "paragraph" testId=`row-${{item.id}}`
+"#
+        );
+        let plan = contract::bake(contract::compile(&source).unwrap(), ManyItems).unwrap();
+        write_case(
+            &dir.join(labels.len().to_string()),
+            &plan,
+            &["toggle", "toggle"],
+        );
+        labels.push(format!(
+            "sliced keyed text initially beside exclusion {exclusion}"
+        ));
+    }
+    compare_cases(&dir, &labels);
+}
+
+fn compare_cases(dir: &std::path::Path, labels: &[impl AsRef<str>]) {
     std::fs::write(
         dir.join("cases.json"),
-        serde_json::to_string(&labels).unwrap(),
+        serde_json::to_string(&labels.iter().map(AsRef::as_ref).collect::<Vec<_>>()).unwrap(),
     )
     .unwrap();
     let output = std::process::Command::new("bun")
@@ -166,7 +238,7 @@ component Paint
             env!("CARGO_MANIFEST_DIR"),
             "/../web/tests/paint-order/compare.mjs"
         ))
-        .arg(&dir)
+        .arg(dir)
         .output()
         .expect("Bun runs the browser parity fixture");
     assert!(
@@ -248,8 +320,23 @@ fn write_case(dir: &std::path::Path, plan: &Plan, steps: &[&str]) {
                 })
             })
             .collect();
-        snapshots
-            .push(serde_json::json!({"action": action, "isolation": isolation, "zIndex": z_index}));
+        let paint: BTreeMap<_, _> = kernel
+            .paint_order()
+            .into_iter()
+            .filter_map(|(id, p)| {
+                let node = kernel.node(id).unwrap();
+                let own = exact_kernel::paint_order::own(kernel.arena(), node.key.index);
+                node.props.str(PropId::TestId).map(|name| {
+                    (
+                        name.to_owned(),
+                        serde_json::json!({"positioned": own.positioned, "stacks": own.stacks,
+                            "z": own.z, "policy": p.policy, "isolated": p.isolated, "rank": p.rank}),
+                    )
+                })
+            })
+            .collect();
+        snapshots.push(serde_json::json!({"action": action, "isolation": isolation,
+            "zIndex": z_index, "paint": paint}));
     }
     std::fs::write(
         dir.join("steps.json"),

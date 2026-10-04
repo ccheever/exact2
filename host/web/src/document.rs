@@ -569,21 +569,43 @@ impl<S: Source> Walk<'_, '_, S> {
         let chosen = (element == "select").then(|| props.get("value").cloned());
         // A waiting keyed row is opaque to adoption. Its complete paint
         // summary lets the JS target decide siblings without visiting it.
-        // Bits mirror paint.js: own facts, potentials, authored isolation, root, layout, exclusion.
-        let flags = u16::from(paint.own.positioned)
-            | (u16::from(paint.own.stacks) << 1)
-            | (u16::from(paint.own.policy) << 2)
-            | (u16::from(paint.own.outside) << 3)
+        // Its parent and siblings can change before it adopts: keep inputs,
+        // not their current effects on z applicability or text-flow policy.
+        let waiting = paint_order::own_from(Facts {
+            style: node.style,
+            props: node.props,
+            kind: node.node_type,
+            root: node.is_root,
+            parent_display: None,
+            beside_exclusion: false,
+            holds_layout_transition: children.iter().any(|c| {
+                src.facts(*c)
+                    .is_some_and(|c| c.style.mask.has(exact_kernel::StyleId::LayoutTransition))
+            }),
+        });
+        // Bits mirror paint.js's template facts, plus descendant potentials.
+        let flags = u16::from(waiting.positioned)
+            | (u16::from(waiting.stacks && !waiting.policy) << 1)
+            | (u16::from(waiting.policy) << 2)
+            | (u16::from(waiting.outside) << 3)
             | (u16::from(paint.potentials.z) << 4)
             | (u16::from(paint.potentials.level0) << 5)
             | (u16::from(node.style.isolation == exact_kernel::Isolation::Isolate) << 6)
             | (u16::from(node.is_root) << 7)
             | (u16::from(node.style.mask.has(exact_kernel::StyleId::LayoutTransition)) << 8)
-            | (u16::from(
-                node.style.position_type == exact_kernel::PositionType::Absolute
-                    && node.style.wrap_flow == exact_kernel::WrapFlow::Both,
-            ) << 9);
-        let z = paint.own.z.map_or_else(|| "null".into(), |z| z.to_string());
+            | (u16::from(node.style.position_type == exact_kernel::PositionType::Absolute) << 9)
+            | (u16::from(node.style.wrap_flow == exact_kernel::WrapFlow::Both) << 10)
+            | (u16::from(node.node_type == exact_kernel::NodeType::Text) << 11)
+            | (u16::from(matches!(
+                node.style.display,
+                exact_kernel::Display::Flex | exact_kernel::Display::Grid
+            )) << 12);
+        let z = node.style.mask.has(exact_kernel::StyleId::ZIndex).then(|| {
+            node.style
+                .z_index
+                .clamp(-paint_order::Z_MAX, paint_order::Z_MAX)
+        });
+        let z = z.map_or_else(|| "null".into(), |z| z.to_string());
         let mut attrs: Vec<(String, Option<String>)> = Vec::new();
         let mut content: Option<String> = None;
         let mut markup: Option<String> = None;
