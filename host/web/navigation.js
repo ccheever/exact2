@@ -818,6 +818,8 @@ export function typeControl(el, request) {
   let text = String(request.text ?? "");
   const id = request.id;
   if (el.disabled || inertAncestor(el)) return { handled: true, error: `view ${id} is disabled or inert` };
+  // A read-only field takes no value a person could enter (`readOnly` applies to the text-like and date/time types; a checkbox or select has none).
+  if (el.readOnly) return { handled: true, error: `view ${id} is read-only` };
   if (el.type === "checkbox") {
     if (text !== "true" && text !== "false") return { handled: true, error: `checkbox ${id} takes true or false, not ${JSON.stringify(text)}` };
     if (el.checked !== (text === "true")) el.click();

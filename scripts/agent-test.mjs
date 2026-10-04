@@ -2,8 +2,8 @@
 // turns a file's `test` blocks into steps, and this drives them through the
 // session the operations use (`agent.mjs`'s `open`). `agent.mjs` re-exports it.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readdirSync, rmSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { open } from './agent.mjs';
 import { resolveApp } from './app.mjs';
@@ -16,45 +16,31 @@ export function textOf(nodes, node) {
   return runs.length ? runs.join('') : node.props.value;
 }
 
-/** One authored-test run at a time for an app on a native host: its `<storage>.t<n>` stores are reused, and
- * a second run's launch would empty a store the first is using. The lock is a directory holding its owner's
- * `<pid> <token>`; release removes it only while it is still ours. A dead owner's lock (or one never signed,
- * after a second) is taken over under a second directory, the recovery's own mutex, and only once the lock
- * is still the same directory with the same dead owner — so two waiters cannot both take it over. */
-export async function testStoreLock(appId, host, dir = tmpdir()) {
-  const lock = resolve(dir, `exact-test-stores-${appId}-${host === 'mac' ? 'macos' : host}`), owner = resolve(lock, 'owner');
-  const token = `${process.pid} ${Math.random().toString(36).slice(2)}`, recovery = `${lock}.recovery`;
-  const read = () => { try { return { ino: statSync(lock).ino, who: readFileSync(owner, 'utf8') }; } catch (e) { return e.code === 'ENOENT' && existsSync(lock) ? { ino: statSync(lock).ino, who: '' } : null; } };
-  const dead = who => { const pid = Number(who.split(' ')[0]); if (!(pid > 0)) return true; try { process.kill(pid, 0); return false; } catch (e) { return e.code !== 'EPERM'; } };
-  for (let waited = 0, seen = null; ; waited += 200) {
-    try {
-      mkdirSync(lock); writeFileSync(owner, token);
-      return () => { try { if (readFileSync(owner, 'utf8') === token) rmSync(lock, { recursive: true, force: true }); } catch {} };
-    } catch (e) { if (e.code !== 'EEXIST') throw e; }
-    const now = read();
-    if (now && dead(now.who) && (now.who || (seen?.ino === now.ino && waited >= 1000))) {
-      // A recovery left behind by a waiter that died mid-way goes after ten seconds.
-      try { if (Date.now() - statSync(recovery).mtimeMs > 10_000) rmSync(recovery, { recursive: true, force: true }); } catch {}
-      try {
-        mkdirSync(recovery);
-        try { const again = read(); if (again && again.ino === now.ino && again.who === now.who) rmSync(lock, { recursive: true, force: true }); }
-        finally { rmSync(recovery, { recursive: true, force: true }); }
-        continue;
-      } catch (e) { if (e.code !== 'EEXIST') throw e; }
-    }
-    if (!seen) console.error(`waiting for another authored-test run of ${appId} on ${host} (${lock})`);
-    seen = now ?? seen;
-    await new Promise(done => setTimeout(done, 200));
-  }
+/** Where a native host keeps a drive's scratch stores (host/apple and host/linux `configure_storage`), or
+ * null where the driver cannot reach them: an iOS simulator's are in its app container and go with the app. */
+export function storeBase(appId, host, env = process.env, home = homedir()) {
+  if (host === 'macos' || host === 'mac') return resolve(home, 'Library/Caches/exact', appId, 'agent');
+  if (host === 'linux') return resolve(env.XDG_CACHE_HOME?.startsWith('/') ? env.XDG_CACHE_HOME : resolve(home, '.cache'), 'exact', appId, 'agent');
+  return null;
+}
+const alive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+/** The stores of authored-test runs that are gone (`<storage>.r<pid>-<tag>.t<n>`, the pid no longer running):
+ * a run killed before it removed its own. A live run's are left alone, so concurrent runs never share or
+ * empty one another's. */
+export function sweepTestStores(base, storage) {
+  if (!base) return;
+  let names = []; try { names = readdirSync(base); } catch { return; }
+  const ours = new RegExp(`^${storage.replace(/[.]/g, '\\.')}\\.r(\\d+)-[0-9a-z]+\\.t\\d+$`);
+  for (const name of names) { const m = name.match(ours); if (m && !alive(Number(m[1]))) rmSync(resolve(base, name), { recursive: true, force: true }); }
 }
 /**
  * Run a `test "…"` file against a host. Each test is a session of its own
  * from the first frame — at its `size` when its first step names one, else
- * the drive's — with app storage of its own: a scratch store, `<storage>.t<n>` emptied at
- * launch where a store outlives its drive (native; the page's is its fresh
- * profile), so an app that keeps its data in storage loads, no test sees
- * another's or an earlier run's writes, and repeated runs reuse one store a
- * test (one run at a time an app and host: `testStoreLock`). A failed expect names the test, the line, and what
+ * the drive's — with app storage of its own: on the web its fresh profile; on a native host
+ * a scratch store `<storage>.r<pid>-<tag>.t<n>` of this run's, emptied at
+ * launch and removed after the test (with any a killed run left), so an app
+ * that keeps its data in storage loads and no test, concurrent run or
+ * earlier run sees another's writes. A failed expect names the test, the line, and what
  * was seen. Returns `{ passed, failed, results }`.
  */
 export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, storage = 'test' } = {}) {
@@ -64,17 +50,19 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
   const tests = JSON.parse(c.stdout);
   const results = [];
-  const release = host === 'web' ? () => {} : await testStoreLock(resolveApp(app).id, device ? `${host}-device` : host);
-  try {
+  const base = host === 'web' || device ? null : storeBase(resolveApp(app).id, host), tag = `r${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+  sweepTestStores(base, storage);
   for (const [n, t] of tests.entries()) {
     const failures = [];
-    const store = host === 'web' ? storage : `${storage}.t${n}`, fresh = host === 'web' ? env : { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
+    const store = host === 'web' ? storage : `${storage}.${tag}.t${n}`, fresh = host === 'web' ? env : { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
     const own = t.steps[0]?.op === 'size' ? [t.steps[0].width, t.steps[0].height] : size;
     const s = await open({ host, browser, plan, size: own, env: fresh, app, webDist, device, phone, url, seed, locale, timeZone, epoch, storage: store });
     // The clock stands still between steps: what an input started (a reply,
     // a mutation's `then`, a timer, a transition) lands at a clock step. A
     // failed expect after an input with none says so (kanban F19).
     let input = null;
+    // An input the host could not perform fails its step: an unsupported drag or a refused tap did nothing to assert on.
+    const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); };
     const fail = (message) => failures.push(input == null ? message : `${message} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\`, a timer or a transition lands at a \`clock\` step, as \`clock settle\`)`);
     try {
       for (const st of t.steps) {
@@ -82,10 +70,10 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         try {
           switch (st.op) {
             case 'size': break; // the session opened at it
-            case 'tap': await s.tap(st.target, st.hover ? { hover: true } : undefined); input = st.line; break;
-            case 'drag': await s.tap(st.target, { drag: { dx: st.dx, dy: st.dy, ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) } }); input = st.line; break;
-            case 'type': await s.type(st.target, st.text); input = st.line; break;
-            case 'key': await s.type(st.target, { key: st.key }); input = st.line; break;
+            case 'tap': delivered(await s.tap(st.target, st.hover ? { hover: true } : undefined)); input = st.line; break;
+            case 'drag': delivered(await s.tap(st.target, { drag: { dx: st.dx, dy: st.dy, ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) } })); input = st.line; break;
+            case 'type': delivered(await s.type(st.target, st.text)); input = st.line; break;
+            case 'key': delivered(await s.type(st.target, { key: st.key })); input = st.line; break;
             case 'clock': await s.clock(st.arg); input = null; break;
             case 'screenshot': await s.screenshot(st.path); break;
             case 'expect-tree': {
@@ -121,8 +109,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       await s.close();
     }
     results.push({ name: t.name, failures });
+    if (base) rmSync(resolve(base, store), { recursive: true, force: true });
   }
-  } finally { release(); }
   const failed = results.filter((r) => r.failures.length).length;
   return { passed: results.length - failed, failed, results };
 }

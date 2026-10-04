@@ -11,7 +11,7 @@ if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these test
 delete process.env.EXACT_APP_DIR;
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname, relative, resolve } from 'node:path';
@@ -21,7 +21,7 @@ import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMa
 import { assertWebDistApp, jsonLines } from './agent.mjs';
 import { verifyBakeFiles, pendingBuildInputs } from './app.mjs';
 import { newerThan, notBuildInput } from './agent-launch.mjs';
-import { testStoreLock } from './agent-test.mjs';
+import { storeBase, sweepTestStores } from './agent-test.mjs';
 import { copyAppleStaticTrees } from '../host/apple/build.mjs';
 import { developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/devices.mjs';
 import { classify, publishRoot, webRelease } from './deploy.mjs';
@@ -631,15 +631,15 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir,{recursive:true,force:true});
 }
 {
-  // Two runs racing over a dead owner's lock (one named `mac`, one `macos`) never both hold it.
-  const dir=mkdtempSync(join(tmpdir(),'exact-test-lock-')),lock=join(dir,'exact-test-stores-com.x-macos');
-  mkdirSync(lock); writeFileSync(join(lock,'owner'),'999999 dead');
-  let held=0,most=0,order=[];
-  const run=async(host,name)=>{const release=await testStoreLock('com.x',host,dir);held++;most=Math.max(most,held);order.push(name);await new Promise(r=>setTimeout(r,300));held--;release();};
-  await Promise.all([run('mac','a'),run('macos','b'),run('macos','c')]);
-  const leftover=existsSync(lock);
-  rmSync(dir,{recursive:true,force:true});
-  result('authored-test store lock: one holder at a time across host aliases and a dead owner',most===1&&order.length===3&&!leftover,JSON.stringify({most,order,leftover}));
+  // A killed authored-test run's stores are swept; a live run's, another name's and a plain store stay.
+  const base=mkdtempSync(join(tmpdir(),'exact-test-stores-'));
+  for(const name of ['test.r999999-ab12.t0','test.r999999-ab12.t1',`test.r${process.pid}-cd34.t0`,'test','test.t0','mine.r999999-ab12.t0','tests.r999999-ab12.t0']) mkdirSync(join(base,name));
+  sweepTestStores(base,'test');
+  const left=readdirSync(base).sort();
+  rmSync(base,{recursive:true,force:true});
+  result('authored-test stores: a dead run\'s are swept, a live run\'s and other names stay',
+    JSON.stringify(left)===JSON.stringify(['mine.r999999-ab12.t0','test','test.r'+process.pid+'-cd34.t0','test.t0','tests.r999999-ab12.t0'].sort()),JSON.stringify(left));
+  result('authored-test stores live where the hosts keep them',storeBase('com.x','mac',{},'/h')==='/h/Library/Caches/exact/com.x/agent'&&storeBase('com.x','linux',{XDG_CACHE_HOME:'/c'},'/h')==='/c/exact/com.x/agent'&&storeBase('com.x','linux',{XDG_CACHE_HOME:'rel'},'/h')==='/h/.cache/exact/com.x/agent'&&storeBase('com.x','ios')===null);
 }
 // A matching hand-written exact.json is not build identity. The agent must
 // consume the complete private marker verifier before it drives a dist.
