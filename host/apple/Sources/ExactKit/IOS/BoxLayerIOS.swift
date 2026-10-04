@@ -241,7 +241,8 @@ extension NodeView {
         // A vibrant fill is its vibrancy view's (`VibrancyIOS.swift`).
         let bg = onLayer && !away && (vibrancyView == nil || isParagraph) ? fill : nil
         if layer.backgroundColor != bg { layer.backgroundColor = bg }
-        if layer.cornerRadius != cornerRadius { layer.cornerRadius = cornerRadius }
+        // A flight interpolates the radius itself (LLP 1013.000 D4).
+        if flightLook == nil, layer.cornerRadius != cornerRadius { layer.cornerRadius = cornerRadius }
         if let v = vibrancyView, !isParagraph {
             v.layer.cornerRadius = cornerRadius
             v.layer.maskedCorners = corners

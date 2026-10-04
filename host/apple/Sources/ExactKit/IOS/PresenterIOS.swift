@@ -317,6 +317,7 @@ final class Presenter {
     func reset() {
         // Every hooked node ends first, its view and platform object there.
         elements.reset()
+        resetFlights()
         canvasKey = nil
         session?.transformInputHold?.cancel()
         reorder?.abandon()

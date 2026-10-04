@@ -39,24 +39,30 @@ function leavers(queue) {
   return out;
 }
 
-/** A `layout-transition` as the group's duration and timing function. */
+/** A `layout-transition` as the group's duration, delay and timing
+ * function. The row is carried as the host writes it: times in
+ * milliseconds without a unit (`300 0 ease`), or with one as authored. */
 function curve(el) {
   const text = el?.style.getPropertyValue('--exact-layout-transition').trim();
   if (!text || text === 'none') return null;
   const decl = text.split(/,(?![^(]*\))/).pop().trim(); // the last declaration; a spring's commas are inside it
-  const spring = /spring\(\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+))?\s*\)/.exec(decl);
-  if (spring) return springCurve(+spring[1], +spring[2], +(spring[3] ?? 1));
-  let duration = 0, timing = 'ease';
-  for (const t of decl.match(/(?:cubic-bezier|steps|linear)\([^)]*\)|\S+/g) ?? []) {
-    const ms = /^(-?[\d.]+)(ms|s)$/.exec(t);
-    if (ms) { if (!duration) duration = +ms[1] * (ms[2] === 's' ? 1000 : 1); continue; }
+  const times = [];
+  let timing = 'ease';
+  for (const t of decl.match(/(?:cubic-bezier|steps|linear|spring)\([^)]*\)|\S+/g) ?? []) {
+    const ms = /^(-?[\d.]+)(ms|s)?$/.exec(t);
+    if (ms) { times.push(+ms[1] * (ms[2] === 's' ? 1000 : 1)); continue; }
     if (t !== 'all') timing = t;
   }
-  return duration > 0 ? { duration, timing } : null;
+  const delay = times[1] ?? 0;
+  const spring = /^spring\(\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+))?\s*\)$/.exec(timing);
+  if (spring) return { ...springCurve(+spring[1], +spring[2], +(spring[3] ?? 1)), delay };
+  return times[0] > 0 ? { duration: times[0], delay, timing } : null;
 }
 
-/** A spring from rest to its target as `linear()`, over its settle time
- * (a damped harmonic oscillator; the engine's rest threshold). */
+/** A spring from rest to its target as `linear()`, over its settle time:
+ * a damped harmonic oscillator, settling as the native flight's does (its
+ * progress runs 0 to 1000; at rest under a thousandth in displacement and
+ * speed, on a 240 Hz grid, at most ten seconds: motion/src/spring.rs). */
 function springCurve(k, c, m) {
   const w0 = Math.sqrt(k / m), z = c / (2 * Math.sqrt(k * m));
   const x = t => {
@@ -65,8 +71,10 @@ function springCurve(k, c, m) {
     const r1 = -w0 * (z - Math.sqrt(z * z - 1)), r2 = -w0 * (z + Math.sqrt(z * z - 1));
     return (r2 * Math.exp(r1 * t) - r1 * Math.exp(r2 * t)) / (r2 - r1);
   };
-  let end = 0.05;
-  while (end < 4 && !(Math.abs(x(end)) < 0.001 && Math.abs(x(end) - x(end - 0.004)) < 0.0005)) end += 0.004;
+  const at = n => { const t = n / 240, h = 1e-6; return Math.abs(1000 * x(t)) < 1e-3 && Math.abs(1000 * (x(t + h) - x(Math.max(0, t - h))) / (t > h ? 2 * h : h)) < 1e-3; };
+  let n = 1;
+  while (n < 2400 && !at(n)) n++;
+  const end = n / 240;
   const points = [];
   for (let i = 0; i <= 48; i++) points.push(+(1 - x(end * i / 48)).toFixed(4));
   points[48] = 1;
@@ -78,16 +86,19 @@ function ident() { return `exact-se-${++serial}`; }
 /** Run a commit's tree update `tail`, inside a view transition when its
  * flush may hand a name on. Returns what `tail` returns, or true when it
  * waits for the browser. */
-export function commit(tail, queue, inflight) {
+export function commit(tail, queue, inflight, after) {
   if (pending) { pending.push(tail); return true; }
   if (typeof document.startViewTransition !== 'function' || matchMedia('(prefers-reduced-motion: reduce)').matches) return tail();
   const old = leavers(queue);
   if (!old.size) return tail();
+  const before = new Set(document.querySelectorAll(NAME)); // an arriver is new
   if (running) { running.skipTransition(); running = null; }
   const names = new Map(); // name → ident
   const curves = new Map(); // ident → the leaver's curve
+  const count = new Map();
+  for (const name of old.values()) count.set(name, (count.get(name) ?? 0) + 1);
   for (const [el, name] of old) {
-    if (names.has(name)) { names.set(name, null); continue; } // two leavers: no pair
+    if (count.get(name) > 1) { names.set(name, null); continue; } // two leavers: no pair, and not captured
     const id = ident();
     names.set(name, id);
     curves.set(id, curve(el));
@@ -99,7 +110,7 @@ export function commit(tail, queue, inflight) {
   pending = [tail];
   inflight.n++;
   let paired = false, result = true;
-  const rules = [];
+  const rules = [], named = [...old.keys()];
   const t = document.startViewTransition(() => {
     const tails = pending;
     pending = null;
@@ -107,25 +118,34 @@ export function commit(tail, queue, inflight) {
     for (const [el, name] of old) {
       const id = names.get(name);
       if (!id) { el.style.viewTransitionName = ''; continue; }
-      if (el.isConnected && el.getAttribute('data-shared-element') === name) continue; // stayed: it moves
-      const arrivers = [...document.querySelectorAll(`[data-shared-element="${CSS.escape(name)}"]`)].filter(e => !old.has(e));
+      // Stayed: it moves. A leaver kept as an exit ghost has left.
+      const exiting = el.hasAttribute('data-exiting');
+      if (el.isConnected && !exiting && el.getAttribute('data-shared-element') === name) continue;
+      const arrivers = [...document.querySelectorAll(`[data-shared-element="${CSS.escape(name)}"]`)].filter(e => !before.has(e));
       const to = arrivers.length === 1 ? arrivers[0] : null;
       const c = to && (curve(to) ?? curves.get(id));
       if (!c) { rules.push(`::view-transition-group(${id}){display:none}`); continue; }
+      if (exiting) el.remove(); // the transition is its exit (D7)
       to.style.viewTransitionName = id;
+      named.push(to);
       to.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
-      rules.push(`::view-transition-group(${id}),::view-transition-old(${id}),::view-transition-new(${id}){animation-duration:${c.duration}ms;animation-timing-function:${c.timing}}`);
+      rules.push(`::view-transition-group(${id}),::view-transition-old(${id}),::view-transition-new(${id}){animation-duration:${c.duration}ms;animation-delay:${c.delay}ms;animation-timing-function:${c.timing}}`);
       paired = true;
     }
     style.textContent = `:root{view-transition-name:none}${rules.join('')}`;
   });
   running = t;
+  // Its own names only: a transition skipped by the next must not clear the
+  // names the next just gave.
+  const ids = new Set(names.values());
   const clean = () => {
     if (running === t) running = null;
-    for (const el of document.querySelectorAll(NAME)) if (el.style.viewTransitionName.startsWith('exact-se-')) el.style.viewTransitionName = '';
+    for (const el of named) if (ids.has(el.style.viewTransitionName)) el.style.viewTransitionName = '';
   };
   t.updateCallbackDone.then(() => { if (!paired) t.skipTransition(); }, () => {});
-  t.ready.then(() => {}, () => {}).finally(() => inflight.n--);
+  // Its animations exist once it is ready: what runs after a commit's tree
+  // (the agent's clock registers and seeks them) runs again then.
+  t.ready.then(() => { for (const f of after ?? []) f(); }, () => {}).finally(() => inflight.n--);
   t.finished.then(clean, clean);
   return result;
 }

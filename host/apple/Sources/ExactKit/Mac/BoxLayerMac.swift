@@ -145,7 +145,8 @@ extension NodeView {
         // radius only where the overflow clips; a rounded box that does not
         // clip fills a sublayer of its own under the children.
         let layerRadius = clipsToBounds && p.oneRadius && !p.shaped ? p.radius : 0
-        if layer.cornerRadius != layerRadius { layer.cornerRadius = layerRadius }
+        // A flight interpolates the radius itself (LLP 1013.000 D4).
+        if flightLook == nil, layer.cornerRadius != layerRadius { layer.cornerRadius = layerRadius }
         if layerRadius > 0, layer.maskedCorners != p.corners { layer.maskedCorners = p.corners }
         if layer.cornerCurve != p.curve { layer.cornerCurve = p.curve }
         let fill = onLayer && !away ? p.fill : nil
@@ -272,7 +273,7 @@ extension NodeView {
 
     /// The image's pixels onto a sublayer, or none (`draw(_:)` paints them).
     func applyImageLayer() {
-        if let look = flightLook, let layer, kind == "image", let bitmap = raster?.image {
+        if let look = flightLook, let layer, kind == "image", symbolView == nil, style["tint_color"] == nil, let bitmap = raster?.image {
             // Flying (LLP 1013.000 D4): the whole image where the flight
             // puts it; the view's own bounds and radius clip it.
             CATransaction.begin(); CATransaction.setDisableActions(true)

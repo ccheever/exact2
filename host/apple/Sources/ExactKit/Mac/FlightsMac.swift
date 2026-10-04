@@ -55,7 +55,10 @@ extension Presenter {
             flights[id] = Flight(id: id, source: FlightSource(rect: .null, radius: 0))
             return
         }
-        var source = FlightSource(rect: leaver.convert(leaver.bounds, to: content), radius: leaver.cornerRadii(in: leaver.bounds).max() ?? 0)
+        // Through the layers: AppKit's own conversion ignores the layer
+        // transforms a drag or a scale presents.
+        let shown = leaver.layer.flatMap { l in content.layer.map { l.convert(l.bounds, to: $0) } } ?? leaver.convert(leaver.bounds, to: content)
+        var source = FlightSource(rect: shown, radius: leaver.cornerRadii(in: leaver.bounds).max() ?? 0)
         if let flying = flights.values.first(where: { $0.view === leaver }), let look = leaver.flightLook {
             let b = leaver.bounds
             source.fit = CGRect(x: look.image.minX / max(b.width, 1), y: look.image.minY / max(b.height, 1),
@@ -85,7 +88,7 @@ extension Presenter {
     func isFlying(_ view: NodeView) -> Bool { flights[view.id]?.view === view && view.flightLook != nil }
 
     func flightsBatchApplied() {
-        for f in flights.values {
+        for f in Array(flights.values) {
             if f.view == nil, f.slot == nil { liftFlight(f) }
             showFlight(f)
         }
@@ -113,8 +116,23 @@ extension Presenter {
 
     func forgetFlight(_ id: UInt32) {
         guard let f = flights.removeValue(forKey: id) else { return }
+        f.view?.removeFromSuperview()
         f.slot?.removeFromSuperview()
         f.container.map(Self.dropEmptyLayer)
+    }
+
+    /// Flights whose place is inside `view` land now: it is leaving with an
+    /// exit, and they leave with it.
+    func landFlights(inside view: NSView) {
+        for f in flights.values where f.slot?.isDescendant(of: view) == true { landFlight(f) }
+    }
+
+    /// A reset ends every flight, its view and layer with it.
+    func resetFlights() {
+        for f in flights.values {
+            f.view?.removeFromSuperview(); f.slot?.removeFromSuperview(); f.container?.removeFromSuperview()
+        }
+        flights = [:]
     }
 
     private func liftFlight(_ f: Flight) {
@@ -123,7 +141,14 @@ extension Presenter {
         let slot = FlightSlot(frame: view.frame)
         slot.isHidden = true
         parent.addSubview(slot, positioned: .below, relativeTo: view)
-        scrollIntoView(slot)
+        // Once the batch is done: a virtualized list hears a scroll made
+        // inside one as no move of its own (LLP 1013.000 D5). The flight
+        // re-reads its slot each frame, so it follows.
+        afterBatch { [weak self, weak slot, weak f] in
+            guard let self, let slot, let f else { return }
+            self.scrollIntoView(slot)
+            self.showFlight(f)
+        }
         let layer = content.subviews.last as? FlightLayer ?? {
             let l = FlightLayer(frame: content.bounds)
             l.autoresizingMask = [.width, .height]

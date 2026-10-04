@@ -88,7 +88,7 @@ extension Presenter {
 
     /// After the batch: lift new flights, show every flight at its progress.
     func flightsBatchApplied() {
-        for f in flights.values {
+        for f in Array(flights.values) {
             if f.view == nil, f.slot == nil { liftFlight(f) }
             showFlight(f)
         }
@@ -123,8 +123,23 @@ extension Presenter {
     /// A destroyed arriver's flight ends with it.
     func forgetFlight(_ id: UInt32) {
         guard let f = flights.removeValue(forKey: id) else { return }
+        f.view?.removeFromSuperview()
         f.slot?.removeFromSuperview()
         f.container.map(Self.dropEmptyLayer)
+    }
+
+    /// Flights whose place is inside `view` land now: it is leaving with an
+    /// exit, and they leave with it.
+    func landFlights(inside view: UIView) {
+        for f in flights.values where f.slot?.isDescendant(of: view) == true { landFlight(f) }
+    }
+
+    /// A reset ends every flight, its view and layer with it.
+    func resetFlights() {
+        for f in flights.values {
+            f.view?.removeFromSuperview(); f.slot?.removeFromSuperview(); f.container?.removeFromSuperview()
+        }
+        flights = [:]
     }
 
     private func liftFlight(_ f: Flight) {
@@ -137,7 +152,14 @@ extension Presenter {
         slot.isUserInteractionEnabled = false
         slot.isHidden = true
         parent.insertSubview(slot, belowSubview: view)
-        scrollIntoView(slot)
+        // Once the batch is done: a virtualized list hears a scroll made
+        // inside one as no move of its own (LLP 1013.000 D5). The flight
+        // re-reads its slot each frame, so it follows.
+        afterBatch { [weak self, weak slot, weak f] in
+            guard let self, let slot, let f else { return }
+            self.scrollIntoView(slot)
+            self.showFlight(f)
+        }
         guard let root = presentationRoot(of: parent) else { slot.removeFromSuperview(); flights.removeValue(forKey: f.id); return }
         let layer = root.subviews.last as? FlightLayer ?? {
             let l = FlightLayer(frame: root.bounds)
@@ -154,6 +176,7 @@ extension Presenter {
         view.isUserInteractionEnabled = false
         view.accessibilityElementsHidden = true
         view.layer.masksToBounds = true
+        view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
         view.flightLook = FlightLook(image: CGRect(origin: .zero, size: size))
     }
 
@@ -206,7 +229,7 @@ extension Presenter {
                 offset.y = min(max(offset.y, -inset.top), max(-inset.top, sv.contentSize.height - sv.bounds.height + inset.bottom))
                 if offset != sv.contentOffset { sv.setContentOffset(offset, animated: false) }
             }
-            if current.next is UIViewController && (current.next as? UIViewController)?.parent == nil { break }
+            if let vc = current.next as? UIViewController, vc.view === current, Self.presents(vc) { break }
             ancestor = current.superview
         }
     }
@@ -216,10 +239,17 @@ extension Presenter {
     private func presentationRoot(of view: UIView) -> UIView? {
         var ancestor: UIView? = view
         while let current = ancestor {
-            if let vc = current.next as? UIViewController, vc.view === current, vc.parent == nil { return current }
+            if let vc = current.next as? UIViewController, vc.view === current, Self.presents(vc) { return current }
             ancestor = current.superview
         }
         return view.window
+    }
+
+    /// A controller whose view is a presentation's root: a route in a
+    /// navigation or tab container, or one with no parent (a window's root,
+    /// a sheet, a fullscreen presentation).
+    private static func presents(_ vc: UIViewController) -> Bool {
+        vc.parent == nil || vc.parent is UINavigationController || vc.parent is UITabBarController
     }
 
     private static func dropEmptyLayer(_ layer: UIView) {

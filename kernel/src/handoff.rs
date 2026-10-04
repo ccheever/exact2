@@ -12,6 +12,7 @@ use crate::arena::NodeArena;
 use crate::id::NodeKey;
 use crate::PropId;
 use exact_motion::{Property, Transition};
+use std::collections::HashMap;
 
 /// One name handed from a destroyed node to a created one.
 #[derive(Debug, Clone, PartialEq)]
@@ -57,26 +58,35 @@ fn layout_curve(arena: &NodeArena, slot: u32) -> Option<Transition> {
         .cloned()
 }
 
-/// Pair the commit's leavers with the named nodes it created.
+/// Pair the commit's leavers with the named nodes it created: each name
+/// counted once on each side, so a commit that replaces many named nodes
+/// pairs in linear time.
 pub(crate) fn pair(arena: &NodeArena, created: &[NodeKey], leavers: Vec<Leaver>) -> Vec<Handoff> {
     if leavers.is_empty() {
         return Vec::new();
     }
-    let mut out = Vec::new();
-    for (i, leaver) in leavers.iter().enumerate() {
-        if leavers
-            .iter()
-            .enumerate()
-            .any(|(j, other)| i != j && other.name == leaver.name)
-        {
+    let mut left: HashMap<&str, (usize, &Leaver)> = HashMap::new();
+    for leaver in &leavers {
+        left.entry(leaver.name.as_str()).or_insert((0, leaver)).0 += 1;
+    }
+    let mut arrived: HashMap<&str, (usize, NodeKey, u32)> = HashMap::new();
+    for key in created {
+        let Some(slot) = arena.resolve(*key) else {
             continue;
+        };
+        let Some(name) = arena.props(slot).str(PropId::SharedElement) else {
+            continue;
+        };
+        if left.contains_key(name) {
+            arrived.entry(name).or_insert((0, *key, slot)).0 += 1;
         }
-        let mut arrivers = created.iter().filter_map(|key| {
-            let slot = arena.resolve(*key)?;
-            (arena.props(slot).str(PropId::SharedElement) == Some(leaver.name.as_str()))
-                .then_some((*key, slot))
-        });
-        let (Some((to, slot)), None) = (arrivers.next(), arrivers.next()) else {
+    }
+    let mut out = Vec::new();
+    for leaver in &leavers {
+        let (Some(&(1, _)), Some(&(1, to, slot))) = (
+            left.get(leaver.name.as_str()),
+            arrived.get(leaver.name.as_str()),
+        ) else {
             continue;
         };
         let Some(transition) = layout_curve(arena, slot).or_else(|| leaver.transition.clone())

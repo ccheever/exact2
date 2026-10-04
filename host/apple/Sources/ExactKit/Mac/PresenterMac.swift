@@ -545,6 +545,7 @@ final class Presenter {
     func reset() {
         pointerHeld = nil
         elements.reset()
+        resetFlights()
         viewport.invalidateDocumentFit()
         session?.regions.reset()
         session?.rasters.reset()

@@ -102,4 +102,8 @@ fn closing_mid_flight_ends_the_first_flight_and_starts_the_reverse() {
         done.contains(&format!("{{\"op\":\"land\",\"id\":{thumb}}}")),
         "{done}"
     );
+    // The interrupted flight's curve went with its view: nothing keeps
+    // the clock running.
+    let rest = host.tick(600.0);
+    assert!(rest.contains("\"motion\":false"), "{rest}");
 }

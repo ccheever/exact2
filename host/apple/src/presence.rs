@@ -76,6 +76,11 @@ impl<D: DataSource> Host<D> {
                     stack.extend(&m.children);
                 }
             }
+            // A flight inside it ends: the presenter puts the view back,
+            // and it leaves with the rest (LLP 1013.000).
+            for id in &members {
+                self.end_flight_of(*id);
+            }
             batch.exit(view);
             self.presence.leaving.push(Leaving {
                 view,
