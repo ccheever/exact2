@@ -58,6 +58,15 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var liveText: String?
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     var style: NodeStyle = [:]
+    /// What the host's own writers hid (a covered route, a tab a native control
+    /// stands in for, a placement); a `display: none` box is hidden besides, as
+    /// CSS removes it with its subtree, or its texts paint at its 0×0 frame's
+    /// origin (recipes F19). Reading says whether it is hidden, for either reason.
+    private var hostHidden = false
+    override var isHidden: Bool {
+        get { super.isHidden }
+        set { hostHidden = newValue; super.isHidden = newValue || style["display"]?.string == "none" }
+    }
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
     var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() } } } // the media events the player reports; a hover handler's tracking area
     var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
@@ -1001,6 +1010,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let origin = style["transform_origin"]
         let old = style
         style = s
+        if old["display"] != s["display"] { isHidden = hostHidden }
         if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)

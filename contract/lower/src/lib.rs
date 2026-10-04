@@ -159,6 +159,8 @@ pub(crate) struct Lowerer<'a> {
     pub(crate) button_context: Option<&'static str>,
     /// Whether the element being lowered is a popover's direct child.
     pub(crate) popover_child: bool,
+    /// Where the element being lowered sits relative to a navigation root.
+    nav_place: routes::NavPlace,
     host_transforms: std::collections::BTreeSet<(Span, u32)>,
 }
 
@@ -260,6 +262,7 @@ fn lower_with_sites(
         parent_bounded_column: false,
         button_context: None,
         popover_child: false,
+        nav_place: Default::default(),
         host_transforms: Default::default(),
         arm_scopes: BTreeMap::new(),
         font_stacks: BTreeMap::new(),
@@ -824,6 +827,7 @@ impl<'a> Lowerer<'a> {
                     );
                 }
                 controls::check_zero_size(tag, expanded, children, *span)?;
+                let nav_place = self.nav_place.enter(tag, expanded, *span)?;
                 // @ref LLP 1038 D8 — only the first root selects navigation.
                 if has(&["navigate"])
                     && (parent_tag.is_some()
@@ -1098,7 +1102,9 @@ impl<'a> Lowerer<'a> {
                 );
                 let bounded = self.parent_bounded_column;
                 self.parent_bounded_column = values::bounded_column(tag, expanded, bounded);
+                let nav_place = std::mem::replace(&mut self.nav_place, nav_place);
                 let lowered = self.nodes(children, Some(id), arm, scope, locals, Some(tag));
+                self.nav_place = nav_place;
                 self.parent_bounded_column = bounded;
                 self.button_context = button_context;
                 self.popover_child = popover_child;

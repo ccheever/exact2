@@ -151,7 +151,7 @@ impl Navigation {
                 if self.refused.get(id).map(String::as_str) != Some(selected) {
                     self.refused.insert(*id, selected.into());
                     logs.push(format!(
-                        "navigationKey \"{selected}\" matches no route; the stack is unchanged"
+                        "navigationKey \"{selected}\" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged"
                     ));
                 }
                 continue;

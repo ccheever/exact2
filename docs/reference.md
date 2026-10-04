@@ -25,8 +25,13 @@ the `hermesc` compiler from a sibling **ibex** checkout at `../ibex`
 `./scripts/build-hermes.sh --vanilla` there once. `EXACT_HERMES_DIR` and
 `EXACT_HERMESC` point at an engine and a compiler built elsewhere. Without
 them, the build of such an app stops in `exact-js`'s build script with a
-message naming these steps. An app with a Rust data crate and no `app.ts`
-needs none of this.
+message naming these steps. On iOS the app links a lean VM instead, built
+once per machine into `~/.cache/exact/hermes/<pin>-lean-ios` by
+`host/apple/build.mjs --ios`, which clones the pinned source and builds a host
+compiler when this machine has neither; CMake is its one prerequisite, and a
+build without it says so in one message (`EXACT_HERMES_IOS_DIR` names archives
+built elsewhere). An app with a Rust data crate and no `app.ts` needs none of
+this.
 
 Snapback4 consumers use release **0.2.30**: the CLI and browser device are pinned
 in `bun.lock`; Cargo pins native devices and schema compilers to the matching

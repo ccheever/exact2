@@ -194,7 +194,7 @@ export const navigation = {
       if (at < 0) {
         if (refused.get(nav) !== key) {
           refused.set(nav, key);
-          log(`navigationKey "${key}" matches no route; the stack is unchanged`);
+          log(`navigationKey "${key}" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged`);
         }
         continue;
       }
@@ -213,7 +213,9 @@ export const navigation = {
         for (const [index, route] of routes.entries()) {
           const active = index === selected;
           if (!active && route.contains(document.activeElement)) document.activeElement.blur();
-          route.style.visibility = active || (modal && index === selected - 1) ? "" : "hidden";
+          const covered = modal && index === selected - 1;
+          route.style.visibility = active || covered ? "" : "hidden";
+          route.toggleAttribute("data-exact-covered", covered);
           route.inert = !active || !!route.authoredInert;
         }
       }

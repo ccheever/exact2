@@ -951,6 +951,7 @@ final class Presenter {
             current = container.subviews
         }
         for id in flats.place(parent, ids) { flats.promote(id) }
+        if parent === navigation.container { navigation.placeOwner() }
     }
 
     /// The views a batch touched and every view above them, as the batch
