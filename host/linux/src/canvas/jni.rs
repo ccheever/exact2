@@ -16,6 +16,9 @@
 #[macro_export]
 macro_rules! canvas_jni {
     ($data:ty) => {
+        #[global_allocator]
+        static EXACT_ALLOCATOR: $crate::canvas::jni::Allocator = $crate::canvas::jni::Allocator;
+
         mod exact_canvas_jni {
             #![allow(clippy::missing_safety_doc, unsafe_code)]
             use std::cell::RefCell;
@@ -137,6 +140,7 @@ macro_rules! canvas_jni {
                         let booted = $crate::android::trace(c"exact boot", || {
                             Host::boot(PLAN, COMPAT, (width as u32, height as u32), scale).map(
                                 |mut h| {
+                                    h.set_borrowed(true);
                                     let first = h.frame();
                                     Booted(h, first, $crate::canvas::take_pending())
                                 },
@@ -159,7 +163,8 @@ macro_rules! canvas_jni {
                     slot = READY.wait(slot).unwrap_or_else(|e| e.into_inner());
                 }
                 match slot.take().expect("booted") {
-                    Ok(Booted(h, first, pending)) => {
+                    Ok(Booted(mut h, first, pending)) => {
+                        h.set_borrowed(false);
                         HOST.with(|s| *s.borrow_mut() = Some(h));
                         PRIMED.with(|p| *p.borrow_mut() = first);
                         $crate::canvas::give_pending(pending);
@@ -386,6 +391,72 @@ macro_rules! canvas_jni {
 }
 
 use jni_sys::{jobject, JNIEnv};
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::sync::atomic::{AtomicU8, Ordering};
+
+/// An app's allocator: mimalloc, without a lock per call, where Android's
+/// hardened allocator took half of a cold boot's CPU (LLP 1076); the system's
+/// with `EXACT_MALLOC=system`, to compare. Chosen once, at the first
+/// allocation, so every block is freed by the allocator that made it.
+pub struct Allocator;
+
+static CHOSEN: AtomicU8 = AtomicU8::new(0);
+
+fn mimalloc_chosen() -> bool {
+    match CHOSEN.load(Ordering::Relaxed) {
+        1 => true,
+        2 => false,
+        _ => {
+            // getenv does not allocate.
+            let system = unsafe { libc_getenv(c"EXACT_MALLOC".as_ptr()) };
+            let use_system = !system.is_null()
+                && unsafe { std::ffi::CStr::from_ptr(system) }.to_bytes() == b"system";
+            let chosen = if use_system { 2 } else { 1 };
+            // Two threads' first allocations agree on one choice.
+            match CHOSEN.compare_exchange(0, chosen, Ordering::Relaxed, Ordering::Relaxed) {
+                Ok(_) => chosen == 1,
+                Err(other) => other == 1,
+            }
+        }
+    }
+}
+
+extern "C" {
+    #[link_name = "getenv"]
+    fn libc_getenv(name: *const std::ffi::c_char) -> *const std::ffi::c_char;
+}
+
+// SAFETY: each call goes to the one allocator chosen for the process.
+unsafe impl GlobalAlloc for Allocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        if mimalloc_chosen() {
+            mimalloc::MiMalloc.alloc(layout)
+        } else {
+            System.alloc(layout)
+        }
+    }
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        if mimalloc_chosen() {
+            mimalloc::MiMalloc.alloc_zeroed(layout)
+        } else {
+            System.alloc_zeroed(layout)
+        }
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        if mimalloc_chosen() {
+            mimalloc::MiMalloc.dealloc(ptr, layout)
+        } else {
+            System.dealloc(ptr, layout)
+        }
+    }
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        if mimalloc_chosen() {
+            mimalloc::MiMalloc.realloc(ptr, layout, new_size)
+        } else {
+            System.realloc(ptr, layout, new_size)
+        }
+    }
+}
 use std::ffi::c_void;
 
 #[repr(C)]

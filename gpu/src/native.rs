@@ -88,11 +88,18 @@ pub fn carry_length(len: usize) -> Option<u32> {
 /// Create the device and the module. Returns 0 on success, 1 on failure
 /// (see [`error`]).
 pub fn load(registry: &'static Registry) -> u32 {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::PRIMARY,
-        ..wgpu::InstanceDescriptor::new_without_display_handle()
-    });
-    match crate::block_on(crate::load_gpu(instance, None)) {
+    let prepared = {
+        let mut slot = PREPARED.0.lock().unwrap_or_else(|e| e.into_inner());
+        // A device [`prepare`] is still creating: wait for it.
+        while matches!(*slot, Prepared::Creating) {
+            slot = PREPARED.1.wait(slot).unwrap_or_else(|e| e.into_inner());
+        }
+        match std::mem::replace(&mut *slot, Prepared::None) {
+            Prepared::Ready(gpu) => Some(gpu),
+            _ => None,
+        }
+    };
+    match prepared.unwrap_or_else(create_gpu) {
         Ok(gpu) => {
             let mut module = Module::new(registry);
             module.set_gpu(gpu);
@@ -103,6 +110,50 @@ pub fn load(registry: &'static Registry) -> u32 {
             ERROR.with(|s| *s.borrow_mut() = e);
             1
         }
+    }
+}
+
+fn create_gpu() -> Result<crate::Gpu, String> {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    crate::block_on(crate::load_gpu(instance, None))
+}
+
+enum Prepared {
+    None,
+    Creating,
+    Ready(Result<crate::Gpu, String>),
+}
+
+/// The device [`prepare`] creates, for the next [`load`] on any thread.
+static PREPARED: (std::sync::Mutex<Prepared>, std::sync::Condvar) = (
+    std::sync::Mutex::new(Prepared::None),
+    std::sync::Condvar::new(),
+);
+
+/// Create the device on a thread of its own, now, for the next [`load`]
+/// (which waits for it): a host starting up makes it while it boots, and
+/// the canvas's first frame does not (LLP 1076). The device and queue are
+/// `Send`; the module itself stays on the thread that loads it.
+pub fn prepare() {
+    {
+        let mut slot = PREPARED.0.lock().unwrap_or_else(|e| e.into_inner());
+        if !matches!(*slot, Prepared::None) {
+            return;
+        }
+        *slot = Prepared::Creating;
+    }
+    let made = std::thread::Builder::new()
+        .name("exact-gpu-prepare".into())
+        .spawn(|| {
+            let gpu = create_gpu();
+            *PREPARED.0.lock().unwrap_or_else(|e| e.into_inner()) = Prepared::Ready(gpu);
+            PREPARED.1.notify_all();
+        });
+    if made.is_err() {
+        *PREPARED.0.lock().unwrap_or_else(|e| e.into_inner()) = Prepared::None;
     }
 }
 
@@ -561,6 +612,12 @@ macro_rules! module {
         #[no_mangle]
         pub extern "C" fn gpu_load() -> u32 {
             $crate::native::load(&$registry)
+        }
+
+        /// Start creating the device on a thread of its own; `gpu_load` takes it.
+        #[no_mangle]
+        pub extern "C" fn gpu_prepare() {
+            $crate::native::prepare()
         }
 
         /// Active Metal registry identity, or zero off Metal.

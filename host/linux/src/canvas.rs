@@ -907,6 +907,12 @@ pub struct CanvasHost<D: DataSource> {
     moves: u32,
     /// A GPU canvas wants another frame (Android: they present each frame).
     surfaces: bool,
+    /// GPU canvases wait for the host's own thread: it booted on another
+    /// ([`CanvasHost::set_borrowed`]), and a GPU module is the thread's that
+    /// loads it.
+    borrowed: bool,
+    /// The frame that makes the canvases a booting thread left is owed.
+    owed_surfaces: bool,
     /// The monotonic clock at `started` (ns), sent once (`CLOCK`), and each
     /// live layer's keyframes as last sent (`TRACKS`).
     origin_ns: i64,
@@ -955,6 +961,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
         // The first frame realizes only the rows that show; the window's lead
         // follows once it is out ([`CanvasHost::frame`]).
         exact_runner::set_lead_scale(0.0);
+        #[cfg(target_os = "android")]
+        crate::surfaces::prepare_gpu(compat);
         let mut config = crate::app::Config::from_env(plan, compat);
         config.scale = scale;
         let (p, error) = crate::app::boot_presenter::<D>(&mut config, viewport)?;
@@ -984,6 +992,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(MOVES),
             surfaces: false,
+            borrowed: false,
+            owed_surfaces: false,
             origin_ns,
             clock_sent: false,
             tracks: HashMap::new(),
@@ -1033,10 +1043,15 @@ impl<D: DataSource + Default> CanvasHost<D> {
             let _s = Section::begin(c"exact surfaces");
             // GPU canvases follow the tree (made, bound, given their
             // assets) outside a scroll's frame, as the Linux loop does.
-            if !self.scrolled {
-                self.p.sync_surfaces();
+            if self.borrowed {
+                // On the booting thread: the canvases come with the next frame.
+            } else {
+                self.owed_surfaces = false;
+                if !self.scrolled {
+                    self.p.sync_surfaces();
+                }
+                self.surfaces = self.p.render_surfaces(now);
             }
-            self.surfaces = self.p.render_surfaces(now);
         }
         frame
     }
@@ -1260,10 +1275,22 @@ impl<D: DataSource + Default> CanvasHost<D> {
         Some(ops)
     }
 
+    /// Whether this host runs, for now, on a thread that only boots it: its
+    /// GPU canvases wait (see `canvas_jni!`'s `startAsync`). Clearing it
+    /// owes a frame.
+    pub fn set_borrowed(&mut self, borrowed: bool) {
+        if self.borrowed && !borrowed {
+            self.force = true;
+            self.owed_surfaces = true;
+        }
+        self.borrowed = borrowed;
+    }
+
     /// Milliseconds until the next timer, if any.
     pub fn next_due(&self) -> Option<f64> {
-        // The windows' lead is owed a turn as soon as the first frame is out.
-        if self.painted.is_some() && !self.lead {
+        // The windows' lead is owed a turn as soon as the first frame is out,
+        // and the GPU canvases a booting thread left.
+        if (self.painted.is_some() && !self.lead) || self.owed_surfaces {
             return Some(0.0);
         }
         self.p

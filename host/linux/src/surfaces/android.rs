@@ -43,6 +43,33 @@ pub(super) fn load(abi: &Abi) -> Result<(), String> {
     Ok(())
 }
 
+/// Start making the app's primary GPU module's device, on threads of
+/// their own, while the host boots (LLP 1076): the canvas's first frame on
+/// the host's thread loads the module (`gpu_load`, which takes the device)
+/// without making one. Nothing when the app has no GPU module.
+pub(crate) fn prepare(compat: &'static str) {
+    let _ = std::thread::Builder::new()
+        .name("exact-gpu-open".into())
+        .spawn(move || {
+            let Ok(compat) = serde_json::from_str::<Value>(compat) else {
+                return;
+            };
+            if !gpu_card(&compat, "").is_object() {
+                return;
+            }
+            let Ok(abi) = Abi::open_as(&compat, "", false) else {
+                return;
+            };
+            // A module without it was built before it: it loads as it did.
+            if unsafe { abi.library.get::<unsafe extern "C" fn()>(b"gpu_prepare") }.is_ok() {
+                unsafe { abi.symbol::<unsafe extern "C" fn()>(b"gpu_prepare")() };
+            }
+            // The library stays loaded (the host's own open finds it), and
+            // nothing it made belongs to this thread.
+            std::mem::forget(abi);
+        });
+}
+
 /// A window a reader gave a canvas's view: the `ANativeWindow`, its pixel
 /// size, and whether the canvas has it.
 pub(crate) struct Window {
