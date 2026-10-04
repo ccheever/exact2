@@ -659,7 +659,13 @@ extension NavigationHost {
             let settled = search || nav.isNavigationBarHidden != routeShowsBar(c, in: nav)
             if settled, !search, let node = c.collapseScroll, let sv = node.scroll, sv.adjustedContentInset.top > 0 {
                 let inset = sv.adjustedContentInset.top
-                if c.navigationItem.largeTitleDisplayMode != .always {
+                // tvOS has no large titles: every title is inline.
+                #if os(tvOS)
+                let inline = true
+                #else
+                let inline = c.navigationItem.largeTitleDisplayMode != .always
+                #endif
+                if inline {
                     // An inline title does not collapse: its inset is the one it has.
                     node.scrollOrigin = inset; node.scrollCollapsed = inset
                 } else if nav.transitionCoordinator == nil {

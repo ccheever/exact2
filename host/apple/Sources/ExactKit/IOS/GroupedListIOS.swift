@@ -5,7 +5,7 @@
 // dynamic type and dark mode are the platform's. The authored scroll stays
 // beneath, hidden: the kernel still lays it out, a custom row's views are
 // carried into their cell, and every batch sees the authored hierarchy.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// A grouped list as the kernel reads it (`Kernel::grouped_list`).
@@ -51,7 +51,12 @@ struct GroupedListModel: Equatable {
         }
     }
     var appearance: UICollectionLayoutListConfiguration.Appearance {
+        // tvOS has no inset grouped list.
+        #if os(tvOS)
+        switch style { case "plain": .plain; default: .grouped }
+        #else
         switch style { case "plain": .plain; case "grouped": .grouped; default: .insetGrouped }
+        #endif
     }
 }
 
@@ -192,7 +197,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private(set) var model = GroupedListModel()
     private var source: UICollectionViewDiffableDataSource<UInt32, UInt32>!
     private var rows: [UInt32: GroupedListModel.Row] = [:]
+    #if !os(tvOS)
     private var switches: [UInt32: UISwitch] = [:]
+    #endif
     /// Custom rows: where the presenter put each, to give it back.
     private(set) var carried: [UInt32: (parent: UIView, index: Int, frame: CGRect, inert: Bool)] = [:]
     /// The order they were carried in: given back last first, each index
@@ -259,7 +266,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let restyled = next.style != previous.style
         model = next
         rows = Dictionary(next.sections.flatMap { $0.rows }.map { ($0.view, $0) }, uniquingKeysWith: { a, _ in a })
+        #if !os(tvOS)
         switches = switches.filter { rows[$0.key]?.accessory == "toggle" }
+        #endif
         var snapshot = NSDiffableDataSourceSnapshot<UInt32, UInt32>()
         var seen = Set<UInt32>()
         for s in next.sections where seen.insert(s.view).inserted {
@@ -319,7 +328,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         // A switch shows its control as it now stands, which a batch may
         // change without changing the row.
+        #if !os(tvOS)
         for (id, toggle) in switches { refresh(id, toggle) }
+        #endif
         if resized { resized = false; collection.collectionViewLayout.invalidateLayout() }
     }
 
@@ -364,6 +375,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         case "detail":
             let id = row.view
             return [.detail(displayed: .always) { [weak self] in _ = self?.detail(id) }]
+        #if os(tvOS)
+        // tvOS has no switch: a toggle row shows its state as a checkmark.
+        case "toggle":
+            let on = row.target.flatMap { host.presenter.views[$0] }?.props["checked"] == "true"
+            return on ? [.checkmark()] : []
+        #else
         case "toggle":
             let id = row.view
             let toggle = switches[id] ?? {
@@ -380,10 +397,20 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             // reconfigured cell builds its accessories again.
             toggle.removeFromSuperview()
             return [.customView(configuration: .init(customView: toggle, placement: .trailing()))]
+        #endif
         default: return []
         }
     }
 
+    #if os(tvOS)
+    /// The agent's tap on a toggle row: flips its current control's `checked`.
+    func toggle(_ id: UInt32) -> Bool {
+        guard let target = rows[id]?.target, let node = host.presenter.views[target],
+              rows[id]?.disabled == false, !node.disabled, !node.inert else { return false }
+        host.presenter.checked(target, node.props["checked"] != "true")
+        return true
+    }
+    #else
     /// A row's switch as its control now stands: the row's current target
     /// (a `when` may have replaced it), its committed `checked`, whether it
     /// or the row is disabled, its accent and name.
@@ -414,6 +441,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         s.sendActions(for: .valueChanged)
         return true
     }
+    #endif
 
     /// The detail button's press, the row's current button, unless it or
     /// the row is disabled.
