@@ -18,6 +18,7 @@ use std::{
 
 #[path = "surface_controls.rs"]
 mod controls;
+mod pixels;
 
 const LIMIT: usize = 256 * 1024 * 1024;
 type Read = unsafe extern "C" fn(u32) -> u32;
@@ -27,6 +28,7 @@ struct Abi {
     // Symbols never outlive this library; unload TLS before dlclose.
     library: Library,
     output_error: std::cell::RefCell<Option<String>>,
+    rendered: bool,
 }
 impl Abi {
     fn open(compat: &Value, artifact: &str) -> Result<Self, String> {
@@ -53,6 +55,7 @@ impl Abi {
         let abi = Self {
             library: unsafe { Library::new(path) }.map_err(|e| e.to_string())?,
             output_error: Default::default(),
+            rendered: std::env::var("EXACT_GPU_RENDER").as_deref() == Ok("1"),
         };
         unsafe {
             for name in [
@@ -80,9 +83,23 @@ impl Abi {
             ] {
                 abi.library
                     .get::<*const ()>(name.as_bytes())
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| format!("GPU ABI {name}: {e}"))?;
             }
-            abi.symbol::<unsafe extern "C" fn()>(b"gpu_load_headless")();
+            if abi.rendered {
+                for name in ["gpu_load", "gpu_readback", "gpu_seekable"] {
+                    abi.library
+                        .get::<*const ()>(name.as_bytes())
+                        .map_err(|e| format!("GPU ABI {name}: {e}"))?;
+                }
+                if abi.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_load")() != 0 {
+                    return Err(abi.error().unwrap_or("GPU initialization failed".into()));
+                }
+                abi.symbol::<unsafe extern "C" fn(bool)>(b"gpu_seekable")(
+                    std::env::var("EXACT_AGENT").as_deref() == Ok("1"),
+                );
+            } else {
+                abi.symbol::<unsafe extern "C" fn()>(b"gpu_load_headless")();
+            }
         }
         Ok(abi)
     }
@@ -404,7 +421,7 @@ impl Surfaces {
                     let report = abi
                         .bytes(length)
                         .and_then(|b| serde_json::from_slice::<Value>(&b).ok());
-                    if report.as_ref().is_none_or(|r| r["status"] != "no device") {
+                    if !abi.rendered && report.as_ref().is_none_or(|r| r["status"] != "no device") {
                         self.error = Some("headless recovery did not report no device".into());
                     }
                     self.abis.insert(artifact, abi);
@@ -879,7 +896,8 @@ impl Surfaces {
     }
 }
 impl<D: DataSource> Presenter<D> {
-    pub(crate) fn sync_surfaces(&mut self) {
+    /// Settle mounted GPU surfaces after first pixel and forward their public state.
+    pub fn sync_surfaces(&mut self) {
         // LLP 1056: the 2D canvases' draws for this turn's commits.
         self.dirty |= self
             .host

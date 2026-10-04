@@ -27,6 +27,7 @@ impl<D: DataSource> Presenter<D> {
         Ok((presenter, error))
     }
     /// Region completion readiness. No timer or input event is needed to resume.
+    #[cfg(unix)]
     pub fn content_region_fd(&self) -> Option<std::os::unix::io::RawFd> {
         self.host.content_region_fd()
     }
@@ -50,6 +51,9 @@ impl<D: DataSource> Presenter<D> {
         self.host
             .sync_canvases(self.brush.scale as f64, true, &self.assets);
         self.brush.canvases = self.host.canvas_snapshots();
+        self.brush
+            .canvases
+            .extend(self.surfaces.pixels(&mut self.host, self.brush.scale));
         // The display carrier stages the paint's owners/boxes and publishes
         // them only on the matching flip. Headless/agent frames stay immediate.
         let deferred = self.display.submitting();

@@ -26,39 +26,12 @@ impl RecoveryFailure {
     }
 
     pub(crate) fn json(&self) -> String {
-        let quoted = json::strings(&[self.message.clone()]);
+        let quoted = json::strings(std::slice::from_ref(&self.message));
         format!(
             "{{\"status\":\"failed\",\"code\":\"{}\",\"error\":{}}}",
             self.code,
             &quoted[1..quoted.len() - 1]
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::RecoveryFailure;
-    use crate::{DeviceFailure, DeviceFailureKind};
-
-    #[test]
-    fn device_failures_keep_their_typed_host_json() {
-        let no_adapter = RecoveryFailure::device(DeviceFailure::new(
-            DeviceFailureKind::NoAdapter,
-            "requestAdapter returned null",
-        ));
-        assert_eq!(
-            no_adapter.json(),
-            r#"{"status":"failed","code":"no-adapter","error":"no adapter: requestAdapter returned null"}"#
-        );
-
-        let no_device = RecoveryFailure::device(DeviceFailure::new(
-            DeviceFailureKind::NoDevice,
-            "requestDevice rejected \"limits\"",
-        ));
-        assert_eq!(
-            no_device.json(),
-            r#"{"status":"failed","code":"no-device","error":"no device: requestDevice rejected \"limits\""}"#
-        );
     }
 }
 
@@ -113,5 +86,32 @@ impl Module {
             inst.presentation = Some(std::sync::Arc::new(target));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RecoveryFailure;
+    use crate::{DeviceFailure, DeviceFailureKind};
+
+    #[test]
+    fn device_failures_keep_their_typed_host_json() {
+        let no_adapter = RecoveryFailure::device(DeviceFailure::new(
+            DeviceFailureKind::NoAdapter,
+            "requestAdapter returned null",
+        ));
+        assert_eq!(
+            no_adapter.json(),
+            r#"{"status":"failed","code":"no-adapter","error":"no adapter: requestAdapter returned null"}"#
+        );
+
+        let no_device = RecoveryFailure::device(DeviceFailure::new(
+            DeviceFailureKind::NoDevice,
+            "requestDevice rejected \"limits\"",
+        ));
+        assert_eq!(
+            no_device.json(),
+            r#"{"status":"failed","code":"no-device","error":"no device: requestDevice rejected \"limits\""}"#
+        );
     }
 }

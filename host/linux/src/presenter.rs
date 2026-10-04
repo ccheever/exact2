@@ -699,6 +699,21 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// The viewport changed.
+    pub fn resize_scaled(&mut self, width: f32, height: f32, scale: f32) -> Option<String> {
+        if !scale.is_finite() || scale <= 0.0 {
+            return Some("display scale must be finite and positive".into());
+        }
+        self.brush.scale = scale;
+        self.dirty = true;
+        self.resize(width, height)
+    }
+
+    /// A display needs another animation or GPU canvas frame.
+    pub fn wants_display_frames(&self) -> bool {
+        self.host.wants_frames() || self.surfaces.has_rendered_canvas()
+    }
+
+    /// The viewport changed.
     pub fn resize(&mut self, width: f32, height: f32) -> Option<String> {
         let error = self.host.resize(width, height);
         if error.is_some() {
@@ -1322,11 +1337,13 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// The executor's wake: readable when a reply is queued (for `poll`).
+    #[cfg(unix)]
     pub fn executor_fd(&self) -> std::os::unix::io::RawFd {
         self.executor.fd()
     }
 
     /// Metadata, decode completion or changed budget demand wakes an idle display.
+    #[cfg(unix)]
     pub fn image_fd(&self) -> std::os::unix::io::RawFd {
         self.images.wake_fd()
     }

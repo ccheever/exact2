@@ -30,6 +30,7 @@ struct Slot {
 
 impl FrameUniform {
     /// Slots shared in place on Apple.
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     const RING: usize = 4;
 
     /// A uniform of `size` bytes, labelled `label`.

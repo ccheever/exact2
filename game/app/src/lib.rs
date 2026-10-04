@@ -107,6 +107,7 @@ fn bake_source<D: contract::DataSource>(
             "fn main() { std::process::exit(exact_linux::run::<AppData>(PLAN, COMPAT)); }"
         }
         "linux" => "fn main() { std::process::exit(exact_linux::app::run_empty(PLAN, COMPAT)); }",
+        "windows" => "fn main() { std::process::exit(exact_windows::run::<AppData>(PLAN, COMPAT)); }",
         _ => panic!("unsupported game app platform: {platform}"),
     };
     fs::write(

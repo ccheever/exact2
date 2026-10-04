@@ -101,8 +101,7 @@ impl CatalogSnapshot {
         // capture too. It never reads font bytes a second time.
         for source in sources.values() {
             for path in &source.paths {
-                let now = std::fs::metadata(path).map_err(|_| TransferError::FontCapture)?;
-                if source.file_identity != Some(identity(&now)) {
+                if source.file_identity != Some(path_identity(path)?) {
                     return Err(TransferError::FontCapture);
                 }
             }
@@ -134,7 +133,7 @@ struct Captured {
     file_identity: Option<FileIdentity>,
     paths: Vec<PathBuf>,
 }
-// Linux/macOS are the supported targets for this host.
+// Identity comes from the opened file, including Windows volume/file indices.
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct FileIdentity {
     dev: u64,
@@ -145,9 +144,11 @@ struct FileIdentity {
     ctime: i64,
     ctime_ns: i64,
 }
-fn identity(m: &std::fs::Metadata) -> FileIdentity {
+#[cfg(unix)]
+fn identity(file: &std::fs::File) -> Result<FileIdentity, TransferError> {
+    let m = file.metadata().map_err(|_| TransferError::FontCapture)?;
     use std::os::unix::fs::MetadataExt;
-    FileIdentity {
+    Ok(FileIdentity {
         dev: m.dev(),
         ino: m.ino(),
         len: m.len(),
@@ -155,7 +156,33 @@ fn identity(m: &std::fs::Metadata) -> FileIdentity {
         mtime_ns: m.mtime_nsec(),
         ctime: m.ctime(),
         ctime_ns: m.ctime_nsec(),
+    })
+}
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn identity(file: &std::fs::File) -> Result<FileIdentity, TransferError> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: the borrowed File keeps its handle alive; info is writable.
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+        return Err(TransferError::FontCapture);
     }
+    Ok(FileIdentity {
+        dev: info.dwVolumeSerialNumber as u64,
+        ino: ((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64,
+        len: ((info.nFileSizeHigh as u64) << 32) | info.nFileSizeLow as u64,
+        mtime: info.ftLastWriteTime.dwHighDateTime as i64,
+        mtime_ns: info.ftLastWriteTime.dwLowDateTime as i64,
+        ctime: info.ftCreationTime.dwHighDateTime as i64,
+        ctime_ns: info.ftCreationTime.dwLowDateTime as i64,
+    })
+}
+fn path_identity(path: &Path) -> Result<FileIdentity, TransferError> {
+    let file = crate::file::open_regular(path).map_err(|_| TransferError::FontCapture)?;
+    identity(&file)
 }
 fn import_face(
     face: &fontdb::FaceInfo,
@@ -173,14 +200,7 @@ fn import_face(
         }
         _ => None,
     };
-    let observed = path
-        .as_ref()
-        .map(|p| {
-            std::fs::metadata(p)
-                .map(|m| identity(&m))
-                .map_err(|_| TransferError::FontCapture)
-        })
-        .transpose()?;
+    let observed = path.as_ref().map(|p| path_identity(p)).transpose()?;
     let key = match observed {
         Some(id) => SourceKey::File(id.dev, id.ino),
         None => {
@@ -201,16 +221,12 @@ fn import_face(
                 bytes
             }
             Some(path) => {
-                use std::os::unix::fs::OpenOptionsExt;
                 // A captured regular path may have been replaced by a FIFO.
                 // Never wait for its writer before checking the opened inode.
-                let mut file = std::fs::OpenOptions::new()
-                    .read(true)
-                    .custom_flags(libc::O_NONBLOCK)
-                    .open(path)
-                    .map_err(|_| TransferError::FontCapture)?;
-                let before = file.metadata().map_err(|_| TransferError::FontCapture)?;
-                if !before.is_file() || Some(identity(&before)) != observed {
+                let mut file =
+                    crate::file::open_regular(path).map_err(|_| TransferError::FontCapture)?;
+                let before = identity(&file)?;
+                if Some(before) != observed {
                     return Err(TransferError::FontCapture);
                 }
                 let mut bytes = Vec::new();
@@ -220,12 +236,9 @@ fn import_face(
                 cost.file_bytes += bytes.len();
                 #[cfg(test)]
                 after_read(path);
-                let after = file.metadata().map_err(|_| TransferError::FontCapture)?;
-                let named = std::fs::metadata(path).map_err(|_| TransferError::FontCapture)?;
-                if identity(&before) != identity(&after)
-                    || identity(&after) != identity(&named)
-                    || bytes.len() as u64 != before.len()
-                {
+                let after = identity(&file)?;
+                let named = path_identity(path)?;
+                if before != after || after != named || bytes.len() as u64 != before.len {
                     return Err(TransferError::FontCapture);
                 }
                 bytes

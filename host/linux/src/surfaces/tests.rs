@@ -2,6 +2,57 @@ use super::*;
 use exact_runner::Request;
 use sha2::{Digest, Sha256};
 
+fn compile_fixture(source: &std::path::Path, path: &std::path::Path) {
+    #[cfg(not(windows))]
+    let mut command = {
+        let mut command = std::process::Command::new("cc");
+        command
+            .args(["-shared", "-fPIC"])
+            .arg(source)
+            .arg("-o")
+            .arg(path);
+        command
+    };
+    #[cfg(windows)]
+    let mut command = {
+        let target = format!("{}-pc-windows-msvc", std::env::consts::ARCH);
+        let compiler = cc::windows_registry::find_tool(&target, "cl.exe")
+            .expect("the Windows native tests require the MSVC C compiler");
+        let mut command = compiler.to_command();
+        command
+            .arg("/nologo")
+            .arg("/LD")
+            .arg(source)
+            .arg(format!("/Fe:{}", path.display()))
+            .arg(format!("/Fo:{}", source.with_extension("obj").display()))
+            .arg("/link")
+            .arg(format!("/IMPLIB:{}", path.with_extension("lib").display()));
+        let text = std::fs::read_to_string(source).unwrap();
+        for line in text.lines().filter(|line| {
+            ["void ", "bool ", "uint32_t ", "const "]
+                .iter()
+                .any(|p| line.starts_with(p))
+        }) {
+            if let Some((declaration, _)) = line.split_once('(') {
+                let name = declaration
+                    .split_whitespace()
+                    .last()
+                    .unwrap()
+                    .trim_start_matches('*');
+                command.arg(format!("/EXPORT:{name}"));
+            }
+        }
+        command
+    };
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "fixture C compile: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn surface_work_scope_is_refused_before_presenter_effects() {
     let request = |ticket, mut request: exact_runner::Request| {
@@ -152,14 +203,7 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
 "#,
     )
     .unwrap();
-    assert!(std::process::Command::new("cc")
-        .args(["-shared", "-fPIC"])
-        .arg(&source)
-        .arg("-o")
-        .arg(&path)
-        .status()
-        .unwrap()
-        .success());
+    compile_fixture(&source, &path);
     let digest = format!("{:x}", Sha256::digest(std::fs::read(&path).unwrap()));
     let compat = json!({"id":"cohort", "inputs":{"app":"test.app"}, "embedded":{"gpu":{
             "name":path.file_name().unwrap().to_str().unwrap(),"sha256":digest,
@@ -192,14 +236,7 @@ fn module_identity_refuses_stale_foreign_and_missing_bakes_before_loading() {
         .unwrap()
         .replace("gpu_child_view", "gpu_child");
     std::fs::write(&source, old).unwrap();
-    assert!(std::process::Command::new("cc")
-        .args(["-shared", "-fPIC"])
-        .arg(&source)
-        .arg("-o")
-        .arg(&path)
-        .status()
-        .unwrap()
-        .success());
+    compile_fixture(&source, &path);
     let mut old_compat = compat.clone();
     old_compat["embedded"]["gpu"]["sha256"] =
         format!("{:x}", Sha256::digest(std::fs::read(&path).unwrap())).into();

@@ -95,6 +95,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// The store's wake, for the display loop's poll set.
+    #[cfg(unix)]
     pub fn update_fd(&self) -> Option<std::os::unix::io::RawFd> {
         self.updates.as_ref().map(|u| u.fd())
     }
