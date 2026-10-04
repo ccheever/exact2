@@ -139,33 +139,10 @@ fn execute(
             Err(e) => Err(e),
         };
     }
-    let (operation, destination, data) = match op {
-        "fs.readFile" => (FsOp::ReadFile, None, None),
-        "fs.writeFile" => (FsOp::WriteFile, None, Some(bytes(args)?)),
-        "fs.atomicWriteFile" => (FsOp::AtomicWriteFile, None, Some(bytes(args)?)),
-        "fs.appendFile" => (FsOp::AppendFile, None, Some(bytes(args)?)),
-        "fs.mkdir" => (FsOp::Mkdir, None, None),
-        "fs.rm" => (FsOp::Remove, None, None),
-        "fs.stat" => (FsOp::Stat, None, None),
-        "fs.readdir" => (FsOp::ReadDir, None, None),
-        "fs.realpath" => (FsOp::Realpath, None, None),
-        "fs.rename" | "fs.copyFile" => {
-            let destination = text(args, "destination")?;
-            if !destination.starts_with("app:/") {
-                return Err("portable storage needs an app:/ destination".into());
-            }
-            (
-                if op == "fs.rename" {
-                    FsOp::Rename
-                } else {
-                    FsOp::CopyFile
-                },
-                Some(destination),
-                None,
-            )
-        }
-        _ => return Err(format!("unsupported storage operation {op}")),
-    };
+    let (operation, destination, data) = operation(op, args)?;
+    if destination.is_some_and(|d| !d.starts_with("app:/")) {
+        return Err("portable storage needs an app:/ destination".into());
+    }
     let result = fs::run(
         grants,
         Some(directories),
@@ -175,7 +152,30 @@ fn execute(
         data.as_deref(),
     )
     .map_err(error)?;
-    Ok(match result {
+    Ok(fs_value(result))
+}
+/// A filesystem request's operation, its destination, and its bytes.
+fn operation<'a>(
+    op: &str,
+    args: &'a Value,
+) -> Result<(FsOp, Option<&'a str>, Option<Vec<u8>>), String> {
+    Ok(match op {
+        "fs.readFile" => (FsOp::ReadFile, None, None),
+        "fs.writeFile" => (FsOp::WriteFile, None, Some(bytes(args)?)),
+        "fs.atomicWriteFile" => (FsOp::AtomicWriteFile, None, Some(bytes(args)?)),
+        "fs.appendFile" => (FsOp::AppendFile, None, Some(bytes(args)?)),
+        "fs.mkdir" => (FsOp::Mkdir, None, None),
+        "fs.rm" => (FsOp::Remove, None, None),
+        "fs.stat" => (FsOp::Stat, None, None),
+        "fs.readdir" => (FsOp::ReadDir, None, None),
+        "fs.realpath" => (FsOp::Realpath, None, None),
+        "fs.rename" => (FsOp::Rename, Some(text(args, "destination")?), None),
+        "fs.copyFile" => (FsOp::CopyFile, Some(text(args, "destination")?), None),
+        _ => return Err(format!("unsupported storage operation {op}")),
+    })
+}
+fn fs_value(result: FsResult) -> Value {
+    match result {
         FsResult::Done => Value::Null,
         FsResult::Bytes(bytes) => {
             json!({"base64":exact_runner::agent::base64(&bytes)})
@@ -188,6 +188,24 @@ fn execute(
             "isDirectory": stat.is_directory,
             "modifiedMs": stat.modified_ms
         }),
+    }
+}
+/// A `doc:` path (LLP 1069.010 D1): the file or folder the person chose,
+/// through ibex2's one executor for documents, the one a TypeScript
+/// source's `storage.fs` runs, so a grant means the same in either language.
+fn document_request(grants: &GrantSet, op: &str, args: &Value) -> Result<Value, String> {
+    let path = text(args, "path")?;
+    let (operation, _, data) = operation(op, args)?;
+    fs::run_document(grants, Some(&documents), operation, path, data.as_deref())
+        .map(fs_value)
+        .map_err(error)
+}
+/// [`exact_data::documents`] as ibex2's table.
+fn documents(path: &str) -> Result<fs::Document, String> {
+    use exact_data::documents::{resolve, Resolved};
+    Ok(match resolve(path)? {
+        Resolved::Root(name) => fs::Document::Root(name),
+        Resolved::Real(real) => fs::Document::Real(real),
     })
 }
 /// Whether a storage request names a `doc:` path (LLP 1069.010 D1).
@@ -214,11 +232,7 @@ pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> 
             .as_str()
             .is_some_and(exact_data::documents::is_document)
         {
-            let data = match op {
-                "fs.writeFile" | "fs.atomicWriteFile" | "fs.appendFile" => Some(bytes(args)?),
-                _ => None,
-            };
-            return super::documents::execute(&grants, op, args, data);
+            return document_request(&grants, op, args);
         }
         let paths = paths.ok_or("storage is unavailable in an unconfigured host")?;
         for path in [&paths.data, &paths.cache, &paths.temporary] {

@@ -10,7 +10,7 @@ use std::{
 };
 const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/storage.hbc"));
 const APP: &str = "dev.exact.storage-test";
-const GRANTS: &str = "fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
+const GRANTS: &str = "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
 fn plan() -> Plan {
     contract::compile(
         r#"
@@ -1005,4 +1005,36 @@ fn storage_refusals_carry_a_stable_code() {
             "Unavailable denied"
         ]
     );
+}
+
+/// A folder the person chose is reached from TypeScript as from Rust (LLP
+/// 1069.010 D1, files F2): the same `doc:` path, the same grants, the same
+/// executor, and with no app storage at all (a drive with no scratch store),
+/// where an `app:/` path is still refused as `agent`.
+#[test]
+fn a_document_the_person_chose_is_storage_without_app_directories() {
+    let dir = Root::new();
+    let folder = dir.0.join("chosen");
+    std::fs::create_dir_all(folder.join("sub")).unwrap();
+    std::fs::write(folder.join("a.txt"), "A").unwrap();
+    std::fs::write(folder.join("sub/b.txt"), "B").unwrap();
+    let doc = exact_data::documents::mint(&folder, 9101).unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let expected = "a.txt=A sub/0 new=hi Unavailable ENOENT Unavailable denied Unavailable EISDIR Unavailable ENOTDIR Unavailable ENOTEMPTY Unavailable failed Unavailable failed Unavailable failed";
+    let mut agent = Module::new(HBC.to_vec(), APP, GRANTS).with_agent_seed(Some(1));
+    agent.set_budget_ms(f64::INFINITY);
+    agent.bind(&plan());
+    agent.activate().unwrap();
+    assert_eq!(
+        call(&mut agent, &mut s, "doc", &doc),
+        format!("{expected} Unavailable agent")
+    );
+    let mut m = dir.module();
+    m.activate().unwrap();
+    assert_eq!(
+        call(&mut m, &mut s, "doc", &doc),
+        format!("{expected} Unavailable ENOENT")
+    );
+    assert!(!folder.join("new.txt").exists());
+    exact_data::documents::forget(9101);
 }

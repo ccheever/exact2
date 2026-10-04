@@ -43,9 +43,9 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
       Promise.resolve(promise).then(value => ready(() => resolve(value)), e => ready(() => reject(e)));
     });
   }
-  function enqueue(invoke, convert = clone, discard = () => {}) {
+  function enqueue(invoke, convert = clone, discard = () => {}, keyed = true) {
     if (disposed) return win.Promise.reject(unavailable());
-    if (key == null) return win.Promise.reject(error({message:agentStorageRefusal, code:'agent'}));
+    if (keyed && key == null) return win.Promise.reject(error({message:agentStorageRefusal, code:'agent'}));
     const owner = scope();
     const active = () => { if (disposed || retired.has(owner)) throw unavailable(); };
     return new win.Promise((resolve, reject) => {
@@ -73,11 +73,21 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
     transaction: commands => method(raw, 'transaction', [commands]),
     close: () => method(raw, 'close', []),
   });
+  // A document the person chose (`doc:/`, LLP 1069.010 D1) is a handle the
+  // page keeps (documents-glue.js), reached as a Rust source's storage
+  // request reaches it: under the same grants, with no store key. A module
+  // on a worker (LLP 1027.002) has no page to keep them: it is refused.
+  let documents;
+  const documentFiles = () => documents ??= (typeof window === 'undefined'
+    ? Promise.reject(error({message:'storage: the documents the person chose live in the page; a worker-placed module cannot reach them (placement main reaches them)', code:'unsupported'}))
+    : import('./documents-glue.js').then(() => globalThis.exact.documents.files(admitted.grantSet)));
   const files = {directories};
   for (const method of ['readFile','writeFile','atomicWriteFile','appendFile','readdir','mkdir','rm','stat','rename','copyFile','realpath']) {
     files[method] = (...args) => {
       // Snapshot input bytes before the caller can mutate its buffers.
       const captured = structuredClone(args);
+      if (captured.slice(0, 2).some(p => typeof p === 'string' && p.startsWith('doc:/')))
+        return enqueue(async active => { const backend = await documentFiles(); active(); return backend[method](...captured); }, clone, () => {}, false);
       return enqueue(async active => { const backend = await fileSystem(); active(); return backend[method](...captured); });
     };
   }

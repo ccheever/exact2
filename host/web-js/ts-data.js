@@ -133,8 +133,9 @@ const native = Object.freeze({
 // `sqlite` over the web host's own adapters (`storage-fs.js`,
 // `storage-sqlite.js`, beside the page and fetched on first use), under
 // the app's grants and its page's store key — none under the agent unless
-// the drive names a scratch store (`storageKey`). Only where the grants
-// name `fs.` or `sqlite.`.
+// the drive names a scratch store (`storageKey`) — and the documents the
+// person chose (`documents-glue.js`, the handles its pickers keep). Only
+// where the grants name `fs.` or `sqlite.`.
 // A refusal is `{kind: 'Unavailable', code, message}`, with Hermes's codes
 // (js/src/prelude.js `storageCode`; kanban F28): 'agent' for a drive with no
 // scratch store, 'denied' past the grants, the filesystem's POSIX name, else
@@ -154,6 +155,12 @@ function storageOf(grants) {
     return k;
   });
   const files = () => fs ??= key().then(k => import(new URL('./storage-fs.js', import.meta.url).href).then(m => m.createFileSystem(k, grants)));
+  // A document the person chose (`doc:/`, LLP 1069.010 D1) is the page's
+  // handle, not app storage: no store key, so a drive without a scratch
+  // store reaches it too, as a Rust source's storage request does.
+  let docs;
+  const documents = () => docs ??= ((globalThis.exact ??= {}), import(new URL('./documents-glue.js', import.meta.url).href)).then(() => globalThis.exact.documents.files(grants));
+  const isDocument = args => args.slice(0, 2).some(p => typeof p === 'string' && p.startsWith('doc:/'));
   const databases = () => sqlite ??= key().then(k => import(new URL('./storage-sqlite.js', import.meta.url).href).then(m => m.createSqlite(k, grants)));
   // A database's and a statement's methods refuse as storage's do.
   const wrap = (o, convert) => Object.freeze(Object.fromEntries(Object.entries(convert).map(([m, then]) =>
@@ -163,7 +170,7 @@ function storageOf(grants) {
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
-      ...Object.fromEntries(methods.map(m => [m, (...args) => files().then(f => f[m](...structuredClone(args))).catch(coded)])) }),
+      ...Object.fromEntries(methods.map(m => [m, (...args) => (isDocument(args) ? documents() : files()).then(f => f[m](...structuredClone(args))).catch(coded)])) }),
     sqlite: Object.freeze({ open: path => databases().then(d => d.open(path)).then(database, coded) }),
     work: promise => Promise.resolve(promise),
   });

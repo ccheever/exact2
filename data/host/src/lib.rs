@@ -9,7 +9,6 @@ use std::{
     path::PathBuf,
 };
 #[cfg(not(target_arch = "wasm32"))]
-mod documents;
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
 #[cfg(all(test, not(target_arch = "wasm32")))]

@@ -154,6 +154,8 @@ pub struct RuntimeState {
     pub(crate) intl_datetime: crate::stdlib::intl_datetime::Registry,
     pub(crate) sqlite: crate::sqlite_abi::Registry,
     app_directories: std::sync::OnceLock<crate::stdlib::app_fs::AppDirectories>,
+    /// The embedder's table of documents the person chose (Exact patch 5).
+    documents: std::sync::OnceLock<Arc<crate::stdlib::fs::Documents>>,
     responses: Mutex<std::collections::HashMap<u64, Arc<StoredResponse>>>,
     controls: Mutex<std::collections::HashMap<u64, crate::stdlib::abort::AbortController>>,
     shutdown: std::sync::atomic::AtomicBool,
@@ -206,6 +208,7 @@ impl RuntimeState {
             intl_datetime: crate::stdlib::intl_datetime::Registry::new(),
             sqlite: crate::sqlite_abi::Registry::default(),
             app_directories: std::sync::OnceLock::new(),
+            documents: std::sync::OnceLock::new(),
             responses: Mutex::new(std::collections::HashMap::new()),
             controls: Mutex::new(std::collections::HashMap::new()),
             shutdown: std::sync::atomic::AtomicBool::new(false),
@@ -231,6 +234,18 @@ impl RuntimeState {
     }
     pub fn app_directories(&self) -> Option<&crate::stdlib::app_fs::AppDirectories> {
         self.app_directories.get()
+    }
+    /// Install the table `doc:` paths resolve through (Exact patch 5).
+    pub fn set_documents(
+        &self,
+        documents: Arc<crate::stdlib::fs::Documents>,
+    ) -> Result<(), HostError> {
+        self.documents
+            .set(documents)
+            .map_err(|_| HostError::InvalidArgument("Documents are already configured".into()))
+    }
+    pub fn documents(&self) -> Option<&crate::stdlib::fs::Documents> {
+        self.documents.get().map(|d| &**d)
     }
     pub fn set_sqlite_provider(
         &self,

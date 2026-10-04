@@ -905,7 +905,7 @@ fn run_async(
         return crate::sqlite_abi::run(op as u32, args, state, grants);
     }
     if let Some(fs_op) = fs_op_for(op) {
-        return run_fs(fs_op, args, grants, state.app_directories());
+        return run_fs(fs_op, args, grants, state);
     }
     match op {
         AsyncOp::Fetch => {
@@ -1131,9 +1131,9 @@ fn run_fs(
     op: crate::stdlib::fs::FsOp,
     args: &[HostValue],
     grants: &GrantSet,
-    directories: Option<&crate::stdlib::app_fs::AppDirectories>,
+    state: &crate::task::RuntimeState,
 ) -> Result<HostValue, HostError> {
-    use crate::stdlib::fs::{run, FsResult};
+    use crate::stdlib::fs::{run, run_document, FsResult, DOCUMENT_PREFIX};
 
     let path_arg = |index: usize| -> Result<&str, HostError> {
         match args.get(index) {
@@ -1168,7 +1168,11 @@ fn run_fs(
     }
 
     Ok(
-        match run(grants, directories, op, path, destination, data)? {
+        match if path.starts_with(DOCUMENT_PREFIX) {
+            run_document(grants, state.documents(), op, path, data)?
+        } else {
+            run(grants, state.app_directories(), op, path, destination, data)?
+        } {
             FsResult::Done => HostValue::Undefined,
             FsResult::Bytes(bytes) => HostValue::Bytes(bytes),
             FsResult::Text(text) => HostValue::Str(text),

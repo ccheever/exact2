@@ -47,6 +47,14 @@ impl Context {
         self.state.set_sqlite_provider(provider)
     }
 
+    /// The table `doc:` paths resolve through (Exact patch 5).
+    pub fn set_documents(
+        &self,
+        documents: Arc<crate::stdlib::fs::Documents>,
+    ) -> Result<(), crate::boundary::HostError> {
+        self.state.set_documents(documents)
+    }
+
     /// Worker-safe notification that schedules the embedder's loop; never
     /// execute JS in this callback. Install before starting work.
     pub fn set_wake(&self, wake: Arc<dyn Fn() + Send + Sync>) {
