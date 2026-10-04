@@ -1,10 +1,6 @@
-//! Style value types and the one lowering onto Taffy.
-//!
-//! The generated `StyleProps` holds the rows; this module holds the value
-//! grammars the rows use (dimensions, colors, grid tracks and placements) and
-//! `to_taffy`, the single place where authored style becomes engine style.
-//! Percentages are authored as points (0–100) on the wire and in storage and
-//! are converted to Taffy's fraction exactly once, here.
+//! Style grammars (dimensions, colors, grid tracks/placements) and Taffy lowering.
+//! Generated `StyleProps` holds rows; `to_taffy` converts authored to engine style.
+//! Percentages use points (0–100) on the wire/in storage, becoming fractions here.
 
 use taffy::prelude::{auto, length, percent};
 

@@ -347,8 +347,10 @@ fn paint_ranks_survive_repaints_and_scroll_until_a_kernel_commit() {
     );
     let id = p.host().kernel().find_by_test_id("row")[0];
     let id = p.host().kernel().node_by_key(id).unwrap().id;
-    let mut style = exact_kernel::StyleProps::default();
-    style.opacity = 0.5;
+    let mut style = exact_kernel::StyleProps {
+        opacity: 0.5,
+        ..Default::default()
+    };
     style.mask.set(exact_kernel::StyleId::Opacity);
     p.host
         .runner_mut()

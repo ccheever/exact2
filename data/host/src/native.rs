@@ -102,12 +102,12 @@ fn commands(args: &Value) -> Result<Vec<(String, sqlite::Command)>, String> {
 }
 fn execute(
     grants: &GrantSet,
-    directories: &AppDirectories,
+    directories: Option<&AppDirectories>,
     op: &str,
     args: &Value,
 ) -> Result<Value, String> {
     let path = text(args, "path")?;
-    if !path.starts_with("app:/") {
+    if !path.starts_with("app:/") && !native_filesystem(op, args) {
         return Err("portable storage needs an app:/ path".into());
     }
     if op == "sqlite" || op == "sqlite.transaction" {
@@ -115,7 +115,7 @@ fn execute(
         if op == "sqlite.transaction" && commands.iter().any(|(k, _)| k != "execute") {
             return Err("SQLite write transaction requires execute commands".into());
         }
-        let path = app_fs::resolve_sqlite(grants, Some(directories), path).map_err(error)?;
+        let path = app_fs::resolve_sqlite(grants, directories, path).map_err(error)?;
         let db = sqlite::Database::new(
             ibex2_sqlite::SqliteProvider
                 .open(Location { path })
@@ -140,12 +140,12 @@ fn execute(
         };
     }
     let (operation, destination, data) = operation(op, args)?;
-    if destination.is_some_and(|d| !d.starts_with("app:/")) {
+    if path.starts_with("app:/") && destination.is_some_and(|d| !d.starts_with("app:/")) {
         return Err("portable storage needs an app:/ destination".into());
     }
     let result = fs::run(
         grants,
-        Some(directories),
+        directories,
         operation,
         path,
         destination,
@@ -215,12 +215,25 @@ pub(super) fn agent_refusal() -> Outcome {
             .unwrap(),
     )
 }
-/// Whether a storage request names a `doc:` path (LLP 1069.010 D1).
-pub(super) fn document(payload: &[u8]) -> bool {
+/// Native disk operations do not need (or initialize) the app storage roots.
+/// Classify malformed disk spellings too: the filesystem adapter refuses them
+/// after source/grant admission, before opening any handle. This is not authority.
+fn native_filesystem(op: &str, args: &Value) -> bool {
+    cfg!(windows)
+        && op.starts_with("fs.")
+        && args["path"].as_str().is_some_and(|path| {
+            !path.starts_with("app:/") && !exact_data::documents::is_document(path)
+        })
+}
+/// Chosen documents and Windows disk requests require no app directories.
+pub(super) fn independent_storage(payload: &[u8]) -> bool {
     serde_json::from_slice::<Value>(payload).is_ok_and(|r| {
         r["args"]["path"]
             .as_str()
             .is_some_and(exact_data::documents::is_document)
+            || r["op"]
+                .as_str()
+                .is_some_and(|op| native_filesystem(op, &r["args"]))
     })
 }
 pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> Outcome {
@@ -241,13 +254,19 @@ pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> 
         {
             return document_request(&grants, op, args);
         }
+        if native_filesystem(op, args) {
+            return execute(&grants, None, op, args);
+        }
+        if !text(args, "path")?.starts_with("app:/") {
+            return Err("portable storage needs an app:/ path".into());
+        }
         let paths = paths.ok_or("storage is unavailable in an unconfigured host")?;
         for path in [&paths.data, &paths.cache, &paths.temporary] {
             std::fs::create_dir_all(path).map_err(error)?;
         }
         let directories =
             AppDirectories::new(&paths.data, &paths.cache, &paths.temporary).map_err(error)?;
-        execute(&grants, &directories, op, &request["args"])
+        execute(&grants, Some(&directories), op, &request["args"])
     })();
     match result {
         Ok(v) => {

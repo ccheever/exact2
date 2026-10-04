@@ -1,11 +1,14 @@
 # LLP 1090: The JS target's evaluation budget
 
 **Type:** RFC
-**Status:** Draft r2, 2026-10-04. r1 was reviewed twice by Grok 4.7 (xhigh), each with a different scope: semantic parity (`llp/reviews/1090-r1.grok-a.md`) and performance and implementation (`llp/reviews/1090-r1.grok-b.md`). Codex/Astra's budget was exhausted, so both reviews are one family. Both returned NOT READY. r2 resolves every finding (§8). Round 1 of 3.
+**Status:** Accepted (r3, by the orchestrator under Charlie's delegation after three rounds; Grok 4.7 only — Codex budget exhausted), 2026-10-04.
+- r1 was reviewed twice by Grok 4.7 (xhigh), with two scopes: semantic parity (`llp/reviews/1090-r1.grok-a.md`) and performance and implementation (`llp/reviews/1090-r1.grok-b.md`). Both NOT READY.
+- r2 was delta-reviewed (`llp/reviews/1090-r2.grok.md`). NOT READY, with two MATERIAL, four MINOR and one NIT finding.
+- r3 resolves all seven, so nothing is descoped (§8). r3 had no further review.
 **Systems:** Runner (`runner/src/vm.rs`, `stdlib.rs`, `instance/collection/mod.rs`), Contract checker (`contract/types`), JS target (`host/web-js`: `src/code.rs`, `src/emit.rs`, `src/regions.rs`, `rt.js`, a new `budget.js`), conformance (`host/web-js/conform.mjs`, `host/web-js/conformance/`), Lean semantics and difftest (`semantics/`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
-**Revised:** 2026-10-04 (r2)
+**Revised:** 2026-10-04 (r2, r3)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stages 1 and 2 on 2026-10-05, stage 3 on 2026-10-06 (§5)
 **Amends:** LLP 1017.003 D3 (what a value's extent counts) and D7 ("no second evaluator": since LLP 1071 there is one); LLP 1006 §2 (two type refusals); LLP 1088 §9.1 (this LLP meets its precondition)
 **Related:** LLP 1005 §6; LLP 1017.003; LLP 1071; LLP 1088 D2 and §9.1; `llp/reviews/1088-r2.astra.md` (the reset points); `QUEUE.md`, "The JS target's evaluation budget". Benchmark harness, kept outside the repository: `~/projects/x2apps/_reviews/llp1090-bench/`.
@@ -77,12 +80,12 @@ r2 table at today's lines, with the JS sites that must match:
 
 | Evaluation | Runner | JS target |
 |---|---|---|
-| Each action body (timers and `then` too) | `runner/commit.rs:469` | `emit.rs:466` (`act`) |
-| Each derive evaluation or retry | `runner/settlement.rs:295` | `emit.rs:370` (`memo`) |
-| **Each** resource argument | `runner/settlement.rs:367` | `emit.rs:384`, inside one `args()` callback (`:429`) |
-| Each root-state initializer | `runner/router.rs:605` | `regions.rs:159` (`root_slot`; `emit.rs:339` is the locale slot) |
-| **Each** handler argument, collection edges included | `runner/event.rs:814`, `:971` | `emit.rs:1185–1189` |
-| Each binding and surface argument | `instance.rs:810`, `:817`, `:926` | `emit.rs:876`, `:1043`, `:1080`, `:1315` |
+| Each action body (timers and `then` too) | `runner/commit.rs:469` | `emit.rs:421`, wrapped by `act` at `:433` |
+| Each derive evaluation or retry | `runner/settlement.rs:295` | `emit.rs:325`, `memo` at `:327` |
+| **Each** resource argument | `runner/settlement.rs:367` | `emit.rs:339`, inside one `args()` callback (`:384`) |
+| Each root-state initializer | `runner/router.rs:605` | `regions.rs:159` (`root_slot`; `emit.rs:294` is the locale slot) |
+| **Each** handler argument, collection edges included | `runner/event.rs:814`, `:971` | `emit.rs:1127`, wrapped at `:1183–1189` |
+| Each binding and surface argument | `instance.rs:810`, `:817`, `:926` | `rows.rs:63`; `emit.rs:999`, `:1036`, `:1271` |
 | Each region subject, row key, row-state initializer | `instance/region.rs:43`, `:69`, `:95`, `:131`, `:324` | `regions.rs:105` (`each` and `$vl` alike), `:116`, `:77` |
 | Virtualized bindings, subjects, keys, initializers | `instance/collection/mod.rs:266`–`:309`, `:456`, `:582`, `:995`; `collection/rekey.rs:72` | the same `regions.rs` sites |
 
@@ -97,7 +100,8 @@ and a `map` body belongs to its Code: both share their caller's budget.
 - `Some` is erased, and records and lists are arrays (`code.rs:286`, `:325`,
   `:330`).
 - Handler arguments are evaluated before `act` opens the commit
-  (`emit.rs:1189`, `rt.js:206`).
+  (`emit.rs:1189`, `rt.js:206`). A row action's handler always has
+  arguments, because the emitter inserts `$r` first (`emit.rs:1183`).
 - A tree-update failure is journaled `poisoned: <message>` (`rt.js:175`).
 
 ## 3. Decisions
@@ -108,11 +112,16 @@ and a `map` body belongs to its Code: both share their caller's budget.
   `Filter` or a `Call join`. The emitter translates each plan Code once
   (`code::function`, `code::expression`). A metered Code's function declares
   `let $s=0`. Its loops (D3) increment `$s`, including loops inside a map
-  body, which captures `$s`, and `join` adds the list's length.
+  body, which captures `$s`. A `join` is emitted as `$s+=l.length` with its
+  trap test at the `Call`'s pc, then `x_join(l, sep, pc)`, which joins and
+  checks bytes and has no counter of its own.
   - There is no module-level counter, so nothing is saved or restored.
   - A derive read mid-loop is another function's invocation (its memo), with
     its own `$s` from 0, and the caller's `$s` is untouched.
-  - An unmetered Code is emitted exactly as today.
+  - **An unmetered Code gets no `$s` and nothing else changes in its
+    shape.** It still gets D3's checks wherever it constructs, concatenates
+    or calls a checked function (`K`, `cc`, `x_t`, `NP`, the encoders). A
+    Code with none of these is emitted exactly as today.
 - **One invocation per reset point.** That holds for a metered
   `code::expression` because it is always an immediately called function.
   The strip in `code.rs:99–101` applies to unmetered straight-line
@@ -123,14 +132,25 @@ and a `map` body belongs to its Code: both share their caller's budget.
   - each list-option binding;
   - each resource argument (an IIFE inside the existing `args()` callback;
     the memo and its subscriptions are unchanged).
-- **Handler and edge arguments run inside the commit.** The emitter writes
-  `(...v)=>a_N.t(()=>[args], v)` for a handler with arguments. `act` (one
-  line, `rt.js:206`) gives each action
-  `.t = (f, v) => commit(() => fn(...f(), ...v), "action")`.
+- **Handler and edge arguments run inside the commit, through one entry.**
+  The emitter writes `(...v)=>a_N.t(()=>[args], v)` for a handler with
+  arguments, row actions included, where `args` begins with `$r`.
+  - `act(fn, names, rowed)` on `rt.js:206` builds both entry points over one
+    function `go(a)`:
+    1. it checks the string arguments in parameter order, zipped to the
+       contract's parameters with `$r` skipped when `rowed`, against
+       `names` (the string parameters' names, emitted only when there are
+       any);
+    2. it calls `fn(...a)`.
+  - The plain entry is `(...a) => commit(() => go(a), "action")`.
+  - `.t(f, v)` first tests `Poisoned`. On a poisoned runner it forces `f()`
+    alone, inside a `try`, so a trapping argument journals its `Trap(…)` and
+    otherwise the poisoned refusal stands. This matches the runner, which
+    evaluates handler arguments (`event.rs:969–971`) before `run_action`'s
+    poisoned check (`commit.rs:412–414`).
+  - Otherwise `.t` is `commit(() => go([...f(), ...v]), "action")`.
   - A trap in an argument is caught by `commit` and journaled as a refusal
-    with nothing changed, as the runner refuses before `run_action`
-    (`event.rs:812–816`).
-  - Edges (`list.js:755`) call the same closures.
+    with nothing changed. Edges (`list.js:755`) call the same closures.
 - **A skipped evaluation hides nothing.** An evaluation is a pure function of
   its reads, so skipping one whose reads are unchanged (a memo, a kept row's
   key) skips a result already computed, trap or not.
@@ -188,9 +208,10 @@ and a `map` body belongs to its Code: both share their caller's budget.
   everywhere; stage 3 inlines the loop bodies, D5).
 - **Concatenation.** `Concat` becomes `cc(a, b, pc)`: it builds the
   string, then checks the length when `length > ⌊MAX/3⌋`. `Add` stays `+`.
-- **`join`.** `x_join` takes `length` steps first, as `vm.rs:768` does. A
-  one-element list of a string returns that string unchecked
-  (`stdlib.rs:191–195`); otherwise the result's bytes are checked.
+- **`join`.** The steps are the caller's `$s` (D1), taken before joining,
+  as `vm.rs:768` does. `x_join` then returns a one-element list's string
+  unchecked (`stdlib.rs:191–195`) and otherwise checks the result's
+  bytes.
 - **`NP`, `x_t` and the two encoders** check their result's bytes. The
   encoders check after `encode_route_segment`'s empty and dot refusal, at
   the `Call`'s pc.
@@ -204,6 +225,9 @@ and a `map` body belongs to its Code: both share their caller's budget.
     and every later addition is exact. A trap fires only on the exact
     total, `>` as in Rust. So the trap falls on the runner's item or
     construction, never earlier and never later.
+  - In an exact recount, a cached part's bytes count only if its cache
+    entry is marked exact. Otherwise the part is recounted in UTF-8, and its
+    entry is updated to that exact total and marked exact.
   - A one-shot check (`cc`, `join`, `t`, `NP`) counts exactly once its upper
     bound passes.
 - **The extent cache.** An array of 64 nodes or more is remembered in a
@@ -222,8 +246,11 @@ and a `map` body belongs to its Code: both share their caller's budget.
     emitter's import list gains a second module.
   - `rt.js` never imports it, and the roster test
     (`code.rs:600–614`) reads `budget.js` as well.
-  - `rt.js` (1,498 of 1,500 lines) changes only on existing lines: `act`
-    (D1), and the commit's write and argument checks (D6).
+  - `rt.js` (1,499 of 1,500 lines) changes only on existing lines: `act`
+    (D1), the commit's write check and `sig` (D6).
+  - Those checks are one-shot tests that need no counter: a string whose
+    `length > ⌊MAX_STRING/3⌋` is encoded with `TextEncoder`, which turns a
+    lone surrogate into U+FFFD's 3 bytes, and its byte length is compared.
 - **The order is the runner's.** The translator keeps the stack's
   left-to-right order (`code.rs`, `flush`), and each check sits where the VM
   makes it. So an evaluation that would pass two bounds reports the same
@@ -265,7 +292,9 @@ reproduction agrees, and D3 now specifies the emitted loop.
 - **Stage 3, in both engines on the harness:** an emitted metered
   `map`/`filter`, construction included, no slower than the native call it
   replaces. A concatenation costs at most 1.5 ns more.
-- **Unmetered Codes** are unchanged.
+- **Codes with no list step, construction, concatenation or checked call**
+  are unchanged. Their constructions and concatenations pay `K` and `cc`
+  (in the table).
 - **App level:** the RealWorld load and press (`host/web-js/bench.mjs`) and
   a Caltrain hover drive are within noise of before, and every in-repo
   `app.js` grows at most 1 KiB brotli (`metrics.mjs --long`).
@@ -295,8 +324,8 @@ after three rounds and reports. Parity is not traded for speed.
   - The commit's write loop (`rt.js:149`) refuses a top-level string over
     `MAX_STRING` after the body, with the slot's name. `sig` takes the name
     for string-typed slots only.
-  - `act` refuses a string argument over `MAX_STRING` in parameter order
-    (`commit.rs:425–436`), with the names of its string parameters.
+  - `act`'s shared `go` refuses a string argument over `MAX_STRING` in
+    parameter order, for both entry points (`commit.rs:424–436`; D1).
   - A bake or boot that fails does so with the same text.
 - **Three runner gaps close in stage 1, so there is one rule to match:**
   1. `encodeURIComponent` and `encodeRouteSegment` check `MAX_STRING` on the
@@ -311,8 +340,9 @@ after three rounds and reports. Parity is not traded for speed.
 - **The plans.** `host/web-js/conformance/budget.contract` and its `.steps`
   run on Carousel's sources (`// data: carousel`). `cards(n)` answers `n`
   six-node records (`apps/carousel/data/src/lib.rs:19–27`). Carousel's data
-  crate gains an ignored second argument to `cards` (case 3) and `long(n)`,
-  an `n`-byte string (cases 10 and 13).
+  crate gains an ignored second argument to `cards` (case 3) and
+  `long(n, c)`, the string `c` repeated `n` times (cases 10, 13, 17 and
+  18).
   - The async lane's `conform.mjs --synthetic --linux --strict` runs them on
     the wasm runner, the JS target and the Linux runner.
   - It already fails a step that one target refuses and another does not
@@ -340,7 +370,7 @@ after three rounds and reports. Parity is not traded for speed.
   9. Doubling `s = s + s` from `"é"`: the 25th click reaches exactly
      2²⁶ bytes (2²⁵ units, between `u` and `3u`) and succeeds; the 26th
      traps `StringTooLong`.
-  10. Storing `long(2^26 + 1)` into a slot is refused
+  10. Storing `long(2^26 + 1, "a")` into a slot is refused
       `StringTooLong { name }`.
   11. `map(cards(2000), c => Two(a=cards, b=cards))`: each item is 24,003
       nodes, and the sum crosses 2²⁴ on item 699 with
@@ -348,11 +378,27 @@ after three rounds and reports. Parity is not traded for speed.
   12. 40,000 copies of a 2 KiB ASCII string trap `ValueTooLarge` at the
       `Map` on item 32,769. 30,000 succeed, though their `3u` upper bound
       passes the cap at item 10,923: the exact recount (D3) carries on.
-  13. A record holding `long(2^26 + 1)` traps `ValueTooLarge`.
+  13. A record holding `long(2^26 + 1, "a")` traps `ValueTooLarge`.
   14. Each encoder traps one byte past `MAX_STRING`.
   15. `[x, x]` over a cached 64-node list counts it twice, and a
       filter-identity subject is not mutated.
-  16. After every refusal, the next step's state is identical on all three
+  16. `join(map(cards(40000), c => c.label), ",")` traps `IterationLimit`
+      at the `join`'s `Call` (80,000 steps in one evaluation); with 30,000
+      it succeeds.
+  17. **Handler and row arguments.**
+      - A row action's `input` handler whose argument is
+        `long(2^26 + 1, "a")` is refused `StringTooLong { name }`, and the
+        next step is unchanged.
+      - `long(22369622, "€")` (67,108,866 bytes in fewer than 2²⁶ units),
+        stored or passed, is refused the same way.
+      - After a row key has poisoned the runner (case 7), a handler whose
+        argument traps journals `Trap(…)`.
+  18. With `resource k = long(1000, "a")` and
+      `derive xs = map(cards(10000), c => k)` (10,001 nodes, so cached;
+      10 MB exact, 30 MB as an upper bound), `Three(a=xs, b=xs, c=xs)`
+      succeeds through the cached part's recount: 30 MB exact, 90 MB as an
+      upper bound. `Seven(…)` (70 MB) traps `ValueTooLarge`.
+  19. After every refusal, the next step's state is identical on all three
       targets (LLP 1005 §6).
 - **State size.** The harness compares state, so cases 9 and 10 hold a
   64 MiB slot for one step. The step after them resets it.
@@ -381,7 +427,11 @@ after three rounds and reports. Parity is not traded for speed.
 - **Checker:** `option<option<T>>` is refused, declared or inferred; depth
   64 compiles and 65 does not; every in-repo app compiles.
 - **Emitter:**
-  - unmetered Codes are emitted as today;
+  - a Code with no list step, construction, concatenation or checked call
+    is emitted as today; one with a construction or concatenation but no
+    list step has no `$s` and does call `K` or `cc`;
+  - a `join` adds to `$s` at its `Call`;
+  - `act` receives its string parameters' names and whether it takes `$r`;
   - a metered Code declares one `$s`, and a metered `expression()` is called
     in place;
   - each resource argument, row initializer and surface argument is its
@@ -446,3 +496,16 @@ review records. The design changed in five ways:
 - `type-option-option`;
 - inline emission instead of elision;
 - pinned conformance oracles.
+
+**r3 (2026-10-04), the final revision.** It resolves the r2 delta review
+(`llp/reviews/1090-r2.grok.md`):
+
+- one argument check for both of `act`'s entry points, with `$r` skipped;
+- the argument thunk forced on a poisoned runner;
+- `K` and `cc` in unmetered Codes;
+- `join`'s steps on the caller's `$s`;
+- the cache's exactness rule;
+- one-shot UTF-8 tests in `rt.js` through `TextEncoder`;
+- the re-pinned `emit.rs` sites.
+
+Cases 16 to 18 are new. Nothing is descoped.

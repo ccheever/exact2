@@ -154,6 +154,17 @@ export function packagedBuildChanges(receipt, directory) {
       if (createHash('sha256').update(readFileSync(path)).digest('hex') !== product.sha256) changed.push(path);
     } catch { changed.push(path); }
   }
+  const compatibility = resolve(directory, 'compat.json');
+  if (existsSync(compatibility)) {
+    const assets = JSON.parse(readFileSync(compatibility, 'utf8')).embedded?.assets ?? [];
+    for (const asset of assets.filter(asset => /^shaders\/[A-Za-z_][A-Za-z0-9_]*\.wgsl$/.test(asset.name))) {
+      const path = resolve(directory, asset.name);
+      try {
+        const bytes = readFileSync(path);
+        if (bytes.length !== asset.bytes || createHash('sha256').update(bytes).digest('hex') !== asset.sha256) changed.push(path);
+      } catch { changed.push(path); }
+    }
+  }
   return changed;
 }
 
@@ -262,7 +273,7 @@ export function receiptChanges(receipt, app) {
 export function gameNonInput(path) {
   path = path.replaceAll('\\', '/');
   return /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.md)$/.test(path)
-    || (/\.m?js$/.test(path) && !/^(logic|data|gpu|art|assets|deck)\//.test(path));
+    || (/\.m?js$/.test(path) && !/^(logic|data|gpu|presentation|art|assets|deck)\//.test(path));
 }
 export function webChanges(dist, app) {
   const marker = resolve(dist, '.exact-build.json');
