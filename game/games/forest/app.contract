@@ -16,6 +16,7 @@ shape Hud
   rescued: number
   children: number
   dead: bool
+  objective: string
   deer: string
   chasing: number
   trees: number
@@ -84,6 +85,10 @@ component Forest
                   text "Menu"
               button press=togglePause testId="pause" aria-label=(paused ? "Resume" : "Pause") padding=12 border-radius=12 background-color="#070b0acc"
                 text (paused ? "Resume" : "Pause")
+          column position="absolute" left=16 top=132 gap=5 padding=12 border-radius=12 background-color="#070b0acc"
+            text hud.objective testId="objective" font-size=16 font-weight=700 color="#a8d9ff"
+            text "Rescue supplies: +20 fire fuel and 2 food" font-size=12 color="#a7b0a3"
+            text "Compass: W north · D east · S south · A west" font-size=12 color="#a7b0a3"
           column testId="vitals" position="absolute" left=16 bottom=16 gap=4 padding=12 border-radius=12 background-color="#070b0acc"
             text `Health ${hud.health}` testId="health" color=(hud.health < 30 ? "#ff7a59" : "#eef2e8")
             text `Hunger ${hud.hunger}` testId="hunger" color=(hud.hunger < 25 ? "#ff7a59" : "#eef2e8")
@@ -109,6 +114,7 @@ component Forest
             text "WASD moves · E chops, picks up, feeds the fire" width="100%" text-align="center"
             text "F flashlight · Q eats" width="100%" text-align="center"
             text "Keep the fire lit. The Deer hunts outside its light." width="100%" text-align="center" color="#a7b0a3"
+            text "Follow the compass to lost children. Escort them home for supplies." width="100%" text-align="center" color="#a8d9ff"
           row gap=8 align-items="center"
             text "Trees" width=64
             button press=size(1000) aria-pressed=(trees == 1000) testId="trees-1k" padding=10 border-radius=10 background-color=(trees == 1000 ? "#e8ad61" : "#2d3a33")

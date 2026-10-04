@@ -401,10 +401,14 @@ pub fn flashlight(w: &mut World, toggle: bool) {
 }
 
 /// Lost children wait; followers trail the player and are rescued in the light.
-pub fn children(w: &World, player: Vec3, safe: f32) -> u32 {
+pub fn children(w: &mut World, player: Vec3, safe: f32) -> u32 {
     let dt = w.dt();
+    if w.require::<Player>("player").dead {
+        return w.count::<Child>(|child| child.fate == Fate::Rescued);
+    }
     let g = w.resource::<Grove>();
     let mut rescued = 0;
+    let mut arrivals = 0;
     for (_, (pose, child)) in w.query::<(&mut Transform, &mut Child)>().iter() {
         match child.fate {
             Fate::Lost => {}
@@ -418,8 +422,9 @@ pub fn children(w: &World, player: Vec3, safe: f32) -> u32 {
                         g.resolve(pose.position.x + vx * dt, pose.position.z + vz * dt, 0.25);
                     pose.position = Vec3::new(x, height(x, z) + 0.6, z);
                 }
-                if Vec3::new(pose.position.x, 0.0, pose.position.z).length() < safe.max(3.0) {
+                if safe > 0.0 && Vec3::new(pose.position.x, 0.0, pose.position.z).length() < safe {
                     child.fate = Fate::Rescued;
+                    arrivals += 1;
                 }
             }
             Fate::Rescued => {}
@@ -428,5 +433,49 @@ pub fn children(w: &World, player: Vec3, safe: f32) -> u32 {
             rescued += 1;
         }
     }
+    drop(g);
+    if arrivals > 0 {
+        let mut fire = w.resource_mut::<Fire>();
+        fire.fuel = (fire.fuel + 20.0 * arrivals as f32).min(MAX_FUEL);
+        drop(fire);
+        for k in 0..arrivals * 2 {
+            drop_item(w, Kind::Food, -2.0 - k as f32 * 0.6, 2.0);
+        }
+        w.emit("rescued");
+        w.log("Rescue supplies: +20 fire fuel and 2 food per child");
+    }
     rescued
+}
+
+/// Bearings use the walking axes: W is north, D is east. No hidden target
+/// positions are needed by a player or agent following the visible objective.
+pub fn guidance(w: &World) -> String {
+    let at = w.require::<Transform>("player").position;
+    let following = w.count::<Child>(|child| child.fate == Fate::Following);
+    if following > 0 {
+        return format!("Escort {following} to the fire · {}", bearing(-at));
+    }
+    let nearest = w
+        .query::<(&Transform, &Child)>()
+        .iter()
+        .filter(|(_, (_, child))| child.fate == Fate::Lost)
+        .map(|(_, (pose, _))| (pose.position - at).with_y(0.0))
+        .min_by(|a, b| a.length_squared().total_cmp(&b.length_squared()));
+    match nearest {
+        Some(to) => format!("Find a lost child · {}", bearing(to)),
+        None => "All children safe · Keep the fire burning".into(),
+    }
+}
+
+fn bearing(to: Vec3) -> String {
+    let distance = math::ceil(to.with_y(0.0).length()) as u32;
+    if distance <= 2 {
+        return "within reach".into();
+    }
+    let angle = math::atan2(to.x, -to.z);
+    let sector = (math::round(angle / std::f32::consts::FRAC_PI_4) as i32).rem_euclid(8);
+    format!(
+        "{} · {distance} m",
+        ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][sector as usize]
+    )
 }

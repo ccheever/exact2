@@ -2,11 +2,11 @@
 // A day and a night through real keys: chop the nearest tree, carry its logs to
 // the fire, wait for dark, meet the Deer with the flashlight, and save mid-night.
 import {resolve} from 'node:path';
-import {readFileSync} from 'node:fs';
-import { proof, axNames } from '../../proof.mjs';
+import {readFileSync, writeFileSync} from 'node:fs';
+import { proof, axNames, decide } from '../../proof.mjs';
 
 const DAY = 80, DAWN = 8;
-if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave}) => {
+if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say}) => {
   const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
   const s = await open();
   const text = async id => node(await s.tree(), id)?.props?.text;
@@ -27,6 +27,56 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     }
     return false;
   };
+
+  if (process.argv.includes('--playtest')) {
+    // Jev chooses using only the visible HUD. The authored motor follows its
+    // compass for one second; no inspected child positions or world writes.
+    await s.tap('play');
+    const transcript = resolve(out, 'jev-decisions.jsonl');
+    writeFileSync(transcript, '');
+    const recent = [];
+    for (let turn = 0; turn < 48; turn++) {
+      const tree = await s.tree();
+      const state = Object.fromEntries(['objective','prompt','health','hunger','pack','fuel','battery','day','left','children']
+        .map(id => [id, node(tree, id)?.props?.text ?? '']));
+      if (node(tree, 'dead') || state.objective.startsWith('All children safe')) break;
+      const heading = state.objective.match(/· (N|NE|E|SE|S|SW|W|NW) ·/u)?.[1];
+      const choices = {wait:'Stay still for one second, allowing followers to catch up'};
+      if (heading) choices.follow = 'Walk toward the compass objective for one second: find a child, or escort a follower home';
+      if (state.prompt) choices.interact = `Press E now: ${state.prompt}`;
+      if (!state.pack.includes('0 food')) choices.eat = 'Eat one carried food to restore hunger';
+      choices.flashlight = 'Toggle the flashlight; it protects against creatures but uses battery';
+      const decision = await decide({state:{...state, recent}, choices, transcript,
+        goal:'Rescue both children and survive. Prefer taking a child in reach, otherwise follow the compass. Escort followers home for supplies. Eat when hungry. Daylight is limited.'});
+      say(`JEV ${turn + 1}: ${decision.choice} · ${state.objective}`);
+      recent.push({action:decision.choice, objective:state.objective, prompt:state.prompt});
+      if (recent.length > 4) recent.shift();
+      if (decision.choice === 'follow') {
+        const keys = [...(heading.includes('N') ? ['KeyW'] : []), ...(heading.includes('S') ? ['KeyS'] : []),
+          ...(heading.includes('E') ? ['KeyD'] : []), ...(heading.includes('W') ? ['KeyA'] : [])];
+        try {
+          for (const key of keys) await game.key_down(key);
+          // Shorter strides near a child prevent stepping straight past reach.
+          const distance = Number(state.objective.match(/· (\d+) m$/)?.[1] ?? 6);
+          await game.run(Math.min(1000, Math.max(100, (distance - 1) / 6 * 1000)));
+        } finally { for (const key of keys) await game.key_up(key); }
+      } else if (decision.choice === 'wait') await game.run(1000);
+      else {
+        await game.tap({interact:'KeyE', eat:'KeyQ', flashlight:'KeyF'}[decision.choice]);
+        await game.run(100);
+      }
+    }
+    const tree = await s.tree();
+    say(`JEV outcome: ${node(tree, 'children')?.props?.text}; ${node(tree, 'health')?.props?.text}`);
+    // Outcomes remain observations: a weak model policy must not fake a proof.
+    writeFileSync(resolve(out, 'jev-outcome.json'), JSON.stringify({
+      children:node(tree, 'children')?.props?.text, health:node(tree, 'health')?.props?.text,
+      objective:node(tree, 'objective')?.props?.text, world:await game.snapshot(),
+    }, null, 2));
+    await s.screenshot(resolve(out, 'jev-playtest.png'));
+    await s.close();
+    return;
+  }
 
   if (process.argv.includes('--screenshot-only')) {
     // Pixels only: a day frame, then the same camp at night with the flashlight.
@@ -136,4 +186,46 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await loaded.save(resolve(out, 'restored.world'));
   check('continuation saves are byte-identical', readFileSync(resolve(out, 'continued.world')).equals(readFileSync(resolve(out, 'restored.world'))));
   await r.close();
+
+  // Rescue through real movement, then resume the escort in a fresh process.
+  const rescue = await open({fresh:true});
+  await rescue.tap('trees-1k');
+  await rescue.tap('play');
+  const escort = rescue.world('world');
+  check('a visible compass gives the next objective', /Find a lost child · [NSEW]+ · \d+ m/.test(node(await rescue.tree(), 'objective')?.props?.text));
+  const child = await escort.local_position('child-1');
+  check('walk to a child', await walkTo(rescue, child, 1.6), await escort.local_position('player'));
+  await escort.tap('KeyE');
+  await escort.run(100);
+  check('a child follows and the compass points home', JSON.stringify(await escort.get('child-1','Child')).includes('Following')
+    && node(await rescue.tree(), 'objective')?.props?.text.startsWith('Escort 1 to the fire'));
+  await escort.save(resolve(out, 'escort.world'));
+  const checkpointEscort = await escort.snapshot();
+  const returnHome = async session => {
+    const world = session.world('world');
+    const before = Number(node(await session.tree(), 'fuel')?.props?.text.match(/\d+/)?.[0]);
+    const foods = async () => (await world.snapshot({all:true})).entities.filter(e => Object.hasOwn(e.components?.Item?.kind ?? {}, 'Food')).length;
+    const food = await foods();
+    check('walk the child home', await walkTo(session, [0,0,3], 0.6));
+    await world.run(1500);
+    check('rescue reaches the HUD', node(await session.tree(), 'children')?.props?.text === 'Children 1 of 2 rescued');
+    check('rescue supplies add two food', await foods() === food + 2, {before:food,after:await foods()});
+    check('rescue adds fuel despite the walk home', Number(node(await session.tree(), 'fuel')?.props?.text.match(/\d+/)?.[0]) > before);
+    await world.run(1000);
+    check('supplies are awarded once', await foods() === food + 2);
+    return await world.snapshot();
+  };
+  const rescued = await returnHome(rescue);
+  await escort.save(resolve(out, 'rescued.world'));
+  pinSave('rescue', resolve(out, 'rescued.world'));
+  if (host === 'web' || host === 'macos') await rescue.screenshot(resolve(out, 'rescue.png'));
+  await rescue.close();
+  const resume = await open({fresh:true, world:resolve(out, 'escort.world')});
+  await resume.tap('trees-1k');
+  await resume.tap('play');
+  check('fresh process restores the escort', JSON.stringify(await resume.world('world').snapshot()) === JSON.stringify(checkpointEscort));
+  check('rescue continues identically from the save', JSON.stringify(await returnHome(resume)) === JSON.stringify(rescued));
+  await resume.world('world').save(resolve(out, 'rescued-restored.world'));
+  check('rescue saves are byte-identical', readFileSync(resolve(out,'rescued.world')).equals(readFileSync(resolve(out,'rescued-restored.world'))));
+  await resume.close();
 });

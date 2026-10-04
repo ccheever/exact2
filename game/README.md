@@ -378,6 +378,23 @@ buttons return focus to the input canvas, while keyboard activation retains butt
 focus and consumes its activation keys. Native hover/focus-visible parity remains
 [open work](../QUEUE.md).
 
+For model-directed exploratory play, import `decide` from `game/proof.mjs`.
+Pass a small `state` observation, a `goal`, a `choices` record mapping allowed
+action names to descriptions, and a `transcript` JSONL path. Jev returns a
+`choice`, its probabilities, usage and request duration. The game script executes
+that named action through the ordinary session driver. The key comes from
+`AI_GATEWAY_API_KEY` in the driver's environment and never enters the app. Only
+the supplied observation is sent to the gateway. Unknown choices, missing keys
+and network errors refuse the step; there is no substitute policy or retry loop.
+
+Forest's `bun game/games/forest/proof.mjs web --playtest` is the first consumer
+(`macos` works too). It allows at most 48 decisions, reads only the visible HUD,
+and follows the player's compass with short key holds. Its artifacts include
+`jev-decisions.jsonl`, `jev-outcome.json` and a screenshot. Exploratory runs report
+`UNVERIFIED` even when they finish without errors: model decisions are observations,
+not fixed simulation pins. Keep deterministic gameplay and save proofs alongside
+them.
+
 ## Determinism — the contract (LLP 1046.001 D5)
 
 Same seed, tick-stamped inputs and completed tick must produce the same world hash
@@ -529,7 +546,7 @@ cargo build --workspace
 cargo test --workspace --no-fail-fast
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
-bun test ./proof.test.mjs
+bun test ./proof.test.mjs ./decisions.test.mjs
 bun app/shells.mjs --test
 ```
 

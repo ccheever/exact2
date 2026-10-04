@@ -390,3 +390,72 @@ changes (no marker entity, the moon, the `Visible` write) moved them again. Linu
 and web agree with each other in every run (tick 0 `0x9fa895b6db68d24f` in the last
 web Save-mode run), and every gameplay check passes; only the three pin checks
 fail. Not re-pinned, as asked.
+
+## Agent-directed rescue play (2026-10-04)
+
+Charlie's continuing brief is to improve Garden, Forest and Rivals by playing them,
+including Jev choosing player actions, and feeding the friction into the engine.
+This increment, by Codex, started from main at `6274fbab3` and fast-forwarded to
+`2bd0c91c9`; subsequent origin checks found no further commits during implementation.
+
+The children existed, but a player had no direction to them and rescue changed
+only a counter. Added a visible eight-direction compass with distance, switching
+to the campfire while escorting, and a one-time reward of 20 fuel and two food at
+camp. Rescues now require a living player and a lit fire; previously the
+`safe.max(3)` fallback rescued children at an extinguished camp. The saved child
+fate is the reward receipt; no new counter or save protocol.
+
+The shared `game/proof.mjs` now exposes `decide`: a bounded Jev request over a
+game-supplied observation and named choices. Credentials stay in the driver;
+responses cannot turn into arbitrary commands. A rejected request stops the step,
+and the JSONL contains observations, choices, probabilities, latency and token use.
+Forest's `--playtest` makes at most 48 decisions using **only the visible HUD**.
+The script translates “follow” into a short key hold along that compass. Jev
+chooses when to move, interact, eat, wait or toggle the light. This is strategic
+play on the agent clock, not visual perception or human input-latency evidence.
+
+| host | decisions | outcome | decision p50 / p95 | tokens in / out |
+|---|---:|---|---:|---:|
+| web | 39 | both rescued, 87 health, 37 s until night | 269 / 539 ms | 26,377 / 1,693 |
+| macOS | 40 | both rescued, 87 health, 37 s until night | 327 / 633 ms | 27,093 / 1,742 |
+
+Both runs use seed 7, 2,000 trees and eight wolves. Different model choices are
+expected; these are exploratory outcomes, explicitly `UNVERIFIED` by the proof
+runner, not fixed hash evidence. Screenshots were inspected on both hosts. The
+artifacts are `artifacts/web/jev-*` and `artifacts/jev-macos/jev-*` in the game.
+
+The separate scripted rescue walks to a child with real keys, saves mid-escort,
+walks home, checks the fuel and food, then repeats from the save in a new process.
+The web run passed all gameplay assertions in 28.1 s, including byte-identical
+rescue saves. macOS passed the same script in 78.5 s; its observed pins and all
+six save digests match web. Eleven hostless tests cover the old loop plus guidance, one-time
+supplies, extinguished fires, death and saved continuation. Four driver tests
+cover valid decisions, invalid choices, missing keys, size bounds and error
+redaction. Root build, tests, Clippy, format, caps and boot passed.
+
+Friction and lessons:
+
+- Main's dependency graph had moved beyond Forest's lock/cache (`chrono-tz` was
+  the first refusal). Fetching the generated workspace and refreshing its existing
+  lock repaired it; no authored dependency or new manifest was needed.
+- `wasm-bindgen` was installed but absent from this shell's PATH. `exact setup`
+  reinstalled it and still reported it missing. Explicitly including
+  `~/.cargo/bin` and `~/.cache/exact/binaryen/version_132/bin` passed `setup --check`.
+  The first successful web artifact was unoptimized; this is not a size result.
+- The first rescue proof read a unit enum as a string; inspection showed
+  `{Food:{}}`. Correcting that assertion took one host-test retry; game behavior
+  and restored save equality already passed. Inspected enums need a clearer
+  example in the agent reference.
+- Native cold startup work dominated the development loop: 79.2 s Rust and
+  173.7 s Swift, 253.7 s total build. These are cold-build costs, not a regression
+  measurement or a claim about warm iteration.
+- The broad driver suite took 485 s cold (477 s was the existing Beacons/skinned
+  release-equivalence test), passing 101 tests and finding two stale fixtures:
+  the CLI-body fixture omitted `layoutArgs`, and the phone mock still intercepted
+  `build.mjs` after device discovery moved to `devices.mjs`. Updated those doubles;
+  both focused reruns passed. Neither failure was in the new game or Jev helper.
+- Giving the player useful information also gave Jev useful information. A
+  private “AI knows every child coordinate” interface would have hidden the
+  missing player guidance. Keep model observations tied to the player-facing
+  experience when testing discoverability; keep exact-state scripted proofs for
+  reproducibility.

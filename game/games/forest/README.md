@@ -8,6 +8,7 @@ atmosphere, many agents. The findings are in
 bun game/dev.mjs forest                       # play
 bun game/prove.mjs forest                     # verify against pins.json
 bun game/games/forest/proof.mjs web           # pixels: artifacts/web/day.png, night.png
+bun game/games/forest/proof.mjs web --playtest # Jev decisions; needs AI_GATEWAY_API_KEY
 bun game/app/shells.mjs game/games/forest --test
 ```
 
@@ -24,7 +25,10 @@ will not enter the light; outside it, it closes in and charges. Hold the flashli
 on it for 0.6 s to stun it. Wolves roam in packs and bite outside the light, and
 they scatter from the flashlight. Hunger drains; starving costs health, and the
 fire heals you and recharges the flashlight. Bring both children into the light.
-The HUD counts the nights you survive.
+The HUD counts the nights you survive. Follow the rescue compass (W north, D east,
+S south, A west) to the closest lost child; after **E** takes their hand it points
+home. Each child reaching the lit fire brings **20 fuel and two food** at camp.
+The reward is saved with the child's rescue and cannot be collected twice.
 
 The title chooses the size of the forest (1k–250k trees; the world grows to keep
 the density), the wolf count, extra torch lights, Rapier or grid collision against

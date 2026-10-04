@@ -3,7 +3,7 @@ use exact_game::{Sim, Transform, Vec3, Visible};
 use forest_logic::camp::{Cycle, Fire, DAY, PERIOD};
 use forest_logic::creatures::{Deer, Mind, Wolf};
 use forest_logic::forest::{Grove, CLEARING};
-use forest_logic::player::{Item, Kind, Player};
+use forest_logic::player::{self, Child, Fate, Item, Kind, Player};
 use forest_logic::{Forest, Options};
 
 const TICK: f64 = 1000.0 / 60.0;
@@ -148,6 +148,83 @@ fn hunger_drains_and_food_restores_it() {
     sim.tap("KeyQ");
     sim.run(50.0);
     assert!(player(&sim).hunger > hungry + 30.0);
+}
+
+#[test]
+fn rescue_compass_supplies_and_restore_follow_the_childs_fate() {
+    let mut sim = game(500, true);
+    place(&mut sim, "child-1", Vec3::new(0.0, 0.6, -8.0));
+    place(&mut sim, "child-2", Vec3::new(50.0, 0.6, 0.0));
+    assert_eq!(
+        player::guidance(sim.world()),
+        "Find a lost child · N · 11 m"
+    );
+    place(&mut sim, "player", Vec3::new(0.0, 0.9, -7.0));
+    let before = sim.world().resource::<Fire>().fuel;
+    sim.tap("KeyE");
+    sim.run(TICK);
+    // This child is already inside the lit camp, so the interaction rescues it.
+    assert_eq!(sim.world().require::<Child>("child-1").fate, Fate::Rescued);
+    assert!(sim
+        .take_messages()
+        .iter()
+        .any(|message| message == "rescued"));
+    let food = sim.world().count::<Item>(|item| item.kind == Kind::Food);
+    let fuel = sim.world().resource::<Fire>().fuel;
+    assert!(
+        fuel > before + 19.0,
+        "rescue adds 20 fuel: {before} → {fuel}"
+    );
+    let save = sim.save().unwrap();
+    let mut restored = game(500, true);
+    restored.restore(&save).unwrap();
+    for game in [&mut sim, &mut restored] {
+        game.run(1000.0);
+        assert_eq!(
+            game.world().count::<Item>(|item| item.kind == Kind::Food),
+            food
+        );
+        assert!(
+            game.world().resource::<Fire>().fuel < fuel,
+            "supplies awarded only once"
+        );
+        assert!(player::guidance(game.world()).starts_with("Find a lost child · E"));
+    }
+    assert_eq!(sim.save().unwrap(), restored.save().unwrap());
+}
+
+#[test]
+fn a_child_needs_a_living_escort_and_a_lit_fire_before_supplies_arrive() {
+    let mut sim = game(500, true);
+    place(&mut sim, "child-1", Vec3::new(0.0, 0.6, 2.5));
+    sim.world_mut().require_mut::<Child>("child-1").fate = Fate::Following;
+    sim.world_mut().resource_mut::<Fire>().fuel = 0.0;
+    let food = sim.world().count::<Item>(|item| item.kind == Kind::Food);
+    sim.run(TICK);
+    assert_eq!(
+        sim.world().require::<Child>("child-1").fate,
+        Fate::Following
+    );
+    assert!(player::guidance(sim.world()).starts_with("Escort 1 to the fire · N"));
+    sim.world_mut().resource_mut::<Fire>().fuel = 50.0;
+    sim.world_mut().require_mut::<Player>("player").dead = true;
+    sim.run(TICK);
+    assert_eq!(
+        sim.world().require::<Child>("child-1").fate,
+        Fate::Following
+    );
+    sim.world_mut().require_mut::<Player>("player").dead = false;
+    sim.run(TICK);
+    assert_eq!(sim.world().require::<Child>("child-1").fate, Fate::Rescued);
+    assert_eq!(
+        sim.world().count::<Item>(|item| item.kind == Kind::Food),
+        food + 2
+    );
+    sim.world_mut().require_mut::<Child>("child-2").fate = Fate::Rescued;
+    assert_eq!(
+        player::guidance(sim.world()),
+        "All children safe · Keep the fire burning"
+    );
 }
 
 #[test]

@@ -1,6 +1,6 @@
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
@@ -9,6 +9,48 @@ import { gameNonInput } from '../scripts/agent-launch.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, resolveApp } from '../scripts/app.mjs';
 import { closeFilesystemReader } from '../scripts/filesystem.mjs';
+
+/** Let Jev choose among game-authored actions on a paused agent clock.
+ * The caller owns observation, input delivery and the number of decisions.
+ * Only the supplied state leaves the machine; credentials never enter the game.
+ * A failed request or unknown choice refuses the step, without inventing a move.
+ * The JSONL transcript records decisions, not a deterministic proof or a save. */
+export async function decide({state, choices, goal, transcript,
+  key = process.env.AI_GATEWAY_API_KEY, fetch: request = globalThis.fetch}) {
+  if (!key?.trim()) throw new Error('Jev playtest needs AI_GATEWAY_API_KEY in the driver environment');
+  const entries = Object.entries(choices ?? {});
+  if (!goal || !entries.length || entries.some(([id, description]) =>
+    !/^[a-z][a-z0-9_-]*$/.test(id) || typeof description !== 'string' || !description.trim()))
+    throw new Error('Jev playtest needs a goal and named, described choices');
+  const body = {model:'typesafe-ai/jev', state, questions:{action:{
+    type:'choice', instructions:goal, criteria:choices}}};
+  const encoded = JSON.stringify(body);
+  if (Buffer.byteLength(encoded) > 64 * 1024) throw new Error('Jev observation exceeds 64 KiB; summarize the player state');
+  const started = performance.now();
+  let reply;
+  try {
+    const response = await request('https://ai-gateway.vercel.sh/v1/evaluate', {
+      method:'POST', headers:{'content-type':'application/json', authorization:`Bearer ${key.trim()}`},
+      body:encoded, signal:AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) throw new Error(`Jev HTTP ${response.status}`);
+    reply = await response.json();
+  } catch (error) {
+    // A transport's diagnostic may contain request headers; do not propagate it.
+    const message = /^Jev HTTP \d+$/.test(error?.message) ? error.message : 'Jev request failed or timed out';
+    if (transcript) appendFileSync(transcript, JSON.stringify({request:body, error:message}) + '\n');
+    throw new Error(message);
+  }
+  const answer = reply?.answers?.action;
+  if (typeof answer?.choice !== 'string' || !Object.hasOwn(choices, answer.choice)) {
+    if (transcript) appendFileSync(transcript, JSON.stringify({request:body, error:'Jev returned no allowed action'}) + '\n');
+    throw new Error('Jev returned no allowed action');
+  }
+  const result = {choice:answer.choice, confidence:answer.confidence,
+    probabilities:answer.probabilities, usage:reply.usage, milliseconds:Math.round(performance.now() - started)};
+  if (transcript) appendFileSync(transcript, JSON.stringify({request:body, ...result}) + '\n');
+  return result;
+}
 
 // Offline diagnostics over existing state reads (LLP 1012; LLP 1046.001 D2/D5).
 // These are inspection captures, not EXSIM saves or a second simulation codec.
@@ -608,7 +650,7 @@ export async function proof(meta, script) {
     if (!built) say(`BUILD cached ${name} ${destination}`);
     if (!process.argv.includes('--build-only')) {
       await script({open, check, equal, out, host, say, pin, pinSave});
-      if (!process.argv.some(arg => ['--screenshot-only','--capture40'].includes(arg)))
+      if (!process.argv.some(arg => ['--screenshot-only','--capture40','--playtest'].includes(arg)))
         for (const section of ['ticks','saves']) for (const key of Object.keys(previousPins[section] ?? {}))
           check(`pin ${key} observed; if intentionally removed, update the proof and pins.json together`, key in pins[section]);
     }
@@ -649,7 +691,7 @@ export async function proof(meta, script) {
       const name = basename(path), bytes = readFileSync(path);
       return {name, bytes:bytes.length, sha256:createHash('sha256').update(bytes).digest('hex')};
     });
-    const partial = process.argv.some(arg => ['--build-only','--screenshot-only','--capture40'].includes(arg));
+    const partial = process.argv.some(arg => ['--build-only','--screenshot-only','--capture40','--playtest'].includes(arg));
     const status = proofStatus({failures, expected:previousPins, pins, collecting, partial});
     if (!compareParanoid && process.env.EXACT_PROOF_COMPARE !== '1') finalWorlds.push(...observations.values());
     writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), status, inputs:inputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
@@ -661,5 +703,5 @@ export async function proof(meta, script) {
     writeFileSync(resolve(out,'proof.txt'),transcript.join('\n')+'\n');
     writeFileSync(resolve(out,'replies.json'),JSON.stringify(replies,null,2)+'\n');
   }
-  process.exit(failures.length || (!collecting && !process.argv.some(arg => ['--build-only','--screenshot-only','--capture40'].includes(arg)) && proofStatus({failures, expected:previousPins, pins}) !== 'PASS') ? 1 : 0);
+  process.exit(failures.length || (!collecting && !process.argv.some(arg => ['--build-only','--screenshot-only','--capture40','--playtest'].includes(arg)) && proofStatus({failures, expected:previousPins, pins}) !== 'PASS') ? 1 : 0);
 }
