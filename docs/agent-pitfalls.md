@@ -25,6 +25,17 @@ guide's rules don't make obvious.
   `overlays-content` with a `role="toolbar" toolbarPlacement="keyboard"` for a
   toolbar that rides the keyboard without relayout (LLP 1008 §9.1). (Signal Clone.)
 
+- **A raised `z-index` leaves a dragged card under the next column.** A card at
+  `position="relative" z-index=10`, dragged over a neighbouring column, paints
+  beneath it. Cause: `z-index` orders siblings, not a whole stacking context as in
+  CSS (a declared deviation, [LLP 1001](../llp/1001-kernel-v1.spec.md) "`z-index`
+  orders siblings"), and on the web a box that follows a positioned or stacked box
+  becomes a paint group (`isolation: isolate`). A child cannot rise above its
+  parent's later siblings. Fix: raise the ancestor that is a sibling of the others
+  (the card's column, while it holds the dragged card), or draw the dragged card in
+  an overlay at the board level. (Authoring bench, LLP 1087, t4-kanban: two builders,
+  5 and 10 minutes, 2026-10-04.)
+
 ## Lists and scrolling
 
 - **A tap that changes one row of a long list takes ~80 ms on the web.** Cause: the
