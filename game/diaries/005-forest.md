@@ -1175,3 +1175,19 @@ because Rapier is outside the game workspace. The measured binaries all
 compiled and ran. No benchmark or verification script was added. Samples:
 `/tmp/exact2-physics-stream-ab.json`; logs:
 `/tmp/exact2-physics-{scratch,stream}-*.log`.
+
+The retained change is commit `eaf1825ad`, after main merge `3d8603704`.
+All five root checks pass in 116.014 s: build 18.376, tests 83.972
+(2,374 passed in 81 binaries, nine ignored), Clippy 11.486, formatting
+2.081, caps 0.084 and boot 0.015 s. Test binaries report 39.6 s of execution
+in total. No game proof ran concurrently with the gate. This repeats the
+local budget miss, recorded in QUEUE, without establishing its cause.
+Logs: `/tmp/exact2-scratch-root-*.log`.
+
+Forest passes complete web/macOS proofs in 162.0/185.1 s including builds.
+Both hosts agree on source inputs, all pins, eleven world observations and
+eighteen save files; worlds and saves also match `windbreak-web` before the
+optimization. Both descendant audits pass with no recorded children left.
+Both built-camp captures were inspected. Artifacts:
+`artifacts/scratch-{web,macos}/`. Existing pins remain unchanged, and no
+Jev policy or gameplay change is made in this batch.

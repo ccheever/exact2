@@ -1256,3 +1256,14 @@ all pins, ten world observations and fourteen saves; worlds and saves also
 match `modules-web` before the change. Both descendant audits pass with no
 recorded children left, and both Mayhem five-second captures were inspected.
 Artifacts: `artifacts/holes-{web,macos}/`. No gameplay or Jev-policy changes.
+
+## Cold physics capture and semantics integration (2026-10-04)
+
+Forest diary 005 records the measured comparison-buffer change (`eaf1825ad`)
+and merge `3d8603704` through main `b79156175`, plus passing root checks and
+their 116.0 s local budget miss. Rivals passes complete web/macOS proofs in
+124.9/65.3 s including builds. Inputs, all pins, ten world observations and
+fourteen save files agree between hosts; worlds and saves also match
+`holes-web` before the change. Both descendant audits pass with no recorded
+children left, and both Mayhem five-kill captures were inspected. Artifacts:
+`artifacts/scratch-{web,macos}/`. Gameplay and Jev's policy are unchanged.
