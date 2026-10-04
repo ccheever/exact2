@@ -572,6 +572,36 @@ fn ssao_cost_at_1080p() {
 #[derive(Default, Args)]
 struct LodArgs {
     distance: f32,
+    blend: bool,
+    split: bool,
+}
+// A level: one quad, or two quads 4 m apart (`split`); blended at half alpha.
+fn level(color: [f32; 4], blend: bool, split: bool) -> asset::Model {
+    let xs: &[f32] = if split { &[-2., 2.] } else { &[0.] };
+    asset::Model {
+        bounds: [-3., -1., 0., 3., 1., 0.],
+        meshes: xs.iter().map(|_| quad(color)).collect(),
+        materials: vec![asset::MaterialData {
+            metallic: 0.,
+            base_color: [1., 1., 1., if blend { 0.5 } else { 1. }],
+            alpha_mode: if blend {
+                asset::AlphaMode::Blend
+            } else {
+                asset::AlphaMode::Opaque
+            },
+            ..Default::default()
+        }],
+        nodes: xs
+            .iter()
+            .enumerate()
+            .map(|(i, &x)| asset::Node {
+                mesh: Some(i as u32),
+                transform: Mat4::from_translation(Vec3::new(x, 0., 0.)).to_cols_array(),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }
 }
 struct Lod;
 impl Game for Lod {
@@ -589,14 +619,20 @@ impl Game for Lod {
             ..Default::default()
         });
         w.spawn((Transform::at(0., 0., args.distance), Camera::default()));
-        let near = w.generated("near.model", quad([1., 0., 0., 1.])).unwrap();
-        w.generated("far.model", quad([0., 1., 0., 1.])).unwrap();
+        let near = w
+            .generated_model(
+                "near.model",
+                level([1., 0., 0., 1.], args.blend, args.split),
+            )
+            .unwrap();
+        w.generated_model("far.model", level([0., 1., 0., 1.], false, args.split))
+            .unwrap();
         w.spawn((
             Transform::default(),
             near,
             ModelLod {
                 levels: vec![LodLevel {
-                    distance: 6.,
+                    distance: if args.split { 5.2 } else { 6. },
                     model: "far.model".into(),
                 }],
                 hide: Some(20.),
@@ -609,25 +645,61 @@ impl Game for Lod {
 #[test]
 fn a_model_lod_swaps_by_camera_distance_and_hides_beyond_its_limit() {
     let Some(gpu) = gpu() else { return };
-    let centre = |distance: f64| {
-        let mut s = WorldSurface::<Lod, ModelPresentation, true>::default();
-        s.bind(&[Value::Number(distance)], None).unwrap();
-        s.device_ready(exact_gpu::wgpu::Features::empty());
-        s.prepare_assets(
-            &gpu.device,
-            &gpu.queue,
-            exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
-        );
-        let (pixels, _) = fixture::render(&gpu, &mut s, &frame()).unwrap();
-        assert!(s.error().is_none(), "{:?}", s.error());
-        pixels.at(64, 64)
-    };
+    let centre = |distance: f64| lod_frame(&gpu, distance, false, false).at(64, 64);
     let near = centre(3.);
     assert!(near[0] > 100 && near[1] < 40, "near level: {near:?}");
     let far = centre(10.);
     assert!(far[1] > 100 && far[0] < 40, "far level: {far:?}");
     let gone = centre(30.);
     assert!(gone[0] < 10 && gone[1] < 10, "beyond hide: {gone:?}");
+}
+fn lod_frame(gpu: &Gpu, distance: f64, blend: bool, split: bool) -> fixture::Pixels {
+    let mut s = WorldSurface::<Lod, ModelPresentation, true>::default();
+    let args = [
+        Value::Number(distance),
+        Value::Bool(blend),
+        Value::Bool(split),
+    ];
+    s.bind(&args, None).unwrap();
+    s.device_ready(exact_gpu::wgpu::Features::empty());
+    s.prepare_assets(
+        &gpu.device,
+        &gpu.queue,
+        exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+    );
+    let (pixels, _) = fixture::render(gpu, &mut s, &frame()).unwrap();
+    assert!(s.error().is_none(), "{:?}", s.error());
+    pixels
+}
+
+#[test]
+fn a_blended_level_draws_only_in_its_band() {
+    let Some(gpu) = gpu() else { return };
+    let near = lod_frame(&gpu, 3., true, false).at(64, 64);
+    assert!(near[0] > 60, "the blended near level: {near:?}");
+    let far = lod_frame(&gpu, 10., true, false).at(64, 64);
+    assert!(
+        far[1] > 100 && far[0] < 40,
+        "no blended near level over the far: {far:?}"
+    );
+    let gone = lod_frame(&gpu, 30., true, false).at(64, 64);
+    assert!(gone[0] < 10 && gone[1] < 10, "beyond hide: {gone:?}");
+}
+
+#[test]
+fn every_part_of_an_entity_draws_the_same_level() {
+    let Some(gpu) = gpu() else { return };
+    // The entity is 5 m away (near, under 5.2 m); each part's centre is 5.39 m.
+    let p = lod_frame(&gpu, 5., false, true);
+    let (mut red, mut green) = (0, 0);
+    for y in 0..128 {
+        for x in 0..128 {
+            let c = p.at(x, y);
+            red += usize::from(c[0] > 100 && c[1] < 40);
+            green += usize::from(c[1] > 100 && c[0] < 40);
+        }
+    }
+    assert!(red > 100 && green == 0, "red {red}, green {green}");
 }
 
 #[derive(Default, Args)]

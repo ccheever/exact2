@@ -22,6 +22,7 @@ pub mod hooks;
 mod ibl;
 mod lights;
 mod local_shadows;
+mod lod;
 mod model_pipeline;
 mod models;
 mod perf;
@@ -152,9 +153,10 @@ pub struct Batch {
     /// Drawn in the viewmodel layer: the nearest [`VIEWMODEL_DEPTH`] of the depth
     /// range, in front of the whole world; false in [`Batch::new`].
     pub viewmodel: bool,
-    /// The camera distances `[near, far)` at which an instance draws in this
-    /// batch (a level of detail); `[0, ∞)` in [`Batch::new`]. The GPU cull applies it.
-    pub distance: [f32; 2],
+    /// The level of detail its instances draw at (0, their own model, in
+    /// [`Batch::new`]). Each frame one level per entity draws; direct drawing
+    /// (no GPU cull) draws level 0 only.
+    pub level: u8,
 }
 
 /// The depth range the viewmodel layer takes while any viewmodel draws; the
@@ -169,7 +171,7 @@ impl Batch {
             slots,
             casts_shadows: true,
             viewmodel: false,
-            distance: [0., f32::INFINITY],
+            level: 0,
         }
     }
     /// This draw in the viewmodel layer, casting no shadows.

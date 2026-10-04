@@ -16,7 +16,16 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.local_groups();
         if self.cull.stale() || self.locals_stale() {
             self.write_cull_setup();
+        } else if std::mem::take(&mut self.levels.changed) {
+            let hidden = &self.levels.hidden;
+            self.cull.hide_records(&self.queue, hidden);
+            for local in &mut self.local_culls {
+                if !local.cull.groups.is_empty() {
+                    local.cull.hide_records(&self.queue, hidden);
+                }
+            }
         }
+        self.levels.changed = false;
         self.local_views();
         if self.cull.direct || self.cull.groups.is_empty() {
             return;
@@ -58,6 +67,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.viewmodels = false;
         for (index, batch) in self.batches.iter().enumerate() {
             if batch.slots.is_empty() {
+                continue;
+            }
+            // Direct draws have no per-instance cull: only the finest level.
+            if self.cull.direct && batch.level != 0 {
                 continue;
             }
             self.viewmodels |= batch.viewmodel;
@@ -119,9 +132,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 mesh.reach.y.to_bits(),
                 mesh.reach.z.to_bits(),
                 mesh.cap.to_bits(),
-                // The level-of-detail band, camera distance [near, far).
-                self.batches[group.batch].distance[0].to_bits(),
-                self.batches[group.batch].distance[1].to_bits(),
+                0,
+                0,
                 0,
             ];
             self.cull.words.extend(words);
@@ -129,7 +141,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let records = self.cull.words.len() as u32;
         let mut skins = 0;
         if ASSETS {
-            for record in &self.models.records {
+            for (index, record) in self.models.records.iter().enumerate() {
                 let mesh = &self.meshes[record.geometry.0];
                 let (center, radius) = if record.skin.is_some() {
                     skins += 1;
@@ -148,7 +160,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 let words: [u32; RECORD_WORDS] = [
                     record.transform,
                     skin,
-                    0,
+                    // Not this frame's level of detail: drawn in no view.
+                    u32::from(self.levels.hidden.get(index).copied().unwrap_or(false)),
                     0,
                     center.x.to_bits(),
                     center.y.to_bits(),

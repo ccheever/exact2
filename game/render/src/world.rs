@@ -36,6 +36,9 @@ pub(crate) trait Writes {
     /// Per record, 1 + its first merged part look (0: none), and those looks;
     /// set before `instances`.
     fn part_looks(&mut self, _: &[u32], _: &[[f32; 8]]) {}
+    /// Each record's level of detail and the `ModelLod` entities; set before
+    /// `instances`.
+    fn levels(&mut self, _: &[u8], _: &[crate::lod::Lod]) {}
     fn model_poses(
         &mut self,
         _: &World,
@@ -110,6 +113,9 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
         part_looks.0.extend_from_slice(bases);
         part_looks.1.clear();
         part_looks.1.extend_from_slice(looks);
+    }
+    fn levels(&mut self, records: &[u8], lods: &[crate::lod::Lod]) {
+        self.levels.set(records, lods);
     }
     fn instances(&mut self, records: &[crate::DrawInstance]) -> Result<(), RenderError> {
         if ASSETS {

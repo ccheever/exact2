@@ -325,12 +325,16 @@ rigid-limbed character is one draw per material. Each merged vertex carries its
 part index (a weight-one joint), so `NodeMaterials` still colours parts one by one:
 an instance's per-part looks follow its records in the instance buffer, and the
 record's last word points at them. The parts' own meshes retire.
-`ModelLod { levels, hide }` swaps an instance's model by camera distance: each level
-is its own batch with a distance band in its cull group words, and the GPU cull
-drops instances outside the band in every view (shadow cascades included), so a
-moving camera costs the CPU nothing. Levels share the pose, looks and opacity.
-Devices without indirect draws, keep-all cull and `KEEP_ALL` custom materials
-draw every level.
+`ModelLod { levels, hide }` swaps an instance's model by camera distance. Each
+frame the renderer picks one level per entity from its displayed position, with a
+5% hysteresis band (presentation only), falling back to the nearest resident level
+while one streams in. Every other level's records carry a hidden word the GPU cull
+reads, in every view and keep-all group (shadow cascades and spot shadows too);
+the blended pass skips them, and their skinning jobs are not dispatched, so a far
+crowd skins nothing. Direct drawing (no indirect execution, or lists past the
+device's storage limits) has no per-instance cull and draws level 0 only. Levels
+share the pose, looks and opacity. Distances must be finite, increasing and
+positive, with `hide` beyond them; the feed refuses others by entity.
 `world.perf.culled.cameraTriangles` counts what the cull kept for the camera
 (`stats.triangles` counts every submitted level). On this Mac (`tests/lod_bench.rs`,
 20,000 2,048-triangle trees, 1080p): 36.7 M camera triangles and a 15.8 ms frame

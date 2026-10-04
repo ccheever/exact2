@@ -160,6 +160,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.queue.write_buffer(&self.uniform, 0, bytes(&uniform));
         self.quads
             .frame::<ASSETS>(frame, &self.models.textures, !self.cull.keep_all);
+        self.select_levels(frame);
         self.order_translucent(frame);
         self.quads.order::<ASSETS>(&self.device, &self.queue);
         self.prepare_cull(frame, cascades.as_ref(), hooks.materials());
@@ -447,6 +448,30 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
 
     // One total translucent order; opaque/primitive batches remain retained.
     // Blended models the camera cannot see stay out of it (NaN depth marks them).
+    /// One level of detail per entity, from its displayed position.
+    fn select_levels(&mut self, frame: &FrameInput<'_>) {
+        if !ASSETS || self.levels.entries.is_empty() {
+            return;
+        }
+        let (poses, indices) = (&self.models.poses, &self.models.pose_indices);
+        let words = &self.attachment_words;
+        self.levels.select(|e| {
+            let position = attachment_matrix(words, e.slot).map_or_else(
+                || {
+                    let history = poses[indices[e.record as usize]];
+                    crate::world::scene::interpolate(history, frame.alpha).position
+                },
+                |m| m.w_axis.truncate(),
+            );
+            position.distance(frame.camera_position)
+        });
+        if self.levels.changed {
+            if let Some(skinning) = &mut self.models.skinning {
+                skinning.activate(&self.queue, &self.levels.hidden);
+            }
+        }
+    }
+
     fn order_translucent(&mut self, frame: &FrameInput<'_>) {
         if !ASSETS {
             return;
@@ -454,6 +479,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let camera = crate::cull::planes(frame.proj * frame.view);
         for (_, slot, depth) in &mut self.models.transparent {
             let index = (self.slot_list[*slot as usize] - crate::RENDER_SLOT_BASE) as usize;
+            if self.levels.hidden.get(index).copied().unwrap_or(false) {
+                *depth = f32::NAN;
+                continue;
+            }
             let record = &self.models.records[index];
             let mesh = &self.meshes[record.geometry.0];
             let history = self.models.poses[self.models.pose_indices[index]];

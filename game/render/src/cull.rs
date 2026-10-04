@@ -387,6 +387,21 @@ impl Cull {
         self.indirect.grow(device, queue, sizes[3]);
     }
 
+    /// Rewrite each model record's hidden word (a level of detail not drawn this
+    /// frame) without rebuilding the setup.
+    pub fn hide_records(&mut self, queue: &wgpu::Queue, hidden: &[bool]) {
+        let start = self.sections[2] as usize;
+        if self.direct || start + hidden.len() * RECORD_WORDS > self.words.len() {
+            return;
+        }
+        for (i, &h) in hidden.iter().enumerate() {
+            self.words[start + i * RECORD_WORDS + 2] = u32::from(h);
+        }
+        let end = start + hidden.len() * RECORD_WORDS;
+        self.setup
+            .write(queue, start as u64 * 4, bytes(&self.words[start..end]));
+    }
+
     /// Byte offsets of group `index` in view `view`: the slot region and its draw.
     pub fn offsets(&self, view: u32, index: usize) -> (u32, u64) {
         (

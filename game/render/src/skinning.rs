@@ -39,6 +39,11 @@ pub(crate) struct Skinning {
     records: Vec<(usize, usize)>,
     pose_words: Vec<f32>,
     jobs_words: Vec<u32>,
+    // Each job's record, and the jobs dispatched (levels of detail not drawn
+    // this frame skip theirs).
+    job_records: Vec<usize>,
+    active_words: Vec<u32>,
+    active: u32,
     pipeline: Option<wgpu::ComputePipeline>,
     joint_capacity: usize,
     layout: Option<wgpu::BindGroupLayout>,
@@ -62,6 +67,9 @@ impl Skinning {
             records: vec![],
             pose_words: vec![],
             jobs_words: vec![],
+            job_records: vec![],
+            active_words: vec![],
+            active: 0,
             pipeline: None,
             joint_capacity: 0,
             layout: None,
@@ -262,10 +270,12 @@ impl Skinning {
         self.records.clear();
         self.offsets.clear();
         self.jobs_words.clear();
+        self.job_records.clear();
         let mut palette = 0usize;
         let mut pose = 0usize;
-        for record in records {
+        for (index, record) in records.iter().enumerate() {
             if let Some(skin) = record.skin {
+                self.job_records.push(index);
                 let t = self
                     .templates
                     .get(skin as usize)
@@ -300,6 +310,7 @@ impl Skinning {
             (self.jobs_words.len() * 4) as u64,
         ));
         self.jobs.write(queue, 0, bytes(&self.jobs_words));
+        self.active = self.job_records.len() as u32;
         if let Some(layout) = &self.layout {
             let buffers = (
                 layout.clone(),
@@ -370,6 +381,26 @@ impl Skinning {
             offset += 2 * len;
         }
     }
+    /// Dispatch only the jobs of records drawn this frame (`hidden[record]`
+    /// false): a crowd's far levels cost no skinning.
+    pub fn activate(&mut self, queue: &wgpu::Queue, hidden: &[bool]) {
+        self.active_words.clear();
+        for (job, &record) in self.job_records.iter().enumerate() {
+            if !hidden.get(record).copied().unwrap_or(false) {
+                self.active_words
+                    .extend_from_slice(&self.jobs_words[job * 4..job * 4 + 4]);
+            }
+        }
+        self.active = (self.active_words.len() / 4) as u32;
+        if self.active > 0 {
+            self.jobs.write(queue, 0, bytes(&self.active_words));
+        }
+    }
+    /// Jobs dispatched per frame.
+    #[cfg(test)]
+    pub fn active_jobs(&self) -> u32 {
+        self.active
+    }
     pub fn feed(&mut self, queue: &wgpu::Queue, w: &World, entities: &[Entity], initial: bool) {
         self.pack(w, entities, initial);
         for template in &mut self.templates {
@@ -382,7 +413,7 @@ impl Skinning {
         encoder: &mut wgpu::CommandEncoder,
         timestamps: Option<&wgpu::QuerySet>,
     ) -> bool {
-        if self.records.is_empty() {
+        if self.active == 0 {
             return false;
         }
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -395,7 +426,7 @@ impl Skinning {
         });
         pass.set_pipeline(self.pipeline.as_ref().unwrap());
         pass.set_bind_group(0, self.bind.as_ref().unwrap(), &[]);
-        pass.dispatch_workgroups(self.records.len() as u32, 1, 1);
+        pass.dispatch_workgroups(self.active, 1, 1);
         true
     }
 }
