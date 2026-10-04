@@ -1259,6 +1259,21 @@ export function typeArguments(args) {
  * operations use. One session per file; a failed expect names the test, the
  * line, and what was seen. Returns `{ passed, failed, results }`.
  */
+/** One authored-test run at a time for an app on a native host: its `<storage>.t<n>` stores are reused, and
+ * a second run's launch would empty a store the first is using. A lock directory holding its owner's pid; one
+ * whose owner is gone (after a second's grace for a lock not yet signed) is taken over. */
+async function testStoreLock(appId, host) {
+  const lock = resolve(tmpdir(), `exact-test-stores-${appId}-${host}`), pid = resolve(lock, 'pid');
+  for (let waited = 0; ; waited += 200) {
+    try { mkdirSync(lock); writeFileSync(pid, String(process.pid)); return () => rmSync(lock, { recursive: true, force: true }); }
+    catch (e) { if (e.code !== 'EEXIST') throw e; }
+    let owner = 0; try { owner = Number(readFileSync(pid, 'utf8')); } catch {}
+    let alive = false; if (owner > 0) try { process.kill(owner, 0); alive = true; } catch (e) { alive = e.code === 'EPERM'; }
+    if (!alive && (owner > 0 || waited >= 1000)) { rmSync(lock, { recursive: true, force: true }); continue; }
+    if (waited === 0) console.error(`waiting for another authored-test run of ${appId} on ${host} (${lock})`);
+    await new Promise(done => setTimeout(done, 200));
+  }
+}
 /** Authored tests (LLP 1017 P7). Each test is a session of its own from the first frame, with app storage
  * of its own: a scratch store, `<storage>.t<n>` emptied at launch where a store outlives its drive (native;
  * the page's is its fresh profile), so an app that keeps its data in storage loads, no test sees another's
@@ -1270,6 +1285,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
   const tests = JSON.parse(c.stdout);
   const results = [];
+  const release = host === 'web' ? () => {} : await testStoreLock(resolveApp(app).id, device ? `${host}-device` : host);
+  try {
   // Every test starts from the first frame: a session of its own.
   for (const [n, t] of tests.entries()) {
     const failures = [];
@@ -1319,6 +1336,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     }
     results.push({ name: t.name, failures });
   }
+  } finally { release(); }
   const failed = results.filter((r) => r.failures.length).length;
   return { passed: results.length - failed, failed, results };
 }

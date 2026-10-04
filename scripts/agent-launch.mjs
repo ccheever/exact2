@@ -168,18 +168,20 @@ export function gitIgnored(dir, keep = []) {
     !statSync(path, { throwIfNoEntry: false })?.isDirectory() && !BUILD_SOURCE.test(relative(dir, path));
 }
 
-// What an agent leaves in an app as it works — a screenshot, a log, notes —
-// and the trees a build takes files from (the bake's assets and deck, a
-// game's art and logic, a native module's scripts, the host crates, fonts and
-// strings). A build reads more than the bake captures, so the rule names the
-// outputs and leaves everything else an input.
-const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace)$/i;
+// What an agent leaves in an app as it works — a screenshot, a log, notes, a
+// saved world — and the trees a build takes files from (the bake's assets and
+// deck, a game's art and logic, a native module's scripts, the host crates,
+// fonts and strings). A build reads more than the bake captures, so the rule
+// names the outputs and leaves everything else an input.
+const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world)$/i;
 const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|linux)(\/|$)/;
-/** A skip for an app's own files that no build reads: a gitignored one
- * (`gitIgnored`), or a picture, log or note outside every input tree, outside
- * a declared shader root and the app's Rust crates (which can `include_bytes!`
- * any file beside them), that `app.json` does not name (an icon). A
- * screenshot saved into the app is not a change to it, ignored or not. */
+/** A skip for an app's own files that no build reads. A file a build can
+ * read always counts, ignored by Git or not: what the bake captures, anything
+ * in an input tree, under `keep` (declared shader roots) or in one of the
+ * app's Rust crates (which can `include_bytes!` any file beside them), and
+ * what `app.json` names (an icon). Of the rest, a gitignored file or a
+ * picture, log, note or saved world is not an input: a screenshot saved into
+ * the app is not a change to it. */
 export function notBuildInput(dir, keep = []) {
   const ignored = gitIgnored(dir, keep);
   const under = (path, roots) => roots.some(p => path === p || path.startsWith(p + '/'));
@@ -189,9 +191,9 @@ export function notBuildInput(dir, keep = []) {
     return false;
   };
   return path => {
-    if (ignored(path)) return true;
     const rel = relative(dir, path);
-    return OUTPUT.test(rel) && !INPUT_TREE.test(rel) && !under(path, keep) && !inCrate(path) && !manifest.includes(rel);
+    if (BUILD_SOURCE.test(rel) || INPUT_TREE.test(rel) || under(path, keep) || inCrate(path) || manifest.includes(rel)) return false;
+    return OUTPUT.test(rel) || ignored(path);
   };
 }
 
