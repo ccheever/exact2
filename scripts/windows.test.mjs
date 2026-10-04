@@ -7,6 +7,21 @@ import {resolve} from 'node:path';
 import {filesystem, filesystemErrorCode} from './filesystem.mjs';
 import {packagedBuildChanges} from './agent-launch.mjs';
 import {runCaps} from './caps.mjs';
+import {binaryenArchive, binaryenVersion} from './exact.mjs';
+
+test('setup selects supported pinned Binaryen archives on Windows and Unix', () => {
+  expect(binaryenArchive('version_132','win32','x64')).toBe('binaryen-version_132-x86_64-windows.tar.gz');
+  expect(binaryenArchive('version_132','darwin','arm64')).toBe('binaryen-version_132-arm64-macos.tar.gz');
+  expect(binaryenArchive('version_132','linux','arm64')).toBe('binaryen-version_132-aarch64-linux.tar.gz');
+  expect(()=>binaryenArchive('version_132','win32','arm64')).toThrow('no Binaryen setup');
+  expect(binaryenVersion('wasm-opt version 132 (version_132)')).toBe('version 132');
+});
+
+test('SDK CLI entrypoint executes with spaces in its real file path', () => {
+  const result=spawnSync(process.execPath,[resolve(import.meta.dir,'exact.mjs'),'--help'],{encoding:'utf8'});
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain('exact setup [--check]');
+});
 
 test('caps command really runs from a checkout path containing spaces', () => {
   const root=resolve(import.meta.dir,'..');
