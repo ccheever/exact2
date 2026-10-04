@@ -96,7 +96,9 @@ exit status: 0 success, 1 compilation/I/O failure, 2 invalid invocation. Read al
 diagnostics, including related locations, before making the next repair.
 
 Formatting is explicit. `fmt --stdout` previews, `fmt --check` checks, and plain
-`fmt` writes. Avoid formatting unrelated files. `symbols` reports definitions
+`fmt` writes. Formatting changes spacing and breaks only: a result that would
+parse to a different program is refused (`fmt-tree-change`) and nothing is
+written. Avoid formatting unrelated files. `symbols` reports definitions
 and references, with component interfaces and inferred action effects. Search
 by exact name with `symbols file.contract --name name`.
 
@@ -119,6 +121,16 @@ For an external app driven from the exact2 root, set `EXACT_APP_DIR` on both bui
 and drive. A stale
 artifact is a failed verification; rebuild what the driver names. A successful
 Cargo rlib build does not prove a native app launches or behaves correctly.
+
+A script drives the same session in JavaScript: `const s = await open({ host:
+'web', app, epoch, timeZone, storage })` from `scripts/agent.mjs`, then
+`s.tap(target, opts)`, `s.type(target, text | { key })`, `s.clock(arg)`,
+`s.tree()`, `s.state()`, `s.logs()`, `s.layout()`, `s.screenshot(path)` and
+`s.close()` — the CLI's operations by the same names. `s.op(request)` is the
+host's wire beneath them: it addresses views by numeric `id`, and it refuses a
+request it would answer by doing nothing (a `target`, an unknown op, a web
+`tap` with no browser input behind it). A reload or a raw browser step goes
+through `s.carrier` (`evaluate`, and on Chrome `call` for CDP).
 
 Use the existing five repository checks for repository changes. Do not add a
 new global check or fixture framework for an ordinary app edit. For documentation,
@@ -444,6 +456,14 @@ catch up missed display frames. For deterministic tests, use the driver's clock.
 the agent), not a date. For the date, read the reserved `exactTime` source and add
 `time.epochAtZero + now()`. A read does not itself schedule a future render. Use a timer if a displayed value must keep changing without other
 input. Prefer `clock settle` to waiting for a transition in real time.
+`time.utcOffset` is the zone's offset *now*: every host answers it again when the
+offset at the clock's instant changes (a DST change, a new zone), checked before a
+timer fires, so a midnight timer after the clocks change reads the new offset.
+Under the agent it is the drive's zone at the virtual date, checked after each
+`clock` (the JS target also before each timer inside one). It is not the offset
+of an arbitrary timestamp: to show a past or future instant across a DST change
+in the viewer's zone, format it in TypeScript with
+`new Intl.DateTimeFormat(time.locale, { timeZone: time.timeZone })`.
 
 Use admitted CSS transitions and keyframes. Check which properties animate and
 which require optional capabilities. `spring(…)` (a `transition` timing
@@ -542,8 +562,12 @@ test "an action uses its computed next value"
   expect state doubled == 2
 ```
 
-This test goes with the complete example above. The steps are `size 1200x800`
-(first, the viewport the test's session opens at), `tap "id" [hover]`,
+This test goes with the complete example above. A test opens with its launch
+lines — `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
+"America/New_York"`, `locale "fr-FR"`, `seed 7`, the driver's flags of those
+names — written first in the test or, for every test, at the top of the file.
+A test whose text depends on the date names its `epoch`; without one it runs at
+the driver's 2026-01-01 UTC. The steps are `tap "id" [hover]`,
 `tap "id" drag dx dy [press ms] [over ms] [hold ms]`,
 `type "id" "text"` or `type "id" key "Name"`, `clock settle|+ms|ms`,
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`

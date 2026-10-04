@@ -878,9 +878,18 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     logCursor: 0,
     /** Await the current page's GPU load time, or null before loading/on native. */
     gpuMs: carrier.gpuMs,
+    /** The host's wire: one request as the carrier sends it, views addressed by `id`. The methods (`tap`, `type`, …)
+     * are the operations a person performs; a request the wire would answer by doing nothing is refused (habits F8). */
     async op(req) {
+      if (!req || typeof req !== 'object' || typeof req.op !== 'string') throw new Error('op: a request is {op: "<name>", …}');
+      const input = req.op === 'tap' || req.op === 'type';
+      if (input && req.target !== undefined) throw new Error(`op: the wire's ${req.op} addresses a view by \`id\`, not \`target\`; s.${req.op}(${JSON.stringify(req.target)}, …) finds a target and delivers the input as a person would`);
       const r = await carrier.ask(req);
       if (r.error) throw Object.assign(new Error(`${req.op}: ${r.error}`), {reply:r});
+      // A web page's own tap or type acts only for an iframe guest, history, a list's row or a control's value:
+      // the carrier's browser input is the rest, which only the methods reach.
+      if (input && carrier.host === 'web' && req.resize === undefined && !['tapped', 'typed', 'handled', 'history', 'into', 'resized', 'guest', 'value', 'delivery', 'phase'].some((k) => r[k] != null && r[k] !== false))
+        throw Object.assign(new Error(`op: the web page's ${req.op} delivered nothing to view ${req.id}; s.${req.op}(…) delivers browser input`), {reply:r});
       return r;
     },
     /** Every live node in preorder, or one target and its descendants; {shallow:true} reads only the target's record, retaining its real child ids. An iframe also carries url, loading, and a reachable guest outline (@ref LLP 1020 D4). A canvas whose row carries a world summary answers with its world instead: `tree <canvas> [under <entity>]` is the world's outline (@ref llp/1046.001-agent-interface-to-a-game.rfc.md D2). */

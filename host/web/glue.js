@@ -119,7 +119,7 @@ function flowBatch(batch) {
   flowLoading = loadAfterPaint('./textflow-glue.js', 'createTextFlow').then(async create => {
     if (generation !== incarnation) return;
     const controller = await create({ views, agentMode, log, now,
-      advance: () => send(wasm.exact_advance(now(), 0)), present });
+      advance: () => { followOffset(now()); send(wasm.exact_advance(now(), 0)); }, present });
     if (generation !== incarnation) { controller.dispose(); return; }
     textflow = controller;
     textflow.afterBatch({ ops: [{ op: "textflow", contexts: flowContexts }], timer_due_ms: flowDue, frames: flowFrames });
@@ -1164,7 +1164,7 @@ function agentReply(request) {
         return typedControl(frame) && request.key == null ? typeControl(frame, request) : frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false }; // a control's value (LLP 1069.001 D9)
       }
       case "clock": // then the offset at the new virtual date, in case it crossed a DST change (LLP 1069.007 D2)
-        return clock(request).then((r) => { if (!r.error && wasm.exact_set_time) applyBatch(JSON.parse(readOut(wasm.exact_set_time(...reportTime(agentClock))))); return tagged(r); });
+        return clock(request).then((r) => { if (!r.error) followOffset(agentClock); return tagged(r); });
       case "tree": return tree(request);
       case "tags": return ask(request);
       case "reveal": return tagged(reveal(views.get(request.id), request.id)); // before a tap or a type (navigation.js)
@@ -1240,10 +1240,13 @@ async function clock(request) {
   }
 }
 
-let ticker = null, timerFactory = null;
+let ticker = null, timerFactory = null, toldOffset = null;
+// The zone's offset follows the clock (habits F6): told again before an advance whose instant finds it changed (a DST
+// change, a new zone), and after the agent's `clock`; an unchanged one is not told.
+const followOffset = at => { const [epoch, offset] = reportTime(at); if (wasm.exact_set_time && offset !== toldOffset) { toldOffset = offset; applyBatch(JSON.parse(readOut(wasm.exact_set_time(epoch, offset)))); } };
 function startClock() {
   if (timerFactory && !agentMode && !textflow && !flowLoading) {
-    ticker ??= timerFactory({ now, advance: time => send(wasm.exact_advance(time, 0)), present }); ticker.update(flowDue, flowFrames);
+    ticker ??= timerFactory({ now, advance: time => { followOffset(time); send(wasm.exact_advance(time, 0)); }, present }); ticker.update(flowDue, flowFrames);
   }
 }
 function activateData() {
@@ -1338,8 +1341,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   if (!page?.holding) root.replaceChildren();
   commitFonts(preparedFonts);
   focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
-  // @ref LLP 1027.000.000 — the date, as the clock the runner already reads.
-  if (wasm.exact_set_time) applyBatch(JSON.parse(readOut(wasm.exact_set_time(...reportTime(now())))));
+  toldOffset = null; followOffset(now()); // @ref LLP 1027.000.000 — the date, as the clock the runner already reads
   if (wasm.exact_set_place) applyBatch(JSON.parse(readOut(wasm.exact_set_place(writeIn(reportPlace())))));
   if (wasm.exact_set_page) applyBatch(JSON.parse(readOut(wasm.exact_set_page(pageFacts.bits()))));
   if (wasm.exact_set_root_font_size) applyBatch(JSON.parse(readOut(wasm.exact_set_root_font_size(pageFacts.rootFontSize()))));

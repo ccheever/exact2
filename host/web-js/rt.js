@@ -182,9 +182,9 @@ export function commit(f, what = "commit") {
   };
   return Sh && ok ? Sh.commit(tail, Queue, inflight, After) : tail();
 }
-/** What runs after each commit's tree update (a loaded piece's publication),
- * and before it (the text flow piece puts flowed paragraphs back). */
-export const After = [], Before = [];
+/** What runs after each commit's tree update (a loaded piece's publication), before it (the text flow piece puts
+ * flowed paragraphs back), and as the clock moves: before each timer or `then` fires, and where an advance lands. */
+export const After = [], Before = [], Clocked = [];
 /** Authored scroll offsets (`scrollTop`, `scrollLeft`), set once the commit's tree is in place, as the web host's `pendingScrolls`
  * (a virtualized list builds the rows there first: `$jump`, list.js); and a select's committed
  * `$value` once written or its options change, as glue.js `settleValue` (a reader's pick stands until its action). */
@@ -270,12 +270,13 @@ export function advance(to, wall, stop) {
     if (stop?.()) { stopped = true; break; }
   }
   if (!stopped) clock.now = Math.max(clock.now, to);
+  for (const f of Clocked) f();
   // Under the agent only: this journal is not a ring, and a page's own
   // clock would add a line a tick.
   if (fired && clock.agent) say(`advance → ${fired} timer${fired === 1 ? "" : "s"} fired, epoch ${clock.epoch}`);
   return stopped;
 }
-function fire(f) { Timing = true; try { return f(); } finally { Timing = false; } }
+function fire(f) { for (const c of Clocked) c(); Timing = true; try { return f(); } finally { Timing = false; } }
 let driving = 0, start = 0, painting = 0;
 function drive() {
   clearTimeout(driving);

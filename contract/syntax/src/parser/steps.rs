@@ -86,19 +86,45 @@ impl Parser {
         let name = self.str_lit("the test's name")?;
         self.newline()?;
         let steps = self.block(|p| p.step())?;
-        // The viewport is the session's: it opens at it, before any step.
-        if let Some(Step::Size { span, .. }) = steps
+        // The viewport, the date, the zone, the locale and the seed are the
+        // session's: it opens with them, before any other step.
+        let leading = steps
             .iter()
-            .skip(1)
-            .find(|s| matches!(s, Step::Size { .. }))
-        {
+            .take_while(|s| !launch_word(s).is_empty())
+            .count();
+        if let Some(late) = steps[leading..].iter().find(|s| !launch_word(s).is_empty()) {
             return Err(SyntaxError {
                 id: "syntax-expected-step",
-                message: "`size` is a test's first step: its session opens at that viewport".into(),
-                span: *span,
+                message: format!(
+                    "`{}` leads a test's steps: its session opens with it, before any other step",
+                    launch_word(late)
+                ),
+                span: late.span(),
             });
         }
+        for (i, a) in steps[..leading].iter().enumerate() {
+            if let Some(first) = steps[..i].iter().find(|b| same_launch(a, b)) {
+                return duplicate("launch line", launch_word(a), a.span(), first.span());
+            }
+        }
         Ok(TestDecl { name, steps, span })
+    }
+
+    /// A launch line's quoted value.
+    fn launch_str(&mut self, word: &str, what: &str) -> R<String> {
+        match self.peek_kind().clone() {
+            TokenKind::Str(s) if !s.is_empty() => {
+                self.next();
+                Ok(s)
+            }
+            other => self.err(
+                "syntax-expected-step",
+                format!(
+                    "`{word}` takes {what} in quotes, found {}",
+                    describe(&other)
+                ),
+            ),
+        }
     }
 
     /// A step's number, a leading `-` included (a drag's offsets).
@@ -116,14 +142,14 @@ impl Parser {
         }
     }
 
-    fn step(&mut self) -> R<Step> {
+    pub(super) fn step(&mut self) -> R<Step> {
         let (word, span) = match self.peek_kind().clone() {
             TokenKind::Ident(w) => (w, self.peek().span),
             other => {
                 return self.err(
                     "syntax-expected-step",
                     format!(
-                    "expected `tap`, `type`, `clock`, `screenshot`, `size`, or `expect`, found {}",
+                    "expected `tap`, `type`, `clock`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`), found {}",
                     describe(&other)
                 ),
                 )
@@ -259,6 +285,48 @@ impl Parser {
                     span,
                 }
             }
+            // `epoch "2026-09-21T12:00:00Z"` or `epoch 1790000000000`: the
+            // driver's `--epoch`, which its launch facts check again.
+            "epoch" => {
+                let value = match self.peek_kind().clone() {
+                    TokenKind::Number(n) if n.fract() == 0.0 && n >= 0.0 => {
+                        self.next();
+                        format!("{n}")
+                    }
+                    TokenKind::Str(s) if iso_date(&s) => {
+                        self.next();
+                        s
+                    }
+                    other => {
+                        return self.err(
+                            "syntax-expected-step",
+                            format!(
+                                "`epoch` takes an ISO date in quotes, as \"2026-09-21T12:00:00Z\", or whole Unix milliseconds, found {}",
+                                describe(&other)
+                            ),
+                        )
+                    }
+                };
+                Step::Epoch { value, span }
+            }
+            "time-zone" => Step::TimeZone {
+                zone: self.launch_str("time-zone", "an IANA zone, as \"America/New_York\",")?,
+                span,
+            },
+            "locale" => Step::Locale {
+                tag: self.launch_str("locale", "a BCP 47 tag, as \"fr-FR\",")?,
+                span,
+            },
+            "seed" => {
+                let seed = self.step_number("the seed, a whole number")?;
+                if seed.fract() != 0.0 || !(0.0..=9_007_199_254_740_991.0).contains(&seed) {
+                    return self.err(
+                        "syntax-expected-step",
+                        "`seed` takes a whole number from 0 through 2^53 - 1",
+                    );
+                }
+                Step::Seed { seed, span }
+            }
             "screenshot" => Step::Screenshot {
                 path: self.str_lit("a file name")?,
                 span,
@@ -343,7 +411,7 @@ impl Parser {
                 return Err(SyntaxError {
                     id: "syntax-expected-step",
                     message: format!(
-                    "expected `tap`, `type`, `clock`, `screenshot`, `size`, or `expect`, found `{other}`"
+                    "expected `tap`, `type`, `clock`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`), found `{other}`"
                 ),
                     span,
                 })
@@ -352,4 +420,40 @@ impl Parser {
         self.newline()?;
         Ok(step)
     }
+}
+
+/// The words of a test's launch lines, which a test file may also write at
+/// its top level for every test in it (habits F7, calendar F13).
+pub(super) const LAUNCH: [&str; 5] = ["size", "epoch", "time-zone", "locale", "seed"];
+
+/// A launch line's word, or `""` for any other step.
+pub(super) fn launch_word(step: &Step) -> &'static str {
+    match step {
+        Step::Size { .. } => "size",
+        Step::Epoch { .. } => "epoch",
+        Step::TimeZone { .. } => "time-zone",
+        Step::Locale { .. } => "locale",
+        Step::Seed { .. } => "seed",
+        _ => "",
+    }
+}
+
+/// Whether two launch lines set the same fact.
+pub(super) fn same_launch(a: &Step, b: &Step) -> bool {
+    let word = launch_word(a);
+    !word.is_empty() && word == launch_word(b)
+}
+
+/// `YYYY-MM-DD`, alone or before a `T` time: what the driver's epoch reads.
+fn iso_date(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() >= 10
+        && b[..10].iter().enumerate().all(|(i, c)| {
+            if i == 4 || i == 7 {
+                *c == b'-'
+            } else {
+                c.is_ascii_digit()
+            }
+        })
+        && (b.len() == 10 || b[10] == b'T')
 }

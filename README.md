@@ -261,6 +261,7 @@ films motion as a contact sheet; use an `.apng` name to get an animation.
 bun scripts/exact.mjs new ../hello          # or run `bun link` once, then `exact new ../hello`
 cd ../hello
 bun exact.mjs web                           # the dev loop, at http://127.0.0.1:8765/
+bun exact.mjs test web tests/*.test.contract # app.test.contract, or the test files named
 bun exact.mjs mac --run                     # this Mac
 bun exact.mjs ios --run                     # an iOS Simulator
 ```

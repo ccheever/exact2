@@ -206,6 +206,7 @@ impl Loader<'_> {
             names,
             routes: self.files[0].routes.take(),
             tests: std::mem::take(&mut self.files[0].tests),
+            launch: std::mem::take(&mut self.files[0].launch),
             uses: Vec::new(),
             fonts: declarations!(fonts),
             shapes: declarations!(shapes),

@@ -7,6 +7,7 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { open } from './agent.mjs';
+import { launchFacts } from './agent-launch.mjs';
 import { resolveApp } from './app.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else its descendants' in order — the web's `textContent`, a button's label — else a field's value. `nodes` is a `tree` reply's, in preorder. */
@@ -34,10 +35,14 @@ export function sweepTestStores(base, storage) {
   const ours = new RegExp(`^${storage.replace(/[.]/g, '\\.')}\\.r(\\d+)-[0-9a-z]+\\.t\\d+$`);
   for (const name of names) { const m = name.match(ours); if (m && !alive(Number(m[1]))) rmSync(resolve(base, name), { recursive: true, force: true }); }
 }
+/** A launch line's op and the `open` option it sets (`size` aside: it is two numbers). */
+const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed: 'seed' };
+
 /**
  * Run a `test "…"` file against a host. Each test is a session of its own
- * from the first frame — at its `size` when its first step names one, else
- * the drive's — with app storage of its own: on the web its fresh profile; on a native host
+ * from the first frame, opened with its launch lines — `size`, `epoch`,
+ * `time-zone`, `locale`, `seed`, the test's own or the file's (the compiler
+ * puts them first), else the drive's flags — with app storage of its own: on the web its fresh profile; on a native host
  * a scratch store `<storage>.r<pid>-<tag>.t<n>` of this run's, emptied at
  * launch and removed after the test (with any a killed run left), so an app
  * that keeps its data in storage loads and no test, concurrent run or
@@ -61,8 +66,21 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   for (const [n, t] of tests.entries()) {
     const failures = [];
     const store = host === 'web' ? storage : `${storage}${tag}.t${n}`, fresh = host === 'web' ? env : { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
-    const own = t.steps[0]?.op === 'size' ? [t.steps[0].width, t.steps[0].height] : size;
-    const s = await open({ host, browser, plan, size: own, env: fresh, app, webDist, device, phone, url, seed, locale, timeZone, epoch, storage: store });
+    // A test's launch lines lead its steps and override the drive's flags (habits F7).
+    const facts = { size, seed, locale, timeZone, epoch };
+    const lines = [];
+    for (const st of t.steps) {
+      if (st.op === 'size') facts.size = [st.width, st.height];
+      else if (LAUNCH[st.op]) facts[LAUNCH[st.op]] = st.value;
+      else break;
+      lines.push(st.line);
+    }
+    // A zone or locale the driver refuses fails this test at its line, not the run.
+    try { launchFacts({ ...facts, env: env ?? {} }); } catch (e) {
+      results.push({ name: t.name, failures: [`${t.name}: ${lines.length ? `line ${lines.join(', ')}` : "the drive's launch flags"}: ${e.message}`] });
+      continue;
+    }
+    const s = await open({ host, browser, plan, ...facts, env: fresh, app, webDist, device, phone, url, storage: store });
     // The clock stands still between steps: what an input started (a reply,
     // a mutation's `then`, a timer, a transition) lands at a clock step. A
     // failed expect after an input with none says so (kanban F19).
@@ -75,7 +93,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         const at = `${t.name}: line ${st.line}`;
         try {
           switch (st.op) {
-            case 'size': break; // the session opened at it
+            case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': break; // the session opened with it
             case 'tap': delivered(await s.tap(st.target, st.hover ? { hover: true } : undefined)); input = st.line; break;
             case 'drag': delivered(await s.tap(st.target, { drag: { dx: st.dx, dy: st.dy, ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) } })); input = st.line; break;
             case 'type': delivered(await s.type(st.target, st.text)); input = st.line; break;
