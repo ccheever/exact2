@@ -1147,6 +1147,8 @@ mod declaration_tests {
         );
         assert!(text.contains("rotate:y 30deg;"), "{text}");
         assert!(text.contains("translate:1px 2px 3px;"), "{text}");
+        assert!(text.contains("perspective:800px;"), "{text}");
+        assert_eq!(text.matches("rotate").count(), 1, "{text}");
         // Chess diary #4: a percentage is the browser's to resolve.
         let text = css(
             &[
@@ -1158,8 +1160,6 @@ mod declaration_tests {
         );
         assert!(text.contains("translate:-50% 4px;"), "{text}");
         assert_eq!(text.matches("translate").count(), 1, "{text}");
-        assert!(text.contains("perspective:800px;"), "{text}");
-        assert_eq!(text.matches("rotate").count(), 1, "{text}");
     }
 
     #[test]

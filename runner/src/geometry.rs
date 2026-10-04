@@ -233,59 +233,57 @@ fn client_rect(
     frame: Frame,
     provisional: bool,
 ) -> GeometryAnswer {
-    use exact_kernel::svg::transform as tf;
     let arena = kernel.arena();
     let Some(key) = arena.key_of(view) else {
         return GeometryAnswer::UNAVAILABLE;
     };
-    let mut m = tf::IDENTITY;
+    // In f64, from the kernel's f32 boxes: the offsets telescope exactly,
+    // so an untransformed box answers its frame less the scrolling, bit for
+    // bit.
+    let mut m = IDENTITY;
     let mut slot = key.index;
     let mut at = frame;
     loop {
         let s = arena.style(slot);
-        let (w, h) = (at.width, at.height);
-        let (ox, oy) = s.transform_origin.resolve(w, h);
+        let (w, h) = (f64::from(at.width), f64::from(at.height));
+        let (ox, oy) = s.transform_origin.resolve(at.width, at.height);
+        let (ox, oy) = (f64::from(ox), f64::from(oy));
         let turn = if s.rotate_axis.is_3d() { 0.0 } else { s.rotate };
-        let own = tf::mul(
-            tf::translate(
-                ox + s.translate.x + s.translate_percent.x / 100.0 * w,
-                oy + s.translate.y + s.translate_percent.y / 100.0 * h,
-            ),
-            tf::mul(
-                tf::mul(tf::rotate(turn), tf::scale(s.scale, s.scale)),
-                tf::translate(-ox, -oy),
-            ),
+        let k = f64::from(s.scale);
+        let (sin, cos) = f64::from(turn).to_radians().sin_cos();
+        let (tx, ty) = (
+            f64::from(s.translate.x) + f64::from(s.translate_percent.x) / 100.0 * w,
+            f64::from(s.translate.y) + f64::from(s.translate_percent.y) / 100.0 * h,
         );
-        m = tf::mul(own, m);
+        // T(origin + translate) · R · S · T(-origin).
+        let (a, b, c, d) = (cos * k, sin * k, -sin * k, cos * k);
+        let own = [
+            a,
+            b,
+            c,
+            d,
+            ox + tx - (a * ox + c * oy),
+            oy + ty - (b * ox + d * oy),
+        ];
+        m = mul(own, m);
         let parent = (!arena.is_root(slot)).then(|| arena.parent(slot)).flatten();
         let Some(parent) = parent else {
-            // The root's place: its own frame, in its root's space.
-            m = tf::mul(tf::translate(at.x, at.y), m);
+            m = mul(shift(f64::from(at.x), f64::from(at.y)), m);
             break;
         };
         let up = arena.frame(parent);
         let (left, top) = scrolled.offset(arena.key(parent));
-        m = tf::mul(
-            tf::translate(at.x - up.x - left as f32, at.y - up.y - top as f32),
-            m,
-        );
+        let dx = f64::from(at.x) - f64::from(up.x) - left;
+        let dy = f64::from(at.y) - f64::from(up.y) - top;
+        m = mul(shift(dx, dy), m);
         slot = parent;
         at = up;
     }
-    let corners = [
-        (0.0, 0.0),
-        (frame.width, 0.0),
-        (0.0, frame.height),
-        (frame.width, frame.height),
-    ]
-    .map(|p| tf::apply(m, p));
+    let (w, h) = (f64::from(frame.width), f64::from(frame.height));
+    let corners = [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)]
+        .map(|(x, y)| (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]));
     let (x0, y0, x1, y1) = corners.iter().fold(
-        (
-            f32::INFINITY,
-            f32::INFINITY,
-            f32::NEG_INFINITY,
-            f32::NEG_INFINITY,
-        ),
+        (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY),
         |(a, b, c, d), (x, y)| (a.min(*x), b.min(*y), c.max(*x), d.max(*y)),
     );
     if !(x0.is_finite() && y0.is_finite() && x1.is_finite() && y1.is_finite()) {
@@ -293,13 +291,34 @@ fn client_rect(
     }
     let (left, top) = scrolled.page;
     GeometryAnswer {
-        x: f64::from(x0) - left,
-        y: f64::from(y0) - top,
-        width: f64::from(x1 - x0),
-        height: f64::from(y1 - y0),
+        x: x0 - left,
+        y: y0 - top,
+        width: x1 - x0,
+        height: y1 - y0,
         provisional,
         unavailable: false,
     }
+}
+
+/// A 2D affine `[a, b, c, d, e, f]`: `x' = a·x + c·y + e`, `y' = b·x + d·y + f`.
+type Affine = [f64; 6];
+
+const IDENTITY: Affine = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+
+fn shift(x: f64, y: f64) -> Affine {
+    [1.0, 0.0, 0.0, 1.0, x, y]
+}
+
+/// `p · q`: `q` first.
+fn mul(p: Affine, q: Affine) -> Affine {
+    [
+        p[0] * q[0] + p[2] * q[1],
+        p[1] * q[0] + p[3] * q[1],
+        p[0] * q[2] + p[2] * q[3],
+        p[1] * q[2] + p[3] * q[3],
+        p[0] * q[4] + p[2] * q[5] + p[4],
+        p[1] * q[4] + p[3] * q[5] + p[5],
+    ]
 }
 
 /// What an action's body reads geometry through (the VM's `Env`).
