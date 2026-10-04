@@ -1119,3 +1119,117 @@ fn a_level_declares_its_asset_requirement_without_a_model_list() {
     assert_eq!(before, after);
     assert_eq!(primitive.render.as_ref().unwrap().0.asset_work(), (0, 0));
 }
+
+// exact_game::Offset on a rigged owner moves its socketed prop with it; one on
+// the prop moves the prop alone. Sockets draw from the attachment chain, not
+// the follower's own pose, so both are applied there.
+struct Socketed;
+#[derive(Default, exact_game::Args)]
+struct SocketLook {
+    #[live]
+    owner_x: f64,
+    #[live]
+    prop_y: f64,
+}
+impl Game for Socketed {
+    const ID: &'static str = "offset-socket";
+    const ASSETS: &'static [&'static str] = &["fox.model"];
+    type Args = SocketLook;
+    fn setup(w: &mut World, _: &SocketLook) {
+        w.insert_resource(exact_game::Environment {
+            background: Some([0.; 3]),
+            bloom: None,
+            fog: None,
+            ..Default::default()
+        });
+        w.spawn_named(
+            "rig",
+            (Transform::at(-3., 0., 0.), Mesh::asset("fox.model")),
+        );
+        w.spawn_named(
+            "prop",
+            (
+                Transform::default(),
+                exact_game::SocketFollow::new("rig", "joint").offset(Transform::at(0., 1.5, 0.)),
+                Mesh::cube(0.6),
+                exact_game::Material::rgb(0., 0., 1.),
+            ),
+        );
+        w.spawn((Transform::at(0., 0., 10.), Camera::orthographic(8.)));
+        w.spawn((
+            Transform::at(0., 0., 5.).looking_at(Vec3::ZERO, Vec3::Y),
+            exact_game::DirectionalLight::default(),
+        ));
+    }
+    fn tick(_: &mut World, _: &Input, _: &SocketLook) {}
+    fn paused(_: &SocketLook) -> bool {
+        true
+    }
+    fn present(w: &mut World, look: &SocketLook) {
+        let rig = w.named("rig").unwrap();
+        w.insert(
+            rig,
+            exact_game::Offset(Transform::at(look.owner_x as f32, 0., 0.)),
+        );
+        let prop = w.named("prop").unwrap();
+        w.insert(
+            prop,
+            exact_game::Offset(Transform::at(0., look.prop_y as f32, 0.)),
+        );
+    }
+}
+#[test]
+fn offsets_move_socketed_props_with_their_owner_and_alone() {
+    let Some(gpu) = gpu() else { return };
+    // The blue prop's pixel centre, (x, y).
+    let drawn = |owner_x: f64, prop_y: f64| {
+        let mut surface = WorldSurface::<Socketed, crate::ModelPresentation, true>::default();
+        surface.device_ready(exact_gpu::wgpu::Features::empty());
+        surface
+            .bind(&[Value::Number(owner_x), Value::Number(prop_y)], None)
+            .unwrap();
+        surface.asset(
+            "fox.model",
+            Ok(&exact_game::bin::to_vec(&crate::test_model::skinned_model())),
+        );
+        surface.asset(
+            "fox/0-srgb-straight.tex",
+            Ok(include_bytes!(
+                "../../bake/tests/fixtures/crate/0-srgb-straight.tex"
+            )),
+        );
+        let frame = Frame {
+            width: 160.,
+            height: 160.,
+            ..frame(0.)
+        };
+        fixture::render(&gpu, &mut surface, &frame).unwrap();
+        let image = fixture::render(&gpu, &mut surface, &frame).unwrap().0;
+        assert!(surface.take_error().is_none());
+        let blue: Vec<(u32, u32)> = (0..160)
+            .flat_map(|y| (0..160).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let p = image.at(x, y).map(u16::from);
+                p[2] > 60 && p[2] > p[0] + 40 && p[2] > p[1] + 40
+            })
+            .collect();
+        assert!(!blue.is_empty(), "the prop draws");
+        let n = blue.len() as f64;
+        (
+            blue.iter().map(|p| f64::from(p.0)).sum::<f64>() / n,
+            blue.iter().map(|p| f64::from(p.1)).sum::<f64>() / n,
+        )
+    };
+    let still = drawn(0., 0.);
+    let owner = drawn(2., 0.);
+    let prop = drawn(0., 1.);
+    // 8 world units span 160 pixels: 20 pixels a unit.
+    assert!(
+        (owner.0 - still.0 - 40.).abs() < 3. && (owner.1 - still.1).abs() < 3.,
+        "{still:?} -> {owner:?}"
+    );
+    assert!(
+        (prop.1 - still.1 + 20.).abs() < 3. && (prop.0 - still.0).abs() < 3.,
+        "{still:?} -> {prop:?}"
+    );
+}
