@@ -1,7 +1,7 @@
 // Session setup shared by the agent CLI and its programmatic driver.
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { delimiter, relative, resolve } from 'node:path';
+import { delimiter, dirname, relative, resolve } from 'node:path';
 import { bakeOutput, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -153,26 +153,27 @@ export function newerThan(since, roots, skip = () => false) {
 
 // What a build can read from an app: the bake's capture (`js/bake/src/lib.rs`,
 // `sources`), and Rust and WGSL sources and manifests.
-const BUILD_SOURCE = /\.(ts|json|contract|ttf|otf|rs|toml|wgsl)$|^(assets|deck|gpu\/shaders)\//;
-/** The app's gitignored paths, as a skip for its own files: a screenshot
- * saved into the app is not an input. One a build can read still counts,
- * ignored or not (a generated asset or source, a local key), as does anything
- * under `keep` (declared shader roots). Outside Git, nothing. */
-export function gitIgnored(dir, keep = []) {
-  const listed = spawnSync('git', ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'], { cwd: dir, encoding: 'utf8' });
-  const paths = listed.status === 0 ? listed.stdout.split('\0').filter(Boolean).map(p => resolve(dir, p)) : [];
-  if (!paths.length) return () => false;
-  // Files, not directories: an ignored directory is still walked for what the bake captures in it.
+const BUILD_SOURCE = /\.(ts|json|contract|ttf|otf|rs|toml|wgsl)$|(^|\/)Cargo\.lock$|^(assets|deck|gpu\/shaders)\//;
+/** A skip for an app's own files that no build reads: a screenshot, a log, a
+ * diary saved into the app is not an input, ignored by Git or not. What the
+ * bake captures counts, as does anything under `keep` (declared shader roots)
+ * and anything inside one of the app's Rust crates, which can `include_bytes!`
+ * any file beside it. */
+export function notBuildInput(dir, keep = []) {
   const under = (path, roots) => roots.some(p => path === p || path.startsWith(p + '/'));
-  return path => under(path, paths) && !under(path, keep) &&
-    !statSync(path, { throwIfNoEntry: false })?.isDirectory() && !BUILD_SOURCE.test(relative(dir, path));
+  const inCrate = path => {
+    for (let at = dirname(path); at.startsWith(dir + '/'); at = dirname(at)) if (existsSync(resolve(at, 'Cargo.toml'))) return true;
+    return false;
+  };
+  return path => !statSync(path, { throwIfNoEntry: false })?.isDirectory() &&
+    !BUILD_SOURCE.test(relative(dir, path)) && !under(path, keep) && !inCrate(path);
 }
 
 /** An Apple build's receipt: its Rust and Swift inputs by digest, then by mtime the app's own files the receipt leaves out on purpose (the root build script's watches: the contract, app.json, data, shaders, assets — what the baked plan and bundle are made from). */
 export function receiptChanges(receipt, app) {
   if (!existsSync(receipt)) return [];
   const { build, target } = JSON.parse(readFileSync(receipt, 'utf8')), since = statSync(receipt).mtimeMs;
-  const ignored = gitIgnored(app.dir, shaderWatchRoots(app));
+  const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const own = newerThan(since, [app.dir], path => /\/(apple|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path));
   // The receipt names what the binary links, not what built it: the Rust
   // archive's own dep-info also names its build script's (the compiler, the bake).
@@ -198,7 +199,7 @@ export function webChanges(dist, app) {
   if (!existsSync(marker)) return { app: [], shared: [], all: [] };
   const since = statSync(marker).mtimeMs, js = JSON.parse(readFileSync(marker, 'utf8')).target === 'js';
   const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'plan', 'motion', 'num', 'contract'];
-  const ignored = gitIgnored(app.dir, shaderWatchRoots(app));
+  const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
   const appChanges = newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
   const shared = newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) }));

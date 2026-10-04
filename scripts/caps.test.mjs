@@ -20,7 +20,7 @@ import { runInNewContext } from 'node:vm';
 import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, readDevGeneration, retainDevGeneration, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp, jsonLines } from './agent.mjs';
 import { verifyBakeFiles, pendingBuildInputs } from './app.mjs';
-import { gitIgnored, newerThan } from './agent-launch.mjs';
+import { newerThan, notBuildInput } from './agent-launch.mjs';
 import { copyAppleStaticTrees } from '../host/apple/build.mjs';
 import { developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/devices.mjs';
 import { classify, publishRoot, webRelease } from './deploy.mjs';
@@ -614,16 +614,17 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir,{recursive:true,force:true});
 }
 {
-  // A screenshot saved into an app is not an input; an ignored file the bake captures still is.
-  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-ignored-inputs-')));
-  for(const sub of ['shots','gen','shader-gen']) mkdirSync(join(dir,sub));
-  for(const [name,text] of [['.gitignore','/shots/\n/local.ts\n/gen/\n/shader-gen/\n'],['app.contract','view'],['local.ts','key'],['shots/one.png','png'],['shots/notes.txt','notes'],['gen/made.rs','fn f() {}'],['shader-gen/paint.wgsl','fn main() {}'],['shader-gen/table.bin','bytes']]) writeFileSync(join(dir,name),text);
-  const walk=()=>newerThan(0,[dir],gitIgnored(dir,[join(dir,'shader-gen')])).map(p=>relative(dir,p)).sort();
+  // A screenshot or log saved into an app is not an input, ignored by Git or not;
+  // what the bake captures, a declared shader root and a Rust crate's files are.
+  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-build-inputs-')));
+  for(const sub of ['shots','gen','shader-gen','data']) mkdirSync(join(dir,sub));
+  for(const [name,text] of [['.gitignore','/local.ts\n/gen/\n/shader-gen/\n'],['Cargo.toml','[workspace]'],['app.contract','view'],['local.ts','key'],['run.log','log'],['shots/one.png','png'],['shots/notes.txt','notes'],['gen/made.rs','fn f() {}'],['shader-gen/paint.wgsl','fn main() {}'],['shader-gen/table.bin','bytes'],['data/Cargo.toml','[package]'],['data/table.bin','bytes']]) writeFileSync(join(dir,name),text);
+  const walk=()=>newerThan(0,[dir],notBuildInput(dir,[join(dir,'shader-gen')])).map(p=>relative(dir,p)).sort();
   const outside=walk();
   spawnSync('git',['init','-q'],{cwd:dir});
-  const inside=walk();
-  result('the staleness walk skips gitignored files no build reads',
-    JSON.stringify(inside)==='["app.contract","gen/made.rs","local.ts","shader-gen/paint.wgsl","shader-gen/table.bin"]'&&outside.length===7,JSON.stringify({inside,outside}));
+  const inside=walk(),want='["Cargo.toml","app.contract","data/Cargo.toml","data/table.bin","gen/made.rs","local.ts","shader-gen/paint.wgsl","shader-gen/table.bin"]';
+  result('the staleness walk skips files no build reads, ignored or not',
+    JSON.stringify(inside)===want&&JSON.stringify(outside)===want,JSON.stringify({inside,outside}));
   rmSync(dir,{recursive:true,force:true});
 }
 // A matching hand-written exact.json is not build identity. The agent must
