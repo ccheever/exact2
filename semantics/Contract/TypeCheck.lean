@@ -287,7 +287,13 @@ def checkState (p : Program) (i : Nat) : Bool :=
 def checkDerive (p : Program) (d : DeriveDecl) : Bool := inferLe p (compScope p) [] d.body d.ty
 def checkResource (p : Program) (r : ResourceDecl) : Bool := (inferList p (compScope p) [] r.args).isSome
 def checkAction (p : Program) (a : ActionDecl) : Bool := checkStmts p (compScope p) a.params.reverse a.body
-def checkTask (p : Program) (t : TaskDecl) : Bool := inferLe p (compScope p) [] t.ms .number
+/-- A task's action exists and takes no parameters. -/
+def taskAction (p : Program) (t : TaskDecl) : Bool :=
+  match p.actions.find? (·.name == t.action) with
+  | .some a => a.params.isEmpty
+  | .none => false
+def checkTask (p : Program) (t : TaskDecl) : Bool :=
+  inferLe p (compScope p) [] t.ms .number && taskAction p t
 
 /-- The checker: every part well typed. -/
 def check (p : Program) : Bool :=
@@ -714,7 +720,7 @@ theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
   refine {
     shapes := ?_, names := hnames, routeShapes := hrs, routerSlot := hrslot, states := hst, derivesComplete := hdt, resourcesComplete := hrt,
     mutations := hmt, params := ?_, fns := ?_, rootInits := ?_, lateInits := ?_, derives := ?_,
-    resources := ?_, actions := ?_, tasks := ?_, view := checkNodes_sound _ hview }
+    resources := ?_, actions := ?_, tasks := ?_, taskActions := ?_, view := checkNodes_sound _ hview }
   · intro sh hs f hf
     simp only [checkShapes, List.all_eq_true] at hsh
     exact hsh sh hs f hf
@@ -736,6 +742,15 @@ theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
     obtain ⟨ts, hts⟩ := this
     exact ⟨ts, inferList_sound _ hts⟩
   · intro a ha; exact checkStmts_sound _ (hacts a ha)
-  · intro t ht; exact inferLe_sound (htasks t ht)
+  · intro t ht
+    simp only [checkTask, Bool.and_eq_true] at htasks
+    exact inferLe_sound (htasks t ht).1
+  · intro t ht
+    simp only [checkTask, Bool.and_eq_true] at htasks
+    have := (htasks t ht).2
+    simp only [taskAction] at this
+    split at this
+    · next a ha => exact ⟨a, ha, by simpa using this⟩
+    · simp at this
 
 end Contract
