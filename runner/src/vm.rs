@@ -46,10 +46,11 @@ pub const MAX_LIST_STEPS: u32 = 1 << 16;
 /// to walk again than to look up.
 const REMEMBERED: u64 = 64;
 
-/// A keyed row's own slots — the values of the `state` a child component
-/// declared, one set per row (LLP 1017 P4c) — shared by the row and every
-/// frame that reaches it, so a read during an update and a write applied
-/// after an action's commit see one storage.
+/// An instance's own slots — the values of the `state` a child component
+/// declared, one set per keyed row or shown `when`/`match` arm (LLP 1017
+/// P4c) — shared by the instance and every frame that reaches it, so a
+/// read during an update and a write applied after an action's commit see
+/// one storage.
 pub type RowSlots = Rc<RefCell<BTreeMap<u32, Value>>>;
 
 /// One instance scope: what an `each` row or a `match` arm binds.
@@ -61,9 +62,10 @@ pub struct Frame {
     pub index: Option<usize>,
     /// The `match` binding, when this scope is a `some(x)` arm.
     pub bound: Option<Value>,
-    /// The `each` region this row belongs to, when this scope is a row.
+    /// The region this instance belongs to, when this scope is a row or an
+    /// arm that owns slots.
     pub region: Option<u32>,
-    /// The row's slots, when this scope is a row.
+    /// The instance's slots, when this scope is a row or an arm owning some.
     pub row: Option<RowSlots>,
 }
 
@@ -559,8 +561,9 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
             Opcode::LoadSlot => {
                 let slot = args[0] as usize;
                 let row = env.plan.slots.get(slot).ok_or(malformed(pc))?;
-                let v = match row.owner {
-                    // A row slot: the value the innermost row of its region holds.
+                let v = match env.plan.owner_region(row) {
+                    // An owned slot: the value the innermost instance of its
+                    // region (a row, an arm) holds.
                     Some(region) => Frame::row_of(env.frames, region.0)
                         .and_then(|r| r.borrow().get(&(slot as u32)).cloned())
                         .ok_or(Trap::BadScope { pc, depth: 0 })?,
@@ -829,16 +832,12 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                     return Err(Trap::WriteNotDeclared { pc, slot });
                 }
                 let v = pop!(pc);
-                match env
-                    .plan
-                    .slots
-                    .get(slot as usize)
-                    .ok_or(malformed(pc))?
-                    .owner
-                {
+                let row = env.plan.slots.get(slot as usize).ok_or(malformed(pc))?;
+                match env.plan.owner_region(row) {
                     Some(region) => {
-                        // A row slot: written to the row in force — an action
-                        // run with no row (`act`, a timer) has none to write.
+                        // An owned slot: written to the instance in force —
+                        // an action run with none (`act`, a timer) has none
+                        // to write.
                         let row = Frame::row_of(env.frames, region.0)
                             .ok_or(Trap::BadScope { pc, depth: 0 })?;
                         out.row_writes.push((slot, v, row.clone()));

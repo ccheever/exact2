@@ -508,6 +508,7 @@ fn may_be_empty(e: &Expr) -> bool {
         Expr::Str(s, _) => s.trim().is_empty(),
         Expr::None(_) => true,
         Expr::Ternary(_, a, b, _) => may_be_empty(a) || may_be_empty(b),
+        Expr::Typed(x, _, _) => may_be_empty(x),
         _ => false,
     }
 }
@@ -518,6 +519,7 @@ fn always_empty(e: &Expr) -> bool {
         Expr::Str(s, _) => s.trim().is_empty(),
         Expr::None(_) => true,
         Expr::Ternary(_, a, b, _) => always_empty(a) && always_empty(b),
+        Expr::Typed(x, _, _) => always_empty(x),
         _ => false,
     }
 }

@@ -123,7 +123,13 @@
         },
         {
           "name": "owner",
-          "codec": "opt:regions"
+          "codec": "opt:arms",
+          "_comment": "@ref LLP 1017.000 (child state): the arm whose instance owns this slot — an `each` row, a `when` or `match` arm. The slot is created, its init evaluated in that arm's frames, when the arm instance is created, and dropped with it. None: a root slot."
+        },
+        {
+          "name": "late",
+          "codec": "bool",
+          "_comment": "@ref LLP 1017.000 (child state): a root slot holding the state of a child used outside every region; its init runs once at the boot render, after boot settlement (so it may read derives and resources), not with the other root slots before it. Always false when owner is set."
         }
       ]
     },

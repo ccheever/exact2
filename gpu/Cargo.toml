@@ -21,7 +21,7 @@ crate-type = ["rlib"]
 exact-plan = { path = "../plan" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-wgpu = { version = "30", default-features = false, features = ["wgsl", "metal", "vulkan"] }
+wgpu = { version = "30", default-features = false, features = ["wgsl", "metal", "vulkan", "dx12"] }
 # The interface digest over a shader registered at run time (LLP 1030 D8):
 # the same reflection the build ran, so a candidate is admitted only at the
 # interface the binary binds. naga is already here through wgpu's `wgsl`.

@@ -155,7 +155,7 @@ impl Acquire {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 impl Acquire {
     /// Hang up on the thread (it exits, dropping its handle on the surface)
     /// and hand back the channel it answers on.

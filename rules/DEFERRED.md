@@ -273,7 +273,10 @@ repository, on the plan, runner and agent seams; its RFC is owed. The take is
 waived.
 
 - **Windows.** A working Direct2D host exists in the old repo. It is real work, and it
-  doubles the native matrix. Port it after the loop is proven.
+  doubles the native matrix. **Admitted (Charlie, 2026-10-04):** "make an exact2
+  implementation for the Windows platform, including the game engine" for standalone
+  Skirmish (LLP 1015.000). Take: single-player first; multiplayer and general Windows
+  app expansion wait behind the working game. The engine remains optional.
 - **Android.** Same.
 
 Every surface multiplies the sweep, the presenter count, and the number of ways one

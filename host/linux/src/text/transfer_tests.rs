@@ -1055,6 +1055,7 @@ fn constructor_face_removal_or_metadata_change_refuses_without_mutating_old_owne
 }
 
 #[test]
+#[cfg(unix)]
 fn nonregular_replacement_refuses_without_waiting_for_a_pipe_writer() {
     use std::os::unix::fs::OpenOptionsExt;
     let dir = FontDirectory::new();

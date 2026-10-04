@@ -118,7 +118,7 @@ pub struct CompileError {
     /// Original token range, including its compilation-local source identity.
     pub span: Span,
     /// Resolved file path, absent only when compiling standalone source text.
-    pub file: Option<PathBuf>,
+    pub file: Option<Box<Path>>,
     /// Other authored declarations or bindings involved in this rejection.
     pub related: Box<[RelatedLocation]>,
 }
@@ -251,7 +251,7 @@ fn read_source(path: &Path) -> Result<String, CompileError> {
         id: "contract-use-unreadable".into(),
         message: e.to_string(),
         span: Span::default(),
-        file: Some(path.to_path_buf()),
+        file: Some(path.into()),
         related: Box::new([]),
     })?;
     Ok(src)
@@ -323,7 +323,7 @@ fn compile_path_output(
         id: "contract-use-unreadable".into(),
         message: format!("{}: {e}", source_root.display()),
         span: Span::default(),
-        file: Some(path.to_path_buf()),
+        file: Some(path.into()),
         related: Box::new([]),
     })?;
     let (file, sources) = sources::load(path, src, &app_root)?;
@@ -354,7 +354,7 @@ fn compile_path_output(
             id: "app-manifest".into(),
             message,
             span: Span::default(),
-            file: Some(path.to_path_buf()),
+            file: Some(path.into()),
             related: Box::new([]),
         })?;
         if !plan.app_id.is_empty() && plan.app_id != manifest.id {
@@ -366,7 +366,7 @@ fn compile_path_output(
                     plan.app_id, manifest.id
                 ),
                 span: Span::default(),
-                file: Some(path.to_path_buf()),
+                file: Some(path.into()),
                 related: Box::new([]),
             }]);
         }

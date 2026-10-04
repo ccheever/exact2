@@ -33,14 +33,15 @@ import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, r
 import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { BINARYEN } from '../host/web/stages.mjs';
-import { resolve } from 'node:path';
+import { delimiter, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { createApp } from '../game/new.mjs';
 import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
 import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const APPLICATIONS = resolve(homedir(), 'Applications');
 
 /** The app's assembled bundle in this repo — `host/apple/build.mjs --bundle`'s one stable output. */
@@ -311,6 +312,14 @@ export function binaryenVersion(output) {
   return /^wasm-opt (version \d+)(?: \([^)]*\))?$/.exec(output.trim())?.[1] ?? output.trim();
 }
 
+export function binaryenArchive(version, os = process.platform, cpu = process.arch) {
+  const platform = {darwin:'macos',linux:'linux',win32:'windows'}[os];
+  const arch = cpu === 'x64' ? 'x86_64' : cpu === 'arm64' && os !== 'win32'
+    ? (os === 'linux' ? 'aarch64' : 'arm64') : null;
+  if (!platform || !arch) throw new Error(`no Binaryen setup for ${os}/${cpu}`);
+  return `binaryen-${version}-${arch}-${platform}.tar.gz`;
+}
+
 /** Install the versions declared by the SDK, once per machine. */
 export function setup({check = false} = {}) {
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain;
@@ -335,10 +344,7 @@ export function setup({check = false} = {}) {
     if (output('wasm-bindgen', ['--version']) !== `wasm-bindgen ${bindgen}`)
       run('cargo', [`+${pin.channel}`, 'install', 'wasm-bindgen-cli', '--version', bindgen, '--locked', '--force']);
     if (binaryenVersion(output('wasm-opt', ['--version'])) !== BINARYEN) {
-      const platform = {darwin: 'macos', linux: 'linux'}[process.platform];
-      const arch = process.arch === 'arm64' ? (platform === 'linux' ? 'aarch64' : 'arm64') : process.arch === 'x64' ? 'x86_64' : null;
-      if (!platform || !arch) throw new Error(`no Binaryen setup for ${process.platform}/${process.arch}`);
-      const name = `binaryen-${version}-${arch}-${platform}.tar.gz`;
+      const name = binaryenArchive(version);
       const url = `https://github.com/WebAssembly/binaryen/releases/download/${version}/${name}`;
       const stage = mkdtempSync(resolve(tmpdir(), 'exact-binaryen-'));
       try {
@@ -349,7 +355,7 @@ export function setup({check = false} = {}) {
         if (createHash('sha256').update(readFileSync(archive)).digest('hex') !== expected) throw new Error('Binaryen checksum mismatch');
         mkdirSync(binaryen, {recursive: true});
         run('tar', ['-xzf', archive, '--strip-components=1', '-C', binaryen]);
-        process.env.PATH = `${resolve(binaryen, 'bin')}:${process.env.PATH ?? ''}`;
+        process.env.PATH = `${resolve(binaryen, 'bin')}${delimiter}${process.env.PATH ?? ''}`;
       } finally { rmSync(stage, {recursive: true, force: true}); }
     }
     run(process.execPath, ['install', '--frozen-lockfile']);
@@ -404,7 +410,7 @@ function main(argv) {
   return uninstall(app);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try { await main(process.argv.slice(2)); }
   catch (e) { console.error(`exact: ${e.message}`); process.exit(1); }
 }

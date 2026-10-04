@@ -12,7 +12,7 @@ pub(super) fn arguments(
         id: "analyze-surface-declaration".into(),
         message,
         span: Span::default(),
-        file: Some(path.clone()),
+        file: Some(path.as_path().into()),
         related: Box::new([]),
     };
     let bytes = match std::fs::read(&path) {

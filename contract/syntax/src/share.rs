@@ -65,6 +65,7 @@ fn strict_calls(e: &Expr, is_fn: &dyn Fn(&str) -> bool, out: &mut Vec<Expr>) {
         }
         Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _)
         | Expr::Some(x, _)
         | Expr::Unary(_, x, _) => strict_calls(x, is_fn, out),
         // A call both branches make is made on every path.
@@ -134,6 +135,7 @@ fn names(e: &Expr, out: &mut Vec<String>) {
         Expr::Call(_, args, _) => args.iter().for_each(|a| names(a, out)),
         Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _)
         | Expr::Some(x, _)
         | Expr::Unary(_, x, _) => names(x, out),
         Expr::Binary(_, a, b, _) => {
@@ -238,6 +240,7 @@ fn each_child(e: &Expr, free: &[String], f: &mut dyn FnMut(&Expr)) {
         Expr::Call(_, args, _) => args.iter().for_each(f),
         Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _)
         | Expr::Some(x, _)
         | Expr::Unary(_, x, _) => f(x),
         Expr::Binary(_, a, b, _) => {
@@ -296,6 +299,7 @@ fn map_children(e: Expr, f: &mut dyn FnMut(Expr) -> Expr) -> Expr {
         Expr::Call(n, args, s) => Expr::Call(n, args.into_iter().map(&mut *f).collect(), s),
         Expr::Member(x, field, s) => Expr::Member(b(x), field, s),
         Expr::NamedArg(n, x, s) => Expr::NamedArg(n, b(x), s),
+        Expr::Typed(x, t, s) => Expr::Typed(b(x), t, s),
         Expr::Some(x, s) => Expr::Some(b(x), s),
         Expr::Unary(op, x, s) => Expr::Unary(op, b(x), s),
         Expr::Binary(op, x, y, s) => {

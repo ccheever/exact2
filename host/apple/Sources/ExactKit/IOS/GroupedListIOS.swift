@@ -197,6 +197,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private(set) var model = GroupedListModel()
     private var source: UICollectionViewDiffableDataSource<UInt32, UInt32>!
     private var rows: [UInt32: GroupedListModel.Row] = [:]
+    /// Each row's symbol tint as last configured.
+    private var looks: [UInt32: BatchValue?] = [:]
     #if !os(tvOS)
     private var switches: [UInt32: UISwitch] = [:]
     #endif
@@ -277,7 +279,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         // A row whose parts changed is configured again; a custom row always
         // is, as its views may have changed size.
-        let changed = snapshot.itemIdentifiers.filter { id in old[id].map { $0 != rows[id] || $0.custom } ?? false }
+        // A standard row whose symbol's authored tint changed is too (D7).
+        let tints: [UInt32: BatchValue?] = Dictionary(uniqueKeysWithValues: snapshot.itemIdentifiers.map { ($0, tint(of: $0)) })
+        let changed = snapshot.itemIdentifiers.filter { id in old[id].map { $0 != rows[id] || $0.custom || tints[id] != looks[id] } ?? false }
+        looks = tints
         // A row whose switch is firing is reconfigured once its action has
         // returned: rebuilding its accessories would take the switch out of
         // its superview inside its own action.
@@ -353,6 +358,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         cell.height = nil
         var c: UIListContentConfiguration = row.subtitle ? .subtitleCell() : row.secondary != nil ? .valueCell() : .cell()
         c.image = row.symbol.flatMap { UIImage(systemName: $0) }
+        // The symbol's tint as the sheet draws it (D7): the author's over the
+        // sheet's own, each side of a light-dark() pair for its appearance.
+        if let value = symbolView(of: id)?.style["tint_color"] {
+            c.imageProperties.tintColor = UIColor { traits in
+                value.channels(dark: traits.userInterfaceStyle == .dark).map(TextEngine.color) ?? .tintColor
+            }
+        }
         c.text = row.title
         c.secondaryText = row.secondary
         if row.destructive {
@@ -450,6 +462,19 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
               let node = host.presenter.views[target], !node.disabled, !node.inert else { return false }
         host.presenter.press(target)
         return true
+    }
+
+    /// The view of the symbol the model named: the row's first shown child,
+    /// when it is an image of that symbol (`kernel/src/grouped.rs`).
+    private func symbolView(of id: UInt32) -> NodeView? {
+        guard let symbol = rows[id]?.symbol, !(rows[id]?.custom ?? true), let row = host.presenter.views[id] else { return nil }
+        let first = row.container.subviews.lazy.compactMap { $0 as? NodeView }.first { $0.style["display"]?.string != "none" }
+        guard let image = first, image.kind == "image", let source = image.props["imageSource"], source.hasPrefix("symbol:") else { return nil }
+        let name = source.dropFirst("symbol:".count)
+        return name.hasPrefix("sf/") && name.dropFirst(3) != symbol ? nil : image
+    }
+    private func tint(of id: UInt32) -> BatchValue? {
+        symbolView(of: id)?.style["tint_color"]
     }
 
     /// A custom row's own views in its cell, at the row's place in its

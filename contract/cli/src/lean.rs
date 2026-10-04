@@ -31,7 +31,7 @@ pub fn lean_path(path: &Path, name: &str) -> Result<String, CompileError> {
         id: "contract-unreadable".into(),
         message: format!("{}: {e}", path.display()),
         span: Span::default(),
-        file: Some(path.to_path_buf()),
+        file: Some(path.into()),
         related: Box::new([]),
     })?;
     crate::compile_path_source(path, &src)?;
@@ -44,7 +44,7 @@ pub fn lean_path(path: &Path, name: &str) -> Result<String, CompileError> {
         id: "contract-use-unreadable".into(),
         message: format!("{}: {e}", root.display()),
         span: Span::default(),
-        file: Some(path.to_path_buf()),
+        file: Some(path.into()),
         related: Box::new([]),
     })?;
     let (file, _) =
@@ -169,12 +169,15 @@ impl Emitter<'_> {
         let owners = &self.checked.expanded.owners;
         let mut states = Vec::new();
         for (i, s) in root.states.iter().enumerate() {
-            let owner = match owners.get(i).copied().flatten() {
-                Some(tag) => format!(".some {tag}"),
-                None => ".none".into(),
+            let (owner, late) = match owners.get(i).copied() {
+                Some(contract_syntax::Owner::Arm { tag, arm }) => {
+                    (format!(".some ({tag}, {arm})"), false)
+                }
+                Some(contract_syntax::Owner::Instance) => (".none".into(), true),
+                Some(contract_syntax::Owner::Root) | None => (".none".into(), false),
             };
             states.push(format!(
-                "{{ name := {}, ty := {}, init := {}, owner := {owner} }}",
+                "{{ name := {}, ty := {}, init := {}, owner := {owner}, late := {late} }}",
                 string(&s.name),
                 ty(&ct.slots[i]),
                 self.expr(&s.expr)?
@@ -268,7 +271,29 @@ impl Emitter<'_> {
             ));
         }
         let _ = writeln!(o, "  tasks := [{}],", tasks.join(",\n    "));
-        let _ = writeln!(o, "  view := {}", self.nodes(&root.view)?);
+        let _ = writeln!(o, "  view := {},", self.nodes(&root.view)?);
+        // The checked route table (LLP 1038 D2) and the slot `routes` names.
+        let routes: Vec<String> = shapes
+            .routes
+            .iter()
+            .flat_map(|t| &t.routes)
+            .map(|r| {
+                format!(
+                    "{{ name := {}, pattern := {}, parent := {}, tab := {}, notfound := {} }}",
+                    string(&r.name),
+                    string(&r.pattern),
+                    r.parent.map_or(".none".into(), |p| format!(".some {p}")),
+                    r.tab,
+                    r.notfound
+                )
+            })
+            .collect();
+        let _ = writeln!(o, "  routes := [{}],", routes.join(",\n    "));
+        let router = match &self.checked.file.routes {
+            Some(r) => format!(".some {}", string(&r.slot)),
+            None => ".none".into(),
+        };
+        let _ = writeln!(o, "  router := {router}");
         o.push_str("}\n");
         self.out.push_str(&o);
         Ok(())
@@ -314,6 +339,15 @@ impl Emitter<'_> {
                 format!("(.call {} {})", string(name), list(args, |a| self.expr(a))?)
             }
             Expr::NamedArg(n, v, _) => format!("(.named {} {})", string(n), self.expr(v)?),
+            Expr::Typed(e, t, _) => {
+                let t = self
+                    .checked
+                    .types
+                    .shapes
+                    .resolve(t)
+                    .map_or_else(|_| ".unknown".to_string(), |t| ty(&t));
+                format!("(.typed {} {t})", self.expr(e)?)
+            }
             Expr::Unary(op, inner, _) => {
                 let op = match op {
                     UnOp::Neg => ".neg",
@@ -479,12 +513,13 @@ impl Emitter<'_> {
                 )
             }
             Node::When {
+                tag,
                 cond,
                 then,
                 otherwise,
                 ..
             } => format!(
-                "(.when {} {} {})",
+                "(.when {tag} {} {} {})",
                 self.expr(cond)?,
                 self.nodes(then)?,
                 self.nodes(otherwise)?
@@ -509,12 +544,13 @@ impl Emitter<'_> {
                 self.nodes(body)?
             ),
             Node::Match {
+                tag,
                 subject,
                 some,
                 none,
                 ..
             } => format!(
-                "(.matchN {} {} {} {})",
+                "(.matchN {tag} {} {} {} {})",
                 self.expr(subject)?,
                 string(&some.0),
                 self.nodes(&some.1)?,

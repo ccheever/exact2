@@ -330,6 +330,7 @@ impl ContentRegionState {
             _ => None,
         }
     }
+    #[cfg(unix)]
     pub(crate) fn completion_fd(&self) -> Option<std::os::unix::io::RawFd> {
         self.refusal().is_none().then(|| self.controller.fd())
     }

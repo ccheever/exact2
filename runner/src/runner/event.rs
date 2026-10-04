@@ -576,7 +576,7 @@ impl<D: DataSource> Runner<D> {
             Opcode::LoadSlot => {
                 let id = first.args[0] as u32;
                 let row = self.plan.slots.get(id as usize).ok_or(Unsupported)?;
-                match row.owner {
+                match self.plan.owner_region(row) {
                     Some(owner) => super::Frame::row_of(frames, owner.0)
                         .and_then(|slots| slots.borrow().get(&id).cloned())
                         .ok_or(Unsupported)?,

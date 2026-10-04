@@ -5,6 +5,8 @@
 //!   difftest random [--seed S] [--count N] [--batch B]
 //!   difftest numbers [--seed S] [--count N]   number printing alone
 //!   difftest show <seed>                       a random case's program and script
+//!   difftest apps [--write]              the app embeddings under semantics/Apps
+//!                                        are what `contract lean` makes of their source
 //!
 //! Prints one line per divergence with where its reproduction was kept, then
 //! a summary; exits 1 when anything diverged, a corpus program was refused,
@@ -22,7 +24,8 @@ const USAGE: &str = "usage:
   difftest explore <dir|file>…
   difftest random [--seed <u64>] [--count <n>] [--batch <n>]
   difftest numbers [--seed <u64>] [--count <n>]
-  difftest show <seed>";
+  difftest show <seed>
+  difftest apps [--write]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -31,6 +34,7 @@ fn main() -> ExitCode {
         Some("explore") => run_explore(&args[1..]),
         Some("random") => run_random(&args[1..]),
         Some("numbers") => run_numbers(&args[1..]),
+        Some("apps") => run_apps(&args[1..]),
         Some("show") => match args.get(1).map(|s| s.parse::<u64>()) {
             Some(Ok(seed)) => {
                 let case = gen::case(seed, &gen::Size::default());
@@ -196,6 +200,58 @@ fn run_numbers(args: &[String]) -> Result<bool, String> {
         values.len()
     );
     Ok(bad == 0 && lean.len() == values.len())
+}
+
+/// The apps whose embeddings `semantics/Apps/` keeps, proved about under
+/// `semantics/Apps/Proofs/`: (source, Lean name, module).
+const APPS: &[(&str, &str, &str)] = &[
+    ("apps/typetour/app.contract", "typeTour", "TypeTour"),
+    ("apps/update-lab/app.contract", "updateLab", "UpdateLab"),
+    (
+        "apps/photo-editor/app.contract",
+        "photoEditor",
+        "PhotoEditor",
+    ),
+    (
+        "apps/video-player/app.contract",
+        "videoPlayer",
+        "VideoPlayer",
+    ),
+];
+
+/// Each checked-in embedding against what `contract lean` makes of the
+/// app's source now, so the proofs are about the app as it is. `--write`
+/// regenerates them (then `lake build` says which proofs need work).
+fn run_apps(args: &[String]) -> Result<bool, String> {
+    let write = match args {
+        [] => false,
+        [w] if w == "--write" => true,
+        _ => return Err(format!("unknown arguments\n{USAGE}")),
+    };
+    let semantics = leanrun::project();
+    let root = semantics.parent().expect("the repository");
+    let mut stale = 0;
+    for (source, name, module) in APPS {
+        let text = contract::lean::lean_path(&root.join(source), name)
+            .map_err(|e| format!("{source}: {e}"))?;
+        let text = format!("import Contract\n\n{text}");
+        let file = semantics.join("Apps").join(format!("{module}.lean"));
+        if std::fs::read_to_string(&file).ok().as_deref() == Some(text.as_str()) {
+            continue;
+        }
+        if write {
+            std::fs::write(&file, text).map_err(|e| format!("{}: {e}", file.display()))?;
+            println!("WROTE {}", file.display());
+        } else {
+            stale += 1;
+            println!(
+                "STALE {}: not what `contract lean {source} --name {name}` makes; run `difftest apps --write`, then `lake build` in semantics/",
+                file.display()
+            );
+        }
+    }
+    println!("difftest: {} app embeddings, {stale} stale", APPS.len());
+    Ok(stale == 0)
 }
 
 /// Print every case that did not agree, keeping a reproduction; the

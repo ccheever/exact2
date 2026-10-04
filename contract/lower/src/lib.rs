@@ -45,7 +45,7 @@ pub use native::{is_module_tag, module_tags};
 pub use sites::{Declared, NodeSite, Origin, Sites};
 
 use contract_analyze::Analysis;
-use contract_syntax::{Attr, Expr, File, FnDecl, Node, Span, TaskKind};
+use contract_syntax::{Attr, Expr, File, FnDecl, Node, Owner, Span, TaskKind};
 use contract_types::{Checked, Ref, Scope, Ty, Types};
 use exact_kernel::{NodeType, StyleId};
 use exact_plan::asm::Asm;
@@ -126,10 +126,10 @@ pub(crate) struct Lowerer<'a> {
     /// The file's `fn` declarations, by name, expanded inline at each call
     /// (LLP 1017 P5), each with its body's repeated calls bound once.
     pub fns: BTreeMap<&'a str, (&'a FnDecl, &'a Expr)>,
-    /// The region each `each` lowered to, by the inliner's tag (LLP 1017 P4c).
-    pub each_regions: BTreeMap<u32, exact_plan::RegionsId>,
-    /// The item/binding scope at each expanded `each`, for row-slot initializers.
-    pub each_scopes: BTreeMap<u32, Scope>,
+    /// The arm each region arm lowered to, by the inliner's tag and arm
+    /// index, with the scope in force inside it: what a lifted child state
+    /// owned by that arm is initialized in (LLP 1017 P4c).
+    pub arm_scopes: BTreeMap<(u32, u8), (exact_plan::ArmsId, Scope)>,
     /// Every generic and declared family name to its stack id.
     pub font_stacks: BTreeMap<String, StacksId>,
     /// Declared families, for the literal weight/style synthesis diagnostic.
@@ -256,8 +256,7 @@ fn lower_with_sites(
         button_context: None,
         popover_child: false,
         host_transforms: Default::default(),
-        each_regions: BTreeMap::new(),
-        each_scopes: BTreeMap::new(),
+        arm_scopes: BTreeMap::new(),
         font_stacks: BTreeMap::new(),
         declared_fonts: BTreeMap::new(),
         fixed: BTreeMap::new(),
@@ -376,7 +375,7 @@ fn lower_with_sites(
     // Bodies.
     let scope = types.component_scope(root, root_types);
     for (i, s) in root.states.iter().enumerate() {
-        if ex.owners[i].is_none() && !(i == 0 && file.routes.is_some()) {
+        if ex.owners[i] == Owner::Root && !(i == 0 && file.routes.is_some()) {
             let code = l.expr_code(&s.expr, &scope, 0)?;
             l.b.set_slot_init(l.slots[i], code);
         }
@@ -518,29 +517,35 @@ fn lower_with_sites(
         l.errors.truncate(MAX_REFUSALS);
         return Err(l.errors);
     }
-    // Row slots: each lifted state owned by an `each` names its region now
-    // that the regions exist (LLP 1017 P4c).
+    // Child state (LLP 1017 P4c): each lifted state is initialized where its
+    // instance is created — in its owning arm's scope, now that the arms
+    // exist, or, for a use outside every region, at the boot render.
     for (i, owner) in ex.owners.iter().enumerate() {
-        if let Some(tag) = owner {
-            let region = *l.each_regions.get(tag).ok_or_else(|| LowerError {
-                id: "lower-row-slot",
-                message: format!(
-                    "row slot `{}` names an `each` that was not lowered",
-                    root.states[i].name
-                ),
-                span: root.states[i].span,
-            })?;
-            let item_scope = l.each_scopes.get(tag).cloned().ok_or_else(|| LowerError {
-                id: "lower-row-slot",
-                message: format!(
-                    "row slot `{}` names an `each` with no item scope",
-                    root.states[i].name
-                ),
-                span: root.states[i].span,
-            })?;
-            let init = l.expr_code(&root.states[i].expr, &item_scope, 0)?;
-            l.b.set_slot_init(l.slots[i], init);
-            l.b.set_slot_owner(l.slots[i], region);
+        let state = &root.states[i];
+        match *owner {
+            Owner::Root => {}
+            Owner::Instance => {
+                let init = l.expr_code(&state.expr, &scope, 0)?;
+                l.b.set_slot_init(l.slots[i], init);
+                l.b.set_slot_late(l.slots[i]);
+            }
+            Owner::Arm { tag, arm } => {
+                let (id, arm_scope) =
+                    l.arm_scopes
+                        .get(&(tag, arm))
+                        .cloned()
+                        .ok_or_else(|| LowerError {
+                            id: "lower-row-slot",
+                            message: format!(
+                                "child state `{}` names a region that was not lowered",
+                                state.name
+                            ),
+                            span: state.span,
+                        })?;
+                let init = l.expr_code(&state.expr, &arm_scope, 0)?;
+                l.b.set_slot_init(l.slots[i], init);
+                l.b.set_slot_owner(l.slots[i], id);
+            }
         }
     }
     l.bake_texts()?;
@@ -1098,6 +1103,7 @@ impl<'a> Lowerer<'a> {
                 *span,
             ),
             Node::When {
+                tag,
                 cond,
                 then,
                 otherwise,
@@ -1110,6 +1116,8 @@ impl<'a> Lowerer<'a> {
                         .region(RegionKind::When, parent, arm, order, subject, unit, 2);
                 let mut inner = scope.clone();
                 inner.push_region(None);
+                self.arm_scopes.insert((*tag, 0), (arms[0], inner.clone()));
+                self.arm_scopes.insert((*tag, 1), (arms[1], inner.clone()));
                 self.nodes(then, None, Some(arms[0]), &inner, locals, parent_tag)?;
                 self.nodes(otherwise, None, Some(arms[1]), &inner, locals, parent_tag)
             }
@@ -1130,14 +1138,14 @@ impl<'a> Lowerer<'a> {
                 let mut inner = scope.clone();
                 inner.push_each(var, index.as_deref(), item_ty);
                 let key = self.expr_code(key, &inner, locals)?;
-                let (r, arms) =
+                let (_r, arms) =
                     self.b
                         .region(RegionKind::Each, parent, arm, order, subject, key, 1);
-                self.each_regions.insert(*tag, r);
-                self.each_scopes.insert(*tag, inner.clone());
+                self.arm_scopes.insert((*tag, 0), (arms[0], inner.clone()));
                 self.nodes(body, None, Some(arms[0]), &inner, locals, parent_tag)
             }
             Node::Match {
+                tag,
                 subject,
                 some,
                 none,
@@ -1154,6 +1162,8 @@ impl<'a> Lowerer<'a> {
                         .region(RegionKind::Match, parent, arm, order, code, unit, 2);
                 let mut some_scope = scope.clone();
                 some_scope.push_region(Some((some.0.clone(), Ref::Bound(0), bound_ty)));
+                self.arm_scopes
+                    .insert((*tag, 0), (arms[0], some_scope.clone()));
                 self.nodes(
                     &some.1,
                     None,
@@ -1164,6 +1174,8 @@ impl<'a> Lowerer<'a> {
                 )?;
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
+                self.arm_scopes
+                    .insert((*tag, 1), (arms[1], none_scope.clone()));
                 self.nodes(none, None, Some(arms[1]), &none_scope, locals, parent_tag)
             }
         }

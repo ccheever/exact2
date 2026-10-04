@@ -118,8 +118,10 @@ cpSync(resolve(root, 'host/web/canvas2d-glue.js'), resolve(gen, 'canvas2d-glue.j
 // before the app's, as the web host tells the wasm runner (navigation.js).
 // The whole map: its type strings hold braces, so a source sorted before it
 // (`advance`, a nested shape) once hid `exactTime` and its app could not boot.
-const sourceMap = readFileSync(resolve(gen, 'app.js'), 'utf8').match(/export const sources=(\{.*?\});export const wait=/)?.[1] ?? '{}';
-const time = Object.hasOwn(JSON.parse(sourceMap), 'exactTime');
+const sources = JSON.parse(readFileSync(resolve(gen, 'app.js'), 'utf8').match(/export const sources=(\{.*?\});export const wait=/)?.[1] ?? '{}');
+const time = Object.hasOwn(sources, 'exactTime');
+// A source a data module answers: not one the runtime reserves (`exact…`).
+const asks = Object.keys(sources).some(name => !/^exact[A-Z]/.test(name));
 // A file input, `saveFile` or `share` (files.js), registered before any press.
 const files = existsSync(resolve(gen, 'files.flag'));
 // App generation may create files imported by app.ts. Run it before reading
@@ -204,6 +206,8 @@ writeFileSync(resolve(gen, 'main.js'), [
   ...(files ? ["import './files.js';"] : []),
   "import { data, journal, clock, advance, commit, inflight, Views, viewId, After, resolvedLocale, Resources } from './rt.js';",
   ...(production ? [] : ["import { develop } from './perf.js';"]),
+  // A data module's answers, watched from before the app asks (seam.js).
+  ...(production || !asks ? [] : ["import { seam } from './perf.js';", 'seam();']),
   ...(time ? [
     "import { sourceTypes } from './names.js';",
     "import { reportTime, reportPlace } from './navigation.js';",
@@ -232,7 +236,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   ] : ['start();']),
   ...(containerHooks ? ["requestAnimationFrame(() => requestAnimationFrame(() => import('./hooks.js').then(m => m.containers())));"] : []),
 ].join('\n'));
-for (const f of ['agent.js', 'perf.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hooks.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['agent.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hooks.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The web host's own pieces, loaded after first paint (motion.js, a pan, `select`, text flow, rt.js `pr`, native.js, rt.js `geo`).
 for (const f of ['frames.js', 'motion-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js', 'presence-glue.js', 'native-glue.js', 'geometry-glue.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
 // Virtualized lists' browser half, the web host's own, loaded after first paint.

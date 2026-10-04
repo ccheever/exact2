@@ -913,6 +913,7 @@ impl<D: DataSource> Runner<D> {
         // A carried boot never takes compiled data: it was baked for the
         // initial state, and the carried state is not that.
         runner.settle(carried.is_none())?;
+        runner.init_late_slots(carried)?;
         let now = runner.now_ms;
         runner.timers = runner
             .plan

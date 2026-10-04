@@ -6,11 +6,23 @@ use std::{
     process::{Command, Output},
 };
 
+#[test]
+fn diagnostics_keep_the_by_value_error_below_the_large_result_threshold() {
+    assert!(std::mem::size_of::<contract::CompileError>() < 128);
+}
+
 struct App(PathBuf);
 impl App {
     fn new(name: &str) -> Self {
+        // Windows forbids quotes in filenames; backslashes still exercise JSON
+        // path escaping, and both platforms retain Unicode and whitespace.
+        let suffix = if cfg!(windows) {
+            "é space"
+        } else {
+            "é space\""
+        };
         let path =
-            std::env::temp_dir().join(format!("exact-json-{name}-{}-é\"", std::process::id()));
+            std::env::temp_dir().join(format!("exact-json-{name}-{}-{suffix}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
     }

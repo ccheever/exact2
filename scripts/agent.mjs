@@ -17,7 +17,7 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, chromium, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
+import { Cdp, chromium, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -40,15 +40,16 @@ import { contactSheet, decodePng, encodeApng, encodePng } from './png.mjs';
 const FILM_FRAMES = 240, FILM_PIXELS = 64e6;
 import { tmpdir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { dragTap } from './agent-drag.mjs';
 import { runTests } from './agent-test.mjs';
 import { appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
 import { crashReports, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
-import { bakeOutput, resolveApp, webDist as defaultWebDist } from './app.mjs';
+import { bakeOutput, bakeTarget, resolveApp, webDist as defaultWebDist } from './app.mjs';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // A completed operation must release its deadline too, so an otherwise closed
@@ -142,7 +143,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     // store keep Chrome from asking the login keychain, which a shell
     // without keychain access refuses (errSecInteractionNotAllowed).
     '--use-mock-keychain', '--password-store=basic', 'about:blank',
-  ], { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
+  ], { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'], windowsHide:true });
     // Bun exposes null stdio on a failed spawn; wait before constructing CDP.
     // A pid is a started child: Bun 1.4.2 can drop the 'spawn' event of the
     // first child with extra pipes a test process starts, so only a child
@@ -162,10 +163,17 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     child.on('error', error => { cdp.fail(`web carrier unavailable: ${chrome}: ${error.code}; set CHROME to an installed browser`); r(); });
   });
   const close = async () => {
-    try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+    if (process.platform === 'win32') {
+      // Windows has no negative-PID process groups. Ask our recorded browser
+      // to close, then terminate only its recorded tree if it did not exit.
+      await cdp.send('Browser.close', {}, undefined, 2000).catch(() => {});
+      await waitAtMost(exited, 2000);
+      if (child.exitCode === null && child.signalCode === null)
+        spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {stdio:'ignore', windowsHide:true, timeout:2000});
+    } else try { process.kill(-child.pid, 'SIGKILL'); } catch {}
     await waitAtMost(exited, 2000);
     server.close();
-    rmSync(profile, { recursive: true, force: true });
+    rmSync(profile, { recursive: true, force: true, maxRetries:5, retryDelay:100 });
     if (planBuild) rmSync(planBuild, { recursive: true, force: true });
   };
   try {
@@ -483,17 +491,24 @@ const REPLY_MS = 120000;
 const bootRefusal = (error) => 'the app booted with an error: ' + error +
   (/UnsupportedVersion|FormatDigestMismatch|KernelSchemaMismatch/.test(error) ? ' (the plan and the host binary were built from different formats: rebuild the host)' : '');
 
-/** One JSON-lines protocol over stdio on macOS/Linux, or a phone's outbound socket. */
+/** One JSON-lines protocol over stdio on desktop hosts, or a phone's outbound socket. */
 async function openStdio({ host, plan, world, size, app, env: extra = {}, session, documents = [], device = false, phone: pick, onProcess }) {
   const a = resolveApp(app);
   const linux = host === 'linux';
+  const windows = host === 'windows', portable = linux || windows;
   const sample = host === 'host';
-  const artifacts = linux ? null : appleArtifacts(a, { destination: device ? 'ios' : 'macos', host: sample });
+  const artifacts = portable ? null : appleArtifacts(a, { destination: device ? 'ios' : 'macos', host: sample });
   const deviceBundle = artifacts?.bundle;
-  const bin = linux ? (process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`)) : (process.env.EXACT_MAC_BIN ?? artifacts.binary);
-  if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run bun host/apple/build.mjs --device first' : linux ? `run cargo build --release -p ${a.crate('linux')} first` : sample ? 'run bun host/apple/build.mjs --host first' : 'run bun host/apple/build.mjs first');
-  if (!linux) assertAppleIdentity(a, device ? resolve(deviceBundle, 'ExactIOS') : bin);
-  if (linux && process.env.EXACT_LINUX_BIN) unchecked('linux', 'EXACT_LINUX_BIN');
+  const bin = windows ? (process.env.EXACT_WINDOWS_BIN ?? resolve(a.dir, `dist-windows/${a.crate('windows')}.exe`))
+    : linux ? (process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`)) : (process.env.EXACT_MAC_BIN ?? artifacts.binary);
+  if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run bun host/apple/build.mjs --device first' : windows ? 'run bun host/windows/build.mjs first' : linux ? `run cargo build --release -p ${a.crate('linux')} first` : sample ? 'run bun host/apple/build.mjs --host first' : 'run bun host/apple/build.mjs first');
+  if (!portable) assertAppleIdentity(a, device ? resolve(deviceBundle, 'ExactIOS') : bin);
+  if (windows && process.env.EXACT_WINDOWS_BIN) unchecked('windows', 'EXACT_WINDOWS_BIN');
+  else if (windows) {
+    const receipt = resolve(bakeOutput(a), `windows-${bakeTarget('windows')}.build.json`);
+    refuseStale('windows', bin, packagedBuildChanges(receipt, dirname(bin)), `bun host/windows/build.mjs ${a.crate('windows')}`);
+  }
+  else if (linux && process.env.EXACT_LINUX_BIN) unchecked('linux', 'EXACT_LINUX_BIN');
   else if (linux) refuseStale('linux', bin, depInfoChanges(bin), `cargo build --release -p ${a.crate('linux')}`);
   else if (!device && process.env.EXACT_MAC_BIN) unchecked(host, 'EXACT_MAC_BIN');
   else if (!device) {
@@ -512,16 +527,17 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
       extra = { ...extra, EXACT_WORLD: '~/tmp/exact-agent.world' };
     }
   }
-  const env = { EXACT_ASSETS: linux ? a.dir : artifacts.capture, ...process.env, EXACT_AGENT: '1' };
+  const env = { EXACT_ASSETS: windows ? dirname(bin) : linux ? a.dir : artifacts.capture, ...process.env, EXACT_AGENT: '1' };
   if (plan) env.EXACT_PLAN = plan;
-  if (linux && size) env.EXACT_SIZE = `${size[0]}x${size[1]}`;
+  if (portable && size) env.EXACT_SIZE = `${size[0]}x${size[1]}`;
   // @ref LLP 1039 §5 — measure the requested Mac content viewport.
-  if (!linux && size) { env.EXACT_WINDOW_WIDTH = String(size[0]); env.EXACT_WINDOW_HEIGHT = String(size[1]); }
-  if (linux) {
+  if (!portable && size) { env.EXACT_WINDOW_WIDTH = String(size[0]); env.EXACT_WINDOW_HEIGHT = String(size[1]); }
+  if (portable) {
     // The pinned font: DejaVu Sans from scripts/fixtures/fonts shapes and
     // paints the host's text on every machine, so a pixel fixture recorded
     // here matches on a builder (LLP 1015 §5). The environment still wins.
     env.EXACT_PAINTER ??= 'cpu';
+    if (windows) env.EXACT_GPU_RENDER ??= '1';
     env.EXACT_FONTS ??= resolve(ROOT, 'scripts/fixtures/fonts/assets');
     env.EXACT_FONT ??= 'DejaVu Sans';
   }
@@ -531,7 +547,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
   const child = device
     ? spawn('xcrun', ['devicectl', 'device', 'process', 'launch', '--quiet', '--console', '--terminate-existing', '--device', ph.udid,
         '--environment-variables', JSON.stringify({ ...(size ? { EXACT_WINDOW_WIDTH: env.EXACT_WINDOW_WIDTH, EXACT_WINDOW_HEIGHT: env.EXACT_WINDOW_HEIGHT } : {}), ...extra, EXACT_AGENT: '1', ...bridge.env }), a.id], { stdio: ['pipe', 'pipe', 'pipe'] })
-    : spawn(bin, linux && env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : documents, { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    : spawn(bin, portable && env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : documents, { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide:true });
   onProcess?.(child);
   const hostLines = [];
   child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('app: ' + l); });
@@ -570,7 +586,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
       async input(id, kind, opts) {
         if (kind === 'key') {
           const session = state.session;
-          return nativeKey({id, opts: linux ? {...opts, ownedRelease:false} : opts, ask: req => ask(req, session)});
+          return nativeKey({id, opts: portable ? {...opts, ownedRelease:false} : opts, ask: req => ask(req, session)});
         }
         const guest = { selector: opts.selector, x: opts.x, y: opts.y, entity: opts.entity, world: opts.world, under: opts.under, phase: opts.phase };
         const phase = ['down', 'move', 'hold', 'up', 'cancel'].includes(kind);
@@ -803,7 +819,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   if (!['chrome', 'firefox', 'webkit'].includes(browser)) throw new Error(`browser: chrome, firefox or webkit, not ${browser}`);
   const facts = launchFacts({seed, locale, timeZone, epoch, env});
   env = {...env, ...launchEnvironment(facts)};
-  if (world && !['web','mac','macos','ios','linux'].includes(host)) throw new Error(`world restore unavailable on this host yet: ${host}`);
+  if (world && !['web','mac','macos','ios','linux','windows'].includes(host)) throw new Error(`world restore unavailable on this host yet: ${host}`);
   if (world && statSync(world).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
   if (world && host !== 'web' && !device) env = {...env, EXACT_WORLD:resolve(world)};
   if (device && host !== 'ios') throw new Error('--device is supported for the standalone ios client');
@@ -819,7 +835,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   // A drive has no app storage unless it names a scratch store apart from the app's real files (`--storage <name>`): a tree under the cache base on native, kept between drives; on the web, the drive's own fresh browser profile.
   if (storage !== undefined && (!/^[A-Za-z0-9._-]+$/.test(storage) || ['.', '..'].includes(storage))) throw new Error("--storage: one name of letters, digits, '.', '-' or '_'");
   if (storage !== undefined && host !== 'web') env = { ...(env ?? {}), EXACT_AGENT_STORAGE: storage };
-  if (url !== undefined && ['macos', 'mac', 'ios', 'linux', 'host', 'host-ios'].includes(host)) {
+  if (url !== undefined && ['macos', 'mac', 'ios', 'linux', 'windows', 'host', 'host-ios'].includes(host)) {
     // @ref LLP 1038 D5/D11 — a native scheme/path is a launch location;
     // HTTP(S) keeps the existing development-plan locator form.
     if (/^https?:\/\//i.test(url)) {
@@ -834,13 +850,16 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session, onProcess })
     : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, touch, onProcess })
     : host === 'linux' ? await openStdio({ host: 'linux', plan, size: size ?? VIEWPORT, env, app, onProcess })
+    : host === 'windows' ? await openStdio({ host: 'windows', plan, size: size ?? VIEWPORT, env, app, onProcess })
     : host === 'ios' ? await openIOS({ plan, env, app, size, touch, onProcess })
     : await openWeb({ browser, plan, world, size, url, app, webDist, onProcess, reuse, storage, facts });
   const mapLocator = plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
     // The dist the carrier serves — an app outside the repo's own (shop F2), never Caltrain's by default.
     ?? (carrier.host === 'web' ? resolve(webDist ?? defaultWebDist(), 'app.plan') : null);
   // Without a plan of the drive's own, a native host runs its bake's: the maps a development bake left (LLP 1012.001.000 D6).
-  const baked = () => { const a = resolveApp(app); return bakedPlans(process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`), bakeOutput(a)); };
+  const baked = () => { const a = resolveApp(app); const bin = host === 'windows'
+    ? process.env.EXACT_WINDOWS_BIN ?? resolve(a.dir, `dist-windows/${a.crate('windows')}.exe`)
+    : process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`); return bakedPlans(bin, bakeOutput(a)); };
   const sourceMaps = sourceMapReaders(mapLocator ? [mapLocator] : carrier.host !== 'web' ? baked() : []);
   const s = {
     carrier,
@@ -941,8 +960,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
      */
     input: host === 'ios' || host === 'host-ios'
       ? { contact: false, hold: false, delivery: (kind) => (['contextmenu', 'dblclick', 'hover', 'pinch'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : ['press', 'drag'].includes(kind) && carrier.touches ? 'platform' : kind === 'drag' ? 'unsupported' : 'activation') }
-      : host === 'linux'
-        ? { contact: true, hold: true, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'presenter' : 'platform') }
+      : host === 'linux' || host === 'windows'
+        ? { contact: true, hold: true, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel', 'contextmenu'].includes(kind) ? 'presenter' : 'platform') }
         : { contact: true, hold: true, delivery: () => 'platform' },
     /** The contact this session holds, `{x, y}` in the viewport's space, or null. */
     contact: null,
@@ -976,7 +995,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       // takes, so a driver must never be told it sent a gesture when it did
       // not (LLP 0382 — fail closed, loudly).
       if (opts.gesture && !(host === 'macos' || host === 'mac')) throw new Error(`${host} cannot phase a wheel; \`gesture\` is the AppKit carrier's`);
-      if ((opts.contextmenu || opts.dblclick) && !['web', 'ios', 'macos', 'mac'].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
+      if ((opts.contextmenu || opts.dblclick) && !['web', 'ios', 'macos', 'mac', ...(opts.dblclick ? [] : ['linux', 'windows'])].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
       if (opts.pinch !== undefined && !(opts.pinch > 0 && Number.isFinite(opts.pinch))) throw new Error('pinch: expected a positive finite scale');
       if (opts.pinch !== undefined && !['web', 'ios', 'macos', 'mac'].includes(host)) return s.tagged({ tapped: node.id, target, pinch: opts.pinch, delivery: 'unsupported', reason: `${host} has no pinch (LLP 1057.001 §4)`, carrier: host, mode: timing });
       // @ref LLP 1070.000 §5 — a virtualized list's row brought into view by
@@ -1131,7 +1150,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       mkdirSync(dirname(resolve(path)), { recursive: true });
       if (target && typeof target === 'object') return s.film(path, target);
       if (form === 'save') {
-        if (!['web','macos','ios','linux'].includes(s.host)) throw new Error(`world save unavailable on this host yet: ${s.host}`);
+        if (!['web','macos','ios','linux','windows'].includes(s.host)) throw new Error(`world save unavailable on this host yet: ${s.host}`);
         const reply = await s.op({op:'screenshot', ...await s.target(target), world:true, form:'save'});
         const {data, ...metadata} = reply;
         if (typeof data !== 'string') throw new Error(`canvas ${target} returned no save bytes; inspect state and state ${target}:* for the refusal reason`);
@@ -1203,6 +1222,7 @@ export async function browserKey({id, opts, evaluate, ask, call, frame}) {
   let code = opts.key, key, vk;
   if (/^Key[A-Z]$/.test(code)) { key = code.slice(3).toLowerCase(); vk = code.charCodeAt(3); }
   else if (/^Digit[0-9]$/.test(code)) { key = code.slice(5); vk = code.charCodeAt(5); }
+  else if (/^F(?:[1-9]|1[0-9]|2[0-4])$/.test(code)) { key = code; vk = 111 + Number(code.slice(1)); }
   // A key by its `key` name works as on every other target (pomodoro F5): a
   // letter or digit on its US key, punctuation on its own, a named key.
   else if (/^[a-zA-Z0-9]$/.test(code)) { key = code; vk = code.toUpperCase().charCodeAt(0); code = /\d/.test(code) ? `Digit${code}` : `Key${code.toUpperCase()}`; }
@@ -1392,6 +1412,6 @@ async function main(argv) {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { if (e.steps) console.error(render('type', {steps:e.steps})); console.error(e.message); process.exit(1); });
 }

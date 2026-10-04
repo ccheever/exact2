@@ -253,11 +253,21 @@ impl Plan {
         }
         if let Some(id) = self.router {
             let slot = self.slot(id);
-            if self.type_(slot.ty).kind != TypeKind::Record || slot.owner.is_some() {
+            if self.type_(slot.ty).kind != TypeKind::Record || slot.owner.is_some() || slot.late {
                 return Err(PlanError::BadReference {
                     table: "header",
                     row: 0,
                     field: "router",
+                });
+            }
+        }
+        // A late slot is a root slot: an owned one is its instance's.
+        for (i, slot) in self.slots.iter().enumerate() {
+            if slot.late && (slot.owner.is_some() || self.locale == Some(SlotsId(i as u32))) {
+                return Err(PlanError::BadReference {
+                    table: "slots",
+                    row: i as u32,
+                    field: "late",
                 });
             }
         }
@@ -530,6 +540,12 @@ impl Plan {
             }
         }
         Ok(())
+    }
+
+    /// The region whose instance frame holds an owned slot's value: its
+    /// owning arm's region. `None` for a root slot.
+    pub fn owner_region(&self, slot: &SlotsRow) -> Option<RegionsId> {
+        slot.owner.map(|arm| self.arm(arm).region)
     }
 
     /// Validate the slot relation a mutation assignment relies on at runtime.

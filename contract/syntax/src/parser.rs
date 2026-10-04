@@ -1113,6 +1113,7 @@ impl Parser {
                     otherwise = self.required_block(span, "else", |p| p.node())?;
                 }
                 Ok(Node::When {
+                    tag: 0,
                     cond,
                     then,
                     otherwise,
@@ -1184,6 +1185,7 @@ impl Parser {
                     span,
                 })?;
                 Ok(Node::Match {
+                    tag: 0,
                     subject,
                     some,
                     none,

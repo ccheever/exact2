@@ -20,7 +20,25 @@ const USAGE: &str = "usage:
   contract test <file.test.contract>
   contract lean <file.contract> [--name <ident>] [-o <file.lean>]";
 
+#[cfg(windows)]
 fn main() -> ExitCode {
+    // @ref LLP 1035.005 D2 — the Windows executable's default 1 MiB stack
+    // cannot compile the supported 256-site depth in a debug build.
+    std::thread::Builder::new()
+        .name("contract-cli".into())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(run)
+        .expect("cannot start compiler worker")
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+}
+
+#[cfg(not(windows))]
+fn main() -> ExitCode {
+    run()
+}
+
+fn run() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("--help" | "-h") if args.len() == 1 => {

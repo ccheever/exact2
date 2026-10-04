@@ -6,11 +6,12 @@ import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { launchFacts, refuseStale, warnStale, webChanges } from './agent-launch.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { resolveApp, webDist as defaultWebDist } from './app.mjs';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const INSTALL = 'bunx playwright@1.63.0 install firefox webkit';
 const WORLD_LIMIT = 256 * 1024 * 1024;
 

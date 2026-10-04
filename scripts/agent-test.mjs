@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { readdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { open } from './agent.mjs';
 import { resolveApp } from './app.mjs';
 
@@ -44,7 +45,7 @@ export function sweepTestStores(base, storage) {
  * was seen. Returns `{ passed, failed, results }`.
  */
 export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, storage = 'test' } = {}) {
-  const root = resolve(new URL('..', import.meta.url).pathname);
+  const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
   if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');

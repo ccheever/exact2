@@ -76,6 +76,29 @@ fn preorder(r: &Runner<Oracle>) -> Vec<ViewId> {
     out
 }
 
+/// The elements an observation shows, in preorder: every live element but
+/// a virtualized list's descendants, which are the rows its window lays out
+/// (`Contract.Observe.viewLines` leaves them out too).
+fn observed(r: &Runner<Oracle>) -> Vec<ViewId> {
+    fn walk(r: &Runner<Oracle>, windowed: &[ViewId], id: ViewId, out: &mut Vec<ViewId>) {
+        out.push(id);
+        if windowed.contains(&id) {
+            return;
+        }
+        if let Some(n) = r.kernel().node(id) {
+            for c in n.children() {
+                walk(r, windowed, c, out);
+            }
+        }
+    }
+    let windowed: Vec<ViewId> = r.collections().iter().map(|c| c.view).collect();
+    let mut out = Vec::new();
+    for root in r.roots() {
+        walk(r, &windowed, root, &mut out);
+    }
+    out
+}
+
 fn find(r: &Runner<Oracle>, test_id: &str) -> Option<ViewId> {
     preorder(r).into_iter().find(|&id| {
         r.kernel()
@@ -88,7 +111,7 @@ fn find(r: &Runner<Oracle>, test_id: &str) -> Option<ViewId> {
 fn state(r: &mut Runner<Oracle>, plan: &Plan, out: &mut Vec<String>) {
     for (i, row) in plan.slots.iter().enumerate() {
         let id = exact_plan::SlotsId(i as u32);
-        if row.owner.is_some() || plan.router == Some(id) || plan.locale == Some(id) {
+        if row.owner.is_some() || plan.locale == Some(id) {
             continue;
         }
         let name = plan.str(row.name);
@@ -112,7 +135,7 @@ fn state(r: &mut Runner<Oracle>, plan: &Plan, out: &mut Vec<String>) {
         let args: String = c.args.iter().map(|a| format!(" {}", value(a))).collect();
         out.push(format!("command {}{args}", c.name));
     }
-    for id in preorder(r) {
+    for id in observed(r) {
         let Some(n) = r.kernel().node(id) else {
             continue;
         };

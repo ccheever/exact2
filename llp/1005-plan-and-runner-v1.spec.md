@@ -195,7 +195,7 @@ order) must be unchanged. If so, visits, stacks and ids
 are retained and Params are rebound by name from each URL; otherwise the
 new value is `Router::launch(new_table, old_top.url)`, with the same fallback
 rule. Other root slots and matching resources retain their existing carry
-behavior; row slots are never carried.
+behavior; row and arm slots are never carried (a `late` root slot is).
 
 Runner commits continue to return `exact_kernel::CommitReceipt` unchanged.
 `Runner::take_router_change() -> Option<RouterChange>` is a separate drain
