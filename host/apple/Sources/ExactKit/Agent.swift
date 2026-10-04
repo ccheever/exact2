@@ -216,6 +216,9 @@ public final class Agent {
             for (key, value) in Agent.hostState?() ?? [:] { nativeSections[key] = value }
             nativeSections["presence"] = presenter.presenceObservation()
             nativeSections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
+            // The drive's app storage (trivia F7): none unless it names a scratch store.
+            nativeSections["storage"] = ExactEnv.environment["EXACT_AGENT_STORAGE"].map { ["available": true, "store": $0] as [String: Any] }
+                ?? ["available": false, "code": "agent", "message": "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"]
             var raster = session.rasters.diagnostics
             raster["encodedResolverBytes"] = session.app.resolver.encodedCacheBytes
             raster["encodedHTTPCache"] = RasterInput.httpCacheUsage

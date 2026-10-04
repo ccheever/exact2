@@ -42,6 +42,9 @@ pub struct Storage<D> {
     next: u64,
     pending: BTreeMap<u64, Pending>,
     alive: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// A scripted drive (`EXACT_AGENT=1`): storage is the scratch store it
+    /// names, else none.
+    agent: bool,
 }
 impl<D> Storage<D> {
     /// Wrap a source without creating storage or starting any thread.
@@ -54,6 +57,7 @@ impl<D> Storage<D> {
             next: 0,
             pending: BTreeMap::new(),
             alive: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            agent: std::env::var("EXACT_AGENT").as_deref() == Ok("1"),
         }
     }
 }
@@ -93,7 +97,10 @@ impl<D: DataSource> Storage<D> {
                 {
                     // A chosen document is not app storage: it needs no app
                     // directories (LLP 1069.010 D1).
-                    if self.directories.is_none() && !native::document(payload) {
+                    // A drive that names no scratch store has no directories
+                    // either: its request is answered with the web's refusal,
+                    // which the module can handle (`native::agent_refusal`).
+                    if self.directories.is_none() && !native::document(payload) && !self.agent {
                         return Err(unavailable(
                             "storage is unavailable in an unconfigured host",
                         ));
@@ -239,6 +246,7 @@ impl<D: DataSource> DataSource for Storage<D> {
     fn replacement(&self, plan: &[u8], receipt: &str, module: Vec<u8>) -> Result<Self, DataError> {
         let mut next = Self::new(self.source.replacement(plan, receipt, module)?);
         next.directories = self.directories.clone();
+        next.agent = self.agent;
         Ok(next)
     }
     fn placement(&self) -> Placement {
@@ -323,12 +331,16 @@ impl<D: DataSource> DataSource for Storage<D> {
             Pending::Storage(payload, grants) => {
                 let paths = self.directories.clone();
                 let alive = self.alive.clone();
+                let refused = paths.is_none() && self.agent && !native::document(&payload);
                 Some(Box::new(move || {
                     if !alive.load(std::sync::atomic::Ordering::Acquire) {
                         return Outcome::Failed {
                             kind: exact_runner::FailureKind::Aborted,
                             message: "storage source unloaded".into(),
                         };
+                    }
+                    if refused {
+                        return native::agent_refusal();
                     }
                     native::run(paths.as_ref(), &grants, &payload)
                 }))

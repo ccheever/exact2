@@ -207,6 +207,14 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     .map(|r| serde_json::json!({"id": r.id, "state": {"unavailable": "no media decoder or audio output on this host", "paused": true, "currentTime": 0, "duration": null, "readyState": 0}}))
                     .collect();
                 s.push_str(&format!(",\"media\":{}", serde_json::json!(media)));
+                // The drive's app storage (trivia F7): none unless it names a scratch store.
+                let storage = match std::env::var("EXACT_AGENT_STORAGE") {
+                    Ok(store) => serde_json::json!({"available": true, "store": store}),
+                    Err(_) => {
+                        serde_json::json!({"available": false, "code": "agent", "message": "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"})
+                    }
+                };
+                s.push_str(&format!(",\"storage\":{storage}"));
                 s.push_str(
                     ",\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}",
                 );

@@ -755,6 +755,9 @@ fn media_is_reported_unavailable() {
     assert_eq!(media.len(), 1, "{state}");
     assert_eq!(media[0]["state"]["paused"], true);
     assert!(media[0]["state"]["unavailable"].is_string(), "{state}");
+    // No scratch store named: the drive has no app storage, and says so (trivia F7).
+    assert_eq!(state["storage"]["available"], false, "{state}");
+    assert_eq!(state["storage"]["code"], "agent", "{state}");
     let tree = json(handle(&mut p, r#"{"op":"tree"}"#));
     let sound = tree["nodes"]
         .as_array()
