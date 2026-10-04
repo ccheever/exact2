@@ -398,6 +398,14 @@ fn main() {
             }
             let _ = writeln!(w, "        _ => &[],");
             let _ = writeln!(w, "    }} }}");
+            let _ = writeln!(
+                w,
+                "    /// The defaults a call of `given` arguments leaves for the parameters it omits."
+            );
+            let _ = writeln!(
+                w,
+                "    pub fn omitted(self, given: usize) -> &'static [f64] {{ let d = self.defaults(); &d[(given + d.len()).saturating_sub(self.arity()).min(d.len())..] }}"
+            );
             let _ = writeln!(w, "    /// Declared return type, as the table spells it.");
             let _ = writeln!(
                 w,

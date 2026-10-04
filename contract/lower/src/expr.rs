@@ -339,7 +339,7 @@ pub(crate) fn compile(
             }
             // The defaults of trailing optional parameters the call omitted
             // (LLP 1088 D2): the plan's call always carries the full arity.
-            for &d in &f.defaults()[(args.len() + f.defaults().len()).saturating_sub(f.arity())..] {
+            for &d in f.omitted(args.len()) {
                 asm.number(d);
             }
             asm.call(f);

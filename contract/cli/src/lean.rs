@@ -354,11 +354,10 @@ impl Emitter<'_> {
                 // their defaults are written here as lowering writes them.
                 // No `fn` takes a roster name, and the semantics evaluates
                 // no action in an expression.
-                if let Some(f) = exact_plan::Stdlib::from_name(name)
-                    .filter(|f| args.len() < f.arity() && !shapes.fns.contains_key(name))
+                if let Some(f) =
+                    exact_plan::Stdlib::from_name(name).filter(|_| !shapes.fns.contains_key(name))
                 {
-                    let missing = f.arity() - args.len();
-                    for d in &f.defaults()[f.defaults().len().saturating_sub(missing)..] {
+                    for d in f.omitted(args.len()) {
                         parts.push(format!("(.num 0x{:016x})", d.to_bits()));
                     }
                 }
