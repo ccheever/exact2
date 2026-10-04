@@ -403,12 +403,19 @@ impl<G: Game> Sim<G> {
                 );
             }
         }
-        self.finish_assets();
+        self.finish_assets(name);
     }
-    fn finish_assets(&mut self) {
+    /// A model's state follows its textures': re-derive the models `touched`
+    /// (a delivered or prepared name) is, or is a texture of. Every delivery
+    /// re-deriving every model made a world declaring hundreds of them
+    /// quadratic to load (garden's 202: ~4 s of a web load in this loop).
+    fn finish_assets(&mut self, touched: &str) {
         use crate::asset::AssetState;
         let assets = &mut *self.world.assets;
         for (name, textures) in &assets.dependencies {
+            if name != touched && !textures.iter().any(|t| t == touched) {
+                continue;
+            }
             if !assets.states.contains_key(name) {
                 continue;
             }
@@ -419,15 +426,20 @@ impl<G: Game> Sim<G> {
                 Some(AssetState::Failed(e)) => Some(e.clone()),
                 _ => None,
             });
-            if let Some(reason) = failed {
-                assets
-                    .states
-                    .insert(name.clone(), AssetState::Failed(reason));
+            // Write only a change: every delivery runs this over every model,
+            // and a rewrite clones the name and moves the states' revision.
+            let next = if let Some(reason) = failed {
+                AssetState::Failed(reason)
             } else if textures
                 .iter()
                 .all(|n| assets.states.get(n) == Some(&AssetState::Loaded))
             {
-                assets.states.insert(name.clone(), AssetState::Loaded);
+                AssetState::Loaded
+            } else {
+                continue;
+            };
+            if assets.states.get(name) != Some(&next) {
+                assets.states.insert(name.clone(), next);
             }
         }
         if self.setup_pending && assets.ready() {
@@ -488,7 +500,7 @@ impl<G: Game> Sim<G> {
                 return Err(format!("asset `{name}`: {reason}"));
             }
         }
-        self.finish_assets();
+        self.finish_assets(name);
         Ok(())
     }
     fn decode_args(values: &[Value]) -> Result<G::Args, String> {

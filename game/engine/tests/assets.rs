@@ -702,3 +702,92 @@ fn paranoid_discovery_keeps_tick_edits_retirement_and_public_restore_visible() {
         assert_eq!(run::<true>(mode), sprites, "sprites {mode:?}");
     }
 }
+
+/// A model is Loaded once it and every texture it names are in, whichever
+/// arrives first, and a texture's arrival finishes only the models naming it.
+#[test]
+fn a_model_and_its_textures_finish_in_either_order() {
+    let model = |textures: &[&str]| {
+        asset::Content::Model(asset::Model {
+            textures: textures.iter().map(|t| (*t).to_owned()).collect(),
+            ..Default::default()
+        })
+    };
+    let texture = || {
+        asset::Content::Texture(asset::TextureData {
+            width: 1,
+            height: 1,
+            mips: vec![vec![0; 4]],
+            ..Default::default()
+        })
+    };
+    for textures_first in [false, true] {
+        let mut sim = Sim::<Loading>::new(()).unwrap();
+        assert_eq!(sim.take_assets(), ["crate.model"]);
+        if textures_first {
+            sim.deliver_asset("a.tex", Ok(texture())).unwrap();
+            sim.deliver_asset("b.tex", Ok(texture())).unwrap();
+        }
+        sim.deliver_asset("crate.model", Ok(model(&["a.tex", "b.tex"])))
+            .unwrap();
+        if !textures_first {
+            assert_eq!(sim.world().len(), 0, "setup waits for the model's textures");
+            sim.deliver_asset("a.tex", Ok(texture())).unwrap();
+            assert_eq!(sim.world().len(), 0);
+            sim.deliver_asset("b.tex", Ok(texture())).unwrap();
+        }
+        assert_eq!(sim.world().len(), 1, "textures first: {textures_first}");
+        assert!(!sim.agent(r#"{"op":"state"}"#).contains("Pending"));
+    }
+}
+
+/// Delivery cost by model count (garden's art pass declares 202 models, each
+/// with textures): every delivery used to re-derive every model, so loading n
+/// models cost O(n^2). `cargo test --release -p exact-game --test assets
+/// delivery_cost -- --ignored --nocapture`.
+#[test]
+#[ignore = "measurement"]
+fn delivery_cost_by_model_count() {
+    struct Many;
+    impl Game for Many {
+        const ID: &'static str = "many";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            for i in 0..1600 {
+                w.spawn((Transform::default(), Mesh::asset(format!("{i:04}.model"))));
+            }
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    for n in [200, 400, 800, 1600] {
+        let mut sim = Sim::<Many>::new(()).unwrap();
+        let t0 = std::time::Instant::now();
+        for i in 0..n {
+            let textures = (0..3).map(|k| format!("{i:04}-{k}.tex")).collect();
+            sim.deliver_asset(
+                &format!("{i:04}.model"),
+                Ok(asset::Content::Model(asset::Model {
+                    textures,
+                    ..Default::default()
+                })),
+            )
+            .unwrap();
+            for k in 0..3 {
+                sim.deliver_asset(
+                    &format!("{i:04}-{k}.tex"),
+                    Ok(asset::Content::Texture(asset::TextureData {
+                        width: 1,
+                        height: 1,
+                        mips: vec![vec![0; 4]],
+                        ..Default::default()
+                    })),
+                )
+                .unwrap();
+            }
+        }
+        println!(
+            "{n} models x 3 textures: {:.1} ms to deliver",
+            t0.elapsed().as_secs_f64() * 1000.
+        );
+    }
+}
