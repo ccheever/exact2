@@ -30,7 +30,7 @@ structure Env where
   derives : List (String × Value) := []
   resources : List (String × Value) := []
   rows : List (String × Value) := []
-  now : Float := 0
+  now : F64 := 0
   deriving Inhabited
 
 namespace Env
@@ -64,8 +64,8 @@ not here: their callback is evaluated by `eval`. -/
 def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   match f, args with
   | "now", [] => .ok (.num env.now)
-  | "length", [.list xs] => .ok (.num (Float.ofNat xs.length))
-  | "length", [.str s] => .ok (.num (Float.ofNat (Str.utf16Length s)))
+  | "length", [.list xs] => .ok (.num (F64.ofNat xs.length))
+  | "length", [.str s] => .ok (.num (F64.ofNat (Str.utf16Length s)))
   | "isEmpty", [.list xs] => .ok (.bool xs.isEmpty)
   | "isEmpty", [.str s] => .ok (.bool s.isEmpty)
   | "toString", [v] => Value.str <$> v.display
@@ -75,10 +75,10 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   | "first", [.list xs] => .ok (match xs with | [] => .none | x :: _ => .some x)
   | "at", [.list xs, .num i] =>
     let i := if Number.isNaN i then 0 else Number.trunc i
-    let len := Float.ofNat xs.length
+    let len := F64.ofNat xs.length
     let j := if i < 0 then len + i else i
     if 0 ≤ j && j < len then
-      .ok (match xs[j.toUInt64.toNat]? with | .some v => .some v | .none => .none)
+      .ok (match xs[j.toNat]? with | .some v => .some v | .none => .none)
     else .ok .none
   | "includes", [.str a, .str b] => .ok (.bool (Str.includes a b))
   | "startsWith", [.str a, .str b] => .ok (.bool (Str.startsWith a b))
@@ -96,7 +96,7 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   | "stack", [r] => Route.read env.prog.routes r fun x =>
       Option.some (.list ((Route.stack x).map (Route.entryValue env.prog.routes)))
   | "top", [r] => Route.read env.prog.routes r fun x => (Route.top x).map (Route.entryValue env.prog.routes)
-  | "depth", [r] => Route.read env.prog.routes r fun x => Option.some (.num (Float.ofNat (Route.depth x)))
+  | "depth", [r] => Route.read env.prog.routes r fun x => Option.some (.num (F64.ofNat (Route.depth x)))
   | "params", [r, .str n] => Route.read env.prog.routes r fun x =>
       Option.some (.list ((Route.params x n).map .str))
   | "searchParam", [e, .str n] =>
@@ -125,7 +125,7 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
 concatenates two strings and adds two numbers (the compiler picks `Concat`
 by the left operand's static type). -/
 def binop (op : BinOp) (a b : Value) : Result Value :=
-  let num2 (f : Float → Float → Value) : Result Value :=
+  let num2 (f : F64 → F64 → Value) : Result Value :=
     match a, b with
     | .num x, .num y => .ok (f x y)
     | _, _ => .error (.type "arithmetic or comparison on values that are not numbers")
@@ -152,7 +152,7 @@ def bindParams (ps : List String) (item : Value) (i : Nat) (ls : Locals) : Local
   match ps with
   | [] => ls
   | [p] => (p, item) :: ls
-  | p :: q :: _ => (q, .num (Float.ofNat i)) :: (p, item) :: ls
+  | p :: q :: _ => (q, .num (F64.ofNat i)) :: (p, item) :: ls
 
 /-- The expression written for field `f`, if any. -/
 def lookupField (f : String) : List (String × Expr) → Option Expr
@@ -174,7 +174,7 @@ def eval : Nat → Env → Bool → Locals → Expr → Result Value
   | 0, _, _, _, _ => .error outOfFuel
   | fuel + 1, env, inFn, ls, e =>
   match e with
-  | .num b => .ok (.num (Float.ofBits b))
+  | .num b => .ok (.num (F64.ofBits b))
   | .str s => .ok (.str s)
   | .bool b => .ok (.bool b)
   | .none => .ok .none

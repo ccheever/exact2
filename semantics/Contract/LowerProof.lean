@@ -25,7 +25,7 @@ theorem case_lit (hc : compile (fuel + 1) p depth sc n e = .ok (c, t)) (_hx : Ct
     (he : e = .num b ∨ e = .str s ∨ e = .bool bb ∨ e = .none ∨ e = .emptyList) :
     ExprSpec env inFn ls venv P L e c t := by
   rcases he with rfl | rfl | rfl | rfl | rfl <;> simp [compile] at hc <;> obtain ⟨rfl, rfl⟩ := hc
-  · exact spec_push (w := .num (Float.ofBits b)) (fun v => ⟨fun h => by cases h; rfl, fun h => h ▸ .num⟩)
+  · exact spec_push (w := .num (F64.ofBits b)) (fun v => ⟨fun h => by cases h; rfl, fun h => h ▸ .num⟩)
       (by simp [VTy]) (fun _ _ _ _ => by simp [Vm.exec])
   · exact spec_push (w := .str s) (fun v => ⟨fun h => by cases h; rfl, fun h => h ▸ .str⟩)
       (by simp [VTy]) (fun _ _ _ _ => by simp [Vm.exec])

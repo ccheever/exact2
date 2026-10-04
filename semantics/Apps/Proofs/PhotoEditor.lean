@@ -9,8 +9,8 @@ open Contract
 namespace PhotoEditor
 
 /-- IEEE-754 binary64 zero and one, as the embedding writes `0` and `1`. -/
-def zero : Float := Float.ofBits 0
-def one : Float := Float.ofBits 0x3ff0000000000000
+def zero : F64 := F64.ofBits 0
+def one : F64 := F64.ofBits 0x3ff0000000000000
 
 /-- Every action keeps `ready = true`: only `loaded` writes it, with `true`. -/
 theorem keeps_ready {c name args rows} :

@@ -80,7 +80,7 @@ impl Event {
         match self {
             Event::Tap(t) => format!("(.tap {})", string(t)),
             Event::Type(t, s) => format!("(.change {} {})", string(t), string(s)),
-            Event::Clock(ms) => format!("(.clock (Float.ofBits 0x{:016x}))", ms.to_bits()),
+            Event::Clock(ms) => format!("(.clock (F64.ofBits 0x{:016x}))", ms.to_bits()),
         }
     }
 }
