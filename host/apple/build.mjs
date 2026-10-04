@@ -877,9 +877,17 @@ function main(args) {
   rmSync(resolve(paths.namespace, 'swift'), { recursive: true, force: true }); // the per-app scratch this replaced
   const binDir = mkdtempSync(resolve(paths.namespace, '.products-'));
   cleanup.push(binDir);
+  // A development build compiles the Swift host as it compiles its Rust
+  // (`apple-dev`): optimized, but file by file and incrementally, so an edited
+  // Swift file is a 3-second build and not the whole module again (45 s on an
+  // M4; a cold compile is 25 s, not 57). SwiftPM compiles that way only in its
+  // debug configuration, so the optimization and the dead-code strip are
+  // asked for on top of it. A production bake and an archive keep the
+  // whole-module build, which is the smaller and faster binary.
+  const swiftWhole = cargoProfile === 'release' || !!ipa;
   // One `swift build` per product: given two `--product` flags SwiftPM
   // builds only the last; the second build is incremental and quick.
-  const swiftArgs = ['build', '-c', 'release', '--scratch-path', swiftBuildRoot];
+  const swiftArgs = ['build', '-c', swiftWhole ? 'release' : 'debug', '--scratch-path', swiftBuildRoot, ...(swiftWhole ? [] : ['-Xswiftc', '-O', '-Xlinker', '-dead_strip'])];
   if (ios) {
     swiftArgs.push(
       '--triple', iosTripleFor(app, device, tv),
