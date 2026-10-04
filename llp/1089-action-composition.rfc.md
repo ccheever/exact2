@@ -1,404 +1,490 @@
 # LLP 1089: Action composition
 
 **Type:** RFC
-**Status:** Draft r1, 2026-10-04. Not reviewed. Stage 1 widens `rules/DEFERRED.md` **Actions**, so it needs Charlie's yes first (§7.1).
-**Systems:** Contract compiler (`contract/{syntax,types,analyze,lower}`, `contract/cli/src/{lean.rs,main.rs}`), Lean semantics and difftest (`semantics/`), the JS target's conformance (`host/web-js/conformance`), docs
+**Status:** Draft r2, 2026-10-04. r1 was reviewed twice by one family, Grok 4.7 (xhigh), with two scopes: semantics (`llp/reviews/1089-r1.grok-a.md`) and implementation (`llp/reviews/1089-r1.grok-b.md`). Codex/Astra's budget was exhausted, so there is no second family. Both reviews were READY WITH CHANGES. r2 resolves every MATERIAL and MINOR finding, with no new round. The `rules/DEFERRED.md` waiver (r1's §7.1) is recorded by the orchestrator under Charlie's 2026-10-04 delegation ("make decisions without me").
+**Systems:** Contract compiler (`contract/{syntax,types,analyze,lower}`, `contract/cli/src/{lean.rs,symbols.rs}`), Lean semantics and difftest (`semantics/`), the JS target's conformance (`host/web-js/conformance`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
+**Revised:** 2026-10-04 (r2)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stage 1 on 2026-10-05 and stage 2 on 2026-10-05 (§5)
-**Amends:** LLP 1017 §11 (the tail call becomes one case of a call); LLP 1006 §2 (statements); `rules/DEFERRED.md` **Actions** (on Charlie's yes)
-**Related:** LLP 1017 P4c and §11; LLP 1035.005.000 D1 (effects inferred) and D2 (`let`); LLP 1088 D8 (one send per path); LLP 1016 D5; diaries `~/projects/x2apps/{spreadsheet,files,mail}/DIARY.md`. Research only: LLP 0082 §Actions ("actions may call actions"), LLP 0481 §4.1 (effects compose through calls and callback values; call cycles are rejected from the call graph), LLP 0482 §3.1.
+**Amends:** LLP 1017 §11 (the tail call becomes one case of a call); LLP 1006 §2 (statements); `rules/DEFERRED.md` **Actions**
+**Related:** LLP 1017 P4c and §11; LLP 1035.005.000 D1 (effects inferred) and D2 (`let`); LLP 1088 D8 (one send per path); LLP 1016 D5; diaries `~/projects/x2apps/{spreadsheet,files,mail}/DIARY.md`. Research only: LLP 0082 §Actions ("actions may call actions"), LLP 0481 §4.1 (effects compose through calls and callback values; call cycles are rejected from the call graph).
 
 ## Summary
 
 An action cannot call an action. The one exception is a child's tail call
 to an `action` prop, which landed on 2026-10-03 (LLP 1017 §11) and is not
 documented anywhere an agent reads. So app-building agents copy statements
-between actions. Spreadsheet writes "commit the edit" five times. Files
-writes "open" four times. Mail moved a row's drag state to the root.
+between actions. Files writes "open" four times, and one copy kept the bug
+a fix to the others removed. Spreadsheet copies "close the editor" into four
+actions and "move and follow" into three.
 
-This RFC lets an action call any action in its scope, anywhere a
-statement goes, in one commit. The compiler expands each call in place, as
-`inline/tail.rs` does for tail calls. Reads still see the starting state; a
-read that a call would make stale is refused. The plan, the runner, the JS
-target and the hosts do not change.
+This RFC lets an action call any action in its scope, anywhere a statement
+goes, in one commit:
+
+- **Expansion.** The compiler expands each call in place.
+  Same-component calls expand before child lifting; prop and inject calls
+  expand where tail calls are resolved today.
+- **Reads.** They still see the starting state. A slot read that another
+  frame's write, earlier on the same path, would make stale is refused.
+- **Host commands.** A host command keeps its name.
+- **Executors.** The plan, the runner, the JS target and the hosts do not
+  change.
 
 | | Decision | Diaries | Stage |
 |---|---|---|---|
-| D1 | An action calls its component's actions, action props and injected actions, as a statement, anywhere | spreadsheet F21, files F27, mail F18 | 1 |
+| D1 | An action calls its component's actions, action props and injected actions, as a statement, anywhere; a host command keeps its name | files F27, spreadsheet F21 | 1 |
 | D2 | A call is its callee's statements, expanded in place: one commit, reads see the starting state | — | 1 |
-| D3 | A read that a call would make stale is refused | — | 1 |
-| D4 | No recursion; a bound on expansion | — | 1 |
-| D5 | Effects come from the expanded body | — | 1 |
-| D6 | LLP 1088 D8 names the calls | spreadsheet (D8 rollout) | 1 |
-| D7 | An action-prop call runs the owner's statements | mail F18 | 1 |
-| D8 | No executor change; the AST carries the call | — | 1 |
+| D3 | A slot read that a call would make stale is refused, on some path | — | 1 |
+| D4 | No recursion; a running bound on expansion | — | 1 |
+| D5 | Effects come from the expanded body, through every `Call` | — | 1 |
+| D6 | LLP 1088 D8 names the calls | — | 1 |
+| D7 | Where each kind of call expands | mail F18 | 1 |
+| D8 | No executor change; the AST carries the call; existing plans stay byte-identical | — | 1 |
 | D9 | Lean gets `Stmt.call`, so difftest checks the expansion | — | 2 |
-| D10 | Diagnostics and docs | all three | 1 |
+| D10 | Diagnostics and docs; the tail call documented | all three | 1 |
 
 ## 1. Evidence
 
-- **Spreadsheet F21.** "Commit the draft, close the editor, clear firstKey"
-  is repeated in five actions, and "move and scroll into view" in three. One
-  change touched seven places. The root holds 38 slots and about 60
-  actions.
-- **Files F27.** Six assignments that open an item are repeated four
-  times; a fix to `anchorPath` had to be made in each.
-- **Mail F18.** The diary says "a child action can't invoke `swipe(id)`".
-  Mail was built at `c7bb6ab9d`, which already carried `inline/tail.rs`, and
-  "reset the offset, then on release archive" fits the tail form. The agent
-  did not find the form because `docs/contract-for-agents.md:580` still says
-  "Calling an action from another action → Put the statements there", and
-  §State and action semantics says "No loops or general action calls". The
-  tail call appears only in LLP 1017 §11 and in a D8 note in the grammar.
+- **Files F27.** `openItem`, the Enter arm of `listKey`, `openFocused` and
+  `openPlace` each set `location`, `remember`, `ahead`, `query`, `sel` and
+  `cursorPath` (`files/app.contract:332`, `:269`, `:348`, `:364`).
+  `openFocused`'s directory arm still omits `anchorPath = ""`, which is the
+  bug the diary describes. One `arrive(path)` helper replaces all four.
+- **Spreadsheet F21.** "Close the editor" (`editing`, `inBar`, `firstKey`)
+  is copied in `down`, `commitMove`, `editorKey` and `openSheet`.
+  `followSelection(r, c)` is a clean extract. `clipKey` calls `move` from
+  sequential literal arms, which D3 must accept. A call does not merge the
+  sends: `down` and `openSheet` send `committed`, `commitMove` sends
+  `edited`, and LLP 1088 D8 keeps them apart.
+- **Mail F18 needs no new call.** Mail was built at `c7bb6ab9d`, which
+  already carried `inline/tail.rs`. Its swipe can be written as a row-local
+  `dx`, reset before a last `if`, with `archive(id)` last in the arm. That
+  is the tail call. The agent did not find it, because the docs
+  (`contract-for-agents.md:238`, `:580`; `contract-for-humans.md:279`;
+  `contract-grammar.md:169`) all say an action calls no action.
 - **Probes** (`contract build --json` at `6cfb736a8`):
-  - A root action calling `bump()` gets `type-unknown-command`, "an action
-    is not callable from an action; put its statements here".
-  - A child calling its `go: action` prop before its last statement gets
-    "an action calls one only as its last statement (its tail call)".
-  - An injected `go: action` binds `press=go(1)`, but calling `go(1)`, even
-    last, gets "`go` is not a host command". The tail call marks only props
-    (`inline.rs:487`).
-- **The machinery exists.** `tail::resolve` (`inline.rs:277`) puts the
-  callee's statements in place. Its parameters become `let`s of the
-  arguments, and every caller and callee binder is renamed apart with `@`.
-  It refuses cycles (`syntax-tail-cycle`) and arity mismatches. It leaves an
-  `@check:<action>` command for the type pass. LLP 1088 D8's walk
-  (`analyze/src/sends.rs`) already reads the resolved body. Nothing in the
-  mechanism needs the tail position.
+  - a root action calling `bump()` gets `type-unknown-command`;
+  - a child calling its `go: action` prop before its last statement is
+    refused as "only as its last statement";
+  - an injected `go: action` can be bound with `press=go(1)`, but calling
+    `go(1)`, even last, gets "not a host command" (`inline.rs:488` marks
+    only `c.props`);
+  - `action setScheme` calling the host command `setScheme(scheme)` builds
+    (Caltrain, `apps/caltrain/app.contract:109`; files' `action share`
+    likewise).
+- **The machinery exists.** `tail::resolve` (`inline.rs:277`) splices a
+  callee's statements into the caller, renaming every binder apart, and
+  refuses cycles and arity mismatches. LLP 1088 D8's walk
+  (`analyze/src/sends.rs`) already reads the resolved body.
 
 ## 2. Decisions
 
-### D1 — An action calls any action in its scope
+### D1 — An action calls any action in its scope; a host command keeps its name
 
-A statement `name(args)` in an action body is a **call** when `name` is one
-of these:
+A statement `name(args)` in an action body is:
 
-- an action of the same component;
-- an `action` prop;
-- an `inject`ed name of type `action`.
+- **a host command** when `name` is in `HOST_COMMANDS`
+  (`types/src/checks.rs:744`). That is today's rule, unchanged.
+  `action setScheme` may still call the command `setScheme(scheme)`, and
+  `press=setScheme` still binds the action. An action named like a host
+  command can be bound but not called. There is no ambiguity refusal.
+- **a call** otherwise, when `name` is an action of the same component, an
+  `action` prop, or an `inject`ed name of type `action`.
 
-The call may stand wherever a statement may: first, between assignments,
-in any `if` or `match` arm, more than once.
+A call may stand wherever a statement may: first, between assignments, in
+any `if` or `match` arm, more than once.
 
 - **Arguments** complete the callee's parameters, after any arguments
   curried where the action was passed (`close=dismiss("photo")`). No event
-  payload is appended; a callee that takes one, such as
-  `flip(id, checked: bool)`, is passed it explicitly.
-- **No value.** A call is a statement. `let x = save()` and a call inside
-  an expression are refused. Compute values with `fn`.
-- **First-order.** An argument may not be an action. Actions flow only
-  through props, `provide`/`inject`, element bindings and calls.
-- **Scope is unchanged.** A child cannot name a parent's or the root's
-  action. It reaches one only through a prop or an inject (D7).
-- **Host commands.** When `name` is both an action in scope and a host
-  command, the call is refused (`type-call-ambiguous`, "rename the
-  action"). Silently shadowing `focus` or `share` would change what an
-  existing statement does. The refusal is at the call, so apps that never
-  call such an action are unaffected.
+  payload is appended. A callee that takes one (`flip(id, checked: bool)`)
+  is passed it explicitly.
+- **No value.** A call is a statement. `let x = save()`, and a call inside
+  an expression, are refused. Compute values with `fn`.
+- **First-order.** An argument may not be an action.
+- **Scope is unchanged.** A child reaches a parent's or the root's action
+  only through a prop or an inject (D7).
 
 ### D2 — A call is its callee's statements, expanded in place
 
-The compiler replaces each call with the callee's statements, LLP 1017
-§11's meaning moved from the tail to any position. The parameters become
-`let`s of the arguments, evaluated where the call stands; the callee's
-names are renamed apart (the existing hygiene); its own calls expand in
-turn.
+The compiler replaces each call with the callee's statements. This is
+LLP 1017 §11's meaning moved from the tail to any position:
 
-**One commit.** Caller and callees form one action: one commit, one
-rollback. A trap anywhere refuses the whole commit, so nothing the caller
-wrote before the call lands.
+- the parameters become `let`s of the arguments, evaluated where the call
+  stands;
+- the callee's binders are renamed apart with `tail.rs`'s hygiene;
+- its own calls expand in turn.
 
-**Reads see the starting state. Writes land in statement order, and the last
-wins.** This is the rule every statement already follows (`docs/
-contract-for-agents.md` §State and action semantics). Lean proves it as
-`runAction_reads_prestate` and `runAction_last_write` (`Axiomatic.lean:535`,
-`:509`). The tail call shipped under it. So a callee does **not** see the
-caller's pending writes. The other choice, a callee that reads what the
-caller wrote above it, was not taken:
+**One commit.** Caller and callees form one action, with one commit and one
+rollback. A trap anywhere refuses the whole commit.
 
-- A read's meaning would depend on which body the statement was written in.
-  `count = 1; doubled = count * 2` would read 0 inline and 1 behind a
-  call.
-- Moving statements into a helper, the refactoring this RFC exists for,
-  would silently change their meaning, and so would the shipped tail call.
-- React, the model most agents bring, has the same rule: `setX(1)` and then
-  a helper reading `x` sees the render's value.
+**Reads see the starting state.** Assignments land in statement order, and
+the last wins. An answered send counts as a write before every assignment
+(`commit.rs:543–549`; `runAction_last_write`, `Axiomatic.lean:509`).
+`runAction_reads_prestate` (`:535`) is the read rule, and the tail call
+shipped under it. So a callee does not see the caller's pending
+assignments. Letting it see them was not chosen:
 
-Values the caller computed are passed explicitly: `let next = …; sel =
-next; follow(next)`, as the docs already teach for `let`.
+- a read's meaning would depend on which body it is written in;
+- moving statements into a helper, the refactoring this RFC exists for,
+  would silently change their meaning, and so would the shipped tail call;
+- React, the model most agents bring, has the same snapshot.
 
-### D3 — A read that a call would make stale is refused
+### D3 — A slot read that a call would make stale is refused
 
-Inside one body a snapshot read is visible on the page (the docs'
+Inside one body, a snapshot read is visible on the page (the docs'
 `doubled = count * 2`). Behind a call, the write and the read are in
-different bodies, and neither page shows the read is stale. An agent reasoning from Svelte, Vue or plain JavaScript
-expects the new value. This is a refusal, not a warning, as LLP 1088 D8
-chose, because warnings go unread.
+different bodies, and neither page shows the read is stale. It is refused,
+not warned of, as LLP 1088 D8 chose.
 
-**Frames.** The expanded body is a tree of frames. The action is the
-outermost frame, and each call opens a new frame, so two calls to one
-action are two frames. A **write** is an assignment, or a `send`, which
-writes its mutation's state (`pending(m)`). A **read** of slot `s` is:
+**Frames.** The action is the outermost frame. Each `Stmt::Call` opens a
+new frame, so two calls to one action are two frames. A call's arguments
+belong to the callee's frame and are read before its body.
 
-- a direct read of `s`;
-- a read of a derive that reads `s`, transitively;
-- `pending`/`failed` of a sent mutation;
-- an argument expression, which is read on the callee's behalf.
+**Reads and writes are slot loads and slot stores**, on the expanded body
+after capture conversion and child-derive substitution:
 
-**The rule** (`analyze-call-stale-read`). A read of `s` in frame F is
-refused when some path to it writes `s` in a frame other than F. The walk
-is LLP 1088 D8's: path-sensitive, `if`/`match` arms start from the incoming
-set, and the union is taken after the branch.
+- **A read** is a reference to a state, mutation or router slot (row
+  slots included). It can appear anywhere an expression stands:
+  - assignment and `let` right-hand sides;
+  - conditions and `match` subjects;
+  - member receivers (`cell.n` reads `cell`);
+  - templates;
+  - command, send and call arguments;
+  - `map`/`filter` arrows.
+- **Not reads:** a name that is still a derive or a resource, and
+  `pending(m)`. These read settled values that no statement in the body
+  changes: `LoadDerive` reads `env.derives` (`vm.rs:574`), and the
+  pending map changes after `vm::eval` returns (`commit.rs:464`, `:557`).
+  `failed` does not take a mutation (`type-failed-argument`). A capture
+  parameter is a parameter, not a slot, and a prop is read through one,
+  as React's props are a snapshot.
+- **A write** is an assignment. A send is not a write. Its answer lands
+  before every assignment, so a later read of the mutation slot sees the
+  starting value either way. An assignment to the mutation slot is a
+  write.
 
-- `sel = next; follow()` where `follow` reads `sel`: refused.
-- `reset(); count = count + 1`: refused.
-- `move(1); move(1)`: refused, because the second frame reads what the
-  first wrote. In JavaScript that moves by 2; in Contract, by 1.
-- `a = b; b = a`, a swap within one frame: accepted, as today.
-- A child reading a prop after calling its owner: accepted. Props are
-  captured before the action's first statement runs (`@capture` parameters,
-  `inline.rs:454`), so they are parameters, not slot reads, as React's props
-  are.
+**The rule** (`analyze-call-stale-read`): a read of slot `s` in frame F is
+refused when some path to it writes `s` in a frame other than F.
 
-Across a call boundary, then, every accepted program means the same
-whether it is read as Contract's snapshot or as statements run in order.
-Inside one frame, today's rule stands (§7.2). The message names both
-sides and the fix:
+**The walk is `sends.rs`'s.** It records each write with its frame, span
+and guard, and refuses a read whose guard is not `exclusive` with a
+recorded other-frame write of the slot. It keeps the rest of that walk:
 
-> `follow` (called at line 44) reads `sel`, which `enter` writes at line 43;
-> a read sees the state the action started with, so `follow` would see the
-> old `sel`. Compute the value first and pass it: `let next = …`,
-> `sel = next`, `follow(next)`.
+- arms start from the incoming state, and the union is taken after;
+- sequential `if`s that test one unchanged name against disjoint literals
+  are exclusive (`sends.rs:11–15`, `exclusive`);
+- `changed()` forgets a fact when its name is written.
 
-### D4 — No recursion, and a bound on expansion
+Entering a `Stmt::Call` changes the frame and resets nothing else.
 
-- **A cycle is refused**, direct or through props and injects
-  (`syntax-call-cycle`, renamed from `syntax-tail-cycle`). The message
-  shows the path, `a → b → a`. There is no recursion, so expansion
-  terminates; LLP 0481 §4.1 reached the same rule from the call graph.
-- **Expansion is bounded.** An action whose expanded body exceeds 1,024
-  statements is refused (`syntax-call-size`, naming the action and its
-  largest callee). Expansion duplicates code: a chain of actions that each
-  call the next twice grows exponentially. The bound keeps plan and JS
-  size proportional to what was authored.
+| | |
+|---|---|
+| `sel = next; follow()`, where `follow` reads `sel` | refused |
+| `sel = next; follow(sel)` (the argument is in `follow`'s frame) | refused |
+| `reset(); count = count + 1` | refused |
+| `move(1, 0); move(0, 1)`: both read the starting cell, and the later write wins, so this is not a diagonal step | refused |
+| `if k == "ArrowDown" or k == "Enter"` → `move(1, 0)`, then `if k == "ArrowUp"` → `move(-1, 0)` | accepted |
+| `a = b; b = a`, and files' `location = to; back = remember(back, location)`, in one frame | accepted, as today |
+| a child reading a prop after calling its owner | accepted |
+| `message = ""; showStatus()`, where `showStatus` reads the derive `status` over `message` | accepted: a derive is a settled value |
 
-### D5 — Effects come from the expanded body
+The message states the snapshot without assuming which value the author
+wanted:
 
-LLP 1035.005.000 D1 inferred writes and said that indirect calls "must be
-accounted for statically" before the inference extends to them. Expansion
-does that by construction. The plan's `actions.writes` comes from the
-expanded body, so it is the union of the action's own writes and its
-callees', and the tail call already works this way. Also:
+> `follow` (called at line 44) reads `sel`, which `enter` assigns at line
+> 43; `follow` sees the value `sel` had when the action started. Pass the
+> value it should see: a `let` bound before line 43 keeps the starting
+> value, and the value assigned at line 43 gives the new one.
 
-- **`analyze-then-self-send` reads the expanded body.** Today
-  `check_mutation_then` reads the authored `c.actions` (`analyze/src/
-  lib.rs:229`), so a `then` action that called an action sending the same
-  mutation would pass.
-- **`contract symbols`** lists each action's calls and its inferred writes
-  through them, so `symbols --name enter` answers "what does Enter touch".
-- Expanded statements keep the callee's spans, so the source map and
-  `perf` point at the lines that do the work.
+### D4 — No recursion, and a running bound on expansion
+
+- **Cycles are refused**, whether direct or through props and injects
+  (`syntax-call-cycle`, renamed from `syntax-tail-cycle`, with the path
+  `a → b → a`).
+- **The bound.** Expansion counts every statement node it builds,
+  `if`/`match` arms and their contents included. It returns
+  `syntax-call-size` as soon as one action's running total passes 1,024,
+  naming the action and the callee being expanded. A chain that calls the
+  next action twice therefore never allocates the exponential body it
+  refuses. Measured by statement-like lines: files' largest action is
+  about 80, spreadsheet's 48 actions total about 304, and mail's largest
+  is 26.
+
+### D5 — Effects come from the expanded body, through every `Call`
+
+`actions.writes` is the VM's allowlist (`lower/src/lib.rs:374`). The VM
+traps a store or send outside it (`vm.rs:831`, `:860`). So everything that
+reads effects recurses into `Stmt::Call`'s `body`:
+
+- `Action::effects()` (`ast.rs:515`), which then gives every caller the
+  union of its own writes and its callees' (LLP 1035.005.000 D1's
+  "accounted for statically");
+- `sends::check`;
+- `check_mutation_then` (`analyze/src/lib.rs:229`), which also moves from
+  the authored `c.actions` to the expanded actions, so a `then` action that
+  calls a sender of its own mutation is refused;
+- `contract symbols` (`cli/src/symbols.rs:348`), which computes writes and
+  calls from the expanded action, so `symbols --name enter` answers "what
+  does Enter touch". It reads the authored component today.
+
+Expanded statements keep the callee's spans, so the source map and `perf`
+point at the lines that do the work.
 
 ### D6 — LLP 1088 D8, through calls
 
-D8's walk is unchanged. A caller's send and a callee's could not meet
-before (LLP 1088 §10); now they can. `commitEdit(); openSheet(id)` where both send `saved`, or
-`save(); save()`, is refused as two sends on one path. The message names
-the frames:
+D8's walk is unchanged, except that it enters `Call` bodies (D5).
+`commitEdit(); openSheet(id)`, where both send `saved`, is refused, and so
+is `save(); save()`. The message names the frames:
 
 > `enter` sends `saved` twice on one path: in `commitEdit` (called at line
 > 41) and in `openSheet` (called at line 42).
 
-Exclusive arms stay accepted, including arms that call different
-senders.
+### D7 — Where each kind of call expands
 
-### D7 — An action-prop call runs the owner's statements
+**Same-component calls expand before lifting, in that component's scope.**
+Root actions call root actions by their own names. In a child component,
+the call is resolved among the child's authored actions, before `lifted`
+renames them `name#n` (`inline.rs:42`, `:447`). The child uses `tail.rs`'s
+hygiene: the caller's parameters and binders and the callee's are renamed
+apart.
 
-A child does not write its parent's state, and nothing here changes that.
-`go(id)` in a child runs the statements of the action its owner passed as
-`go`. Those statements were compiled in the owner's scope: they are the
-lifted action with its captures, exactly as the tail call resolves it today
-(`inline.rs:483–524`). The call asks the owner's action to run, in the same
-commit, the way calling a prop callback works in React.
+- Lifting then substitutes the already-expanded body once, so caller and
+  callee share one capture list. No capture parameters are prepended.
+  (r1's rule is deleted.)
+- A child's derive in the callee is substituted with the rest of the body,
+  as a slot expression.
 
-- **Rows and arms.** A call runs with the frames in force at the child's
-  view, as a tail call does today.
-- **Sibling calls in a child.** A call to a sibling lifted action passes the
-  caller's own capture parameters, which belong to the same instance, ahead
-  of its arguments.
-- **Injects.** A provided action that is called must name an action
-  (`go = bump` or `go = bump(x)`). A ternary or other expression is refused
-  (`syntax-call-target`, renamed from `syntax-tail-call`), as it is for a
-  called prop today.
+**Prop and inject calls expand after lifting, where tail calls are
+resolved today.** The marking loop (`inline.rs:483–524`) walks every
+command at every position, including commands that came in through a
+same-component expansion. It chains `c.props` with `c.injects`. A called
+prop or inject must name an action (`go = bump` or `go = bump(x)`);
+anything else is `syntax-call-target` (renamed from `syntax-tail-call`).
+
+**The owner's statements.** A prop call runs the lifted owner action:
+
+- in the owner's scope, with its curried prefix held as captures, exactly
+  as the tail call resolves it;
+- with the frames in force at the child's view, so row and arm slots
+  resolve as they do for a tail call.
+
+A child never writes its parent's state. It runs the owner's action, in the
+same commit, the way a React prop callback works.
 
 ### D8 — No executor change; the AST carries the call
 
-- A resolved call becomes one statement, `Stmt::Call { action, args, body,
-  span }`. `body` is the callee's renamed-apart statements, with its
-  parameters as leading `let`s. It replaces both the `@tail:` marker and
-  the `@check:` leftover.
-- The type pass checks `args` in the caller's scope against the callee's
-  parameter types. It does not check `body` again; the callee was checked
-  as its own action. A call is one more use for parameter refinement, as a
-  handler binding is. LLP 1088 §9.2's deferral stands.
-- Lowering emits `body` in place.
-- D3, D6 and D10 read the call structure for frames and messages.
-- **Nothing changes below the compiler.** The plan format, `FORMAT_DIGEST`,
-  the runner, the JS target (it compiles from the plan, `host/web-js/src/
-  main.rs`) and every host are untouched.
-- **No regression:** every in-repo app's plan is byte-identical before
-  and after stage 1, tail-call users included.
+**The node.** A resolved call becomes `Stmt::Call { action, args, body,
+authored, curried, binding, span }`:
+
+- `body` is the callee's renamed-apart statements, with its parameters as
+  leading `let`s;
+- `authored` and `curried` count the source arguments and the arguments
+  curried at the binding;
+- `binding` is the span of `go=move(id)` (or `provide go = …`).
+
+It replaces the `@tail:` marker and the `@check:` leftover.
+
+**Types.** Call arguments refine an untyped callee parameter in the same
+pass as handler bindings (`refine_params_from_view`,
+`types/src/component.rs:204`), before `check_body` (`:213`). A helper
+written `action move(dr, dc)` is then typed by its calls. The type pass
+checks the authored arguments in the caller's scope against the callee's
+parameters after the curried ones. It does not check `body` again. LLP
+1088 §9.2's deferral stands.
+
+**Lowering** emits `body` in place.
+
+**Existing tail calls stay byte-identical.** Plan action parameter names
+are strings (`plan/src/builder.rs:507`). So the resolver renames a
+caller's parameters exactly as `tail.rs:82` does today (`name@c{k}`, with
+`k` drawn in the same order), and emits the same argument `let`s and the
+same body with no extra opcode. An action with no call is left untouched,
+as `tail.rs:77` leaves it.
+
+**Below the compiler, nothing changes.** The plan format,
+`FORMAT_DIGEST`, the runner, the JS target and the hosts stay as they are.
+The JS target compiles from the plan (`host/web-js/src/main.rs`).
 
 ### D9 — Lean gets `Stmt.call`, so difftest checks the expansion
 
 `contract lean` emits the expanded root, so both sides of difftest run the
-Rust inliner's output, and a renaming bug in it is invisible. So:
+Rust expander's output, and a renaming bug in it would not show. So:
 
-- **Semantics.** `Stmt` gains `call (action : String) (args : List Expr)`.
-  Its meaning, defined independently of the Rust renaming:
-  1. evaluate the arguments in the caller's environment on the pre-state;
-  2. run the callee's body in a fresh local scope with only its parameters
-     bound, on the **same pre-state and the same pending writes**.
+- **Syntax.** `Stmt` gains `call (action : String) (args : List Expr)`.
+  `args` is the callee's full parameter list: the caller's
+  already-bound capture parameters and curried prefix, then the source
+  arguments.
+- **Semantics**, defined independently of the Rust renaming. The
+  arguments are evaluated in the caller's environment against the action's
+  starting slots. The callee's body then runs in a fresh local scope with
+  only its parameters bound:
+  - against the same starting slots;
+  - under the same frames, so row writes land in the caller's rows;
+  - threading the whole effect record: root writes, row writes, sends,
+    commands and refreshes.
 
-  `exec` gains a depth bounded by the number of actions, which an accepted
-  (acyclic) program never exhausts.
-- **Proofs** gain the `call` case: `Big.lean` (sound, complete,
-  deterministic), `Axiomatic.lean` (a call rule; `runAction_reads_prestate`
-  and `runAction_last_write` keep their statements), `Soundness.lean`, and
-  `Lower*.lean`, whose `Lower` expands `.call` as Rust lowering does, in a
-  fresh local scope.
+  If the callee refuses, the record is dropped and the action refuses.
+  `exec` gains a depth bounded by the number of actions, which an
+  accepted, acyclic program never exhausts.
+- **Proofs** gain the `call` case:
+  - `Big.lean`: sound, complete, deterministic;
+  - `Axiomatic.lean`: a call rule, with `runAction_reads_prestate` and
+    `runAction_last_write` unchanged;
+  - `Soundness.lean`;
+  - `Lower*.lean`, whose `Lower` expands `.call` as Rust lowering does,
+    in a fresh local scope.
 - **Emitter.** `lean.rs` emits `Stmt::Call` as `.call action args`, never
-  `body`; the `Apps/` embeddings of tail-call users are regenerated.
-- **Difftest.** The corpus gains `semantics/corpus/actions/calls/`: a
-  sequence, a call in an arm, two calls, a chain, a prop call inside a row,
-  an inject call, a same-spelling local in caller and callee, and a trap in
-  a callee rolling back the caller. The random generator emits calls from
-  action *i* to actions *j < i*, with arguments, so cycles are impossible.
-  The random sweep then checks the Rust expansion against `.call`'s
-  definition.
-- **D3 in Lean is not owed** (§7.4).
+  `body`. The `Apps/` embeddings of tail-call users are regenerated.
+- **Difftest.** `semantics/corpus/actions/calls/` covers:
+  - a sequence, a call in an arm, and two calls;
+  - a chain;
+  - a same-component call in a child;
+  - a prop call inside a row;
+  - an inject call;
+  - a same-spelling local in caller and callee;
+  - a trap in a callee rolling back the caller.
+
+  The random generator emits calls from action *i* to actions *j < i*.
 
 ### D10 — Diagnostics and docs
 
-Diagnostics:
+**Diagnostics:**
 
-- `type-unknown-command`, for a root action named in a child: "`archive`
-  is not in `Row`'s scope; pass it as an `action` prop or `provide` it".
-- `type-call-value`: "`save` is an action; a call is a statement and
-  returns nothing. Compute values with `fn`".
-- `type-call-arity`: "`move` takes 2 argument(s) after the 1 curried at
-  `go=move(id)`, given 1". This replaces the arity text in
-  `syntax-tail-call`.
-- `type-call-action-arg`, `type-call-ambiguous` (D1); `analyze-call-stale-read`
-  (D3); `syntax-call-cycle`, `syntax-call-size` (D4); `syntax-call-target`
-  (D7); D8's frames (D6).
+- **`type-call-arity`**, from the `Call`'s counts and binding span. For
+  example: "`move` takes 2 argument(s) after the 1 curried at
+  `go=move(id)` (line 12), given 1".
+- **`type-unknown-command`, for a name that some other component
+  declares as an action.** The checker searches every component before
+  answering: "`archive` is an action of `App`, not in `Row`'s scope; pass
+  it as an `action` prop or `provide` it". A name no component declares
+  keeps today's "not a host command" text.
+- **`type-call-value`**: "a call is a statement and returns nothing;
+  compute values with `fn`".
+- **The rest:** `type-call-action-arg` (D1); `analyze-call-stale-read`
+  (D3); `syntax-call-cycle` and `syntax-call-size` (D4);
+  `syntax-call-target` (D7); D8's frame message (D6).
 
-Docs:
+**Docs.** The grammar's production already admits the statement
+(`contract-grammar.md:154`), so no syntax changes. The prose changes:
 
-- `contract-for-agents.md`: §State and action semantics gains calls, the
-  snapshot across calls with the `let next` pattern, and D3's refusal. The
-  table row "Calling an action from another action" becomes "Copying an
-  action's statements → call it: `commitEdit()`". §Composition says that a
-  child calls an `action` prop like a callback.
-- `contract-grammar.md` and `contract-for-humans.md`: the statement form
-  and the refusals.
-- `agent-pitfalls.md`: "pass the value you just wrote; a callee reads the
-  starting state".
-- `rules/DEFERRED.md` **Actions**: rewritten on Charlie's yes. Still
-  refused: recursion, a return value, an action as an argument.
+- `contract-grammar.md:169` ("a standalone call statement is a host
+  command") and `:625` ("after tail calls are inlined");
+- `contract-for-agents.md:238`, the table row at `:580` ("Copying an
+  action's statements → call it: `arrive(path)`"), and §State and action
+  semantics, with D3 and its `let` pattern;
+- `contract-for-humans.md:279`.
+
+The §Composition text shows the tail form explicitly. A child resets its
+own state, then calls its `action` prop last in an `if` arm. That is
+mail's swipe. `agent-pitfalls.md` gains "a helper sees the state the
+action started with; pass the value".
 
 ## 3. Effect on each implementation
 
 | | Stage 1 | Stage 2 |
 |---|---|---|
-| syntax | `inline/tail.rs` → `inline/calls.rs`: resolve every call, not only tails; `Stmt::Call`; mark calls to own actions, props and injects (`inline.rs:483`, `:875`); cycle, size, target refusals | — |
-| types | call checks in `actions.rs` (scope, arity, value, action argument, ambiguity), replacing `check_command`'s action/prop branches (`checks.rs:986`); parameter refinement counts calls | — |
-| analyze | `calls.rs`: D3's frame walk beside `sends.rs`; D8's frame message; `check_mutation_then` on the expanded body | — |
-| lower | emit `Stmt::Call`'s body; drop the `@check:` case | — |
-| cli | `symbols` lists calls; `lean.rs` emits a call's `body` | `lean.rs` emits `.call` |
+| syntax | `inline/tail.rs` → `inline/calls.rs`: same-component expansion before lift; prop/inject marking at every position after lift; `Stmt::Call`; running size count; cycle and target refusals; `effects()` recurses | — |
+| types | call refinement beside `refine_params_from_view`; arity from the `Call`'s counts; value and action-argument refusals; the cross-component search for `type-unknown-command` | — |
+| analyze | `calls.rs`, D3's walk on `sends.rs`'s guards; D8's frame message; `check_mutation_then` on the expanded body | — |
+| lower | emit `Stmt::Call`'s body | — |
+| cli | `symbols` from the expanded action; `lean.rs` emits `body` | `lean.rs` emits `.call` |
 | plan, runner, JS target, hosts | none | none |
-| Lean, difftest | — | `Stmt.call`, `exec` depth, the proofs' `call` cases, corpus, generator |
+| Lean, difftest | — | `Stmt.call`, the effect record, `exec` depth, proofs, corpus, generator |
 | JS conformance | — | `host/web-js/conformance/calls.contract` (async lane) |
 | docs | D10 | the semantics README's `Stmt` row |
 
 ## 4. Tests
 
 - **Compiler**: `contract/cli/tests/it/tail_call.rs` becomes `calls.rs` and
-  keeps every tail case. It adds a call first, in the middle, in an arm and twice; a chain of three; a
-  prop call before the child's own writes and inside a row; an inject call;
-  a sibling call in a child; curried and payload arguments; `symbols`.
+  keeps every tail case. It adds:
+  - calls first, in the middle, in an arm, and twice;
+  - a chain of three;
+  - a same-component call inside a child, used in a row;
+  - a prop call before the child's own writes;
+  - an inject call;
+  - curried and payload arguments;
+  - an untyped helper typed by its calls;
+  - `symbols`.
 
-  `diagnostics.rs` asserts each new message whole, D3's examples (refused
-  and accepted) among them, and `then` self-send through a call.
-- **Plans unchanged**: decode every in-repo app's plan on the base and on
-  stage 1, and compare the bytes.
+  `diagnostics.rs` asserts each new message whole, D3's table among
+  them, and `then` self-send through a call. A Caltrain-shaped
+  `setScheme` stays the command.
+- **Plans unchanged.** Decode, on the base and on stage 1:
+  - every in-repo app's plan;
+  - a tail-call fixture (`tail_call.rs`'s conditional dismiss, with a
+    curried argument), since no in-repo app calls an action prop.
+
+  Compare the bytes.
 - **Lean**: `lake build` with the proofs; difftest `corpus`, `random --count
   500`, `types`, `lowering` (async lane).
-- **Driven**: spreadsheet's commit-the-edit and files' open, rewritten as
-  calls (`EXACT_APP_DIR`; these apps live outside the repo). Their authored
-  tests stay green on web and macOS through `scripts/agent.mjs`. Mail's
-  swipe is rewritten with the root's `swipeDx` moved back into the row.
+- **Driven**: files' `arrive(path)` and spreadsheet's close-the-editor,
+  `followSelection` and `clipKey` → `move`, each rewritten as calls.
+  These apps are outside the repo; set `EXACT_APP_DIR`. Their authored
+  tests stay green on web and macOS through `scripts/agent.mjs`. The
+  stage 1 commit reports their expanded sizes.
 - The five checks after each stage.
 
 ## 5. Implementation plan
 
 Implementer: Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, on
-a branch from origin/main after Charlie's yes. Each commit passes the five
-checks.
+a branch from origin/main. Each commit passes the five checks.
 
 1. **Stage 1, 2026-10-05: the compiler and docs (D1–D8, D10).**
-   - **Census first.** D3 can refuse an existing tail call whose callee
-     reads what its caller wrote. Build every in-repo app and every
-     `~/projects/x2apps` app. Fix any in-repo refusal in the same commit and
-     list the outside ones, as LLP 1088 D8's rollout did. Count same-frame
-     reads after writes for §7.2.
-   - **Exit:** the §4 compiler tests; plans byte-identical; spreadsheet,
-     files and mail converted and driven on web and macOS.
+   - **Census first.** Build every in-repo app and every
+     `~/projects/x2apps` app. A D3 refusal of an existing tail call is
+     fixed in the same commit if it is in-repo, and listed if it is
+     outside, as LLP 1088 D8's rollout did. Print the count of same-frame
+     reads after writes (§7.1).
+   - **Exit:** the §4 compiler tests; plans byte-identical; files and
+     spreadsheet converted and driven on web and macOS.
 2. **Stage 2, 2026-10-05: Lean and difftest (D9),** with the conformance
    fixture.
-   - **Exit:** proofs build, and the corpus and a 500-case sweep agree.
-   - The `Lower*` `call` case is the piece most likely to slip. If it does,
-     stage 2 lands the semantics, the other proofs and difftest. The
-     lowering theorem is then stated for call-free bodies, the restriction
-     is named in `semantics/README.md`, and it gets a `QUEUE.md` line. No
-     `sorry` lands.
+   - **Exit:** the proofs build, and the corpus and a 500-case sweep
+     agree.
+   - **If the `Lower*` `call` case slips,** stage 2 lands the semantics,
+     the other proofs and difftest. The lowering theorem is then stated for
+     call-free bodies, the restriction is named in `semantics/README.md`,
+     and it gets a `QUEUE.md` line. No `sorry` lands.
 
 ## 6. Considered and not taken
 
-- **A runtime call (a plan opcode, a JS function call).** It would avoid
-  duplicating code. But it costs a plan-format change, a VM frame for
-  parameters and captures, row frames for a lifted callee, both executors
-  and Lean's VM model, all for a size problem no app has. Trigger: an app
-  hits D4's bound, or `metrics.mjs` shows plan growth from calls on a real
-  app.
+- **A runtime call** (a plan opcode, a JS function call). It costs a
+  plan-format change, a VM frame, row frames for a lifted callee, both
+  executors and Lean's VM model, for a size problem no app has. Trigger:
+  an app hits D4's bound.
 - **Callees that see pending writes** (D2): two read rules in one commit.
-- **No D3**: silent stale reads, in exactly the refactoring calls invite.
-- **D3 as a warning**: warnings go unread (LLP 1088 D8).
+- **No D3, or D3 as a warning**: silent stale reads, in the very
+  refactoring calls invite.
+- **`type-call-ambiguous`** (r1): it refused Caltrain's `setScheme` and
+  files' `share`, which compile today.
+- **Capture prepending for sibling calls** (r1): replaced by expansion
+  before lift.
 - **A `fn` returning a record that an action spreads** (F21's
-  alternative): it cannot send or call a host command, and needs a
+  alternative): it cannot send or call a host command, and it needs a
   multi-assignment form.
-- **Keeping tail-only and documenting it**: fixes mail, leaves
-  spreadsheet and files where they are.
+- **Keeping tail-only and documenting it.** That is the fix for mail
+  (D10), but it leaves files and spreadsheet where they are.
 - **Return values**: an expression with effects; `fn` computes.
 
 ## 7. Open questions
 
-1. **The DEFERRED waiver.** The **Actions** entry still refuses "an action
-   calling a root action by name, a call anywhere but the tail". This RFC
-   offers no take. Charlie waived one for the tail call; does he waive one
-   for this?
-2. **D3 inside one frame.** Should D3 refuse every read after a write on
-   one path, not only across calls? Then the snapshot could never surprise
-   anyone, but the swap and the docs' own `doubled` example would be
-   refused. Decide after stage 1's census counts how many in-repo and
-   x2apps actions read after writing.
-3. **The size bound.** 1,024 statements is a guess with headroom; stage 1
-   measures the converted spreadsheet and files against it.
-4. **A Lean theorem for D3**: a body with no cross-frame stale read
-   executes the same under snapshot and in-order semantics. It would turn
-   D3's justification into a proof. No implementer or date yet.
+1. **D3 inside one frame.** Not widened by this RFC. The same-frame
+   snapshot carries real logic: files' `go`/`goBack`, spreadsheet's
+   `er = clampRow(ar + 1)` after `ar = …`, and `resizeMove`. Stage 1's
+   census prints the count, which gates nothing.
+2. **A Lean theorem for D3.** If no path reads a slot that another frame
+   assigned earlier on that path, then loading each slot as the last
+   assignment on the path (or the starting value when there is none)
+   equals the snapshot load. Derives, resources, `pending` and sends lie
+   outside the statement. It gets a `QUEUE.md` line when stage 1 lands.
+   No implementer yet.
 
 ## 8. Revisions
 
+- **r2** (2026-10-04): two Grok 4.7 xhigh reviews of r1, one family with
+  two scopes. Every finding was checked against the code and every one
+  held. Each is resolved in the decision it names, and the dispositions are
+  in `llp/reviews/1089-r1.grok-{a,b}.md`. The DEFERRED waiver is recorded
+  in its own commit.
 - **r1** (2026-10-04): first draft.
