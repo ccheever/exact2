@@ -125,6 +125,46 @@ reruns everything, it takes one to three minutes depending on load. It
 prints a command that reproduces each divergence. The async lane's
 `semantics` step is still the full run.
 
+## The web JS target
+
+The web build's JS target (`host/web-js`, LLP 1071) is a second
+implementation of Contract: the plan compiled ahead to one ES module over a
+small runtime. `--js` on `corpus`, `explore` and `random` checks every case
+a third way, against the runner (`difftest/src/js.rs`); `--js-only` skips
+the semantics (no Lean needed).
+
+```
+cargo run -p contract-difftest -- corpus --js
+cargo run -p contract-difftest -- explore contract/corpus apps/*/app.contract --js-only
+cargo run -p contract-difftest -- random --seed 7 --count 2000 --js-only
+```
+
+`difftest/js/drive.mjs` is the headless driver. Each case's program is
+compiled by `exact-web-js` (the build's compiler), bundled with the runtime
+and run under Bun in a fresh VM context over the render DOM
+(`host/web-js/dom.js`) given event listeners, the clock the driver's
+(`advance`, as under the agent). Its sources answer synchronously from the
+runner's oracle transcript, as the runner's do; the host's reserved sources
+(viewport, page, time…) answer what the runner answered at boot. A call the
+runner never made is noted (`# js: the oracle has no answer…`) and shows as
+the refusal it causes. It prints `Contract.Observe`'s format from the
+module's own state (names.js) and the DOM: a `testId`'s text is a text's,
+an inline run's, an option's or an SVG text's, as `agent.js` reads them.
+A tap goes to the element's `press` listener and a `type` to its `change`;
+an element without one is refused, as the runner refuses (NoHandler), and so
+is a value a browser could not deliver (a select's unknown or disabled
+option, a checkbox's text, a date outside HTML's format or its bounds).
+
+A program `exact-web-js` refuses is outside the JS target (`OUTSIDE-JS`),
+not a failure. A divergence prints `DIVERGE-JS` with whether the semantics
+agreed with the runner, and is kept under `target/difftest/failures/`
+(`*-js-*.{contract,events,rust.txt,js.txt}`); random ones are shrunk first.
+Known, unfixed: `options/nested.contract` (the runtime holds `some(v)` as
+`v`, so `some(none)` is `none`) and `routes/forged.contract` (the runtime
+neither refuses a commit that leaves the router slot invalid nor traps on a
+verb of an invalid router). The async lane runs the corpus and the explored
+programs with `--js`, and a random sweep of 500 with `--js-only`.
+
 ## Verifying an app
 
 An app is verified against its embedding, so the proofs are about the
