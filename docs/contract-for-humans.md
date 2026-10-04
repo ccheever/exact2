@@ -793,9 +793,9 @@ component App
   action followLink(url: string)
     nav = go(nav, url)
   view
-    main navigationKey=`${current.id}` navigationBack="back" navigate=followLink
+    main navigationKey=`${current.id}` navigationBack="back" navigate=followLink width="100%" height="100%"
       each e in stack(nav) key=e.id
-        column navigationKey=`${e.id}` gap=8
+        column navigationKey=`${e.id}` position="absolute" inset=0 gap=8 background-color="#ffffff"
           text e.name testId=`route-${e.id}`
           when e.name == "item"
             text e.params.id
@@ -809,6 +809,9 @@ A navigation stack is built this way: one row per entry of `stack(nav)`, keyed b
 the entry's id, so a retained screen keeps its state. The root's `navigationKey`
 names the top entry, and each row's `navigationKey` names its own; the host
 presents the stack from them. `navigationBack` names the `id` of the back control.
+Each row is a direct child of the root and fills it: a covered entry is hidden, not
+removed, so one in the flow would still take its room. Tabs with a stack each are
+laid out as [the tabs corpus](../contract/corpus/tabs.contract) shows.
 `navigate=` receives locations the host navigates to itself, such as link clicks
 and browser history.
 

@@ -22,6 +22,7 @@ This guide is documentation, not an additional policy layer. Documents in
 - [Data requests and side effects](#data-requests-and-side-effects)
 - [Views, layout, and interaction](#views-layout-and-interaction)
 - [Routes and web documents](#routes-and-web-documents)
+- [Tabs and stacks](#tabs-and-stacks)
 - [Time, motion, graphics, and platform facts](#time-motion-graphics-and-platform-facts)
 - [Inspection and testing](#inspection-and-testing)
 - [Repair common mistakes](#repair-common-mistakes)
@@ -400,6 +401,54 @@ empty strings for absent fields. `select` takes a tab name, not a URL.
 Bind the host's navigation root and per-entry `navigationKey`s as the
 [router fixture](../contract/corpus/routes.contract) demonstrates. Test back,
 tab switching, the same-URL push, external navigation, and route parameters.
+
+Every route (a node with a `navigationKey` under the root) is a direct child of the
+root or of a `role="tabpanel"` in it — through `each` and `when`, never another
+element: the compiler refuses one behind a wrapper (`lower-route-place`). Make each
+route `position="absolute" inset=0`: the hosts hide a covered route, as
+`visibility: hidden` does, so an in-flow route still takes its room.
+
+## Tabs and stacks
+
+Tabs with a stack each have one layout that works on web, macOS and iOS
+([the tabs fixture](../contract/corpus/tabs.contract), driven by
+`host/web-js/conformance/tabs.steps`):
+
+```contract
+main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow display="flex" flex-direction="column" height="100%"
+  column flex=1 min-height=0 position="relative"
+    each t in nav.tabs key=t.name
+      column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
+        each e in t.stack key=e.id
+          column navigationKey=`${e.id}` position="absolute" inset=0 background-color="#fff"
+            …
+  row role="tablist" display=(top(nav).name == "full" ? "none" : "flex") height=56
+    button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=pick("home")
+      image "symbol:home"
+      text "Home"
+  when toast != ""
+    button position="absolute" … // a root overlay: after the tablist, over everything
+```
+
+- Each tab names its panel with `aria-controls`; the panels are the stacks, and every
+  tab's stack stays mounted, so a pushed screen, a draft and a scroll offset survive
+  a visit to another tab. A tab is `select(nav, name)`; selecting the shown tab
+  again pops it to its root.
+- On iOS the panels become a `UITabBarController`: a tab of one symbol over its label
+  is its bar item, a filled box holding a text is the item's badge, and the
+  tablist's `accent-color` (inherited, as in CSS) tints the selected item. Under the
+  agent the authored tablist paints and takes taps instead; `tap tab-…` works on every
+  host.
+- Hide the tab bar on a route with `display="none"` on the tablist. Never remove the
+  tablist with `when`: without it the root has no tabs and the panels' routes are
+  found by no host.
+- Root children after the panels box (a toast, a timer strip, a full-screen menu) paint
+  over the routes and the native bars on every host, as later siblings do in CSS.
+- A modal route (`navigationPresentation="modal"`) paints its own background; the
+  route under it is dimmed.
+- Without tabs, the routes are the root's own children, laid out the same way.
+- Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
+  1038 D11), which calls the root's `navigate`.
 
 A `head` node supplies document metadata. The innermost active value wins for
 each field. `scroll document` declares page scrolling. Route `render`/`activate`
