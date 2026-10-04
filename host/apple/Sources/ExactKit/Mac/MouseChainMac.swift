@@ -191,23 +191,25 @@ extension NodeView {
     }
 }
 extension Presenter {
-    /// Keep the latest free move and send it at the next display frame.
+    /// Keep each node's latest free move and send them at the next display
+    /// frame: a pointer crossing two `pointermove` nodes in one frame leaves
+    /// each its own last move.
     func hoverMoved(_ id: UInt32, _ sample: PointerSample) {
-        hoverMove = (id, sample)
+        if let i = hoverMoves.firstIndex(where: { $0.0 == id }) { hoverMoves[i].1 = sample } else { hoverMoves.append((id, sample)) }
         guard hoverLink == nil else { return }
         hoverTarget.fire = { [weak self] _ in self?.flushHoverMove() }
         let link = viewport.displayLink(target: hoverTarget, selector: #selector(PumpTarget.tick(_:)))
         link.add(to: .main, forMode: .common)
         hoverLink = link
     }
-    /// The pending free move, now: at its frame, before a down or an up, and
-    /// when the agent moved the pointer (it reads the state right after).
+    /// The pending free moves, now: at their frame, before a down or an up,
+    /// and when the agent moved the pointer (it reads the state right after).
     func flushHoverMove() {
         hoverLink?.invalidate()
         hoverLink = nil
-        guard let (id, sample) = hoverMove else { return }
-        hoverMove = nil
-        if views[id] != nil { pointer(id, .move, sample) }
+        let moves = hoverMoves
+        hoverMoves = []
+        for (id, sample) in moves where views[id] != nil { pointer(id, .move, sample) }
     }
 }
 #endif

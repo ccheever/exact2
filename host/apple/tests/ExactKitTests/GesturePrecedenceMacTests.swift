@@ -96,6 +96,29 @@ final class GesturePrecedenceMacTests: XCTestCase {
         node.mouseUp(with: event(.leftMouseUp, node))
     }
 
+    /// Two `pointermove` nodes crossed in one frame each hear their own
+    /// last move (Grok's batch 2 delta review).
+    func testEachNodeCrossedInAFrameHearsItsLastMove() {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointermove"]],
+            ["op": "create", "id": 2, "kind": "view", "handlers": ["pointermove"]],
+            ["op": "create", "id": 3, "kind": "view"],
+            ["op": "children", "id": 3, "ids": [1, 2]],
+            ["op": "roots", "ids": [3]],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 2, "x": 200.0, "y": 0.0, "w": 200.0, "h": 100.0]
+        ])
+        var log: [String] = []
+        p.onPointer = { id, _, sample in log.append("move \(id) \(Int(sample.x))") }
+        let (a, b) = (p.views[1]!, p.views[2]!)
+        a.mouseMoved(with: event(.mouseMoved, a))
+        a.mouseMoved(with: event(.mouseMoved, a, right: 5))
+        b.mouseMoved(with: event(.mouseMoved, b))
+        p.flushHoverMove()
+        XCTAssertEqual(log, ["move 1 105", "move 2 100"])
+    }
+
     func testDoubleClickPressesTwiceThenDoubleClicks() {
         let p = host([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["press", "dblclick"]],
