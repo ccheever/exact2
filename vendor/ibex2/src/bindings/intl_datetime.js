@@ -19,6 +19,7 @@
   var ObjectIntrinsic = Object;
   var defineProperty = ObjectIntrinsic.defineProperty;
   var createObject = ObjectIntrinsic.create;
+  var brand = globalThis.__ibex2_brand || function (value) { return value; };
   var states = new WeakMap();
 
   function isObject(value) {
@@ -151,7 +152,7 @@
   function initialize(object, locales, options, required, defaults) {
     var owner = apply(create, undefined, normalized(locales, options, required, defaults));
     states.set(object, { owner: owner, bound: undefined });
-    return object;
+    return brand(object, "Intl.DateTimeFormat");
   }
 
   function direct(value) {

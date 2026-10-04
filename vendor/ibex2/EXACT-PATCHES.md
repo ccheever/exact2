@@ -1,7 +1,7 @@
 # Vendored ibex2 and ibex2-sqlite — Exact patches
 
 - **Upstream:** `https://github.com/expo/ibex.git`, commit
-  `fbe2baee` (2026-10-04, on `main`):
+  `e3e00690` (2026-10-04, on `main`):
   `crates/ibex2` → `vendor/ibex2`, `crates/ibex2-sqlite` → `vendor/ibex2-sqlite`.
 - **Why vendored (Charlie, 2026-09-22):** a fresh clone must build without a
   sibling `../ibex` checkout. The compiler includes `src/bindings/storage.d.ts`
@@ -59,11 +59,10 @@ macOS too.
   where they were everywhere but Apple.
 - `src/transport/mod.rs`: `rustls_http` and `RustlsHttpTransport` build on
   macOS too. `default_transport` is unchanged: `NSURLSession` on Apple.
-- `src/transport/rustls_http.rs`: the trust store is read once per process
-  (reading the macOS keychain took ~170 ms, and every transport paid it: a
-  render server's first render on each worker, 2026-09-30), and a pending
-  connect waits in `poll(2)` for the socket to be writable instead of
-  sleeping 10 ms between checks.
+- `src/transport/rustls_http.rs`: a pending connect waits in `poll(2)` for the
+  socket to be writable instead of sleeping 10 ms between checks. The former
+  trust-store cache patch is now upstream: its lazy process cache also avoids
+  loading system roots for unused transports or plain HTTP without a TLS proxy.
 - Not for upstream: it exists for one embedder's server role.
 
 ## Patch 4: one grant grammar shared with the web runner — Exact only
@@ -79,8 +78,22 @@ unchanged into a pure crate. URL normalization remains the `url` crate's,
 including IDNA and address normalization. Secret/scope name validation is
 shared too. Native filesystem realization stays here: the executor maps
 filesystem prefixes through its resolver; the shared crate performs no I/O.
+The two realization call sites in `src/stdlib/fs.rs` and `app_fs_unix.rs` use
+the local `crate::grant::realized_fs` helper, and `src/secrets/mod.rs` delegates
+name validation to `exact_grants::valid_name`. These are part of this patch.
 
 The runner, Rust-only bakes, and wasm host now use the same parser as native
 bindings. One invalid I/O line grants nothing. The current JS target holds
 the same grammar against `host/web/tests/fixtures/grants.json` using browser
 URLs, and scopes module fetch and secret access to the parsed set.
+
+## Windows refresh, 2026-10-04
+
+The complete `e3e00690` snapshot includes Windows app storage and native SQLite,
+the upstream grouped installer, structured clone and WebCrypto work. Windows
+file operations retain owned directory handles and refuse reparse nodes;
+SQLite uses its native VFS under the trusted embedder's stable-ancestry contract,
+with database and sidecar reparse preflight. See Exact LLP 1027.001 D2 and
+[Ibex LLP 0068](https://github.com/expo/ibex/blob/e3e00690/llp/0068-the-standard-library-for-a-rust-consumer.spec.md).
+Exact still disables Ibex's default features; the refresh does not automatically
+enable the new crypto implementation or claim a Windows Exact TypeScript engine.
