@@ -90,14 +90,14 @@ component Tennis
             row position="absolute" left=0 right=0 bottom=148 justify-content="center"
               text hud.prompt testId="prompt" padding=10 border-radius=10 background-color="#0b1726d9" font-size=16
           button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=112 height=112 border-radius=56 background-color="#f8fafc26" border-width=2 border-color="#f8fafc55"
-            text "Move" color="#f8fafc" text-align="center" padding-top=44
+            text "Move" color="#f8fafc"
           row position="absolute" right=24 bottom=24 gap=12 align-items="flex-end"
             button action="backhand" aria-label="Backhand (K)" testId="backhand" width=92 height=92 border-radius=46 background-color="#1e3a5f" border-width=2 border-color="#5eead4"
-              column align-items="center" padding-top=26
+              column align-items="center"
                 text "Backhand" font-size=14 font-weight=700
                 text "K" font-size=12 color="#94a3b8"
             button action="forehand" aria-label="Forehand (J)" testId="forehand" width=108 height=108 border-radius=54 background-color="#c6f432" color="#0b1726"
-              column align-items="center" padding-top=32
+              column align-items="center"
                 text "Forehand" font-size=15 font-weight=800
                 text "J" font-size=12 color="#334155"
           when hud.over

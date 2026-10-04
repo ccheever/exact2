@@ -34,13 +34,14 @@ pub(crate) struct FlowState {
 /// (and overlaps it). Journalled once per leaf; `message` says what to change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FlowRefusal {
-    /// A wrapping context (an exclusion's parent) is flex or grid, or sets
-    /// `align-content`: the leaf's offset would depend on its own height.
+    /// A wrapping context (an exclusion's parent) is flex or grid, a button,
+    /// or sets `align-content`: the leaf's offset would depend on its own
+    /// height.
     Context,
     /// An exclusion's top or height depends on its context's auto height.
     Placement,
     /// The leaf, or a box between it and a wrapping context, is absolutely
-    /// positioned, flex or grid, sets `align-content`, or is offset
+    /// positioned, flex or grid, a button, sets `align-content`, or is offset
     /// vertically by a percentage.
     Chain,
     /// Content regions lay auto-height text out unobstructed.
@@ -53,9 +54,9 @@ impl FlowRefusal {
     /// What the author can change, for the journal line.
     pub fn message(self) -> &'static str {
         match self {
-            FlowRefusal::Context => "its wrapping context (the exclusion's parent) is flex or grid, sets align-content, or is position: static; make that parent display: block and position: relative, or give the text a height",
+            FlowRefusal::Context => "its wrapping context (the exclusion's parent) is flex or grid, a button, sets align-content, or is position: static; make that parent display: block and position: relative, or give the text a height",
             FlowRefusal::Placement => "an exclusion's top or height depends on its context's height; give every exclusion there a top and a height in points (not %, not bottom), or give the text a height",
-            FlowRefusal::Chain => "the text, or a box between it and the wrapping context, is absolutely positioned, flex or grid, sets align-content, or has a percentage top or bottom; keep ordinary in-flow blocks between them, or give the text a height",
+            FlowRefusal::Chain => "the text, or a box between it and the wrapping context, is absolutely positioned, flex or grid, a button, sets align-content, or has a percentage top or bottom; keep ordinary in-flow blocks between them, or give the text a height",
             FlowRefusal::Region => "text inside a content region flows only with a definite height",
             FlowRefusal::Unsettled => "layout did not settle around the exclusions; this is a kernel defect, please report it",
         }
@@ -97,10 +98,11 @@ fn placed(arena: &NodeArena, exclusion: u32) -> bool {
 }
 
 // A block places children in order: a child's offset depends on what precedes
-// it and never on its own height, unless alignment distributes free space.
+// it and never on its own height, unless alignment distributes free space
+// (a button's centring is such alignment).
 fn orders(arena: &NodeArena, slot: u32) -> bool {
     let s = arena.style(slot);
-    s.display == Display::Block && s.align_content == AlignContent::Normal
+    s.display == Display::Block && s.align_content == AlignContent::Normal && !arena.is_button(slot)
 }
 
 fn in_flow(arena: &NodeArena, slot: u32) -> bool {

@@ -13,8 +13,10 @@ fn view_with_test_id(host: &Host<caltrain_data::Caltrain>, test_id: &str) -> u32
 /// A text that is its box's only child, with nothing of its own, is the box's
 /// text content (LLP 1007.001): its element makes no box. One with a test id,
 /// a row of its own, a sibling or a handler keeps its box, and a sibling that
-/// arrives later takes the fold back. A button folds only where its height
-/// is its text's.
+/// arrives later takes the fold back. A block button folds its label at any
+/// height (Chrome centres a block button's line boxes as the kernel centres
+/// its text, LLP 1001 §1); a flex one only where its height is its text's.
+/// Under a box that restricts touch the folded text is an inline box.
 #[test]
 fn a_lone_plain_text_is_its_boxs_text_content() {
     let plan = contract::compile(
@@ -40,8 +42,11 @@ fn a_lone_plain_text_is_its_boxs_text_content() {
         button testId="stretched"
           text "s"
       row align-items=(more ? "stretch" : "center")
-        button testId="flips"
+        button testId="flips" display="flex" flex-direction="column"
           text "f"
+      row touch-action="none"
+        button testId="touchy"
+          text "p"
 "##,
     )
     .unwrap();
@@ -95,15 +100,22 @@ fn a_lone_plain_text_is_its_boxs_text_content() {
             .ends_with("display:block;"),
         "{first}"
     );
-    // A block button centers its text in its height: one whose height is
-    // its own, or a row's it stretches across, keeps its text a box.
+    // A block button centres its line boxes as the kernel centres its text,
+    // whatever its height; a flex column folds only at its text's height.
     let (tall, stretched, flips) = (child("tall"), child("stretched"), child("flips"));
-    assert!(!css(&first, tall).unwrap().contains("contents"), "{first}");
+    assert!(css(&first, tall).unwrap().contains("contents"), "{first}");
     assert!(
-        !css(&first, stretched).unwrap().contains("contents"),
+        css(&first, stretched).unwrap().contains("contents"),
         "{first}"
     );
     assert!(css(&first, flips).unwrap().contains("contents"), "{first}");
+    // Under `touch-action: none` a folded text is an inline box: Chrome keeps
+    // no effective touch action for a `display: contents` element's text.
+    assert_eq!(
+        css(&first, child("touchy")).as_deref(),
+        Some("display:inline;"),
+        "{first}"
+    );
     // A second text arrives: the first is a box again.
     let grown = host.dispatch(view_with_test_id(&host, "grow"), Event::Press);
     assert!(

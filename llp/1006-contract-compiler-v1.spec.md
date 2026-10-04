@@ -564,9 +564,9 @@ and the iOS Calendar example's `animateDrag` (`editorMorphAt`) and
 to `nodes`/`regions`/`arms`/`bindings`/`handlers` through the tag/attribute
 table (`tags.rs`: `column`/`row`/`main`/`scroll`/`text`/`button`/`link`/
 `input`/`image` onto kernel node types plus fixed rows — `button` is a
-pressable `column`, role button with `display: flex; flex-direction: column`
-(Charlie, 2026-09-23: "One native button, flex column"), so the web's
-`<button>` lays out as the kernel does (LLP 1007 §1); attributes onto style
+`Pressable`, role button, with Chrome's `text-align: center`, a block whose
+content the kernel centres as the web's `<button>` does (Charlie, 2026-10-04,
+reversing 2026-09-23's flex column; LLP 1001 §1); attributes onto style
 rows by their **literal CSS names** (LLP 1017 §8.1, 2026-08-30 — `font-size`,
 `background-color`, `border-radius`→four rows, `gap`→`row_gap`+`column_gap`,
 `padding`→four rows, `flex=n`→CSS `flex: n` = grow n, shrink 1, basis 0%;

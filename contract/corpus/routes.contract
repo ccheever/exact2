@@ -78,7 +78,7 @@ component Interview
             scroll testId=`feed-scroll-${e.id}` flex=1 min-height=0 width="100%"
               column gap=16
                 each p in posts key=p.id
-                  button press=openPost(p.id) testId=`feed-post-${p.id}` height=450 justify-content="center" padding=16 background-color="#eeeeee"
+                  button press=openPost(p.id) testId=`feed-post-${p.id}` height=450 padding=16 background-color="#eeeeee"
                     text p.title font-size=24
           when e.name == "notifications"
             text "Notifications"

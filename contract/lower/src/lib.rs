@@ -716,7 +716,6 @@ impl<'a> Lowerer<'a> {
                     }
                     None => attrs.as_slice(),
                 };
-                tags::validate_button_display(tag, expanded)?;
                 tags::check_exclusion(&t, expanded, self.parent_positioned)?;
                 let composed = self.compose_animation(expanded)?;
                 let expanded = composed.as_deref().unwrap_or(expanded);

@@ -238,14 +238,14 @@ component Expose
           scroll flex=1 min-height=0
             column padding-left=22 padding-right=22 padding-top=10 gap=22
               row gap=14
-                button press=nope("Calendar") testId="widget-calendar" press-scale=0.98 flex=1 height=164 border-radius=24 background-color="#f5f5f7" padding=16 box-sizing="border-box" display="flex" flex-direction="column" justify-content="space-between" color="#0b0b0c"
+                button press=nope("Calendar") testId="widget-calendar" press-scale=0.98 flex=1 height=164 border-radius=24 background-color="#f5f5f7" padding=16 box-sizing="border-box" display="flex" flex-direction="column" justify-content="space-between" color="#0b0b0c" text-align="start"
                   column
                     text clock.weekday font-size=13 font-weight=600 letter-spacing=0.6 text-transform="uppercase" color="#6e6e75"
                     text clock.day font-family="Exciting" font-weight=900 font-size=58 line-height="62px" letter-spacing=-1
                   column gap=1
                     text "Type review" font-family="Exciting Lilt" font-weight=700 font-size=15
                     text "2:00 – 3:00 PM · Studio" font-size=12 color="#6e6e75"
-                button press=nope("Weather") testId="widget-weather" press-scale=0.98 flex=1 height=164 border-radius=24 background-color="#1c1c20" padding=16 box-sizing="border-box" display="flex" flex-direction="column" justify-content="space-between"
+                button press=nope("Weather") testId="widget-weather" press-scale=0.98 flex=1 height=164 border-radius=24 background-color="#1c1c20" padding=16 box-sizing="border-box" display="flex" flex-direction="column" justify-content="space-between" text-align="start"
                   column
                     text weather.place font-family="Exciting Lilt" font-weight=700 font-size=15
                     text weather.temp font-family="Exciting" font-weight=900 font-size=58 line-height="62px" letter-spacing=-1
@@ -254,7 +254,7 @@ component Expose
                     text (weather.ready ? `H ${weather.high}  L ${weather.low}` : "Palo Alto, from Open-Meteo") font-size=12 color="#ffffff99" line-clamp=1
               each a in library.articles key=a.id
                 when a.id == library.lead
-                  button press=openArticle(a.id) testId="widget-reader" press-scale=0.98 width="100%" border-radius=24 background-color="#1c1c20" padding=16 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14
+                  button press=openArticle(a.id) testId="widget-reader" press-scale=0.98 width="100%" border-radius=24 background-color="#1c1c20" padding=16 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 text-align="start"
                     column width=52 height=52 border-radius=14 background-color="#f5f5f7" align-items="center" justify-content="center" flex-shrink=0
                       text "R" font-family="Exciting" font-weight=900 font-size=30 line-height="34px" color="#0b0b0c"
                     column flex=1 min-width=0 gap=3
@@ -307,7 +307,7 @@ component Expose
                     path d="M15.5 15.5L20 20" stroke="light-dark(#8e8e93, #98989d)" stroke-width=2.2 stroke-linecap="round"
                   text "Search" font-size=17 color="light-dark(#8e8e93, #98989d)"
                 each t in inbox.threads key=t.id
-                  button press=openThread(t.id) testId=`thread-${t.id}` aria-label=`${t.name}, ${t.preview}` width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=8 padding-left=10
+                  button press=openThread(t.id) testId=`thread-${t.id}` aria-label=`${t.name}, ${t.preview}` width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=8 padding-left=10 text-align="start"
                     box width=8 height=8 border-radius=4 background-color=(t.unread ? "#ff6a2b" : "#00000000") flex-shrink=0
                     column width=50 height=50 border-radius=25 background-color=(t.kind == "assistant" ? "light-dark(#0b0b0c, #f5f5f7)" : "light-dark(#3a3a3c, #48484c)") align-items="center" justify-content="center" flex-shrink=0
                       text t.initials font-family="Exciting" font-weight=900 font-size=(t.kind == "assistant" ? 26 : 20) line-height="30px" color=(t.kind == "assistant" ? "light-dark(#ffffff, #0b0b0c)" : "#ffffff")
@@ -381,7 +381,7 @@ component Expose
                   text `${clock.weekday}, ${clock.date}` font-size=13 font-weight=500 class=Muted
                 each a in library.articles key=a.id
                   when a.id == library.lead
-                    button press=openArticle(a.id) testId=`article-${a.id}` press-scale=0.985 width="100%" class=Card padding=18 box-sizing="border-box" display="flex" flex-direction="column" gap=8 align-items="flex-start"
+                    button press=openArticle(a.id) testId=`article-${a.id}` press-scale=0.985 width="100%" class=Card padding=18 box-sizing="border-box" display="flex" flex-direction="column" gap=8 align-items="flex-start" text-align="start"
                       text a.section font-size=12 font-weight=700 letter-spacing=0.8 text-transform="uppercase" color="#ff6a2b"
                       text a.title font-family="Exciting Lilt" font-weight=700 font-size=28 line-height="32px" letter-spacing=-0.3 text-align="left"
                       text a.deck font-size=(16 * scale) font-style="italic" line-height=1.35 class=Muted text-align="left"
@@ -389,7 +389,7 @@ component Expose
                 column class=Card
                   each a in library.articles key=a.id
                     when a.id != library.lead
-                      button press=openArticle(a.id) testId=`article-${a.id}` width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 padding-left=16
+                      button press=openArticle(a.id) testId=`article-${a.id}` width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 padding-left=16 text-align="start"
                         column width=44 height=44 border-radius=12 background-color="light-dark(#2c2c2e, #3a3a3c)" align-items="center" justify-content="center" flex-shrink=0
                           text (a.section == "Type" ? "Aa" : a.section == "Field notes" ? "F" : a.section == "Intelligence" ? "E" : "P") font-family="Exciting" font-weight=900 font-size=20 line-height="24px" color="#ffffff"
                         column flex=1 min-width=0 gap=3 padding-top=14 padding-bottom=14 padding-right=16 class=Hairline align-items="flex-start"
@@ -421,7 +421,7 @@ component Expose
                       text p font-size=(17.5 * scale) line-height=1.5
                     column border-left-style="solid" border-left-width=3 border-color="#ff6a2b" padding-left=16 padding-top=4 padding-bottom=4 margin-top=6 margin-bottom=6
                       text a.pull font-family="Exciting Lilt" font-weight=600 font-size=(24 * scale) line-height=1.2
-                    button press=askAbout(a.id) testId="ask-expose-below" press-scale=0.98 width="100%" margin-top=10 class=Card padding=16 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14
+                    button press=askAbout(a.id) testId="ask-expose-below" press-scale=0.98 width="100%" margin-top=10 class=Card padding=16 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 text-align="start"
                       column width=44 height=44 border-radius=22 background-color="light-dark(#0b0b0c, #f5f5f7)" align-items="center" justify-content="center" flex-shrink=0
                         text "E" font-family="Exciting" font-weight=900 font-size=24 line-height="28px" color="light-dark(#ffffff, #0b0b0c)"
                       column flex=1 min-width=0 gap=2 align-items="flex-start"
@@ -437,7 +437,7 @@ component Expose
             scroll flex=1 min-height=0
               column padding-left=16 padding-right=16 padding-bottom=24
                 text "Settings" class=Title margin-top=4 margin-bottom=12
-                button press=openPage("about") testId="settings-profile" width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 padding=12 class=Card
+                button press=openPage("about") testId="settings-profile" width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 padding=12 class=Card text-align="start"
                   column width=58 height=58 border-radius=29 background-color="light-dark(#0b0b0c, #f5f5f7)" align-items="center" justify-content="center" flex-shrink=0
                     text "CC" font-family="Exciting" font-weight=900 font-size=22 line-height="26px" color="light-dark(#ffffff, #0b0b0c)"
                   column flex=1 min-width=0 gap=2 align-items="flex-start"
@@ -499,7 +499,7 @@ component Expose
                   column class=Card padding=16 gap=12
                     text "MODEL" font-size=13 class=Muted
                     each m in intelligence.models key=m.id
-                      button press=chooseModel(m.id) testId=`model-${m.id}` width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=12 min-height=40
+                      button press=chooseModel(m.id) testId=`model-${m.id}` width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=12 min-height=40 text-align="start"
                         column width=22 height=22 border-radius=11 border-style="solid" border-width=2 border-color=(m.selected ? "#ff6a2b" : "light-dark(#c6c6c8, #48484c)") align-items="center" justify-content="center" flex-shrink=0
                           when m.selected
                             box width=10 height=10 border-radius=5 background-color="#ff6a2b"
@@ -569,7 +569,7 @@ component Expose
       when banner
         each t in inbox.threads key=t.id
           when t.id == "expose"
-            button press=openThread("expose") testId="banner" position="absolute" top="calc(env(safe-area-inset-top) + 8px)" left=12 right=12 z-index=10 animation="drop 360ms ease-out" display="flex" flex-direction="row" gap=12 padding=12 box-sizing="border-box" border-radius=22 background-color="light-dark(#ffffff, #1c1c20)" box-shadow="0 10px 30px rgba(0, 0, 0, 0.35)" align-items="flex-start"
+            button press=openThread("expose") testId="banner" position="absolute" top="calc(env(safe-area-inset-top) + 8px)" left=12 right=12 z-index=10 animation="drop 360ms ease-out" display="flex" flex-direction="row" gap=12 padding=12 box-sizing="border-box" border-radius=22 background-color="light-dark(#ffffff, #1c1c20)" box-shadow="0 10px 30px rgba(0, 0, 0, 0.35)" align-items="flex-start" text-align="start"
               column width=40 height=40 border-radius=10 background-color="light-dark(#0b0b0c, #f5f5f7)" align-items="center" justify-content="center" flex-shrink=0
                 text "E" font-family="Exciting" font-weight=900 font-size=22 line-height="26px" color="light-dark(#ffffff, #0b0b0c)"
               column flex=1 min-width=0 gap=2 align-items="flex-start"

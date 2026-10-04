@@ -275,7 +275,7 @@ component App
     assert_eq!(inner.props.str(exact_kernel::PropId::TestId), Some("inner"));
 }
 
-/// A `button` is a real `<button>`, a flex column, and holds only phrasing
+/// A `button` is a real `<button>` and holds only phrasing
 /// content (LLP 1007 §1): its containers, paragraphs and headings are
 /// `<span>`s with the same style — a block unless a row says otherwise — in
 /// the live host's batch and in the document alike.
@@ -310,13 +310,12 @@ component App
     assert!(card.starts_with("<button "), "{card}");
     // Its native role isn't restated (ARIA in HTML).
     assert!(!card.contains(" role="), "{card}");
-    for want in [
-        " type=\"button\"",
-        "display:flex;",
-        "flex-direction:column;",
-    ] {
+    // Chrome's button (LLP 1001 §1): the reset's block, with the UA sheet's
+    // centred text; the browser centres its content in its height.
+    for want in [" type=\"button\"", "text-align:center;"] {
         assert!(card.contains(want), "{want}: {card}");
     }
+    assert!(!card.contains("display:"), "{card}");
     let stack = opening("stack");
     assert!(stack.starts_with("<span "), "{stack}");
     assert!(

@@ -70,29 +70,6 @@ fn a_literal_value_is_checked_against_its_row_at_compile_time() {
 }
 
 #[test]
-fn a_button_keeps_its_cross_host_flex_column() {
-    let app = |display: &str| {
-        format!("component A\n  view\n    button display=\"{display}\"\n      text \"Go\"\n")
-    };
-    for display in ["block", "inline", "inline-block", "inline-flex"] {
-        let error = contract::compile(&app(display)).unwrap_err();
-        assert_eq!(error.id, "lower-attr-value", "{display}: {error}");
-        assert!(
-            error.message.contains("a `button` is a flex column"),
-            "{error}"
-        );
-        assert!(error.message.contains("display=\"flex\""), "{error}");
-    }
-    contract::compile(&app("flex")).unwrap();
-    contract::compile(&app("none")).unwrap();
-
-    let source = "style Block\n  display=\"block\"\ncomponent A\n  view\n    button class=Block display=\"flex\"\n      text \"Go\"\n";
-    contract::compile(source).unwrap();
-    let error = contract::compile(&source.replace(" display=\"flex\"", "")).unwrap_err();
-    assert_eq!(error.id, "lower-attr-value", "{error}");
-}
-
-#[test]
 fn a_hyphenated_unknown_name_says_why() {
     let src =
         "component A\n  state a = 1\n  state b = 2\n  derive c = a-b\n  view\n    text `${c}`\n";

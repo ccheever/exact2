@@ -80,29 +80,7 @@ pub fn contains_absolute(name: &str, value: &contract_syntax::Expr) -> bool {
         ),
     }
 }
-/// A Contract button has one cross-host inner layout: the flex column fixed
-/// by [`tag`]. Chrome gives a block/inline `<button>` an anonymous box that
-/// centres its contents, which the kernel cannot represent as that display.
-pub(crate) fn validate_button_display(
-    name: &str,
-    attrs: &[contract_syntax::Attr],
-) -> Result<(), crate::LowerError> {
-    use contract_syntax::Expr;
-    if name != "button" {
-        return Ok(());
-    }
-    let Some(display) = attrs.iter().rev().find(|a| a.name == "display") else {
-        return Ok(());
-    };
-    if matches!(&display.value, Expr::Str(v, _) if v == "block" || v.starts_with("inline")) {
-        return crate::err(
-            "lower-attr-value",
-            "a `button` is a flex column on every host; remove `display`, or use `display=\"flex\"`",
-            display.span,
-        );
-    }
-    Ok(())
-}
+
 /// An element's attributes with `position: relative` added, when it is the
 /// containing block of its absolutely positioned descendants on every host
 /// and names no position: it has a [`contains_absolute`] attribute, scrolls
@@ -266,17 +244,17 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: Some(PropId::Text),
         },
-        // A pressable `column` (Charlie, 2026-09-23: "One native button, flex
-        // column"): a block <button> would centre its content in an anonymous
-        // box, which a flex one does not, so the web lays it out as the
-        // kernel does (LLP 1006 §3, LLP 1007 §1).
+        // Chrome's `<button>` (Charlie, 2026-10-04, reversing 2026-09-23's
+        // "One native button, flex column"; LLP 1001 §1): a block whose
+        // content the kernel centres as HTML's anonymous button box does,
+        // with the UA sheet's `text-align: center`. An authored `display`
+        // makes it a flex or grid container, as in Chrome.
         // @ref LLP 1069.011 D1 — Exact's UA sheet: a button is the author's
         // box (`appearance: none`); `appearance="auto"` asks for the platform's.
         "button" => Tag {
             node_type: NodeType::Pressable,
             fixed_styles: &[
-                (StyleId::Display, "flex"),
-                (StyleId::FlexDirection, "column"),
+                (StyleId::TextAlign, "center"),
                 (StyleId::Appearance, "none"),
             ],
             fixed_props: &[(PropId::AccessibilityRole, "button")],

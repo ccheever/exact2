@@ -413,10 +413,16 @@ CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40).
 CSS hyphens are part of the authored name. `testId` and admitted host-specific
 props retain their declared spelling.
 
-A `button` is a pressable `display: flex; flex-direction: column` box, not
-Chrome's `inline-block` `<button>` that centres its content (declared in
-[LLP 1001](../llp/1001-kernel-v1.spec.md)): write `align-items="center"
-justify-content="center"` to centre it, and `flex-direction="row"` for a row.
+A `button` is Chrome's `<button>` with Exact's reset ([LLP
+1001](../llp/1001-kernel-v1.spec.md) §1): a block that shrinks to fit, whose
+content is centred in its height (safely: content taller than the button
+starts at the top) and whose text is `text-align: center`. `align-items`,
+`justify-content` and `gap` do nothing on it, as on any block. Write
+`display="flex"` (a row, CSS's default) or `display="grid"` to lay its
+children out yourself; Chrome does not centre a flex or grid button's content.
+Write `text-align="start"` for a row- or card-like button whose text reads
+from the left. Declared: it is block-level, not `inline-block`, so buttons in
+a block parent stack (put them in a `row` to set them side by side).
 
 A link (`link href`, a text run's `href`, a Markdown link) to a path in the
 app navigates in it; one to an absolute URL (`https://…`, `//…`) leaves the

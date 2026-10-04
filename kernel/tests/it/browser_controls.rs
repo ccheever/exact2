@@ -471,10 +471,7 @@ const OTHER_KINDS: &[OtherKind] = &[
 fn other_laid_out(kind: OtherKind, context: Context, variant: Variant) -> Kernel {
     let mut root = rows(context.root());
     root.push((StyleId::Width, n(400.0)));
-    let mut item = rows(&context.item(variant.css()));
-    if kind.node_type == NodeType::Pressable {
-        item.extend(rows("display:flex;flex-direction:column"));
-    }
+    let item = rows(&context.item(variant.css()));
     let mut ops = vec![
         Op::CreateView {
             id: 1,
@@ -589,7 +586,7 @@ fn a_block_button_clamps_its_preferred_width_to_the_available_line() {
         },
         Op::SetStyle {
             id: 2,
-            patch: Box::new(props(&rows("display:flex;flex-direction:column"))),
+            patch: Box::new(props(&rows("display:block"))),
         },
         Op::SetProp {
             id: 2,
@@ -704,7 +701,8 @@ fn the_block_sizing_marker_follows_a_pressables_href_from_its_initial_props() {
 
 // Literal getBoundingClientRect recordings, context × variant in the order above.
 // CDP, createElement/append (no parsed text between controls). The font is the
-// web reset's 16px system-ui. Button: 40x18 child, display:flex;flex-direction:column.
+// web reset's 16px system-ui. Button: 40x18 child, the reset's display:block
+// (re-recorded 2026-10-04; equal to the earlier flex-column recording).
 // Intrinsic sizing is host-owned (LLP 1069.001 D3); the field measurer supplies
 // Chrome's measured default size=20/cols=20/rows=2 for this box-layout test.
 // password/email/url/tel/search were recorded separately and equal TEXT.

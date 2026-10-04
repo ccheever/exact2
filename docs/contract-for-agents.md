@@ -341,7 +341,11 @@ The view forms are element, component use, `when`/`else`, keyed `each`, exhausti
 option `match`, and `children`. Wrap root regions in a stable element. A component
 call uses parentheses; a built-in element uses space-separated attributes.
 `button "Save" press=save` is text-child sugar; an explicit text child is useful
-when that label needs its own styling or driver id.
+when that label needs its own styling or driver id. A `button` is the web's
+`<button>`: a block whose content is centred in its height and whose text is
+centred (`text-align: center`). Give a sized button no alignment rows; write
+`display="flex"` (a row) for an icon and a label side by side, and
+`text-align="start"` on a list row or card made of a button.
 
 Use the CSS and HTML vocabulary. Defaults matter: a bare box is block and
 content-box, while `row` and `column` supply flex styles. Do not emit React Native

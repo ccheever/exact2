@@ -286,6 +286,13 @@ impl NodeArena {
         self.node_types[slot as usize]
     }
 
+    /// Whether a slot is a `<button>` element on the web: a Pressable,
+    /// whatever its ARIA role, unless an `href` makes it an `<a>`.
+    pub(crate) fn is_button(&self, slot: u32) -> bool {
+        self.node_type(slot) == NodeType::Pressable
+            && self.props(slot).str(crate::PropId::Href).is_none()
+    }
+
     /// Parent slot.
     pub fn parent(&self, slot: u32) -> Option<u32> {
         self.parents[slot as usize]
