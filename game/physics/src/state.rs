@@ -306,7 +306,10 @@ fn rebuild(e: &Entry) -> Result<rapier3d::prelude::Collider, &'static str> {
 // Mark each static collider whose rebuild is byte-identical to the live one, so
 // the snapshot carries its entry (its components) but not Rapier's copy.
 fn verify(live: &mut Live) {
-    let bytes = |c: &rapier3d::prelude::Collider| bincode::DefaultOptions::new().serialize(c);
+    // Reuse comparison buffers across colliders. `serialize` allocates a vector
+    // and walks each collider twice (size, then bytes); only the bytes are needed.
+    let (mut actual, mut rebuilt) = (Vec::new(), Vec::new());
+    let options = bincode::DefaultOptions::new();
     for (h, e) in &live.reverse {
         if live.elidable.contains(h) {
             continue;
@@ -314,7 +317,11 @@ fn verify(live: &mut Live) {
         let entry = &live.entries[e];
         let co = &live.rapier.colliders[ColliderHandle::from_raw_parts(h[0], h[1])];
         let same = |fresh: rapier3d::prelude::Collider| {
-            bytes(co).is_ok_and(|live| bytes(&fresh).is_ok_and(|fresh| fresh == live))
+            actual.clear();
+            rebuilt.clear();
+            options.serialize_into(&mut actual, co).is_ok()
+                && options.serialize_into(&mut rebuilt, &fresh).is_ok()
+                && actual == rebuilt
         };
         if rebuild(entry).is_ok_and(same) {
             live.elidable.insert(*h);
@@ -446,6 +453,30 @@ mod tests {
         crate::register(&mut w);
         let parent = w.spawn(Transform::default());
         let mut e = w.spawn((Transform::default(), Collider::default()));
+        // One verification pass compares different byte lengths, including a
+        // mesh followed by a sphere. Reused buffers must not keep trailing bytes.
+        for (x, shape) in [
+            crate::Shape::Mesh {
+                vertices: vec![Vec3::ZERO, Vec3::X, Vec3::Z],
+                indices: vec![[0, 2, 1]],
+            },
+            crate::Shape::Sphere { radius: 0.5 },
+            crate::Shape::Capsule {
+                radius: 0.25,
+                height: 2.0,
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            w.spawn((
+                Transform::at(10.0 + x as f32 * 3.0, 0.0, 0.0),
+                Collider {
+                    shape,
+                    ..Collider::default()
+                },
+            ));
+        }
         let mut previous_collider = None;
         for stage in 0..12 {
             match stage {

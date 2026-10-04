@@ -1136,3 +1136,42 @@ the new `windbreak` save pin and the changed resource bytes at
 against the accepted pins then passes in 3.883 s with clean process exit
 (`artifacts/windbreak-accepted-linux/`). No engine change was needed to
 make this upgrade save and restore identically on these hosts.
+
+## Reuse cold-capture comparison buffers (2026-10-04)
+
+Periodic merge `3d8603704` brings main through `b79156175`: Contract
+semantics, its generated Lean model and inline parsing. The engine follow-up
+targets the remaining first-capture cost from the earlier measurements.
+Verifying each static collider used `bincode::serialize` twice: two temporary
+vectors and two size-counting passes before writing the bytes. Verification
+now writes directly into two buffers reused across that capture. The exact
+byte comparison, positive-only cache and EXPHYS v3 representation stay the
+same. The existing lifecycle test adds a mesh, sphere and capsule in one
+pass to exercise different encoded lengths, alongside its uncached-byte
+oracle, edits, entity/handle reuse and save/clone comparisons. All 47 enabled
+physics tests, Clippy and formatting pass.
+
+Six alternating release runs per variant compare binaries copied before
+and after the change, using the existing `hash_of_a_static_forest` test.
+Each run has one cold capture and four warm captures after physics steps.
+
+| Trees | Cold capture before / after | Warm capture before / after |
+|---|---:|---:|
+| 20,000 | 7.890 / 7.195 ms | 0.685 / 0.680 ms |
+| 100,000 | 39.425 / 36.150 ms | 3.735 / 3.795 ms |
+
+At 100k the first capture saves 3.3 ms (8.3%); all six candidate cold
+samples are below their paired baseline. Warm capture has no demonstrated
+improvement. Cold world hashing is 60.755 / 61.790 ms and warmed hashing
+6.910 / 6.970 ms. These are isolated release measurements on this Mac,
+not frame-rate or overall game-startup claims.
+
+A second candidate streamed Rapier's collider-hole slots instead of making
+a temporary list. It did not earn its added code: cold capture was 37.365 ms,
+warm capture 3.930 ms and cold hashing 67.065 ms at 100k. That prototype and
+its test were removed; Rapier is unchanged. It needed one compile correction
+for the serde trait import; its direct dependency-test command was refused
+because Rapier is outside the game workspace. The measured binaries all
+compiled and ran. No benchmark or verification script was added. Samples:
+`/tmp/exact2-physics-stream-ab.json`; logs:
+`/tmp/exact2-physics-{scratch,stream}-*.log`.

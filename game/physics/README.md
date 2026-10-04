@@ -76,7 +76,9 @@ functions of the saved content, recomputed identically after a load. Six alterna
 release runs on arm64 measured a warmed 100k-tree hash after a step at a median
 3.85 ms of snapshot encoding plus 6.94 ms of hashing, down from 8.12 + 6.98 ms
 with a tree lookup for each collider's verification flag (2026-10-04).
-Cold capture still costs about 40 ms encoding plus 61 ms hashing. These are
+Reusing the uncached comparison's two byte buffers reduced first-capture
+encoding from 39.43 to 36.15 ms in a later six-run comparison; hashing was
+about 61.8 ms and warm capture was unchanged. These are
 isolated state-capture measurements, not live frame timings; diary 005 records
 the separate earlier digest-map improvement.
 Malformed or obsolete Rapier payloads fail during `World::load`, before replacement.
