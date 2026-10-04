@@ -69,8 +69,6 @@ pub struct Rig {
     pub bones: Vec<Bone>,
     chains: Vec<Chain>,
     spine: Vec<usize>,
-    /// Vertical hip bob per step, as a fraction of the hip height.
-    bob: f32,
     /// Rings around each capsule; at least six.
     pub sides: u32,
 }
@@ -127,7 +125,6 @@ impl Rig {
     pub fn new() -> Self {
         Self {
             sides: 10,
-            bob: 0.025,
             ..Self::default()
         }
     }
@@ -307,7 +304,6 @@ impl Rig {
             [0.2, 0.13, 0.08, 1.],
         );
         let mut r = Self::new();
-        r.bob = 0.012;
         r.bone("root", None, Vec3::ZERO, Vec3::ZERO, [0., 0.], fur)
             .bone(
                 "pelvis",
@@ -536,12 +532,6 @@ impl Rig {
             lower: v(chain.bones[1]),
         }
     }
-    fn hip_height(&self) -> f32 {
-        self.spine
-            .first()
-            .map_or(1., |&b| self.bones[b].head.y)
-            .max(0.1)
-    }
     fn rotation_track(bone: usize, times: &[f32], f: impl Fn(f32) -> Quat) -> Track {
         Track {
             node: bone as u32,
@@ -615,17 +605,42 @@ impl Rig {
                 - self.bones[hips]
                     .parent
                     .map_or(Vec3::ZERO, |p| self.bones[p].head);
-            let bob = self.bob * self.hip_height() * (1. + gait.lift * 0.5);
+            // The hips ride on the planted legs: lowered by however far an angled
+            // stance leg would lift its foot off the ground, so the lowest planted
+            // foot touches it (the trailing one of two rises, a heel-off), highest
+            // at mid-stance and lowest with the legs splayed. In a
+            // run's flight no leg holds them: they arc linearly from lift-off to
+            // the next touchdown.
+            let legs: Vec<_> = self
+                .chains
+                .iter()
+                .filter(|c| c.limb == Limb::Leg)
+                .map(|c| (self.sagittal(c), c.phase))
+                .collect();
+            let held = |t: f32| {
+                legs.iter()
+                    .filter_map(|(leg, phase)| {
+                        let c = wrap(t / period - phase);
+                        (c < gait.duty).then(|| {
+                            let (x, knee) = leg_profile(gait, c);
+                            leg.ankle(leg.hip_for(x, knee), knee).0 - leg.ankle(0., 0.).0
+                        })
+                    })
+                    .reduce(f32::min)
+            };
+            let drops = bridge(
+                &times[..times.len() - 1]
+                    .iter()
+                    .map(|&t| held(t))
+                    .collect::<Vec<_>>(),
+            );
             tracks.push(Track {
                 node: hips as u32,
                 path: TrackPath::Translation,
                 interpolation: Interpolation::Linear,
                 times: times.clone(),
-                values: times
-                    .iter()
-                    .flat_map(|&t| {
-                        (rest + Vec3::Y * (bob * math::cos(2. * TAU * t / period))).to_array()
-                    })
+                values: (0..times.len())
+                    .flat_map(|i| (rest - Vec3::Y * drops[i % drops.len()]).to_array())
                     .collect(),
             });
             let twist = 0.08 * gait.arms;
@@ -725,6 +740,33 @@ fn leg_profile(gait: Gait, c: f32) -> (f32, f32) {
             gait.lift * math::powi(math::sin(PI * u), 2),
         )
     }
+}
+
+// A cyclic series with gaps, filled by straight lines between the known values on
+// either side (wrapping); all-gap series are zero.
+fn bridge(values: &[Option<f32>]) -> Vec<f32> {
+    let n = values.len() as isize;
+    let known: Vec<isize> = (0..n).filter(|&i| values[i as usize].is_some()).collect();
+    let (Some(&first), Some(&last)) = (known.first(), known.last()) else {
+        return vec![0.; values.len()];
+    };
+    let at = |k: isize| values[k.rem_euclid(n) as usize].unwrap_or(0.);
+    (0..n)
+        .map(|i| {
+            if let Some(v) = values[i as usize] {
+                return v;
+            }
+            let after = known.iter().copied().find(|&k| k > i).unwrap_or(first + n);
+            let before = known
+                .iter()
+                .copied()
+                .rev()
+                .find(|&k| k < i)
+                .unwrap_or(last - n);
+            let u = (i - before) as f32 / (after - before) as f32;
+            at(before) + (at(after) - at(before)) * u
+        })
+        .collect()
 }
 
 // A leg seen from the side: the rest upper and lower bone vectors as (y, z).

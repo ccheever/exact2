@@ -237,3 +237,29 @@ fn a_planted_foot_holds_still_through_its_stance() {
         }
     }
 }
+
+#[test]
+fn the_planted_foot_stays_on_the_ground_through_the_cycle() {
+    // At rest the foot joints sit 0.06 m up (the foot bone's head).
+    let rest = 0.06;
+    for (clip, gait) in [("walk", Gait::walk(1.4)), ("run", Gait::run(4.))] {
+        let samples = feet(gait.speed, clip, 240);
+        let period = gait.period();
+        let (mut low, mut high) = (f32::MAX, f32::MIN);
+        for (t, f) in samples.iter().enumerate().skip(60) {
+            let c = ((t + 1) as f32 / 60. / period).rem_euclid(1.);
+            // Any foot in stance: the lower one carries the body and touches down.
+            let planted = [c, (c - 0.5).rem_euclid(1.)].iter().any(|c| *c < gait.duty);
+            if planted {
+                let y = f[0].y.min(f[1].y);
+                low = low.min(y);
+                high = high.max(y);
+            }
+        }
+        eprintln!("{clip}: planted foot height {low}..{high}");
+        assert!(
+            (low - rest).abs() < 0.02 && (high - rest).abs() < 0.02,
+            "{clip}: the planted foot ranges {low}..{high} m against {rest}"
+        );
+    }
+}
