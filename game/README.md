@@ -139,6 +139,10 @@ assert!(sim.local_position("player").unwrap().x > 0.0);
 - The world owns fixed ticks, time and randomness. `w.dt()` is one fixed step;
   `w.tick_end()` names the endpoint being authored. Rendering interpolates between
   completed ticks and never changes the simulation.
+- For immediate device input in a `Sim` test, use `sim.input_now(event)`; it stamps
+  the event with the current host clock. `sim.input(event)` preserves an external
+  device timestamp. World seconds are not that clock after restoring a save.
+  `key_down`, `key_up` and `post` already stamp immediate input correctly.
 
 Each enemy reads the player's Transform inside the loop that moves the enemies'
 Transforms. The query holds only the enemies' rows, so the player's row stays free:
@@ -192,6 +196,7 @@ The dev compiler retains its last good plan on an error.
 | Change speed while playing | `w.require_mut::<character::Character>("player").speed = 8.0` preserves velocity and the rest of the character. |
 | Move against colliders | [Physics controller example](physics/tests/living.rs), with explicit `Move`, `Jump` and `Gravity` |
 | Follow the player | Attach `Follow`; the scene steps it after the tick. Call `scene::follow(w)` explicitly to choose an earlier order. |
+| Put a HUD label over a world point | `w.project(point, input.viewport())` returns CSS pixels through the current camera, including same-tick parent movement. It returns `None` outside the camera's clip volume; use a physics ray separately to hide labels behind cover. |
 | Find a nearby unlit beacon | `w.nearest_xz_mut::<Beacon>("player", 1.5, \|b\| !b.lit)` returns its entity and mutable component together. |
 | Count for the HUD | `w.count::<Beacon>(\|b\| b.lit)` |
 | Grid and fog | `Material::grid(color, spacing)` and the saved `Environment`/`Fog` resource |

@@ -5,6 +5,7 @@ pub mod arena;
 pub mod bots;
 pub mod fighter;
 pub mod round;
+pub mod training;
 pub mod weapons;
 
 use bots::Brain;
@@ -78,6 +79,26 @@ pub struct Hud {
     pub accuracy: u32,
     pub feed: Vec<round::Feed>,
     pub marks: Vec<round::Mark>,
+    pub contacts: Vec<Contact>,
+    pub training: bool,
+    pub drill_done: bool,
+    pub drill_left: u32,
+    pub drill_score: u32,
+    pub drill_combo: u32,
+    pub drill_target: String,
+    pub drill_cleared: u32,
+}
+
+/// A living opponent's visible head, in canvas points. Cover and the camera's
+/// clip volume both hide its nameplate; no hidden positions enter this record.
+#[derive(Clone, Debug, Default, Data)]
+pub struct Contact {
+    pub id: u32,
+    pub label: String,
+    pub hp: u32,
+    pub x: f32,
+    pub y: f32,
+    pub target: bool,
 }
 
 pub struct Rivals;
@@ -170,6 +191,12 @@ pub fn setup(w: &mut World, args: &Options) {
     let player = fighter::spawn(w, 1, "player", false, [0.2, 0.5, 0.9]);
     fighter::place(w, player, arena::SPAWNS[0]);
     let count = args.bot_count();
+    if args.range {
+        w.insert_resource(training::Drill {
+            target: if count >= 2 { 3 } else { 2 },
+            ..training::Drill::default()
+        });
+    }
     let skill = if args.skill > 0.0 {
         args.skill.min(1.0)
     } else {
@@ -179,7 +206,7 @@ pub fn setup(w: &mut World, args: &Options) {
         let label = format!("bot-{}", i + 1);
         let e = fighter::spawn(w, i + 2, &label, true, COLORS[i as usize % COLORS.len()]);
         let spawn = if args.range {
-            [-2.0 + 2.0 * (i % 3) as f32, 12.0 - 3.0 * (i / 3) as f32]
+            training::lane(i + 2)
         } else if count == 1 {
             arena::SPAWNS[1]
         } else {
@@ -219,7 +246,7 @@ pub fn setup(w: &mut World, args: &Options) {
         ..Round::default()
     });
     camera_follow(w, args);
-    publish(w, args);
+    publish(w, args, Vec2::ZERO);
 }
 
 /// First-person weapon models, children of the camera.
@@ -344,6 +371,12 @@ pub fn player_intent(w: &World, input: &Input, args: &Options) -> Intent {
 
 pub fn tick(w: &mut World, input: &Input, args: &Options) {
     let now = w.seconds() as f32;
+    if args.range && now >= training::DURATION {
+        mouse_look(w, args, false);
+        weapons::effects(w);
+        publish(w, args, input.viewport());
+        return;
+    }
     let over_until = w.resource::<Round>().over_until;
     if over_until > 0.0 {
         if now >= over_until {
@@ -352,7 +385,7 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
         } else {
             mouse_look(w, args, false);
             weapons::effects(w);
-            publish(w, args);
+            publish(w, args, input.viewport());
             return;
         }
     }
@@ -381,9 +414,14 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
         hits.extend(weapons::act(w, *e, intent, at + Vec3::new(0.0, eye, 0.0)));
     }
     hits.extend(weapons::fly(w));
+    if args.range {
+        training::score(w, &hits, args.bot_count());
+    }
     round::score(w, hits);
     round::respawn(w);
-    round::check_win(w);
+    if !args.range {
+        round::check_win(w);
+    }
     for s in bots::snapshot(w) {
         let f = w.require::<Fighter>(s.entity).clone();
         if f.bot {
@@ -392,7 +430,7 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
     }
     camera_follow(w, args);
     weapons::effects(w);
-    publish(w, args);
+    publish(w, args, input.viewport());
 }
 
 /// While the tick turns the camera by the mouse, the renderer may too: between
@@ -470,7 +508,34 @@ pub fn camera_follow(w: &mut World, args: &Options) {
     }
 }
 
-pub fn publish(w: &World, args: &Options) {
+pub fn contacts(w: &World, viewport: Vec2, target: Option<u32>) -> Vec<Contact> {
+    let me = w.require::<Fighter>("player");
+    if !me.alive {
+        return Vec::new();
+    }
+    let eye = w.require::<Transform>("player").position + Vec3::Y * me.eye;
+    w.query::<(&Fighter, &Transform)>()
+        .iter()
+        .filter(|(_, (f, _))| f.bot && f.alive)
+        .filter_map(|(e, (f, t))| {
+            let head = t.position + Vec3::Y * 0.66;
+            let screen = w.project(head, viewport)?;
+            let ray = head - eye;
+            let visible = weapons::hitscan(w, eye, ray, ray.length() + 0.3, me.bit())
+                .is_some_and(|hit| hit.fighter == Some(e));
+            visible.then(|| Contact {
+                id: f.slot,
+                label: f.label.clone(),
+                hp: f.hp.max(0.0).round() as u32,
+                x: screen.x.round(),
+                y: screen.y.round(),
+                target: target == Some(f.slot),
+            })
+        })
+        .collect()
+}
+
+pub fn publish(w: &World, args: &Options, viewport: Vec2) {
     let now = w.seconds() as f32;
     let me = w.require::<Fighter>("player").clone();
     let rival = w
@@ -486,6 +551,8 @@ pub fn publish(w: &World, args: &Options) {
         Weapon::Rocket => (me.rocket_ammo, weapons::ROCKET_MAG),
         Weapon::Knife => (0, 0),
     };
+    let drill = args.range.then(|| w.resource::<training::Drill>().clone());
+    let drill_done = args.range && now >= training::DURATION;
     let hud = Hud {
         hp: me.hp.max(0.0).round() as u32,
         weapon: me.weapon.name().into(),
@@ -546,6 +613,20 @@ pub fn publish(w: &World, args: &Options) {
         },
         feed: r.feed.clone(),
         marks: r.marks.clone(),
+        contacts: if drill_done || r.over(now) {
+            Vec::new()
+        } else {
+            contacts(w, viewport, drill.as_ref().map(|d| d.target))
+        },
+        training: args.range,
+        drill_done,
+        drill_left: exact_game::math::ceil((training::DURATION - now).max(0.0)) as u32,
+        drill_score: drill.as_ref().map_or(0, |d| d.score),
+        drill_combo: drill.as_ref().map_or(0, |d| d.combo),
+        drill_target: drill
+            .as_ref()
+            .map_or_else(String::new, |d| format!("bot-{}", d.target - 1)),
+        drill_cleared: drill.as_ref().map_or(0, |d| d.cleared),
     };
     drop(r);
     w.publish_record(&hud);

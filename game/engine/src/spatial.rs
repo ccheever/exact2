@@ -15,7 +15,7 @@ impl View {
         w.query::<&Camera>().iter().find_map(|(e, c)| {
             c.valid()
                 .then(|| {
-                    w.global(e).map(|pose| Self {
+                    w.current_global(e).map(|pose| Self {
                         pose,
                         camera: *c,
                         size,
@@ -437,5 +437,32 @@ impl<G: crate::Game> crate::Sim<G> {
             distance,
             point,
         })
+    }
+}
+
+impl World {
+    /// Project a world point into CSS pixels using the same camera and clip
+    /// volume as layout/pick. Offscreen, near/far-clipped and invalid points
+    /// return None. This tests the camera's frustum, not occlusion by meshes.
+    pub fn project(&self, point: Vec3, viewport: Vec2) -> Option<Vec2> {
+        if !point.is_finite() || !viewport.is_finite() {
+            return None;
+        }
+        let view = View::new(self, viewport)?;
+        let local = view.pose.inverse().transform_point3(point);
+        let clip = view.projection() * local.extend(1.0);
+        if !clip.is_finite()
+            || clip.w <= 0.0
+            || clip.z < 0.0
+            || clip.z > clip.w
+            || clip.x.abs() > clip.w
+            || clip.y.abs() > clip.w
+        {
+            return None;
+        }
+        Some(Vec2::new(
+            (clip.x / clip.w + 1.0) * 0.5 * viewport.x,
+            (1.0 - clip.y / clip.w) * 0.5 * viewport.y,
+        ))
     }
 }

@@ -14,8 +14,14 @@ bun game/app/shells.mjs game/games/rivals --test
 ## Playing
 
 Pick **Duel** (one bot), **Free for all** (seven bots) or **Range** (three
-standing dummies). First to five kills takes the round; the dead respawn after
-two seconds at the spawn farthest from living enemies.
+standing dummies). In combat, first to five kills takes the round; the dead respawn
+after two seconds at the spawn farthest from living enemies.
+
+Range is a thirty-second target drill. Eliminate the green target, then switch to
+the next one: each correct elimination earns 100 points times your combo (up to
+×5), plus 50 for a headshot. Hitting another dummy breaks the combo. Dummies return
+to their own lanes after two seconds. **Try again** starts a fresh drill. Visible
+opponents show their name and health; cover hides their labels.
 
 | | |
 |---|---|
@@ -48,6 +54,7 @@ mid range, and hop when the capsule stalls on an edge. A brain produces the same
 | `logic/src/weapons.rs` | rifle, rockets, knife, splash, hitscan, effects |
 | `logic/src/bots.rs` | sight, aim, strafing, cover |
 | `logic/src/round.rs` | kills, feed, damage numbers, respawn, round win |
+| `logic/src/training.rs` | target order, combo scoring and fixed respawn lanes |
 | `logic/src/arena.rs` | the greybox arena, spawns and cover points |
 | `logic/tests/sim.rs` | range, duel, replay determinism, mid-fight save |
 | `logic/tests/limits.rs` | engine limits, measured (`--release -- --ignored` for timings) |
@@ -55,5 +62,14 @@ mid range, and hop when the capsule stalls on an edge. A brain produces the same
 
 `rivals_logic::rates::{Rivals30, Rivals60, Rivals240}` are the same game at other
 fixed rates for the tick-rate experiments.
+
+## Jev playtesting
+
+With `AI_GATEWAY_API_KEY` in the environment, run
+`bun game/games/rivals/proof.mjs web --playtest` (or `macos`). Add `--duel` for a
+moving opponent. Jev chooses targets and tactics from the visible HUD. An authored
+keyboard motor aims from rendered nameplate positions; neither reads enemy world
+positions. Transcripts and screenshots land under `artifacts/<host>/`. These are
+exploratory decision tests, not deterministic proofs or measurements of human aim.
 
 ![A free-for-all in progress](artifacts/web/game.png)

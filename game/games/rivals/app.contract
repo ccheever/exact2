@@ -12,6 +12,14 @@ shape Mark
   head: bool
   kill: bool
 
+shape Contact
+  id: number
+  label: string
+  hp: number
+  x: number
+  y: number
+  target: bool
+
 shape Hud
   hp: number
   weapon: string
@@ -39,6 +47,14 @@ shape Hud
   accuracy: number
   feed: list<Feed>
   marks: list<Mark>
+  contacts: list<Contact>
+  training: bool
+  drill_done: bool
+  drill_left: number
+  drill_score: number
+  drill_combo: number
+  drill_target: string
+  drill_cleared: number
 
 component Rivals
   state playing = false
@@ -78,6 +94,13 @@ component Rivals
     main width="100%" height="100%" background-color="#10141b" color="#f5f7fa"
       when playing
         canvas surface=world(seed=7, bots=bots, range=training, paused=paused, restart=again) testId="world" data-pointer-lock="true" width="100%" height="100%" position="relative"
+          each c in hud.contacts key=c.id
+            column testId=`target-${c.id}` position="absolute" left=c.x top=c.y width=1 height=1 pointer-events="none"
+              column position="absolute" left=-60 bottom=18 width=120 align-items="center" gap=4 padding=4 border-radius=6 background-color=(c.target ? "#14532de6" : "#10141bcc")
+                text (c.target ? `TARGET · ${c.label}` : c.label) testId=`target-label-${c.id}` font-size=12 font-weight=700 color=(c.target ? "#bef264" : "#ff8a8a")
+                text `${c.hp} HP` testId=`target-hp-${c.id}` font-size=11
+                column width=64 height=3 background-color="#334155"
+                  column width=(c.hp * 0.64) height=3 background-color=(c.target ? "#bef264" : "#ff8a8a")
           when hud.hurt
             column testId="hurt" position="absolute" inset=0 pointer-events="none" border-width=10 border-color="#e5484d88"
           column position="absolute" top="50%" left="50%" width=40 height=40 margin-left=-20 margin-top=-20 align-items="center" justify-content="center" pointer-events="none"
@@ -85,14 +108,20 @@ component Rivals
           column testId="marks" position="absolute" top="50%" left="50%" margin-left=28 margin-top=-64 gap=2 pointer-events="none"
             each m in hud.marks key=m.id
               text (m.kill ? `${m.amount} ✚` : `${m.amount}`) font-size=(m.head ? 22 : 17) font-weight=800 color=(m.kill ? "#ff4d4f" : m.head ? "#ffd33d" : "#ffffff")
-          row testId="score" position="absolute" top=16 left="50%" width=360 margin-left=-180 justify-content="center" align-items="center" gap=14 padding=10 border-radius=12 background-color="#10141bcc" pointer-events="none"
-            text "You" font-weight=700 color="#6cb6ff"
-            text `${hud.kills}` testId="you-kills" font-size=28 font-weight=800
-            column align-items="center" gap=2
-              text `First to ${hud.to_win}` font-size=12 color="#9aa4b2"
-              text `Round ${hud.round} · ${hud.you_rounds}–${hud.rival_rounds}` testId="rounds" font-size=12 color="#9aa4b2"
-            text `${hud.rival_kills}` testId="rival-kills" font-size=28 font-weight=800
-            text hud.rival font-weight=700 color="#ff8a8a"
+          when hud.training
+            column position="absolute" top=16 left="50%" width=440 margin-left=-220 align-items="center" gap=4 padding=10 border-radius=12 background-color="#10141be6" pointer-events="none"
+              text `Target drill · ${hud.drill_left}s` testId="drill-clock" font-size=20 font-weight=800
+              text `${hud.drill_score} points · ×${hud.drill_combo} combo · ${hud.drill_cleared} targets` testId="drill-score" color="#bef264"
+              text `Next: ${hud.drill_target} · hit another target and lose the combo` testId="drill-target" font-size=12 color="#c9d1d9"
+          else
+            row testId="score" position="absolute" top=16 left="50%" width=360 margin-left=-180 justify-content="center" align-items="center" gap=14 padding=10 border-radius=12 background-color="#10141bcc" pointer-events="none"
+              text "You" font-weight=700 color="#6cb6ff"
+              text `${hud.kills}` testId="you-kills" font-size=28 font-weight=800
+              column align-items="center" gap=2
+                text `First to ${hud.to_win}` font-size=12 color="#9aa4b2"
+                text `Round ${hud.round} · ${hud.you_rounds}–${hud.rival_rounds}` testId="rounds" font-size=12 color="#9aa4b2"
+              text `${hud.rival_kills}` testId="rival-kills" font-size=28 font-weight=800
+              text hud.rival font-weight=700 color="#ff8a8a"
           column testId="feed" position="absolute" top=16 right=16 gap=6 align-items="flex-end" pointer-events="none"
             each f in hud.feed key=f.id
               row gap=8 padding-top=4 padding-bottom=4 padding-left=10 padding-right=10 border-radius=8 background-color=(f.you ? "#2b3a55e6" : "#10141bcc")
@@ -126,6 +155,12 @@ component Rivals
                 text "Restart"
               button press=menu testId="menu" aria-label="Menu" padding=12 border-radius=10 background-color="#354751"
                 text "Menu"
+          when hud.drill_done and not paused
+            column testId="drill-done" position="absolute" inset=0 align-items="center" justify-content="center" gap=12 background-color="#10141bcc"
+              text "Drill complete" font-size=40 font-weight=800 color="#bef264"
+              text `${hud.drill_score} points · ${hud.drill_cleared} targets · accuracy ${hud.accuracy}%` font-size=20
+              button press=restart testId="range-retry" aria-label="Try the drill again" padding=12 border-radius=10 background-color="#65a30d"
+                text "Try again" font-size=18 font-weight=700
           button press=togglePause testId="pause" aria-label=(paused ? "Resume" : "Pause") position="absolute" top=16 left=16 padding=10 border-radius=10 background-color="#10141bcc"
             text (paused ? "Resume" : "Pause")
           button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=110 width=96 height=96 border-radius=48 background-color="#35475188"
@@ -143,6 +178,7 @@ component Rivals
             text "Mouse or arrow keys look · WASD move" width="100%" text-align="center"
             text "Shift sprint · Space jump · C slide" width="100%" text-align="center"
             text "Click or F fire · R reload · 1 2 3 weapons" width="100%" text-align="center"
+            text "Range: 30 seconds · follow the green target · build a combo" width="100%" text-align="center" color="#bef264"
           row gap=12
             button press=duel autofocus aria-label="Play" testId="play" padding=16 border-radius=12 background-color="#e8ad61"
               text "Duel" font-size=20 color="#10141b"

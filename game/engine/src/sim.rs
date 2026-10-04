@@ -1273,6 +1273,13 @@ impl<G: Game> Sim<G> {
             Clock::Seekable,
         )
     }
+    /// Queue device input now, replacing its `at_ms` with the current host
+    /// clock. World time and host time differ after restore; use this when a
+    /// test or agent has no external device timestamp to preserve.
+    pub fn input_now(&mut self, mut event: InputEvent) {
+        event.set_at_ms(self.last_us.unwrap_or(0) as f64 / 1000.0);
+        self.input(event);
+    }
     /// Press a physical key at the current clock.
     pub fn key_down(&mut self, code: &str) {
         self.key(code, true);
@@ -1282,18 +1289,18 @@ impl<G: Game> Sim<G> {
         self.key(code, false);
     }
     fn key(&mut self, code: &str, down: bool) {
-        self.input(InputEvent::Key {
+        self.input_now(InputEvent::Key {
             code: code.into(),
             down,
-            at_ms: self.last_us.unwrap_or(0) as f64 / 1000.0,
+            at_ms: 0.0,
         });
     }
     /// Post a message into the world at the current clock, as Contract's
     /// `postMessage(text, surface)` does; the next tick reads it in `Input::messages`.
     pub fn post(&mut self, text: impl Into<String>) {
-        self.input(InputEvent::Message {
+        self.input_now(InputEvent::Message {
             text: text.into(),
-            at_ms: self.last_us.unwrap_or(0) as f64 / 1000.0,
+            at_ms: 0.0,
         });
     }
     /// Queue both key edges at the current clock.

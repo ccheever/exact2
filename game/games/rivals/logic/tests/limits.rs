@@ -311,10 +311,18 @@ fn live_latency<G: Game<Args = Options>>(display_hz: f64, look: bool) -> (Vec<f6
     let mut sim = Sim::<G>::new(Options {
         seed: 3,
         bots: 3,
-        range: true,
         ..Options::default()
     })
     .unwrap();
+    // Measure an unlimited camera session, not the range's thirty-second drill.
+    // Stationary bots keep combat from killing the observer during the sweep.
+    for (_, brain) in sim
+        .world_mut()
+        .query::<&mut rivals_logic::bots::Brain>()
+        .iter()
+    {
+        brain.dummy = true;
+    }
     sim.viewport(1280.0, 720.0);
     let period = 1000.0 / display_hz;
     sim.frame_period(period);

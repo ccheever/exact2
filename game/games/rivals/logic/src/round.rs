@@ -158,6 +158,10 @@ pub fn respawn(w: &mut World) {
         if alive || now < at {
             continue;
         }
+        if w.get::<crate::bots::Brain>(e).is_some_and(|b| b.dummy) {
+            crate::training::place(w, e, slot);
+            continue;
+        }
         let best = SPAWNS
             .iter()
             .max_by(|a, b| {

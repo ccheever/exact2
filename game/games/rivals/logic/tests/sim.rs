@@ -62,6 +62,137 @@ fn range_headshot_and_body_shot() {
 }
 
 #[test]
+fn range_dummy_returns_to_its_lane_after_elimination() {
+    let mut sim = range();
+    sim.run(500.0);
+    let start = sim
+        .world()
+        .require::<exact_game::Transform>("bot-2")
+        .position;
+    for _ in 0..3 {
+        sim.tap("KeyF");
+        sim.run(300.0);
+    }
+    assert!(!fighter(&sim, "bot-2").alive);
+    sim.run(2100.0);
+    assert!(fighter(&sim, "bot-2").alive);
+    let after = sim
+        .world()
+        .require::<exact_game::Transform>("bot-2")
+        .position;
+    assert!(
+        (after - start).length() < 0.05,
+        "dummy left its training lane: {start} -> {after}"
+    );
+}
+
+fn shoot_at(sim: &mut Sim<Rivals>, name: &str) {
+    let me = fighter(sim, "player");
+    let from = sim
+        .world()
+        .require::<exact_game::Transform>("player")
+        .position
+        + exact_game::Vec3::Y * me.eye;
+    let to =
+        sim.world().require::<exact_game::Transform>(name).position + exact_game::Vec3::Y * 0.66;
+    let d = to - from;
+    let yaw = exact_game::math::atan2(-d.x, -d.z);
+    let pitch = exact_game::math::atan2(d.y, exact_game::math::sqrt(d.x * d.x + d.z * d.z));
+    sim.input_now(InputEvent::Pointer {
+        id: 1,
+        phase: PointerPhase::Move,
+        x: 640.0,
+        y: 360.0,
+        dx: -(yaw - me.yaw) / rivals_logic::DEFAULT_SENSITIVITY,
+        dy: -(pitch - me.pitch) / rivals_logic::DEFAULT_SENSITIVITY,
+        buttons: 0,
+        at_ms: 0.0,
+    });
+    sim.tap("KeyF");
+    sim.run(300.0);
+}
+
+fn clear_target(sim: &mut Sim<Rivals>) {
+    let slot = sim
+        .world()
+        .resource::<rivals_logic::training::Drill>()
+        .target;
+    let name = format!("bot-{}", slot - 1);
+    if !fighter(sim, &name).alive {
+        sim.run(2100.0);
+    }
+    for _ in 0..5 {
+        if !fighter(sim, &name).alive {
+            break;
+        }
+        shoot_at(sim, &name);
+    }
+    assert!(!fighter(sim, &name).alive, "failed to eliminate {name}");
+}
+
+#[test]
+fn drill_chains_targets_breaks_on_wrong_hits_and_continues_from_save() {
+    use rivals_logic::training::Drill;
+    let mut sim = range();
+    sim.run(500.0);
+    clear_target(&mut sim);
+    assert_eq!(sim.world().resource::<Drill>().score, 150);
+    assert_eq!(sim.world().resource::<Drill>().target, 4);
+    shoot_at(&mut sim, "bot-1");
+    assert_eq!(sim.world().resource::<Drill>().combo, 0);
+    clear_target(&mut sim);
+    let saved = sim.save().unwrap();
+    let mut back = range();
+    back.restore_bound(&saved).unwrap();
+    for s in [&mut sim, &mut back] {
+        for _ in 0..4 {
+            clear_target(s);
+        }
+        assert_eq!(s.world().resource::<Drill>().cleared, 6);
+        assert_eq!(
+            round(s).number,
+            1,
+            "range does not enter a duel round at five kills"
+        );
+        s.run(30_100.0 - s.world().seconds() * 1000.0);
+        let score = s.world().resource::<Drill>().score;
+        assert_eq!(
+            s.world().published("drill_done").unwrap().as_bool(),
+            Some(true)
+        );
+        s.hold("KeyF", 3000.0);
+        assert_eq!(s.world().resource::<Drill>().score, score);
+    }
+    assert_eq!(sim.save().unwrap(), back.save().unwrap());
+}
+
+#[test]
+fn opponent_labels_hide_dead_offscreen_and_occluded_heads() {
+    use exact_game::{Transform, Vec2};
+    let mut sim = range();
+    sim.run(500.0);
+    let size = Vec2::new(1280.0, 720.0);
+    let contacts = rivals_logic::contacts(sim.world(), size, Some(3));
+    assert_eq!(contacts.len(), 3);
+    assert!(contacts
+        .iter()
+        .any(|c| c.id == 3 && c.target && c.x == 640.0));
+    let bot = sim.world().named("bot-2").unwrap();
+    for z in [-18.0, 20.0] {
+        sim.world_mut().teleport(bot, Transform::at(0.0, 0.92, z));
+        assert!(!rivals_logic::contacts(sim.world(), size, Some(3))
+            .iter()
+            .any(|c| c.id == 3));
+    }
+    sim.world_mut()
+        .teleport(bot, Transform::at(0.0, 0.92, 12.0));
+    sim.world_mut().require_mut::<Fighter>(bot).alive = false;
+    assert!(!rivals_logic::contacts(sim.world(), size, Some(3))
+        .iter()
+        .any(|c| c.id == 3));
+}
+
+#[test]
 fn mouse_look_turns_by_sensitivity_from_the_first_move() {
     let mut sim = range();
     sim.run(100.0);

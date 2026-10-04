@@ -1,5 +1,40 @@
 use exact_game::*;
 
+#[test]
+fn project_world_points_uses_current_camera_clip_volume_and_css_pixels() {
+    let mut world = World::new(60, 0);
+    let size = Vec2::new(1280.0, 720.0);
+    assert!(world.project(Vec3::NEG_Z, size).is_none());
+    let rig = world.spawn(Transform::at(4.0, 1.0, 0.0));
+    let camera = world.spawn((Parent(rig), Transform::default(), Camera::default()));
+    let middle = Vec3::new(4.0, 1.0, -10.0);
+    assert!((world.project(middle, size).unwrap() - size * 0.5).length() < 0.001);
+    assert!(world.project(middle + Vec3::X, size).unwrap().x > 640.0);
+    assert!(world.project(middle + Vec3::Y, size).unwrap().y < 360.0);
+    for point in [
+        Vec3::new(4.0, 1.0, 1.0),
+        Vec3::new(4.0, 1.0, -0.001),
+        Vec3::new(4.0, 1.0, -1e6),
+        Vec3::new(1000.0, 1.0, -10.0),
+        Vec3::splat(f32::NAN),
+    ] {
+        assert!(world.project(point, size).is_none(), "{point}");
+    }
+    assert!(world.project(middle, Vec2::ZERO).is_none());
+    assert!(world.project(middle, Vec2::splat(f32::INFINITY)).is_none());
+    // A game projects while ticking, before hierarchy propagation.
+    world.require_mut::<Transform>(rig).position.x += 1.0;
+    assert!(world.project(middle, size).unwrap().x < 640.0);
+    *world.require_mut::<Camera>(camera) = Camera::orthographic(10.0);
+    let a = world.project(Vec3::new(6.0, 2.0, -5.0), size).unwrap();
+    let b = world.project(Vec3::new(6.0, 2.0, -50.0), size).unwrap();
+    assert!(
+        (a - b).length() < 0.001,
+        "orthographic points do not shrink with depth"
+    );
+    assert!((a - Vec2::new(712.0, 288.0)).length() < 0.001);
+}
+
 #[derive(Args, Default, Debug)]
 struct Settings {
     seed: u64,
