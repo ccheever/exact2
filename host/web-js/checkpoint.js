@@ -50,7 +50,7 @@ export function devSignal(name, initial, type, declared, router = false) {
 /** A settled resource carried only for the same source, arguments and type. */
 export function devResource(name, source, args, initial, initialArgs, type, placeholder, declared) {
   const cp = dev(), kept = cp?.carryAnswers === false ? null : cp?.answers?.find(a => a[0] === name && a[1] === source && shape(a[4], declared));
-  const out = res(name, source, args, kept ? decode(kept[3]) : initial, kept ? decode(kept[2]) : initialArgs, type, placeholder);
+  const out = res(name, source, args, kept ? decode(kept[3]) : initial, kept ? decode(kept[2]) : initialArgs, type, placeholder, !!kept);
   out.r.devType = declared; if (kept?.[5]) out.r.store = true; return out;
 }
 

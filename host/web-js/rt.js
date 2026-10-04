@@ -367,11 +367,11 @@ function reply(t, name, source, held, f, next, gone) {
 }
 const revalidated = (name, same) => `${name} answered: ${same ? "equal to its build-time answer" : "replaces its build-time answer"}`; // runner lines.rs
 /** A resource: its value, the arguments it settled with, one ticket in flight. A bake's answer is a first frame: `baked` asks at launch, as a native runner at `data_ready` (LLP 1048.003 D6; feed F24); a document's `kept` was asked for its page. */
-export function res(name, source, args, initial, initialArgs, type, ph) {
+export function res(name, source, args, initial, initialArgs, type, ph, carried = false) { // `carried`: a dev reload's settled answer (checkpoint.js), not a bake's
   const ver = sig(0), pend = sig(false), fail = sig(null);
   const kept = checkpoint().kept?.get(name);
   if (kept) [initialArgs, initial] = kept;
-  const r = { name, source, type, value: initial, settled: initialArgs, baked: !kept && initialArgs !== undefined, ticket: null, forced: false, reread: false, rev: false, store: false };
+  const r = { name, source, type, value: initial, settled: initialArgs, baked: !kept && !carried && initialArgs !== undefined, ticket: null, forced: false, reread: false, rev: false, store: false };
   const flag = (s, v, undo) => { if (!eq(s.n.v, v)) { undo?.push([s.n, s.n.v]); write(s.n, v); } };
   // Nothing kept: the placeholder shows, pending (LLP 1048.003 D6).
   const hold = () => {
