@@ -54,6 +54,7 @@ pub fn parts_with(
     let css = super::element::contents(
         host_css(&node, text, tag),
         may_fold && super::element::folded(kernel, &node, false),
+        super::element::touch_scoped(kernel, &node),
     );
     let holds = child_may_fold && super::element::holds_folded(kernel, &node, &|_| false);
     let css = super::element::blocks(css, holds);

@@ -24,7 +24,8 @@
 //! host builds, or it is no page.
 
 use super::element::{
-    blocks, contents, css_style_of, folds, host_css_of, props_of, svg_props_of, tag_of,
+    blocks, contents, css_style_of, folds, host_css_of, props_of, restricts_touch, svg_props_of,
+    tag_of,
 };
 use super::{font_names, layers, Host};
 
@@ -275,6 +276,7 @@ fn write<S: Source>(
         out: String::new(),
         links: 0,
         buttons: 0,
+        touch: 0,
         select: None,
         scroll_document: false,
         css: std::collections::HashMap::new(),
@@ -429,6 +431,9 @@ struct Walk<'r, 'w, S: Source> {
     /// second starts inside it, and a button's containers are `<span>`s.
     links: u32,
     buttons: u32,
+    /// Open boxes that restrict touch (`element::restricts_touch`): a folded
+    /// text under one is an inline box.
+    touch: u32,
     /// The open `select`'s value: the option that carries it is `selected`.
     select: Option<String>,
     scroll_document: bool,
@@ -505,7 +510,10 @@ impl<S: Source> Walk<'_, '_, S> {
                     .is_some_and(|k| !k.is_empty());
                 folds(&c, &node, above.as_ref(), true, handled)
             });
-        let css = blocks(contents(host_css_of(&node, text, tag), folded), holds);
+        let css = blocks(
+            contents(host_css_of(&node, text, tag), folded, self.touch > 0),
+            holds,
+        );
         let mut style = layers::with_isolation(css, isolated);
         let kept = self.computed.is_some().then(|| style.clone());
         // `glue.js` create: a canvas is a `div` holding the surface element.
@@ -654,6 +662,8 @@ impl<S: Source> Walk<'_, '_, S> {
         let (link, button) = (element == "a", element == "button");
         self.links += u32::from(link);
         self.buttons += u32::from(button);
+        let touch = restricts_touch(&node);
+        self.touch += u32::from(touch);
         let outer = chosen.map(|value| std::mem::replace(&mut self.select, value));
         let mut under = false;
         let only = children.len() == 1;
@@ -670,6 +680,7 @@ impl<S: Source> Walk<'_, '_, S> {
         }
         self.links -= u32::from(link);
         self.buttons -= u32::from(button);
+        self.touch -= u32::from(touch);
         self.out.push_str("</");
         self.out.push_str(element);
         self.out.push('>');

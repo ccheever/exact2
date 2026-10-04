@@ -856,17 +856,22 @@ export function reveal(el, id) {
     if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
   }
   if (seen) return { revealed: id, scrolled: false };
-  (getComputedStyle(el).display === "contents" ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
   return { revealed: id, scrolled: true, from: [x, y], to: middle() };
 }
 
-// A view's box as the agent reports it. A text folded into its box's content
-// (LLP 1007.001, `display: contents`) makes no box of its own: its box is the
-// anonymous block its text is, as a style-less block child's was — its line
-// boxes along the main axis, and its box's content box across when the box
-// stretches its items (a block, or a flex or grid box that stretches).
+// A text folded into its box's content (LLP 1007.001): `display: contents`,
+// or an inline box under a box that restricts touch. A paragraph's inline
+// runs are not `data-exact-text`; only the paragraph is.
+const folded = el => { const d = getComputedStyle(el).display; return d === "contents" || d === "inline" && el.hasAttribute("data-exact-text"); };
+
+// A view's box as the agent reports it. A folded text has no block box of its
+// own: its box is the anonymous block its text is, as a style-less block
+// child's was — its line boxes along the main axis, and its box's content box
+// across when the box stretches its items (a block, or a flex or grid box
+// that stretches).
 export function viewBox(el) {
-  if (getComputedStyle(el).display !== "contents") return el.getBoundingClientRect();
+  if (!folded(el)) return el.getBoundingClientRect();
   const range = document.createRange();
   range.selectNodeContents(el);
   const t = range.getBoundingClientRect(), p = el.parentElement;
