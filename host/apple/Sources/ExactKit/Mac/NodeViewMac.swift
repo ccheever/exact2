@@ -1219,9 +1219,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if presenter?.views[id] === self { firstDraw() }
         if let ctx = NSGraphicsContext.current?.cgContext { drawCapturedShadow(ctx) }
         // What the layer shows (`BoxLayerMac.swift`) is not painted again,
-        // except into a capture, which sees views and not layer properties.
-        let layerPaint = layerBoxEligible && !Capture.capturing
-        if layerPaint { applyLayerPaint() }
+        // nor into a capture where the capture shows the layer's paint as
+        // the window does (`captureShowsLayerPaint`).
+        let layerPaint = layerBoxEligible && (!Capture.capturing || captureShowsLayerPaint)
+        if layerPaint, !Capture.capturing { applyLayerPaint() }
         let paintsBox = hasBoxPaint && (!layerPaint || boxNeedsDraw)
         let rounded = cornerRadii(in: bounds).contains { $0 > 0 }
         // The box's outline only where something is painted through it.
@@ -1239,7 +1240,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             let radii = BorderPaint.radii(style, in: bounds)
             BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, shape: CornerShape(style["corner_shape"]))
         }
-        if kind == "image", symbolView == nil, !(layerPaint && imageLayer != nil), let bitmap = raster?.image {
+        if kind == "image", symbolView == nil, !(layerBoxEligible && !Capture.capturing && imageLayer != nil), let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
             // and padding), clipped by the border box's radius: `fill`
             // stretches, `contain`/`cover` keep the ratio, `none` is the

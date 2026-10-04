@@ -1215,11 +1215,7 @@ enum Capture {
             }
         }
         hide(view)
-        let fills = hideBoxFills(in: view)
-        capturing = true
-        view.cacheDisplay(in: view.bounds, to: rep)
-        capturing = false
-        restore(fills)
+        draw(view, to: rep)
         for o in hidden { o.isHidden = false }
         view.alphaValue = alpha
         return rep
