@@ -201,7 +201,10 @@ JSON levels need no `game.assets` setting. Agent asset state includes their valu
 malformed fields report their path.
 
 `w.generated("island.model", mesh_data)` registers immutable geometry during setup.
-Clone the returned `Mesh` for repeated props. Saves store names and content identities,
+Clone the returned `Mesh` for repeated props. `w.generated_model(name, model)` takes a
+whole `asset::Model` (several meshes, nodes and materials); its materials may sample
+textures named in `model.textures`, such as a shared `art/textures/` PNG, which become
+the model's dependencies and are requested like a baked model's. Saves store names and content identities,
 not vertices, so reconstruct from the same level and seed before restoring. Changed
 level bytes or generated output refuse restore by name. Keep other generator inputs
 in the level or saved setup arguments; identity checks cannot prove a generator is

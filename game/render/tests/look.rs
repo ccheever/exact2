@@ -210,3 +210,92 @@ fn an_environment_map_can_be_the_visible_sky_turned_by_its_yaw() {
     );
     assert_eq!(hidden, [0, 0, 0, 255], "not visible: the background stays");
 }
+
+struct Terrain;
+impl Game for Terrain {
+    const ID: &'static str = "look-terrain";
+    const ASSETS: &'static [&'static str] = &["halves.tex"];
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.insert_resource(Environment {
+            background: Some([0.; 3]),
+            ambient: 1.,
+            zenith: [1.; 3],
+            horizon: [1.; 3],
+            ground: [1.; 3],
+            fog: None,
+            bloom: None,
+            ..Default::default()
+        });
+        w.spawn((Transform::at(0., 0., 3.), Camera::default()));
+        let terrain = w
+            .generated_model(
+                "terrain.model",
+                asset::Model {
+                    bounds: [-1., -1., 0., 1., 1., 0.],
+                    meshes: vec![quad([1.; 4])],
+                    materials: vec![asset::MaterialData {
+                        metallic: 0.,
+                        base_color_texture: Some(0),
+                        ..Default::default()
+                    }],
+                    textures: vec!["halves.tex".into()],
+                    nodes: vec![asset::Node {
+                        mesh: Some(0),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        w.spawn((Transform::default(), terrain));
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+// 8 x 8, linear, filtered: the left half red, the right half blue.
+fn halves() -> asset::TextureData {
+    let mut mips = Vec::new();
+    for size in [8usize, 4, 2, 1] {
+        let mut level = Vec::new();
+        for _ in 0..size {
+            for x in 0..size {
+                level.extend(match (size, x < size / 2) {
+                    (1, _) => [128, 0, 128, 255],
+                    (_, true) => [255, 0, 0, 255],
+                    _ => [0, 0, 255, 255],
+                });
+            }
+        }
+        mips.push(level);
+    }
+    asset::TextureData {
+        width: 8,
+        height: 8,
+        mips,
+        filter: [asset::Filter::Linear; 3],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_generated_model_samples_a_shared_texture_through_its_uvs() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = WorldSurface::<Terrain, ModelPresentation, true>::default();
+    s.bind(&[], None).unwrap();
+    s.device_ready(exact_gpu::wgpu::Features::empty());
+    assert_eq!(s.assets().requests, vec!["halves.tex".to_owned()]);
+    s.asset("halves.tex", Ok(&bin::to_vec(&halves())));
+    s.prepare_assets(
+        &gpu.device,
+        &gpu.queue,
+        exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+    );
+    let (pixels, _) = fixture::render(&gpu, &mut s, &frame()).unwrap();
+    assert!(s.error().is_none(), "{:?}", s.error());
+    let (left, right) = (pixels.at(48, 64), pixels.at(80, 64));
+    assert!(left[0] > 150 && left[2] < 60, "left half red: {left:?}");
+    assert!(
+        right[2] > 150 && right[0] < 60,
+        "right half blue: {right:?}"
+    );
+}

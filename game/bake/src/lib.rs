@@ -345,6 +345,51 @@ pub fn sprite_variants(
     compress::variants(name, &sprite(path)?, compress::Channels::ColorAlpha, true)
 }
 
+/// How a standalone PNG is sampled, from the `art/` folder it sits in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PngKind {
+    /// Anywhere else: a pixel-exact sprite (sRGB, clamped, nearest).
+    Sprite,
+    /// Under `art/textures/`: a material colour texture shared by any model or
+    /// generated mesh: sRGB, repeating, linearly filtered, box-filtered mips.
+    Color,
+    /// Under `art/data/`: the same, but linear values (normal maps, masks, an
+    /// RGBM environment map).
+    Data,
+}
+impl PngKind {
+    /// The kind a PNG's path inside `art/` selects.
+    pub fn of(art: &Path, path: &Path) -> Self {
+        let first = path
+            .strip_prefix(art)
+            .ok()
+            .and_then(|p| p.components().next())
+            .and_then(|c| c.as_os_str().to_str());
+        match first {
+            Some("textures") if path.parent() != Some(art) => Self::Color,
+            Some("data") if path.parent() != Some(art) => Self::Data,
+            _ => Self::Sprite,
+        }
+    }
+}
+/// A material texture's authored RGBA8 name and its per-family payloads,
+/// block-compressed within the usual quality bound.
+pub fn material_texture_variants(
+    name: &str,
+    path: impl AsRef<Path>,
+    kind: PngKind,
+) -> Result<Vec<(String, TextureData)>, String> {
+    let mut texture = sprite(path)?;
+    let color = kind == PngKind::Color;
+    texture.srgb = color;
+    texture.wrap = [Wrap::Repeat; 2];
+    texture.filter = [Filter::Linear; 3];
+    let top = texture.mips.swap_remove(0);
+    texture.mips = textures::mips(texture.width, texture.height, top, color, true, None);
+    texture.validate()?;
+    compress::variants(name, &texture, compress::Channels::ColorAlpha, false)
+}
+
 /// Bake a standalone PNG sprite: sRGB, straight alpha, nearest min/mag/mips,
 /// clamp-to-edge on both axes. Nearest mip levels preserve the authored palette.
 pub fn sprite(path: impl AsRef<Path>) -> Result<TextureData, String> {
@@ -452,7 +497,11 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
             if !asset_name(&name) {
                 return Err(format!("invalid sprite asset name `{name}`"));
             }
-            for (name, texture) in sprite_variants(&name, &path)? {
+            let variants = match PngKind::of(&art, &path) {
+                PngKind::Sprite => sprite_variants(&name, &path)?,
+                kind => material_texture_variants(&name, &path, kind)?,
+            };
+            for (name, texture) in variants {
                 if outputs
                     .insert(name.clone(), encode(&name, &texture)?)
                     .is_some()
@@ -539,5 +588,39 @@ mod stem_tests {
         use std::os::unix::ffi::OsStrExt;
         let path = std::path::Path::new(std::ffi::OsStr::from_bytes(b"bad\xff.png"));
         assert_eq!(super::art_stem(path).unwrap_err(), "invalid art stem");
+    }
+}
+
+#[cfg(test)]
+mod png_kind_tests {
+    use super::*;
+    #[test]
+    fn pngs_under_textures_and_data_bake_as_filtered_repeating_material_textures() {
+        let art = Path::new("/game/art");
+        assert_eq!(PngKind::of(art, &art.join("strip.png")), PngKind::Sprite);
+        assert_eq!(PngKind::of(art, &art.join("ui/strip.png")), PngKind::Sprite);
+        assert_eq!(PngKind::of(art, &art.join("textures/soil.png")), PngKind::Color);
+        assert_eq!(PngKind::of(art, &art.join("data/sky.png")), PngKind::Data);
+        let dir = std::env::temp_dir().join(format!("exact-bake-png-kind-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("soil.png");
+        let mut image = image::RgbaImage::new(8, 8);
+        for (x, _, p) in image.enumerate_pixels_mut() {
+            *p = image::Rgba(if x < 4 { [255, 0, 0, 255] } else { [0, 0, 255, 255] });
+        }
+        image.save(&path).unwrap();
+        for kind in [PngKind::Color, PngKind::Data] {
+            let variants = material_texture_variants("soil.tex", &path, kind).unwrap();
+            let (name, texture) = &variants[0];
+            assert_eq!(name, "soil.tex");
+            assert_eq!(texture.srgb, kind == PngKind::Color);
+            assert_eq!(texture.wrap, [Wrap::Repeat; 2]);
+            assert_eq!(texture.filter, [Filter::Linear; 3]);
+            // Box-filtered: the 1x1 level averages both halves.
+            let last = texture.mips.last().unwrap();
+            assert!(last[0] > 100 && last[2] > 100, "{last:?}");
+            assert_eq!(variants.len(), 3, "RGBA8, BC and ASTC families");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

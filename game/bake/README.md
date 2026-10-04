@@ -52,6 +52,12 @@ fixture keeps its original `.tex` only as a test golden; production bytes come f
 its PNG. Generated-output ownership, collision refusal and pruning are the same as
 for models.
 
+A PNG under `art/textures/` is a material texture instead, shared by name with any
+model or generated mesh (`textures/soil.png` bakes as `soil.tex`): sRGB colour,
+repeating on both axes, linear min/mag/mip filtering, a box-filtered mip chain in
+linear light, block-compressed within the usual quality bound. Under `art/data/` the
+same, but linear values: normal maps, masks, an RGBM environment map.
+
 Put sounds at `art/<name>.wav` or `art/<name>.ogg`; the bake writes `assets/<name>.sound`
 (a stem may have one source). WAV may be 8/16/24/32-bit integer PCM or 32/64-bit float,
 plain or `WAVE_FORMAT_EXTENSIBLE`; Ogg is Vorbis. Mono or stereo at 8–192 kHz. Samples
