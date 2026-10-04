@@ -98,6 +98,12 @@ final class ControlHost: NSObject {
         default: made = makeValueControl(kind, node.id)
         }
         made.tag = Int(node.id)
+        // Its natural size follows text size, weight and scale, which no batch says.
+        MainActor.assumeIsolated {
+            made.registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self, UITraitDisplayScale.self]) { [weak self] (_: UIControl, _: UITraitCollection) in
+                self?.presenter.requestControlsSync()
+            }
+        }
         if kind == "switch" || kind == "checkbox" { made.addTarget(self, action: #selector(changed(_:)), for: .valueChanged) }
         controls[node.id] = made
         kinds[node.id] = kind

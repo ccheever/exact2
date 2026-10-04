@@ -513,6 +513,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         self.presenter = presenter
         super.init(frame: .zero)
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (node: NodeView, _: UITraitCollection) in
+            if node.kind == "control" { node.presenter?.requestControlsSync() } // its accent resolves per appearance
             node.paragraphOwner.invalidateText()
             node.paragraphOwner.setNeedsDisplay()
             node.applyStyle(node.style)

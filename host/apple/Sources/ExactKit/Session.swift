@@ -383,7 +383,7 @@ public final class ExactSession {
     private(set) var sampler: FrameSampler?
     var clockTimer: Timer?
     /// The runner deadline `clockTimer` fires for.
-    private var clockDue: Double?
+    private(set) var clockDue: Double?
     /// The agent's clock (milliseconds) when the driver owns time; nil runs
     /// on the wall clock.
     public var clock: Double?
@@ -911,6 +911,8 @@ public final class ExactSession {
     /// instead of running the presenter's whole pass four times a second.
     func applyTick(_ batch: Batch) {
         guard !applying, !(fillInFlight || tickInFlight || canvasInFlight), changesNothing(batch) else { apply(batch); return }
+        // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
+        sampler?.batch(batch.seq, ms: 0)
         timerDue = batch.timerDueMs
         scheduleClock(due: batch.timerDueMs)
     }
@@ -1053,6 +1055,9 @@ public final class ExactSession {
             }
         }
     }
+
+    /// `drainSurfaceWork` from outside a batch (a deferred module's load).
+    func drainSurfaceWorkNow() { if !applying { drainSurfaceWork() } }
 
     private func drainSurfaceWork() {
         guard canvases.ready || canvases.failed != nil || canvases.entries.isEmpty,

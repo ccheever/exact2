@@ -190,6 +190,9 @@ final class Canvases {
                 guard let self, deferred.remove(key) != nil else { return }
                 load(key)
                 session?.frames.requestCanvas()
+                // Work queued while it loaded settles now, loaded or failed:
+                // no later batch is owed to drain it (an idle tick is skipped).
+                session?.drainSurfaceWorkNow()
             }
         }
     }

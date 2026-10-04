@@ -667,7 +667,11 @@ four times a second, a 7 ms main-thread stall under any gesture.
   - empty ones went from 313 (median 6.47 ms, 1627 ms in all) to 46
     (88 ms in all);
   - main-thread apply time went from 28.6 to 7.7 ms per second.
-- The skip makes a timer app's idle ticks behave as an app with no timer
-  already did. Whatever an empty pass used to refresh by accident is
-  refreshed by the batches that carry a change, as in any app without a
-  poll.
+- Some things change outside any batch, and an idle tick used to refresh
+  them by accident: a subtree's appearance or text size under a control,
+  and geometry a sheet replays as it finishes dismissing. Each now asks for
+  a control sync on the next turn (`Presenter.requestControlsSync`), so a
+  timer app no longer depends on its own ticks. Apps with no timer gain the
+  same.
+- A deferred GPU module drains its queued surface work when it loads. A
+  skipped tick still reports its transactions to the frame sampler.

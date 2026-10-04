@@ -14,6 +14,20 @@ final class Presenter {
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
 
     var autofocusProcessed: Set<ObjectIdentifier> = []
+    private var controlsSyncOwed = false
+    /// What controls show changed outside a batch (a subtree's appearance or
+    /// size traits, geometry a sheet replayed after the batch): configure
+    /// them once, on the next turn, without waiting for a batch that an idle
+    /// app may never commit (LLP 1079's amendment of 2026-10-04).
+    func requestControlsSync() {
+        guard !controlsSyncOwed else { return }
+        controlsSyncOwed = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            controlsSyncOwed = false
+            if !applying { controls.sync() }
+        }
+    }
     /// The `aria-modal` view VoiceOver was last moved into, and the views
     /// made modal, which a cleared prop drops from the index (`syncModal`).
     var announcedModal: (id: UInt32, incarnation: UInt64)?
@@ -990,6 +1004,9 @@ final class Presenter {
     /// Geometry can be deferred for the source route while a modal owns the
     /// session viewport. Replaying it uses the same path as the original batch.
     func applyGeometry(_ op: BatchOp) {
+        // Replayed outside a batch (a sheet's dismissal completing): the
+        // controls under it size to their new boxes then.
+        if !applying { requestControlsSync() }
         let id = op.id
         guard let v = views[id] else { return }
         switch op.op {
