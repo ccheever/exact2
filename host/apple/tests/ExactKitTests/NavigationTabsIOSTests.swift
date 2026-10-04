@@ -94,6 +94,11 @@ final class NavigationTabsIOSTests: XCTestCase {
         try tapNode(session, "bump-second")
         // The count's filled box on the Second tab is its item's badge (§9.9).
         until("the badge follows the authored box") { second.tabBarItem.badgeValue == "1" }
+        // The box goes, the badge goes; it comes back with the box.
+        try tapNode(session, "unbump-second")
+        until("the badge leaves with its box") { second.tabBarItem.badgeValue == nil }
+        try tapNode(session, "bump-second")
+        until("and comes back with it") { second.tabBarItem.badgeValue == "1" }
         XCTAssertNil(home.tabBarItem.badgeValue, "a filled pill around a symbol and a text is no badge")
         // A badge a hook set on a tab that never authored one stays through
         // that tab's face changing (its selected symbol).
@@ -120,9 +125,6 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertEqual(css(), scrolled, accuracy: 0.5, "the scroll offset survived")
         XCTAssertTrue(try node(session, "list-second") === list, "the same views, retained")
         XCTAssertEqual(try node(session, "draft").field?.text, "kept", "the draft survived")
-        // The box goes, the badge goes.
-        try tapNode(session, "unbump-second")
-        until("the badge leaves with its box") { second.tabBarItem.badgeValue == nil }
         // Reselecting a tab pops it to its root.
         tapTab(tabs, 0)
         until("Home selected") { tabs.selectedIndex == 0 }
