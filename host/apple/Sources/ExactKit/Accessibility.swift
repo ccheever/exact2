@@ -158,11 +158,11 @@ extension Presenter {
             _ = target.becomeFirstResponder()
             #endif
         }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         syncModal()
         #endif
     }
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// `aria-modal` (LLP 1080.003), after a batch and after a native
     /// transition settles. A view is modal while its prop is true and it is
     /// exposed: attached, displayed, not hidden, inert or leaving, with no
