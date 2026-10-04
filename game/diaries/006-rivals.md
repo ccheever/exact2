@@ -1045,3 +1045,41 @@ and Apple relinking optimizations. The shared app-tool suite passes 82 tests
 (two optional integration skips). Root build, 2,348 enabled tests across
 81 binaries (nine ignored), Clippy, formatting and boot pass. Strict
 cross-mode acceptance and the other games' integration sweep follow.
+
+### Accepted pacing and main's browser input changes
+
+Merge `d9a33f1c8` brings main `a98895a22` after the exploratory playtests:
+physical browser modifiers, focused game shortcuts and Apple build
+parallelism. An independent macOS proof passes in 63.6 s. Its inputs, pins,
+ten world observations and fourteen saves match all seven strict runs in
+`artifacts/prove/run-OgzNCH/`: Linux normal/Save/FreshGame take
+44.0/15.1/13.6 s, web 109.0/92.7/109.5 s, and native release 68.3 s.
+Every strict run has zero failures and an available, passing process audit.
+The collector accepts the pins and restores the ordinary web build (22.8 s).
+Its child reports remain UNVERIFIED while collecting the candidate. A final
+ordinary Linux proof checks the accepted pins and reports PASS in 7.1 s
+(`artifacts/pacing-accepted-linux/`).
+
+Existing duel tick, continuation and drill pins stay unchanged. The Mayhem
+save changes to `87bd6aef…`, including its new published score target; the
+new complete-round continuation is `22a476c0…`. The independent macOS proof
+uses `artifacts/pacing-main-macos/`; its optional descendant scan is
+unavailable while every owned carrier closes. The title capture was inspected.
+
+Main's new browser modifier test initially fails on this Mac, and a focused
+Chrome for Testing rerun reproduces it: `contextmenu` arrives between
+`pointerdown` and `pointerup`. All held-modifier flags and trusted events are
+correct. The fixture now accepts either placement relative to pointer-up,
+while requiring exactly one trusted context-menu event after pointer-down
+and before ControlRight's release. Keyboard and pointer-edge order remain
+strict. This changes only the test, not input delivery.
+
+Garden and Forest also pass their complete web/macOS proofs on this merged
+source; their diaries record the captures and matching states. These timings
+include builds and concurrent verification, not isolated performance data.
+
+The final app/build, Windows portability and surface-record suite passes
+163 tests with four optional/platform skips in 33.4 s, closing the fixture's
+three-round fix loop. Log: `/tmp/exact2-maina988-tools-final.log`. The root
+Rust sources are unchanged since the passing gates above; caps and boot pass
+again with the accepted pins and diary updates.

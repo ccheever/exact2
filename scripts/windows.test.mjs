@@ -184,11 +184,17 @@ test('trusted browser modifier events retain both sides and reach following keys
     await s.type('world',{key:'Digit2'});
     state=await s.carrier.ask({op:'state'});
     const tail=state.events.slice(16);
-    expect(tail.map(e=>[e.type,e.code??null,e.ctrl])).toEqual([
+    // Browsers place contextmenu on either side of pointerup; the held chord
+    // must reach it in both cases, before ControlRight is released.
+    expect(tail.filter(e=>e.type!=='contextmenu').map(e=>[e.type,e.code??null,e.ctrl])).toEqual([
       ['keydown','ControlLeft',true],['keydown','ControlRight',true],['keyup','ControlLeft',true],
-      ['keydown','Digit1',true],['keyup','Digit1',true],['pointerdown',null,true],['pointerup',null,true],['contextmenu',null,true],
+      ['keydown','Digit1',true],['keyup','Digit1',true],['pointerdown',null,true],['pointerup',null,true],
       ['keyup','ControlRight',false],['keydown','Digit2',false],['keyup','Digit2',false],
     ]);
+    expect(tail.filter(e=>e.type==='contextmenu').map(e=>[e.type,e.code??null,e.ctrl])).toEqual([['contextmenu',null,true]]);
+    const menu=tail.findIndex(e=>e.type==='contextmenu');
+    expect(menu).toBeGreaterThan(tail.findIndex(e=>e.type==='pointerdown'));
+    expect(menu).toBeLessThan(tail.findIndex(e=>e.type==='keyup'&&e.code==='ControlRight'));
     expect(tail.every(e=>e.trusted)).toBe(true);
   } finally {await s?.close();server.stop(true);}
 },60000);

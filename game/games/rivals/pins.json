@@ -5,16 +5,17 @@
   },
   "saves": {
     "continuation": "82d8d11fd1ba7043b6a7944ae1ebf7c19afa202c221aa121b53f645800a38ea0",
-    "mayhem": "5a98457b07f3e1140aa78c2286613409aa063a6567da1ed5f2dbd60e3b0fd863",
+    "mayhem": "87bd6aeff3d8bbc9282910102366350df1b3d3188d178e9f0c54f0d2bd1968a5",
+    "mayhem-round": "22a476c07d4d51f4c6e3970acf34c271d528a60f68fa40f79d18bb2227c926b0",
     "drill": "38a57adf73f984a3b773bed5603ed2b16a22f858e7e7df14d20d99cfc3a4bb04"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "65953048ab3d888b42a7cfeb5cdd6f684b70d1d361217422741d8a18cdc17278",
+  "inputs": "b47c2354b5aa445c9158cb339b75a837c283db84473ae7212dffc2eea8a8eb39",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "4a02f5cf23fa99e6c77b78c3c919574b112d6431",
-  "reason": "Distinct full-arena and simultaneous respawns, Mayhem mode, and main 8c9b476fa game-shell toolchain inheritance"
+  "at": "d9a33f1c8620ac65f620c532e0dfca3cdd7feb26",
+  "reason": "Mayhem first to 25, full-round save/restart, and main a98895a22 input/build integration"
 }

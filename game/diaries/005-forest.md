@@ -883,3 +883,14 @@ are unavailable with owned carriers closed. These integration times include
 builds and concurrent work, not isolated performance measurements. Artifacts:
 Garden `artifacts/main-02f-{web,macos}/`, Rivals
 `artifacts/main-e702-{web,macos}/`. No gameplay or Jev changes in those games.
+
+## Main build and browser input integration during Rivals pacing (2026-10-04)
+
+Merges `ec4375505` and `d9a33f1c8` bring main through `a98895a22`.
+Forest's full web/macOS proofs pass in 149.7/172.0 s, including builds.
+Inputs, pins, nine world observations and fifteen saves agree. Both shelter
+screenshots were inspected; camp preparation remains readable. Web's process
+audit passes; native's optional scan is unavailable with every owned carrier
+closed. Artifacts: `artifacts/main-a988-{web,macos}/`. Rivals diary 006 records
+the shared gates and browser-modifier fixture finding. No Forest gameplay or
+Jev-policy changes.

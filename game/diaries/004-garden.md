@@ -933,3 +933,14 @@ passes; native's optional scan is unavailable with owned carriers closed.
 Artifacts: `artifacts/main-02f-{web,macos}/`. The later merge `02ca9c62f` adds
 main `e702a02e3`'s Lean-only changes. Forest diary 005 records the shared gates
 and unavailable Lean advisory check. No Garden gameplay or Jev-policy change.
+
+## Main build and browser input integration during Rivals pacing (2026-10-04)
+
+Merges `ec4375505` and `d9a33f1c8` bring main through `a98895a22`.
+Garden's full web/macOS proofs pass in 104.0/32.7 s, including builds.
+Inputs, pins, six world observations and nine saves agree. Both returned
+screenshots were inspected; recovery guidance and planting remain readable.
+Web's process audit passes; native's optional scan is unavailable with every
+owned carrier closed. Artifacts: `artifacts/main-a988-{web,macos}/`. Rivals
+diary 006 records the shared gates and browser-modifier fixture finding.
+No Garden gameplay or Jev-policy changes.
