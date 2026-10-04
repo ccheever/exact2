@@ -1473,7 +1473,7 @@ fn flex_and_grid_item_z_index_does_not_lift_plain_followers() {
         let doc = host.document().unwrap().root;
         let at = doc.find("data-testid=\"second\"").unwrap();
         let element = &doc[doc[..at].rfind('<').unwrap()..at + doc[at..].find('>').unwrap()];
-        assert_eq!(element.contains("isolation:isolate"), false, "{doc}");
+        assert!(!element.contains("isolation:isolate"), "{doc}");
         let at = &batch[batch
             .find(&format!("\"op\":\"create\",\"id\":{id},"))
             .unwrap()..];

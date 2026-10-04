@@ -14,6 +14,8 @@ mod emit;
 mod faces;
 mod facts;
 mod paint;
+#[cfg(test)]
+mod paint_tests;
 mod reads;
 mod style;
 

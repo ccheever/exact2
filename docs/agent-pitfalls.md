@@ -154,3 +154,6 @@ guide's rules don't make obvious.
   the shell. Fix: set `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
   when running `test ios` or `agent ios`. (CSS diary-fix scratch app, 2026-10-04;
   reproduced with `xcrun simctl list` in the origin/main source copy.)
+- **A fixture's nonempty list literal does not compile.** Contract admits `[]`
+  only; a nonempty list comes from a source, a shape field, or `map`/`filter`.
+  `split` is not a standard function here either. (Paint-order mutation fixture, 2026-10-04.)
