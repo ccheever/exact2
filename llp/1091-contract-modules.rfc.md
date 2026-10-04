@@ -471,3 +471,127 @@ every plan in the repository stays byte-identical to stage 2's.
 | Grok 5: an `exports` condition that is not a path hid `default` | Conditions fall through |
 | Astra 1: deploy reinstalled an absolute `file:` or a `link:` from the live tree | Deploy refuses them (a relative `file:` moves with the snapshot) and, after the materialized install, refuses any Contract source outside the captured tree |
 
+## 11. Windows deploy path qualification (2026-10-04)
+
+**Implementer:** Codex, 2026-10-04. This is the Windows completion of D10 and
+the final row of §10, within Charlie's Windows/papercut authorization. It does
+not change Contract syntax, snapshots, signing, native JS, runtime grants or
+the publisher's sequence/receipt rules.
+
+### Evidence and bounded change
+
+At `b89d6b6f0`, after fetching current `origin/main`, the inherited `f708c99cf`
+deploy changes have three POSIX-only path predicates. An ignored probe in the
+isolated Windows worktree retained `target/deploy-paths/before.{json,log}`:
+real files under a directory containing spaces and `#`, their native canonical
+paths, Bun 1.4.2, the source hash and each original predicate/result. All three
+expected admissions/refusals fail. This is a predicate reproduction, not a
+claim that a complete malicious deployment succeeded.
+
+1. The materialized closure drops native drive paths with `startsWith('/')`.
+   Check every physical app/package source and every consulted manifest with
+   Node's native `isAbsolute`, then the existing canonical-path containment
+   check. Skip only the graph's `builtin` entries, which name `exact:` modules;
+   a nonabsolute physical source is a refusal, not silently omitted. Drive,
+   UNC and extended Windows paths therefore reach the same containment test
+   as POSIX paths. The check remains after install and before returning the
+   materialized app; all consulted manifests stay in its scope. Canonicalize
+   the captured root and file with `realpathSync.native`, then additionally
+   require `resolve(root, relative(root, file)) === file`. The native Windows
+   relative function folds case, so containment alone would admit a distinct
+   case-sensitive `STAGE` sibling beside `stage`. The reconstruction check is
+   local to this closure and does not change other `inside()` callers.
+2. `/^file:\//` misses `file:C:/...` and `file:C:\...`. Extract the target
+   after the existing lowercase `file:` protocol, and use the native path
+   parser's nonempty root to refuse rooted paths. On Windows that also
+   refuses drive-relative `C:library`, whose per-drive current directory is
+   not captured; a leading separator, drive root, UNC or extended root is
+   not a relocatable dependency. POSIX root handling stays unchanged.
+   All `link:` targets remain refused. Relative `file:../library` stays
+   admitted; do not URL-decode, case-fold or reinterpret relative path bytes.
+   This is a refusal predicate, never a new dependency resolver.
+3. Registry-package classification applies a slash regex to `relative()`.
+   Split that native result into native path components and test the existing
+   exact `node_modules` component. Scoped/nested registry packages remain
+   install outputs; a sibling named `node_modules-extra` remains a possible
+   local repository input. Keep canonical package roots and existing repo
+   ownership decisions. No arbitrary separator replacement or case folding.
+
+The three small predicates/closure routine will be callable from the focused
+test and used by the production call sites, so tests exercise those decisions
+rather than a second implementation. Existing general `canonicalPath`/`inside`
+callers are retained; concurrent hostile filesystem replacement and a general
+cross-host path-policy redesign are not claimed by this change.
+
+### File scope and qualification
+
+- `scripts/deploy.mjs`: the three production call sites and their small shared
+  decision helpers; keep the source below 1,500 lines.
+- `scripts/deploy-paths.test.mjs`: a focused test file. The existing
+  `deploy.test.mjs` executes expensive fixtures at import time, so its name
+  filter does not provide an isolated path test. This adds no blocking gate,
+  test runner or configuration.
+- This amendment and `llp/reviews/1091-windows-deploy-paths.gpt.md` record the
+  independent plan/code review and actual evidence.
+
+Use real temporary Windows files/directories with spaces, `#` and Unicode,
+including real canonical/extended paths and a junction to an outside sibling.
+The production closure must accept in-capture app/package sources and
+manifests, skip the virtual builtin, and refuse escaped sources/manifests,
+malformed physical relative paths, and prefix siblings. Compare relative
+and absolute dependency decisions, and real `node_modules`/scoped/nested
+versus similarly named external directories. Add explicit native UNC/drive
+path cases as syntax-only where no share or second drive is available; do
+not describe them as actual remote filesystem I/O. Preserve the old failing
+probe and record these limitations. A real owned case-sensitive NTFS fixture,
+when the host permits enabling that property, must distinguish `stage` from
+`STAGE`; ordinary case-insensitive aliases must still resolve normally. Report
+any unavailable filesystem case capability explicitly.
+
+Run the focused tests and existing applicable deploy tests; run required SDK
+checks with a private target and bounded CPU concurrency, reporting unrelated
+Windows failures rather than weakening them. Full publish/network/GUI work is
+not needed for these local capture decisions. Fetch/review any upstream delta
+before committing or pushing; the frozen Skirmish release and other agents'
+worktrees remain untouched.
+
+**Qualified on Windows x64, Bun 1.4.2, Rust 1.97.0, base `39018dfa4`:** eight
+focused tests / 42 assertions pass without skips, including the actual NTFS
+case-sensitive and junction cases. Full private build, 2,326 default tests
+(54 existing ignores), strict all-target Clippy, caps and boot pass. The raw
+`cargo fmt --all -- --check` command exceeds Windows' argument limit (OS 206);
+all 379 targets emitted by `cargo fmt --all -v -- --check` pass unchanged
+`rustfmt --edition <target edition> --check` in 25 bounded batches, using
+rustfmt 1.9.0-stable. These are cold functional checks, not speed comparisons.
+The existing `deploy.test.mjs` stops during its import-time fixture at the
+intentional `durable stream-head publication is not qualified on Windows`
+refusal (zero completed cases); this patch does not weaken that restriction
+or claim the full publisher suite passed. Logs, original predicate failures
+and the exact partitioned-format inventory remain in the private worktree's
+ignored `target/deploy-paths/`. Both independent source reviews found no
+remaining blocker; neither substitutes for the executed tests.
+
+**Combined-head qualification after the final fetch:** upstream `b79156175`
+adds typed inline expansion for Lean embedding. Its normal `expand_all` path
+still disables those ascriptions. Rebased this four-file correction without
+overlap, then reran the full private build, all 2,326 default tests (54 existing
+ignores), strict all-target Clippy, caps, boot and the eight/42 focused path
+checks: all pass. Repeated the exact Cargo-selected formatting inventory;
+all 379 targets pass in 25 batches, while the unchanged single invocation
+still exceeds Windows' argument limit. This evidence is separate from the
+earlier `39018dfa4` run, not an inference from it.
+
+The actual qualified `39018dfa4` compiler and the rebased compiler both compile
+the frozen repair Skirmish `app.contract` (SHA-256
+`cd8ce8d4812a6a9ad5a6b7b3f0a0b222cb47ce197a5a32b92e2d9adc91715e61`)
+to byte-identical 20,033-byte plans, SHA-256
+`fef0b68e26e6756a36c2ff67980d6f2cdca4d6b89901b987f55b096810b3844a`.
+Their `contract sources` JSON for the same actual absolute Windows path with
+spaces is also byte-identical. The ignored `plan-identity.json` retains both
+compiler hashes, commands, graph bytes and outcomes; no frozen source, build
+or consumer artifact was modified. This establishes the normal game plan and
+source-graph comparison, not general Lean semantic equivalence.
+The advisory `cargo run -p contract-difftest -- quick` exits successfully with
+"nothing changed" for this deploy-only commit; it therefore adds no claim of
+executed Lean corpus coverage.
+
