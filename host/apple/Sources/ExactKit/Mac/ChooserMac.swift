@@ -62,10 +62,7 @@ extension MenuHost {
     /// own or an ancestor's `display: none` or hiding — though the popover
     /// itself is hidden in place while its menu presents it (iOS's `eligible`).
     private func choosable(_ action: NodeView, in pop: NodeView) -> Bool {
-        guard live(action), action.handlers.contains("press"), !action.disabled, !action.inert else { return false }
-        return !sequence(first: action as NSView, next: { self.parent(of: $0) }).contains { view in
-            (view as? NodeView)?.style["display"]?.string == "none" || (view.isHidden && view !== pop)
-        }
+        live(action) && action.handlers.contains("press") && !action.disabled && !action.inert && shown(action, in: pop)
     }
 
     /// The owner for `pop` opened from `source`, or nil — logged with why —

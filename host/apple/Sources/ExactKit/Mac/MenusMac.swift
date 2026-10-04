@@ -1,7 +1,8 @@
 // LLP 1021 D2–D4: button menus project to NSMenu, and so does an
 // alertdialog popover of the chooser's shape ("The chooser": actions, at most
 // one hide-only cancel, text rows as its message), popped up against its
-// invoker by its `position-area` (ChooserMac.swift). Other popovers move their actual subtree into
+// invoker by its `position-area` (ChooserMac.swift); a picked item presses on
+// the next turn, once. Other popovers move their actual subtree into
 // the session's top layer, including native editors. The agent uses that
 // same painted presentation for every shape.
 #if os(macOS)
@@ -193,6 +194,7 @@ final class MenuHost: NSObject {
     func reset() {
         while let last = entries.last { close(last.popover, restoreFocus: false) }
         choosing?.cancel(); choosing = nil
+        picking?.cancelled = true; picking = nil
         popovers.removeAll()
         pointerDown = nil; escapeHeld = false
     }
@@ -311,6 +313,7 @@ final class MenuHost: NSObject {
     func menu(of pop: NodeView) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
+        let once = Picked()
         // The popover's `aria-label` titles the menu ("Open location in").
         if let heading = pop.props["accessibilityLabel"], !heading.isEmpty { menu.addItem(.sectionHeader(title: heading)) }
         for case let row as NodeView in pop.container.subviews {
@@ -318,7 +321,7 @@ final class MenuHost: NSObject {
             guard row.isButton else { continue }
             let item = NSMenuItem(title: title(of: row), action: #selector(pick(_:)), keyEquivalent: "")
             item.target = self
-            item.representedObject = NSNumber(value: row.id)
+            item.representedObject = Pick(row, in: pop, title: item.title, once: once)
             item.state = row.props["accessibilityChecked"] == "true" ? .on : .off
             item.isEnabled = !row.disabled
             item.image = image(of: row)
@@ -326,8 +329,46 @@ final class MenuHost: NSObject {
         }
         return menu
     }
+    /// One menu's items share this: the first item taken is its only one.
+    private final class Picked { var taken = false }
+    /// An item's row as the menu showed it.
+    private final class Pick: NSObject {
+        weak var row: NodeView?
+        weak var pop: NodeView?
+        let title: String
+        let once: Picked
+        var cancelled = false
+        init(_ row: NodeView, in pop: NodeView, title: String, once: Picked) {
+            self.row = row; self.pop = pop; self.title = title; self.once = once
+        }
+    }
+    /// A picked item awaiting its turn; a reset cancels it.
+    private var picking: Pick?
+    /// An item picked: recorded now, its row pressed on the next main-queue
+    /// turn, once, as a chooser's is (ChooserMac.swift): AppKit sends the
+    /// action inside `popUp`, still tracking the menu in the invoker, and
+    /// the press's batch may unmount that invoker.
     @objc private func pick(_ sender: NSMenuItem) {
-        if let id = (sender.representedObject as? NSNumber)?.uint32Value { presenter?.press(id, fromNativeMenu: true) }
+        guard let pick = sender.representedObject as? Pick, !pick.once.taken else { return }
+        pick.once.taken = true
+        picking = pick
+        DispatchQueue.main.async { [weak self, pick] in
+            guard let self else { return }
+            if self.picking === pick { self.picking = nil }
+            // Still the row the menu showed: live, in its popover, enabled,
+            // shown, under the same title. A reused id is not that row.
+            guard !pick.cancelled, let row = pick.row, let pop = pick.pop, self.live(row), self.live(pop),
+                  row.isDescendant(of: pop), row.isButton, !row.disabled, !row.inert,
+                  self.shown(row, in: pop), self.title(of: row) == pick.title else { return }
+            self.presenter?.press(row.id, fromNativeMenu: true)
+        }
+    }
+    /// Not hidden by the page — `node`'s or an ancestor's `display: none`
+    /// or hiding — though `pop` is hidden in place while a menu presents it.
+    func shown(_ node: NodeView, in pop: NodeView) -> Bool {
+        !sequence(first: node as NSView, next: { self.parent(of: $0) }).contains { view in
+            (view as? NodeView)?.style["display"]?.string == "none" || (view.isHidden && view !== pop)
+        }
     }
     func title(of v: NodeView) -> String {
         if v.kind == "text" { return v.paragraphSpec().runs.map(\.text).joined() }

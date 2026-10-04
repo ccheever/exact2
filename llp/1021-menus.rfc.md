@@ -440,7 +440,10 @@ and again as each batch lands: a batch that changes a row's title or
 enablement, hides it (its own or an ancestor's `display: none` or hiding,
 though not the popover's own, hidden in place while its menu shows it) or
 makes it inert, a reset or an unmount ends the menu, and a choice awaiting
-its turn presses nothing. A refused shape
+its turn presses nothing. A button menu's item is pressed the same way: on the next turn, once
+per menu, and only if its row is still the node the menu showed (live, in
+its popover, enabled, shown, the same title; an id reused by another node
+is not it); a reset before the turn presses nothing. A refused shape
 is logged and keeps its painted presentation, which macOS, unlike iOS, has.
 A menu-shaped popover is headed by its `aria-label` the same way, and a
 row of an `img` and text is menu-shaped, its item showing the bitmap fitted
