@@ -14,8 +14,7 @@ pub(crate) fn pose(w: &World, e: Entity) -> Option<Transform> {
     // The presentation offset moves the drawn pose only (exact_game::Offset).
     if let Some(offset) = w.get::<exact_game::Offset>(e) {
         let t = offset.0;
-        global = global
-            * glam::Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.position);
+        global *= glam::Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.position);
     }
     let (scale, rotation, position) = global.to_scale_rotation_translation();
     Some(Transform {
