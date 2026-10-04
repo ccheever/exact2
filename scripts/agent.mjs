@@ -703,8 +703,8 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
   refuseStale('ios', resolve(bundle, 'receipt.json'), receiptChanges(resolve(bundle, 'receipt.json'), a), `bun host/apple/build.mjs --ios ${a.crate('apple')}${hostFixture ? ' --host' : ''}`);
   const dev = simulator();
   showSimulator(dev, true); // a person watching sees what is driven, and keeps the focus
-  // Real touches (LLP 1080.000, `--touch platform`): the runner starts first, so its own launch never backgrounds the app.
-  const touches = touch === 'platform' ? await openTouches({ udid: dev.udid, appId: id ?? bundleId(a.crate('apple')), appPath: bundle, onProcess }) : null;
+  // Real touches (LLP 1080.000, `--touch platform`; `drag`, an authored test's drag alone): the runner starts first, so its own launch never backgrounds the app.
+  const touches = touch !== 'agent' ? await openTouches({ udid: dev.udid, appId: id ?? bundleId(a.crate('apple')), appPath: bundle, onProcess }) : null;
   try { install(dev, bundle, a, hostFixture); } catch (e) { await touches?.close(); throw e; }
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-'));
   const sock = resolve(dir, 'agent.sock');
@@ -768,7 +768,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
     let canvasContact = false;
     return {
       host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
-      touches,
+      touches, touch,
       ask, reveal: (id) => ask({ op: 'reveal', id }),
       async input(id, kind, opts) {
         if (kind === 'key') {
@@ -794,7 +794,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
         // never be reported as platform input (LLP 1080.000 D8).
         // One whole real gesture (LLP 1080.000 §11): only the runner makes one.
         if (kind === 'drag') return realTap({ ask, touches, id, at: opts.at, drag: opts.drag, abandon: (why) => lines.fail(why) });
-        if (touches && kind === 'press') {
+        if (touch === 'platform' && kind === 'press') {
           if (Object.values(guest).some((v) => v != null)) throw new Error('unsupported under --touch platform: a press into an iframe guest or a world entity reaches no real touch yet (LLP 1080.000 stage 1)');
           return realTap({ ask, touches, id, abandon: (why) => lines.fail(why) });
         }
@@ -907,7 +907,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   if (!['agent', 'platform'].includes(timing)) throw new Error(`timing: agent or platform, not ${timing}`);
   if (timing === 'platform') env = { ...(env ?? {}), EXACT_AGENT_TIMING: 'platform' };
   // `touch: 'platform'` (LLP 1080.000, opt-in): a plain `tap` on an iOS simulator is a real touch from the XCTest runner, `delivery: platform`.
-  if (!['agent', 'platform'].includes(touch) || (touch === 'platform' && (device || !['ios', 'host-ios'].includes(host)))) throw new Error(`touch: platform is an iOS simulator's (LLP 1080.000), not ${device ? 'a phone' : host}'s`);
+  // `touch: 'drag'`: only `tap … drag` is (§11), every other input as under `agent` — what an authored test's drag takes (chat2 diary).
+  if (!['agent', 'drag', 'platform'].includes(touch) || (touch !== 'agent' && (device || !['ios', 'host-ios'].includes(host)))) throw new Error(`touch: ${touch} is an iOS simulator's (LLP 1080.000), not ${device ? 'a phone' : host}'s`);
   // A drive has no app storage unless it names a scratch store apart from the app's real files (`--storage <name>`), kept
   // between drives: a tree under the cache base on native; on the web, Chrome's profile for it and its page's origin
   // (agent-launch.mjs `webStore`; Firefox and WebKit open a fresh one each drive). EXACT_AGENT_STORAGE_FRESH empties it.
@@ -1046,7 +1047,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
      * injects; it synthesizes no touch (LLP 1008 §9).
      */
     input: host === 'ios' || host === 'host-ios'
-      ? { contact: false, hold: false, delivery: (kind) => (['contextmenu', 'dblclick', 'hover', 'pinch'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : ['press', 'drag'].includes(kind) && carrier.touches ? 'platform' : kind === 'drag' ? 'unsupported' : 'activation') }
+      ? { contact: false, hold: false, delivery: (kind) => (['contextmenu', 'dblclick', 'hover', 'pinch'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : (kind === 'drag' && carrier.touches || kind === 'press' && carrier.touch === 'platform') ? 'platform' : kind === 'drag' ? 'unsupported' : 'activation') }
       : host === 'linux' || host === 'windows'
         ? { contact: true, hold: true, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel', 'contextmenu', 'mouse'].includes(kind) ? 'presenter' : 'platform') }
         : { contact: true, hold: true, delivery: () => 'platform' },
@@ -1362,7 +1363,7 @@ async function main(argv) {
   const [host, ...ops] = rest;
   const browser = flags.browser ?? (host === 'web' ? process.env.EXACT_WEB_BROWSER : undefined);
   if (host && flags.test) {
-    if (flags.touch && flags.touch !== 'agent') throw new Error('--test runs its own sessions, without real touches: --touch platform is not supported with --test (LLP 1080.000)');
+    if (flags.touch && flags.touch !== 'agent') throw new Error('--test runs its own sessions: a test\'s `drag` on an iOS simulator is a real gesture by itself, and every other input is the agent\'s; --touch is not taken with --test (LLP 1080.000)');
     const r = await runTests({ host, browser, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, storage: flags.storage });
     for (const t of r.results) {
       console.log(`test "${t.name}": ${t.failures.length ? 'FAIL' : 'ok'}`);

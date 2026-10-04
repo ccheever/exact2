@@ -336,7 +336,9 @@ module activated, every request in flight answered and each answer's `then`
 landed, the clock unmoved); `before data` skips the wait. `tap "id" drag dx dy` is the driver's `tap … drag` (from the
 node's middle, or `from x y` in its box, in points; `press`, `over`, `hold` in
 milliseconds; each once). It is a finger where the carrier has one (the web,
-iOS); `mouse` makes it the left button on the web, with the page's pointer
+iOS: on a simulator the touch runner's real gesture, LLP 1080.000 §11, which a
+test with a drag starts for its session; a phone has none yet and fails the
+step); `mouse` makes it the left button on the web, with the page's pointer
 `fine`, so a desktop path is what runs (iOS refuses it; macOS and Linux drag
 with the mouse anyway). A finger's drag the browser takes to scroll an
 ancestor ends in `panrelease` and a `pan cancelled` journal line naming the
