@@ -76,3 +76,38 @@ Round 1:
 
 Verdict: LAND WITH FIXES
 
+
+## Round 3 (the last), 2026-10-03
+
+- **Method:** grok as before, `--cwd` a detached worktree at the round-2 reviews commit; the shared round-3 brief (sha256 `4d02c715431af3f6df6e20fcb465458e2cc977668c1f488dbf94a2502e52273a`). Blind to astra's round 3. The first four sentences are progress narration.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** all three fixed. No fourth round:
+  1. *A capture-phase blur ends a press.* Fixed in `05b2be7a5` (astra round 3 #1, tested).
+  2. *Opacity read from a style key the presenter never writes.* Fixed in the fixup before `05b2be7a5`. `badgeText` reads `alpha`, which the present op sets, and the UIKit suite caught it too.
+  3. *Exit ghosts on the JS target.* Fixed in `05b2be7a5` (`[data-exiting]`).
+
+---
+
+I'll review the round-2 fixes only: check each prior finding against the new commit, then look for bugs those fixes introduce. Read-only.Round-2 findings are listed in both reviews. Next I’ll read the fix commit and the files it touches.The substitution change is the riskiest part. I'll check how call heads resolve against value names, then the pointer and badge paths.The round-2 fixes are in `6d251386f`. Two of them still fail, and the blur listener ends a press early.
+
+1. **Must-fix — a capture-phase `blur` ends the hold while the button is still down.** `host/web/input-glue.js:126` and `host/web-js/pointer.js:16` listen for `blur` on `window` with capture (`input-glue.js:128`, `pointer.js:18`). A `blur` targeted at an element still walks the window in the capture phase, and the handler treats every `blur` as the pointer's end. Pressing a button focuses it and blurs `document.body` after `pointerdown` and before release, so `pointerup` runs in that same press. Hold-to-record stops immediately. `host/web/tests/pointer.test.mjs:70-73` reads the log right after `mousePressed` on `#mic` and expects only `mic down`. On the JS target this also delivers `pointerup` for a focused node that is being removed: Chrome fires `blur` while the element is still connected (`host/web-js/rt.js:795-796`), so the `isConnected` check at `pointer.js:19` passes. **Fix:** treat `blur` as the end only when `ev.target === window`.
+
+2. **Must-fix — a box with `opacity=0` still becomes a visible tab badge.** `badgeText` treats a node as shown when `v.number("opacity", 1) > 0` (`host/apple/Sources/ExactKit/IOS/NavigationTabsIOS.swift:65`). That reads `style["opacity"]`. The Apple host never puts `opacity` in the style dictionary (`host/apple/src/style.rs:11-13`, `style.rs:106`); the presenter sets `v.alpha` from the present op (`host/apple/Sources/ExactKit/IOS/PresenterIOS.swift:811`) before the tab face is synced (`PresenterIOS.swift:839`). The missing key falls back to `1`, so the check always passes. Home's `faded-home` column (`apps/native-fixture/app.contract:310-311`) is a filled box whose only child is the text `"9"`, so `badgeValue` becomes `"9"`. `NavigationTabsIOSTests.swift:102` expects nil. The next face change (the selected symbol) writes that `"9"` over a hook badge (`NavigationTabsIOS.swift:248-249`), so `NavigationTabsIOSTests.swift:120` fails as well. **Fix:** require `box.alpha > 0` and `text.alpha > 0`.
+
+3. **Should-fix — the JS target still runs `pointerup` for a node kept on screen for its exit animation.** `pointer.js:19` allows the call whenever the element is connected. An exit keeps the node in the document, sets `data-exiting`, and only removes it when the animation finishes (`host/web/presence-glue.js:290-309`). `pointer-events: none` and `inert` do not stop the document listener. Releasing during that exit runs the action. The web host does not: the view is retired before it is kept (`host/web/glue.js:835`) and the fire wrapper drops it (`glue.js:550`). **Fix:** skip the call when `e.closest("[data-exiting]")` is set.
+
+Round 2 (astra):
+
+1. resolved — `Subst::values` leaves call heads alone for caller parameters, `let`s, `match` bindings, and callee parameters (`contract/syntax/src/inline/tail.rs:102`, `tail.rs:128`, `tail.rs:160`, `tail.rs:245`).
+2. not resolved: the web host suppresses a retired view; the JS target still calls `pointerup` for an exit ghost (finding 3), and a removal `blur` runs it while the element is still connected (finding 1).
+3. resolved — both web paths return before claiming when the element has a `disabled` attribute (`input-glue.js:134`, `pointer.js:23`); the disabled `div` case is in `pointer.test.mjs:98-102`.
+4. resolved — `holdsLeaves` rejects a box that still has a flat leaf (`FlatLeavesIOS.swift:52`, `NavigationTabsIOS.swift:68`). The Home pill is a text plus a dot; if that dot is a view instead, the child count is 2 and it is rejected the same way.
+5. not resolved: the opacity check reads a style key the presenter never writes (finding 2).
+
+Round 2 (grok):
+
+1. resolved — same disabled-attribute check as astra 3.
+2. resolved — a `pointerout` with no related target, or a related target whose `localName` is `iframe`, ends the hold (`input-glue.js:126`, `pointer.js:16`). Finding 1 is the capture-phase `blur` ending a press that is still down.
+
+Verdict: LAND WITH FIXES
+

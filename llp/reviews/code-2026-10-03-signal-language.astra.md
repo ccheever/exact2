@@ -77,3 +77,35 @@ Astra round-1 #10: not resolved completely: flattened children and transparent c
 Source review only apart from the permitted cap check; runtime tests were not run. No files modified.
 
 Verdict: LAND WITH FIXES
+
+## Round 3 (the last), 2026-10-03
+
+- **Method:** `codex exec` as before, `-C` a detached worktree at the round-2 reviews commit; brief sha256 `4d02c715431af3f6df6e20fcb465458e2cc977668c1f488dbf94a2502e52273a` (the round-2 fixes, `6d251386f`). Blind to grok's round 3.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** all four fixed in `05b2be7a5` (and the opacity fixup before it). No fourth round (rules/RULES.md, three rounds):
+  1. *A focus change ends a hold.* Fixed. `blur` is heard on the window without capture and only when the window is the target. The Chrome test moves focus during a hold and expects only the down.
+  2. *Exiting nodes run their up on the JS target.* Fixed. `pointer.js` skips an element inside `[data-exiting]` as well as a removed one.
+  3. *Another contact's `pointerout`.* Fixed. Every pointer event must be the held pointer's, `pointerout` included.
+  4. *The badge negatives masked each other.* Fixed. The transparent box is alone on Home. The flat-leaf pill sits beside Second's real badge, where its being taken would make two boxes and no "1". Each fails on its own.
+
+---
+
+1. **Must-fix — Changing element focus prematurely ends a hold.** Both [input-glue.js:137](/tmp/rv-lang3/host/web/input-glue.js:137) and [pointer.js:26](/tmp/rv-lang3/host/web-js/pointer.js:26) register `window`’s blur listener in capture mode, so it receives descendant blur events too. Focus the message input, then hold the mic: the input blurs and immediately triggers `pointerup`, stopping recording before release. **Fix:** accept blur only when `event.target === window`, or register that listener without capture.
+
+2. **Must-fix — Exiting nodes still execute their JS-target release callback.** [pointer.js:19](/tmp/rv-lang3/host/web-js/pointer.js:19) checks only `isConnected`, but [rt.js:835](/tmp/rv-lang3/host/web-js/rt.js:835) keeps removed nodes connected during exit animations. If down removes a control or its ancestor with an exit animation, releasing before the animation finishes still executes its up action—for example, submitting a recording after navigation. **Fix:** suppress callbacks for retired owners and descendants of `[data-exiting]`, and clear their hold/listeners on disposal.
+
+3. **Should-fix — Another contact’s `pointerout` cancels the primary hold.** The `pointerout` branches in [input-glue.js:126](/tmp/rv-lang3/host/web/input-glue.js:126) and [pointer.js:16](/tmp/rv-lang3/host/web-js/pointer.js:16) bypass the pointer-ID check. Hold the mic with the primary finger, then touch and lift a second finger: its non-hover `pointerout` with null `relatedTarget` ends the primary recording. **Fix:** require the held pointer ID for every pointer event, including `pointerout`; handle window blur separately.
+
+4. **Should-fix — The badge regression fixture masks both original failures together.** [app.contract:307](/tmp/rv-lang3/apps/native-fixture/app.contract:307) puts the flattened-dot pill and transparent count on the same tab. With the pre-fix matcher, both qualify, so [NavigationTabsIOS.swift:56](/tmp/rv-lang3/host/apple/Sources/ExactKit/IOS/NavigationTabsIOS.swift:56) returns nil because there are two candidates. Consequently, [NavigationTabsIOSTests.swift:102](/tmp/rv-lang3/host/apple/tests/ExactKitTests/NavigationTabsIOSTests.swift:102) passes while both bugs remain. **Fix:** exercise each negative case independently, including changing a valid badge’s opacity to zero.
+
+`bun scripts/caps.mjs` passed. In-memory pointer probes confirmed findings 1–3’s handler paths; browser, Rust and UIKit suites were not run. No files modified.
+
+Astra round-2 #1: resolved.  
+Astra round-2 #2: not resolved: connected exit-animation nodes still receive JS-target callbacks (finding 2).  
+Astra round-2 #3: resolved.  
+Astra round-2 #4: resolved.  
+Astra round-2 #5: resolved.  
+Grok round-2 #1: resolved.  
+Grok round-2 #2: resolved; the added termination paths introduce findings 1 and 3.
+
+Verdict: LAND WITH FIXES
