@@ -59,7 +59,7 @@ wgpu = { version = "29", default-features = false, features = ["wgsl", "metal", 
 [target.'cfg(target_os = "android")'.dependencies]
 raw-window-handle = "0.6"
 jni-sys = "0.3"
-mimalloc = { version = "0.1", default-features = false, features = ["local_dynamic_tls"] }
+mimalloc = { version = "0.1", default-features = false, features = ["local_dynamic_tls", "v2"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 drm = "0.15"
