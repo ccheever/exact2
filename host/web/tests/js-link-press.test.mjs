@@ -11,10 +11,11 @@ import { resolve } from 'node:path';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-press-'));
 copyFileSync(resolve(new URL('../../web-js/rt.js', import.meta.url).pathname), resolve(dir, 'rt.js'));
-for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace'], 'shape.js': ['conforms', 'eq'], 'pointer.js': ['pointer'], 'commands.js': ['commands'],
+for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'animationClocks', 'launchLocation'], 'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece'], 'shape.js': ['conforms', 'eq'], 'pointer.js': ['pointer'], 'commands.js': ['commands'],
   'paint.js': ['paintList', 'paintFacts', 'paintFlush', 'paintOwn'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
   'svg-transform.js': ['svgTransform'], 'dataset.js': ['ds'], 'hooks.js': ['hk'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber'] }))
   writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n'));
+writeFileSync(resolve(dir, 'media.js'), ['media', 'mediaProp', 'mediaOn', 'mediaPiece'].map(n => `export const ${n} = () => {};`).join('\n') + '\nexport const MEDIA_EVENTS = new Set();');
 
 class Link {
   constructor(attrs) { this.localName = 'a'; this.attrs = new Map(Object.entries(attrs)); this.listeners = []; }

@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { render, sourceMapReader, identifyInspectedNode, heldTicket, holdOf } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync, serveBuildTree } from './serve.mjs';
-import { focusController, placeReporter, timeReporter, pageReporter, viewBox, grantOrigins } from './navigation.js';
+import { focusController, placeReporter, timeReporter, pageReporter, viewBox, grantOrigins, launchLocation } from './navigation.js';
 import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
@@ -243,7 +243,7 @@ function fixture(agentMode = true) {
   const root = { dataset: {}, replaceChildren() { events.push('replace'); } };
   const context = vm.createContext({ events, agentMode, root, views: new Map([[1, el]]),
     state, outline, logs, textflow: null, flowLoading: null, flowContexts: [], flowDue: null, flowFrames: false, present() {}, lists: new Map(),
-    Date: { now: () => 123 }, performance: { now: () => 10 }, TextEncoder, Uint8Array,
+    Date: class extends Date { static now() { return 123; } }, performance: { now: () => 10 }, TextEncoder, Uint8Array,
     HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {}, HTMLVideoElement: class {}, HTMLMediaElement: class {},
     foldBits: () => 0 /* no fold posture (LLP 1078 D6) */,
     document: { activeElement: null, body: {}, querySelector: () => null },
@@ -279,8 +279,9 @@ function fixture(agentMode = true) {
     page: null, // a built document's boot (LLP 1048.000 D6); these pages have none
     loadStage: () => Promise.resolve(), stageLoaded: () => true, // every stage linked (LLP 1047.000 §9)
     preferences: () => '{}', localAssetURL: source => source,
+    launchLocation: () => launchLocation(context), // the launch path less the drive's facts (feed F16)
   });
-  vm.runInContext(`const viewBox = ${viewBox};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
+  vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   context.reportPlace = placeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   context.reportTime = timeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   return context;
@@ -865,7 +866,7 @@ async function startupFixture(rustOnly = false) {
     requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
     applyBatch: () => events.push('batch'), inertAncestor: () => false, focusAutofocus() {},
-    resolveModuleReady: () => events.push('ready'), page: null, pageNative: undefined,
+    resolveModuleReady: () => events.push('ready'), page: null, pageNative: undefined, log() {}, // the input piece's journal (a cancelled pan's line)
     loadAfterPaint(file) {
       loads.push(file);
       if (file === './input-glue.js') return input.promise;
