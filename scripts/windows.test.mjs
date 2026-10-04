@@ -2,17 +2,28 @@ import {test, expect} from 'bun:test';
 import assert from 'node:assert/strict';
 import {spawn, spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
+import {EventEmitter} from 'node:events';
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {closeFilesystemReader, filesystem, filesystemErrorCode} from './filesystem.mjs';
-import {Cdp, chromium, closeWindowsBrowser, packagedBuildChanges, removeBrowserProfile} from './agent-launch.mjs';
+import {Cdp, chromium, closeWindowsBrowser, retainCleanupError, packagedBuildChanges, removeBrowserProfile} from './agent-launch.mjs';
 import {browserKey, open} from './agent.mjs';
 import {cdpKey, withHeldModifiers} from './agent-keys.mjs';
 import {runCaps} from './caps.mjs';
 import {binaryenArchive, binaryenVersion} from './exact.mjs';
 import {listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
 import {gameShells} from '../game/app/shells.mjs';
+
+test('startup failure retains the cleanup error and its owned helper handle', () => {
+  const cause=new Error('original cause'), original=new Error('original operation',{cause});
+  const helper={pid:123}, cleanup=Object.assign(new Error('cleanup refused'),{ownedHelper:helper});
+  retainCleanupError(original,cleanup);
+  expect(original.message).toBe('original operation; cleanup: cleanup refused');
+  expect(original.cause).toBe(cause);
+  expect(original.cleanupError).toBe(cleanup);
+  expect(original.cleanupError.ownedHelper).toBe(helper);
+});
 
 test.skipIf(process.platform !== 'win32')('owned Chrome refusal preserves live process/profile and bounded shutdown evidence', async () => {
   const profile=mkdtempSync(resolve(tmpdir(),'exact-close-refusal-'));
@@ -31,13 +42,16 @@ test.skipIf(process.platform !== 'win32')('owned Chrome refusal preserves live p
     const began=performance.now();
     await assert.rejects(closeWindowsBrowser(child,refused,exited,profile,pid=>{
       expect(pid).toBe(child.pid); calls++;
-      return {status:5,signal:null,error:new Error('fixture helper denied'),stdout:'x'.repeat(5000),stderr:'permission denied'};
+      return spawn(process.execPath,['-e','process.stdout.write("x".repeat(5000));process.stderr.write("permission denied");process.exit(5)'],
+        {windowsHide:true,stdio:['ignore','pipe','pipe']});
     }),error=>{
       expect(error.message).toContain(`Chrome ${child.pid} did not exit; owned profile retained at ${profile}`);
       const detail=JSON.parse(error.message.split('; shutdown ')[1]);
       expect(detail.cdp.error).toBe('fixture close rejected');
       expect(detail.taskkill.status).toBe(5);
-      expect(detail.taskkill.error).toBe('fixture helper denied');
+      expect(detail.taskkill.error).toBeNull();
+      expect(detail.taskkill.pid).toBeGreaterThan(0);
+      expect(detail.taskkill.deadline).toBe(false);
       expect(detail.taskkill.stdout.length).toBe(2048);
       expect(detail.taskkill.stderr).toBe('permission denied');
       expect(detail.exitCode).toBeNull(); expect(detail.signalCode).toBeNull();
@@ -76,6 +90,78 @@ test.skipIf(process.platform !== 'win32')('owned Chrome forced close requires th
     await removeBrowserProfile(profile);
   }
 },30000);
+
+for (const mode of ['delayed-exit','slow-helper','unconfirmed-helper']) {
+  test.skipIf(process.platform !== 'win32')(`owned Chrome async termination: ${mode}`, async () => {
+    const profile=mkdtempSync(resolve(tmpdir(),'exact-close-async-'));
+    const marker=resolve(profile,'owned-marker'); writeFileSync(marker,'keep');
+    const child=spawn(chromium().executable,['--headless=new','--remote-debugging-pipe',`--user-data-dir=${profile}`,
+      '--no-sandbox','--no-first-run','--disable-background-networking','about:blank'],
+      {detached:true,windowsHide:true,stdio:['ignore','ignore','pipe','pipe','pipe']});
+    child.stderr.on('data',()=>{});
+    const cdp=new Cdp(child.stdio[3],child.stdio[4]);
+    const exited=new Promise(resolve=>child.once('exit',resolve));
+    child.on('exit',()=>cdp.fail('owned Chrome exited'));
+    let helper, helperExited, pulse, closeTimer, lateClose;
+    let pulses=0, helperStarted, killedAt, exitedAt, killCalls=0;
+    try {
+      await cdp.send('Browser.getVersion');
+      const closing=closeWindowsBrowser(child,{send:async()=>{throw new Error('fixture delays close');}},exited,profile,pid=>{
+        expect(pid).toBe(child.pid);
+        helperStarted=performance.now();
+        helper=spawn(process.execPath,['-e',`setTimeout(()=>process.exit(7),${mode==='delayed-exit'?800:30000})`],
+          {windowsHide:true,stdio:['ignore','pipe','pipe']});
+        helperExited=new Promise(resolve=>helper.once('exit',()=>{exitedAt=performance.now();resolve();}));
+        const kill=helper.kill.bind(helper);
+        helper.kill=signal=>{killCalls++;killedAt=performance.now();return kill(signal);};
+        pulse=setInterval(()=>pulses++,20);
+        closeTimer=setTimeout(()=>{lateClose=cdp.send('Browser.close').catch(error=>error);},100);
+        if(mode==='unconfirmed-helper') {
+          // The real helper stays alive; the injected process boundary refuses
+          // termination and supplies no exit. Cleanup below still owns its handle.
+          return Object.assign(new EventEmitter(),{pid:helper.pid,exitCode:null,signalCode:null,
+            stdout:helper.stdout,stderr:helper.stderr,kill:()=>false});
+        }
+        return helper;
+      });
+      if(mode==='unconfirmed-helper') {
+        await assert.rejects(closing,error=>{
+          expect(error.message).toContain(`Chrome termination helper ${helper.pid} did not exit`);
+          expect(error.ownedHelper.pid).toBe(helper.pid);
+          const detail=JSON.parse(error.message.split('; shutdown ')[1]);
+          expect(detail.taskkill.deadline).toBe(true);
+          expect(detail.taskkill.killSent).toBe(false);
+          expect(detail.taskkill.status).toBeNull(); expect(detail.taskkill.signal).toBeNull();
+          expect(detail.exitCode!==null || detail.signalCode!==null).toBe(true);
+          return true;
+        });
+        expect(helper.exitCode).toBeNull(); expect(helper.signalCode).toBeNull();
+        expect(readFileSync(marker,'utf8')).toBe('keep');
+        expect(performance.now()-helperStarted).toBeLessThan(5500);
+      } else {
+        await closing;
+        expect(child.exitCode!==null || child.signalCode!==null).toBe(true);
+        expect(helper.exitCode!==null || helper.signalCode!==null).toBe(true);
+        if(mode==='delayed-exit') {
+          expect(killCalls).toBe(0); expect(helper.exitCode).toBe(7);
+          expect(exitedAt-helperStarted).toBeGreaterThanOrEqual(750);
+        } else {
+          expect(killCalls).toBe(1);
+          expect(killedAt-helperStarted).toBeGreaterThanOrEqual(1900);
+          expect(killedAt-helperStarted).toBeLessThan(3500);
+          expect(pulses).toBeGreaterThan(30);
+        }
+      }
+    } finally {
+      clearInterval(pulse); clearTimeout(closeTimer);
+      await lateClose;
+      if(helper && helper.exitCode===null && helper.signalCode===null) helper.kill('SIGKILL');
+      if(helperExited) await helperExited;
+      if(child.exitCode===null && child.signalCode===null) await closeWindowsBrowser(child,cdp,exited,profile);
+      await removeBrowserProfile(profile);
+    }
+  },30000);
+}
 
 test.skipIf(process.platform !== 'win32')('owned browser profile cleanup retries a real sharing lock and refuses a persistent one', async () => {
   const root=mkdtempSync(resolve(tmpdir(),'exact-browser-cleanup-'));
