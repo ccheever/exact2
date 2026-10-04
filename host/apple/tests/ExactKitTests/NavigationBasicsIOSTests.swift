@@ -86,6 +86,11 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertFalse(view.subtitle.isHidden)
         XCTAssertEqual(view.avatar.image?.size, CGSize(width: 32, height: 32), "the avatar at the size the author gave its box (headerBoxSize)")
         XCTAssertFalse(view.avatar.isHidden)
+        // Dark mode keeps the box: the asset's dark variant once drew at 3x.
+        view.window?.overrideUserInterfaceStyle = .dark
+        view.layoutIfNeeded()
+        XCTAssertEqual(view.avatar.bounds.size, CGSize(width: 32, height: 32), "the avatar's box in dark mode")
+        view.window?.overrideUserInterfaceStyle = .unspecified
         XCTAssertEqual(view.accessibilityIdentifier, "title-group")
         XCTAssertTrue(view.accessibilityTraits.contains(.button))
         XCTAssertEqual(view.accessibilityValue, "Online")

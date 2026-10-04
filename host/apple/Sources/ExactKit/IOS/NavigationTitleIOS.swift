@@ -73,6 +73,11 @@ final class HeaderTitleView: UIControl {
     private var tap: UInt32?
     let avatar = UIImageView(), title = UILabel(), subtitle = UILabel()
     private let stack = UIStackView(), texts = UIStackView()
+    /// The avatar's box, its face's size: the image's own size is not to be
+    /// trusted, as its dark variant from the asset came back at 1x and drew
+    /// the avatar three times too large in dark mode.
+    private lazy var avatarWidth = avatar.widthAnchor.constraint(equalToConstant: BadgeFace.size)
+    private lazy var avatarHeight = avatar.heightAnchor.constraint(equalToConstant: BadgeFace.size)
 
     init(host: NavigationHost) {
         self.host = host
@@ -90,6 +95,7 @@ final class HeaderTitleView: UIControl {
         stack.spacing = 8
         stack.addArrangedSubview(avatar)
         stack.addArrangedSubview(texts)
+        NSLayoutConstraint.activate([avatarWidth, avatarHeight])
         stack.isUserInteractionEnabled = false
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
@@ -112,6 +118,8 @@ final class HeaderTitleView: UIControl {
         tap = group.tap
         avatar.image = group.avatar?.image
         avatar.isHidden = group.avatar == nil
+        avatarWidth.constant = group.avatar?.size ?? 0
+        avatarHeight.constant = group.avatar?.size ?? 0
         title.text = text
         subtitle.text = group.subtitle
         subtitle.isHidden = group.subtitle.isEmpty
