@@ -33,6 +33,8 @@ tested against it, differentially and at random.
 | `Contract/Expand.lean` | The component expander, transcribing `contract_syntax::inline` (inline.rs, subst.rs, derives.rs, tail.rs). |
 | `Contract/ExpandCheck.lean` | The Lean half of `difftest expansion`. |
 | `Contract/CompSemFacts.lean`, `ExpandSubst{,Rev}.lean`, `ExpandFrame.lean`, `ExpandInstance.lean`, `ExpandMap.lean` | The expansion's correctness proofs (below). |
+| `Contract/EnvSound.lean`, `SettleSound.lean`, `SettleComplete.lean`, `RenderSound.lean` | Well-typed environments give `EnvOK`; settlement and rendering preserve typing and fail only legitimately; a settlement that succeeds has settled everything. |
+| `Contract/StepSound.lean`, `BootSound.lean` | Well-typed programs don't go wrong: boot and every step from a reachable configuration are safe, and every reachable configuration is well typed. |
 | `difftest/` | The differential tester (Rust crate `contract-difftest`). |
 | `corpus/` | Scripted programs: `test` blocks whose steps both sides run. |
 | `Apps/` | Real apps' embeddings (generated, checked current by `difftest apps`) and, under `Apps/Proofs/`, invariants proved of them. |
@@ -462,14 +464,24 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
   locals match `Γ` (`LocalsOK`), then `eval n env false ls e` is a value
   `v` with `ValTy p v τ`, or an error that is `pending`, `unsupported` or
   `refused` — never a type error, never an unbound name. `ValTy` has no
-  finiteness: `1 / 0` is a value inside an evaluation.
+  finiteness: `1 / 0` is a value inside an evaluation. `eval_sound_E`,
+  `exec_sound_E`: the same for any kind of failure `E` the environment
+  keeps to (`EnvOKE`); with `E` excluding `pending`, an evaluation where
+  every name it reads has settled never answers `pending` (no roster entry
+  or operator does: `stdlib_notPending`, `binop_notPending`).
 - `exec_sound_ty`: a well-typed action body run the same way asks only for
   writes of values of the target slots' types (root and row writes), sends
   to mutations, or fails legitimately.
 - `check_sound`: `check p = true → WellTyped p`. Beyond types, both ask
   what the Rust analyzer asks of a task (`analyze-unknown-action`,
   `analyze-handler-arity`): it names an action of no parameters, else a
-  timer would fire an unbound name.
+  timer would fire an unbound name; and what the compiler asks of a
+  task's interval (`lower-timer-literal`: a number literal). A derive's
+  body and a resource's arguments are typed in `settleScope`, the
+  component scope without the states lifted from children (`lifted`: late
+  or arm-owned), whose names (`x#N`) the root's source cannot write;
+  `pending(x)`/`failed(x)` name a resource in scope (the checker's
+  `scope.lookup`), so a root initializer cannot ask after one.
 - `reachable_slotsOK` and `reachable_valTy` (`TypeInvariant.lean`, over
   `Contract.Reachable`): in every configuration a well-typed program
   reaches, each root slot is a state or mutation holding a value of its
@@ -492,7 +504,10 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
   when it was asked), and, when the slots are well typed for the scope the
   bodies are typed in, fails only legitimately — by induction over
   `settle`'s passes and its two loops, each derive evaluated by
-  `eval_sound_ty` under the derives settled so far.
+  `eval_sound_ty` under the derives settled so far; and it never fails
+  `pending` (`settle_strict`: it waits on those).
+- `settle_complete` (`SettleComplete.lean`): a settlement that succeeds has
+  settled every derive and every resource.
 - `render_good` (`RenderSound.lean`): a well-typed view (`NodesTy`)
   rendered in a well-typed environment and row store fails only
   legitimately (a non-finite row key or row slot initializer, an
@@ -511,15 +526,23 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
   configuration and commits, or refuses or poisons for a `Legitimate`
   reason (`refused`: the data seam, a non-finite number at a boundary, the
   host's input, the router, a row slot outside its row, a settlement
-  cycle, fuel or the timer fire limit, an earlier poison; `unsupported`;
-  `pending`). `handler_args_good` and `curried_conform`: a handler's
+  cycle, fuel or the timer fire limit, an earlier poison; `unsupported`) —
+  never `pending`: `ConfigOK` carries that every derive and resource has
+  settled, so actions, handlers and rendering read settled values. `handler_args_good` and `curried_conform`: a handler's
   curried arguments evaluate to values of its action's leading parameter
   types, so the action's argument check refuses them only for a non-finite
   number; the rest of that check is about the host's payload.
-- `dont_go_wrong`: **for `check p = true`, every reachable configuration
-  is well typed, and every event from it lands in a well-typed
-  configuration and either commits or fails for a `Legitimate` reason —
-  never a type error, never an unbound name.**
+- `boot_sound` (`BootSound.lean`): boot commits or is refused for a
+  `Legitimate` reason. Each root initializer reads only the slots before
+  it (`rootScope`), the intervals are literals, settlement reads no late
+  slot (`settleScope`; the late slots still hold `()`), and each late
+  initializer reads the settled values and the late slots before it
+  (`lateScope`, `lateScope_not_late`).
+- `dont_go_wrong`, `never_wrong`: **for `check p = true`, boot and every
+  event from a reachable configuration, whatever the oracle answers,
+  commit or fail for a `Legitimate` reason — never a type error, an
+  unbound name or a `pending` read — and every reachable configuration is
+  well typed.**
 - Numbers (`Binary64Facts.lean`). A finite double `y` is the integer
   `y.scaled` times `2^-1074`, and an operation's exact result `±a / (d *
   2^1074)`, so distances are compared in integers. `round_nearest`: the
@@ -544,13 +567,7 @@ router (a source can answer one): a verb or read of it traps, which the
 semantics gives as a refusal (`Route.verb`, `Route.read`; likewise
 `searchParam` of an invalid entry), not a type error.
 
-Left out: that `pending` never happens after settlement (settlement
-completes every derive and resource, but that and the absence of `pending`
-reads from a complete environment are not proved, so `pending` stays among
-the `Legitimate` reasons); that boot fails only legitimately (boot lands in
-a `ConfigOK` configuration, `boot_configOK`, but its settlement and timers
-read late slots that still hold `()`, so a derive or task reading one can
-meet a type error there). The judgments accept a `?` operand
+Left out: the judgments accept a `?` operand
 where the Rust checker defers it (no value has type `?`), check only what
 the semantics evaluates of a view (a `text`'s text, `testId`, handlers,
 regions), type a command's arguments without its host signature, and check

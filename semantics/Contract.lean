@@ -31,6 +31,7 @@ import Contract.TypeInvariant
 import Contract.EnvSound
 import Contract.SettleSound
 import Contract.RenderSound
+import Contract.SettleComplete
 import Contract.StepSound
 import Contract.Components
 import Contract.CompSem
@@ -42,3 +43,4 @@ import Contract.ExpandSubstRev
 import Contract.ExpandFrame
 import Contract.ExpandInstance
 import Contract.ExpandMap
+import Contract.BootSound

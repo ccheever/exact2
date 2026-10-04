@@ -31,6 +31,43 @@ theorem GoodR.bind {α β} {P : α → Prop} {Q : β → Prop} {r : Result α} {
   | ok a => exact hf a h
   | error e => exact h
 
+/-- A value with property `P`, or a failure with property `E`. `GoodR P`
+is `GoodW Legit P`. -/
+def GoodW {α} (E : Err → Prop) (P : α → Prop) : Result α → Prop
+  | .ok a => P a
+  | .error e => E e
+
+theorem GoodW.bind {α β} {E : Err → Prop} {P : α → Prop} {Q : β → Prop} {r : Result α}
+    {f : α → Result β} (h : GoodW E P r) (hf : ∀ a, P a → GoodW E Q (f a)) : GoodW E Q (r >>= f) := by
+  cases r with
+  | ok a => exact hf a h
+  | error e => exact h
+
+theorem GoodW.mono {α} {E E' : Err → Prop} {P Q : α → Prop} {r : Result α} (h : GoodW E P r)
+    (he : ∀ e, E e → E' e) (hq : ∀ a, P a → Q a) : GoodW E' Q r := by
+  cases r with
+  | ok a => exact hq a h
+  | error e => exact he e h
+
+theorem GoodW.imp {α} {E : Err → Prop} {P Q : α → Prop} {r : Result α} (h : GoodW E P r)
+    (hq : ∀ a, P a → Q a) : GoodW E Q r := h.mono (fun _ h => h) hq
+
+theorem GoodW.of_goodR {α} {P : α → Prop} {r : Result α} (h : GoodR P r) : GoodW Legit P r := by
+  cases r <;> exact h
+
+theorem GoodR.of_goodW {α} {P : α → Prop} {r : Result α} (h : GoodW Legit P r) : GoodR P r := by
+  cases r <;> exact h
+
+/-- A result that is not `pending`. -/
+def NotPending {α} (r : Result α) : Prop := ∀ e, r = .error e → e ≠ .pending
+
+/-- A legitimate failure that is not `pending`, as any `E` admitting those. -/
+theorem GoodR.toW {α} {E : Err → Prop} {P : α → Prop} {r : Result α}
+    (hE : ∀ e, Legit e → e ≠ .pending → E e) (h : GoodR P r) (hn : NotPending r) : GoodW E P r := by
+  cases r with
+  | ok a => exact h
+  | error e => exact hE e h (hn e rfl)
+
 /-- Values pairwise of types. -/
 def ValTyL (p : Program) : List Value → List Ty → Prop
   | [], [] => True
@@ -485,6 +522,21 @@ body (`inFn`) reads no component name. -/
 def Ctx (p : Program) (G : Scope) (env : Env) (inFn : Bool) (Γ : Scope) (ls : Locals) : Prop :=
   EnvOK p G env ∧ (inFn = true → G = []) ∧ LocalsOK p Γ ls
 
+/-- `EnvOK` with failures of kind `E`, and `pending(x)`/`failed(x)` of a
+resource in scope answered or failing as `E` admits. With `E := Legit`
+this is `EnvOK`; with `E` excluding `pending` it says the environment is
+settled for every name `G` reads. -/
+def EnvOKE (p : Program) (E : Err → Prop) (G : Scope) (env : Env) : Prop :=
+  env.prog = p ∧ (∀ x t, lookupTy x G = .some t → GoodW E (ValTy p · t) (env.global x)) ∧
+    ∀ x, (lookupTy x G).isSome = true → isResource p x = true →
+      (lookup x env.resources).isSome = true ∨ E .pending
+
+def CtxE (p : Program) (E : Err → Prop) (G : Scope) (env : Env) (inFn : Bool) (Γ : Scope) (ls : Locals) : Prop :=
+  EnvOKE p E G env ∧ (inFn = true → G = []) ∧ LocalsOK p Γ ls
+
+theorem EnvOK.envOKE {p : Program} {G env} (h : EnvOK p G env) : EnvOKE p Legit G env :=
+  ⟨h.1, fun x t hx => GoodW.of_goodR (h.2 x t hx), fun _ _ _ => .inr trivial⟩
+
 theorem LocalsOK.nil {p : Program} : LocalsOK p [] [] := fun x => by simp [lookupTy, lookup]
 
 theorem LocalsOK.cons {p : Program} {Γ ls x t v} (h : LocalsOK p Γ ls) (hv : ValTy p v t) :
@@ -648,44 +700,149 @@ theorem stdlib_path {env : Env} {p : Program} {rn : String} {route : RouteDecl}
   · exact .inl (hvt.mono ht).str_inv
   · exact .inr (hvt.mono ht).num_inv
 
-theorem ty_sound_aux {p : Program} (hfn : ProgOK p) : ∀ n,
-    (∀ {G env inFn Γ ls e t}, Ctx p G env inFn Γ ls → HasTy p G Γ e t →
-      GoodR (ValTy p · t) (eval n env inFn ls e)) ∧
-    (∀ {G env inFn Γ ls es ts}, Ctx p G env inFn Γ ls → ListTy p G Γ es ts →
-      GoodR (ValTyL p · ts) (evalList n env inFn ls es)) ∧
-    (∀ {G env inFn Γ ls es ts}, Ctx p G env inFn Γ ls → ListTy p G Γ es ts →
-      (∀ t ∈ ts, t.displayable = true) → GoodR (fun _ => True) (evalDisplays n env inFn ls es)) ∧
-    (∀ {G env inFn Γ ls ps body a b xs i}, Ctx p G env inFn Γ ls → HasTy p G (bindTy ps a Γ) body b →
-      ValTys p xs a → GoodR (ValTys p · b) (evalMap n env inFn ls ps body xs i)) ∧
-    (∀ {G env inFn Γ ls ps body a b xs i}, Ctx p G env inFn Γ ls → HasTy p G (bindTy ps a Γ) body b →
-      b.le .bool = true → ValTys p xs a → GoodR (ValTys p · a) (evalFilter n env inFn ls ps body xs i)) ∧
-    (∀ {G env inFn Γ ls written wts base fs i}, Ctx p G env inFn Γ ls → NamedTy p G Γ written wts →
+/-! ## Where `pending` comes from
+
+Only a read of a derive or resource not settled yet is `pending`: no roster
+entry and no operator answers it. -/
+
+theorem NotPending.ok {α} (a : α) : NotPending (Except.ok a : Result α) := fun _ h => nomatch h
+
+theorem NotPending.err {α} {e : Err} (h : e ≠ .pending) : NotPending (Except.error e : Result α) :=
+  fun _ h' => by cases h'; exact h
+
+theorem NotPending.bind {α β} {r : Result α} {f : α → Result β} (h : NotPending r)
+    (hf : ∀ a, NotPending (f a)) : NotPending (r >>= f) := by
+  cases r with
+  | ok a => exact hf a
+  | error e => intro e' he'; cases he'; exact h e rfl
+
+theorem NotPending.mapM {α β} {f : α → Result β} (hf : ∀ a, NotPending (f a)) :
+    ∀ (xs : List α), NotPending (xs.mapM f)
+  | [] => NotPending.ok _
+  | x :: xs => by
+    simp only [List.mapM_cons]
+    exact NotPending.bind (hf x) fun _ => NotPending.bind (NotPending.mapM hf xs) fun _ => NotPending.ok _
+
+theorem display_notPending (v : Value) : NotPending v.display := by
+  cases v <;> first | exact NotPending.ok _ | exact NotPending.err (by simp)
+
+theorem pathValue_notPending (t : Route.Table) (name : String) (vs : List Value) :
+    NotPending (Route.pathValue t name vs) := by
+  have go : ∀ segs first xs, NotPending (Route.pathValue.go first segs xs) := by
+    intro segs
+    induction segs with
+    | nil => intro _ _; exact NotPending.ok _
+    | cons seg segs ih =>
+      intro first xs
+      simp only [Route.pathValue.go]
+      have k : ∀ r : Result (String × List String), NotPending r → NotPending (do
+          let __x ← r
+          let __do_lift ← Route.pathValue.go false segs __x.snd
+          pure ((if first = true then "" else "/") ++ __x.fst ++ __do_lift)) :=
+        fun r hr => NotPending.bind hr fun _ => NotPending.bind (ih _ _) fun _ => NotPending.ok _
+      split
+      · split
+        · split
+          · exact k _ (NotPending.ok _)
+          · exact k _ (NotPending.err (by simp))
+        · exact k _ (NotPending.err (by simp))
+      · exact k _ (NotPending.ok _)
+  unfold Route.pathValue
+  split
+  · refine NotPending.bind (NotPending.mapM (fun v => ?_) _) fun _ => ?_
+    · split <;> first | exact NotPending.ok _ | exact NotPending.err (by simp)
+    · cases h : Route.pathValue.go true (Route.split _ '/') _ with
+      | ok s => exact NotPending.ok _
+      | error e => have := go _ _ _ e h; exact NotPending.err this
+  · exact NotPending.err (by simp)
+
+theorem verb_notPending (t : Route.Table) (v : Value) (f : Route.Router → Route.Verb) :
+    NotPending (Route.verb t v f) := by
+  unfold Route.verb
+  split
+  · split <;> exact NotPending.ok _
+  · exact NotPending.err (by simp)
+
+theorem read_notPending (t : Route.Table) (v : Value) (f : Route.Router → Option Value) :
+    NotPending (Route.read t v f) := by
+  unfold Route.read
+  split
+  · exact NotPending.ok _
+  · exact NotPending.err (by simp)
+
+theorem stdlib_notPending (env : Env) (f : String) (args : List Value) : NotPending (stdlib env f args) := by
+  unfold stdlib
+  split
+  all_goals try dsimp only
+  all_goals first
+    | exact NotPending.ok _
+    | exact NotPending.err (by simp)
+    | exact verb_notPending _ _ _
+    | exact read_notPending _ _ _
+    | exact pathValue_notPending _ _ _
+    | skip
+  all_goals first
+    | (cases h : Value.display _ with
+       | ok s => simp [Functor.map, Except.map]; exact NotPending.ok _
+       | error e => simp [Functor.map, Except.map]; exact NotPending.err (display_notPending _ e h))
+    | (intro e he; repeat' split at he
+       all_goals (simp at he; done))
+    | (split <;> first | exact NotPending.ok _ | exact NotPending.err (by simp))
+    | (split
+       · exact NotPending.ok _
+       · refine NotPending.bind (NotPending.mapM (fun v => ?_) _) fun _ => NotPending.ok _
+         split <;> first | exact display_notPending _ | exact NotPending.err (by simp))
+
+theorem binop_notPending (op : BinOp) (a b : Value) : NotPending (binop op a b) := by
+  unfold binop
+  cases op <;> simp only
+  all_goals first
+    | exact NotPending.err (by simp)
+    | (split <;> first | exact NotPending.ok _ | exact NotPending.err (by simp))
+    | (cases Value.equal a b <;> first | exact NotPending.ok _ | exact NotPending.err (by simp))
+    | skip
+  all_goals (split <;> (try split) <;> first | exact NotPending.ok _ | exact NotPending.err (by simp))
+
+theorem ty_sound_aux {p : Program} (hfn : ProgOK p) {E : Err → Prop}
+    (hE : ∀ e, Legit e → e ≠ .pending → E e) : ∀ n,
+    (∀ {G env inFn Γ ls e t}, CtxE p E G env inFn Γ ls → HasTy p G Γ e t →
+      GoodW E (ValTy p · t) (eval n env inFn ls e)) ∧
+    (∀ {G env inFn Γ ls es ts}, CtxE p E G env inFn Γ ls → ListTy p G Γ es ts →
+      GoodW E (ValTyL p · ts) (evalList n env inFn ls es)) ∧
+    (∀ {G env inFn Γ ls es ts}, CtxE p E G env inFn Γ ls → ListTy p G Γ es ts →
+      (∀ t ∈ ts, t.displayable = true) → GoodW E (fun _ => True) (evalDisplays n env inFn ls es)) ∧
+    (∀ {G env inFn Γ ls ps body a b xs i}, CtxE p E G env inFn Γ ls → HasTy p G (bindTy ps a Γ) body b →
+      ValTys p xs a → GoodW E (ValTys p · b) (evalMap n env inFn ls ps body xs i)) ∧
+    (∀ {G env inFn Γ ls ps body a b xs i}, CtxE p E G env inFn Γ ls → HasTy p G (bindTy ps a Γ) body b →
+      b.le .bool = true → ValTys p xs a → GoodW E (ValTys p · a) (evalFilter n env inFn ls ps body xs i)) ∧
+    (∀ {G env inFn Γ ls written wts base fs i}, CtxE p E G env inFn Γ ls → NamedTy p G Γ written wts →
       fieldsOk fs wts base.isSome = true → (∀ bs, base = .some bs → FieldsTy p (bs.drop i) fs) →
-      GoodR (FieldsTy p · fs) (evalFields n env inFn ls written base fs i))
+      GoodW E (FieldsTy p · fs) (evalFields n env inFn ls written base fs i))
   | 0 => by
     refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;> intros <;>
-      simp [eval, evalList, evalDisplays, evalMap, evalFilter, evalFields, GoodR, outOfFuel, Legit]
+      simp [eval, evalList, evalDisplays, evalMap, evalFilter, evalFields, GoodW, outOfFuel] <;>
+      exact hE _ trivial (by simp)
   | n + 1 => by
-    obtain ⟨ihE, ihL, ihD, ihM, ihF, ihR⟩ := ty_sound_aux hfn n
+    obtain ⟨ihE, ihL, ihD, ihM, ihF, ihR⟩ := ty_sound_aux hfn hE n
     refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
     · intro G env inFn Γ ls e t hc h
       have hc' := hc
-      obtain ⟨⟨hp, hG⟩, hin, hl⟩ := hc'
+      obtain ⟨⟨hp, hG, hres⟩, hin, hl⟩ := hc'
       cases h with
-      | num => simp [eval, GoodR, ValTy]
-      | str => simp [eval, GoodR, ValTy]
-      | bool => simp [eval, GoodR, ValTy]
-      | none => simp [eval, GoodR, ValTy]
-      | emptyList => simp [eval, GoodR, ValTy, ValTys]
+      | num => simp [eval, GoodW, ValTy]
+      | str => simp [eval, GoodW, ValTy]
+      | bool => simp [eval, GoodW, ValTy]
+      | none => simp [eval, GoodW, ValTy]
+      | emptyList => simp [eval, GoodW, ValTy, ValTys]
       | some h =>
         simp only [eval]
-        exact GoodR.bind (ihE hc h) fun v hv => by simpa [GoodR, ValTy] using hv
+        exact GoodW.bind (ihE hc h) fun v hv => by simpa [GoodW, ValTy] using hv
       | template h hd =>
         simp only [eval]
-        exact GoodR.bind (ihD hc h hd) fun _ _ => by simp [GoodR, ValTy]
+        exact GoodW.bind (ihD hc h hd) fun _ _ => by simp [GoodW, ValTy]
       | «local» hx =>
         obtain ⟨v, hv, hvt⟩ := hl.lookup_some hx
-        simp [eval, hv, GoodR, hvt]
+        simp [eval, hv, GoodW, hvt]
       | global hx hg =>
         simp only [eval, hl.lookup_none hx]
         cases inFn with
@@ -693,42 +850,50 @@ theorem ty_sound_aux {p : Program} (hfn : ProgOK p) : ∀ n,
         | false => exact hG _ _ hg
       | member h hs hi hf =>
         simp only [eval]
-        refine GoodR.bind (ihE hc h) fun v hv => ?_
+        refine GoodW.bind (ihE hc h) fun v hv => ?_
         obtain ⟨vs, sh, rfl, hsh, hfs⟩ := hv.record_inv
         rw [hs] at hsh; cases hsh
         obtain ⟨w, hw, hwt⟩ := FieldsTy.get hfs hf
-        simp [Env.fieldIndex, Env.shape, hp, hs, hi, hw, GoodR, hwt]
+        simp [Env.fieldIndex, Env.shape, hp, hs, hi, hw, GoodW, hwt]
       | fn hfd hargs hle =>
         simp only [eval, hp, hfd]
-        refine GoodR.bind (ihL hc hargs) fun vs hvs => ?_
+        refine GoodW.bind (ihL hc hargs) fun vs hvs => ?_
         obtain ⟨tb, hb, hbl⟩ := hfn.1 _ (List.mem_of_find?_eq_some hfd)
         have hloc := (Agree.params hvs hle).reverse.localsOK
-        exact (ihE ⟨⟨hp, fun x t h => by simp [lookupTy] at h⟩, fun _ => rfl, hloc⟩ hb).mono
+        exact (ihE ⟨⟨hp, fun x t h => by simp [lookupTy] at h, fun x h => by simp [lookupTy] at h⟩, fun _ => rfl, hloc⟩ hb).imp
           fun v hv => hv.mono hbl
       | map hfd _ hlist hbody =>
         simp only [eval, hp, hfd]
-        refine GoodR.bind (ihE hc hlist) fun v hv => ?_
+        refine GoodW.bind (ihE hc hlist) fun v hv => ?_
         obtain ⟨xs, rfl, hxs⟩ := hv.list_inv
-        exact GoodR.bind (P := fun ys => ys = xs) rfl fun _ h => by
+        exact GoodW.bind (P := fun ys => ys = xs) rfl fun _ h => by
           subst h
-          exact GoodR.bind (ihM hc hbody hxs) fun ys hys => by simpa [GoodR, ValTy] using hys
+          exact GoodW.bind (ihM hc hbody hxs) fun ys hys => by simpa [GoodW, ValTy] using hys
       | filter hfd _ hlist hbody hb =>
         simp only [eval, hp, hfd]
-        refine GoodR.bind (ihE hc hlist) fun v hv => ?_
+        refine GoodW.bind (ihE hc hlist) fun v hv => ?_
         obtain ⟨xs, rfl, hxs⟩ := hv.list_inv
-        exact GoodR.bind (P := fun ys => ys = xs) rfl fun _ h => by
+        exact GoodW.bind (P := fun ys => ys = xs) rfl fun _ h => by
           subst h
-          exact GoodR.bind (ihF hc hbody hb hxs) fun ys hys => by simpa [GoodR, ValTy] using hys
-      | pending hfd _ =>
+          exact GoodW.bind (ihF hc hbody hb hxs) fun ys hys => by simpa [GoodW, ValTy] using hys
+      | pending hfd _ _ hin' =>
         simp only [eval, hp, hfd]
         split
-        · cases lookup _ env.resources <;> simp [GoodR, Legit, ValTy]
-        · simp [GoodR, ValTy]
-      | failed hfd _ =>
+        · next hr =>
+          rcases hres _ hin' hr with hs | hs
+          · obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp hs
+            simp [hv, GoodW, ValTy]
+          · cases lookup _ env.resources <;> simp [GoodW, ValTy, hs]
+        · simp [GoodW, ValTy]
+      | failed hfd hr _ hin' =>
         simp only [eval, hp, hfd]
         split
-        · cases lookup _ env.resources <;> simp [GoodR, Legit, ValTy]
-        · simp [GoodR, ValTy]
+        · next hr =>
+          rcases hres _ hin' hr with hs | hs
+          · obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp hs
+            simp [hv, GoodW, ValTy]
+          · cases lookup _ env.resources <;> simp [GoodW, ValTy, hs]
+        · simp [GoodW, ValTy]
       | roster hfd hargs hr =>
         simp only [eval, hp, hfd]
         split
@@ -738,7 +903,7 @@ theorem ty_sound_aux {p : Program} (hfn : ProgOK p) : ∀ n,
             delta rosterTy routerTy unsupportedTy at hr; simp at hr
         · cases hargs with | cons _ h2 => cases h2 with | nil =>
             delta rosterTy routerTy unsupportedTy at hr; simp at hr
-        · exact GoodR.bind (ihL hc hargs) fun vs hvs => stdlib_good hp hfn.2 hvs hr
+        · exact GoodW.bind (ihL hc hargs) fun vs hvs => (stdlib_good hp hfn.2 hvs hr).toW hE (stdlib_notPending _ _ _)
       | path hfd hr hargs hts hlen =>
         rename_i rn route args ts
         simp only [eval, hp, hfd]
@@ -750,43 +915,43 @@ theorem ty_sound_aux {p : Program} (hfn : ProgOK p) : ∀ n,
         | ok vs =>
           rw [hres] at hv0
           cases evalList_sound hres with
-          | cons hE _ =>
-            cases hE
+          | cons hE0 _ =>
+            cases hE0
             have hv1 : ValTyL p _ _ := hv0
             simp only [ValTyL] at hv1
-            exact stdlib_path hp hr hv1.2 hts
-              (by rw [ValTyL.length hv1.2, ← ListTy.length hargs, hlen])
+            exact (stdlib_path hp hr hv1.2 hts
+              (by rw [ValTyL.length hv1.2, ← ListTy.length hargs, hlen])).toW hE (NotPending.bind (NotPending.ok _) fun _ => stdlib_notPending _ _ _)
       | record hs hw hok _ =>
         simp only [eval]
-        refine GoodR.bind (P := fun b => b = Option.none) rfl fun b hb => ?_
+        refine GoodW.bind (P := fun b => b = Option.none) rfl fun b hb => ?_
         subst hb
         simp only [Env.shape, hp, hs, Option.elim]
-        refine GoodR.bind (P := fun d => d = _) rfl fun d hd => ?_
+        refine GoodW.bind (P := fun d => d = _) rfl fun d hd => ?_
         subst hd
-        exact GoodR.bind (ihR (base := Option.none) (i := 0) hc hw hok (fun bs h => by cases h)) fun vs hvs => by
-          simpa [GoodR, ValTy, hs] using hvs
+        exact GoodW.bind (ihR (base := Option.none) (i := 0) hc hw hok (fun bs h => by cases h)) fun vs hvs => by
+          simpa [GoodW, ValTy, hs] using hvs
       | recordBase hb hle hs hw hok _ =>
         simp only [eval]
-        refine GoodR.bind (ihE hc hb) fun v hv => ?_
+        refine GoodW.bind (ihE hc hb) fun v hv => ?_
         obtain ⟨vs, sh', rfl, hsh, hfs⟩ := (hv.mono hle).record_inv
         rw [hs] at hsh; cases hsh
-        refine GoodR.bind (P := fun b => b = Option.some vs) rfl fun b hb' => ?_
+        refine GoodW.bind (P := fun b => b = Option.some vs) rfl fun b hb' => ?_
         subst hb'
         simp only [Env.shape, hp, hs, Option.elim]
-        refine GoodR.bind (P := fun d => d = _) rfl fun d hd => ?_
+        refine GoodW.bind (P := fun d => d = _) rfl fun d hd => ?_
         subst hd
-        exact GoodR.bind (ihR (base := Option.some vs) (i := 0) hc hw hok (by intro bs' h'; cases h'; simpa using hfs))
-          fun vs hvs => by simpa [GoodR, ValTy, hs] using hvs
+        exact GoodW.bind (ihR (base := Option.some vs) (i := 0) hc hw hok (by intro bs' h'; cases h'; simpa using hfs))
+          fun vs hvs => by simpa [GoodW, ValTy, hs] using hvs
       | neg h hle =>
         simp only [eval]
-        refine GoodR.bind (ihE hc h) fun v hv => ?_
+        refine GoodW.bind (ihE hc h) fun v hv => ?_
         obtain ⟨x, rfl⟩ := (hv.mono hle).num_inv
-        simp [GoodR, ValTy]
+        simp [GoodW, ValTy]
       | «not» h hle =>
         simp only [eval]
-        refine GoodR.bind (ihE hc h) fun v hv => ?_
+        refine GoodW.bind (ihE hc h) fun v hv => ?_
         obtain ⟨x, rfl⟩ := (hv.mono hle).bool_inv
-        simp [GoodR, ValTy]
+        simp [GoodW, ValTy]
       | @binary _ _ _ _ _ op _ ha hb hbin =>
         cases op
         case and | or =>
@@ -796,79 +961,79 @@ theorem ty_sound_aux {p : Program} (hfn : ProgOK p) : ∀ n,
             simp at hbin; subst hbin
             simp only [Bool.and_eq_true] at hbb
             simp only [eval]
-            refine GoodR.bind (ihE hc ha) fun v hv => ?_
+            refine GoodW.bind (ihE hc ha) fun v hv => ?_
             obtain ⟨x, rfl⟩ := (hv.mono hbb.1).bool_inv
             cases x
             all_goals first
-              | (simp [GoodR, ValTy]; done)
-              | exact (ihE hc hb).mono fun w hw => hw.mono hbb.2
+              | (simp [GoodW, ValTy]; done)
+              | exact (ihE hc hb).imp fun w hw => hw.mono hbb.2
           · simp at hbin
         all_goals
           rw [eval_binary_strict (by simp) (by simp)]
-          exact GoodR.bind (ihE hc ha) fun va hva =>
-            GoodR.bind (ihE hc hb) fun vb hvb =>
-              binop_good hva hvb hbin (by simp) (by simp)
+          exact GoodW.bind (ihE hc ha) fun va hva =>
+            GoodW.bind (ihE hc hb) fun vb hvb =>
+              (binop_good hva hvb hbin (by simp) (by simp)).toW hE (binop_notPending _ _ _)
       | ternary hcnd hle ha hb hu =>
         simp only [eval]
-        refine GoodR.bind (ihE hc hcnd) fun v hv => ?_
+        refine GoodW.bind (ihE hc hcnd) fun v hv => ?_
         obtain ⟨x, rfl⟩ := (hv.mono hle).bool_inv
         have hu' := Ty.unify_le hu
         cases x
-        · exact (ihE hc hb).mono fun w hw => hw.mono hu'.2
-        · exact (ihE hc ha).mono fun w hw => hw.mono hu'.1
+        · exact (ihE hc hb).imp fun w hw => hw.mono hu'.2
+        · exact (ihE hc ha).imp fun w hw => hw.mono hu'.1
       | matchOpt hs ha hb hu =>
         simp only [eval]
-        refine GoodR.bind (ihE hc hs) fun v hv => ?_
+        refine GoodW.bind (ihE hc hs) fun v hv => ?_
         have hu' := Ty.unify_le hu
         rcases hv.option_inv with rfl | ⟨w, rfl, hw⟩
-        · exact (ihE hc hb).mono fun w hw => hw.mono hu'.2
-        · exact (ihE ⟨⟨hp, hG⟩, hin, hl.cons hw⟩ ha).mono fun w hw => hw.mono hu'.1
+        · exact (ihE hc hb).imp fun w hw => hw.mono hu'.2
+        · exact (ihE ⟨⟨hp, hG, hres⟩, hin, hl.cons hw⟩ ha).imp fun w hw => hw.mono hu'.1
       | letE hv hb =>
         simp only [eval]
-        exact GoodR.bind (ihE hc hv) fun w hw => ihE ⟨⟨hp, hG⟩, hin, hl.cons hw⟩ hb
+        exact GoodW.bind (ihE hc hv) fun w hw => ihE ⟨⟨hp, hG, hres⟩, hin, hl.cons hw⟩ hb
       | typed h hu =>
         simp only [eval]
-        exact (ihE hc h).mono fun w hw => hw.mono (Ty.unify_le hu).2
+        exact (ihE hc h).imp fun w hw => hw.mono (Ty.unify_le hu).2
     · intro G env inFn Γ ls es ts hc h
       cases h with
-      | nil => simp [evalList, GoodR, ValTyL]
+      | nil => simp [evalList, GoodW, ValTyL]
       | cons he hes =>
         simp only [evalList]
-        exact GoodR.bind (ihE hc he) fun v hv => GoodR.bind (ihL hc hes) fun vs hvs => by
-          simp [GoodR, ValTyL, hv, hvs]
+        exact GoodW.bind (ihE hc he) fun v hv => GoodW.bind (ihL hc hes) fun vs hvs => by
+          simp [GoodW, ValTyL, hv, hvs]
     · intro G env inFn Γ ls es ts hc h hd
       cases h with
-      | nil => simp [evalDisplays, GoodR]
+      | nil => simp [evalDisplays, GoodW]
       | cons he hes =>
         simp only [evalDisplays]
-        refine GoodR.bind (ihE hc he) fun v hv => ?_
+        refine GoodW.bind (ihE hc he) fun v hv => ?_
         obtain ⟨s, hs⟩ := display_ok hv (hd _ (by simp))
         rw [hs]
-        exact GoodR.bind (P := fun x => x = s) rfl fun _ h => by
-          subst h; exact GoodR.bind (ihD hc hes fun t ht => hd t (by simp [ht])) fun _ _ => trivial
+        exact GoodW.bind (P := fun x => x = s) rfl fun _ h => by
+          subst h; exact GoodW.bind (ihD hc hes fun t ht => hd t (by simp [ht])) fun _ _ => trivial
     · intro G env inFn Γ ls ps body a b xs i hc hb hxs
       cases xs with
-      | nil => simp [evalMap, GoodR, ValTys]
+      | nil => simp [evalMap, GoodW, ValTys]
       | cons x xs =>
         simp only [ValTys] at hxs
         simp only [evalMap]
         obtain ⟨he, hin, hl⟩ := hc
-        exact GoodR.bind (ihE ⟨he, hin, hl.bind hxs.1 ps i⟩ hb) fun y hy =>
-          GoodR.bind (ihM ⟨he, hin, hl⟩ hb hxs.2) fun ys hys => by simp [GoodR, ValTys, hy, hys]
+        exact GoodW.bind (ihE ⟨he, hin, hl.bind hxs.1 ps i⟩ hb) fun y hy =>
+          GoodW.bind (ihM ⟨he, hin, hl⟩ hb hxs.2) fun ys hys => by simp [GoodW, ValTys, hy, hys]
     · intro G env inFn Γ ls ps body a b xs i hc hb hbl hxs
       cases xs with
-      | nil => simp [evalFilter, GoodR, ValTys]
+      | nil => simp [evalFilter, GoodW, ValTys]
       | cons x xs =>
         simp only [ValTys] at hxs
         simp only [evalFilter]
         obtain ⟨he, hin, hl⟩ := hc
-        refine GoodR.bind (ihE ⟨he, hin, hl.bind hxs.1 ps i⟩ hb) fun k hk => ?_
-        refine GoodR.bind (ihF ⟨he, hin, hl⟩ hb hbl hxs.2) fun ys hys => ?_
+        refine GoodW.bind (ihE ⟨he, hin, hl.bind hxs.1 ps i⟩ hb) fun k hk => ?_
+        refine GoodW.bind (ihF ⟨he, hin, hl⟩ hb hbl hxs.2) fun ys hys => ?_
         obtain ⟨kb, rfl⟩ := (hk.mono hbl).bool_inv
-        cases kb <;> simp [GoodR, ValTys, hys, hxs.1]
+        cases kb <;> simp [GoodW, ValTys, hys, hxs.1]
     · intro G env inFn Γ ls written wts base fs i hc hw hok hbase
       cases fs with
-      | nil => simp [evalFields, GoodR, FieldsTy]
+      | nil => simp [evalFields, GoodW, FieldsTy]
       | cons f fs =>
         simp only [fieldsOk, List.all_cons, Bool.and_eq_true] at hok
         obtain ⟨hf, hok⟩ := hok
@@ -879,10 +1044,10 @@ theorem ty_sound_aux {p : Program} (hfn : ProgOK p) : ∀ n,
         have hb2 : ∀ bs, base = .some bs → FieldsTy p (bs.drop (i + 1)) fs :=
           fun bs h => by obtain ⟨_, _, _, h3⟩ := hb1 bs h; exact h3
         have hrest : ∀ v, ValTy p v f.ty →
-            GoodR (FieldsTy p · (f :: fs))
+            GoodW E (FieldsTy p · (f :: fs))
               (do let vs ← evalFields n env inFn ls written base fs (i + 1); .ok (v :: vs)) :=
-          fun v hv => GoodR.bind (ihR hc hw (by simpa [fieldsOk] using hok) hb2) fun vs hvs => by
-            simp [GoodR, FieldsTy, hv, hvs]
+          fun v hv => GoodW.bind (ihR hc hw (by simpa [fieldsOk] using hok) hb2) fun vs hvs => by
+            simp [GoodW, FieldsTy, hv, hvs]
         rcases hw.lookup f.name with ⟨hnone, htnone⟩ | ⟨e, te, he, hte, het⟩
         · rw [htnone] at hf
           simp only [hnone]
@@ -892,10 +1057,10 @@ theorem ty_sound_aux {p : Program} (hfn : ProgOK p) : ∀ n,
             obtain ⟨v, hv, hvt, _⟩ := hb1 bs hbase'
             rw [hbase'] at hrest
             simp only [hv, Option.elim]
-            exact GoodR.bind (P := fun w => w = v) rfl fun w hw' => by rw [hw']; exact hrest v hvt
+            exact GoodW.bind (P := fun w => w = v) rfl fun w hw' => by rw [hw']; exact hrest v hvt
         · rw [hte] at hf
           simp only [he]
-          exact GoodR.bind (ihE hc het) fun v hv => hrest v (hv.mono hf)
+          exact GoodW.bind (ihE hc het) fun v hv => hrest v (hv.mono hf)
 
 /-- **Expression soundness** (preservation and progress). A well-typed
 expression evaluated where its names and locals hold values of their types
@@ -904,12 +1069,27 @@ an unbound name. -/
 theorem eval_sound_ty {p : Program} (hfn : ProgOK p) {n G env Γ ls e t}
     (henv : EnvOK p G env) (hl : LocalsOK p Γ ls) (h : HasTy p G Γ e t) :
     GoodR (ValTy p · t) (eval n env false ls e) :=
-  (ty_sound_aux hfn n).1 ⟨henv, by simp, hl⟩ h
+  GoodR.of_goodW ((ty_sound_aux hfn (fun _ h _ => h) n).1 ⟨henv.envOKE, by simp, hl⟩ h)
+
+/-- Expression soundness for any kind of failure `E` that admits the
+legitimate failures other than `pending`, where the environment fails
+only as `E` admits (`EnvOKE`). -/
+theorem eval_sound_E {p : Program} (hfn : ProgOK p) {E : Err → Prop}
+    (hE : ∀ e, Legit e → e ≠ .pending → E e) {n G env Γ ls e t}
+    (henv : EnvOKE p E G env) (hl : LocalsOK p Γ ls) (h : HasTy p G Γ e t) :
+    GoodW E (ValTy p · t) (eval n env false ls e) :=
+  (ty_sound_aux hfn hE n).1 ⟨henv, by simp, hl⟩ h
+
+theorem evalList_sound_E {p : Program} (hfn : ProgOK p) {E : Err → Prop}
+    (hE : ∀ e, Legit e → e ≠ .pending → E e) {n G env Γ ls es ts}
+    (henv : EnvOKE p E G env) (hl : LocalsOK p Γ ls) (h : ListTy p G Γ es ts) :
+    GoodW E (ValTyL p · ts) (evalList n env false ls es) :=
+  (ty_sound_aux hfn hE n).2.1 ⟨henv, by simp, hl⟩ h
 
 theorem evalList_sound_ty {p : Program} (hfn : ProgOK p) {n G env Γ ls es ts}
     (henv : EnvOK p G env) (hl : LocalsOK p Γ ls) (h : ListTy p G Γ es ts) :
     GoodR (ValTyL p · ts) (evalList n env false ls es) :=
-  (ty_sound_aux hfn n).2.1 ⟨henv, by simp, hl⟩ h
+  GoodR.of_goodW ((ty_sound_aux hfn (fun _ h _ => h) n).2.1 ⟨henv.envOKE, by simp, hl⟩ h)
 
 /-! ## Statements -/
 
@@ -930,32 +1110,33 @@ theorem isSlot_cases {p : Program} {x : String} (h : isSlot p x = true) :
     | some o => exact .inr ⟨s, hs, rfl, by simp [ho]⟩
   · exact .inl (.inr ⟨m, hm, rfl⟩)
 
-theorem exec_sound_aux {p : Program} (hfn : ProgOK p) {G : Scope} : ∀ n {env Γ ls ss fx},
-    EnvOK p G env → LocalsOK p Γ ls → StmtsTy p G Γ ss → FxOK p fx →
-    GoodR (FxOK p) (exec n env ls ss fx)
-  | 0, _, _, _, _, _, _, _, _, _ => by simp [exec, GoodR, outOfFuel, Legit]
+theorem exec_sound_aux {p : Program} (hfn : ProgOK p) {E : Err → Prop}
+    (hE : ∀ e, Legit e → e ≠ .pending → E e) {G : Scope} : ∀ n {env Γ ls ss fx},
+    EnvOKE p E G env → LocalsOK p Γ ls → StmtsTy p G Γ ss → FxOK p fx →
+    GoodW E (FxOK p) (exec n env ls ss fx)
+  | 0, _, _, _, _, _, _, _, _, _ => by simp [exec, GoodW, outOfFuel]; exact hE _ trivial (by simp)
   | n + 1, env, Γ, ls, ss, fx, henv, hl, hs, hfx => by
     have hp := henv.1
     cases ss with
-    | nil => simpa [exec, GoodR] using hfx
+    | nil => simpa [exec, GoodW] using hfx
     | cons s rest =>
       cases s with
       | letS x e =>
         simp only [StmtsTy] at hs
         obtain ⟨t, he, hr⟩ := hs
         simp only [exec]
-        exact GoodR.bind (eval_sound_ty hfn henv hl he) fun v hv =>
-          exec_sound_aux hfn n henv (hl.cons hv) hr hfx
+        exact GoodW.bind (eval_sound_E hfn hE henv hl he) fun v hv =>
+          exec_sound_aux hfn hE n henv (hl.cons hv) hr hfx
       | assign x e =>
         simp only [StmtsTy] at hs
         obtain ⟨hslot, ⟨t, he, hle⟩, hr⟩ := hs
         simp only [exec]
-        refine GoodR.bind (eval_sound_ty hfn henv hl he) fun v hv => ?_
+        refine GoodW.bind (eval_sound_E hfn hE henv hl he) fun v hv => ?_
         have hvx := hv.mono hle
         rw [hp]
         split
         · next hroot =>
-          refine GoodR.bind (P := fun fx' => FxOK p fx') ?_ fun fx' h' => exec_sound_aux hfn n henv hl hr h'
+          refine GoodW.bind (P := fun fx' => FxOK p fx') ?_ fun fx' h' => exec_sound_aux hfn hE n henv hl hr h'
           refine ⟨fun w hw => ?_, hfx.2⟩
           simp only [List.mem_append, List.mem_singleton] at hw
           rcases hw with (hw | rfl) | hw
@@ -965,14 +1146,14 @@ theorem exec_sound_aux {p : Program} (hfn : ProgOK p) {G : Scope} : ∀ n {env �
         · next hroot =>
           split
           · split
-            · refine GoodR.bind (P := fun fx' => FxOK p fx') ?_ fun fx' h' => exec_sound_aux hfn n henv hl hr h'
+            · refine GoodW.bind (P := fun fx' => FxOK p fx') ?_ fun fx' h' => exec_sound_aux hfn hE n henv hl hr h'
               refine ⟨fun w hw => ?_, hfx.2⟩
               simp only [List.mem_append, List.mem_singleton] at hw
               rcases hw with hw | hw | rfl
               · exact hfx.1 w (List.mem_append_left _ hw)
               · exact hfx.1 w (List.mem_append_right _ hw)
               · exact hvx
-            · exact GoodR.bind (P := fun _ => False) trivial (fun _ h => h.elim)
+            · exact GoodW.bind (P := fun _ => False) (hE _ trivial (by simp)) (fun _ h => h.elim)
           · next hrow =>
             rcases isSlot_cases hslot with h | h
             · simp_all
@@ -981,14 +1162,14 @@ theorem exec_sound_aux {p : Program} (hfn : ProgOK p) {G : Scope} : ∀ n {env �
         simp only [StmtsTy] at hs
         obtain ⟨⟨ts, hargs⟩, hr⟩ := hs
         simp only [exec]
-        exact GoodR.bind (evalList_sound_ty hfn henv hl hargs) fun vs _ =>
-          exec_sound_aux hfn n henv hl hr ⟨hfx.1, hfx.2⟩
+        exact GoodW.bind (evalList_sound_E hfn hE henv hl hargs) fun vs _ =>
+          exec_sound_aux hfn hE n henv hl hr ⟨hfx.1, hfx.2⟩
       | send x src args =>
         simp only [StmtsTy] at hs
         obtain ⟨hm, ⟨ts, hargs⟩, hr⟩ := hs
         simp only [exec]
-        refine GoodR.bind (evalList_sound_ty hfn henv hl hargs) fun vs _ =>
-          exec_sound_aux hfn n henv hl hr ⟨hfx.1, fun s hs' => ?_⟩
+        refine GoodW.bind (evalList_sound_E hfn hE henv hl hargs) fun vs _ =>
+          exec_sound_aux hfn hE n henv hl hr ⟨hfx.1, fun s hs' => ?_⟩
         simp only [List.mem_append, List.mem_singleton] at hs'
         rcases hs' with hs' | rfl
         · exact hfx.2 s hs'
@@ -997,25 +1178,25 @@ theorem exec_sound_aux {p : Program} (hfn : ProgOK p) {G : Scope} : ∀ n {env �
         simp only [StmtsTy] at hs
         obtain ⟨_, hr⟩ := hs
         simp only [exec]
-        exact exec_sound_aux hfn n henv hl hr ⟨hfx.1, hfx.2⟩
+        exact exec_sound_aux hfn hE n henv hl hr ⟨hfx.1, hfx.2⟩
       | ifS c thn els =>
         simp only [StmtsTy] at hs
         obtain ⟨⟨t, hc, hle⟩, hthn, hels, hr⟩ := hs
         simp only [exec]
-        refine GoodR.bind (eval_sound_ty hfn henv hl hc) fun v hv => ?_
+        refine GoodW.bind (eval_sound_E hfn hE henv hl hc) fun v hv => ?_
         obtain ⟨b, rfl⟩ := (hv.mono hle).bool_inv
         cases b
-        · exact GoodR.bind (exec_sound_aux hfn n henv hl hels hfx) fun fx' h' => exec_sound_aux hfn n henv hl hr h'
-        · exact GoodR.bind (exec_sound_aux hfn n henv hl hthn hfx) fun fx' h' => exec_sound_aux hfn n henv hl hr h'
+        · exact GoodW.bind (exec_sound_aux hfn hE n henv hl hels hfx) fun fx' h' => exec_sound_aux hfn hE n henv hl hr h'
+        · exact GoodW.bind (exec_sound_aux hfn hE n henv hl hthn hfx) fun fx' h' => exec_sound_aux hfn hE n henv hl hr h'
       | matchS subj x sm nn =>
         simp only [StmtsTy] at hs
         obtain ⟨⟨a, hsub, hsm⟩, hnn, hr⟩ := hs
         simp only [exec]
-        refine GoodR.bind (eval_sound_ty hfn henv hl hsub) fun v hv => ?_
+        refine GoodW.bind (eval_sound_E hfn hE henv hl hsub) fun v hv => ?_
         rcases hv.option_inv with rfl | ⟨w, rfl, hw⟩
-        · exact GoodR.bind (exec_sound_aux hfn n henv hl hnn hfx) fun fx' h' => exec_sound_aux hfn n henv hl hr h'
-        · exact GoodR.bind (exec_sound_aux hfn n henv (hl.cons hw) hsm hfx) fun fx' h' =>
-            exec_sound_aux hfn n henv hl hr h'
+        · exact GoodW.bind (exec_sound_aux hfn hE n henv hl hnn hfx) fun fx' h' => exec_sound_aux hfn hE n henv hl hr h'
+        · exact GoodW.bind (exec_sound_aux hfn hE n henv (hl.cons hw) hsm hfx) fun fx' h' =>
+            exec_sound_aux hfn hE n henv hl hr h'
 
 /-- **Statement soundness.** A well-typed block run where its names and
 locals hold values of their types asks only for writes of values of the
@@ -1024,6 +1205,12 @@ fails legitimately: never a type error, never an unbound name. -/
 theorem exec_sound_ty {p : Program} (hfn : ProgOK p) {n G env Γ ls ss}
     (henv : EnvOK p G env) (hl : LocalsOK p Γ ls) (h : StmtsTy p G Γ ss) :
     GoodR (FxOK p) (exec n env ls ss {}) :=
-  exec_sound_aux hfn n henv hl h FxOK.empty
+  GoodR.of_goodW (exec_sound_aux hfn (fun _ h _ => h) n henv.envOKE hl h FxOK.empty)
+
+theorem exec_sound_E {p : Program} (hfn : ProgOK p) {E : Err → Prop}
+    (hE : ∀ e, Legit e → e ≠ .pending → E e) {n G env Γ ls ss}
+    (henv : EnvOKE p E G env) (hl : LocalsOK p Γ ls) (h : StmtsTy p G Γ ss) :
+    GoodW E (FxOK p) (exec n env ls ss {}) :=
+  exec_sound_aux hfn hE n henv hl h FxOK.empty
 
 end Contract
