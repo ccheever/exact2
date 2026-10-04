@@ -1,6 +1,6 @@
 # Code review: platform timing's first clock (LLP 1080.000 §12), 2026-10-04 (astra)
 
-- **Family:** OpenAI — `gpt-6-astra` via `codex exec` (codex-cli 0.157.1), reasoning effort xhigh, read-only sandbox, `-C` a detached worktree at `97374ee85`.
+- **Family:** OpenAI — `gpt-6-astra` via `codex exec` (codex-cli 0.157.1), reasoning effort xhigh, read-only sandbox, `-C` a detached worktree at `97374ee85`. Rebased onto origin/main before landing: the reviewed `97374ee85`, `bd7d2c0bf` and `1f94dd3fb` landed as `34e04141a`, `77e1a5880` and `d9f027854`; the round-3 fix landed as `90a9b4977`.
 - **Method:** one brief (sha256 `666b968f99bb78a02712b38fb727bdaf66cd7af26bdbffc153084116974c8fdb`), the same one sent to grok; round 1; blind to the other review. Requested by the Signal effort's coordinator after the clone's agent found swipe-to-reply failing on build 13. The author (Claude) is not a reviewer.
 - **Transcription:** the run's final message (`--output-last-message`), unedited.
 - **Verdict:** DO NOT LAND.
