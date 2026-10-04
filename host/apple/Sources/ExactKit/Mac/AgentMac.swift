@@ -61,8 +61,10 @@ extension Agent {
 
     var presenter: Presenter { session.presenter }
 
-    /// AppKit animates nothing here that a seek does not move.
-    func nativeInFlight() -> Bool { false }
+    /// AppKit animates nothing here that a seek does not move, but for a
+    /// list's smooth correction under platform timing, the clip view's
+    /// animator (LLP 1070.000 §11): the fixed point is where it lands.
+    func nativeInFlight() -> Bool { !presenter.collections.animating.isEmpty }
 
     /// Diagnostic tap {resize:[w,h]} (LLP 1041 §8). Resize the containing
     /// NSWindow, allowing ExactView's ordinary fit/inset path to follow.

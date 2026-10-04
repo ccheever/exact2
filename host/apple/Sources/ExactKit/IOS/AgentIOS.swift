@@ -96,7 +96,8 @@ extension Agent {
         if presenter.navigation.inTransition || presenter.modals.inTransition || presenter.menus.inTransition || presenter.hasPendingKeyboardResize || nativeGeometryInFlight() { return true }
         // A smooth correction (a list following its end, a smooth
         // `scrollIntoView`) is UIKit's scroll animation under platform timing
-        // (LLP 1070.000 §6.2): the fixed point is where it lands.
+        // (LLP 1070.000 §11): the fixed point is where it lands, within
+        // settle's bound (LLP 1035.003 D5).
         if !presenter.collections.animating.isEmpty { return true }
         guard let editor = pendingTextReveal else { return false }
         guard let node = editor.owner, presenter.views[node.id] === node,
@@ -632,6 +633,11 @@ extension Agent {
                 let takeY = scrollsY && dy != 0 && maxY > minY && ((dy > 0 && o.y < maxY) || (dy < 0 && o.y > minY))
                 if takeX || takeY {
                     let target = CGPoint(x: takeX ? min(max(o.x + dx, minX), maxX) : o.x, y: takeY ? min(max(o.y + dy, minY), maxY) : o.y)
+                    // A wheel interrupts a smooth correction as a drag does: a
+                    // plain write sends no animation end (LLP 1070.000 §11).
+                    if let list = sv.superview as? NodeView, let p = list.presenter, p.collections.animating.contains(list.id) {
+                        p.collections.animationEnded(list.id, dragging: true)
+                    }
                     sv.setContentOffset(target, animated: false)
                     return
                 }
