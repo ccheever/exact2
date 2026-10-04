@@ -58,11 +58,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var liveText: String?
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     var style: NodeStyle = [:]
-    /// What the host's own writers hid (a covered route, a tab a native
-    /// control stands in for, a placement). A `display: none` box is hidden
-    /// besides, as CSS removes it with its subtree: its texts painted at its
-    /// 0×0 frame's origin (recipes F19, a hidden tablist's labels). Reading
-    /// says whether it is hidden, for either reason.
+    /// What the host's own writers hid (a covered route, a tab a native control
+    /// stands in for, a placement); a `display: none` box is hidden besides, as
+    /// CSS removes it with its subtree, or its texts paint at its 0×0 frame's
+    /// origin (recipes F19). Reading says whether it is hidden, for either reason.
     private var hostHidden = false
     override var isHidden: Bool {
         get { super.isHidden }
