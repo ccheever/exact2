@@ -35,6 +35,21 @@ import { startSweep } from './sweep.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
 
+/** rustup puts cargo in `~/.cargo/bin` and a login profile puts that on PATH;
+ * a non-interactive shell (an agent's, a launchd job's) often skips the
+ * profile, and every cargo spawn below then fails as ENOENT. Every script that
+ * builds resolves its app here, so this is the one place to add it back.
+ * Children inherit the repaired PATH. */
+export function cargoOnPath(env = process.env, home = homedir()) {
+  const dirs = (env.PATH ?? '').split(delimiter).filter(Boolean);
+  if (dirs.some(dir => existsSync(resolve(dir, 'cargo')))) return true;
+  const rustup = resolve(env.CARGO_HOME ?? resolve(home, '.cargo'), 'bin');
+  if (!existsSync(resolve(rustup, 'cargo'))) return false;
+  env.PATH = [rustup, ...dirs].join(delimiter);
+  return true;
+}
+cargoOnPath();
+
 // @ref llp/1046.006.000-render-hooks.rfc.md#d5-shaders-that-live-with-the-game
 /** Explicit source roots, relative to app.json. Only packaged names reach a host. */
 export function shaderRoots(app) {
