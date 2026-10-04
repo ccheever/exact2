@@ -179,7 +179,9 @@ area (rain, snow).
 (`atlas: [columns, rows]`, a flipbook at `fps`, or the frames spread over each
 lifetime) and stretches them along their motion (`stretch`: seconds of velocity
 added to the length), for sparks and streaks. `Emitter.additive` picks additive or
-straight-alpha blending for both.
+straight-alpha blending for both. `soft` (metres) fades particles where they meet
+the opaque scene, so smoke does not cut a line into the ground; a frame with soft
+particles splits the forward pass to read its depth (off by default).
 For sound, `w.sounds([..])` registers synthesized (`Synth`) or sampled (`Sample`)
 definitions in setup; a sample names a `.sound` asset declared in `Game::ASSETS`, and
 registration saves its frames, rate and channels. `w.play("chime").start()` creates

@@ -112,8 +112,19 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             self.models
                 .custom_data(&self.queue, |slot| hooks.instance_data(slot));
         }
+        // Soft particles read the opaque depth: it is retained, and the
+        // translucent pass splits from the opaque one (not under a scene copy,
+        // whose continuation draws them hard).
+        let soft = self.quads.wants_soft() && !needs.contains(crate::Needs::SCENE_COPY);
         let (scene_copy, retained) =
-            self.prepare_targets(size, needs, frame.ambient_occlusion.is_some());
+            self.prepare_targets(size, needs, frame.ambient_occlusion.is_some() || soft);
+        self.quads.soft_pass(
+            &self.device,
+            &self.queue,
+            soft.then_some(&self.targets.depth),
+            (frame.proj * frame.view).inverse(),
+            self.depth_split(),
+        );
         let cascades = self.prepare_effects(frame);
         let map = frame.environment_map.and_then(|m| {
             let texture = self.models.textures.get(m.texture).filter(|t| t.active)?;
@@ -194,6 +205,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         state.draws += self.encode_shadows(encoder, frame, hooks.materials());
         state.draws += self.encode_local_shadows(encoder, hooks.materials(), frame.timestamps);
         self.encode_forward(encoder, &mut state, frame, hooks, &view)?;
+        if self.quads.soft_active() {
+            self.encode_translucent(encoder, &mut state, frame);
+        }
         if scene_copy {
             self.encode_surface(encoder, &mut state, frame, hooks, &view)?;
         }

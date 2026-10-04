@@ -131,6 +131,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         view: &crate::FrameView<'_>,
     ) -> Result<(), RenderError> {
         let time = view.time;
+        // Soft particles: translucency follows in its own pass over this depth.
+        let split = self.quads.soft_active();
         let sky = frame
             .environment
             .background
@@ -139,12 +141,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             label: Some("game forward"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &self.targets.color,
-                resolve_target: Some(
+                resolve_target: (!split).then(|| {
                     self.hook_targets
                         .as_ref()
                         .and_then(|t| t.scene())
-                        .map_or(&self.targets.resolved, |scene| scene.color),
-                ),
+                        .map_or(&self.targets.resolved, |scene| scene.color)
+                }),
                 depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -153,7 +155,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                         b: sky[2] as f64,
                         a: 1.0,
                     }),
-                    store: if state.scene_copy {
+                    store: if state.scene_copy || split {
                         wgpu::StoreOp::Store
                     } else {
                         wgpu::StoreOp::Discard
@@ -260,7 +262,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             }
             state.times[3] = start.map(|s| s.elapsed());
         }
-        if !state.scene_copy {
+        if !state.scene_copy && !split {
             timing::pass_stamp(
                 &self.device,
                 &mut pass,
@@ -280,6 +282,43 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             }
         }
         Ok(())
+    }
+
+    /// Translucency over the opaque pass's stored colour, its depth read-only and
+    /// sampled by soft particles.
+    pub(super) fn encode_translucent(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        state: &mut Resolved,
+        frame: &FrameInput<'_>,
+    ) {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("game translucent"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &self.targets.color,
+                resolve_target: Some(&self.targets.resolved),
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Discard,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.targets.depth,
+                depth_ops: None,
+                stencil_ops: None,
+            }),
+            timestamp_writes: {
+                if frame.timestamps.is_some() {
+                    self.mark(timing::TRANSLUCENT);
+                }
+                timing::writes(frame.timestamps, timing::TRANSLUCENT)
+            },
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        self.scene_viewport(&mut pass, state.size, false);
+        state.draws += self.translucent(&mut pass, frame, state.variant, state.size);
     }
 
     /// Scene-copy continuation: depth snapshot, the refracting surface, translucency.

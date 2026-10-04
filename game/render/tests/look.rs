@@ -626,3 +626,88 @@ fn a_model_lod_swaps_by_camera_distance_and_hides_beyond_its_limit() {
     let gone = centre(30.);
     assert!(gone[0] < 10 && gone[1] < 10, "beyond hide: {gone:?}");
 }
+
+#[derive(Default, Args)]
+struct SoftArgs {
+    soft: f32,
+    gap: f32,
+}
+struct Soft;
+impl Game for Soft {
+    const ID: &'static str = "look-soft";
+    type Args = SoftArgs;
+    fn setup(w: &mut World, args: &SoftArgs) {
+        w.insert_resource(Environment {
+            background: Some([0.; 3]),
+            fog: None,
+            bloom: None,
+            ..Default::default()
+        });
+        w.spawn((Transform::at(0., 0., 5.), Camera::default()));
+        // A black wall whose face is at z = 0.
+        w.spawn((
+            Transform::at(0., 0., -2.),
+            Mesh::cube(4.),
+            Material::rgb(0., 0., 0.),
+        ));
+        let e = w.spawn((
+            Transform::at(0., 0., args.gap),
+            Emitter {
+                rate: 0.,
+                lifetime: 10.,
+                speed: 0.,
+                spread: 0.,
+                gravity: Vec3::ZERO,
+                size: [1., 1.],
+                color: [[1.; 4], [1.; 4]],
+                additive: false,
+                ..Default::default()
+            }
+            .burst(1),
+        ));
+        w.insert(
+            e,
+            ParticleLook {
+                soft: args.soft,
+                ..Default::default()
+            },
+        );
+    }
+    fn tick(w: &mut World, _: &Input, _: &SoftArgs) {
+        emitter::step(w);
+    }
+}
+
+#[test]
+fn soft_particles_fade_where_they_meet_the_scene() {
+    let Some(gpu) = gpu() else { return };
+    let centre = |soft: f64, gap: f64| {
+        let mut s = WorldSurface::<Soft, ModelPresentation, true>::default();
+        s.bind(&[Value::Number(soft), Value::Number(gap)], None)
+            .unwrap();
+        s.device_ready(exact_gpu::wgpu::Features::empty());
+        s.prepare_assets(
+            &gpu.device,
+            &gpu.queue,
+            exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+        );
+        fixture::render(&gpu, &mut s, &frame()).unwrap();
+        let frame = Frame {
+            now_ms: 100.,
+            ..frame()
+        };
+        let (pixels, _) = fixture::render(&gpu, &mut s, &frame).unwrap();
+        assert!(s.error().is_none(), "{:?}", s.error());
+        pixels.at(64, 64)[0]
+    };
+    let hard = centre(0., 0.1);
+    let touching = centre(1., 0.1);
+    let clear = centre(1., 2.);
+    eprintln!("hard {hard}, soft 0.1 m from the wall {touching}, soft 2 m clear {clear}");
+    assert!(hard > 150, "{hard}");
+    // Alpha 0.1 of a full white dot, through the tone curve.
+    assert!(touching < hard / 2, "{touching} vs {hard}");
+    let half = centre(1., 0.5);
+    assert!(touching < half && half < hard, "{touching} < {half} < {hard}");
+    assert!(clear.abs_diff(centre(0., 2.)) <= 2, "{clear}");
+}

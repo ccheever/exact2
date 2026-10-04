@@ -13,8 +13,9 @@ use std::{collections::BTreeMap, ops::Range};
 #[derive(Clone, Copy)]
 pub(crate) enum Kind {
     Model(usize, u32),
-    /// Additive, and the `looks` index of a textured look (`NO_LOOK` for dots).
-    Particle(bool, u32),
+    /// Additive, the `looks` index of a textured look (`NO_LOOK` for dots), and
+    /// soft (fading into the opaque scene).
+    Particle(bool, u32, bool),
     Sprite(usize),
     #[cfg(not(target_arch = "wasm32"))]
     Child(u16),
@@ -101,6 +102,13 @@ pub(crate) struct Quads {
     layout: wgpu::BindGroupLayout,
     bind: wgpu::BindGroup,
     particle_pipelines: Option<[wgpu::RenderPipeline; 2]>,
+    // Soft dots (alpha, additive), then soft textured particles.
+    soft_pipelines: Option<[wgpu::RenderPipeline; 4]>,
+    soft_layout: Option<wgpu::BindGroupLayout>,
+    soft_uniform: Option<wgpu::Buffer>,
+    // This frame's scene depth binding, only while the translucent pass is split.
+    soft_bind: Option<(wgpu::TextureView, wgpu::BindGroup)>,
+    soft_active: bool,
     sprite_pipelines: Option<[wgpu::RenderPipeline; 3]>,
     texture_layout: Option<wgpu::BindGroupLayout>,
     hz: u32,
@@ -141,6 +149,7 @@ impl Quads {
     }
     pub fn work_pipelines(&self) -> u64 {
         let count = u64::from(self.particle_pipelines.is_some()) * 2
+            + u64::from(self.soft_pipelines.is_some()) * 4
             + u64::from(self.sprite_pipelines.is_some()) * 3;
         #[cfg(not(target_arch = "wasm32"))]
         let count = count + u64::from(self.child_pipeline.is_some());
@@ -187,6 +196,11 @@ impl Quads {
             layout,
             bind,
             particle_pipelines: None,
+            soft_pipelines: None,
+            soft_layout: None,
+            soft_uniform: None,
+            soft_bind: None,
+            soft_active: false,
             sprite_pipelines: None,
             texture_layout: None,
             hz: 60,
@@ -428,6 +442,114 @@ impl Quads {
                 pipeline(d, &shader, &[&self.layout], i + 2)
             }));
         }
+        if self.wants_soft() && self.soft_pipelines.is_none() {
+            self.texture_layout(d);
+            let depth = wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Depth,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: true,
+                },
+                count: None,
+            };
+            let uniform = wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            };
+            let soft = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("game soft particles"),
+                entries: &[depth, uniform],
+            });
+            let soft_source = include_str!("shaders/soft.wgsl");
+            let dots = source(
+                d,
+                &[include_str!("shaders/particle.wgsl"), soft_source].concat(),
+            );
+            let textured = source(
+                d,
+                &[include_str!("shaders/sprite.wgsl"), soft_source].concat(),
+            );
+            let texture = self.texture_layout.as_ref().unwrap();
+            self.soft_pipelines = Some(std::array::from_fn(|i| {
+                let (shader, group) = if i < 2 {
+                    (&dots, None)
+                } else {
+                    (&textured, Some(texture))
+                };
+                pipeline_entry(
+                    d,
+                    shader,
+                    &[Some(&self.layout), group, Some(&soft)],
+                    i % 2 + 2,
+                    "quad_soft_fs",
+                )
+            }));
+            self.soft_uniform = Some(d.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("game soft particles"),
+                size: 80,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+            self.soft_layout = Some(soft);
+        }
+    }
+    /// Whether any emitter's look fades softly into the scene.
+    pub fn wants_soft(&self) -> bool {
+        self.looks.iter().any(|l| l.value.soft > 0.)
+    }
+    /// Bind this frame's multisampled scene depth for soft particles (`None`
+    /// draws them hard, as without a split translucent pass).
+    pub fn soft_pass(
+        &mut self,
+        d: &wgpu::Device,
+        q: &wgpu::Queue,
+        depth: Option<&wgpu::TextureView>,
+        inverse_view_proj: glam::Mat4,
+        split: f32,
+    ) {
+        self.soft_active = false;
+        let (Some(depth), Some(layout), Some(uniform)) =
+            (depth, &self.soft_layout, &self.soft_uniform)
+        else {
+            return;
+        };
+        let mut words = inverse_view_proj.to_cols_array().to_vec();
+        words.extend([split, 0., 0., 0.]);
+        q.write_buffer(uniform, 0, bytes(&words));
+        if self
+            .soft_bind
+            .as_ref()
+            .is_none_or(|(view, _)| view != depth)
+        {
+            let bind = d.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("game soft particles"),
+                layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(depth),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: uniform.as_entire_binding(),
+                    },
+                ],
+            });
+            self.soft_bind = Some((depth.clone(), bind));
+        }
+        self.soft_active = true;
+    }
+    /// The translucent pass is split from the opaque one this frame.
+    pub fn soft_active(&self) -> bool {
+        self.soft_active
     }
     /// Derive this frame's quads; `cull` skips what the camera cannot see.
     pub fn frame<const ASSETS: bool>(
@@ -485,6 +607,7 @@ impl Quads {
                 }
             });
             let stretch = look.map_or(0., |l| l.stretch.max(0.));
+            let soft = look.map_or(0., |l| l.soft.max(0.));
             let eye = f.camera_position;
             e.particles(self.hz, f.alpha, |p| {
                 if left == 0 {
@@ -517,9 +640,13 @@ impl Quads {
                     _ => ([0., 0., 1., 1.], 3.),
                 };
                 self.particle_data
-                    .push(quad(position, x, y, p.color, uv, mode, 0.));
+                    .push(quad(position, x, y, p.color, uv, mode, soft));
                 self.order.push(Order {
-                    kind: Kind::Particle(e.additive, textured.map_or(NO_LOOK, |i| i as u32)),
+                    kind: Kind::Particle(
+                        e.additive,
+                        textured.map_or(NO_LOOK, |i| i as u32),
+                        soft > 0.,
+                    ),
                     depth: -f.view.transform_point3(position).z,
                     layer: e.layer,
                     slot: item.entity.index(),
@@ -660,8 +787,22 @@ impl Quads {
     ) {
         pass.set_bind_group(0, &self.bind, &[]);
         match draw.kind {
-            Kind::Particle(additive, look) => {
-                if look == NO_LOOK {
+            Kind::Particle(additive, look, soft) => {
+                let soft = match (&self.soft_bind, &self.soft_pipelines) {
+                    (Some((_, bind)), Some(pipelines)) if soft && self.soft_active => {
+                        Some((bind, pipelines))
+                    }
+                    _ => None,
+                };
+                if let Some((bind, pipelines)) = soft {
+                    let textured = usize::from(look != NO_LOOK);
+                    pass.set_pipeline(&pipelines[2 * textured + usize::from(additive)]);
+                    if look != NO_LOOK {
+                        let texture = &textures[&self.looks[look as usize].value.texture];
+                        pass.set_bind_group(1, texture.sprite_bind.as_ref().unwrap(), &[]);
+                    }
+                    pass.set_bind_group(2, bind, &[]);
+                } else if look == NO_LOOK {
                     pass.set_pipeline(
                         &self.particle_pipelines.as_ref().unwrap()[usize::from(additive)],
                     );
@@ -721,8 +862,9 @@ fn push_draw(
 ) {
     if let Some(previous) = draws.last_mut() {
         let compatible = match (previous.kind, kind) {
-            (Kind::Particle(a, i), Kind::Particle(b, j)) => {
+            (Kind::Particle(a, i, s), Kind::Particle(b, j, t)) => {
                 a == b
+                    && s == t
                     && (i == j
                         || (i != NO_LOOK
                             && j != NO_LOOK
@@ -846,9 +988,19 @@ fn pipeline(
     layouts: &[&wgpu::BindGroupLayout],
     mode: usize,
 ) -> wgpu::RenderPipeline {
+    let layouts: Vec<_> = layouts.iter().map(|l| Some(*l)).collect();
+    pipeline_entry(d, shader, &layouts, mode, "quad_fs")
+}
+fn pipeline_entry(
+    d: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    layouts: &[Option<&wgpu::BindGroupLayout>],
+    mode: usize,
+    fragment: &str,
+) -> wgpu::RenderPipeline {
     let layout = d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("game quad"),
-        bind_group_layouts: &layouts.iter().map(|l| Some(*l)).collect::<Vec<_>>(),
+        bind_group_layouts: layouts,
         immediate_size: 0,
     });
     let attrs =
@@ -882,7 +1034,7 @@ fn pipeline(
         },
         fragment: Some(wgpu::FragmentState {
             module: shader,
-            entry_point: Some("quad_fs"),
+            entry_point: Some(fragment),
             targets: &[Some(wgpu::ColorTargetState {
                 format: wgpu::TextureFormat::Rgba16Float,
                 blend,
@@ -993,7 +1145,7 @@ mod retained_tests {
     #[test]
     fn every_kind_and_owner_ordinal_has_the_same_total_order() {
         let mut kinds = vec![
-            Kind::Particle(false, NO_LOOK),
+            Kind::Particle(false, NO_LOOK, false),
             Kind::Model(0, 0),
             Kind::Sprite(0),
         ];
@@ -1031,7 +1183,7 @@ mod retained_tests {
         // Rank is independently pinned; a mistaken enum rank must fail too.
         assert_eq!(Kind::Model(0, 0).rank(), 0);
         assert_eq!(Kind::Sprite(0).rank(), 1);
-        assert_eq!(Kind::Particle(false, NO_LOOK).rank(), 2);
+        assert_eq!(Kind::Particle(false, NO_LOOK, false).rank(), 2);
         #[cfg(not(target_arch = "wasm32"))]
         assert_eq!(Kind::Child(0).rank(), 3);
     }

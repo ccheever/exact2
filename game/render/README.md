@@ -542,6 +542,14 @@ a sprite/model interleaved by depth splits that batch. The particle fixture's
 Emitter state includes compact admitted-birth batches, never particle positions.
 The renderer never changes that saved state.
 
+Soft particles (`ParticleLook.soft`) fade alpha by the gap along the view ray to
+the opaque scene behind them. On a frame with any, the forward pass stores its
+multisampled colour and depth instead of continuing into translucency; a second
+pass loads them, keeps the depth read-only and binds it to the soft particle
+pipelines (sample 0). That store and reload is the cost, so it is opt-in per look.
+Under a hook's scene copy, whose continuation already owns translucency, soft
+particles draw hard.
+
 Camera, sprite and blended-model ordering use the same normalized shortest-path
 quaternion interpolation as the draw shader. Birth/restore/carry/teleport/parent
 changes prime transform history. Emitter birth history is already saved and is

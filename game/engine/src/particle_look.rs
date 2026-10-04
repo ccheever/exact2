@@ -15,6 +15,10 @@ pub struct ParticleLook {
     /// Seconds of velocity added to the length along the motion: sparks and
     /// rain streaks. Zero keeps camera-facing squares.
     pub stretch: f32,
+    /// Metres over which particles fade out where they meet the opaque scene
+    /// behind them (soft particles); zero keeps hard intersections. A frame with
+    /// soft particles splits the forward pass to read its depth.
+    pub soft: f32,
 }
 impl Default for ParticleLook {
     fn default() -> Self {
@@ -23,6 +27,7 @@ impl Default for ParticleLook {
             atlas: [1, 1],
             fps: 0.0,
             stretch: 0.0,
+            soft: 0.0,
         }
     }
 }
