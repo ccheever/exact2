@@ -26,6 +26,8 @@ extension Presenter {
         for member in members { release(member.id) { _ in } }
         view.isUserInteractionEnabled = false
         view.accessibilityElementsHidden = true
+        // A leaving modal no longer hides what stays (LLP 1080.003).
+        view.accessibilityViewIsModal = false
         view.superview?.bringSubviewToFront(view)
         leaving[id] = Leaving(view: view, members: members)
     }

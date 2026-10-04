@@ -1049,24 +1049,6 @@ fn live_regions_and_autofocus_use_html_attributes() {
         .contains("accessibilityLive"));
 }
 
-/// `aria-modal` (LLP 1080.003) is the DOM's attribute, beside the dialog role.
-#[test]
-fn aria_modal_is_the_html_attribute() {
-    let plan = contract::compile(
-        "component App\n  view\n    column\n      column role=\"dialog\" aria-modal=true testId=\"sheet\"\n        text \"Call\"\n",
-    )
-    .unwrap();
-    let (_host, batch) = Host::boot(
-        &plan.encode(),
-        caltrain_data::Caltrain,
-        Default::default(),
-        "/",
-    )
-    .unwrap();
-    assert!(batch.contains("\"aria-modal\":\"true\""), "{batch}");
-    assert!(batch.contains("\"role\":\"dialog\""), "{batch}");
-}
-
 /// A theme flip restyles every row: each touched row gets one style op and
 /// nothing else. A receipt's `touched` never holds a created node (the
 /// kernel's contract), so the host walks it once; searching it per key made

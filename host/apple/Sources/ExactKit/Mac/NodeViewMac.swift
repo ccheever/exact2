@@ -343,19 +343,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return super.accessibilityAttributeValue(attribute)
     }
     override func accessibilityChildren() -> [Any]? {
-        if kind == "button" { return nil }
-        let children = textAccessibilityChildren() ?? super.accessibilityChildren()
-        // `aria-modal` (LLP 1080.003): AppKit has no sibling rule like UIKit's
-        // `accessibilityViewIsModal`, so a parent with a modal child exposes
-        // only what lies inside it (the last one, as it paints on top).
-        guard let modal = container.subviews.last(where: { ($0 as? NodeView)?.props["accessibilityModal"] == "true" && !$0.isHidden })
-        else { return children }
-        func inside(_ element: Any?) -> Bool {
-            if let view = element as? NSView { return view === modal || view.isDescendant(of: modal) }
-            // An element that is not a view (a text run's) belongs where its parent does.
-            return (element as? NSAccessibilityElement).map { inside($0.accessibilityParent()) } ?? false
-        }
-        return children?.filter(inside)
+        kind == "button" ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
     }
     /// What VoiceOver reaches, as the web's accessibility tree and iOS's
     /// traits have it: a pressable is a button — a link when its role says

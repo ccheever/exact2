@@ -158,7 +158,51 @@ extension Presenter {
             _ = target.becomeFirstResponder()
             #endif
         }
+        #if os(iOS)
+        syncModal()
+        #endif
     }
+    #if os(iOS)
+    /// `aria-modal` (LLP 1080.003), after a batch has mounted, attached and
+    /// shown what it will. A view is modal while its prop is true and it is
+    /// exposed: attached, displayed, not hidden, inert or leaving. UIKit then
+    /// hides its siblings from VoiceOver (`accessibilityViewIsModal`), other
+    /// modal views among them, so of siblings only the frontmost is modal.
+    /// When the modal views change, VoiceOver moves into the newest, or back.
+    func syncModal() {
+        let candidates = chrome.ids("accessibilityModal").sorted().compactMap { views[$0] }
+        func displayed(_ view: NodeView) -> Bool {
+            var at: UIView? = view
+            while let current = at {
+                if let node = current as? NodeView, node.style["display"]?.string == "none" { return false }
+                at = current.superview
+            }
+            return true
+        }
+        func inFront(_ a: NodeView, of b: NodeView) -> Bool {
+            if a.layer.zPosition != b.layer.zPosition { return a.layer.zPosition > b.layer.zPosition }
+            let order = a.superview?.subviews ?? []
+            return (order.firstIndex(of: a) ?? 0) > (order.firstIndex(of: b) ?? 0)
+        }
+        var chosen: [NodeView] = []
+        for view in candidates where view.props["accessibilityModal"] == "true" && view.accessibilityVisible
+            && !view.accessibilityElementsHidden && displayed(view) {
+            if let i = chosen.firstIndex(where: { $0.superview === view.superview }) {
+                if inFront(view, of: chosen[i]) { chosen[i] = view }
+            } else { chosen.append(view) }
+        }
+        for view in candidates + modalViews.allObjects {
+            let modal = chosen.contains { $0 === view }
+            if view.accessibilityViewIsModal != modal { view.accessibilityViewIsModal = modal }
+        }
+        modalViews.removeAllObjects()
+        for view in chosen { modalViews.add(view) }
+        let newest = chosen.max { $0.id < $1.id }
+        guard newest !== announcedModal else { return }
+        announcedModal = newest
+        UIAccessibility.post(notification: .screenChanged, argument: newest)
+    }
+    #endif
 }
 
 /// A restart with carried state (a dev reload, a delivered update) replaces

@@ -729,8 +729,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-checked" => AttrTarget::Prop(p("accessibilityChecked")),
         // @ref LLP 1039 D6 — vertical tablists retain authored layout.
         "aria-orientation" => AttrTarget::Prop(p("accessibilityOrientation")),
-        // @ref LLP 1075.003 §3.7 — a tab names its tabpanel.
-        "aria-controls" => AttrTarget::Prop(p("accessibilityControls")),
+        "aria-controls" => AttrTarget::Prop(p("accessibilityControls")), // LLP 1075.003 §3.7: a tab names its tabpanel.
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
         "aria-pressed" => AttrTarget::Prop(p("accessibilityPressed")),

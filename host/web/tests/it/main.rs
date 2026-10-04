@@ -2,6 +2,7 @@
 
 mod agent;
 mod animation;
+mod aria;
 mod borders;
 mod canvas;
 mod collection;

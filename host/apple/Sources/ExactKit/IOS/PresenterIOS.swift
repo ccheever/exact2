@@ -14,6 +14,10 @@ final class Presenter {
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
 
     var autofocusProcessed: Set<ObjectIdentifier> = []
+    /// The `aria-modal` view VoiceOver was last moved into, and the views
+    /// made modal, which a cleared prop drops from the index (`syncModal`).
+    weak var announcedModal: NodeView?
+    let modalViews = NSHashTable<NodeView>.weakObjects()
     /// The session this presenter shows (LLP 1031 D1).
     weak var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
