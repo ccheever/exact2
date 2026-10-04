@@ -25,8 +25,13 @@ the `hermesc` compiler from a sibling **ibex** checkout at `../ibex`
 `./scripts/build-hermes.sh --vanilla` there once. `EXACT_HERMES_DIR` and
 `EXACT_HERMESC` point at an engine and a compiler built elsewhere. Without
 them, the build of such an app stops in `exact-js`'s build script with a
-message naming these steps. An app with a Rust data crate and no `app.ts`
-needs none of this.
+message naming these steps. On iOS the app links a lean VM instead, built
+once per machine into `~/.cache/exact/hermes/<pin>-lean-ios` by
+`host/apple/build.mjs --ios`, which clones the pinned source and builds a host
+compiler when this machine has neither; CMake is its one prerequisite, and a
+build without it says so in one message (`EXACT_HERMES_IOS_DIR` names archives
+built elsewhere). An app with a Rust data crate and no `app.ts` needs none of
+this.
 
 Snapback4 consumers use release **0.2.30**: the CLI and browser device are pinned
 in `bun.lock`; Cargo pins native devices and schema compilers to the matching
@@ -190,7 +195,10 @@ line to add when none is.
 
 An app says what it opens with `file_handlers` in `app.json` — the W3C Web App
 Manifest's own key — and the macOS bake derives `CFBundleDocumentTypes` from
-it. A path from the command line, from Finder, from ⌘O, or from a link inside
+it. Each MIME type it accepts must be one the Apple hosts map to a system type
+(`DOCUMENT_UTIS` in `scripts/app.mjs`; `application/octet-stream` is
+`public.data`); every build refuses another when it reads the manifest, the
+web's included. A path from the command line, from Finder, from ⌘O, or from a link inside
 a document all arrive at the same place: the app's `open-file` node
 (LLP 1033 D3). `exact uninstall <app>` takes both halves away.
 
@@ -203,7 +211,10 @@ app links. A development build compiles it file by file and incrementally, and
 beside the app's Rust; the host's two Rust modules build in
 `<target>/apple-modules`, and a checkout that has not built one takes it from
 `~/.cache/exact/apple-modules` when another checkout of this machine compiled
-it from the same bytes (delete that directory to compile them here). What is
+it from the same bytes. A target directory that has compiled nothing starts
+with the registry crates this machine has compiled
+(`~/.cache/exact/apple-crates`; Cargo decides which it can use). Delete either
+directory to compile everything here. What is
 distributed (`--archive`, `exact release`) is the whole-module build, stripped,
 with its dSYM and whole receipt beside it; a production build links its Rust
 with fat LTO and, when its plan is fixed, leaves out the loaded modules the
@@ -242,9 +253,11 @@ is in [LLP 1030.000 §7](../llp/1030.000-dev-server-as-deployer.rfc.md#7-exact2-
 
 Agent sessions use `exactTime()` launch facts `seed: 1` (LLP 1069.007), `locale: "en-US"`,
 `timeZone: "UTC"` and `epochAtZero` 2026-01-01T00:00:00Z (LLP 1027.000.000 D3, with the
-zone's `utcOffset` at that instant) on every host. Override them at session setup with
+zone's `utcOffset` at that instant, answered again when the virtual date crosses a DST change) on every host. Override them at session setup with
 `bun scripts/agent.mjs web --seed 42 --locale fr-CA --time-zone America/Toronto --epoch 2026-09-21T14:13:20Z tree`
-or `open({host, seed: 42, locale: "fr-CA", timeZone: "America/Toronto", epoch: "2026-09-21T14:13:20Z"})`.
+or `open({host, seed: 42, locale: "fr-CA", timeZone: "America/Toronto", epoch: "2026-09-21T14:13:20Z"})`;
+a test file writes them as launch lines (`epoch "2026-09-21T14:13:20Z"`, `time-zone "America/Toronto"`,
+[authored tests](contract-grammar.md#authored-tests)), which override the flags.
 Seeds are integers from 0 through 2^53 − 1; an epoch is an ISO date or Unix milliseconds. Native carriers pass
 `EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
 (milliseconds); direct agent launches can set these too. Web agent pages accept
@@ -351,6 +364,13 @@ the filesystem's POSIX name (`'ENOENT'`, `'EEXIST'`, `'ENOTDIR'`, `'EISDIR'`,
 `'ENOTEMPTY'`, `'EBUSY'`), else `'failed'`. Branch on the code, never the
 message: `catch (e) { if (e.code === 'ENOENT') return empty; throw e; }`.
 
+A drive's app storage is a scratch store it names (`--storage <name>`) or none;
+an authored test gets a fresh one of its own. The driver's `state.storage` says
+which (`{available: false, code: 'agent', message}` or `{available: true,
+store}`), and the web's journal says `storage refused (agent): …` the first time
+a refusal lands. A Rust module's storage request in such a drive is answered
+with the same message, never refused outright (trivia F7).
+
 An answer's storage and `fetch` steps run whether or not it awaits them: a save
 started and not awaited (queued behind the module's own promise chain, say)
 lands on every host. In the browser the answer is given at once and the save
@@ -368,6 +388,44 @@ operations read the app's file records, and each SQLite mutation atomically
 saves the whole database file. Database files share the filesystem namespace,
 so closed databases can be copied or exported through `storage.fs`. SQLite integer results
 are `bigint`: convert them to a Contract-compatible value before returning.
+
+### Documents the person chose (`doc:`)
+
+A file or folder the person picks (`showOpenFilePicker`, `showDirectoryPicker`,
+`showSaveFilePicker`), or opens from the system at the app's `open-file` node,
+arrives as a `doc:/<n>/<name>` path (LLP 1069.010 D1). `storage.fs` reaches it,
+and paths beneath a chosen folder, under the grants `fs.read doc:/` and
+`fs.write doc:/` — the same grants, operations, refusals and codes whether the
+data module is TypeScript or Rust, on every host:
+
+```ts
+export const grants = 'fs.read doc:/';
+// listing([folder]) with folder = 'doc:/1/notes', from `change` on the picker's node
+for (const name of await storage.fs.readdir(folder)) {
+  const stat = await storage.fs.stat(`${folder}/${name}`);       // a folder's size is 0
+  if (stat.isFile) bytes = await storage.fs.readFile(`${folder}/${name}`);
+}
+```
+
+| Operation on a `doc:` path | Grant | What it does |
+| --- | --- | --- |
+| `readFile`, `stat`, `readdir` | `fs.read doc:/` | `doc:/<n>` itself lists only `<name>` |
+| `writeFile`, `atomicWriteFile`, `appendFile` | `fs.write doc:/` | Creates a file beneath a chosen folder |
+| `mkdir` | `fs.write doc:/` | Makes the folders above it too |
+| `rm` | `fs.write doc:/` | One file or one empty folder beneath the chosen document; never the document itself, never a tree |
+| `rename`, `copyFile`, `realpath` | — | Refused (`'failed'`): read the bytes and write them |
+
+A path never minted, `.`/`..`, and a closed window's or page's handle are
+refused. A document needs no app storage: a drive without `--storage` reaches
+it. On the web the paths are the `FileSystemHandle`s the page's picker
+returned (Chromium; Safari and Firefox refuse the pickers), and a module placed
+on a worker on the wasm web host cannot reach them (`'unsupported'`); on macOS
+and iOS they are security-scoped URLs held for the session; Linux opens no
+picker panel (a drive's held pickers still answer), so outside a drive only
+`open-file` delivers one there. The handles end with the
+session: nothing about a document is remembered across launches.
+
+### Bake and deliver a TypeScript module
 
 Build an app-local `app.ts` module and bake its Contract through the resulting
 Hermes bytecode (currently a macOS producer with the sibling ibex toolchain):

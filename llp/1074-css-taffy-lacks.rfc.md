@@ -211,7 +211,7 @@ five formerly owed cases and content-overflow cases pass against Chrome.
 These need no new layout algorithm. They do need schema rows, Contract grammar, validation, serialization and CSS emission. Read from source; not run.
 
 - **`grid-template-areas` and named grid lines.** The kernel's grid placement is numeric and would need extending. Differential cases first.
-- **`safe` and `unsafe` alignment.** LLP 1054.000.001 already proposes `safe center`.
+- **`safe` and `unsafe` alignment.** LLP 1054.000.001 proposed `safe center`; the kernel now uses Taffy's block `safe center` internally for a button's content (2026-10-04, LLP 1001 §1), and the schema still exposes neither keyword.
 - **`start`, `end`, `self-start`, `self-end`: exposed 2026-09-30.** Item/self alignment accepts all four; content alignment accepts `start` and `end`. Schema-generated validation and CSS serialization share the vocabulary; Contract also exposes `justify-items` and `align-content`. Chrome fixtures cover LTR and RTL.
 - **`display: flow-root`.** The web host already appends it on a block root.
 - **Preferred-size keywords** `min-content`, `max-content`, `fit-content`, `stretch`.

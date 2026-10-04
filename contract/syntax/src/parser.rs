@@ -14,6 +14,7 @@ mod names;
 #[path = "routes.rs"]
 mod routes;
 mod steps;
+use steps::{launch_word, same_launch, LAUNCH};
 
 /// A parse failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -369,6 +370,13 @@ impl Parser {
                 }
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
                 TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
+                TokenKind::Ident(w) if LAUNCH.contains(&w.as_str()) => {
+                    let line = self.step()?;
+                    if let Some(first) = file.launch.iter().find(|s| same_launch(s, &line)) {
+                        return duplicate("launch line", launch_word(&line), line.span(), first.span());
+                    }
+                    file.launch.push(line);
+                }
                 TokenKind::Ident(w) if w == "component" => {
                     let component = self.component()?;
                     if let Some(first) = file

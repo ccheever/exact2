@@ -8,14 +8,14 @@
 // the `PointerEvent` record; moves go out at most once a frame, the latest.
 
 // The record: the point from the element's content box in its own CSS px
-// (a scale undone), DOM's buttons and pressure, the device and its id.
+// (a scale undone), DOM's buttons and pressure, the device and its id, the modifiers held.
 export function record(e, ev, lifted = false) {
   const r = e.getBoundingClientRect(), cs = getComputedStyle(e);
   const sx = e.offsetWidth ? r.width / e.offsetWidth : 1, sy = e.offsetHeight ? r.height / e.offsetHeight : 1;
   const left = parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft), top = parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop);
   const type = ev.pointerType === "pen" || ev.pointerType === "touch" ? ev.pointerType : "mouse";
   return [(ev.clientX - r.left) / (sx || 1) - left, (ev.clientY - r.top) / (sy || 1) - top,
-    lifted ? 0 : ev.buttons, lifted ? 0 : Math.min(1, Math.max(0, ev.pressure || 0)), type, ev.pointerId];
+    lifted ? 0 : ev.buttons, lifted ? 0 : Math.min(1, Math.max(0, ev.pressure || 0)), type, ev.pointerId, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey];
 }
 export function pointer(e, kind, f) {
   let s = e.$pointer;

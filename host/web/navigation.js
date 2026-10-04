@@ -194,7 +194,7 @@ export const navigation = {
       if (at < 0) {
         if (refused.get(nav) !== key) {
           refused.set(nav, key);
-          log(`navigationKey "${key}" matches no route; the stack is unchanged`);
+          log(`navigationKey "${key}" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged`);
         }
         continue;
       }
@@ -213,7 +213,9 @@ export const navigation = {
         for (const [index, route] of routes.entries()) {
           const active = index === selected;
           if (!active && route.contains(document.activeElement)) document.activeElement.blur();
-          route.style.visibility = active || (modal && index === selected - 1) ? "" : "hidden";
+          const covered = modal && index === selected - 1;
+          route.style.visibility = active || covered ? "" : "hidden";
+          route.toggleAttribute("data-exact-covered", covered);
           route.inert = !active || !!route.authoredInert;
         }
       }
@@ -585,6 +587,11 @@ export function focusController({ready, elements, inert}) {
 // node and value in it is committed (a focus handler may dispatch an action).
 export function runFocusCommands(commands, { root, ready, inertAncestor, log }) {
   for (const { name, args } of commands) {
+    if (name === "scrollIntoView") { // `Element.scrollIntoView()` by the element's id, after the batch's layout (minesweeper F3)
+      const el = [...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]);
+      if (el) el.scrollIntoView({ block: args[1] ?? "start", inline: args[2] ?? "nearest", behavior: args[3] ?? "auto" }); else log(`scrollIntoView "${args?.[0]}" refused: no live node with that id`);
+      continue;
+    }
     if (name === "blur") { // `blur()` drops whatever holds focus; `blur(id)` only when that node holds it.
       const active = document.activeElement;
       if (ready && active && active !== document.body && (!args?.length || active.id === args[0])) active.blur();
@@ -770,6 +777,17 @@ export function timeReporter(params, platform = globalThis) {
     return [epoch, (Date.UTC(at.year, at.month - 1, at.day, at.hour, at.minute, at.second) - Math.floor((epoch + elapsed) / 1000) * 1000) / 60000];
   };
 }
+// Where the page launches (LLP 1038 D5): its path and query, less a drive's
+// own parameters, which are the host's facts and not a route's — a driven
+// page numbers its visits as a native host does (feed F16). The JS target
+// launches here too (rt.js re-exports it).
+export function launchLocation(platform = globalThis) {
+  const { pathname, search } = platform.location, q = new URLSearchParams(search);
+  if (!(AGENT_ADMITTED && q.has('agent'))) return pathname + search;
+  for (const k of ['agent', 'seed', 'locale', 'timeZone', 'epoch', 'storage']) q.delete(k);
+  const rest = q.toString();
+  return pathname + (rest ? '?' + rest : '');
+}
 // The drive's facts are the launch URL's: a route the app pushed before the
 // first ask has no `?agent&…` (storage-environment.js `launchHref`).
 const launched = () => new URL(globalThis.performance?.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams;
@@ -942,17 +960,22 @@ export function reveal(el, id) {
     if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
   }
   if (seen) return { revealed: id, scrolled: false };
-  (getComputedStyle(el).display === "contents" ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
   return { revealed: id, scrolled: true, from: [x, y], to: middle() };
 }
 
-// A view's box as the agent reports it. A text folded into its box's content
-// (LLP 1007.001, `display: contents`) makes no box of its own: its box is the
-// anonymous block its text is, as a style-less block child's was — its line
-// boxes along the main axis, and its box's content box across when the box
-// stretches its items (a block, or a flex or grid box that stretches).
+// A text folded into its box's content (LLP 1007.001): `display: contents`,
+// or an inline box under a box that restricts touch. A paragraph's inline
+// runs are not `data-exact-text`; only the paragraph is.
+const folded = el => { const d = getComputedStyle(el).display; return d === "contents" || d === "inline" && el.hasAttribute("data-exact-text"); };
+
+// A view's box as the agent reports it. A folded text has no block box of its
+// own: its box is the anonymous block its text is, as a style-less block
+// child's was — its line boxes along the main axis, and its box's content box
+// across when the box stretches its items (a block, or a flex or grid box
+// that stretches).
 export function viewBox(el) {
-  if (getComputedStyle(el).display !== "contents") return el.getBoundingClientRect();
+  if (!folded(el)) return el.getBoundingClientRect();
   const range = document.createRange();
   range.selectNodeContents(el);
   const t = range.getBoundingClientRect(), p = el.parentElement;

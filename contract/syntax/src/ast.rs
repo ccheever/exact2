@@ -47,6 +47,10 @@ pub struct File {
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
     /// their own beside the app, `app.test.contract`.
     pub tests: Vec<TestDecl>,
+    /// A test file's launch lines (`size`, `epoch`, `time-zone`, `locale`,
+    /// `seed`), which every test in the file opens with unless it names its
+    /// own (habits F7, calendar F13).
+    pub launch: Vec<Step>,
     /// `component` declarations, in order. The first is the root.
     pub components: Vec<Component>,
 }
@@ -141,17 +145,23 @@ pub struct TestDecl {
 /// One step of a `test`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
-    /// `tap "testId"` (`hover` for a pointer over).
+    /// `tap "testId"`, or one of the driver's other forms of it
+    /// (`modifiers "Shift"` for a press with keys held).
     Tap {
         /// The node, by `testId`.
         target: String,
-        /// `hover` instead of a press.
-        hover: bool,
+        /// Which input: a press, unless the step names another.
+        form: TapForm,
+        /// `modifiers "Shift+Meta"`: the keys held through a press (empty
+        /// for none; gallery F20).
+        modifiers: String,
         /// Where.
         span: Span,
     },
-    /// `tap "testId" drag dx dy [press ms] [over ms] [hold ms]`: one whole
-    /// drag from the node's middle, the driver's `tap … drag` (kanban F18).
+    /// `tap "testId" drag dx dy [from x y] [mouse] [press ms] [over ms]
+    /// [hold ms]`: one whole drag from the node's middle, or from `from` in
+    /// its box, a finger's or the left button's; the driver's `tap … drag`
+    /// (kanban F18, files diary F10).
     Drag {
         /// The node, by `testId`.
         target: String,
@@ -159,6 +169,11 @@ pub enum Step {
         dx: f64,
         /// Points down.
         dy: f64,
+        /// Where it starts, an offset from the node's top left; its middle
+        /// when `None`.
+        from: Option<(f64, f64)>,
+        /// The left button rather than a finger, where a carrier has both.
+        mouse: bool,
         /// Milliseconds held before the move.
         press: Option<f64>,
         /// Milliseconds the move takes.
@@ -178,12 +193,43 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `type "testId" "text"`.
+    /// `epoch "2026-09-21T12:00:00Z"` (or Unix milliseconds): the date at
+    /// the session clock's zero, the driver's `--epoch` (habits F7).
+    Epoch {
+        /// An ISO date or whole milliseconds, as the driver takes it.
+        value: String,
+        /// Where.
+        span: Span,
+    },
+    /// `time-zone "America/New_York"`: the session's IANA zone, `--time-zone`.
+    TimeZone {
+        /// The zone.
+        zone: String,
+        /// Where.
+        span: Span,
+    },
+    /// `locale "fr-FR"`: the session's BCP 47 locale, `--locale`.
+    Locale {
+        /// The tag.
+        tag: String,
+        /// Where.
+        span: Span,
+    },
+    /// `seed 7`: the session's `exactTime().seed`, `--seed`.
+    Seed {
+        /// A whole number from 0 through 2^53 − 1.
+        seed: f64,
+        /// Where.
+        span: Span,
+    },
+    /// `type "testId" "text"`, or `… append`.
     Type {
         /// The field, by `testId`.
         target: String,
         /// The text.
         text: String,
+        /// `append`: after the field's value, not in place of it (feed F8).
+        append: bool,
         /// Where.
         span: Span,
     },
@@ -196,7 +242,31 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `clock settle`, `clock +ms`, `clock ms`.
+    /// `pick "id" "path"…` / `pick "id" cancel`: answer the device request
+    /// held at the node whose `id` (or `testId`) a picker named, or the one
+    /// hold with that capability (`open-directory`, `pick`, `export`, …),
+    /// whatever its ticket (files F11). Paths are the test file's.
+    Pick {
+        /// The node the answer arrives at, or a capability.
+        target: String,
+        /// The files or folders chosen; empty for `cancel`.
+        paths: Vec<String>,
+        /// Where.
+        span: Span,
+    },
+    /// `type "testId" copy`, `… cut`, `… paste "text"`: the clipboard's
+    /// event at the node, a paste carrying `text` as the clipboard's.
+    Clipboard {
+        /// The node, by `testId`.
+        target: String,
+        /// `copy`, `cut` or `paste`.
+        edit: String,
+        /// A paste's text; empty for copy and cut.
+        text: String,
+        /// Where.
+        span: Span,
+    },
+    /// `clock settle`, `clock +ms`, `clock +ms real`, `clock ms`.
     Clock {
         /// The argument as the agent takes it.
         arg: String,
@@ -230,16 +300,39 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `reload`: the app restarts on the scratch store it had, so what it
+    /// kept is what it reads (mail F19, kanban F25, weather F3).
+    Reload {
+        /// Where.
+        span: Span,
+    },
     /// `expect state name == literal`: a slot, derive, or resource from the
-    /// `state` reply, compared to a number, string, bool, or `none`.
+    /// `state` reply, or a field of one (`name.field.field`, feed F10),
+    /// compared to a number, string, bool, or `none`.
     ExpectState {
-        /// The declaration's name.
+        /// The declaration's name, then any fields, joined by `.`.
         name: String,
         /// The literal.
         value: Expr,
         /// Where.
         span: Span,
     },
+}
+
+/// Which input a `tap` step gives: the driver's `tap` forms (LLP 1012).
+#[derive(Debug, Clone, PartialEq)]
+pub enum TapForm {
+    /// A press: down and up at the node's middle.
+    Press,
+    /// `hover`: a pointer over it.
+    Hover,
+    /// `dblclick`: two presses, the second a double click (feed F10).
+    Dblclick,
+    /// `contextmenu`: a secondary press.
+    Contextmenu,
+    /// `into "key"`: a virtualized list's row brought into view by its key
+    /// (LLP 1070.000 §5), so a row outside the rendered window can be tapped.
+    Into(String),
 }
 
 /// `fn name(param: type, …): type = expr` — a pure function written in
@@ -982,6 +1075,31 @@ pub enum TemplatePart {
     Text(String),
     /// `${expr}`.
     Expr(Expr),
+}
+
+impl Step {
+    /// Where: the step's line.
+    pub fn span(&self) -> Span {
+        match self {
+            Step::Tap { span, .. }
+            | Step::Drag { span, .. }
+            | Step::Size { span, .. }
+            | Step::Epoch { span, .. }
+            | Step::TimeZone { span, .. }
+            | Step::Locale { span, .. }
+            | Step::Seed { span, .. }
+            | Step::Type { span, .. }
+            | Step::Key { span, .. }
+            | Step::Pick { span, .. }
+            | Step::Clipboard { span, .. }
+            | Step::Clock { span, .. }
+            | Step::Reload { span, .. }
+            | Step::Screenshot { span, .. }
+            | Step::ExpectTree { span, .. }
+            | Step::ExpectText { span, .. }
+            | Step::ExpectState { span, .. } => *span,
+        }
+    }
 }
 
 impl Expr {

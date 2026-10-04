@@ -182,7 +182,7 @@ fn every_dynamic_codec_fills_its_row_and_marks_the_mask() {
     assert_eq!(s.z_index, -2);
     assert_eq!(
         s.background_color,
-        ColorValue::Fixed(Color::rgba(255, 0, 0, 128))
+        Some(ColorValue::Fixed(Color::rgba(255, 0, 0, 128)))
     );
     assert_eq!(s.text_color, ColorValue::Fixed(Color(0x1122_33ff)));
     assert_eq!(s.flex_direction, exact_kernel::FlexDirection::Column);

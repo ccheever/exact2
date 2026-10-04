@@ -14,7 +14,7 @@ for (const host of ['Mac','IOS']) check(`${host} clears zero-sized and display-n
   const file=`host/apple/Sources/ExactKit/${host}/Gpu${host}.swift`;
   const source=readFileSync(process.env.R7_APPLE_SOURCE ?? file,'utf8');
   const start=source.indexOf('        for (i, child) in children.enumerated() {');
-  const end=source.indexOf('            let hidden = child.isHidden',start);
+  const end=source.indexOf('            let hidden = child.hiddenByHost',start);
   const branch=source.slice(start,end);
   const swift=`struct Rect { var width: Double; var height: Double }
 enum BatchValue { case string(String); var string: String? { if case .string(let s) = self { return s }; return nil } } // ExactKit's style value, reduced
@@ -52,7 +52,7 @@ for(const host of ['Mac','IOS']) check(`${host} hidden placement box is zero, no
   const swift=`struct Rect: Equatable {var width:Int;static let zero=Rect(width:0)}
 class View {var bounds=Rect(width:100)}
 class NodeView: View {var placedAncestor:NodeView?;var placementHidden=false}
-func box(_ v:View, region:Rect?=nil)->Rect {${guard}\nreturn bounds}
+func box(_ v:View, region:Rect?=nil)->Rect {${guard}\nreturn v.bounds}
 let parent=NodeView(), child=NodeView();child.placedAncestor=parent
 precondition(box(child).width==100);parent.placementHidden=true
 precondition(box(child)==Rect.zero)

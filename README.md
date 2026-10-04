@@ -203,6 +203,8 @@ Linux host.
 - **Hermes**, only for TypeScript apps on native hosts. Clone
   [expo/ibex](https://github.com/expo/ibex) beside this repository and build it once:
   `git clone https://github.com/expo/ibex ../ibex && (cd ../ibex && ./scripts/build-hermes.sh --vanilla)`.
+  iOS also needs **CMake** (`brew install cmake`): the first iOS build fetches the
+  pinned Hermes source and builds its lean VM once for the machine.
 
 To install the pinned Bun beside any existing installation:
 `curl -fsSL https://bun.sh/install | BUN_INSTALL=~/.bun-1.4.2 bash -s bun-v1.4.2`.
@@ -261,6 +263,7 @@ films motion as a contact sheet; use an `.apng` name to get an animation.
 bun scripts/exact.mjs new ../hello          # or run `bun link` once, then `exact new ../hello`
 cd ../hello
 bun exact.mjs web                           # the dev loop, at http://127.0.0.1:8765/
+bun exact.mjs test web tests/*.test.contract # app.test.contract, or the test files named
 bun exact.mjs mac --run                     # this Mac
 bun exact.mjs ios --run                     # an iOS Simulator
 ```

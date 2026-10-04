@@ -1097,7 +1097,10 @@ export function arrangeController({views,collections,motion,request,applyBatch,n
       }
       if(sampleMove(drag,v.clientX,v.clientY)){v.preventDefault();v.stopPropagation();edges(drag);}
     });
-    const up=v=>{if(v.pointerId!==e.pointerId)return;cleanup();if(!drag)return;
+    // A touch is implicitly captured by the element it lands on, often the
+    // grip's text child; taking capture to the grip bubbles that child's
+    // capture loss here, which is not the contact ending (habits F10).
+    const up=v=>{if(v.pointerId!==e.pointerId||v.type==='lostpointercapture'&&v.target!==b.el)return;cleanup();if(!drag)return;
       const cancel=v.type!=='pointerup';if(!cancel&&!sampleMove(drag,v.clientX,v.clientY)){terminal(drag,true);return;}
       terminal(drag,cancel);};
     for(const name of ['pointerup','pointercancel','lostpointercapture'])on(b.el.ownerDocument,name,up);

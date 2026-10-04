@@ -185,6 +185,13 @@ impl Em<'_> {
                     ("overflow".into(), String::new(), when("\"hidden\"")),
                 ]
             }
+            // @ref LLP 1077 D14 — host-owned, as `press-scale`: the custom
+            // property input-glue.js plays at the press (css.rs).
+            StyleId::PressHaptic => {
+                let press = self.uses.rt("pressFeedback");
+                let _ = write!(self.out, "{press}();");
+                one("--exact-press-haptic", Some("v=>v==null||v===\"none\"?null:v".into()))
+            }
             // The feedback's factor, and `scale` as its product (css.rs), on
             // a node whose own `scale` does not also compose through it.
             StyleId::PressScale => {
@@ -439,9 +446,10 @@ pub(super) fn presence_decls(css: &mut String) -> String {
             "--exact-animation-clock:",
             "--exact-animation-range:",
             "--exact-timeline-scope:",
-            // The press feedback's factor (LLP 1061), which input-glue.js
-            // reads from the element's own style.
+            // The press feedback's factor (LLP 1061) and haptic (LLP 1077
+            // D14), which input-glue.js reads from the element's own style.
             "--exact-press:",
+            "--exact-press-haptic:",
         ]
         .iter()
         .any(|p| decl.starts_with(p))
@@ -552,7 +560,7 @@ pub(super) fn attributes(
                 "textarea" => content = Some(value.clone()),
                 _ => {}
             },
-            "checked" | "inert" | "disabled" | "readonly" => {
+            "checked" | "inert" | "disabled" | "readonly" | "multiple" => {
                 if value == "true" {
                     attrs.push((name.clone(), String::new()));
                 }
@@ -564,7 +572,7 @@ pub(super) fn attributes(
             | "playsinline"
             | "disablepictureinpicture"
             | "disableremoteplayback"
-                if element == "video" =>
+                if element == "video" || element == "audio" =>
             {
                 if value == "true" {
                     attrs.push((name.clone(), String::new()));

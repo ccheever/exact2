@@ -61,8 +61,10 @@ bun scripts/exact.mjs new ../hello
 The new app has `app.contract` (its interface), `app.ts` (its data module),
 `app.json` (its manifest), `app.test.contract`, `web/` and `apple/` crates, and its
 own Cargo workspace; it consumes this checkout by path. Its generated `exact.mjs`
-runs the web and native commands (`bun exact.mjs test`, for example); run it with
-no verb to list them, and see the [tooling reference](reference.md).
+runs the web and native commands (`bun exact.mjs test`, for example; `bun exact.mjs
+test web tests/*.test.contract` runs the files named, from the current directory,
+in turn); run it with no verb to list them, and see the [tooling reference](reference.md).
+Stopping or killing `bun exact.mjs web` stops its dev server too.
 
 You can compile a standalone Contract file without running a host:
 
@@ -527,7 +529,8 @@ The `refreshes items` clause re-reads `items` when the mutation is sent (an answ
 the source gives at once shows immediately) and forces it again when the reply
 lands. `then afterSave` runs a parameterless action in its own commit at the
 host's next clock advance, once for every answer that landed before it, so it
-reads the latest answer. It does not run for a failure that brought no answer,
+reads the latest answer (the agent driver lands it at the end of the input
+that settled the answer). It does not run for a failure that brought no answer,
 and it must not send its own mutation. Do not use `then` as a general event queue.
 
 `pending(resourceOrMutation)` asks whether a request is in flight.
@@ -578,8 +581,12 @@ arguments, not state, and is answered once at build. See
 
 The app build bakes initial resource values into its plan for first paint. At
 build there is no network, storage, store write or native module; a source that
-needs a request is left unbaked and asked at run time. Generate the interface
-rather than guessing it:
+needs a request is left unbaked and asked at run time. A baked value is only
+the first frame: every host asks the TypeScript module again at launch (a native
+host once the module loads after first pixel), even for a source with no
+arguments, so what the module knows at launch reaches the view. `logs` names
+each resource that showed a build-time answer and what its ask answered. Generate
+the interface rather than guessing it:
 
 ```sh
 cargo run -q -p contract -- types path/to/app.contract -o /tmp/app.contract.d.ts
@@ -828,6 +835,13 @@ measured layout as well as the compiler's structural checks.
 
 Use `aria-label`, roles, and other admitted ARIA attributes where content alone
 does not name a control. Keep accessible labels separate from driver `testId`s.
+They mean on every host what they mean in a browser: `aria-hidden` takes a
+subtree off the tree and out of its ancestors' names; `role="checkbox"`,
+`"radio"` or `"switch"` with `aria-checked` is that control, `role="img"` with a
+label an image; `aria-describedby` (the ids of the elements whose text describes
+this one) and `aria-description` are its description. `aria-invalid`,
+`aria-required` and `aria-haspopup` take their ARIA words or a bool; UIKit has
+no property for those three, so iOS exposes none of them.
 Font sizes, touch targets, focus behavior, and contrast remain author decisions.
 
 Declare bundled fonts at file scope:
@@ -862,7 +876,8 @@ by the new text. This syntax is binding, not immediate evaluation.
 
 Use explicit types when they make the interface clear; omitted action parameter
 types can be inferred from event sites. There is no inline `() => …` handler;
-a `key` action claims its key with the host command `preventDefault()`
+a `key` action claims its key with the host command `preventDefault()`, and
+keeps it from its ancestors' `key` handlers with `stopPropagation()`
 ([keys](contract-grammar.md#keys)).
 
 The complete event inventory and payload groups are in the
@@ -977,9 +992,9 @@ component App
   action followLink(url: string)
     nav = go(nav, url)
   view
-    main navigationKey=`${current.id}` navigationBack="back" navigate=followLink
+    main navigationKey=`${current.id}` navigationBack="back" navigate=followLink width="100%" height="100%"
       each e in stack(nav) key=e.id
-        column navigationKey=`${e.id}` gap=8
+        column navigationKey=`${e.id}` position="absolute" inset=0 gap=8 background-color="#ffffff"
           text e.name testId=`route-${e.id}`
           when e.name == "item"
             text e.params.id
@@ -993,6 +1008,9 @@ A navigation stack is built this way: one row per entry of `stack(nav)`, keyed b
 the entry's id, so a retained screen keeps its state. The root's `navigationKey`
 names the top entry, and each row's `navigationKey` names its own; the host
 presents the stack from them. `navigationBack` names the `id` of the back control.
+Each row is a direct child of the root and fills it: a covered entry is hidden, not
+removed, so one in the flow would still take its room. Tabs with a stack each are
+laid out as [the tabs corpus](../contract/corpus/tabs.contract) shows.
 `navigate=` receives locations the host navigates to itself, such as link clicks
 and browser history.
 
@@ -1109,7 +1127,7 @@ and its arguments; it is not a drawing-command language. Heavy computation and
 game loops belong in those modules. See [Canvas Gallery](../apps/canvas-gallery/app.contract),
 [SVG Gallery](../apps/svg-gallery/app.contract), and [the game workspace](../game/README.md).
 
-`image`, `video`, `iframe`, and Markdown-capable text/editors use host facilities.
+`image`, `video`, `audio`, `iframe`, and Markdown-capable text/editors use host facilities.
 Use `object-fit` for replaced media; distinguish text content from markup.
 [Video Player](../apps/video-player/app.contract) shows playback bindings and
 [Markdown Stress](../apps/markdown-stress/app.contract) selection and editing;

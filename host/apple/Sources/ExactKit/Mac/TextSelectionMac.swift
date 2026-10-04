@@ -321,7 +321,4 @@ final class TextSelection {
     }
 }
 
-extension NodeView {
-    @objc func copy(_ sender: Any?) { presenter?.selection.copy() }
-}
 #endif

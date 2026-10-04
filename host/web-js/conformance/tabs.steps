@@ -1,0 +1,20 @@
+# Tabs and stacks (contract/corpus/tabs.contract, docs/contract-for-agents.md):
+# a pushed screen whose content is a keyed `each` survives a visit to the other
+# tab and back (shop F26), a modal sheet paints its own background over the
+# dimmed route it covers (recipes F6), the hidden tablist takes no room, a toast
+# after the tablist paints over the routes, and a location typed into the root
+# selects its tab (shop F22).
+tap open-1
+tap tab-saved
+tap open-note
+tap tab-home
+tap back-item
+tap open-add
+tap back-add
+tap open-full
+tap back-full
+tap say
+tap tab-saved
+tap toast
+type navigation /item/2
+type navigation /saved

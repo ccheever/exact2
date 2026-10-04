@@ -7,9 +7,9 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import vm from 'node:vm';
-import { render, sourceMapReader, identifyInspectedNode } from '../../scripts/agent.mjs';
+import { render, sourceMapReader, identifyInspectedNode, heldTicket, holdOf, pickedPaths } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync, serveBuildTree } from './serve.mjs';
-import { focusController, placeReporter, timeReporter, pageReporter, viewBox, grantOrigins } from './navigation.js';
+import { focusController, placeReporter, timeReporter, pageReporter, viewBox, grantOrigins, launchLocation } from './navigation.js';
 import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
@@ -57,8 +57,9 @@ catch(e) { console.error(e.message); process.exitCode=1; }
       expect(bad.status).toBe(1);
       expect(bad.stderr).toContain('fixture.contract:7:3: invalid test step');
     }
+    // No cargo on PATH and none where rustup puts it, which the driver adds back (scripts/app.mjs cargoOnPath).
     const missing = spawnSync(process.execPath, [runner], {
-      cwd:dir, env:{...process.env,PATH:join(dir,'absent')}, encoding:'utf8',
+      cwd:dir, env:{...process.env,PATH:join(dir,'absent'),CARGO_HOME:join(dir,'absent')}, encoding:'utf8',
     });
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain('cargo');
@@ -242,8 +243,9 @@ function fixture(agentMode = true) {
   const root = { dataset: {}, replaceChildren() { events.push('replace'); } };
   const context = vm.createContext({ events, agentMode, root, views: new Map([[1, el]]),
     state, outline, logs, textflow: null, flowLoading: null, flowContexts: [], flowDue: null, flowFrames: false, present() {}, lists: new Map(),
-    Date: { now: () => 123 }, performance: { now: () => 10 }, TextEncoder, Uint8Array,
-    HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {}, HTMLVideoElement: class {},
+    Date: class extends Date { static now() { return 123; } }, performance: { now: () => 10 }, TextEncoder, Uint8Array,
+    HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {}, HTMLVideoElement: class {}, HTMLMediaElement: class {},
+    foldBits: () => 0 /* no fold posture (LLP 1078 D6) */,
     document: { activeElement: null, body: {}, querySelector: () => null },
     innerWidth: 300, innerHeight: 200, devicePixelRatio: 1, scrollX: 0, scrollY: 0,
     INHERITED_CSS: {}, getComputedStyle: () => ({}), inertAncestor: () => false,
@@ -260,7 +262,7 @@ function fixture(agentMode = true) {
     wasm: { exact_in: () => 0, exact_plan: () => 1, exact_out: () => 0,
       exact_plan_fonts: () => '[]', exact_boot: () => '{"ops":[],"timers":true}',
       exact_boot_plan: () => '{"ops":[],"timers":true}', exact_advance: () => '{"ops":[],"clock":16}' },
-    devAssets: null, bootAttempt: 0, encoder: new TextEncoder(), location: { pathname: '/', search: '' },
+    devAssets: null, bootAttempt: 0, encoder: new TextEncoder(), location: { pathname: '/', search: '', href: 'https://fixture.invalid/' }, URL,
     focus: focusController({ ready: () => true, elements: () => [], inert: () => false }), loadGpuIfNeeded() {}, writeIn: value => value, send() {}, messageViews: new Set(), markupModule: null,
     prepareFonts: async () => [], commitFonts() {}, releaseAssets() {}, incarnation: 0,
     // Ordinary boot tests model an already-loaded post-paint scheduler.
@@ -277,8 +279,9 @@ function fixture(agentMode = true) {
     page: null, // a built document's boot (LLP 1048.000 D6); these pages have none
     loadStage: () => Promise.resolve(), stageLoaded: () => true, // every stage linked (LLP 1047.000 §9)
     preferences: () => '{}', localAssetURL: source => source,
+    launchLocation: () => launchLocation(context), // the launch path less the drive's facts (feed F16)
   });
-  vm.runInContext(`const viewBox = ${viewBox};\n` + source.match(/^let gpuLoading = .*$/m)[0] + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
+  vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   context.reportPlace = placeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   context.reportTime = timeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   return context;
@@ -445,13 +448,13 @@ test('a clock jump lands what is in flight before each timer fires', async () =>
   timedRequests(f);
   const boot = new Promise(resolve => setTimeout(() => { f.events.push('reply boot'); resolve(); }, 0));
   f.inflight.add(boot); boot.finally(() => f.inflight.delete(boot));
-  expect(await f.exact.agent({ op: 'clock', to: 700 })).toEqual({ clock: 700, epoch: 2, incarnation: 1 });
-  // The last advance fires no timer, so the request it left in flight is not waited for.
+  // The last advance fires no timer, so the request it left in flight is not waited for; the reply names it (calendar F10).
+  expect(await f.exact.agent({ op: 'clock', to: 700 })).toEqual({ clock: 700, epoch: 2, incarnation: 1, inflight: 1 });
   expect(f.events).toEqual(['reply boot', 'advance 700 until a request → 300', 'reply 300', 'advance 700 until a request → 600', 'advance 700 → 700']);
   expect(f.inflight.size).toBe(1);
   // A due time at the target itself is the last stop: what is in flight lands first, nothing follows.
   f.events.length = 0;
-  expect(await f.exact.agent({ op: 'clock', to: 900 })).toEqual({ clock: 900, epoch: 2, incarnation: 1 });
+  expect(await f.exact.agent({ op: 'clock', to: 900 })).toEqual({ clock: 900, epoch: 2, incarnation: 1, inflight: 1 });
   expect(f.events).toEqual(['reply 600', 'advance 900 until a request → 900', 'advance 900 → 900']);
 });
 test('a jump that stops at its target still fires the other timers due there', async () => {
@@ -478,7 +481,7 @@ test('a jump that stops at its target still fires the other timers due there', a
 test('a timer whose request never lands cannot hold the clock: past the deadline the rest is one advance', async () => {
   const f = fixture();
   timedRequests(f, { stuck: true });
-  expect(await f.exact.agent({ op: 'clock', to: 1000 })).toEqual({ clock: 1000, epoch: 2, incarnation: 1 });
+  expect(await f.exact.agent({ op: 'clock', to: 1000 })).toEqual({ clock: 1000, epoch: 2, incarnation: 1, inflight: 3 });
   expect(f.events).toEqual(['advance 1000 until a request → 300', 'advance 1000 → 1000']);
 });
 
@@ -690,7 +693,7 @@ function inputFixture() {
   // `page` is a built document being adopted (LLP 1048.000 D6); this page was not built.
   const f = vm.createContext({ inputReady: false, inputHandlers: null, page: null,
     views: new Map([[7, el]]), retiredViews: new WeakSet(), frames, sent, captured, el,
-    root: { querySelectorAll: () => buttons, addEventListener() {}, contains: () => true }, // press feedback's listener: press.test.mjs drives it
+    root: { querySelectorAll: s => s.includes('aria-modal') ? [] : buttons, addEventListener() {}, contains: () => true }, // press feedback's listener: press.test.mjs drives it
     // The shortcuts' keydown listens in the capture phase, a pressable's activation in the bubble phase.
     document: { addEventListener(kind, fn, capture) { if (kind === 'keydown') f[capture ? 'keydown' : 'keyActivate'] = fn; }, activeElement: { closest: () => null } },
     HTMLIFrameElement: class {}, HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLButtonElement: class {},
@@ -863,17 +866,18 @@ async function startupFixture(rustOnly = false) {
     requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
     applyBatch: () => events.push('batch'), inertAncestor: () => false, focusAutofocus() {},
-    resolveModuleReady: () => events.push('ready'), page: null, pageNative: undefined,
+    resolveModuleReady: () => events.push('ready'), page: null, pageNative: undefined, log() {}, // the input piece's journal (a cancelled pan's line)
     loadAfterPaint(file) {
       loads.push(file);
       if (file === './input-glue.js') return input.promise;
       if (file === './timer-glue.js') return timer.promise;
       if (file === './module-glue.js') return Promise.resolve({ baked: () => data.promise, prepare: async () => ({ id: 0 }) });
+      if (file === './frames.js') return new Promise(() => {}); // a development page's frame sampler (LLP 1079 D3) is not what these tests start
       throw new Error('unexpected startup module: ' + file);
     },
   });
   f.exact = {};
-  vm.runInContext(['setInputReady', 'activateData', 'main'].map(declaration).join('\n')
+  vm.runInContext([source.match(/^const AGENT_ADMITTED = .*$/m)[0], ...['setInputReady', 'activateData', 'main'].map(declaration)].join('\n')
     .replaceAll('import.meta.url', '"https://fixture.invalid/glue.js"'), f);
   await f.main();
   expect(loads).toEqual([]); // Neither optional nor app modules run before paint.
@@ -1265,4 +1269,74 @@ test('tree --ax: parity skips a state the runtime cannot observe (UIKit expanded
   expect(axParity(web, ios17).findings).toEqual([]);
   const ios18 = axReply([el(0, 'button', 'Toggle', { testId: 'toggle', native: { role: ['button'] } })], { source: 'uikit', observes: ['checked', 'disabled', 'expanded'] });
   expect(axParity(web, ios18).findings.map(f => f.detail)).toEqual(['expanded missing on uikit (true vs —)']);
+});
+
+// files F11: a held device request is named by the node its answer arrives at
+// or by its capability, whatever ticket the host's counter gave it.
+test('a hold is addressed by its node or capability, and an unclear name is refused', () => {
+  const pending = [{ name: 'notes', ticket: 4 }, { name: 'folder-input', ticket: 7, device: { capability: 'open-directory', args: { id: 'folder-input' } } },
+    { name: 'share', ticket: 9, device: { capability: 'share', args: {} } }, { name: 'export-input', ticket: 11, device: { capability: 'export', args: { id: 'export-input' } } }];
+  expect([holdOf('@7'), holdOf('@folder-input'), holdOf('folder-input'), holdOf('@')]).toEqual([true, true, false, false]);
+  expect([heldTicket(pending, '@folder-input'), heldTicket(pending, '@open-directory'), heldTicket(pending, '@share'), heldTicket(pending, '@export')]).toEqual([7, 7, 9, 11]);
+  expect(() => heldTicket(pending, '@notes')).toThrow(/no held device request .*held: @7 open-directory at "folder-input"/);
+  expect(() => heldTicket([...pending, { name: 'other', ticket: 12, device: { capability: 'open-directory', args: { id: 'other' } } }], '@open-directory')).toThrow(/2 holds match/);
+});
+
+// Review A2: an authored test's `pick "photo" "my photo.png"` reaches the driver as one path per line, so a space
+// stays in its path; the CLI's `type @photo a.png b.png` still names two.
+test('a pick answer keeps a path with a space when it comes one per line', () => {
+  expect(pickedPaths('/tmp/my photo.png\n')).toEqual(['/tmp/my photo.png']);
+  expect(pickedPaths('/tmp/a b.png\n/tmp/c.png\n')).toEqual(['/tmp/a b.png', '/tmp/c.png']);
+  expect(pickedPaths('a.png b.png')).toEqual(['a.png', 'b.png']);
+});
+
+// Review A1: `tap … drag … mouse` (an authored test's `drag … from x y mouse`) holds the left button on the web: the
+// page hears a mouse's pointerdown and pointerup, where `tap` itself refuses `mouse` beside `down` (its click form).
+test('a mouse drag presses and releases the left button on the web', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-mouse-drag-')), contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
+  writeFileSync(contract, `component MouseDrag
+  state log = ""
+  action at(kind: string, e: PointerEvent)
+    log = \`\${log}\${kind}:\${e.pointerType};\`
+  view
+    column testId="root"
+      column testId="pad" width=300 height=100 touch-action="none" pointerdown=at("down") pointerup=at("up") background-color="#dddddd"
+      text log testId="log"
+`);
+  const compile = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { encoding:'utf8' });
+  expect(compile.status, compile.stderr).toBe(0);
+  const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd:new URL('../../', import.meta.url).pathname, encoding:'utf8' });
+  expect(build.status, build.stderr).toBe(0);
+  const server = createServer((request, response) => serveBuildTree(dist, request, response));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  let s;
+  try {
+    s = await open({ host:'web', url:`http://127.0.0.1:${server.address().port}/` });
+    await expect(s.tap('pad', { down: true, mouse: true })).rejects.toThrow('mouse cannot be combined');
+    const r = await s.tap('pad', { drag: { dx: 40, dy: 20, from: [12, 8], mouse: true, over: 64 } });
+    expect(r.drag.mouse).toBe(true);
+    expect(s.contact).toBeNull();
+    await s.clock('+16');
+    expect((await s.state()).slots.log).toBe('down:mouse;up:mouse;');
+  } finally {
+    await s?.close();
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 120000);
+
+// Review A1 delta: a native contact's held left button ends with its lift, its cancel, or a down that failed — an
+// error reply or a request that threw — so a later finger is not sent as a mouse.
+test('a native mouse contact holds the button until it lifts or its down fails', async () => {
+  const { mouseContact } = await import('../../scripts/agent.mjs');
+  const sent = [], c = mouseContact(), send = (reply) => (button) => { sent.push(button.mouse === true); if (reply instanceof Error) throw reply; return reply; };
+  await c.ask('down', { mouse: true }, send({}));
+  await c.ask('move', {}, send({}));
+  await c.ask('up', {}, send({}));
+  await c.ask('down', {}, send({}));
+  expect(sent).toEqual([true, true, true, false]);
+  await expect(c.ask('down', { mouse: true }, send(new Error('the app stopped answering')))).rejects.toThrow('stopped answering');
+  expect(c.held).toBe(false);
+  await c.ask('down', { mouse: true }, send({ error: 'no input under it' }));
+  expect(c.held).toBe(false);
 });

@@ -59,6 +59,72 @@ final class HitOrderIOSTests: XCTestCase {
         XCTAssertTrue(hit(p, CGPoint(x: 100, y: 60)) === list, "through the backdrop to the list")
     }
 
+    /// `pointer-events` is inherited: a box carrying its parent's `none`
+    /// passes the touch through where it paints outside the parent's box
+    /// (x2apps repro pointer-events-inherit-translate); `auto` again is hit.
+    func testAnInheritedPointerEventsNoneInVisibleOverflowLetsTheTouchThrough() throws {
+        let p = presenter(raised: 0)
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "style": ["position_type": "absolute", "pointer_events": "none"]],
+            ["op": "create", "id": 5, "kind": "view", "style": ["pointer_events": "none"]],
+            ["op": "children", "id": 4, "ids": [5]],
+            ["op": "children", "id": 1, "ids": [3, 2, 4]],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 300.0, "w": 400.0, "h": 60.0],
+            // Painted 300 above the row's box, over the raised button.
+            ["op": "frame", "id": 5, "x": 300.0, "y": -300.0, "w": 100.0, "h": 60.0],
+        ]))
+        window.layoutIfNeeded()
+        let menu = try XCTUnwrap(p.views[2]), toast = try XCTUnwrap(p.views[5])
+        XCTAssertTrue(hit(p, CGPoint(x: 360, y: 20)) === menu, "through the inheriting toast to the button")
+        toast.applyStyle(["pointer_events": "auto"])
+        XCTAssertTrue(hit(p, CGPoint(x: 360, y: 20)) === toast, "a toast that sets auto again takes the touch")
+    }
+
+    /// A placement or projection that hides and restores a `display: none`
+    /// box restores the host's word, so it shows once displayed (review B1).
+    func testADisplayNoneBoxHiddenAndRestoredByTheHostShowsOnceDisplayed() throws {
+        let p = presenter(raised: 0)
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "style": ["display": "none"]],
+            ["op": "children", "id": 1, "ids": [3, 2, 4]],
+        ]))
+        let n = try XCTUnwrap(p.views[4])
+        XCTAssertTrue(n.isHidden)
+        n.placementHidden = true
+        n.placementHidden = false
+        let saved = n.hiddenByHost
+        n.isHidden = true
+        n.isHidden = saved
+        n.applyStyle(["display": "block"])
+        XCTAssertFalse(n.isHidden)
+    }
+
+    /// An iPad keyboard's Enter, Tab, Escape, Backspace and Delete arrive as
+    /// one character; each is named back to ARIA's key before it is matched,
+    /// so the button that declares it is pressed (review B2: only longer
+    /// inputs were, and the command, taken over the system's, was dropped).
+    func testANamedOneCharacterShortcutPressesItsButton() throws {
+        let p = presenter(raised: 0)
+        p.apply(wireBatch([
+            ["op": "create", "id": 5, "kind": "button", "handlers": ["press"], "props": ["accessibilityKeyShortcuts": "Escape"]],
+            ["op": "children", "id": 1, "ids": [3, 2, 5]],
+            ["op": "frame", "id": 5, "x": 10.0, "y": 300.0, "w": 80.0, "h": 40.0],
+        ]))
+        window.layoutIfNeeded()
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let cases: [(String, String, UIKeyModifierFlags)] = [
+            ("Escape", UIKeyCommand.inputEscape, []), ("Meta+Enter", "\r", .command), ("Tab", "\t", []),
+            ("Backspace", "\u{8}", []), ("Delete", UIKeyCommand.inputDelete, []), ("Meta+k", "k", .command),
+        ]
+        for (chord, input, flags) in cases {
+            p.apply(wireBatch([["op": "props", "id": 5, "set": ["accessibilityKeyShortcuts": chord], "clear": []]]))
+            pressed = []
+            p.performShortcut(UIKeyCommand(input: input, modifierFlags: flags, action: #selector(UIResponder.becomeFirstResponder)))
+            XCTAssertEqual(pressed, [5], chord)
+        }
+    }
+
     /// A native module's view inside a `pointer-events: none` box is not a
     /// target either: the touch reaches the button around it (paint F9).
     func testAPointerEventsNoneBoxsPlatformViewLetsTheTouchThrough() throws {

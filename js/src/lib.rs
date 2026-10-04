@@ -174,6 +174,9 @@ struct HostState {
     auth_callback: Option<String>,
     /// The engine has app storage: the host configured directories.
     storage: bool,
+    /// The engine reaches the documents the person chose (`doc:`), with or
+    /// without app storage: the grants name them (LLP 1069.010 D1).
+    documents: bool,
     /// The bake's module ([`Module::inspect`]): storage refuses as `bake`.
     baking: bool,
 }
@@ -285,7 +288,10 @@ unsafe extern "C" fn host_door(
                 if state.baking {
                     Err("bake".into())
                 } else {
-                    Ok((!state.storage).then(|| {
+                    // `a` is the path a file operation names: a document
+                    // needs no app storage, as for a Rust source.
+                    let document = state.documents && a.starts_with("doc:/");
+                    Ok((!state.storage && !document).then(|| {
                         if state.agent.is_some() {
                             "agent"
                         } else {
@@ -631,10 +637,11 @@ impl Module {
                     }));
                 self.host.native = Some(native);
             }
-            self.storage = Some(storage::Session::open(
-                paths,
-                &exact_runner::io_grants(&self.grants),
-            )?);
+        }
+        let io = exact_runner::io_grants(&self.grants);
+        self.host.documents = storage::reaches_documents(&io);
+        if self.directories.is_some() || (self.host.documents && !self.host.baking) {
+            self.storage = Some(storage::Session::open(self.directories.as_ref(), &io)?);
             // Retain the borrowed queue even if adapter initialization fails;
             // the local engine must be destroyed before its storage context.
             engine.install_storage(&self.storage.as_ref().unwrap().context)?;
@@ -1277,6 +1284,26 @@ impl DataSource for Module {
             self.revision
                 .get_or_init(|| paired::revision_of(&self.bytecode)),
         )
+    }
+
+    /// A `Later` answer the runner dropped before handing it out — a refused
+    /// pass, or a re-read whose reply's refresh asks again — is dropped here
+    /// too. Left parked, a deferred call shares its key with the call still
+    /// in flight, and `resume`, which finds a call by key, gave it that
+    /// call's storage step: the read's turn never ended, and every answer
+    /// held behind it waited forever (files diary F18: a mutation refreshing
+    /// a folder's preview mid-walk, behind a composer, whose `forgotten`
+    /// cannot name a dispatched call's token).
+    fn discard(&mut self, token: u64) {
+        let Some(at) = self.parked.iter().position(|(_, p)| p.call == token) else {
+            return;
+        };
+        let (_, parked) = self.parked.remove(at);
+        self.held.retain(|held| *held != token);
+        self.waiters.retain(|waiter| *waiter != token);
+        if parked.ticket != DEFERRED {
+            self.forget_calls(vec![parked.call]);
+        }
     }
 
     /// Calls whose requests the runner let go are dropped, here and in the

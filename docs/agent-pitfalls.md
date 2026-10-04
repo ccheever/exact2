@@ -153,7 +153,8 @@ guide's rules don't make obvious.
   to accept the leak. (Rivals diary 006, 2026-10-04.)
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
-  `scripts/agent.mjs` for dates that read as intended and stay reproducible.
+  `scripts/agent.mjs` for dates that read as intended and stay reproducible; in a test
+  file, `epoch "…"` and `time-zone "…"` lines, so a run without the flags still means it.
 - **`axe` stops delivering taps.** After `axe touch --down --up --delay` (a long
   press) or an `axe drag`, a following `axe tap` often reaches no window; it is
   intermittent, and a native bar button can miss the same way with no gesture
@@ -201,12 +202,6 @@ guide's rules don't make obvious.
   Defer follows to the end of the drag or deceleration, and apply anchoring and
   estimate corrections as relative adjustments in the same layout pass (Signal
   Clone evening of 2026-10-02; `32805146`, `c03685dc`).
-- **An iOS app builds, but its driver cannot find `simctl`.** Cause: `xcode-select`
-  points at Command Line Tools; the Apple builder supplies Xcode's
-  `DEVELOPER_DIR` for its own subprocesses, while the separate driver inherits
-  the shell. Fix: set `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
-  when running `test ios` or `agent ios`. (CSS diary-fix scratch app, 2026-10-04;
-  reproduced with `xcrun simctl list` in the origin/main source copy.)
 - **A fixture's nonempty list literal does not compile.** Contract admits `[]`
   only; a nonempty list comes from a source, a shape field, or `map`/`filter`.
   `split` is not a standard function here either. (Paint-order mutation fixture, 2026-10-04.)

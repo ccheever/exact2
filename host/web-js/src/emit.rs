@@ -243,20 +243,21 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
                 )
             })
             .collect();
-        let (routes, launch) = (em.uses.rt("routes"), em.uses.rt("launch"));
+        let (routes, launch, here) = (
+            em.uses.rt("routes"),
+            em.uses.rt("launch"),
+            em.uses.rt("launchLocation"),
+        );
         let row = plan.slot(slot);
         let signal = if dev_reload {
             format!(
-                "$devSig({},{launch}(location.pathname+location.search),{},{},1)",
+                "$devSig({},{launch}({here}()),{},{},1)",
                 serde_json::to_string(plan.str(row.name)).unwrap(),
                 serde_json::to_string(&type_code(plan, row.ty)).unwrap(),
                 type_json(plan, row.ty)
             )
         } else {
-            format!(
-                "{}({launch}(location.pathname+location.search))",
-                em.uses.rt("sig")
-            )
+            format!("{}({launch}({here}()))", em.uses.rt("sig"))
         };
         let _ = write!(
             body,
@@ -375,10 +376,14 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         } else {
             em.uses.rt("res")
         };
+        // An `else` row's compiled answer is the bake's for every launch,
+        // never asked again (each was a worker turn; the runner's
+        // `is_placeholder_row`, review B4): it is settled, not a bake.
+        let kept = if is_placeholder { ",1" } else { "" };
         let carry = if dev_reload {
-            format!(",{}", type_json(plan, r.ty))
+            format!(",{}{kept}", type_json(plan, r.ty))
         } else {
-            String::new()
+            kept.to_string()
         };
         let _ = write!(
             body,
@@ -913,8 +918,11 @@ impl Em<'_> {
         // own declaration: inline, as the live host writes every row, not
         // the class (a class's custom property would be inherited).
         let presence = rows::presence_decls(&mut css);
-        // Press feedback, or a native button's highlight: the input piece shows it.
-        if presence.contains("--exact-press:") || attrs.iter().any(|a| a.0 == "data-button-style") {
+        // Press feedback, a press haptic, or a native button's highlight: the input piece shows it.
+        if presence.contains("--exact-press:")
+            || presence.contains("--exact-press-haptic:")
+            || attrs.iter().any(|a| a.0 == "data-button-style")
+        {
             let press = self.uses.rt("pressFeedback");
             let _ = write!(self.out, "{press}();");
         }
@@ -937,10 +945,14 @@ impl Em<'_> {
                 kinds.iter().map(|k| k.name()).collect::<Vec<_>>().join(" "),
             ));
         }
-        // A pressable is focusable too, as natively (chat F14; input-glue.js).
-        let on = kinds
-            .iter()
-            .any(|k| matches!(k.name(), "focus" | "blur" | "key" | "press"));
+        // A pressable is focusable too, as natively (chat F14; input-glue.js),
+        // and so is a clipboard listener: the clipboard's events go to the focus.
+        let on = kinds.iter().any(|k| {
+            matches!(
+                k.name(),
+                "focus" | "blur" | "key" | "press" | "copy" | "cut" | "paste"
+            )
+        });
         if on && !["input", "button", "select", "textarea", "a", "summary"].contains(&element) {
             attrs.push(("tabindex".into(), "0".into()));
         }
@@ -1071,7 +1083,9 @@ impl Em<'_> {
                 );
             }
         }
-        if element == "video" && parts.props.get("muted").map(String::as_str) == Some("true") {
+        if (element == "video" || element == "audio")
+            && parts.props.get("muted").map(String::as_str) == Some("true")
+        {
             let _ = write!(self.out, "{e}.muted=!0;");
         }
         // A `markup="markdown"` text builds its pieces (LLP 1045 D3).
@@ -1162,6 +1176,9 @@ impl Em<'_> {
                 | EventKind::Pointerdown
                 | EventKind::Pointerup
                 | EventKind::Pointermove
+                | EventKind::Copy
+                | EventKind::Cut
+                | EventKind::Paste
                 | EventKind::Play
                 | EventKind::Playing
                 | EventKind::Pause
@@ -1341,4 +1358,52 @@ fn gpu_surfaces() -> Vec<String> {
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .collect()
+}
+
+#[cfg(test)]
+mod else_rows {
+    use exact_runner::{DataError, DataSource, Value};
+
+    struct Answers;
+    impl DataSource for Answers {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            match source {
+                "preview" => Ok(Value::Number(1.0)),
+                "full" => Ok(Value::Number(2.0)),
+                _ => Err(DataError::UnknownSource(source.into())),
+            }
+        }
+    }
+
+    /// Review B4: an `else` row's build-time answer is the bake's for every
+    /// launch (the runner never asks it again), so the JS target receives it
+    /// settled (`res`'s last argument), while the resource it stands in for
+    /// keeps its build-time answer as a first frame to ask again at launch.
+    #[test]
+    fn an_else_row_is_settled_and_its_owner_is_a_bake() {
+        let plan = contract::compile(
+            "component App\n  resource full = full() as shape number else preview()\n  view\n    text `${full}`\n",
+        )
+        .unwrap();
+        let plan = contract::bake(plan, Answers).unwrap();
+        let js = super::emit(&plan, false, false).unwrap().js;
+        let rows: Vec<&str> = js
+            .split("const r_")
+            .skip(1)
+            .map(|s| s.split(';').next().unwrap())
+            .collect();
+        let owner = rows
+            .iter()
+            .find(|r| r.contains("\"full\""))
+            .expect("full's row");
+        let other = rows
+            .iter()
+            .find(|r| !r.contains("\"full\""))
+            .expect("the else row");
+        assert!(other.ends_with(",1)"), "the else row is settled: {other}");
+        assert!(
+            !owner.ends_with(",1)"),
+            "the owner is a bake to ask again: {owner}"
+        );
+    }
 }

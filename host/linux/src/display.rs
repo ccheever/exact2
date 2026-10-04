@@ -520,6 +520,13 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         }
 
         let now = wall();
+        let due = timer_wake_delay(p.host().timer_due_ms(), now, last_tick, frame_ms)
+            .is_some_and(|wait| wait <= 0.0);
+        if due || p.host().wants_frames() {
+            if let Some(e) = p.follow_local_offset() {
+                eprintln!("exact: {e}");
+            }
+        }
         // A frame task (LLP 1073 D5): each frame the display can take is
         // `frame` (timers, then frame tasks), never caught up.
         if !display.pending() && p.host().wants_frames() {
@@ -527,9 +534,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
             if let Some(e) = p.animation_frame(now) {
                 eprintln!("exact: {e}");
             }
-        } else if timer_wake_delay(p.host().timer_due_ms(), now, last_tick, frame_ms)
-            .is_some_and(|wait| wait <= 0.0)
-        {
+        } else if due {
             last_tick = now;
             if let Some(e) = p.advance(now) {
                 eprintln!("exact: {e}");

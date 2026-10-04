@@ -606,8 +606,10 @@ extension Agent {
         // blurs its input on a click anywhere else), and the keyboard goes.
         if !took && !presenter.contextRetainsFocus(n ?? v) { presenter.viewport.endEditing(true) }
         var pressed: Any = NSNull()
-        if let element { presenter.press(element); pressed = Int(element) }
-        if let action, presenter.views[action.id] === action { presenter.press(action.id); action.finishPointerPress(); pressed = Int(action.id) }
+        // An iPad's hardware keys held through the tap (gallery F20).
+        let held = (req["modifiers"] as? String).map { $0.hasSuffix("+") || $0.isEmpty ? $0 : $0 + "+" } ?? ""
+        if let element { presenter.press(element, held: held); pressed = Int(element) }
+        if let action, presenter.views[action.id] === action { presenter.press(action.id, held: held); action.finishPointerPress(); pressed = Int(action.id) }
         return ["tapped": Int(v.id), "at": at, "pressed": pressed]
     }
 
@@ -683,6 +685,7 @@ extension Agent {
     func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
         if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
         if v.isSurfaceControl, let key = req["key"] as? String, let code = KeyCodes.device(key)?.code, ["Space", "Enter", "NumpadEnter"].contains(code) {
             let phase = req["phase"] as? String
@@ -738,6 +741,14 @@ extension Agent {
             else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
             else if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
             let focus = v.field != nil || v.textArea != nil || v.isFirstResponder || v.handlers.contains("press") ? v : nil
+            // The page's shortcuts first, as the web's capture listener and
+            // macOS's `routeKey` hear them (gallery F18, ShortcutsIOS).
+            #if os(iOS)
+            if req["phase"] as? String != "up", let node = presenter.shortcut(key: name, held: held, focus: focus ?? presenter.focusedNode) {
+                presenter.press(node.id)
+                return ["typed": Int(v.id), "key": key, "shortcut": Int(node.id), "delivery": "recognized"]
+            }
+            #endif
             if req["phase"] as? String != "up", !presenter.keyDown(at: focus, name, held: held), let focus {
                 if let f = focus.textArea {
                     if name == "Enter" { f.insertText("\n") } else if name == "Backspace" { f.deleteBackward() } else if types { f.insertText(name) }

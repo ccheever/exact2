@@ -104,6 +104,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private var selectedRouteCount = 0
     var adoptedTablist: UInt32?
     var tabItems: [String] = []
+    /// The bar's tint as last written: the tablist's accent, light and dark.
+    var tabTint: [[Double]?]?
     let tabProxy = TabDelegateProxy()
     private(set) var changing = false
     /// While a push or pop runs: paints what each frame newly reveals.
@@ -205,6 +207,14 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             (logicalChildren[owner.id] ?? []).compactMap { presenter.views[$0] }.filter { $0.props["navigationKey"] != nil }
         }
         routeIDs = stacks.flatMap { $0.map(\.id) }
+        // Every route left the tree (the root shows something else now): the
+        // containers go with them, or their views — a removed route's frozen
+        // snapshot among them — stay over the new content (mail F21).
+        if routeIDs.isEmpty, primaryOwner != nil || !presentedNavigations.isEmpty {
+            presenter.session?.log("navigation: the root has no routes now; its containers are retired")
+            reset(clearFocus: false)
+            return nil
+        }
         // D1: the stack is the prefix through the route the root names; a
         // key that names none leaves the stack alone, and says so once.
         let rootKey = root.props["navigationKey"] ?? ""
@@ -213,7 +223,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
               let range = NavigationRules.stack(routeKeys: keys(stacks[at]), selected: rootKey) else {
             if refusedKey != rootKey {
                 refusedKey = rootKey
-                presenter.session?.log("navigationKey \"\(rootKey)\" matches no route; the stack is unchanged")
+                presenter.session?.log("navigationKey \"\(rootKey)\" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged")
             }
             return nil
         }
@@ -363,7 +373,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         }
         if let top = modalNavigation ?? primaryOwner {
             top.view.frame = root.bounds
-            root.bringSubviewToFront(top.view)
+            if top === primaryOwner { placeOwner() } else { root.bringSubviewToFront(top.view) }
             top.view.layoutIfNeeded()
         }
         for (id, c) in controllers where !routeIDs.contains(id) { end(c) }
@@ -372,6 +382,27 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         if p.tabs != nil { replayTabs() }
         reportCovers()
         refitForBars()
+    }
+
+    /// The container standing in for the routes paints where they are in
+    /// the root's children, as CSS paints siblings in tree order (LLP
+    /// 1083.000): above the children before them, under those after them —
+    /// an authored tablist, a toast. On top of every child it hid a sibling
+    /// tablist and a root overlay, and took their taps (shop F21, recipes F23).
+    func placeOwner() {
+        guard let root = container, let owner = primaryOwner?.view, owner.superview === root else { return }
+        let ids = logicalChildren[root.id] ?? []
+        let panels = tabPanels.compactMap { presenter.views[$0] }
+        let region = ids.firstIndex { id in
+            routeIDs.contains(id) || presenter.views[id].map { child in panels.contains { $0 === child || $0.isDescendant(of: child) } } == true
+        }
+        let after = Set(region.map { ids[($0 + 1)...] } ?? [])
+        guard let next = root.subviews.first(where: { ($0 as? NodeView).map { after.contains($0.id) } == true }) else {
+            if root.subviews.last !== owner { root.bringSubviewToFront(owner) }
+            return
+        }
+        let at = root.subviews.firstIndex { $0 === next }!
+        if at == 0 || root.subviews[at - 1] !== owner { root.insertSubview(owner, belowSubview: next) }
     }
 
     /// A route's controller leaves for good: its header paints again and the

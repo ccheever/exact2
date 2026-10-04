@@ -217,7 +217,7 @@ component ContactDetails
           popovertargetaction="hide"
           testId="confirm-block-contact"
           color="#ff3b30"
-          height=48 justify-content="center"
+          height=48
           border-radius=24
           background-color="light-dark(#ffffff, #38383a)"
           text "Block Contact" font-size=17
@@ -225,7 +225,7 @@ component ContactDetails
           popovertargetaction="hide"
           testId="cancel-block-contact"
           class=AccentText
-          height=44 justify-content="center"
+          height=44
           text "Cancel" font-size=17
       button press=closeDetails
         id="back"

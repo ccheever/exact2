@@ -328,6 +328,11 @@ pub fn run(
             .ok_or_else(|| HostError::Failed("app directories are not configured".into()))?;
         return directories.run(grants, op, path, destination, data);
     }
+    if path.starts_with(DOCUMENT_PREFIX) {
+        return Err(HostError::Failed(format!(
+            "{path}: this host keeps no documents"
+        )));
+    }
     #[cfg(windows)]
     {
         super::windows_fs::run_native(grants, op, path, destination, data)
@@ -338,6 +343,128 @@ pub fn run(
         let destination = destination.map(normalize).transpose()?;
         admit(grants, op, &path, destination.as_deref())?;
         perform(op, &path, destination.as_deref(), data)
+    }
+}
+
+/// The namespace of documents a person chose (Exact patch 5).
+pub const DOCUMENT_PREFIX: &str = "doc:/";
+
+/// Where a `doc:` path leads, as the embedder's table of chosen documents
+/// resolves it (Exact patch 5; exact2 LLP 1069.010 D1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Document {
+    /// `doc:/<n>`: the handle's own directory, holding only its entry.
+    Root(String),
+    /// The chosen file or folder, or a path beneath a chosen folder.
+    Real(PathBuf),
+}
+
+/// The embedder's table: a `doc:` path to where it leads, or why not.
+pub type Documents = dyn Fn(&str) -> Result<Document, String> + Send + Sync;
+
+/// Execute a filesystem operation on a `doc:` path (Exact patch 5): one file
+/// or folder the person chose, behind a handle the embedder minted. The
+/// grant is checked on the path as spelt (`fs.read doc:/`, `fs.write
+/// doc:/`); the table then names the real location. `rename`, `copyFile`
+/// and `realpath` are refused: a document's bytes leave it through
+/// `readFile`, and its real path is the one thing the app never holds. `rm`
+/// removes one file or one empty folder, never a tree the person chose.
+pub fn run_document(
+    grants: &GrantSet,
+    documents: Option<&Documents>,
+    op: FsOp,
+    path: &str,
+    data: Option<&[u8]>,
+) -> Result<FsResult, HostError> {
+    let name = |op: FsOp| match op {
+        FsOp::ReadFile => "readFile",
+        FsOp::WriteFile => "writeFile",
+        FsOp::AppendFile => "appendFile",
+        FsOp::AtomicWriteFile => "atomicWriteFile",
+        FsOp::ReadDir => "readdir",
+        FsOp::Mkdir => "mkdir",
+        FsOp::Remove => "rm",
+        FsOp::Stat => "stat",
+        FsOp::Rename => "rename",
+        FsOp::CopyFile => "copyFile",
+        FsOp::Realpath => "realpath",
+    };
+    if matches!(op, FsOp::Rename | FsOp::CopyFile | FsOp::Realpath) {
+        return Err(HostError::Failed(format!(
+            "fs.{} is not available on a document; read its bytes and write them",
+            name(op)
+        )));
+    }
+    let (read, _) = op.required();
+    let grant = if read { "fs.read" } else { "fs.write" };
+    let operation = if read {
+        Operation::FsRead { path: path.into() }
+    } else {
+        Operation::FsWrite { path: path.into() }
+    };
+    if !grants.permits(&operation) {
+        // `denied: ` is the refusal every storage caller codes as `denied`.
+        return Err(HostError::Failed(format!(
+            "denied: fs.{} {path}: needs `{grant} doc:/`",
+            name(op)
+        )));
+    }
+    let documents = documents
+        .ok_or_else(|| HostError::Failed(format!("{path}: this host keeps no documents")))?;
+    let real = match documents(path).map_err(HostError::Failed)? {
+        Document::Root(entry) => {
+            return match op {
+                FsOp::ReadDir => Ok(FsResult::Names(vec![entry])),
+                FsOp::Stat => Ok(FsResult::Stat(Stat {
+                    size: 0,
+                    is_file: false,
+                    is_directory: true,
+                    modified_ms: 0,
+                })),
+                _ => Err(HostError::Failed(format!(
+                    "fs.{} {path}: a handle's own directory is read-only",
+                    name(op)
+                ))),
+            }
+        }
+        Document::Real(real) => real,
+    };
+    let failed = |e: std::io::Error| HostError::Failed(format!("fs.{} {path}: {e}", name(op)));
+    // `doc:/<n>/<name>` is the chosen file or folder itself: the person's.
+    let chosen = path[DOCUMENT_PREFIX.len()..]
+        .trim_end_matches('/')
+        .split('/')
+        .count()
+        == 2;
+    match op {
+        FsOp::Remove if chosen => Err(HostError::Failed(format!(
+            "fs.rm {path}: the document itself is the person's; remove what is in it"
+        ))),
+        FsOp::Remove => if real.is_dir() {
+            std::fs::remove_dir(&real)
+        } else {
+            std::fs::remove_file(&real)
+        }
+        .map(|_| FsResult::Done)
+        .map_err(failed),
+        // The real path never reaches the app, even in an error.
+        _ => match perform(op, &real, None, data) {
+            // A folder's size is the filesystem's bookkeeping, which a
+            // `FileSystemDirectoryHandle` never shows: 0, as on the web.
+            Ok(FsResult::Stat(stat)) if stat.is_directory => {
+                Ok(FsResult::Stat(Stat { size: 0, ..stat }))
+            }
+            Ok(result) => Ok(result),
+            Err(HostError::Failed(detail)) => {
+                let shown = format!("{}: ", real.display());
+                let detail = detail.strip_prefix(&shown).unwrap_or(&detail);
+                Err(HostError::Failed(format!(
+                    "fs.{} {path}: {detail}",
+                    name(op)
+                )))
+            }
+            Err(other) => Err(other),
+        },
     }
 }
 

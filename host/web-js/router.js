@@ -162,7 +162,7 @@ export function router(slot, history) {
     history.apply({ top: top[0], url: top[2], removed });
   });
 }
-export const navigateTo = f => { Navigate = f; };
+export const navigateTo = f => { Navigate = f; }, navigateRoot = location => Navigate ? (Navigate(location), true) : false; // the agent's `type <root> <location>` (LLP 1038 D11)
 export const routeAt = location => matchRoute(canonical(location))?.[0] ?? -1;
 // ---------------------------------------------------------------- validity
 const int = n => typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= 9007199254740991, str = s => typeof s === "string";

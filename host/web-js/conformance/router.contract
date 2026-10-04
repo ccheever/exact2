@@ -1,6 +1,7 @@
 // Synthetic conformance plan: the router's verbs and reads (LLP 1038) —
 // tabs, a deep chain, parameters, a query, a modal, refusals, history.
-// linux: state only (its text prints each entry's id and the page's address, which the web runner's boot takes from the browser; the router sweep holds them)
+// Entry ids and addresses are the same on every host: the page launches
+// where a native host does (feed F16), so the Linux comparison takes the tree.
 routes nav
   tab home "/"
     post "/post/:post"

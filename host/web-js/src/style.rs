@@ -149,6 +149,8 @@ pub fn project(
                         });
                     }
                 }
+                // `unset`, or `inherit` on an inherited row: no row (feed F1).
+                (BindingKind::Style, Some(v)) if bridge::unsets(row.id, &v) => {}
                 (BindingKind::Style, Some(v)) => {
                     bridge::set_style(&mut patch, row.id, &v, stacks)
                         .map_err(|e| format!("node {i}: {e:?}"))?;
@@ -402,7 +404,6 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         | StyleId::SymbolPalette
         | StyleId::SymbolValue
         | StyleId::SymbolEffect
-        | StyleId::PressHaptic
         | StyleId::ContentTransition
         | StyleId::ScrollEdgeEffect
         | StyleId::HoverEffect

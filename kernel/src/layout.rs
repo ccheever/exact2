@@ -12,6 +12,7 @@
 #[cfg(test)]
 mod containment_tests;
 mod hoist;
+mod order;
 mod publication;
 
 use crate::id::{IdMap, IdSet};
@@ -245,11 +246,7 @@ impl LayoutMirror for LayoutTree {
             LayoutTree::set_children(self, node, &[]);
             return 0;
         }
-        let ids: Vec<_> = arena
-            .children(parent)
-            .iter()
-            .filter_map(|c| arena.taffy(*c))
-            .collect();
+        let ids = order::laid_out(arena, parent, &self.taffy, node);
         LayoutTree::set_children(self, node, &ids);
         ids.len()
     }
@@ -1199,12 +1196,8 @@ impl LayoutTree {
             if matches!(arena.node_type(*slot), NodeType::Text | NodeType::Control) {
                 continue;
             }
-            let children: Vec<NodeId> = arena
-                .children(*slot)
-                .iter()
-                .filter_map(|c| arena.taffy(*c))
-                .collect();
             if let Some(node) = arena.taffy(*slot) {
+                let children = order::laid_out(arena, *slot, &tree.taffy, node);
                 tree.set_children(node, &children);
             }
         }

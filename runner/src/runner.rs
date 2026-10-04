@@ -18,6 +18,7 @@ mod reorder_codec;
 mod root_font;
 pub use event::{
     ActionBinding, ActionBindingError, ActionBindingRefusal, ControlValue, Event, KeyModifiers,
+    ScrollEvent,
 };
 mod canvas2d;
 pub use canvas2d::{
@@ -953,6 +954,18 @@ impl<D: DataSource> Runner<D> {
         runner.log(line);
         if !note.is_empty() {
             runner.log(note);
+        }
+        // @ref LLP 1048.003 D6 — what the first frame shows from the bake
+        // until its source is ready (feed F24: say so in the journal).
+        for i in 0..runner.stale.len() {
+            if runner.stale[i]
+                && runner.resources[i]
+                    .as_ref()
+                    .is_some_and(|s| s.value.is_compiled())
+            {
+                let line = lines::build_time(runner.plan.str(runner.plan.resources[i].name));
+                runner.log(line);
+            }
         }
         // Grants that do not parse grant nothing: said once here, and in
         // each refusal (the store's, the host's).

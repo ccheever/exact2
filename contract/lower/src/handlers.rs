@@ -49,9 +49,11 @@ impl Lowerer<'_> {
         // The view is inlined, so a handler behind a child's `action`
         // prop names the real action here: its arity is checked now,
         // not at dispatch (LLP 1006 §8's circle-back; LLP 1017 P1b).
-        let params = self.root.actions[ai].params.len();
-        let valid = contract_analyze::handler_arity(event, args.len())
-            .is_some_and(|range| range.contains(&params));
+        let valid = contract_analyze::handler_accepts(
+            event,
+            args.len(),
+            &self.types.components[0].actions[ai],
+        );
         if !valid {
             let params: Vec<(String, Ty)> = (self.root.actions[ai].params.iter())
                 .map(|p| p.name.clone())

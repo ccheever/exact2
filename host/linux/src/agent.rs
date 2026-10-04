@@ -194,6 +194,27 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                         ",\"paint\":{{\"ms\":{paint},\"readbackMs\":{readback}}}"
                     ));
                 }
+                // A `video` or `audio` (LLP 1042 §5, §8): this host has no
+                // decoder and no audio output, so each is reported as an
+                // element that never plays would read, and says why.
+                let media: Vec<_> = p
+                    .host()
+                    .kernel()
+                    .rows(None)
+                    .unwrap_or_default()
+                    .iter()
+                    .filter(|r| r.node_type == exact_kernel::NodeType::Video)
+                    .map(|r| serde_json::json!({"id": r.id, "state": {"unavailable": "no media decoder or audio output on this host", "paused": true, "currentTime": 0, "duration": null, "readyState": 0}}))
+                    .collect();
+                s.push_str(&format!(",\"media\":{}", serde_json::json!(media)));
+                // The drive's app storage (trivia F7): none unless it names a scratch store.
+                let storage = match std::env::var("EXACT_AGENT_STORAGE") {
+                    Ok(store) => serde_json::json!({"available": true, "store": store}),
+                    Err(_) => {
+                        serde_json::json!({"available": false, "code": "agent", "message": "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"})
+                    }
+                };
+                s.push_str(&format!(",\"storage\":{storage}"));
                 s.push_str(
                     ",\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}",
                 );
@@ -226,7 +247,10 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 Ok(request) => request,
                 Err(_) => return error("unreadable tap request"),
             };
-            if field_bool(line, "contextmenu") || field_bool(line, "mouse") {
+            // A held contact's phase that says `mouse` (a drag's, review A1)
+            // is a contact with the left button held, as `answer` set it up.
+            let phased = request.get("phase").is_some();
+            if field_bool(line, "contextmenu") || (field_bool(line, "mouse") && !phased) {
                 return p
                     .mouse_request(id(), &request)
                     .unwrap_or_else(|e| error(&e));
@@ -237,7 +261,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             if let Some(reply) = p.control_tap(&request) {
                 return reply.to_string();
             }
-            if request.get("phase").is_some() {
+            if phased {
                 return contact::answer(p, &request);
             }
             let Some(id) = id() else {
@@ -260,26 +284,60 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     Err(e) => error(&e),
                 };
             }
-            let r = match request.get("wheel") {
+            let wheel = match request.get("wheel") {
                 Some(wheel) => {
                     let pair = wheel
                         .as_array()
                         .filter(|v| v.len() == 2)
                         .and_then(|v| Some((v[0].as_f64()? as f32, v[1].as_f64()? as f32)));
-                    let Some((dx, dy)) = pair else {
+                    let Some(pair) = pair else {
                         return error("wheel needs two finite deltas");
                     };
-                    p.wheel(id, dx, dy)
+                    Some(pair)
                 }
+                None => None,
+            };
+            // A click with modifiers held (gallery F20: `tap <id> modifiers Shift`).
+            let held = match field_str(line, "modifiers")
+                .map(|m| exact_runner::KeyModifiers::held(&m))
+            {
+                Some(None) => {
+                    return error("tap: modifiers are Shift, Control, Alt and Meta, joined by +")
+                }
+                Some(Some(held)) => held,
+                None => Default::default(),
+            };
+            let codes = [
+                (held.shift, "ShiftLeft"),
+                (held.ctrl, "ControlLeft"),
+                (held.alt, "AltLeft"),
+                (held.meta, "MetaLeft"),
+            ];
+            for (on, code) in codes {
+                if on {
+                    p.hold_modifier(code, true);
+                }
+            }
+            let r = match wheel {
+                Some((dx, dy)) => p.wheel(id, dx, dy),
                 None if field_bool(line, "hover") => p.hover(id),
                 None => p.tap(id),
             };
+            for (on, code) in codes {
+                if on {
+                    p.hold_modifier(code, false);
+                }
+            }
             r.unwrap_or_else(|e| error(&e))
         }
         Some("type") => {
             let Some(id) = id() else {
                 return error("type needs an id");
             };
+            if let Some(edit) = field_str(line, "clipboard") {
+                let text = field_str(line, "text").unwrap_or_default();
+                return p.clipboard(id, &edit, &text).unwrap_or_else(|e| error(&e));
+            }
             if let Some(chord) = field_str(line, "key") {
                 // A chord's modifiers are held for its key (`Shift+Enter`,
                 // `Meta+s`), as a keyboard's are, then released.
@@ -595,6 +653,20 @@ fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
 /// more, again — bounded, `settled: false` when the bound is hit (LLP 1012
 /// §2).
 fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+    // The end of an input (LLP 1012 §2): the `then`s of the answers it
+    // settled land, the clock unmoved and no timer fired (Runner::land_then).
+    if field_bool(line, "land") {
+        let (landed, e) = p.land_then();
+        p.sync_surfaces();
+        return match e {
+            Some(e) => {
+                let mut s = String::from("{\"error\":");
+                exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
+                format!("{s},\"clock\":{}}}", num(landed))
+            }
+            None => format!("{{\"clock\":{}}}", num(landed)),
+        };
+    }
     let reply = clock_within(p, line, SETTLE_BOUND);
     retell_offset(p);
     reply
@@ -677,7 +749,16 @@ fn clock_within<D: DataSource>(
             r
         };
         if !settle_to_end {
-            return response(None, false);
+            // A jump does not wait for what is still in flight on real time
+            // (a store's, a worker's, the network's): the reply names how
+            // much, as the web hosts' do (calendar F10, workout F6).
+            let mut r = response(None, false);
+            let inflight = p.host().runner().in_flight().len();
+            if inflight > 0 {
+                r.pop();
+                r.push_str(&format!(",\"inflight\":{inflight}}}"));
+            }
+            return r;
         }
         if p.pending() {
             rounds += 1;

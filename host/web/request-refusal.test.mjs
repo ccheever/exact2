@@ -235,6 +235,46 @@ test('filesystem admission is component-based and refuses traversal', () => {
   expect(coversPath(set, 'fs.write', 'app:/data/other')).toBe(false);
 });
 
+// LLP 1069.010 D1, files F2: a folder the person chose is one reach on the
+// web, for a TypeScript source (`files`) and a Rust request (`run`), with
+// the codes and refusals ibex2's `run_document` gives both on Hermes.
+test('a chosen folder is the same storage for a TypeScript source and a Rust request', async () => {
+  globalThis.exact = {};
+  try {
+    await import(`./documents-glue.js?documents=${Date.now()}`);
+    let chosen;
+    const host = globalThis.exact.documents.install({ dispatch: (_, kind, payload) => { chosen = [kind, payload]; }, log() {}, openFile: () => false });
+    host.answer({ node: 1 }, 'showDirectoryPicker', [{ name: 'chosen', files: [{ path: 'a.txt', bytes: btoa('A') }, { path: 'sub/b.txt', bytes: btoa('B') }] }]);
+    expect(chosen[0]).toBe(1);
+    const doc = chosen[1], both = normalized('fs.read doc:/\nfs.write doc:/'), read = normalized('fs.read doc:/');
+    expect(doc).toMatch(/^doc:\/\d+\/chosen$/);
+    const fs = globalThis.exact.documents.files(both), text = (b) => new TextDecoder().decode(b);
+    expect(await fs.readdir(doc)).toEqual(['a.txt', 'sub']);
+    expect(await fs.readdir(doc.replace(/\/chosen$/, ''))).toEqual(['chosen']);
+    expect(text(await fs.readFile(`${doc}/sub/b.txt`))).toBe('B');
+    expect(await fs.stat(`${doc}/sub`)).toMatchObject({ size: 0, isDirectory: true, isFile: false });
+    expect(await fs.stat(`${doc}/a.txt`)).toMatchObject({ size: 1, isFile: true });
+    await fs.writeFile(`${doc}/new.txt`, new TextEncoder().encode('hi'));
+    await fs.appendFile(`${doc}/new.txt`, new TextEncoder().encode('!'));
+    expect(text(await fs.readFile(`${doc}/new.txt`))).toBe('hi!');
+    await fs.mkdir(`${doc}/x/y`);
+    expect(await fs.readdir(`${doc}/x`)).toEqual(['y']);
+    await fs.rm(`${doc}/new.txt`);
+    const code = (p) => p.then(() => 'ok', (e) => `${e.kind} ${e.code}`);
+    expect(await Promise.all([
+      code(fs.readFile(`${doc}/absent`)), code(fs.readFile(`${doc}/../escape`)), code(fs.readFile(`${doc}/sub`)),
+      code(fs.readdir(`${doc}/a.txt`)), code(fs.rm(`${doc}/sub`)), code(fs.rm(doc)), code(fs.rename(`${doc}/a.txt`, `${doc}/c.txt`)),
+      code(fs.readFile('doc:/999999/a.txt')), code(globalThis.exact.documents.files(read).writeFile(`${doc}/a.txt`, new Uint8Array([1]))),
+      // Review B6: writing the chosen folder itself, or a folder in it, is EISDIR, as on Hermes.
+      code(fs.writeFile(doc, new Uint8Array([1]))), code(fs.appendFile(doc, new Uint8Array([1]))), code(fs.writeFile(`${doc}/sub`, new Uint8Array([1]))),
+    ])).toEqual(['Unavailable ENOENT', 'Unavailable denied', 'Unavailable EISDIR', 'Unavailable ENOTDIR', 'Unavailable ENOTEMPTY',
+      'Unavailable failed', 'Unavailable failed', 'Unavailable failed', 'Unavailable denied', 'Unavailable EISDIR', 'Unavailable EISDIR', 'Unavailable EISDIR']);
+    // A Rust source's storage request: the same operation, its bytes as base64.
+    expect(await globalThis.exact.documents.run('fs.readFile', { path: `${doc}/a.txt` }, null, read)).toEqual({ base64: btoa('A') });
+    await expect(globalThis.exact.documents.run('fs.writeFile', { path: `${doc}/a.txt` }, new Uint8Array([1]), read)).rejects.toThrow(/^denied: fs.writeFile .*needs `fs.write doc:\/`/);
+  } finally { delete globalThis.exact; }
+});
+
 test('quoted source scopes keep their original lines and native tuples are inert in browsers', () => {
   const native = 'fs.read "C:\\\\Users\\\\With Space"';
   const app = 'fs.read "app:/data/with space"';

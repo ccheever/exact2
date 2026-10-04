@@ -435,8 +435,11 @@ impl SizeIndex {
 
     /// O(log N), no key copy. `follow_end` opts into following only if the clamped
     /// offset is at the end of a nonzero scrollport within host rounding tolerance.
-    /// Otherwise preserve
-    /// the first visible key's top relative to the scrollport (even if it shrinks).
+    /// Otherwise preserve the first visible key's top relative to the scrollport
+    /// (even if it shrinks), unless the offset is at the start: there, as CSS
+    /// scroll anchoring selects no anchor at a zero offset (Chrome's
+    /// `ScrollAnchor`), the list stays at its start and rows inserted above
+    /// show (mail F8: a mail list's newest message, a row Undo puts back).
     pub(crate) fn capture_anchor(
         &self,
         offset: f64,
@@ -444,20 +447,25 @@ impl SizeIndex {
         follow_end: bool,
     ) -> Result<Anchor, IndexError> {
         let offset = self.clamp_offset(offset, viewport)?;
-        let row = self.tree.find(offset, false);
-        let within = row.map_or(0.0, |i| (offset - self.tree.prefix(i)).max(0.0));
         // Browser scroll ranges round fractional CSS extents to whole pixels;
         // native document geometry also rounds through f32. Admit up to half a
         // logical pixel/point on every host, independent of extent (including
         // small resident windows); never follow a reader beyond that tolerance.
         let tolerance = 0.5;
+        let follows_end =
+            follow_end && viewport > 0.0 && self.max_offset(viewport) - offset <= tolerance;
+        // An end it follows wins: a short transcript is at both edges.
+        let row = if offset <= 0.0 && !follows_end {
+            None
+        } else {
+            self.tree.find(offset, false)
+        };
+        let within = row.map_or(0.0, |i| (offset - self.tree.prefix(i)).max(0.0));
         Ok(Anchor {
             order: Rc::clone(&self.order),
             row,
             within,
-            follows_end: follow_end
-                && viewport > 0.0
-                && self.max_offset(viewport) - offset <= tolerance,
+            follows_end,
         })
     }
 

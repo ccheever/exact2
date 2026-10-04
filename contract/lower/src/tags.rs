@@ -80,29 +80,7 @@ pub fn contains_absolute(name: &str, value: &contract_syntax::Expr) -> bool {
         ),
     }
 }
-/// A Contract button has one cross-host inner layout: the flex column fixed
-/// by [`tag`]. Chrome gives a block/inline `<button>` an anonymous box that
-/// centres its contents, which the kernel cannot represent as that display.
-pub(crate) fn validate_button_display(
-    name: &str,
-    attrs: &[contract_syntax::Attr],
-) -> Result<(), crate::LowerError> {
-    use contract_syntax::Expr;
-    if name != "button" {
-        return Ok(());
-    }
-    let Some(display) = attrs.iter().rev().find(|a| a.name == "display") else {
-        return Ok(());
-    };
-    if matches!(&display.value, Expr::Str(v, _) if v == "block" || v.starts_with("inline")) {
-        return crate::err(
-            "lower-attr-value",
-            "a `button` is a flex column on every host; remove `display`, or use `display=\"flex\"`",
-            display.span,
-        );
-    }
-    Ok(())
-}
+
 /// An element's attributes with `position: relative` added, when it is the
 /// containing block of its absolutely positioned descendants on every host
 /// and names no position: it has a [`contains_absolute`] attribute, scrolls
@@ -266,17 +244,17 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: Some(PropId::Text),
         },
-        // A pressable `column` (Charlie, 2026-09-23: "One native button, flex
-        // column"): a block <button> would centre its content in an anonymous
-        // box, which a flex one does not, so the web lays it out as the
-        // kernel does (LLP 1006 §3, LLP 1007 §1).
+        // Chrome's `<button>` (Charlie, 2026-10-04, reversing 2026-09-23's
+        // "One native button, flex column"; LLP 1001 §1): a block whose
+        // content the kernel centres as HTML's anonymous button box does,
+        // with the UA sheet's `text-align: center`. An authored `display`
+        // makes it a flex or grid container, as in Chrome.
         // @ref LLP 1069.011 D1 — Exact's UA sheet: a button is the author's
         // box (`appearance: none`); `appearance="auto"` asks for the platform's.
         "button" => Tag {
             node_type: NodeType::Pressable,
             fixed_styles: &[
-                (StyleId::Display, "flex"),
-                (StyleId::FlexDirection, "column"),
+                (StyleId::TextAlign, "center"),
                 (StyleId::Appearance, "none"),
             ],
             fixed_props: &[(PropId::AccessibilityRole, "button")],
@@ -325,6 +303,7 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: Some(PropId::Src),
         },
+        "audio" => crate::media::AUDIO,
         "image" => Tag {
             node_type: NodeType::Image,
             fixed_styles: &[],
@@ -561,6 +540,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "pointerdown" => AttrTarget::Handler("pointerdown"), // LLP 1005 §Events, DOM's own
         "pointerup" => AttrTarget::Handler("pointerup"),
         "pointermove" => AttrTarget::Handler("pointermove"), // LLP 1056 §3 stage 3
+        "copy" => AttrTarget::Handler("copy"),
+        "cut" => AttrTarget::Handler("cut"),
+        "paste" => AttrTarget::Handler("paste"),
         "reachstart" => AttrTarget::Handler("reachstart"),
         "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),
@@ -661,6 +643,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // HTML's attribute is `inputmode`; the kernel's prop keeps the DOM
         // property's spelling, as the schema does for every prop.
         "inputmode" => AttrTarget::Prop(p("inputMode")),
+        "enterkeyhint" => AttrTarget::Prop(p("enterKeyHint")),
+        // An image's accessible name by HTML's spelling (feed F1).
+        "alt" => AttrTarget::Prop(p("accessibilityLabel")),
         "autocapitalize" => AttrTarget::Prop(p("autocapitalize")),
         "autocorrect" => AttrTarget::Prop(p("autocorrect")),
         "spellcheck" => AttrTarget::Prop(p("spellcheck")),
@@ -728,6 +713,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-pressed" => AttrTarget::Prop(p("accessibilityPressed")),
         "aria-modal" => AttrTarget::Prop(p("accessibilityModal")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
+        "aria-invalid" => AttrTarget::Prop(p("accessibilityInvalid")), // onboarding F22, spreadsheet F20
+        "aria-describedby" => AttrTarget::Prop(p("accessibilityDescribedBy")),
+        "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
+        "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),
@@ -776,7 +765,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "feScale" => AttrTarget::Prop(p("feScale")),
         "xChannelSelector" => AttrTarget::Prop(p("xChannelSelector")),
         "yChannelSelector" => AttrTarget::Prop(p("yChannelSelector")),
-        "order" => AttrTarget::Prop(p("order")),
+        "feOrder" => AttrTarget::Prop(p("feOrder")),
         "kernelMatrix" => AttrTarget::Prop(p("kernelMatrix")),
         "divisor" => AttrTarget::Prop(p("divisor")),
         "bias" => AttrTarget::Prop(p("bias")),
@@ -1043,6 +1032,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "overscroll-behavior-y" => styles(&[StyleId::OverscrollBehaviorY]),
         "scroll-behavior" => styles(&[StyleId::ScrollBehavior]),
         "z-index" => styles(&[StyleId::ZIndex]),
+        "order" => styles(&[StyleId::Order]),
         "transition" => styles(&[StyleId::Transition]),
         // @ref LLP 1063 — played as the node leaves; its names resolve against
         // the plan's keyframes as `animation`'s do (LLP 1055 D5).
@@ -1135,6 +1125,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "hint" | "accessibilityHint" => "aria-description",
         "headingLevel" => "aria-level",
         "inputMode" | "keyboardType" => "inputmode",
+        "enterKeyHint" | "returnKeyType" => "enterkeyhint",
         "viewportFit" | "safeArea" | "safeAreaView" => "viewport-fit",
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",

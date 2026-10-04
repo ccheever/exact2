@@ -16,6 +16,9 @@
 
 use std::fmt::Write as _;
 
+/// A number as JavaScript's `String(n)` writes it (the colour parser's).
+pub use exact_motion::color::css::js_number;
+
 /// `fontVariantCaps`'s values; the list's `caps` operand is the index.
 pub const CAPS: [&str; 7] = [
     "normal",
@@ -113,19 +116,6 @@ impl Default for Font {
             families: vec!["sans-serif".into()],
         }
     }
-}
-
-/// A number as JavaScript's `String(n)` writes it, for the shapes canvas
-/// serialisations take (finite, not huge).
-pub fn js_number(v: f64) -> String {
-    if v == v.trunc() && v.abs() < 1e15 {
-        return format!("{}", v as i64);
-    }
-    let mut s = format!("{v}");
-    if s.contains('e') {
-        s = format!("{v:.6}");
-    }
-    s
 }
 
 impl Font {

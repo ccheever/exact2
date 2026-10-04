@@ -476,7 +476,12 @@ impl Collection {
                     keys_stale,
                 )?;
             }
-            if compare_previous && !keys_stale && !rekeyed && !rows_changed {
+            // `keys_stale` only says the keys were evaluated again (always,
+            // in full evaluation); `rekeyed` says whether one changed. Asking
+            // it here made the revision differ between modes when a re-ask
+            // answered the same rows (exact-live, a build-time answer asked
+            // again at data_ready, 2026-10-04).
+            if compare_previous && !rekeyed && !rows_changed {
                 in_place = Some(
                     (0..items.len())
                         .filter(|&p| !crate::compare::same(&items[p], &self.items[p]))

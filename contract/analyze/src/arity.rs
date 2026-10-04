@@ -18,6 +18,8 @@ struct Need {
     max: usize,
     low: Origin,
     high: Origin,
+    /// The event's optional record, the slot past `min` (`handler_accepts`).
+    record: Option<&'static str>,
 }
 impl Need {
     fn shifted(&self, bound: usize) -> Self {
@@ -27,11 +29,16 @@ impl Need {
             ..self.clone()
         }
     }
+    /// The record a count of parameters ends with, when that count is
+    /// only this invocation's because of its event's optional record.
+    fn record_only(&self, n: usize) -> Option<&'static str> {
+        self.record.filter(|_| n == self.max && self.min < self.max)
+    }
     fn description(&self) -> String {
-        if self.min == self.max {
-            self.min.to_string()
-        } else {
-            format!("{} or {}", self.min, self.max)
+        match self.record {
+            _ if self.min == self.max => self.min.to_string(),
+            Some(record) => format!("{} (or {}, the last its `{record}`)", self.min, self.max),
+            None => format!("{} or {}", self.min, self.max),
         }
     }
 }
@@ -43,7 +50,7 @@ struct Interface {
 #[derive(Clone)]
 enum Target {
     Interface(usize),
-    Action { name: String, arity: usize },
+    Action { name: String, params: Vec<Ty> },
 }
 #[derive(Clone)]
 struct Binding {
@@ -150,11 +157,20 @@ pub(super) fn check(file: &File, types: &Types, expanded: &Component) -> Result<
         let Some(need) = &graph.interfaces[*id].need else {
             continue;
         };
-        let Target::Action { name, arity } = &binding.target else {
+        let Target::Action { name, params } = &binding.target else {
             unreachable!()
         };
+        let arity = params.len();
         let remaining = arity.checked_sub(binding.bound);
-        if remaining.is_some_and(|n| (need.min..=need.max).contains(&n)) {
+        // The record's slot takes the record (`handler_accepts`).
+        let record = |n: usize| match need.record {
+            Some(record) if n == need.max && need.min < need.max => {
+                matches!(params.last(), Some(Ty::Record(r)) if r == record)
+                    || matches!(params.last(), Some(Ty::Unknown))
+            }
+            _ => true,
+        };
+        if remaining.is_some_and(|n| (need.min..=need.max).contains(&n) && record(n)) {
             continue;
         }
         let origin = if remaining.is_some_and(|n| n < need.min) {
@@ -226,7 +242,13 @@ impl Graph<'_> {
     ) -> Result<(), AnalyzeError> {
         let entry = &mut self.interfaces[id];
         if let Some(old) = &mut entry.need {
-            if need.min > old.max || old.min > need.max {
+            // A count one invocation fills with its event's record and the
+            // other with an argument or payload serves neither: narrow both
+            // ranges to the counts they agree on (`Need::record_only`).
+            let agreed: Vec<usize> = (need.min.max(old.min)..=need.max.min(old.max))
+                .filter(|&n| need.record_only(n) == old.record_only(n))
+                .collect();
+            if need.min > old.max || old.min > need.max || agreed.is_empty() {
                 let (incoming, previous) = if need.min > old.max {
                     (&need.low, &old.high)
                 } else {
@@ -252,6 +274,11 @@ impl Graph<'_> {
                 }
                 return Err(error);
             }
+            let need = Need {
+                min: agreed[0],
+                max: agreed[agreed.len() - 1],
+                ..need
+            };
             if need.min <= old.min && need.max >= old.max {
                 return Ok(());
             }
@@ -260,6 +287,10 @@ impl Graph<'_> {
                 old.low = need.low;
             }
             if need.max < old.max {
+                // Below its record's count, the record no longer ends it.
+                if old.record_only(old.max).is_some() {
+                    old.record = need.record;
+                }
                 old.max = need.max;
                 old.high = need.high;
             }
@@ -287,7 +318,7 @@ impl Graph<'_> {
         let target = match reference {
             Ref::Action(_) => Target::Action {
                 name: name.clone(),
-                arity: params.len(),
+                params: params.clone(),
             },
             Ref::Prop(pi) => Target::Interface(self.params[ci][pi as usize]?),
             _ => return None,
@@ -361,6 +392,7 @@ impl Graph<'_> {
                             Need {
                                 min: *range.start(),
                                 max: *range.end(),
+                                record: contract_types::event_record(&attr.name),
                                 low: origin.clone(),
                                 high: origin,
                             },

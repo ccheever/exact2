@@ -41,14 +41,15 @@ import { createHash, randomBytes } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { closeSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
+import { DOCUMENT_UTIS, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { appIcon, iosAssets } from './assets.mjs';
 import { keptModules } from './modules.mjs';
+import { keptCrates } from './crates.mjs';
 export { appIcon, iosAssets };
-import { deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators } from './devices.mjs';
+import { deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => {
@@ -356,20 +357,6 @@ export const macReleaseEntitlements = (compat) => {
     ...(domains.length ? { 'com.apple.developer.associated-domains': domains } : {}) });
 };
 
-/** Build with Xcode when `xcode-select` names the Command Line Tools, which
- * carry no iOS SDK (LLP 1054 O2): the iOS build otherwise fails deep in a
- * crate's build script with `SDK "iphonesimulator" cannot be located`. An
- * explicit `DEVELOPER_DIR` is kept. */
-export function useXcode() {
-  if (process.platform !== 'darwin' || process.env.DEVELOPER_DIR) return;
-  const selected = spawnSync('xcode-select', ['-p'], { encoding: 'utf8' }).stdout?.trim() ?? '';
-  const xcode = '/Applications/Xcode.app/Contents/Developer';
-  if (selected.includes('CommandLineTools') && existsSync(xcode)) {
-    process.env.DEVELOPER_DIR = xcode;
-    console.log(`host/apple: xcode-select names the Command Line Tools (${selected}); building with ${xcode}`);
-  }
-}
-
 /** A loose `Frameworks/lib….dylib` as `Frameworks/<name>.framework/<name>`,
  * which is the only form App Store Connect accepts for an embedded library
  * (ITMS-90171). The presenter loads either (`embeddedModule` in ExactKit). */
@@ -461,29 +448,6 @@ export function distributionKeys() {
   };
 }
 
-// The UTI each MIME type names on Apple platforms. `inode/directory` is the
-// one deviation from IANA's registry — freedesktop's spelling for a folder,
-// because the web has no MIME type for one and an app that opens a directory
-// (the LLP reader) must be able to say so. An unmapped type fails the bake
-// rather than guessing `public.data` (LLP 0382: fail closed, loudly), and
-// before anything is compiled (`main`): the common document and image types
-// are here (ledger diary F9).
-const UTIS = {
-  'text/markdown': 'net.daringfireball.markdown',
-  'text/plain': 'public.plain-text',
-  'text/html': 'public.html',
-  'text/csv': 'public.comma-separated-values-text',
-  'text/tab-separated-values': 'public.tab-separated-values-text',
-  'application/json': 'public.json',
-  'application/pdf': 'com.adobe.pdf',
-  'application/zip': 'public.zip-archive',
-  'image/png': 'public.png',
-  'image/jpeg': 'public.jpeg',
-  'image/gif': 'com.compuserve.gif',
-  'image/webp': 'org.webmproject.webp',
-  'image/svg+xml': 'public.svg-image',
-  'inode/directory': 'public.folder',
-};
 // The types iOS does not declare itself, which the bundle imports.
 const IMPORTED = new Set(['net.daringfireball.markdown']);
 
@@ -492,11 +456,8 @@ const IMPORTED = new Set(['net.daringfireball.markdown']);
  *  takes it away from whatever already owns it. */
 export function documentTypes(app) {
   return (app.manifest.file_handlers ?? []).map((handler) => {
-    const types = Object.keys(handler.accept).map((mime) => {
-      const uti = UTIS[mime];
-      if (!uti) throw new Error(`host/apple: ${app.name}'s file_handlers accepts ${mime}, which names no Apple type this host maps (it maps ${Object.keys(UTIS).join(', ')})`);
-      return uti;
-    });
+    // readManifest refused an unmapped type, on every host (DOCUMENT_UTIS).
+    const types = Object.keys(handler.accept).map((mime) => DOCUMENT_UTIS[mime]);
     const extensions = [...new Set(Object.values(handler.accept).flat().map((e) => e.replace(/^\./, '')).filter(Boolean))];
     return {
       CFBundleTypeName: handler.name ?? `${app.displayName} document`,
@@ -513,9 +474,9 @@ export function documentTypes(app) {
  *  its extensions and MIME type, conforming to plain text. */
 export function importedTypes(app) {
   return (app.manifest.file_handlers ?? []).flatMap((handler) => Object.entries(handler.accept)
-    .filter(([mime]) => IMPORTED.has(UTIS[mime]))
+    .filter(([mime]) => IMPORTED.has(DOCUMENT_UTIS[mime]))
     .map(([mime, extensions]) => ({
-      UTTypeIdentifier: UTIS[mime],
+      UTTypeIdentifier: DOCUMENT_UTIS[mime],
       UTTypeDescription: handler.name ?? mime,
       UTTypeConformsTo: ['public.plain-text'],
       UTTypeTagSpecification: { 'public.filename-extension': extensions.map((e) => e.replace(/^\./, '')), 'public.mime-type': [mime] },
@@ -624,19 +585,32 @@ export const shippedReceipt = (text) => {
 
 /** The archives js/build.rs links from each platform's CMake build. */
 export const HERMES_IOS_ARCHIVES = ['lib/libhermesvmlean_a.a', 'jsi/libjsi.a', 'external/boost/boost_1_86_0/libs/context/libboost_context.a'];
-// Checks the source, then builds and publishes one platform; ibex's lock is held throughout.
+// Provisions the source and the host compiler when this machine has neither
+// (a pristine clone at the pin, hermesc for the host), checks them, then
+// builds and publishes one platform; ibex's lock is held throughout.
 const HERMES_IOS_SCRIPT = `set -eu
 src=$1 pin=$2 root=$3 platform=$4 sdk=$5 arch=$6; shift 6
 out=$root/$platform build=$root/.build-$platform
-fix="run ./scripts/build-hermes.sh --vanilla $pin in ibex"
-[ -d "$src/.git" ] || { echo "no Hermes source at $src: $fix" >&2; exit 1; }
-head=$(git -C "$src" rev-parse HEAD)
-[ "$head" = "$pin" ] || { echo "ibex's Hermes source $src is at $head; js/build.rs pins $pin: $fix" >&2; exit 1; }
-[ -z "$(git -C "$src" status --porcelain --untracked-files=no)" ] || { echo "ibex's Hermes source $src is patched; the lean VM is pristine upstream: $fix" >&2; exit 1; }
-[ -f "$src/build_host_hermesc/ImportHostCompilers.cmake" ] || { echo "no host compiler in $src/build_host_hermesc: $fix" >&2; exit 1; }
+fix="ibex ./scripts/build-hermes.sh --vanilla $pin puts it back, or remove $src and build again"
 if [ -e "$out" ]; then
   for a; do [ -f "$out/$a" ] || { echo "$out lacks $a: remove it and build again" >&2; exit 1; }; done
   exit 0
+fi
+if [ ! -d "$src/.git" ]; then
+  echo "host/apple: cloning facebook/hermes at $pin into $src, once for this machine" >&2
+  rm -rf "$src.clone" && git clone --quiet --filter=blob:none --no-checkout https://github.com/facebook/hermes.git "$src.clone"
+  git -C "$src.clone" checkout --quiet --detach "$pin" && mv "$src.clone" "$src"
+fi
+head=$(git -C "$src" rev-parse HEAD)
+[ "$head" = "$pin" ] || { echo "the Hermes source $src is at $head; js/build.rs pins $pin: $fix" >&2; exit 1; }
+[ -z "$(git -C "$src" status --porcelain --untracked-files=no)" ] || { echo "the Hermes source $src is patched; the lean VM is pristine upstream: $fix" >&2; exit 1; }
+if [ ! -f "$src/build_host_hermesc/ImportHostCompilers.cmake" ]; then
+  echo "host/apple: building the host hermesc in $src/build_host_hermesc, once for this machine" >&2
+  # ibex's host configure (build-hermes.sh): no test suite, which CMake 4 refuses.
+  cmake -S "$src" -B "$src/build_host_hermesc" -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_SYSROOT=macosx \\
+    -DCMAKE_OSX_ARCHITECTURES="$(uname -m)" -DHERMES_ENABLE_TEST_SUITE=false \\
+    -DHAVE_CXX_ATOMICS_WITHOUT_LIB=ON -DHAVE_CXX_ATOMICS64_WITHOUT_LIB=ON >/dev/null
+  cmake --build "$src/build_host_hermesc" --target hermesc -j "$(sysctl -n hw.ncpu)" >/dev/null
 fi
 cmake -S "$src" -B "$build" -DHERMES_APPLE_TARGET_PLATFORM="$sdk" -DCMAKE_OSX_ARCHITECTURES="$arch" \\
   -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 -DHERMES_ENABLE_DEBUGGER=OFF -DHERMES_ENABLE_INTL=ON \\
@@ -652,14 +626,21 @@ rm -rf "$build"`;
 /** An iOS app with an `app.ts` links lean Hermes for its platform. Missing
  * from the per-pin cache every checkout and outside app shares, it is built
  * here, once per machine: only that platform's three CMake targets, from
- * ibex's pristine source cache with ibex's host compiler, under ibex's own
- * source-build lock, so neither build moves the checkout under the other.
+ * the pristine source cache ibex shares (cloned at the pin when absent) with
+ * its host compiler (built when absent), under ibex's own source-build
+ * lock, so neither build moves the checkout under the other. CMake is the
+ * one prerequisite, named in one message when it is missing.
  * EXACT_HERMES_IOS_DIR's archives are provisioned elsewhere; js/build.rs
  * refuses missing ones. @ref LLP 1036.001 D5 */
 export function provisionHermesIos(platform, env = process.env) {
   const { pin, root, cached } = hermesIos(env), out = resolve(root, platform);
   if (!cached || HERMES_IOS_ARCHIVES.every(a => existsSync(resolve(out, a)))) return;
   const cache = resolve(env.HOME ?? homedir(), '.cache/exact');
+  // The one thing a first build cannot provision itself (shop F19): said
+  // once, before anything is cloned or built.
+  if (spawnSync('cmake', ['--version'], { env }).status !== 0) {
+    throw new Error(`lean Hermes for ${platform} is built once on this machine (facebook/hermes ${pin.slice(0, 12)}, into ${out}) and needs CMake, which is not installed. Install it (brew install cmake) and build again; the source and the host compiler are fetched and built here. Or set EXACT_HERMES_IOS_DIR to a directory holding ${platform}/{${HERMES_IOS_ARCHIVES.join(',')}}, or EXACT_JS_ENGINE=stub for an app whose data module need not run.`);
+  }
   console.error(`host/apple: building lean Hermes for ${platform} (facebook/hermes ${pin.slice(0, 12)}) into ${out}, once for this machine`);
   mkdirSync(root, { recursive: true });
   const { SDKROOT, ...clean } = env; // the platform names its own SDK
@@ -697,7 +678,6 @@ async function main(args) {
     process.exitCode = 1; return;
   }
   const app = resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive'].includes(args[i - 1])));
-  documentTypes(app); // an unmapped `file_handlers` type is refused before a long build
   const release = appleBuildLock(app);
   const cleanup = [], beside = []; // what to remove, and the steps started beside the build, when it ends
   try {
@@ -858,13 +838,19 @@ async function main(args) {
   const moduleEnv = { ...process.env, ...cargoEnv, [`CARGO_PROFILE_${cargoProfile.toUpperCase().replace(/-/g, '_')}_STRIP`]: 'false' };
   const kept = cargoProfile === HOST_DEV ? keptModules({ root, moduleTarget, target, profile: cargoProfile, env: moduleEnv, sdk, metal: metalTools.stdout }) : null;
   const moduleLib = {};
+  // And a target directory that has compiled nothing starts with the registry
+  // crates this machine has compiled, which Cargo takes or not by its own
+  // fingerprints (crates.mjs): a second checkout's first build 78 → 57 s.
+  const keptRegistry = cargoProfile === HOST_DEV ? keptCrates({ root, env: moduleEnv, profile: cargoProfile }) : null;
+  keptRegistry?.take(app.target, 'app');
   const buildModules = (crates, log) => {
     const started = Date.now(), compile = crates.filter(crate => !(moduleLib[crate] = kept?.find(crate)));
     for (const crate of compile) moduleLib[crate] = resolve(moduleLibDir, `lib${crate.replaceAll('-', '_')}.dylib`);
+    if (compile.length) keptRegistry?.take(moduleTarget, 'modules');
     const step = compile.length ? startApple('sh', ['-c', 'profile=$1 target=$2 dir=$3 manifest=$4; shift 4; for crate; do cargo build --profile "$profile" -p "$crate" --lib --target "$target" --target-dir "$dir" --manifest-path "$manifest" || exit $?; done',
       'host-modules', cargoProfile, target, moduleTarget, resolve(root, 'Cargo.toml'), ...compile], resolve(webBuildDir, log), { env: moduleEnv }) : null;
     if (step) beside.push(step);
-    return { async done() { await step?.done(); for (const crate of compile) kept?.keep(crate, started); } };
+    return { async done() { await step?.done(); for (const crate of compile) kept?.keep(crate, started); if (compile.length) keptRegistry?.keep(moduleTarget, 'modules', resolve(root, 'Cargo.lock')); } };
   };
   // A production binary whose plan is its own for good (store level 0) may
   // reach neither module, and then compiles neither: its build waits for the
@@ -1136,6 +1122,7 @@ async function main(args) {
   // draws), started above: each its own dylib, never linked into the presenter.
   await hostModules?.done();
   await lateModules?.done();
+  keptRegistry?.keep(app.target, 'app', resolve(app.workspace, 'Cargo.lock'));
   const svgBuilt = resolve(webBuildDir, svgLoadName);
   if (hasSvg) copyFileSync(moduleLib['exact-svg-raster'], svgBuilt);
   const canvasGpuLoadName = 'libexact_canvas_gpu.dylib';

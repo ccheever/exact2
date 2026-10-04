@@ -285,13 +285,21 @@ extension Presenter {
         var role: String?, subrole: String?, label: String?, title: String?, help: String?, value: Any?
         var enabled = true, focused = false, selected = false, element = false, expanded = false
         var frame: NSRect = .zero, identifier: String?, children: [Any] = []
+        /// `aria-required`, `aria-invalid` and `aria-haspopup` as browsers serve them.
+        var required = false, invalid: String?, popup: String?
+        mutating func aria(_ a: (String) -> Any?) {
+            invalid = a("AXInvalid").map { "\($0)" }
+            popup = (a("AXHasPopup") as? Bool) == true ? (a("AXPopupValue") as? String ?? "true") : nil
+        }
     }
     static func axFacts(_ obj: AnyObject) -> AxFacts? {
         if let v = obj as? NSView {
-            return AxFacts(role: v.accessibilityRole()?.rawValue, subrole: v.accessibilitySubrole()?.rawValue, label: v.accessibilityLabel(), title: v.accessibilityTitle(),
+            var f = AxFacts(role: v.accessibilityRole()?.rawValue, subrole: v.accessibilitySubrole()?.rawValue, label: v.accessibilityLabel(), title: v.accessibilityTitle(),
                            help: v.accessibilityHelp(), value: v.accessibilityValue(), enabled: v.accessibilityAttributeValue(.enabled) as? Bool ?? true, focused: v.isAccessibilityFocused(),
                            selected: v.isAccessibilitySelected(), element: v.isAccessibilityElement(), expanded: v.isAccessibilityExpanded(), frame: v.accessibilityFrame(), identifier: v.accessibilityIdentifier(),
-                           children: v.accessibilityChildrenInNavigationOrder() ?? v.accessibilityChildren() ?? [])
+                           children: v.accessibilityChildrenInNavigationOrder() ?? v.accessibilityChildren() ?? [], required: v.isAccessibilityRequired())
+            f.aria { v.accessibilityAttributeValue(NSAccessibility.Attribute(rawValue: $0)) }
+            return f
         }
         if let e = obj as? NSAccessibilityElement {
             return AxFacts(role: e.accessibilityRole()?.rawValue, subrole: e.accessibilitySubrole()?.rawValue, label: e.accessibilityLabel(), title: e.accessibilityTitle(),
@@ -308,10 +316,18 @@ extension Presenter {
             let top = NSScreen.screens.first?.frame.maxY ?? 0
             frame = NSRect(x: p.x, y: top - p.y - s.height, width: s.width, height: s.height)
         }
-        return AxFacts(role: a("AXRole") as? String, subrole: a("AXSubrole") as? String, label: a("AXDescription") as? String, title: a("AXTitle") as? String,
-                       help: a("AXHelp") as? String, value: a("AXValue"), enabled: a("AXEnabled") as? Bool ?? true, focused: a("AXFocused") as? Bool ?? false,
-                       selected: a("AXSelected") as? Bool ?? false, element: !o.accessibilityIsIgnored(), expanded: a("AXExpanded") as? Bool ?? false, frame: frame, identifier: a("AXIdentifier") as? String,
-                       children: a("AXChildren") as? [Any] ?? [])
+        // A cell is served its control's typed label, help and required
+        // (AppKit's dispatcher prefers them); the cell's own attributes
+        // answer "" or nothing (onboarding F16: every named pop-up,
+        // checkbox, slider and date read unnamed here).
+        let control = (obj as? NSCell)?.controlView
+        let nonEmpty = { (s: String?) in s.flatMap { $0.isEmpty ? nil : $0 } }
+        var f = AxFacts(role: a("AXRole") as? String, subrole: a("AXSubrole") as? String, label: nonEmpty(control?.accessibilityLabel()) ?? a("AXDescription") as? String, title: a("AXTitle") as? String,
+                        help: nonEmpty(control?.accessibilityHelp()) ?? a("AXHelp") as? String, value: a("AXValue"), enabled: a("AXEnabled") as? Bool ?? true, focused: a("AXFocused") as? Bool ?? false,
+                        selected: a("AXSelected") as? Bool ?? false, element: !o.accessibilityIsIgnored(), expanded: a("AXExpanded") as? Bool ?? false, frame: frame, identifier: a("AXIdentifier") as? String,
+                        children: a("AXChildren") as? [Any] ?? [], required: control?.isAccessibilityRequired() == true || a("AXRequired") as? Bool == true)
+        f.aria(a)
+        return f
     }
     enum AxSheet { case none, owned(NSView), foreign }
     /// A sheet attached to the window is this session's only when its
@@ -398,12 +414,16 @@ extension Presenter {
         if f.selected { states["selected"] = true }
         // AppKit's accessor answers false for "not expanded" and "no such state" alike: only true is a fact.
         if f.expanded { states["expanded"] = true }
+        if f.required { states["required"] = true }
+        if let invalid = f.invalid { states["invalid"] = invalid }
+        if let popup = f.popup { states["haspopup"] = popup }
         let r = f.role ?? "AXUnknown"
         let mapped = ["AXButton": "button", "AXLink": "link", "AXHeading": "heading", "AXTextField": "textbox", "AXTextArea": "textbox",
-                      "AXCheckBox": "checkbox", "AXStaticText": "text", "AXGroup": "group", "AXImage": "image", "AXList": "list"][r]
+                      "AXCheckBox": f.subrole == "AXSwitch" ? "switch" : "checkbox", "AXRadioButton": "radio", "AXRadioGroup": "radiogroup",
+                      "AXSlider": "slider", "AXPopUpButton": "combobox", "AXStaticText": "text", "AXGroup": "group", "AXImage": "image", "AXList": "list"][r]
         e["role"] = forced ?? mapped ?? r
         if r == "AXHeading", let level = f.value as? Int { states["level"] = level }
-        if r == "AXCheckBox", let on = f.value as? Int { states["checked"] = on == 1 }
+        if r == "AXCheckBox" || r == "AXRadioButton", let on = f.value as? Int { states["checked"] = on == 1 }
         e["interactive"] = ["AXButton", "AXLink", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXSlider", "AXPopUpButton", "AXMenuItem", "AXComboBox"].contains(r)
         native["role"] = r
         if let subrole = f.subrole { native["subrole"] = subrole }

@@ -51,12 +51,21 @@ pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
 pub use svg::{resolve_with, Ink, SvgPaint};
 
 // Only an explicit row makes a raster a template; motion may supply its ink.
-fn image_tint(style: &StyleProps, presented: &Presented, dark: bool) -> Option<[u8; 4]> {
+// `currentcolor` is the node's `color` (feed F1).
+fn image_tint(node: &NodeRef<'_>, presented: &Presented, dark: bool) -> Option<[u8; 4]> {
+    let style = node.style;
     style.mask.has(StyleId::TintColor).then(|| {
         presented
             .colors
             .color(exact_motion::Property::TintColor)
-            .unwrap_or_else(|| rgba(style.tint_color.resolve(dark)))
+            .unwrap_or_else(|| {
+                rgba(
+                    style
+                        .tint_color
+                        .unwrap_or_else(|| node.text_color())
+                        .resolve(dark),
+                )
+            })
     })
 }
 
@@ -199,14 +208,14 @@ impl BoxPaint {
             background: match material {
                 // The material's tint where the author painted no background,
                 // as the web's rule sits under an inline one (LLP 1053.000 D4).
-                Some(m) if s.background_color.resolve(dark).a() == 0 => {
+                Some(m) if s.background_color.unwrap_or(current).resolve(dark).a() == 0 => {
                     if dark {
                         m.dark
                     } else {
                         m.light
                     }
                 }
-                _ => rgba(s.background_color.resolve(dark)),
+                _ => rgba(s.background_color.unwrap_or(current).resolve(dark)),
             },
             gradients: gradient::Captured::capture(s, dark),
             shadows: shadow::ShadowPaint::capture(s, dark),
@@ -1053,7 +1062,7 @@ impl Painter {
                     .str(exact_kernel::PropId::ImageSource)
                     .is_some_and(|s| s.starts_with("symbol:"))
                 {
-                    self.symbol(node, content, image_tint(s, &shown, self.dark), ts);
+                    self.symbol(node, content, image_tint(node, &shown, self.dark), ts);
                 } else if let Some(img) = walk.scene.images.get(&node.id) {
                     if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
                         self.backend.image(
@@ -1061,7 +1070,7 @@ impl Painter {
                             dst,
                             &[Shape::rect(content), outer],
                             ts,
-                            image_tint(s, &shown, self.dark),
+                            image_tint(node, &shown, self.dark),
                         );
                     }
                 }

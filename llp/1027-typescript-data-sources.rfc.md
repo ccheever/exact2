@@ -535,6 +535,12 @@ therefore show their kept answer or baked placeholder on the first frame and
 refresh through `data_ready()` after activation. Fieldnotes exercises this path:
 a returning notebook opens its saved notes without a user action.
 
+**Compiled answers are first frames (2026-10-04).** `data_ready` also asks
+every resource that showed a compiled answer, even one whose arguments are
+the bake's. Only an `else` row is not asked. The module at launch is not the
+module the bake ran, and the web asks it at launch. Feed's no-argument
+`explore()` stayed empty on macOS while the web filled it (LLP 1048.003 D6).
+
 The alternative — create the engine before boot, since it is 0.3 ms —
 was considered and not taken, not because the number is large but because the rule
 is a count, not a timer, and the reason it is a count is that the

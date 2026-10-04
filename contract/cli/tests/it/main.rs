@@ -10,6 +10,7 @@ mod borders;
 mod branch;
 mod checkpoint;
 mod child_state_lifetime;
+mod clipboard;
 mod clock_timeline;
 mod collection;
 mod collection_axis;

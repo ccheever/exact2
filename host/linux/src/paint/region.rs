@@ -271,7 +271,7 @@ impl Picture {
                         Payload::Image(
                             image.clone(),
                             node.style.object_fit,
-                            super::image_tint(node.style, &(scene.presented)(id), painter.dark),
+                            super::image_tint(&node, &(scene.presented)(id), painter.dark),
                         )
                     }),
                     NodeType::Svg => Payload::Svg(Rc::new(super::svg::resolve_svg(

@@ -53,7 +53,8 @@
     },
     {
       "id": 12,
-      "name": "Video"
+      "name": "Video",
+      "_comment": "@ref LLP 1042: HTML's `video`, and its `audio` (`semanticTag` audio, LLP 1042 §8): one media node, one player per host."
     },
     {
       "id": 13,
@@ -1134,7 +1135,7 @@
     },
     {
       "id": 186,
-      "name": "order",
+      "name": "feOrder",
       "kind": "str"
     },
     {
@@ -1321,6 +1322,36 @@
       "name": "target",
       "kind": "str",
       "_comment": "HTML's link `target`, `_blank` or `_self`: where the web opens a link's URL. Unset, a link to an absolute URL opens in a new browsing context, as the native hosts open it in the system browser (x2apps chat F11, hn-reader F3); natively a path navigates in the app and any other URL leaves it, whatever the target."
+    },
+    {
+      "id": 230,
+      "name": "enterKeyHint",
+      "kind": "str",
+      "_comment": "HTML's `enterkeyhint` (feed F25): what a software keyboard's enter key says — enter, done, go, next, previous, search or send. The web writes the attribute; iOS sets the field's return key; a host with no software keyboard (macOS, Linux, a desktop browser) has nothing to label."
+    },
+    {
+      "id": 231,
+      "name": "accessibilityInvalid",
+      "kind": "str",
+      "_comment": "ARIA `aria-invalid` (x2apps onboarding F22): `true`, `false`, `grammar` or `spelling`; a bool expression is written as `true`/`false`. AppKit serves WebKit's `AXInvalid`; UIKit has no such property, so iOS exposes none."
+    },
+    {
+      "id": 232,
+      "name": "accessibilityDescribedBy",
+      "kind": "str",
+      "_comment": "ARIA `aria-describedby`: the HTML ids, space-separated, of the elements whose text describes this one (accname's description), after `aria-description`'s words. AppKit's `AXHelp`, UIKit's `accessibilityHint`."
+    },
+    {
+      "id": 233,
+      "name": "accessibilityRequired",
+      "kind": "bool",
+      "_comment": "ARIA `aria-required` (x2apps onboarding F22): a field the form needs filled. AppKit's `AXRequired`; UIKit has no such property, so iOS exposes none."
+    },
+    {
+      "id": 234,
+      "name": "accessibilityHasPopup",
+      "kind": "str",
+      "_comment": "ARIA `aria-haspopup` (x2apps spreadsheet F20): `false`, `true`, `menu`, `listbox`, `tree`, `grid` or `dialog`; a bool expression is written as `true`/`false`. AppKit serves Chromium's `AXHasPopup` and `AXPopupValue`; UIKit has no such property, so iOS exposes none."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -2279,7 +2310,7 @@
     {
       "bit": 47,
       "field": "background_color",
-      "codec": "color",
+      "codec": "current-color",
       "default": 0
     },
     {
@@ -2535,7 +2566,7 @@
     {
       "bit": 86,
       "field": "tint_color",
-      "codec": "color",
+      "codec": "current-color",
       "default": 255
     },
     {
@@ -3105,6 +3136,14 @@
       "bit": 174,
       "field": "user_select",
       "codec": "enum:UserSelect"
+    },
+    {
+      "bit": 175,
+      "field": "order",
+      "codec": "i32",
+      "layout": true,
+      "default": 0,
+      "_comment": "CSS `order` (feed F19): a flex or grid item's place in its container's order-modified document order, which the kernel gives the layout engine as its child order. Painting and focus stay in document order; LLP 1001 declares the paint half."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

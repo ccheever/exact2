@@ -177,7 +177,7 @@ component Rivals
           button press=togglePause testId="pause" aria-label=(paused ? "Resume" : "Pause") position="absolute" top=16 left=16 padding=10 border-radius=10 background-color="#10141bcc"
             text (paused ? "Resume" : "Pause")
           button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=110 width=96 height=96 border-radius=48 background-color="#35475188"
-            text "Move" color="#ffffff" text-align="center" padding-top=36
+            text "Move" color="#ffffff"
           row position="absolute" right=24 bottom=120 gap=12
             button action="jump" testId="jump" aria-label="Jump" padding=16 border-radius=12 background-color="#35475188"
               text "Jump"

@@ -733,3 +733,253 @@ fn a_target_out_of_view_is_revealed_and_a_control_takes_a_value() {
         assert!(again.contains("\"scrolled\":false"), "{again}");
     }
 }
+
+/// A `video` or `audio` here plays nothing (no decoder, no audio output):
+/// `state.media` says so per node, and the tree marks it unavailable
+/// (LLP 1042 §5, §8).
+#[test]
+fn media_is_reported_unavailable() {
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      audio \"assets/ding.wav\" testId=\"sound\" paused=false\n",
+    )
+    .unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    let media = state["media"].as_array().expect("state.media");
+    assert_eq!(media.len(), 1, "{state}");
+    assert_eq!(media[0]["state"]["paused"], true);
+    assert!(media[0]["state"]["unavailable"].is_string(), "{state}");
+    // No scratch store named: the drive has no app storage, and says so (trivia F7).
+    assert_eq!(state["storage"]["available"], false, "{state}");
+    assert_eq!(state["storage"]["code"], "agent", "{state}");
+    let tree = json(handle(&mut p, r#"{"op":"tree"}"#));
+    let sound = tree["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["type"] == "Video")
+        .unwrap();
+    assert_eq!(sound["unavailable"], true, "{tree}");
+}
+
+/// An input's end lands the `then` of the answer it settled (LLP 1012 §2;
+/// trivia F3): `clock land` runs it, the clock unmoved and no timer fired.
+#[test]
+fn land_runs_an_answers_then_and_no_timer() {
+    let plan = contract::compile(
+        "component App\n  state screen = \"start\"\n  state ticks = 0\n  mutation m as shape bool then opened\n  action go\n    send m = fallback()\n  action opened\n    screen = \"play\"\n  action tick\n    ticks = ticks + 1\n  task ticking mount\n    every(100, tick)\n  view\n    column\n      button press=go testId=\"go\" aria-label=\"Go\"\n        text \"Go\"\n      text `${screen} ${ticks}`\n",
+    )
+    .unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        Hung,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+    let slots = |p: &mut Presenter<Hung>| json(handle(p, r#"{"op":"state"}"#))["slots"].clone();
+    handle(&mut p, r#"{"op":"clock","to":100}"#);
+    let go = p
+        .host()
+        .runner()
+        .kernel()
+        .find_first_by_test_id("go")
+        .unwrap();
+    let go = p.host().runner().kernel().node_by_key(go).unwrap().id;
+    let tapped = handle(&mut p, &format!(r#"{{"op":"tap","id":{go}}}"#));
+    assert!(!tapped.contains("\"error\""), "{tapped}");
+    assert_eq!(slots(&mut p)["screen"], "start", "armed, not yet run");
+    let landed = json(handle(&mut p, r#"{"op":"clock","land":true}"#));
+    assert_eq!(landed["clock"], 100.0, "{landed}");
+    let s = slots(&mut p);
+    assert_eq!(
+        (s["screen"].clone(), s["ticks"].clone()),
+        ("play".into(), 1.into()),
+        "{s}"
+    );
+}
+
+/// Spreadsheet F6: `type <id> paste|copy|cut` delivers the clipboard's
+/// event at the target, the nearest node with a handler hearing it.
+#[test]
+fn the_clipboard_events_reach_the_nearest_handler() {
+    let plan = contract::compile("component App\n  state log = \"\"\n  action pasted(at: string, e: ClipboardEvent)\n    log = `${log}${at}:${e.text};`\n  action copied\n    log = `${log}copy;`\n  action seen\n    log = log\n  view\n    column width=300 paste=pasted(\"grid\") copy=copied testId=\"grid\"\n      box testId=\"cell\" width=50 height=20 focus=seen\n      text log testId=\"log\" height=20\n").unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let id = |p: &Presenter<NoData>, test_id: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+    };
+    let (cell, log) = (id(&p, "cell"), id(&p, "log"));
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{cell},"clipboard":"paste","text":"a\tb"}}"#),
+    );
+    assert!(reply.contains("\"clipboard\":\"paste\""), "{reply}");
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{cell},"clipboard":"copy"}}"#),
+    );
+    let k = p.host().kernel();
+    assert_eq!(
+        k.node(log).unwrap().props.str(exact_kernel::PropId::Text),
+        Some("grid:a\tb;copy;")
+    );
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{log},"clipboard":"cut"}}"#),
+    );
+    assert!(reply.contains("no cut handler"), "{reply}");
+}
+
+/// Gallery F20: `tap <id> modifiers Shift+Meta` presses with the keys held,
+/// which the action's `MouseEvent` reports; the keys are released after.
+#[test]
+fn a_tap_holds_its_modifiers_for_the_press() {
+    let plan = contract::compile("component App\n  state log = \"\"\n  action pick(e: MouseEvent)\n    log = `${log}${e.shiftKey}${e.metaKey}${e.altKey};`\n  view\n    column width=300\n      button press=pick testId=\"b\" width=50 height=20\n      text log testId=\"log\" height=20\n").unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let id = |p: &Presenter<NoData>, test_id: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+    };
+    let (b, log) = (id(&p, "b"), id(&p, "log"));
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{b},"modifiers":"Shift+Meta"}}"#),
+    );
+    handle(&mut p, &format!(r#"{{"op":"tap","id":{b}}}"#));
+    let k = p.host().kernel();
+    assert_eq!(
+        k.node(log).unwrap().props.str(exact_kernel::PropId::Text),
+        Some("truetruefalse;falsefalsefalse;")
+    );
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{b},"modifiers":"Hyper"}}"#),
+    );
+    assert!(reply.contains("error"), "{reply}");
+}
+
+/// A request that answers long after the drive moves on.
+#[derive(Default)]
+struct Stalled;
+impl DataSource for Stalled {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+    fn answer(
+        &mut self,
+        _: &mut exact_runner::Store,
+        _: &str,
+        _: &[Value],
+    ) -> Result<exact_runner::Answer, DataError> {
+        Ok(exact_runner::Answer::Later(
+            exact_runner::Request::continuation(1),
+        ))
+    }
+    fn dispatch(&mut self, _: u64, _: &exact_runner::Store) -> exact_runner::Dispatch {
+        exact_runner::Dispatch::Run(exact_runner::Work::Later(Box::new(|reply| {
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                reply.send(exact_runner::Outcome::Storage(b"1".to_vec()));
+            });
+        })))
+    }
+}
+
+/// A jump waits for no request with no timer due before it, and its reply
+/// names what it left in flight, as the web hosts' do (calendar F10, workout
+/// F6); `clock settle` waits for it and says `requests` past its bound.
+#[test]
+fn a_jump_names_the_requests_it_left_in_flight() {
+    let plan = contract::compile(
+        "component App\n  resource item = item() as shape number\n  view\n    text `${item}` testId=\"log\"\n",
+    )
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        Stalled,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+    let reply = json(handle(&mut p, r#"{"op":"clock","to":100}"#));
+    assert_eq!(reply["clock"], 100, "{reply}");
+    assert_eq!(reply["inflight"], 1, "{reply}");
+    let reply = json(clock_within(
+        &mut p,
+        r#"{"op":"clock","settle":true}"#,
+        std::time::Duration::from_millis(100),
+    ));
+    assert_eq!(reply["settled"], false, "{reply}");
+    assert_eq!(reply["reason"], "requests", "{reply}");
+}
+
+/// Review A1: a drag's contact with `mouse` holds the left button through its
+/// phases. Every phase says `mouse`, which a contact takes (a click's `mouse`
+/// form stays the click's), and the box hears the press and the release.
+#[test]
+fn a_mouse_contact_goes_down_holds_and_lifts() {
+    let plan = contract::compile("component App\n  state log = \"\"\n  action at(kind: string, e: PointerEvent)\n    log = `${log}${kind}:${e.pointerType};`\n  view\n    column width=300\n      box testId=\"pad\" width=200 height=100 touch-action=\"none\" pointerdown=at(\"down\") pointerup=at(\"up\")\n      text log testId=\"log\" height=20\n").unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let id = |p: &Presenter<NoData>, test_id: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+    };
+    let (pad, log) = (id(&p, "pad"), id(&p, "log"));
+    for line in [
+        format!(r#"{{"op":"tap","phase":"down","id":{pad},"x":20,"y":20,"mouse":true}}"#),
+        r#"{"op":"tap","phase":"hold","ms":32,"mouse":true}"#.to_string(),
+        r#"{"op":"tap","phase":"up","mouse":true}"#.to_string(),
+    ] {
+        let reply = handle(&mut p, &line);
+        assert!(!reply.contains("\"error\""), "{line}: {reply}");
+    }
+    let k = p.host().kernel();
+    assert_eq!(
+        k.node(log).unwrap().props.str(exact_kernel::PropId::Text),
+        Some("down:mouse;up:mouse;")
+    );
+}

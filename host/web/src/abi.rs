@@ -475,7 +475,13 @@ impl<D: DataSource> Bridge<D> {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         let event = match kind {
-            0 => Event::Press,
+            // A press, with the modifiers held as a chord prefix (gallery F20).
+            0 => {
+                let Some(event) = Event::press(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid press modifiers"}"#.into());
+                };
+                event
+            }
             2 => Event::Hover(true),
             3 => Event::Hover(false),
             4 => Event::Focus,
@@ -490,7 +496,7 @@ impl<D: DataSource> Bridge<D> {
             // Scroll, media, pan, selection and pan release (LLP 1057 §10.6),
             // and the pointer's down, up and move with its record (LLP 1005
             // §3; LLP 1056 §3 stage 3).
-            13 | 19 | 20 | 21 | 28..=31 => match Event::of_host_kind(kind, &payload) {
+            13 | 19 | 20 | 21 | 28..=34 => match Event::of_host_kind(kind, &payload) {
                 Ok(event) => event,
                 Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
             },
@@ -862,10 +868,17 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// Move the clock.
-    pub fn advance(&mut self, now_ms: f64, until_request: bool) -> u32 {
+    /// Move the clock: `mode` 0 fires every timer due (the wall clock), 1
+    /// stops after a timer that sends (the agent's jump), 2 lands only the
+    /// `then`s already armed, the clock unmoved (an agent's input's end).
+    pub fn advance(&mut self, now_ms: f64, mode: u32) -> u32 {
         let out = match self.host.as_mut() {
-            Some(h) if until_request => h.advance_until_request(now_ms),
+            // The `then`s an agent's input settled (Runner::land_then).
+            Some(h) if mode == 2 => {
+                let a = h.runner_mut().land_then();
+                h.advanced(a)
+            }
+            Some(h) if mode == 1 => h.advance_until_request(now_ms),
             Some(h) => h.advance(now_ms),
             None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
         };
@@ -1170,11 +1183,11 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_place(len as usize))
         }
 
-        /// Advance the runner clock; nonzero `until_request` stops after a
-        /// timer that sends (the agent's jump; the wall clock passes 0).
+        /// Advance the runner clock; `mode` as [`Bridge::advance`] (the
+        /// wall clock passes 0).
         #[no_mangle]
-        pub extern "C" fn exact_advance(now_ms: f64, until_request: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().advance(now_ms, until_request != 0))
+        pub extern "C" fn exact_advance(now_ms: f64, mode: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().advance(now_ms, mode))
         }
 
         /// A presented animation frame at `now_ms` (LLP 1073 D5): timers

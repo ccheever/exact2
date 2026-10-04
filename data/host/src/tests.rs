@@ -622,7 +622,7 @@ fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
         "fs.readFile",
         serde_json::json!({"path": doc}),
     );
-    assert!(refused.unwrap_err().contains("not granted"));
+    assert!(refused.unwrap_err().starts_with("denied: "));
     let write = serde_json::json!({"path": doc, "text": "# B"});
     let refused = run("fs.read doc:/", "fs.atomicWriteFile", write.clone());
     assert!(refused.unwrap_err().contains("fs.write doc:/"));
@@ -643,4 +643,27 @@ fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
     );
     assert!(gone.unwrap_err().contains("no such document"));
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A drive that names no scratch store (trivia F7): the request is answered,
+/// with the web's refusal word for word, which the module can handle — where
+/// an unconfigured host refuses the answer itself.
+#[test]
+fn an_agent_drive_without_a_store_answers_with_the_webs_refusal() {
+    let mut host = Storage::new(Fixture::new());
+    host.agent = true;
+    host.activate().unwrap();
+    let refused = run(
+        &mut host,
+        storage::request("fs.writeFile", json!({"path":"app:/data/x","text":"x"})),
+    );
+    assert_eq!(
+        refused,
+        Err("storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)".into())
+    );
+    host.agent = false;
+    host.source.request = storage::request("fs.readFile", json!({"path":"app:/data/x"}));
+    assert!(host
+        .answer(&mut Store::default(), "operation", &[])
+        .is_err());
 }

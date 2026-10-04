@@ -17,6 +17,54 @@ impl<D: DataSource> Presenter<D> {
             .unwrap_or_default()
     }
 
+    /// `blur()` drops the focus; `blur(id)` only when that node holds it.
+    pub(crate) fn blur_command(&mut self, args: &[exact_plan::Value]) {
+        let holds = |name: &str| {
+            self.focus
+                .and_then(|id| self.host.kernel().node(id))
+                .is_some_and(|n| n.props.str(PropId::Id) == Some(name))
+        };
+        if args
+            .first()
+            .and_then(exact_plan::Value::as_str)
+            .is_none_or(holds)
+        {
+            self.blur();
+        }
+    }
+
+    /// `focus(id)` from an action: the node whose `id` that is, when it is
+    /// focusable, as `element.focus()` takes it on the web; otherwise the
+    /// journal says why, as the web host's does (it had been an unknown
+    /// command here).
+    pub(crate) fn focus_command(&mut self, args: &[exact_plan::Value]) {
+        let Some(name) = args.first().and_then(exact_plan::Value::as_str) else {
+            return eprintln!("exact: focus requires an element id");
+        };
+        let kernel = self.host.kernel();
+        let found = kernel
+            .rows(None)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|row| row.id)
+            .find(|&id| {
+                kernel
+                    .node(id)
+                    .is_some_and(|n| n.props.str(PropId::Id) == Some(name))
+            });
+        let reason = match found {
+            None => "no live node with that id",
+            Some(id) if !self.focusable(id) => "not focusable",
+            Some(id) => {
+                if let Some(e) = self.set_focus(Some(id), self.host.now()) {
+                    eprintln!("exact: {e}");
+                }
+                return;
+            }
+        };
+        self.host.log(format!("focus \"{name}\" refused: {reason}"));
+    }
+
     /// Move the focus: `blur` at the node that loses it, then `focus` at the
     /// node that gains it — each at its own handler, since the web's focus
     /// events do not bubble.
@@ -83,7 +131,8 @@ impl<D: DataSource> Presenter<D> {
 
     /// A key at the focused node, by the web's name: every `key` handler at
     /// or above it hears it, innermost first, as a keydown bubbles — the path
-    /// fixed before the first runs. True when one called `preventDefault()`:
+    /// fixed before the first runs; one that called `stopPropagation()` is
+    /// the last. True when one called `preventDefault()`:
     /// the caller skips the key's default action (docs/contract-grammar.md#events).
     pub(crate) fn key_event(&mut self, name: &str, now_ms: f64) -> (Option<String>, bool) {
         let mut path = Vec::new();
@@ -108,6 +157,12 @@ impl<D: DataSource> Presenter<D> {
             let queued = self.commands.len();
             self.commands.retain(|c| c.name != "preventDefault");
             prevented |= self.commands.len() != queued;
+            // `stopPropagation()`: no ancestor hears it (files diary F8).
+            let queued = self.commands.len();
+            self.commands.retain(|c| c.name != "stopPropagation");
+            if self.commands.len() != queued {
+                break;
+            }
         }
         (error, prevented)
     }

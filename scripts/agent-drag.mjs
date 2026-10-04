@@ -5,7 +5,8 @@ import { DRAG_BOUNDS } from '../host/apple/touches.mjs';
 
 /**
  * `tap <target> drag …` (LLP 1080.000 §11): one whole gesture from `from`
- * (an offset from the target's box, its middle by default): press `press`
+ * (an offset from the target's box, its middle by default), a finger or,
+ * with `mouse`, the left button: press `press`
  * ms, one straight drag by (dx, dy) over `over` ms, hold `hold` ms, lift;
  * `during` thunks run while the finger is down after the move, before the
  * hold (kanban F14: a screenshot during a drag shows it moved), when no
@@ -14,7 +15,10 @@ import { DRAG_BOUNDS } from '../host/apple/touches.mjs';
  * refused where the carrier refuses them.
  */
 export async function dragTap({ s, carrier, node, target, host, timing, tapRefusal, scrolled }, opts) {
-  const { dx, dy, from, press = 0, over = 250, hold = 0, during = [] } = opts, drag = { dx, dy, press, over, hold, during }, said = { dx, dy, press, over, hold };
+  const { dx, dy, from, mouse = false, press = 0, over = 250, hold = 0, during = [] } = opts, drag = { dx, dy, press, over, hold, during }, said = { dx, dy, press, over, hold, ...(mouse ? { mouse } : {}) };
+  // `mouse` (files diary F10): the left button, where the carrier's contact
+  // is otherwise a finger (the web's); a desktop host's contact is the mouse.
+  if (mouse && (carrier.touches || ['ios', 'host-ios'].includes(host))) throw new Error('drag: mouse is a desktop pointer\'s; an iOS contact is a finger');
   if (![dx, dy, press, over, hold].every(Number.isFinite) || [press, over, hold].some((v) => v < 0)) throw new Error('drag: expected finite dx, dy and non-negative press, over and hold (ms)');
   if (from !== undefined && !(Array.isArray(from) && from.length === 2 && from.every(Number.isFinite))) throw new Error('drag: from takes two finite numbers, an offset from the target\'s box');
   const moves = dx !== 0 || dy !== 0;
@@ -33,7 +37,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     let r;
     try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, during: during.map(held) } }); }
     catch (error) { throw await tapRefusal(s, target, error); }
-    return s.tagged({ ...r, target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing });
+    return s.landed({ ...r, target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing });
   }
   // The carrier's phases, each reply checked: an error or a refusal releases the contact and throws.
   let down, done = [], up;
@@ -43,8 +47,16 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     return r;
   };
   try {
-    down = await s.tap(target, { down: true, at: from });
-    if (down.error) throw new Error(`drag: down: ${down.error}`);
+    // The contact starts here, through the carrier, at the point `tap … down at` would use (review A1): `tap` refuses
+    // `mouse` beside `down`, its click form. `mouse` holds the left button on the web, Linux and Windows; a macOS
+    // contact already is the mouse.
+    try { down = await carrier.input(node.id, 'down', { x: start[0], y: start[1], ...(mouse && !['macos', 'mac', 'host'].includes(host) ? { mouse } : {}) }); }
+    catch (error) { throw await tapRefusal(s, target, error); }
+    if (down.error) throw new Error(`drag: down: ${(await tapRefusal(s, target, new Error(down.error))).message}`);
+    if (down.delivery !== 'unsupported') {
+      s.contact = down.contact === false ? null : { x: down.at[0], y: down.at[1] };
+      if (Number.isFinite(down.clock)) s.now = down.clock;
+    }
     if (down.delivery === 'unsupported') {
       const { phase: _, ...refused } = down;
       return s.tagged({ ...refused, drag: said, reason: `${down.reason ?? 'no held contact'}; a real drag is --touch platform's (LLP 1080.000 §11)` });

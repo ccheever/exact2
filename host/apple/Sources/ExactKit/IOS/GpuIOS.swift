@@ -357,7 +357,7 @@ final class Canvases {
                 if r != 0 { return false }
                 continue
             }
-            let hidden = child.isHidden
+            let hidden = child.hiddenByHost
             if child.placementHidden { child.isHidden = false }
             defer { child.isHidden = hidden }
             guard let bitmap = Capture.bitmap(of: child, scale: scale), let data = bitmap.bytes else { continue }

@@ -358,7 +358,7 @@ component NewContactSheet
           popovertarget="discard-contact-confirmation"
           popovertargetaction="hide"
           color="#ff3b30"
-          height=48 justify-content="center"
+          height=48
           border-radius=24
           background-color="light-dark(#ffffff, #38383a)"
           text "Discard Changes" font-size=17
@@ -366,5 +366,5 @@ component NewContactSheet
           popovertarget="discard-contact-confirmation"
           popovertargetaction="hide"
           class=AccentText
-          height=44 justify-content="center"
+          height=44
           text "Cancel" font-size=17

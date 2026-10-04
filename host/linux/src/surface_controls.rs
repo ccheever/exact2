@@ -482,7 +482,14 @@ impl<D: DataSource> Presenter<D> {
                         .any(|k| {
                             matches!(
                                 k,
-                                EventKind::Focus | EventKind::Blur | EventKind::Key | EventKind::Press
+                                EventKind::Focus
+                                    | EventKind::Blur
+                                    | EventKind::Key
+                                    | EventKind::Press
+                                    // The clipboard's events go to the focus.
+                                    | EventKind::Copy
+                                    | EventKind::Cut
+                                    | EventKind::Paste
                             )
                         }))
         })
@@ -589,7 +596,14 @@ impl<D: DataSource> Presenter<D> {
                 target
             }
         });
-        if let Some(e) = self.host.dispatch_at(target, Event::Press, now_ms) {
+        // With the modifiers held (gallery F20: shift-click), as a click has them.
+        let held = self.modifiers();
+        let press = if held == Default::default() {
+            Event::Press
+        } else {
+            Event::PressWith(held)
+        };
+        if let Some(e) = self.host.dispatch_at(target, press, now_ms) {
             eprintln!("exact: {e}");
         }
         if let Some(e) = self.after_commit() {

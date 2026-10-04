@@ -667,7 +667,7 @@ public final class ExactSession {
             if batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.timerDueMs == timerDue && batch.canvasOwed == canvasOwed { return }
             apply(batch)
         }
-        presenter.onPress = { [unowned self] id in apply(runtime.press(id, now: now())) }
+        presenter.onPress = { [unowned self] id in apply(runtime.press(id, held: presenter.pressHeld, now: now())) }
         presenter.onChange = { [unowned self] id, value in apply(runtime.change(id, documentValue(id, value), now: now())) }
         presenter.onInput = { [unowned self] id, value in apply(runtime.input(id, value, now: now())) }
         // @ref LLP 1069.001 D4 — a toggle is HTML's `input` then `change`,
@@ -713,7 +713,7 @@ public final class ExactSession {
         presenter.onPanRelease = { [unowned self] id, vx, vy in apply(runtime.panRelease(id, vx: vx, vy: vy, now: now())) }
         presenter.onPanSample = { [unowned self] first, x, y, t in runtime.panSample(first: first, x: x, y: y, t: t) }
         presenter.panVelocity = { [unowned self] t in runtime.panVelocity(at: t) }
-        presenter.onScroll = { [unowned self] id, left, top in apply(runtime.scroll(id, left: left, top: top, now: now())) }
+        presenter.onScroll = { [unowned self] id, metrics in apply(runtime.scroll(id, metrics: metrics, now: now())) }
         presenter.onScrolled = { [unowned self] id, left, top in runtime.scrolled(id, left: left, top: top) }
         #if canImport(AppKit)
         presenter.onListIndex = { [unowned self] id, key in runtime.listIndex(id, key: key) }
@@ -724,6 +724,7 @@ public final class ExactSession {
         presenter.onSubmit = { [unowned self] id in apply(runtime.submit(id, now: now())) }
         presenter.onLoad = { [unowned self] id in apply(runtime.load(id, now: now())) }
         presenter.onMessage = { [unowned self] id, value in apply(runtime.message(id, value, now: now())) }
+        presenter.onClipboard = { [unowned self] id, kind, text in apply(runtime.clipboard(id, kind, text, now: now())) }
         // Commands are queued here and delivered once the batch is applied
         // (D2): a delegate then runs against a settled tree.
         presenter.onCommand = { [unowned self] name, args, source in pendingCommands.append((name, args, source)) }
@@ -1003,6 +1004,10 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.blurElement(args) }
                     continue
                 }
+                if name == "scrollIntoView" {
+                    app.deliver { [weak self] in self?.presenter.scrollElementIntoView(args) }
+                    continue
+                }
                 if name == "showPicker" {
                     app.deliver { [weak self] in self?.picker.show(args) }
                     continue
@@ -1105,7 +1110,7 @@ public final class ExactSession {
             clockTimer = SessionClockTimer.schedule(after: delay / 1000) { [weak self] _ in
                 guard let self, state != .destroyed else { return }
                 clockTimer = nil
-                whenIdle { [weak self] in guard let self, state != .destroyed else { return }; apply(runtime.advance(now: now())) }
+                whenIdle { [weak self] in guard let self, state != .destroyed else { return }; followOffset(); apply(runtime.advance(now: now())) }
             }
         }
         frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
@@ -1118,12 +1123,24 @@ public final class ExactSession {
         if launchPlace.epoch != nil {
             tellAgentOffset()
         } else {
-            let offset = Double(TimeZone.current.secondsFromGMT()) / 60
-            apply(runtime.setTime(epochAtZero: Date().timeIntervalSince1970 * 1000 - now(), utcOffset: offset))
+            toldOffset = nil
+            followOffset()
         }
         apply(runtime.setPlace(locale: launchPlace.locale, timeZone: launchPlace.timeZone, seed: launchPlace.seed))
         tellPreferences()
         tellPage()
+    }
+    /// The machine zone's offset now, told when it is not the one last told:
+    /// at boot and before each advance, so a DST change or a new zone reaches
+    /// the timer that fires after it (habits F6). Under the agent, the
+    /// drive's zone moves it instead (`tellAgentOffset`).
+    var toldOffset: Double?
+    func followOffset() {
+        guard launchPlace.epoch == nil else { return }
+        let offset = Double(TimeZone.autoupdatingCurrent.secondsFromGMT()) / 60
+        guard offset != toldOffset else { return }
+        toldOffset = offset
+        apply(runtime.setTime(epochAtZero: Date().timeIntervalSince1970 * 1000 - now(), utcOffset: offset))
     }
     /// Under the agent, the drive's date at the clock's zero and its zone's
     /// offset at the virtual instant the clock reads: told at boot and after
@@ -1353,6 +1370,7 @@ final class Frames: NSObject {
         if !s.fillInFlight {
             if timerSoon, !ExactEnv.agentMode, s.clock == nil {
                 let now = s.now()
+                s.followOffset()
                 if tasks { s.apply(s.runtime.frame(now: frameNow)) }
                 else if s.timerDue.map({ now >= $0 }) ?? true { s.apply(s.runtime.advance(now: now)) }
             }

@@ -860,7 +860,13 @@ impl<D: DataSource> Bridge<D> {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         let event = match kind {
-            0 => Event::Press,
+            // A press, with the modifiers held as a chord prefix (gallery F20).
+            0 => {
+                let Some(event) = Event::press(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid press modifiers"}"#.into());
+                };
+                event
+            }
             1 => Event::Change(payload.into()),
             // @ref LLP 1069.001 D4 — 23 is a text field's `input`; 24 and 25 a checkbox's `change` and `input`, the payload `true`/`false`.
             // @ref LLP 1069.002 D3, D2 — 26 is a file input's `change`, one picked file per line; 27 its `cancel`.
@@ -897,7 +903,7 @@ impl<D: DataSource> Bridge<D> {
             22 => Event::Refresh,
             // Scroll, media, pan, selection and pan release (LLP 1057 §10.6),
             // and the pointer's down, up and move (LLP 1005 §Events, 1056 §3).
-            13 | 19 | 20 | 21 | 28..=31 => match Event::of_host_kind(kind, &payload) {
+            13 | 19 | 20 | 21 | 28..=34 => match Event::of_host_kind(kind, &payload) {
                 Ok(event) => event,
                 Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
             },
@@ -1076,15 +1082,15 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// Move the clock (timers).
-    pub fn advance(&mut self, now_ms: f64, until_request: bool) -> u32 {
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| match until_request {
-                true => h.advance_until_request(now_ms),
-                false => h.advance(now_ms),
-            });
+    /// Move the clock: `mode` 0 fires every timer due (the wall clock), 1
+    /// stops after a timer that sends (the agent's jump), 2 lands only the
+    /// `then`s already armed, the clock unmoved (an agent's input's end).
+    pub fn advance(&mut self, now_ms: f64, mode: u32) -> u32 {
+        let out = self.host.as_mut().map_or_else(not_booted, |h| match mode {
+            2 => h.land_then(),
+            1 => h.advance_until_request(now_ms),
+            _ => h.advance(now_ms),
+        });
         self.emit(out)
     }
 

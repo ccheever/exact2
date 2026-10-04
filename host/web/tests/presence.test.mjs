@@ -64,7 +64,7 @@ const page = `<style>
     presence.live.after(batch, views);
   }
   const readOut = x => x, now = () => 0, preferences = () => 0;
-  const positionContexts = () => {}, onPreferences = () => {}, onFold = () => {}, foldBits = () => 0;
+  const positionContexts = () => {}, onPreferences = () => {}, foldBits = () => 0, onFold = () => {}; // no fold posture (LLP 1078 D6)
   const wasm = { exact_resize: () => JSON.stringify(window.resizeBatch) };
   ${resize}
   window.fixture = html => {

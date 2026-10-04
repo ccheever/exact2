@@ -159,6 +159,8 @@ pub(crate) struct Lowerer<'a> {
     pub(crate) button_context: Option<&'static str>,
     /// Whether the element being lowered is a popover's direct child.
     pub(crate) popover_child: bool,
+    /// Where the element being lowered sits relative to a navigation root.
+    nav_place: routes::NavPlace,
     host_transforms: std::collections::BTreeSet<(Span, u32)>,
 }
 
@@ -260,6 +262,7 @@ fn lower_with_sites(
         parent_bounded_column: false,
         button_context: None,
         popover_child: false,
+        nav_place: Default::default(),
         host_transforms: Default::default(),
         arm_scopes: BTreeMap::new(),
         font_stacks: BTreeMap::new(),
@@ -716,7 +719,6 @@ impl<'a> Lowerer<'a> {
                     }
                     None => attrs.as_slice(),
                 };
-                tags::validate_button_display(tag, expanded)?;
                 tags::check_exclusion(&t, expanded, self.parent_positioned)?;
                 let composed = self.compose_animation(expanded)?;
                 let expanded = composed.as_deref().unwrap_or(expanded);
@@ -788,6 +790,8 @@ impl<'a> Lowerer<'a> {
                     attrs
                 });
                 let expanded = row_list.as_deref().unwrap_or(expanded);
+                let audio = media::audio_rows(tag, expanded, *span)?;
+                let expanded = audio.as_deref().unwrap_or(expanded);
                 // @ref LLP 1074 T1 — a box that contains its absolutely positioned
                 // descendants on every host is lowered `position: relative`.
                 let in_svg = svg::in_svg(self.svg_depth > 0, parent_tag);
@@ -823,6 +827,7 @@ impl<'a> Lowerer<'a> {
                     );
                 }
                 controls::check_zero_size(tag, expanded, children, *span)?;
+                let nav_place = self.nav_place.enter(tag, expanded, *span)?;
                 // @ref LLP 1038 D8 — only the first root selects navigation.
                 if has(&["navigate"])
                     && (parent_tag.is_some()
@@ -1097,7 +1102,9 @@ impl<'a> Lowerer<'a> {
                 );
                 let bounded = self.parent_bounded_column;
                 self.parent_bounded_column = values::bounded_column(tag, expanded, bounded);
+                let nav_place = std::mem::replace(&mut self.nav_place, nav_place);
                 let lowered = self.nodes(children, Some(id), arm, scope, locals, Some(tag));
+                self.nav_place = nav_place;
                 self.parent_bounded_column = bounded;
                 self.button_context = button_context;
                 self.popover_child = popover_child;
@@ -1216,7 +1223,7 @@ impl<'a> Lowerer<'a> {
             && matches!(a.name.as_str(), "sandbox" | "load" | "message")
             && !(tag == "canvas" && a.name == "message")
             && !module)
-            || (tag != "iframe" && tag != "video" && a.name == "src")
+            || (!matches!(tag, "iframe" | "video" | "audio") && a.name == "src")
         {
             return err(
                 "lower-attr-tag",
@@ -1229,6 +1236,34 @@ impl<'a> Lowerer<'a> {
                         "`iframe`"
                     }
                 ),
+                a.span,
+            );
+        }
+        // An SVG element's own attribute (a filter primitive's `mode`, `in`,
+        // `values`…) does nothing on a box: refused by name rather than kept
+        // as a prop no host reads (feed F19: CSS `order` once landed here).
+        let svg_tag = svg::is_element(tag) || matches!(tag, "svg" | "text" | "tspan");
+        if !svg_tag && !module && svg::svg_only_prop(&a.name) {
+            return err(
+                "lower-attr-tag",
+                format!(
+                    "`{}` is an SVG element's attribute; it does nothing on `{tag}`",
+                    a.name
+                ),
+                a.span,
+            );
+        }
+        if a.name == "alt" && tag != "image" {
+            return err(
+                "lower-attr-tag",
+                format!("`alt` belongs to `image`, not `{tag}`; another element's accessible name is `aria-label`"),
+                a.span,
+            );
+        }
+        if !svg_tag && !module && a.name == "mask" {
+            return err(
+                "lower-attr-tag",
+                "`mask` masks SVG elements so far; a box takes `mask-image` (a gradient)",
                 a.span,
             );
         }
@@ -1366,8 +1401,8 @@ impl<'a> Lowerer<'a> {
                 let (mut asm, mut depth) = (Asm::new(), locals);
                 let ty = expr::compile(self, &mut asm, value, scope, &mut depth)?;
                 values::check_prop_value(&a.name, value, a.span, prop, &ty)?;
-                // ARIA's tristate is a word; a bool is written as `true`/`false`.
-                if prop == exact_kernel::PropId::AccessibilityPressed && ty == Ty::Bool {
+                // ARIA's word-valued states; a bool is written as `true`/`false`.
+                if values::aria_words(prop).is_some() && ty == Ty::Bool {
                     asm.call(exact_plan::Stdlib::ToString);
                 }
                 // An enumerated attribute whose IDL attribute is a bool takes

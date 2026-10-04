@@ -70,6 +70,10 @@ fn a_key_action_prevents_its_default_by_a_command_without_arguments() {
     assert!(r.take_commands().iter().any(|c| c.name == "preventDefault"));
     let e = contract::compile(&src("preventDefault(1)")).unwrap_err();
     assert!(e.to_string().contains("takes no arguments"), "{e}");
+    // Its sibling keeps the key from the ancestors' handlers (files diary F8).
+    contract::compile(&src("stopPropagation()")).unwrap();
+    let e = contract::compile(&src("stopPropagation(1)")).unwrap_err();
+    assert_eq!(e.id, "type-stop-propagation");
 }
 
 /// A `key` action taking one more parameter hears the `KeyboardEvent`
@@ -105,10 +109,11 @@ fn a_key_action_may_take_the_keyboard_event_with_its_modifiers() {
     assert_eq!(r.slot("seen"), Some(&Value::str("+ false true true true")));
     r.dispatch(id(&r, "area"), Event::key("Meta+s")).unwrap();
     assert_eq!(r.slot("seen"), Some(&Value::str("s")));
-    for wrong in ["e: string", "e: KeyboardEvent, f: bool"] {
-        let e = contract::compile(&src.replace("e: KeyboardEvent", wrong)).unwrap_err();
-        assert!(e.to_string().contains("key"), "{wrong}: {e}");
-    }
+    let e = contract::compile(&src.replace("e: KeyboardEvent", "e: KeyboardEvent, f: bool"))
+        .unwrap_err();
+    assert!(e.to_string().contains("key"), "{e}");
+    // Another type is no `KeyboardEvent`: the body's field reads are refused.
+    contract::compile(&src.replace("e: KeyboardEvent", "e: string")).unwrap_err();
     // A textarea's Enter breaks the line, as HTML's: no implicit `submit`.
     let e = contract::compile(&src.replace("key=bare", "submit=bare(\"x\")")).unwrap_err();
     assert!(e.to_string().contains("has no `submit`"), "{e}");
