@@ -37,7 +37,7 @@ import { delimiter, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { createApp } from '../game/new.mjs';
-import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements } from '../host/apple/build.mjs';
+import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements, stripForDistribution } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
 import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
 import { chromium } from './agent-launch.mjs';
@@ -71,8 +71,8 @@ function refuseForeignBundle(app, bundle) {
 }
 
 /** Build the app's macOS bundle. Cargo and SwiftPM decide what is stale; this always asks them. */
-function build(app, { quiet = false } = {}) {
-  const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--bundle'], {
+function build(app, { quiet = false, distribution = false } = {}) {
+  const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--bundle', ...(distribution ? ['--distribution'] : [])], {
     cwd: ROOT,
     stdio: quiet ? ['inherit', 'ignore', 'inherit'] : 'inherit',
     env: { EXACT_UPDATE_TRUST: 'development', ...process.env },
@@ -216,12 +216,16 @@ function release(app) {
   EXACT_DEVELOPER_ID=<sha1> names one explicitly.`);
   }
   const profile = process.env.EXACT_NOTARY_PROFILE ?? 'exact-notary';
-  const bundle = build(app);
+  // The whole-module Swift host and the receipt a shipped bundle carries (host/apple/build.mjs).
+  const bundle = build(app, { distribution: true });
   const out = resolve(app.target, 'dist', app.name);
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
   const staged = resolve(out, `${app.displayName}.app`);
   sh('/usr/bin/ditto', [bundle, staged]);
+  // What ships carries no local symbols; they stay here as a dSYM (before signing: stripping changes the bytes signed).
+  const symbols = stripForDistribution(resolve(staged, 'Contents/MacOS/ExactMac'), resolve(out, `${app.displayName}.dSYM`));
+  console.log(`symbols: ${symbols.dsym} (${(symbols.saved / 1048576).toFixed(1)} MB off the executable)`);
 
   // Sign inside out, with the hardened runtime and a timestamp. Both are
   // notarisation's requirements, not preferences: a build without them is

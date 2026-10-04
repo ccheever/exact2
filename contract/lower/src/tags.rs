@@ -1069,6 +1069,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "content-transition" => styles(&[StyleId::ContentTransition]),
         "scroll-edge-effect" => styles(&[StyleId::ScrollEdgeEffect]),
         "hover-effect" => styles(&[StyleId::HoverEffect]),
+        "cursor" => styles(&[StyleId::Cursor]),
         "smart-invert" => styles(&[StyleId::SmartInvert]),
         // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
         "press-scale" => styles(&[StyleId::PressScale]),
@@ -1076,8 +1077,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
     })
 }
 
-/// The name an old spelling became — the short nicknames and the DOM's
-/// camelCase that the table accepted before LLP 1017 §8.1 — so the refusal of
+/// The name an old nickname or DOM camelCase spelling became (LLP 1017 §8.1), so the refusal of
 /// `size=13` says `font-size`. Nothing here is accepted; it is only named.
 pub fn renamed(old: &str) -> Option<&'static str> {
     Some(match old {

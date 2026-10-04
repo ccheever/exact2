@@ -10,6 +10,7 @@
 //   bun host/apple/build.mjs --device [crate] [--run] [--phone <udid|name>]   iOS, on a phone
 //   bun host/apple/build.mjs --device [crate] --archive <out.ipa>            iOS, an .ipa to distribute
 //   bun host/apple/build.mjs --device [crate] --archive <out.ipa> --unsigned an .ipa a service re-signs
+//   bun host/apple/build.mjs [crate] --bundle --distribution                 macOS, the bundle `exact release` signs
 // Add --url <http(s) app URL> to connect any of these clients to the same
 // address as the browser (LLP 1030.000 §7): with --run it is the launch
 // locator, and a development client (--bundle, --ios, --device) registers
@@ -35,13 +36,14 @@
 // in devices.mjs, shared with scripts/agent.mjs, which launches the same bundle.
 // These developer builds explicitly allow unsigned updates. Set
 // EXACT_UPDATE_TRUST=production for a signed-update-only artifact.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
+import { startSweep } from '../../scripts/sweep.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators } from './devices.mjs';
 
@@ -63,13 +65,41 @@ const runApple = (cmd, args, opts = {}) => {
   if (!cargoMessages) process.stdout.write(r.stdout ?? '');
   process.stderr.write(r.stderr ?? '');
   if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})`);
-  const output = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
+  refuseMixedTargets(cmd, args, `${r.stdout ?? ''}\n${r.stderr ?? ''}`);
+  return r;
+};
+const refuseMixedTargets = (cmd, args, output) => {
   if (/object file .* was built for newer|using sysroot for|incompatible.*sysroot/i.test(output)) {
     console.error(`host/apple: refused mixed Apple deployment targets from ${cmd} ${args[0] ?? ''}`);
     throw new Error('Apple deployment target mismatch');
   }
-  return r;
 };
+/** A toolchain step started beside the build's own, which block: the Swift
+ * host's compile under the app's Rust, the host's Rust modules under the
+ * Swift link. Its output goes to `log` (nothing reads a pipe meanwhile);
+ * `done` waits for it, says what it said, and refuses what runApple refuses.
+ * `repeated` is a step the build runs again in the foreground, which then
+ * says its own failure. A build that ends early stops it. */
+function startApple(cmd, args, log, opts = {}) {
+  const out = openSync(log, 'w');
+  const child = spawn(cmd, args, { cwd: root, ...opts, stdio: ['ignore', out, out] });
+  closeSync(out);
+  const exited = new Promise((settle) => {
+    child.once('error', (error) => settle({ status: null, error }));
+    child.once('close', (status) => settle({ status }));
+  });
+  const stop = () => { if (child.exitCode === null && !child.killed) child.kill(); };
+  process.once('exit', stop);
+  return { stop, async done({ repeated = false } = {}) {
+    const r = await exited;
+    process.removeListener('exit', stop);
+    if (repeated && r.status !== 0) return;
+    const output = readFileSync(log, 'utf8');
+    process.stderr.write(output);
+    if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})`);
+    refuseMixedTargets(cmd, args, output);
+  } };
+}
 
 // ---------------------------------------------------------------- iOS: the bundle and the simulator
 
@@ -135,7 +165,7 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
   // app's, made under `swiftLock` and copied out to the app's private stage
   // before the lock is released. `scratch` keeps what is the app's alone.
   const swift = resolve(app.target, 'apple-swift', `${destination}-${deploymentTargets(app)[platform]}`);
-  return { owner, namespace, target, product, products, scratch: resolve(namespace, 'link'), swift, swiftLock: `${swift}.lock`,
+  return { owner, namespace, target, product, products, composition, scratch: resolve(namespace, 'link'), swift, swiftLock: `${swift}.lock`,
     lock: resolve(owner, '.apple-build.lock'), capture: resolve(namespace, 'capture'),
     binary: resolve(products, product), bundle: destination === 'macos'
       ? resolve(owner, 'macos', `${host ? app.displayName + ' Host' : app.displayName}.app`)
@@ -609,6 +639,21 @@ function assertLinkedSdk(executable, expected) {
   }
 }
 
+/** A distributed executable without its local symbols — 3.6 of Caltrain's
+ * 13.1 MB on the Mac — which are first written beside it as a dSYM, so a
+ * crash report from the field is still symbolicated. `strip` keeps the
+ * image's UUID, which is how the dSYM is matched; a relink without symbols
+ * would be another UUID. Development builds keep theirs. */
+export function stripForDistribution(executable, dsym) {
+  mkdirSync(dirname(dsym), { recursive: true });
+  rmSync(dsym, { recursive: true, force: true });
+  // dsymutil reports each symbol it could not find in an object file on stderr; only a failure is said.
+  run('dsymutil', [executable, '-o', dsym], { stdio: 'ignore' });
+  const before = statSync(executable).size;
+  run('strip', ['-x', executable], { stdio: 'ignore' });
+  return { dsym, saved: before - statSync(executable).size };
+}
+
 /** The macOS `Info.plist` for a bundled build, from the same manifest. */
 export const macInfoPlist = (app, { development = null, icon = {}, reach = null } = {}) => plistFile({
   ...icon,
@@ -642,6 +687,17 @@ export function receipt(app, fields) {
     ...fields,
   }, null, 2) + '\n';
 }
+
+/** The receipt a distributed bundle carries: the same, without the list of
+ * every file the binary was compiled from (3,600 rows with this machine's
+ * paths, 1.4 of the receipt's 1.9 MB), which is the driver's staleness
+ * evidence and nothing an installed app reads, and with each Cargo product
+ * by its name alone. The whole receipt is written beside the artifact. */
+export const shippedReceipt = (text) => {
+  const whole = JSON.parse(text), build = whole.build ?? {};
+  return JSON.stringify({ ...whole, build: { ...build, binary: { sha256: build.binary?.sha256 },
+    products: (build.products ?? []).map((product) => ({ ...product, path: basename(product.path) })) } }, null, 2) + '\n';
+};
 
 // ---------------------------------------------------------------- the lean Hermes an iOS app links
 
@@ -695,7 +751,7 @@ export function provisionHermesIos(platform, env = process.env) {
 
 // ---------------------------------------------------------------- the build
 
-function main(args) {
+async function main(args) {
   let launchEnv;
   try { launchEnv = developmentLaunchEnvironment(args); }
   catch (e) { console.error(e.message); process.exitCode = 1; return; }
@@ -713,6 +769,8 @@ function main(args) {
   }
   const ipa = args.includes('--archive') ? resolve(process.cwd(), args[args.indexOf('--archive') + 1] ?? '') : null;
   const unsigned = args.includes('--unsigned');
+  // What leaves this machine: an .ipa, or the Mac bundle `exact release` signs and notarises.
+  const distribution = !!ipa || args.includes('--distribution');
   if ((unsigned && !ipa) || ipa && (!device || (!unsigned && (!process.env.EXACT_IDENTITY || !process.env.EXACT_PROFILE)) || args.includes('--run') || args.includes('--host'))) {
     console.error('--archive needs --device and EXACT_IDENTITY and EXACT_PROFILE (or --unsigned, which needs --archive), and takes neither --run nor --host');
     process.exitCode = 1; return;
@@ -720,7 +778,7 @@ function main(args) {
   const app = resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive'].includes(args[i - 1])));
   documentTypes(app); // an unmapped `file_handlers` type is refused before a long build
   const release = appleBuildLock(app);
-  const cleanup = [];
+  const cleanup = [], beside = []; // what to remove, and the steps started beside the build, when it ends
   try {
   const crate = app.crate('apple');
   const gpuCrate = app.crate('gpu');
@@ -773,6 +831,16 @@ function main(args) {
   // An app outside this repo gets it with the root's other profiles, injected
   // at build (injectedProfiles, LLP 1036.001 D1).
   const cargoProfile = cargoEnv.EXACT_UPDATE_TRUST === 'production' ? 'release' : HOST_DEV;
+  // host-dev says `incremental = true`, and Cargo lets an inherited
+  // CARGO_INCREMENTAL=0 (another project's shell setup, an agent's prompt)
+  // overrule the profile: a touched kernel line then recompiles the kernel
+  // and everything over it whole, 17 s for 6 (an M5 Pro). The profile is this
+  // build's choice, so the build keeps it and says so, as developmentBuildEnv
+  // does an inherited RUSTUP_TOOLCHAIN.
+  if (cargoProfile === HOST_DEV && cargoEnv.CARGO_INCREMENTAL === '0') {
+    console.error('ignoring CARGO_INCREMENTAL=0: a host-dev build compiles incrementally (Cargo.toml)');
+    cargoEnv.CARGO_INCREMENTAL = '1';
+  }
   const cargoLibDir = resolve(app.target, target, cargoProfile);
   // Named Cargo products can alias in external workspaces or two checkouts
   // sharing a target. Claim those names through bake-and-capture only.
@@ -781,6 +849,100 @@ function main(args) {
   cargoEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, cargoEnv);
   if (tv && existsSync(resolve(app.dir, 'app.ts')) && cargoEnv.EXACT_JS_ENGINE !== 'stub') throw new Error(`--tvos: ${app.name} has app.ts, and Hermes is not built for tvOS yet; set EXACT_JS_ENGINE=stub`);
   if (ios && !tv && existsSync(resolve(app.dir, 'app.ts')) && cargoEnv.EXACT_JS_ENGINE !== 'stub') provisionHermesIos(device ? 'ios' : 'ios-simulator');
+  // What the bake is expected to decide (the manifest's store level): the
+  // shared Swift scratch is its whatever it decides, and its composition and
+  // capture directory name the Swift host's environment before the bake ends.
+  const expected = appleArtifacts(app, { destination, trust: cargoEnv.EXACT_UPDATE_TRUST });
+  const swiftBuildRoot = expected.swift;
+  // A development build compiles the Swift host as it compiles its Rust
+  // (`host-dev`): optimized, but file by file and incrementally, so an edited
+  // Swift file is a 3-second build and not the whole module again (45 s on an
+  // M4; a cold compile is 25 s, not 57). SwiftPM compiles that way only in its
+  // debug configuration, so the optimization and the dead-code strip are
+  // asked for on top of it. A production bake and what is distributed (an
+  // archive, the Mac bundle `exact release` signs) keep the whole-module
+  // build, which is the smaller and faster binary.
+  const swiftWhole = cargoProfile === 'release' || distribution;
+  // One `swift build` per product: given two `--product` flags SwiftPM
+  // builds only the last; the second build is incremental and quick.
+  const swiftArgs = ['build', '-c', swiftWhole ? 'release' : 'debug', '--scratch-path', swiftBuildRoot, ...(swiftWhole ? [] : ['-Xswiftc', '-O', '-Xlinker', '-dead_strip'])];
+  if (ios) {
+    swiftArgs.push(
+      '--triple', iosTripleFor(app, device, tv),
+      '--sdk', sdk,
+      '-Xcc', '-isysroot', '-Xcc', sdk,
+      '-Xlinker', '-syslibroot', '-Xlinker', sdk,
+      // SwiftPM leaves SDKROOT naming the *host* SDK — it compiled Package.swift
+      // for macOS — in the environment of every tool it then spawns, and its link
+      // step drives clang with `--sysroot`, which is not the flag clang reads on
+      // Darwin: with no `-isysroot` of its own clang takes SDKROOT instead and
+      // links an iPhone target against a MacOSX sysroot. Naming it explicitly at
+      // the linker driver is what closes it (`-Xcc` reaches only compiles).
+      '-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot',
+      '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk,
+    );
+    // `designRequiresCompatibility`: the link records the iOS 18 SDK (macOS's
+    // case below says why); this later `-platform_version` wins.
+    if (designCompatible(app, 'ios')) swiftArgs.push('-Xlinker', '-platform_version', '-Xlinker', destination, '-Xlinker', targets.ios, '-Xlinker', COMPATIBLE_SDK.ios);
+  } else {
+    // The same `--sysroot` on macOS: clang reads no SDK version from it, so the
+    // link recorded the deployment target as the SDK (`sdk 14.0`), and AppKit,
+    // which keys its macOS 26 design on the recorded SDK, drew every Exact app
+    // as on macOS 14. `-isysroot` records the SDK the app is built with.
+    swiftArgs.push('-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot', '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk);
+    // `designRequiresCompatibility`: the earlier design, by the one lever macOS
+    // 27 keeps (it ignores UIDesignRequiresCompatibility) — the link records
+    // the macOS 15 SDK, the last before the new design; this later
+    // `-platform_version` wins over the driver's.
+    if (designCompatible(app, 'macos')) swiftArgs.push('-Xlinker', '-platform_version', '-Xlinker', 'macos', '-Xlinker', targets.macos, '-Xlinker', COMPATIBLE_SDK.macos);
+  }
+  // SwiftPM compiles Package.swift itself for macOS before applying the iOS
+  // product triple; an iPhone SDKROOT in its environment breaks that host
+  // manifest compile. The target SDK stays in the explicit Swift arguments.
+  const swiftEnv = (libDir, composition) => ({
+    ...process.env,
+    ...(tv ? { TVOS_DEPLOYMENT_TARGET: targets.ios } : ios ? { IPHONEOS_DEPLOYMENT_TARGET: targets.ios } : { MACOSX_DEPLOYMENT_TARGET: targets.macos }),
+    EXACT_LIB_DIR: libDir,
+    EXACT_LIB: crate.replace(/-/g, '_'),
+    EXACT_APP_COMPOSITION: composition,
+  });
+  // ExactKit is the same for every app and needs nothing of this one's Rust,
+  // so its compile starts here and runs beside the bake: a cold build's Swift
+  // (25 s, or 55 as a whole module) and its Rust (58 s) overlap, as do the
+  // two halves of a pull that changed both. Only the link waits for the
+  // archive. Another app's build compiling the same scratch is SwiftPM's own
+  // lock's; the claim below is for the link. `--embed` alone builds no Swift.
+  const embedOnly = args.includes('--embed') && !args.includes('--run') && !args.includes('--host');
+  const hostCompile = embedOnly ? null : startApple('swift', [...swiftArgs, '--target', 'ExactKit'], resolve(webBuildDir, 'swift-compile.log'),
+    { cwd: pkg, env: swiftEnv(expected.capture, expected.composition) });
+  if (hostCompile) beside.push(hostCompile);
+  // The host's two Rust modules (SVG islands, Canvas 2D on the GPU) are the
+  // same for every app too, and start with it. They build with the app's
+  // profile: a development build's were `release`, the kernel in one codegen
+  // unit and through thin LTO, 27 of the 35 s a touched kernel line cost and
+  // 57 of a cold build's 184 s (an M4). Their build directory is their own,
+  // because Cargo runs one build at a time in a directory and they would wait
+  // for the whole bake; what they share with the app (the kernel) is compiled
+  // for both, at once. Cargo's two copies of the kernel had already parted
+  // when the app's graph turned on a feature of a crate under it.
+  // Unstripped: Xcode 27's strip leaves the SVG dylib with a mis-aligned
+  // LINKEDIT string pool that dyld refuses (as Cargo.toml says of build
+  // scripts), even at `strip = "debuginfo"`, and the iOS canvas module
+  // unloadable the same way (found by dlopen in the simulator, 2026-09-30);
+  // that crate's build.rs has the linker omit its local symbols (-Wl,-x).
+  // The Canvas 2D GPU module's shaders are Metal libraries compiled at build
+  // time, which needs Xcode's Metal toolchain; without it the app is built
+  // without the module (canvases draw with Core Graphics).
+  const moduleTarget = resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'apple-modules');
+  const moduleLibDir = resolve(moduleTarget, target, cargoProfile);
+  mkdirSync(moduleTarget, { recursive: true });
+  startSweep(moduleTarget);
+  const metal = read('xcrun', ['-sdk', 'macosx', 'metal', '--version']).status === 0;
+  if (!metal) console.warn('host/apple: no Metal toolchain, so no Canvas 2D GPU module: canvases draw with Core Graphics. Install it with `xcodebuild -downloadComponent MetalToolchain`.');
+  const hostModules = embedOnly ? null : startApple('sh', ['-c', 'profile=$1 target=$2 dir=$3 manifest=$4; shift 4; for crate; do cargo build --profile "$profile" -p "$crate" --lib --target "$target" --target-dir "$dir" --manifest-path "$manifest" || exit $?; done',
+    'host-modules', cargoProfile, target, moduleTarget, resolve(root, 'Cargo.toml'), 'exact-svg-raster', ...(metal ? ['exact-canvas-vello'] : [])], resolve(webBuildDir, 'host-modules.log'),
+    { env: { ...process.env, ...cargoEnv, [`CARGO_PROFILE_${cargoProfile.toUpperCase().replace(/-/g, '_')}_STRIP`]: 'false' } });
+  if (hostModules) beside.push(hostModules);
   const buildReceipt = contractLast(() => buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, profile: cargoProfile, prepareGpu(product) {
     // Cargo puts its own unsigned file back on every build, and a signature
     // carries its signing time: signing in place made the app's bake (which
@@ -853,16 +1015,7 @@ function main(args) {
     if (!args.includes('--run') && !args.includes('--host')) return;
   }
   const t1 = Date.now();
-  // SwiftPM compiles Package.swift itself for macOS before applying the iOS
-  // product triple; an iPhone SDKROOT in its environment breaks that host
-  // manifest compile. The target SDK stays in the explicit Swift arguments.
-  const env = {
-    ...process.env,
-    ...(tv ? { TVOS_DEPLOYMENT_TARGET: targets.ios } : ios ? { IPHONEOS_DEPLOYMENT_TARGET: targets.ios } : { MACOSX_DEPLOYMENT_TARGET: targets.macos }),
-    EXACT_LIB_DIR: libDir,
-    EXACT_LIB: crate.replace(/-/g, '_'),
-    EXACT_APP_COMPOSITION: composition,
-  };
+  const env = swiftEnv(libDir, composition);
   // The products: the standalone app, and with --host the sample host too
   // (LLP 1031 D10 — the fixture the smoke drives).
   const products = [ios ? 'ExactIOS' : 'ExactMac', ...(args.includes('--host') ? [ios ? 'ExactHostIOS' : 'ExactHostMac'] : [])];
@@ -871,55 +1024,16 @@ function main(args) {
   // they relink against the archive cargo just built (a relink is ~0.4 s).
   // The scratch is shared by every app of this destination (appleArtifacts);
   // `linkRoot` is this app's own, for what names it.
-  const swiftBuildRoot = paths.swift, linkRoot = paths.scratch;
+  const linkRoot = paths.scratch;
   mkdirSync(linkRoot, { recursive: true });
   rmSync(resolve(paths.namespace, 'swift'), { recursive: true, force: true }); // the per-app scratch this replaced
   const binDir = mkdtempSync(resolve(paths.namespace, '.products-'));
   cleanup.push(binDir);
-  // A development build compiles the Swift host as it compiles its Rust
-  // (`host-dev`): optimized, but file by file and incrementally, so an edited
-  // Swift file is a 3-second build and not the whole module again (45 s on an
-  // M4; a cold compile is 25 s, not 57). SwiftPM compiles that way only in its
-  // debug configuration, so the optimization and the dead-code strip are
-  // asked for on top of it. A production bake and an archive keep the
-  // whole-module build, which is the smaller and faster binary.
-  const swiftWhole = cargoProfile === 'release' || !!ipa;
-  // One `swift build` per product: given two `--product` flags SwiftPM
-  // builds only the last; the second build is incremental and quick.
-  const swiftArgs = ['build', '-c', swiftWhole ? 'release' : 'debug', '--scratch-path', swiftBuildRoot, ...(swiftWhole ? [] : ['-Xswiftc', '-O', '-Xlinker', '-dead_strip'])];
-  if (ios) {
-    swiftArgs.push(
-      '--triple', iosTripleFor(app, device, tv),
-      '--sdk', sdk,
-      '-Xcc', '-isysroot', '-Xcc', sdk,
-      '-Xlinker', '-syslibroot', '-Xlinker', sdk,
-      // SwiftPM leaves SDKROOT naming the *host* SDK — it compiled Package.swift
-      // for macOS — in the environment of every tool it then spawns, and its link
-      // step drives clang with `--sysroot`, which is not the flag clang reads on
-      // Darwin: with no `-isysroot` of its own clang takes SDKROOT instead and
-      // links an iPhone target against a MacOSX sysroot. Naming it explicitly at
-      // the linker driver is what closes it (`-Xcc` reaches only compiles).
-      '-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot',
-      '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk,
-    );
-    // `designRequiresCompatibility`: the link records the iOS 18 SDK (macOS's
-    // case below says why); this later `-platform_version` wins.
-    if (designCompatible(app, 'ios')) swiftArgs.push('-Xlinker', '-platform_version', '-Xlinker', destination, '-Xlinker', targets.ios, '-Xlinker', COMPATIBLE_SDK.ios);
-  } else {
-    // The same `--sysroot` on macOS: clang reads no SDK version from it, so the
-    // link recorded the deployment target as the SDK (`sdk 14.0`), and AppKit,
-    // which keys its macOS 26 design on the recorded SDK, drew every Exact app
-    // as on macOS 14. `-isysroot` records the SDK the app is built with.
-    swiftArgs.push('-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot', '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk);
-    // `designRequiresCompatibility`: the earlier design, by the one lever macOS
-    // 27 keeps (it ignores UIDesignRequiresCompatibility) — the link records
-    // the macOS 15 SDK, the last before the new design; this later
-    // `-platform_version` wins over the driver's.
-    if (designCompatible(app, 'macos')) swiftArgs.push('-Xlinker', '-platform_version', '-Xlinker', 'macos', '-Xlinker', targets.macos, '-Xlinker', COMPATIBLE_SDK.macos);
-  }
   // The shared scratch links one app at a time: another app's build of this
   // destination waits here (seconds once ExactKit is compiled), and the
   // executable is in this build's private stage before the claim is let go.
+  await hostCompile?.done({ repeated: true });
+  let stripped = null;
   mkdirSync(dirname(paths.swiftLock), { recursive: true });
   const releaseSwift = awaitBuildOutput(app, paths.swiftLock, (owner) => console.log(`host/apple: waiting for the Swift build of ${owner} in ${swiftBuildRoot.replace(root + '/', '')}`));
   try {
@@ -946,6 +1060,7 @@ function main(args) {
       assertAppleIdentity(app, executable, bakedCompat.id);
       const platform = ios ? 'ios' : 'macos';
       assertLinkedSdk(executable, designCompatible(app, platform) ? COMPATIBLE_SDK[platform] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
+      if (ipa) stripped = stripForDistribution(executable, `${ipa.replace(/\.ipa$/, '')}.dSYM`);
     }
   } finally { releaseSwift(); }
   const tSwift = Date.now();
@@ -1052,47 +1167,23 @@ function main(args) {
     } else if (modulesBuilt) console.warn('host/apple: the module roster check needs Bun (bun:ffi); skipped');
     checkModuleRoster(app, modulesBuilt && (typeof Bun === 'undefined' || !probeable) ? app.modules.tags : provided, `host/apple ${ios ? 'iOS' : 'macOS'}`, cargoEnv.EXACT_UPDATE_TRUST === 'production');
   }
-  // The SVG island module (@ref LLP 1055.000 §8 ruling 4): exact-svg-raster
-  // as its own dylib, never linked into the presenter; SvgIsland.swift
-  // dlopens it the first time a mask or filter needs pixel work.
   const tArms = Date.now();
+  // The SVG island module (@ref LLP 1055.000 §8 ruling 4: exact-svg-raster,
+  // which SvgIsland.swift dlopens the first time a mask or filter needs pixel
+  // work) and the Canvas 2D GPU module (@ref LLP 1056 §8.5: exact-canvas-vello,
+  // which Canvas2DGpu.swift dlopens the first time a canvas that animates
+  // draws), started above: each its own dylib, never linked into the presenter.
+  await hostModules.done();
   const svgBuilt = resolve(webBuildDir, svgLoadName);
-  const svgTarget = process.env.CARGO_TARGET_DIR ?? resolve(root, 'target');
-  // The host's two Rust modules build with the app's profile. A development
-  // build's are `host-dev`, sharing the archive's units: at `release` the
-  // kernel was compiled a second time, in one codegen unit and through thin
-  // LTO, which was 27 of the 35 s a touched kernel line cost and 57 of a cold
-  // build's 184 s (an M4).
-  // Unstripped: Xcode 27's strip leaves this dylib with a mis-aligned
-  // LINKEDIT string pool that dyld refuses (as Cargo.toml says of build
-  // scripts), even at `strip = "debuginfo"`.
-  const moduleCargo = (pkg) => runApple('cargo', ['build', '--profile', cargoProfile, '-p', pkg, '--lib', '--target', target, '--target-dir', svgTarget, '--manifest-path', resolve(root, 'Cargo.toml')],
-    { cwd: root, env: { ...process.env, ...cargoEnv, [`CARGO_PROFILE_${cargoProfile.toUpperCase().replace(/-/g, '_')}_STRIP`]: 'false' } });
-  moduleCargo('exact-svg-raster');
-  copyFileSync(resolve(svgTarget, target, cargoProfile, 'libexact_svg_raster.dylib'), svgBuilt);
-  // The Canvas 2D GPU module (@ref LLP 1056 §8.5): exact-canvas-vello as its
-  // own dylib, never linked into the presenter; Canvas2DGpu.swift dlopens it
-  // the first time a canvas that animates draws. Its shaders are Metal
-  // libraries compiled at build time, which needs Xcode's Metal toolchain;
-  // without it the app is built without the module (canvases draw with Core
-  // Graphics), and this says how to install it.
+  copyFileSync(resolve(moduleLibDir, 'libexact_svg_raster.dylib'), svgBuilt);
   const canvasGpuLoadName = 'libexact_canvas_gpu.dylib';
-  const metal = read('xcrun', ['-sdk', 'macosx', 'metal', '--version']).status === 0;
   const canvasGpuBuilt = metal ? resolve(webBuildDir, canvasGpuLoadName) : null;
-  if (metal) {
-    // Unstripped by strip: Xcode 27's strip leaves the iOS module unloadable
-    // ("mis-aligned LINKEDIT string pool", as it does the SVG module; found by
-    // dlopen in the simulator, 2026-09-30). The crate's build.rs has the linker
-    // omit its local symbols instead (-Wl,-x).
-    moduleCargo('exact-canvas-vello');
-    copyFileSync(resolve(svgTarget, target, cargoProfile, 'libexact_canvas_vello.dylib'), canvasGpuBuilt);
-  } else {
-    console.warn('host/apple: no Metal toolchain, so no Canvas 2D GPU module: canvases draw with Core Graphics. Install it with `xcodebuild -downloadComponent MetalToolchain`.');
-  }
+  if (metal) copyFileSync(resolve(moduleLibDir, 'libexact_canvas_vello.dylib'), canvasGpuBuilt);
   const t2 = Date.now();
   // Where the build's time went, said at its end: the app's Rust and bake; the
-  // Swift host's compile and link; the arms and the app's module artifact;
-  // the host's two Rust modules; and assembling, signing and installing.
+  // Swift host's link, and what of its compile the bake did not cover; the
+  // arms and the app's module artifact; what of the host's two Rust modules
+  // those did not cover; and assembling, signing and installing.
   const seconds = (ms) => (ms / 1000).toFixed(1);
   const timing = () => `cargo ${seconds(t1 - t0)} s, swift ${seconds(tSwift - t1)} s, arms ${seconds(tArms - tSwift)} s, modules ${seconds(t2 - tArms)} s, package ${seconds(Date.now() - t2)} s`;
   const bin = resolve(binDir, product);
@@ -1182,7 +1273,8 @@ function main(args) {
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
       writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: appIcon(app, resources, 'macos') }));
       writeUsageStrings(bakedCompat.reach, resources);
-      copyFileSync(resolve(binDir, 'receipt.json'), resolve(resources, 'receipt.json'));
+      const whole = readFileSync(resolve(binDir, 'receipt.json'), 'utf8');
+      writeFileSync(resolve(resources, 'receipt.json'), distribution ? shippedReceipt(whole) : whole);
       // GPU artifacts were signed before their digests entered the baked receipt.
       // Preserve those exact bytes, as the iOS bundle assembly does below.
       for (const file of [webLoadName, videoLoadName, svgLoadName, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
@@ -1251,10 +1343,12 @@ function main(args) {
     writeFileSync(ent, entitlements({ ...app, id }, signingProfile?.team, signingProfile?.dev ?? !unsigned, bakedCompat.reach));
     verifyBakeFiles(bakedCompat, bakedPlan, listAssets(assembled, true));
     assertAppleIdentity(app, resolve(assembled, host ? 'ExactHostIOS' : 'ExactIOS'), bakedCompat.id);
-    writeFileSync(resolve(assembled, 'receipt.json'), receipt(app, { compatibilityId: bakedCompat.id, build: buildReceipt, composition,
+    const whole = receipt(app, { compatibilityId: bakedCompat.id, build: buildReceipt, composition,
       platform: destination, target, sdk, identity: signingIdentity,
       profile: signingProfile ? { name: signingProfile.name, team: signingProfile.team, expires: signingProfile.expires } : null,
-      entitlements: readFileSync(ent, 'utf8'), gpu: hasGpu ? dylib : null, development: host ? null : development }));
+      entitlements: readFileSync(ent, 'utf8'), gpu: hasGpu ? dylib : null, development: host ? null : development });
+    writeFileSync(resolve(assembled, 'receipt.json'), ipa ? shippedReceipt(whole) : whole);
+    if (ipa) { mkdirSync(dirname(ipa), { recursive: true }); writeFileSync(`${ipa.replace(/\.ipa$/, '')}.receipt.json`, whole); }
     if (ipa) for (const [loose, name] of [[webLoadName, 'ExactWeb'], [videoLoadName, 'ExactVideo']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app);
     for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => f !== loadName && !moduleDylibs.some(m => m.load === f))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), assembled], { stdio: 'ignore' });
@@ -1268,7 +1362,7 @@ function main(args) {
     mkdirSync(dirname(ipa), { recursive: true });
     rmSync(ipa, { force: true });
     run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', resolve(payload, 'Payload'), ipa]);
-    console.log(`host/apple: ${ipa} (${prof ? `signed by ${prof.name}` : 'ad-hoc signed, for re-signing'}, ${timing()}${svgFilterBuilt ? '' : '; no SVG filter kernels (no Metal toolchain)'})`);
+    console.log(`host/apple: ${ipa} (${prof ? `signed by ${prof.name}` : 'ad-hoc signed, for re-signing'}, ${timing()}${svgFilterBuilt ? '' : '; no SVG filter kernels (no Metal toolchain)'}); symbols: ${stripped.dsym} (${(stripped.saved / 1048576).toFixed(1)} MB off the executable)`);
     return;
   }
   const dev = device ? ph : simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined, { tv });
@@ -1289,7 +1383,7 @@ function main(args) {
       });
     }
   }
-  } finally { for (const path of cleanup.reverse()) rmSync(path, { recursive: true, force: true }); release(); }
+  } finally { for (const step of beside) step.stop(); for (const path of cleanup.reverse()) rmSync(path, { recursive: true, force: true }); release(); }
 
 }
 
@@ -1378,6 +1472,7 @@ function test(args) {
 if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
   const args = process.argv.slice(2);
   useXcode();
-  try { if (args.includes('--test')) test(args); else main(args); }
-  catch (error) { console.error(error.message); process.exitCode = 1; }
+  const failed = (error) => { console.error(error.message); process.exitCode = 1; };
+  try { if (args.includes('--test')) test(args); else main(args).catch(failed); }
+  catch (error) { failed(error); }
 }

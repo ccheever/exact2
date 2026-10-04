@@ -19,6 +19,7 @@ pub mod observe;
 pub mod oracle;
 pub mod rng;
 pub mod script;
+pub mod types;
 
 use script::{Case, Expect, Item, Scripted};
 use std::path::{Path, PathBuf};

@@ -11,5 +11,6 @@ exact-linux = { path = "../linux" }
 exact-runner = { path = "../../runner" }
 
 [target.'cfg(windows)'.dependencies]
+exact-kernel = { path = "../../kernel" }
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 softbuffer = { version = "0.4", default-features = false }

@@ -635,7 +635,9 @@ name = "contract-difftest"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "contract-lower",
  "contract-syntax",
+ "contract-types",
  "exact-kernel",
  "exact-plan",
  "exact-runner",
@@ -1615,6 +1617,7 @@ dependencies = [
 name = "exact-windows"
 version = "0.1.0"
 dependencies = [
+ "exact-kernel",
  "exact-linux",
  "exact-runner",
  "softbuffer",

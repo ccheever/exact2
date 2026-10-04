@@ -1,6 +1,6 @@
 # Code review: platform timing's first clock (LLP 1080.000 §12), 2026-10-04 (grok)
 
-- **Family:** xAI — `~/.grok/bin/grok -m grok-4.7 --reasoning-effort xhigh --always-approve --no-subagents --output-format plain --prompt-file <brief>`, headless, one fresh session with `--cwd` a detached worktree at `97374ee85`. `--always-approve` because plan mode cancels shell reads; the brief instructs read-only.
+- **Family:** xAI — `~/.grok/bin/grok -m grok-4.7 --reasoning-effort xhigh --always-approve --no-subagents --output-format plain --prompt-file <brief>`, headless, one fresh session with `--cwd` a detached worktree at `97374ee85`. `--always-approve` because plan mode cancels shell reads; the brief instructs read-only. Rebased onto origin/main before landing: the reviewed `97374ee85`, `bd7d2c0bf` and `1f94dd3fb` landed as `34e04141a`, `77e1a5880` and `d9f027854`; the round-3 fix landed as `90a9b4977`.
 - **Method:** the shared brief (sha256 `666b968f99bb78a02712b38fb727bdaf66cd7af26bdbffc153084116974c8fdb`); round 1; blind to the other review. The author (Claude) is not a reviewer.
 - **Transcription:** stdout, unedited; the first four sentences are progress narration.
 - **Verdict:** DO NOT LAND.

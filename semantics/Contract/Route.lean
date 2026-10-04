@@ -572,9 +572,11 @@ def routerValue (t : Table) (r : Router) : Value :=
     .list (r.tabs.map fun tb => .record "Tab" [.str tb.name, .list (tb.stack.map (entryValue t))]),
     .num (Float.ofNat r.next)]
 
-/-- A verb on a router value: a refusal answers the input value itself. -/
+/-- A verb on a router value: a refusal answers the input value itself.
+A value of the shape `Router` that is not a valid router (a source can
+answer one) traps: a refusal, not a type error, since it has its type. -/
 def verb (t : Table) (v : Value) (f : Router → Verb) : Result Value := do
-  let .some r := routerOf t v | .error (.type "a router verb on a value that is not a valid router")
+  let .some r := routerOf t v | .error (.refused "a router verb on a value that is not a valid router")
   match f r with
   | .ok r => .ok (routerValue t r)
   | .error _ => .ok v
@@ -583,7 +585,7 @@ def verb (t : Table) (v : Value) (f : Router → Verb) : Result Value := do
 def read (t : Table) (v : Value) (f : Router → Option Value) : Result Value :=
   match (routerOf t v).bind f with
   | .some w => .ok w
-  | .none => .error (.type "a router read of a value that is not a valid router")
+  | .none => .error (.refused "a router read of a value that is not a valid router")
 
 /-- `path(name, args…)` as the compiler expands it: each argument (a number
 through `toString`) through `encodeRouteSegment` into the route's pattern. -/

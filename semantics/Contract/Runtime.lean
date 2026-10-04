@@ -72,11 +72,14 @@ def exec : Nat → Env → Locals → List Stmt → Effects → Result Effects
 
 /-! ## Types at run time -/
 
+mutual
 /-- Whether a value has a type: what the runner checks at every boundary
 (a slot written, a derive settled, a source's answer, an action's
 argument). A `number` that crosses a boundary is finite: infinities and
-NaN live only inside an evaluation. -/
-partial def conforms (p : Program) : Value → Ty → Bool
+NaN live only inside an evaluation. A record is of the shape it names (the
+runner's records carry no name; here the name selects field indices, so a
+record of another name is not of this shape). -/
+def conforms (p : Program) : Value → Ty → Bool
   | _, .unknown => true
   | .num f, .number => Number.isFinite f
   | .bool _, .bool => true
@@ -84,13 +87,28 @@ partial def conforms (p : Program) : Value → Ty → Bool
   | .unit, .unit => true
   | .none, .option _ => true
   | .some v, .option t => conforms p v t
-  | .list xs, .list t => xs.all (conforms p · t)
-  | .record _ vs, .record s =>
+  | .list xs, .list t => conformsAll p xs t
+  | .record s' vs, .record s =>
     match p.shapes.find? (·.name == s) with
-    | .some sh => vs.length == sh.fields.length &&
-        (vs.zip sh.fields).all fun (v, f) => conforms p v f.ty
+    | .some sh => s' == s && vs.length == sh.fields.length && conformsFields p vs sh.fields
     | .none => false
   | _, _ => false
+/-- Every item of a list has the type. -/
+def conformsAll (p : Program) : List Value → Ty → Bool
+  | [], _ => true
+  | v :: vs, t => conforms p v t && conformsAll p vs t
+/-- Each value has its field's type, pairwise (as far as both go). -/
+def conformsFields (p : Program) : List Value → List Field → Bool
+  | v :: vs, f :: fs => conforms p v f.ty && conformsFields p vs fs
+  | _, _ => true
+end
+
+/-- A root slot's declared type: a state's, or `option<T>` for a mutation
+`T` (what a write to it is checked against). -/
+def slotTy (p : Program) (x : String) : Ty :=
+  match p.states.find? (·.name == x) with
+  | .some s => s.ty
+  | .none => ((p.mutations.find? (·.name == x)).map (fun m => Ty.option m.ty)).getD .unknown
 
 /-! ## The data seam -/
 
@@ -465,11 +483,7 @@ def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : Li
       match answered with
       | .error e => refuse e
       | .ok answered =>
-        let slotTy (x : String) : Ty :=
-          match p.states.find? (·.name == x) with
-          | .some s => s.ty
-          | .none => ((p.mutations.find? (·.name == x)).map (fun m => Ty.option m.ty)).getD .unknown
-        if !((fx.writes ++ fx.rowWrites).all fun (x, v) => conforms p v (slotTy x)) then
+        if !((fx.writes ++ fx.rowWrites).all fun (x, v) => conforms p v (slotTy p x)) then
           refuse (.refused "a write of the wrong type") else
         let slots := (answered ++ fx.writes).foldl (fun s (x, v) => setSlot s x v) c.slots
         -- The router slot must hold a valid router after every commit (the

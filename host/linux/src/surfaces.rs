@@ -86,7 +86,7 @@ impl Abi {
                     .map_err(|e| format!("GPU ABI {name}: {e}"))?;
             }
             if abi.rendered {
-                for name in ["gpu_load", "gpu_readback", "gpu_seekable"] {
+                for name in ["gpu_load", "gpu_readback", "gpu_seekable", "gpu_lifecycle"] {
                     abi.library
                         .get::<*const ()>(name.as_bytes())
                         .map_err(|e| format!("GPU ABI {name}: {e}"))?;
@@ -106,6 +106,12 @@ impl Abi {
     // SAFETY: all callers supply the signature declared by gpu/src/native.rs.
     unsafe fn symbol<T: Copy>(&self, name: &[u8]) -> T {
         *unsafe { self.library.get::<T>(name) }.expect("validated module ABI")
+    }
+    fn lifecycle(&self, id: u32, code: u32) {
+        if self.rendered {
+            // SAFETY: validated rendered-module ABI; id belongs to this module.
+            unsafe { self.symbol::<unsafe extern "C" fn(u32, u32)>(b"gpu_lifecycle")(id, code) };
+        }
     }
     fn bytes(&self, len: u32) -> Option<Vec<u8>> {
         if len == u32::MAX {
@@ -340,12 +346,38 @@ pub(crate) struct Surfaces {
     finger: bool,
     // postMessage events waiting for a live canvas of their surface name.
     posts: BTreeMap<String, Vec<Value>>,
+    // Independent lifecycle causes; also applied before a newly mounted surface
+    // can bind or render, including replacement while the window is suspended.
+    hidden: bool,
+    interrupted: bool,
 }
 /// Posts held per surface name until a canvas of that name is live; past it a
 /// post is dropped and logged. The same bound and rule on every host.
 /// Web: glue.js POST_BOUND (gpu-glue.js reads it); Apple: Canvases.postBound.
 pub(crate) const POST_BOUND: usize = 64;
 impl Surfaces {
+    fn lifecycle(&mut self, hidden: bool, interrupted: bool) {
+        for canvas in self.canvases.values() {
+            let abi = &self.abis[&canvas.artifact];
+            if self.hidden != hidden {
+                abi.lifecycle(canvas.id, u32::from(!hidden));
+            }
+            if self.interrupted != interrupted {
+                abi.lifecycle(canvas.id, if interrupted { 2 } else { 3 });
+            }
+        }
+        self.hidden = hidden;
+        self.interrupted = interrupted;
+    }
+    fn initial_lifecycle(&self, abi: &Abi, id: u32) {
+        if self.hidden {
+            abi.lifecycle(id, 0);
+        }
+        if self.interrupted {
+            abi.lifecycle(id, 2);
+        }
+    }
+
     pub(crate) fn enqueue(&mut self, request: RequestOut, admitted: &str) {
         let oversized = matches!(
             request.request.surface.as_deref(),
@@ -470,6 +502,7 @@ impl Surfaces {
                     self.error = abi.error();
                     continue;
                 }
+                self.initial_lifecycle(abi, id);
                 let owner = !self.canvases.values().any(|c| c.name == update.name);
                 if !owner {
                     host.log(format!(
@@ -908,6 +941,11 @@ impl Surfaces {
     }
 }
 impl<D: DataSource> Presenter<D> {
+    /// Presentation visibility and interruption, independent of saved simulation.
+    pub fn surface_lifecycle(&mut self, hidden: bool, interrupted: bool) {
+        self.surfaces.lifecycle(hidden, interrupted);
+    }
+
     /// Settle mounted GPU surfaces after first pixel and forward their public state.
     pub fn sync_surfaces(&mut self) {
         // LLP 1056: the 2D canvases' draws for this turn's commits.

@@ -17,7 +17,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { browserDiagnosticNoise, open as openAgent, render, runTests as runAgentTests } from './agent.mjs';
-import { resolveApp, withAppFixture } from './app.mjs';
+import { HOST_DEV, resolveApp, withAppFixture } from './app.mjs';
 import { agree, explainNode, hostSections, poolingDrive } from './smoke-inspect.mjs';
 import { DirectoryOrigin, parseWebRoot, webReleasePath, webRootPath } from './origin.mjs';
 import { jsTargetBuild, readStaticFile, serveStatic } from '../host/web/serve.mjs';
@@ -772,7 +772,7 @@ if (!argv.includes('--app-only')) {
   writeFileSync(resolve(tmp, 'strings/fr.json'), '{"greeting":"Bonjour"}');
   writeFileSync(resolve(tmp, 'strings/ar.json'), '{"greeting":"مرحبا"}');
   writeFileSync(source, 'shape Time\n  locale: string\n  resolvedLocale: string\n  timeZone: string\n  seed: number\n  epochAtZero: number\n  utcOffset: number\ncomponent App\n  resource time = exactTime() as shape Time\n  state minute = 0\n  action tick\n    minute = time.epochAtZero + now()\n  task minutes mount\n    every(60000, tick)\n  view\n    column\n      text `${time.locale}|${time.resolvedLocale}|${time.timeZone}|${time.seed}` testId="place"\n      text `${time.epochAtZero}|${time.utcOffset}|${minute}` testId="date"\n      text t("greeting") testId="greeting"\n');
-  const compiled = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', source, '-o', plan], {cwd:ROOT, encoding:'utf8'});
+  const compiled = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', source, '-o', plan], {cwd:ROOT, encoding:'utf8'});
   check(compiled.status === 0, 'launch facts fixture compiles: ' + compiled.stderr);
   if (compiled.status === 0) for (const options of [{}, {}, {seed:42, locale:'fr-CA', timeZone:'America/Toronto', epoch:'2026-09-21T14:13:20Z'}, {seed:42, locale:'ar-EG', timeZone:'UTC'}]) {
     const f = await open({host, browser: 'chrome', plan, ...options});
@@ -810,7 +810,7 @@ if (!argv.includes('--app-only')) {
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
 const plan = resolve(tmp, 'scroll.plan');
-const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/scroll.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+const c = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/scroll.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
 if (c.status !== 0) failures.push('the scroll fixture did not compile: ' + c.stderr);
 else {
   const f = await open({ host, browser: 'chrome', plan });
@@ -865,7 +865,7 @@ rmSync(tmp, { recursive: true, force: true });
 if (caltrainFixture) {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
   const plan = resolve(tmp, 'canvas.plan');
-  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/canvas.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  const c = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/canvas.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   if (c.status !== 0) failures.push('the canvas fixture did not compile: ' + c.stderr);
   else {
     // On Linux the picture is the oracle painter's (tiny-skia; LLP 1015 §2)
@@ -1013,7 +1013,7 @@ if (deckFixture) {
 {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
   const plan = resolve(tmp, 'motion.plan');
-  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/motion.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  const c = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/motion.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   if (c.status !== 0) failures.push('the motion fixture did not compile: ' + c.stderr);
   else {
     const w = (l, id) => box(l, id)?.w;
@@ -1074,7 +1074,7 @@ if (deckFixture) {
 {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
   const plan = resolve(tmp, 'precedence.plan');
-  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/precedence.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  const c = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/precedence.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   if (c.status !== 0) failures.push('the precedence fixture did not compile: ' + c.stderr);
   else {
     const g = await open({ host, browser: 'chrome', plan });
@@ -1125,7 +1125,7 @@ if (deckFixture) {
 {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
   const plan = resolve(tmp, 'insets.plan');
-  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/insets.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  const c = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/insets.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   if (c.status !== 0) failures.push('the insets fixture did not compile: ' + c.stderr);
   else {
     const f = await open({ host, browser: 'chrome', plan });
@@ -1217,7 +1217,7 @@ if (deckFixture) {
 {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
   const plan = resolve(tmp, 'keyboard-bar.plan');
-  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/keyboard-bar.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  const c = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/keyboard-bar.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   if (c.status !== 0) failures.push('the keyboard-bar fixture did not compile: ' + c.stderr);
   else {
     const f = await open({ host, browser: 'chrome', plan });
@@ -1273,7 +1273,7 @@ if (deckFixture) {
 if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only')) {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-accessibility-'));
   const plan = resolve(tmp, 'accessibility.plan');
-  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/accessibility.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  const c = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/accessibility.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   check(c.status === 0, 'accessibility fixture compiles: ' + c.stderr);
   if (c.status === 0) {
     const f = await open({host, browser: 'chrome', plan, ...(host === 'macos' ? {env:{EXACT_DEV_PLAN:plan}} : {})});
@@ -1296,7 +1296,7 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
       if (host === 'macos') {
         const source = resolve(tmp, 'reload.contract');
         writeFileSync(source, readFileSync(resolve(ROOT, 'contract/corpus/accessibility.contract'), 'utf8').replace('text "Other"', 'text "Other reloaded"'));
-        const rebuilt = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', source, '-o', plan], {cwd:ROOT, encoding:'utf8'});
+        const rebuilt = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', source, '-o', plan], {cwd:ROOT, encoding:'utf8'});
         check(rebuilt.status === 0, 'reload fixture compiles: ' + rebuilt.stderr);
         let tree; for (let i = 0; i < 100; i++) { tree = await axName('other'); if (tree === 'Other reloaded') break; await sleep(20); }
         check(tree === 'Other reloaded', 'development plan reloaded in the same session: ' + JSON.stringify(await f.logs()));
@@ -1315,7 +1315,7 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
 // answered by ticket, and its outcome is a journal line. A relative URL is refused by name.
 if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only')) {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-share-')), plan = resolve(tmp, 'share.plan');
-  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/share.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  const c = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/share.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   check(c.status === 0, 'share fixture compiles: ' + c.stderr);
   if (c.status === 0) {
     const f = await open({host, browser: 'chrome', plan, ...(host === 'macos' ? {env:{EXACT_DEV_PLAN:plan}} : {})});
@@ -1343,7 +1343,7 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-pickers-')), plan = resolve(tmp, 'pickers.plan');
   const folder = resolve(tmp, 'notes');
   mkdirSync(folder); writeFileSync(resolve(folder, 'a.md'), '# A\n'); writeFileSync(resolve(folder, 'b.md'), '# B\n');
-  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/file-pickers.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  const c = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/file-pickers.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   check(c.status === 0, 'pickers fixture compiles: ' + c.stderr);
   if (c.status === 0) {
     const f = await open({host, browser: 'chrome', plan, ...(host === 'macos' ? {env:{EXACT_DEV_PLAN:plan}} : {})});

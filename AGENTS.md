@@ -100,7 +100,9 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   <web|macos|ios|linux|host>` is the whole app driven that way. The Linux host
   (`cargo build --profile host-dev -p caltrain-linux`: a development build, as
   `build.mjs` makes for Apple; `--release` is the one that ships) runs headless
-  anywhere, macOS included.
+  anywhere, macOS included. `host-dev` compiles incrementally unless the shell
+  exports `CARGO_INCREMENTAL=0`, which a hand-run cargo obeys (a touched kernel
+  line is then 17 s, not 6) and `build.mjs` overrides, saying so.
 - Delivery (LLP 1030.000): `bun scripts/deploy.mjs <app> [--origin <dir>]` prints the
   classifier's table (a dry run); `--yes` publishes the web root and signed bundles per stream through
   `scripts/origin.mjs`; `keygen <id>` makes a signing key (the private half never enters

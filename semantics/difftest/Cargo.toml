@@ -18,7 +18,9 @@ path = "src/main.rs"
 
 [dependencies]
 contract = { path = "../../contract/cli" }
+contract-lower = { path = "../../contract/lower" }
 contract-syntax = { path = "../../contract/syntax" }
+contract-types = { path = "../../contract/types" }
 exact-kernel = { path = "../../kernel" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }

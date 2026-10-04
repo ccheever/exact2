@@ -102,7 +102,7 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   | "searchParam", [e, .str n] =>
     match Route.entryOf env.prog.routes e with
     | .some en => .ok (.str (Route.searchParam en.url n))
-    | .none => .error (.type "`searchParam` of a value that is not an entry")
+    | .none => .error (.refused "`searchParam` of a value that is not an entry")
   | "encodeRouteSegment", [.str s] =>
     match Route.encodeRouteSegment s with
     | .some t => .ok (.str t)

@@ -523,9 +523,11 @@ name = "exact-game-audio"
 version = "0.1.0"
 dependencies = [
  "exact-game",
+ "libloading",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "windows",
 ]
 
 [[package]]

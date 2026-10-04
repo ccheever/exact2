@@ -5,7 +5,10 @@
 use crate::AppleOutput as Device;
 #[cfg(all(not(test), target_arch = "wasm32"))]
 use crate::WebOutput as Device;
+#[cfg(all(not(test), windows))]
+use crate::WindowsOutput as Device;
 #[cfg(any(
+    windows,
     test,
     target_arch = "wasm32",
     target_os = "macos",
@@ -19,6 +22,7 @@ use exact_game::World;
 /// Default construction and every seekable/headless frame open no device.
 pub struct SurfacePlayer {
     #[cfg(any(
+        windows,
         test,
         target_arch = "wasm32",
         target_os = "macos",
@@ -27,6 +31,7 @@ pub struct SurfacePlayer {
     ))]
     device: Option<Player<Device>>,
     #[cfg(any(
+        windows,
         test,
         target_arch = "wasm32",
         target_os = "macos",
@@ -35,6 +40,7 @@ pub struct SurfacePlayer {
     ))]
     retry_frames: u32,
     #[cfg(any(
+        windows,
         test,
         target_arch = "wasm32",
         target_os = "macos",
@@ -51,6 +57,7 @@ impl Default for SurfacePlayer {
     fn default() -> Self {
         Self {
             #[cfg(any(
+                windows,
                 test,
                 target_arch = "wasm32",
                 target_os = "macos",
@@ -59,6 +66,7 @@ impl Default for SurfacePlayer {
             ))]
             device: None,
             #[cfg(any(
+                windows,
                 test,
                 target_arch = "wasm32",
                 target_os = "macos",
@@ -67,6 +75,7 @@ impl Default for SurfacePlayer {
             ))]
             retry_frames: 0,
             #[cfg(any(
+                windows,
                 test,
                 target_arch = "wasm32",
                 target_os = "macos",
@@ -87,6 +96,7 @@ impl SurfacePlayer {
         self.seekable = seekable;
         if seekable {
             #[cfg(any(
+                windows,
                 test,
                 target_arch = "wasm32",
                 target_os = "macos",
@@ -109,6 +119,7 @@ impl SurfacePlayer {
             self.unlocked = false;
         }
         #[cfg(any(
+            windows,
             test,
             target_arch = "wasm32",
             target_os = "macos",
@@ -134,6 +145,7 @@ impl SurfacePlayer {
     }
 
     #[cfg(any(
+        windows,
         test,
         target_arch = "wasm32",
         target_os = "macos",
@@ -160,6 +172,7 @@ impl SurfacePlayer {
     pub fn sync(&mut self, world: &World, generation: u64, playing: bool, seekable: bool) {
         self.clock(seekable);
         #[cfg(any(
+            windows,
             test,
             target_arch = "wasm32",
             target_os = "macos",
@@ -169,6 +182,12 @@ impl SurfacePlayer {
         {
             if !seekable && !self.suspended {
                 self.retry_frames = self.retry_frames.saturating_sub(1);
+                if let Some(error) = self.device.as_ref().and_then(|p| p.output.failure()) {
+                    self.device = None; // Drop joins the worker before releasing PCM.
+                    self.unlocked = false;
+                    self.retry_frames = 300;
+                    eprintln!("game audio failed (retrying in 300 live frames): {error}");
+                }
                 self.ensure_device();
                 if let Some(player) = &mut self.device {
                     let ready = player.output.ready();
@@ -191,6 +210,7 @@ impl SurfacePlayer {
     }
     pub fn unlock(&mut self) {
         #[cfg(any(
+            windows,
             test,
             target_arch = "wasm32",
             target_os = "macos",
@@ -233,6 +253,7 @@ mod tests {
         assert_eq!(test_device::SUSPENDS.get(), 0);
         assert_eq!(test_device::RESUMES.get(), 0);
         #[cfg(any(
+            windows,
             test,
             target_arch = "wasm32",
             target_os = "macos",
@@ -251,6 +272,7 @@ mod test_device {
     use std::cell::Cell;
     std::thread_local! {
         pub static ATTEMPTS: Cell<usize> = const { Cell::new(0) };
+        pub static DEVICE_ERROR: Cell<bool> = const { Cell::new(false) };
         pub static FAIL: Cell<bool> = const { Cell::new(false) };
         pub static UNLOCKS: Cell<usize> = const { Cell::new(0) };
         pub static SUSPENDS: Cell<usize> = const { Cell::new(0) };
@@ -290,6 +312,9 @@ mod test_device {
         }
     }
     impl Output for Device {
+        fn failure(&self) -> Option<String> {
+            DEVICE_ERROR.get().then(|| "test device invalidated".into())
+        }
         fn ready(&self) -> bool {
             !self.suspended
         }
@@ -301,6 +326,28 @@ mod test_device {
         }
         fn set(&mut self, _: u64, _: f32, _: f32) {}
         fn stop(&mut self, _: u64) {}
+    }
+    #[test]
+    fn invalidated_device_is_disposed_and_retried_after_300_live_frames() {
+        FAIL.set(false);
+        DEVICE_ERROR.set(false);
+        ATTEMPTS.set(0);
+        let mut surface = super::SurfacePlayer::default();
+        let world = exact_game::World::new(60, 0);
+        surface.sync(&world, 0, true, false);
+        DEVICE_ERROR.set(true);
+        surface.sync(&world, 0, true, false);
+        assert!(surface.device.is_none());
+        assert_eq!(surface.retry_frames, 300);
+        DEVICE_ERROR.set(false);
+        for _ in 0..299 {
+            surface.sync(&world, 0, true, false);
+            surface.unlock();
+        }
+        assert_eq!(ATTEMPTS.get(), 1);
+        surface.sync(&world, 0, true, false);
+        assert_eq!(ATTEMPTS.get(), 2);
+        assert!(surface.device.is_some());
     }
     #[test]
     fn seekable_frame_preserves_failed_device_cooldown() {
