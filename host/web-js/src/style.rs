@@ -521,7 +521,6 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         | StyleId::SymbolPalette
         | StyleId::SymbolValue
         | StyleId::SymbolEffect
-        | StyleId::PressHaptic
         | StyleId::ContentTransition
         | StyleId::ScrollEdgeEffect
         | StyleId::HoverEffect

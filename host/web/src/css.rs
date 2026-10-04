@@ -263,6 +263,17 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                 }
                 out.push(';');
             }
+            // @ref LLP 1077 D14 — host-owned feedback, as `press-scale`: a
+            // custom property input-glue.js reads from the pressed element's
+            // own style, and plays as `navigator.vibrate` where it exists.
+            (StyleId::PressHaptic, RowValue::Enum(kind)) => {
+                if *kind != "none" {
+                    push_text!(&mut out, "--exact-press-haptic:{};", kind);
+                }
+            }
+            // Written with `rotate` and `translate` (LLP 1077 D8), never alone:
+            // nothing of their own to write, and nothing skipped (kanban F30).
+            (StyleId::RotateAxis | StyleId::TranslateZ, _) => {}
             _ if lowered(id, &value) => {
                 property(&mut out, id);
                 out.push(':');
@@ -416,8 +427,6 @@ fn apple_corner(style: &StyleProps, id: StyleId) -> bool {
 fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
     match value {
         RowValue::Vec2(_) => id == StyleId::Translate,
-        // Written with `rotate` and `translate` (LLP 1077 D8).
-        RowValue::RotateAxis(_) => false,
         // Apple's affordances: no CSS property (LLP 1077 §5).
         RowValue::SymbolPalette(_) => false,
         _ if matches!(
@@ -425,7 +434,6 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
             StyleId::SymbolRendering
                 | StyleId::SymbolValue
                 | StyleId::SymbolEffect
-                | StyleId::PressHaptic
                 | StyleId::ContentTransition
                 | StyleId::ScrollEdgeEffect
                 | StyleId::HoverEffect
@@ -434,7 +442,6 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
         {
             false
         }
-        RowValue::Number(_) if id == StyleId::TranslateZ => false,
         RowValue::Color2(_)
         | RowValue::Transitions(_)
         | RowValue::Animations(_)
@@ -1160,6 +1167,25 @@ mod declaration_tests {
             css(&[(StyleId::BackgroundAttachment, t("fixed"))], &[]),
             "background-attachment:fixed;"
         );
+    }
+
+    /// `press-haptic` is the custom property input-glue.js plays at the
+    /// press (LLP 1077 D14, workout F4); `rotate`'s axis part is written
+    /// with the angle and skips nothing (kanban F30).
+    #[test]
+    fn press_haptic_is_the_glues_property_and_a_rotation_skips_nothing() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(StyleId::PressHaptic, &t("impact-medium"))
+            .unwrap();
+        for row in [StyleId::Rotate, StyleId::RotateAxis] {
+            style.set_dynamic(row, &t("3deg")).unwrap();
+        }
+        let (text, skipped) = css_text(&style, &[]);
+        assert_eq!(text, "rotate:3deg;--exact-press-haptic:impact-medium;");
+        assert!(skipped.is_empty(), "{skipped:?}");
+        assert_eq!(css(&[(StyleId::PressHaptic, t("none"))], &[]), "");
     }
 
     /// The feedback's separate factor leaves the row's scale and

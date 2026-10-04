@@ -387,7 +387,9 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   `press-haptic` (host-owned as `press-scale`), `content-transition`,
   `scroll-edge-effect`, `hover-effect` and `smart-invert`. Each draws on the
   platform that has it; the web writes no declaration for them and draws a
-  symbol monochrome. The `-apple-system-*` label, fill and separator colours
+  symbol monochrome. `press-haptic` alone has a web arm: the pressed
+  element's `--exact-press-haptic`, which the input glue plays at the press
+  as `navigator.vibrate` where the browser has it, as `haptic()` does. The `-apple-system-*` label, fill and separator colours
   are WebKit's names. The kernel keeps them as themselves (`ColorValue::System`),
   and each paints as a `light-dark()` pair of UIKit's values. Inside a blur
   material, Apple draws them vibrantly, blended with what the material blurs:
