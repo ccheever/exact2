@@ -165,6 +165,8 @@ export function commit(f, what = "commit") {
     try { settle(); } catch {}
   }
   const [out, cmds, landed] = [Out, Commands, Landed];
+  // A key handler's preventDefault/stopPropagation act on its event before the dispatch ends, a tree update a view transition defers too (review C3).
+  if (KeyEvent) for (const c of cmds.filter(c => c[0] === "preventDefault" || c[0] === "stopPropagation")) { cmds.splice(cmds.indexOf(c), 1); command(...c); }
   Writes = null;
   unpark();
   const tail = () => { // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
