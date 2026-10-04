@@ -1,7 +1,7 @@
 import { renderMarkup, reportPlace } from "./navigation.js"; export { animationClocks } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { conforms, eq } from "./shape.js"; import { pointer } from "./pointer.js";
 import { paintList, paintFacts, paintFlush } from "./paint.js";
-export { conforms, eq }; export { paintOwn } from "./paint.js";
+export { conforms, eq };
 import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head };
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
@@ -501,10 +501,10 @@ export function h(p, tag, cls, attrs, text, ns) {
   if (Adopt) return adopt(p, tag, cls, attrs);
   const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
   if (cls !== 0) e.setAttribute("class", "c" + cls);
-  if (attrs) { for (const k in attrs) e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); if ("data-exact-box" in attrs) paintList(p); }
+  if (attrs) { for (const k in attrs) e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); }
   if (text !== 0) e.textContent = text;
   p.append(e);
-  return e;
+  paintList(e); return e;
 }
 /** An SVG element (the compiler knows the node's type; element.rs's tag). */
 export const hs = (p, tag, cls, attrs, text) => h(p, tag, cls, attrs, text, SVG);
@@ -534,10 +534,10 @@ function adopt(p, tag, cls, attrs) {
   // The renderer's inline style stays: it is the class's declarations and
   // the live rows, which the node's style bindings rewrite as they change.
   if (e.hasAttribute("data-view")) e.removeAttribute("data-view");
-  if (attrs?.["data-exact-box"] !== undefined && attrs?.["data-exact-own-isolation"] === undefined && e.style.isolation === "isolate") e.style.removeProperty("isolation");
+  if (attrs?.["data-exact-own-isolation"] === undefined && !e.hasAttribute("data-exact-own-isolation") && !e.hasAttribute("data-exact-policy") && e.style.isolation) e.style.removeProperty("isolation");
   if (cls !== 0 && e.getAttribute("class") !== "c" + cls) e.setAttribute("class", "c" + cls);
-  if (attrs) { for (const k in attrs) { const v = rel(k, attrs[k]); if (e.getAttribute(k) !== v) e.setAttribute(k, v); } if ("data-scrolldocument" in attrs) Docs.add(e); if ("data-exact-box" in attrs) paintList(p); }
-  return e;
+  if (attrs) { for (const k in attrs) { const v = rel(k, attrs[k]); if (e.getAttribute(k) !== v) e.setAttribute(k, v); } if ("data-scrolldocument" in attrs) Docs.add(e); }
+  paintList(e); return e;
 }
 function mark(p) { const c = document.createComment(""); p.insertBefore(c, at(p)); return c; }
 /** Build fresh inside an adopted page (a virtualized list's rows). */

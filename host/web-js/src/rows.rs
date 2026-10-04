@@ -61,34 +61,11 @@ impl Em<'_> {
         if kind.is_svg_element() || kind.is_metadata() {
             return;
         }
-        let fact = match b.kind {
-            BindingKind::Style => StyleId::from_bit(b.id as u32).and_then(|id| {
-                Some(match id {
-                    StyleId::PositionType => {
-                        ("data-exact-position".into(), "v!=null&&v!==\"static\"")
-                    }
-                    StyleId::Display => ("data-exact-flex".into(), "v===\"flex\"||v===\"grid\""),
-                    StyleId::ZIndex => ("data-exact-z".into(), "v!=null&&v!==\"auto\""),
-                    id if exact_web::host::layers::STACKS.contains(&id) => {
-                        (format!("data-exact-stack-{}", id as u16), "v!=null")
-                    }
-                    _ => return None,
-                })
-            }),
-            BindingKind::Prop => PropId::from_wire(b.id).and_then(|id| {
-                let condition = match id {
-                    PropId::BackgroundMaterial | PropId::NavigationKey => "v!=null",
-                    PropId::NavigationPresentation => "v===\"modal\"",
-                    _ => return None,
-                };
-                Some((format!("data-exact-stack-prop-{}", id as u16), condition))
-            }),
-        };
-        if let Some((name, condition)) = fact {
+        if let Some((name, value)) = crate::paint::binding(self.plan, b) {
             let p = self.uses.rt("P");
             let _ = write!(
                 self.out,
-                "{p}({e},\"{name}\",()=>{{const v=({f})();return ({condition})?\"\":null}});"
+                "{p}({e},\"{name}\",()=>{{const v=({f})();return {value}}});"
             );
         }
     }

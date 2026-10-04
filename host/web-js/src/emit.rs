@@ -508,9 +508,8 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         }
         let _ = write!(body, "$symbols({{{}}});", roles.join(","));
     }
-    let (mount, paint) = (em.uses.rt("mount"), em.uses.rt("paintOwn"));
-    let own = serde_json::to_string(&style::paint_own()).unwrap();
-    let _ = write!(body, "{paint}({own});{mount}($R=>{{{view}}});");
+    let mount = em.uses.rt("mount");
+    let _ = write!(body, "{mount}($R=>{{{view}}});");
     // A plan whose actions read geometry fetches the page's reader after
     // first paint, as the wasm host does for an artifact that imports it.
     if em.uses.names.contains("x_frame") || em.uses.names.contains("x_measure") {

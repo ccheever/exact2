@@ -1,89 +1,13 @@
 //! Live paint isolation uses the kernel's sibling decisions (LLP 1083.000).
 //! Dirty lists run deepest first; changed potentials propagate to the parent.
-//! The template compiler and server document still use the helpers below.
 
 use exact_kernel::id::IdMap;
 use exact_kernel::paint_order::{self, Child};
-use exact_kernel::{NodeType, PositionType, PropId, StyleId, ViewId};
+use exact_kernel::{PositionType, StyleId, ViewId};
 use exact_runner::DataSource;
 
 use super::Host;
 use crate::batch::Batch;
-
-/// What a node's own rows and props bring to the page's painting order.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Paint {
-    /// Its `position` is not `static`, or the host positions it (a canvas,
-    /// whose surface it holds; a Markdown editor, whose lines' markers it
-    /// holds).
-    pub positioned: bool,
-    /// May make a stacking context, which paints with the positioned: an
-    /// opacity, a transform, a filter, a clip or mask, a blend, an
-    /// isolation, a transition or animation (which may move them), a press's
-    /// scale, a material's backdrop, a navigation screen or a modal.
-    pub stacks: bool,
-    /// Outside the page's box painting: an element inside an `svg`, a head.
-    pub outside: bool,
-}
-
-/// The rows that may make a stacking context ([`Paint::stacks`]).
-pub const STACKS: [StyleId; 18] = [
-    StyleId::Opacity,
-    StyleId::BackdropBlur,
-    StyleId::Translate,
-    StyleId::Scale,
-    StyleId::Rotate,
-    StyleId::ClipPath,
-    StyleId::Animation,
-    StyleId::Transform,
-    StyleId::SvgMask,
-    StyleId::Filter,
-    StyleId::MixBlendMode,
-    StyleId::Isolation,
-    StyleId::Transition,
-    StyleId::LayoutTransition,
-    StyleId::PressScale,
-    StyleId::DragTimeline,
-    StyleId::AnimationTimeline,
-    StyleId::ExitAnimation,
-];
-/// Template/server paint facts, pending their LLP 1083.000 migration.
-pub fn paint_of(
-    node: &exact_kernel::NodeFacts<'_>,
-    parent: Option<exact_kernel::Display>,
-) -> Paint {
-    let m = &node.style.mask;
-    let props = node.props;
-    let editor =
-        node.node_type == NodeType::TextInput && props.str(PropId::Markup) == Some("markdown");
-    Paint {
-        positioned: node.style.position_type != PositionType::Static
-            || node.node_type == NodeType::Canvas
-            || editor,
-        stacks: (matches!(
-            parent,
-            Some(exact_kernel::Display::Flex | exact_kernel::Display::Grid)
-        ) && m.has(StyleId::ZIndex))
-            || STACKS.iter().any(|s| m.has(*s))
-            || props.str(PropId::BackgroundMaterial).is_some()
-            || props.str(PropId::NavigationKey).is_some()
-            || props.str(PropId::NavigationPresentation) == Some("modal"),
-        outside: node.node_type.is_svg_element() || node.node_type.is_metadata(),
-    }
-}
-
-/// Whether the page isolates a node: it is static and no stacking context,
-/// and something before it paints with the positioned (`after`), which it
-/// would otherwise paint under.
-pub fn isolated(p: Paint, after: bool) -> bool {
-    !p.outside && !p.positioned && !p.stacks && after
-}
-
-/// Whether a subtree paints with the positioned: its root does, or a node
-/// under it does (`children`).
-pub fn layered(p: Paint, isolated: bool, children: bool) -> bool {
-    !p.outside && (p.positioned || p.stacks || isolated || children)
-}
 
 /// `css` with the page's `isolation` when the node takes it.
 pub fn with_isolation(mut css: String, isolated: bool) -> String {

@@ -1,33 +1,75 @@
-// The sibling rule of the page's painting order (LLP 1074; layers.rs is the
-// live web host's): a static box that follows, among its siblings, something
-// that paints with the positioned — a positioned box or stacking context, or
-// one holding such a box — is isolated, so it paints over it in tree order
-// as the kernel paints. A CSS `~` over `:has()` said it, and re-matched every
-// later sibling whenever a list changed (a 1,000-row swap: 43 → 88 ms); this
-// decides it once per changed sibling list, after the commit's tree update.
-let Own = null;
+// Mirrors kernel/src/paint_order.rs (LLP 1083.000): own facts, potentials,
+// left-to-right decisions, then contributions. Templates supply facts only;
+// every region arm and each copy is decided on its actual instance tree.
 const dirty = new Set();
-/** The selector of what paints with the positioned (style.rs `paint_own`). */
-export function paintOwn(own) { Own = own; }
-/** `p`'s children changed: decide its list again. */
-export function paintList(p) { if (Own && p && p.nodeType === 1) dirty.add(p); }
-/** `e`'s own paint facts changed: its children's list (a flex box layers a
- * child's z-index) and every list it is in or under. */
-export function paintFacts(e) { if (!Own) return; dirty.add(e); for (let a = e; a?.parentElement && a.id !== "exact-root"; a = a.parentElement) dirty.add(a.parentElement); }
-const holds = e => e.matches(Own) || e.querySelector(Own) !== null;
+const has = (e, n) => e.hasAttribute("data-exact-" + n);
+const get = (e, n) => e.getAttribute("data-exact-" + n);
+const fact = (e, n) => e.getAttributeNames().some(k => k === "data-exact-" + n || k.startsWith("data-exact-" + n + "-"));
+const record = e => e.$paint ??= { z: false, level0: false, isolated: false, cz: false, c0: false };
+
+/** A structural edit can change both a list and its holder's policy. */
+export function paintList(p) {
+  if (p?.nodeType !== 1) return;
+  dirty.add(p);
+  if (p.parentElement && p.id !== "exact-root") dirty.add(p.parentElement);
+}
+/** Position, stacking rows, z-index and display all affect the two lists. */
+export function paintFacts(e) { paintList(e); }
+
+function own(e, parent, exclusion) {
+  const root = has(e, "root"), position = get(e, "position");
+  const positioned = root || position !== null;
+  const zi = get(e, "zi"), z = zi !== null && (positioned || has(parent, "flex")) ? Number(zi) : null;
+  const authored = fact(e, "stack") || has(e, "own-isolation") || position === "sticky" || z !== null;
+  const kind = get(e, "kind"), button = kind === "control" && get(e, "type") === "button";
+  const style = get(e, "button-style") ?? "bordered";
+  const policy = root || kind === "canvas"
+    || (kind === "image" && (has(e, "tint") || get(e, "source")?.startsWith("symbol:")))
+    || (button && (style.endsWith("glass") || (get(e, "disabled") === "true" && !["bordered", "gray"].includes(style))))
+    || has(e, "material") || get(e, "navigation") === "modal"
+    || fact(e, "motion") || has(e, "layout") || has(e, "exit")
+    || (kind === "text" && exclusion) || Array.from(e.children).some(c => has(c, "layout"));
+  return { positioned, stacks: authored || !!policy, policy: !!policy && !authored, z,
+    outside: !kind || has(e, "outside") || get(e, "semantic") === "dialog" || has(e, "popover"), root };
+}
+
 export function paintFlush() {
-  if (!dirty.size) return;
-  for (const p of dirty) {
-    if (!p?.isConnected || !p.querySelector(":scope>[data-exact-box]")) continue;
-    let after = false;
-    for (let c = p.firstElementChild; c; c = c.nextElementSibling) {
-      if (c.hasAttribute("data-exact-box") && !c.hasAttribute("data-exact-own-isolation")) {
-        const iso = after && !c.matches(Own);
-        if ((c.$iso ?? c.style.isolation === "isolate") !== iso) iso ? c.style.isolation = "isolate" : c.style.removeProperty("isolation");
-        c.$iso = iso;
-      }
-      if (!after) after = holds(c);
-    }
-  }
+  // Buckets keep the pass deepest first, including newly dirtied ancestors.
+  // A wide list is queued once; no repeated sorting or subtree queries.
+  const buckets = [], queued = new Set();
+  const queue = p => {
+    if (!p?.isConnected || p.nodeType !== 1 || queued.has(p)) return;
+    let depth = 0;
+    for (let a = p; a && a.id !== "exact-root"; a = a.parentElement) depth++;
+    (buckets[depth] ??= []).push(p); queued.add(p);
+  };
+  for (const p of dirty) queue(p);
   dirty.clear();
+  while (buckets.length) {
+    const list = buckets.at(-1);
+    if (!list?.length) { buckets.pop(); continue; }
+    const p = list.pop(), children = Array.from(p.children);
+    const exclusion = children.some(c => get(c, "position") === "absolute" && has(c, "wrap"));
+    let layered = false, leaked = false, z = false, level0 = false, changed = false;
+    for (const c of children) {
+      const r = record(c), o = own(c, p, exclusion), free = !o.stacks, stat = !o.positioned;
+      const isolated = !o.root && !o.outside && free && (r.z || (stat && r.level0 && (layered || leaked)) || (stat && leaked));
+      const leaks = stat && free && !isolated && r.level0;
+      if (!o.outside) { layered ||= o.positioned || o.stacks || isolated || leaks; leaked ||= leaks; }
+      c.toggleAttribute("data-exact-policy", o.policy);
+      const iso = isolated || o.policy || has(c, "own-isolation");
+      if (iso) { if (c.style.isolation !== "isolate") c.style.isolation = "isolate"; }
+      else if (c.style.isolation === "isolate") c.style.removeProperty("isolation");
+      const open = !o.stacks && !isolated, nonzero = o.z !== null && o.z !== 0;
+      const cz = !o.outside && (nonzero || (open && r.z));
+      const c0 = !o.outside && (((o.positioned || o.stacks) && !nonzero) || isolated || (open && stat && r.level0));
+      changed ||= r.isolated !== isolated || r.policy !== o.policy || r.cz !== cz || r.c0 !== c0;
+      Object.assign(r, { own: o, isolated, policy: o.policy, cz, c0 });
+      z ||= cz; level0 ||= c0;
+    }
+    const r = record(p);
+    changed ||= r.z !== z || r.level0 !== level0;
+    r.z = z; r.level0 = level0;
+    if (changed && p.id !== "exact-root") queue(p.parentElement);
+  }
 }

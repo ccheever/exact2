@@ -14,7 +14,6 @@ use exact_kernel::{
 use exact_plan::{BindingKind, Opcode, Plan};
 use exact_runner::bridge;
 use exact_runner::vm::instructions;
-use exact_web::host::layers;
 use exact_web::host::template::{self, Parts};
 
 /// A canvas's explicit bitmap size (LLP 1056 D6 r3) as the attributes
@@ -247,39 +246,15 @@ pub fn project(
         }
         out.push(Some(parts));
     }
-    // Only a box that can follow something painted with the positioned (an
-    // earlier sibling in any arm, or its own earlier copy) is a candidate
-    // for the sibling rule (paint.js); a box that can't is never isolated,
-    // so a list of static rows costs the rule nothing.
+    // Arms and each copies share templates. Only candidacy is static;
+    // paint.js decides isolation from the actual instance's descendants.
     let follows = can_follow(plan, sites, &kernel, &tree);
-    // The rule reads the actual rows and active region arms: static template
-    // guesses cannot decide a first copy or a bound position.
     for (i, parts) in out.iter_mut().enumerate() {
         let Some(parts) = parts else { continue };
         let node = kernel.node(view(i)).expect("template node");
-        let paint = layers::paint_of(&node.facts(), None);
-        if paint.outside {
-            continue;
-        }
+        crate::paint::attributes(&node.facts(), &mut parts.props);
         if follows[i] {
             parts.props.insert("data-exact-box".into(), "".into());
-        }
-        if paint.positioned || paint.stacks {
-            parts.props.insert("data-exact-layer".into(), "".into());
-        }
-        if node.style.mask.has(StyleId::Isolation) || node.node_type == NodeType::Canvas {
-            parts
-                .props
-                .insert("data-exact-own-isolation".into(), "".into());
-        }
-        if matches!(
-            node.style.display,
-            exact_kernel::Display::Flex | exact_kernel::Display::Grid
-        ) {
-            parts.props.insert("data-exact-flex".into(), "".into());
-        }
-        if node.style.mask.has(StyleId::ZIndex) {
-            parts.props.insert("data-exact-z".into(), "".into());
         }
     }
     Ok(out)
@@ -331,34 +306,11 @@ fn can_follow(
         let Some(node) = kernel.node(i as ViewId + 1) else {
             return false;
         };
-        let p = layers::paint_of(&node.facts(), None);
-        p.positioned
-            || p.stacks
-            || node.style.mask.has(StyleId::ZIndex)
-            || plan.nodes[i]
-                .bindings
-                .iter()
-                .map(|b| plan.binding(b))
-                .any(|b| {
-                    literal(plan, plan.code(b.expr)).is_none()
-                        && match b.kind {
-                            BindingKind::Style => {
-                                StyleId::from_bit(b.id as u32).is_some_and(|id| {
-                                    id == StyleId::PositionType
-                                        || id == StyleId::ZIndex
-                                        || layers::STACKS.contains(&id)
-                                })
-                            }
-                            BindingKind::Prop => matches!(
-                                PropId::from_wire(b.id),
-                                Some(
-                                    PropId::BackgroundMaterial
-                                        | PropId::NavigationKey
-                                        | PropId::NavigationPresentation
-                                )
-                            ),
-                        }
-                })
+        crate::paint::may_layer(
+            plan,
+            &node.facts(),
+            plan.nodes[i].bindings.iter().map(|b| plan.binding(b)),
+        )
     };
     // Whether a node's subtree can paint with the positioned, children first.
     let mut holds = vec![None; n];
@@ -385,36 +337,15 @@ fn can_follow(
         for c in children {
             let c = *c as usize;
             let h = hold(c, tree, &layered, &mut holds);
-            follows[c] = before || (h && rows.contains(&c));
+            follows[c] = before
+                || (h && rows.contains(&c))
+                || tree[c]
+                    .iter()
+                    .any(|d| hold(*d as usize, tree, &layered, &mut holds));
             before |= h;
         }
     }
     follows
-}
-
-/// What paints with the positioned, as a selector over the actual DOM's paint
-/// facts (paint.js decides the sibling rule with it, once per changed list).
-/// A flex/grid item's z-index layers it even when it is static.
-pub fn paint_own() -> String {
-    let mut own = vec![
-        "[data-exact-layer]".to_string(),
-        "[data-exact-position]".into(),
-        "[data-exact-flex]>[data-exact-z]".into(),
-    ];
-    own.extend(
-        layers::STACKS
-            .iter()
-            .map(|row| format!("[data-exact-stack-{}]", *row as u16)),
-    );
-    own.extend(
-        [
-            PropId::BackgroundMaterial,
-            PropId::NavigationKey,
-            PropId::NavigationPresentation,
-        ]
-        .map(|p| format!("[data-exact-stack-prop-{}]", p as u16)),
-    );
-    own.join(",")
 }
 
 /// The DOM prop name the live host gives `prop` on a node of `node_type`,
@@ -515,6 +446,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
     };
     Ok(match row {
         StyleId::Cursor => vec![with("cursor", &CURSOR_MAP)],
+        StyleId::ZIndex => vec![with("z-index", crate::paint::Z_INDEX)],
         // @ref LLP 1055 D5/D7 — the browser runs it; its `@keyframes` are in
         // the stylesheet (emit.rs), under the author's names.
         StyleId::Animation if timeline => vec![
