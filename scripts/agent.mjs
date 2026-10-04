@@ -155,8 +155,15 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     throw new Error(`web carrier unavailable: ${chrome}: ${error.code}; set CHROME to an installed browser`);
   }
   onProcess?.(child);
-  const hostLines = [];
-  child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) hostLines.push('chrome: ' + l); });
+  const hostLines = [], launchTail = [];
+  child.stderr.on('data', (d) => {
+    for (const l of String(d).split('\n')) {
+      if (!l) continue;
+      if (!browserDiagnosticNoise(l)) hostLines.push('chrome: ' + l);
+      launchTail.push(l); if (launchTail.length > 8) launchTail.shift(); // unfiltered, for a launch that fails
+    }
+  });
+  const stdioClosed = new Promise((r) => child.on('close', r)); // after 'exit', once stderr is drained
   const cdp = new Cdp(child.stdio[3], child.stdio[4]);
   const exited = new Promise((r) => {
     child.on('exit', (code, signal) => { cdp.fail(`Chrome exited (${code ?? signal})`); r(); });
@@ -181,8 +188,8 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
   try {
     // A Chrome that dies at launch says why only on its stderr; the pipe just closes.
     const { targetInfos } = await cdp.send('Target.getTargets').catch(async (error) => {
-      await waitAtMost(exited, 1000);
-      const said = hostLines.filter(l => l.startsWith('chrome: ')).slice(-6).map(l => '  ' + l).join('\n');
+      await waitAtMost(stdioClosed, 1000);
+      const said = launchTail.slice(-6).map(l => '  chrome: ' + l).join('\n');
       throw new Error(`Chrome did not start (${error.message}); CHROME=${chrome}\n${said || '  (it printed nothing)'}\nSet CHROME to a browser that runs here.`);
     });
     const target = targetInfos.find((t) => t.type === 'page') ?? (await cdp.send('Target.createTarget', { url: 'about:blank' }));

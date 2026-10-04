@@ -63,11 +63,14 @@ test('local keeps the diary and never sends; a * entry answers for projects with
     assert.match(await send(dir, { yes: true, fetch }), /never sends/);
     assert.equal(posts.length, 0);
     assert.ok(existsSync(resolve(dir, '.exact/diary/2026-10-04-a.md')));
-    // The project's own answer wins over *.
+    // The project's own answer wins over *, and `ask` undoes local even under *.
     setStanding(dir, 'always');
     assert.equal(standing(dir), 'always');
     setStanding(dir, 'ask');
-    assert.equal(standing(dir), 'local');
+    assert.equal(standing(dir), 'ask');
+    // A * entry never consents to sending.
+    writeFileSync(resolve(process.env.EXACT_CONFIG_DIR, 'feedback.json'), JSON.stringify({ '*': 'always' }));
+    assert.equal(standing(dir), 'ask');
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 

@@ -12,8 +12,9 @@
 //
 // The standing answer is per user and per project (~/.config/exact/feedback.json,
 // keyed by the app's real path), so cloning an app never carries consent along. A
-// `*` key there answers for every project without its own; a study that hands an
-// agent a private EXACT_CONFIG_DIR sets `{"*": "local"}` before the app exists.
+// `*` key there answers `local` or `never` (and nothing else) for every project
+// without its own; a study that hands an agent a private EXACT_CONFIG_DIR sets
+// `{"*": "local"}` before the app exists.
 // `local` keeps the diary and never asks or sends. With EXACT_DIARY=detailed set,
 // `status` also prints the detailed diary's extra instructions (DETAILED below), so
 // only a study's agents carry them in context.
@@ -28,10 +29,13 @@ const SETTINGS = () => resolve(process.env.EXACT_CONFIG_DIR ?? resolve(homedir()
 const readJson = (path, fallback) => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return fallback; } };
 
 export const ANSWERS = ['always', 'never', 'ask', 'local'];
-export function standing(dir) { const all = readJson(SETTINGS(), {}); return all[realpathSync(dir)] ?? all['*'] ?? 'ask'; }
+// A `*` entry can only withhold: it answers `local` or `never`, never a consent to send.
+const wildcard = all => (['local', 'never'].includes(all['*']) ? all['*'] : undefined);
+export function standing(dir) { const all = readJson(SETTINGS(), {}); return all[realpathSync(dir)] ?? wildcard(all) ?? 'ask'; }
 export function setStanding(dir, answer) {
   const all = readJson(SETTINGS(), {});
-  if (answer === 'ask') delete all[realpathSync(dir)]; else all[realpathSync(dir)] = answer;
+  // `ask` under a `*` entry is kept explicitly, so `feedback ask` undoes `local` or `never` from either.
+  if (answer === 'ask' && !wildcard(all)) delete all[realpathSync(dir)]; else all[realpathSync(dir)] = answer;
   mkdirSync(dirname(SETTINGS()), { recursive: true });
   writeFileSync(SETTINGS(), JSON.stringify(all, null, 2) + '\n');
 }
