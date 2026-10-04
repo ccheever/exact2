@@ -20,7 +20,8 @@ extension NodeView {
         // read from the kernel, current on its first batch (LLP 1069.011.000 D1).
         if isNativeButton { return face?.title ?? "" }
         if isParagraph { return inlineText.filter(\.paints).map(\.text).joined() }
-        let children = container.subviews.compactMap { $0 as? NodeView }
+        // accname: an `aria-hidden` child names nothing (habits F16: a tab's icon glyph).
+        let children = container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["accessibilityElementsHidden"] != "true" }
         return children.map(\.accessibleText).filter { !$0.isEmpty }.joined(separator: " ")
     }
     /// Its `aria-label`, unless empty (accname: an empty label names nothing).
@@ -29,7 +30,16 @@ extension NodeView {
     /// A button to assistive technology: a `button`, or a box whose ARIA
     /// role is `button` or `link`, as the web's tree has a `div` with one
     /// (chat F14: a message bubble with `role="button"` was no button natively).
-    var actsAsButton: Bool { kind == "button" || kind == "view" && ["button", "link"].contains(props["accessibilityRole"] ?? "") }
+    /// A box with a checkable role is one too: the web's tree has a `div`
+    /// with `role="checkbox"` as a checkbox (habits F16).
+    var actsAsButton: Bool { kind == "button" || kind == "view" && ["button", "link", "checkbox", "radio", "switch"].contains(props["accessibilityRole"] ?? "") }
+    /// ARIA's checkable roles (Core-AAM): `checkbox`, `radio` and `switch`,
+    /// their state `aria-checked`; nil for any other role (onboarding F16:
+    /// a `button role="radio"` read as a plain button on macOS).
+    var checkedRole: (role: String, checked: Bool)? {
+        guard let role = props["accessibilityRole"], ["checkbox", "radio", "switch"].contains(role) else { return nil }
+        return (role, props["accessibilityChecked"] == "true")
+    }
     /// ARIA `aria-pressed` on a button: its toggle state, `true`, `false` or
     /// `mixed`; nil when it is no toggle (absent, another word, another role).
     var pressedState: String? {
@@ -61,6 +71,14 @@ extension NSView {
         setAccessibilitySubrole(pressed == nil ? nil : .toggle)
         setAccessibilityValue(pressed.map { $0 == "mixed" ? 2 : $0 == "true" ? 1 : 0 })
     }
+    /// Core-AAM's checkable roles: `checkbox` is `AXCheckBox`, `switch` an
+    /// `AXCheckBox` whose subrole is `AXSwitch`, `radio` an `AXRadioButton`;
+    /// the value 1 when checked, else 0.
+    func setAccessibilityChecked(_ role: String, _ checked: Bool) {
+        setAccessibilityRole(role == "radio" ? .radioButton : .checkBox)
+        setAccessibilitySubrole(role == "switch" ? .switch : nil)
+        setAccessibilityValue(checked ? 1 : 0)
+    }
 }
 #else
 extension UIView {
@@ -69,6 +87,19 @@ extension UIView {
     func setAccessibilityToggle(_ pressed: String?) {
         if pressed != nil { accessibilityTraits.insert(.toggleButton) } else { accessibilityTraits.remove(.toggleButton) }
         accessibilityValue = pressed.map { $0 == "mixed" ? "2" : $0 == "true" ? "1" : "0" }
+    }
+    /// A checkable role as Safari's VoiceOver reads one: a checkbox or
+    /// switch is a button whose value is `checked` or `unchecked` (as the
+    /// native checkbox, `ControlsIOS`); a radio is a button, selected while
+    /// checked. Called after `setAccessibilityToggle`, which it overrides.
+    func setAccessibilityChecked(_ role: String, _ checked: Bool) {
+        accessibilityTraits.remove(.toggleButton)
+        if role == "radio" {
+            accessibilityValue = nil
+            if checked { accessibilityTraits.insert(.selected) }
+        } else {
+            accessibilityValue = checked ? "checked" : "unchecked"
+        }
     }
 }
 #endif
@@ -93,6 +124,9 @@ extension NodeView {
             return nil
         }
         let children = container.subviews.compactMap { $0 as? NodeView }
+        // An `aria-hidden` child (an icon glyph) is drawn but not named: no
+        // segment shows one thing and is named another (habits F16).
+        if children.contains(where: { $0.props["accessibilityElementsHidden"] == "true" }) { return nil }
         if children.count == 1, children[0].kind == "image" { return .image(children[0]) }
         let text = accessibleText
         guard !children.isEmpty, !text.isEmpty, children.allSatisfy(\.isParagraph),

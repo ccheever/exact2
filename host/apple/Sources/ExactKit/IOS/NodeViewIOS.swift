@@ -1064,9 +1064,14 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             accessibilityTraits.insert(kind == "view" && props["accessibilityRole"] == "link" ? .link : .button)
             if props["accessibilitySelected"] == "true" { accessibilityTraits.insert(.selected) } else { accessibilityTraits.remove(.selected) }
             setAccessibilityToggle(pressedState)
+            if let checked = checkedRole { setAccessibilityChecked(checked.role, checked.checked) }
             if #available(iOS 18, tvOS 18, *) {
                 accessibilityExpandedStatus = props["accessibilityExpanded"].map { $0 == "true" ? .expanded : .collapsed } ?? .unsupported
             }
+        } else if props["accessibilityRole"] == "img" {
+            // `role="img"` (an svg's) is one labelled image, as on the web (habits F16).
+            isAccessibilityElement = authoredLabel != nil
+            if authoredLabel != nil { accessibilityTraits.insert(.image) } else { accessibilityTraits.remove(.image) }
         }
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil {

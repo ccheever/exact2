@@ -308,7 +308,11 @@ extension Presenter {
             let top = NSScreen.screens.first?.frame.maxY ?? 0
             frame = NSRect(x: p.x, y: top - p.y - s.height, width: s.width, height: s.height)
         }
-        return AxFacts(role: a("AXRole") as? String, subrole: a("AXSubrole") as? String, label: a("AXDescription") as? String, title: a("AXTitle") as? String,
+        // A cell is served its control's typed label (AppKit's dispatcher
+        // prefers it); the cell's own attribute answers "" (onboarding F16:
+        // every named pop-up, checkbox, slider and date read unnamed here).
+        let served = ((obj as? NSCell)?.controlView?.accessibilityLabel()).flatMap { $0.isEmpty ? nil : $0 }
+        return AxFacts(role: a("AXRole") as? String, subrole: a("AXSubrole") as? String, label: served ?? a("AXDescription") as? String, title: a("AXTitle") as? String,
                        help: a("AXHelp") as? String, value: a("AXValue"), enabled: a("AXEnabled") as? Bool ?? true, focused: a("AXFocused") as? Bool ?? false,
                        selected: a("AXSelected") as? Bool ?? false, element: !o.accessibilityIsIgnored(), expanded: a("AXExpanded") as? Bool ?? false, frame: frame, identifier: a("AXIdentifier") as? String,
                        children: a("AXChildren") as? [Any] ?? [])
@@ -400,10 +404,11 @@ extension Presenter {
         if f.expanded { states["expanded"] = true }
         let r = f.role ?? "AXUnknown"
         let mapped = ["AXButton": "button", "AXLink": "link", "AXHeading": "heading", "AXTextField": "textbox", "AXTextArea": "textbox",
-                      "AXCheckBox": "checkbox", "AXStaticText": "text", "AXGroup": "group", "AXImage": "image", "AXList": "list"][r]
+                      "AXCheckBox": f.subrole == "AXSwitch" ? "switch" : "checkbox", "AXRadioButton": "radio", "AXRadioGroup": "radiogroup",
+                      "AXSlider": "slider", "AXPopUpButton": "combobox", "AXStaticText": "text", "AXGroup": "group", "AXImage": "image", "AXList": "list"][r]
         e["role"] = forced ?? mapped ?? r
         if r == "AXHeading", let level = f.value as? Int { states["level"] = level }
-        if r == "AXCheckBox", let on = f.value as? Int { states["checked"] = on == 1 }
+        if r == "AXCheckBox" || r == "AXRadioButton", let on = f.value as? Int { states["checked"] = on == 1 }
         e["interactive"] = ["AXButton", "AXLink", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXSlider", "AXPopUpButton", "AXMenuItem", "AXComboBox"].contains(r)
         native["role"] = r
         if let subrole = f.subrole { native["subrole"] = subrole }

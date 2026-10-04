@@ -100,6 +100,61 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertTrue(elements(ax).contains { $0["testId"] as? String == "named" }, "the window behind stays exposed, for the driver's outside-modal")
     }
 
+    /// Onboarding and habits F16: what the web's tree has, AppKit's has. A
+    /// native checkbox's `aria-label` names it (its cell is served the
+    /// control's label); `role="radio"`/`"checkbox"`/`"switch"` with
+    /// `aria-checked` are checkable; a `radiogroup` groups them; `aria-hidden`
+    /// text leaves the tree and a name; `role="img"` is a labelled image.
+    func testARIARolesStatesAndHiddenTextReachAppKit() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "control", "props": ["type": "checkbox", "accessibilityLabel": "Design", "testId": "design"], "handlers": ["change"], "style": [:]],
+            ["op": "create", "id": 11, "kind": "text", "props": ["text": "Design", "accessibilityElementsHidden": "true", "testId": "design-text"]],
+            ["op": "create", "id": 12, "kind": "view", "props": ["accessibilityRole": "radiogroup", "accessibilityLabel": "Theme", "testId": "theme"]],
+            ["op": "create", "id": 13, "kind": "button", "handlers": ["press"], "props": ["accessibilityRole": "radio", "accessibilityChecked": "true", "testId": "light"]],
+            ["op": "create", "id": 14, "kind": "text", "props": ["text": "Light"]],
+            ["op": "create", "id": 15, "kind": "view", "handlers": ["press"], "props": ["accessibilityRole": "checkbox", "accessibilityChecked": "false", "testId": "remind"]],
+            ["op": "create", "id": 16, "kind": "text", "props": ["text": "⏰", "accessibilityElementsHidden": "true"]],
+            ["op": "create", "id": 17, "kind": "text", "props": ["text": "Remind me"]],
+            ["op": "create", "id": 18, "kind": "svg", "props": ["accessibilityRole": "img", "accessibilityLabel": "33% done", "testId": "ring"]],
+            ["op": "create", "id": 19, "kind": "button", "handlers": ["press"], "props": ["accessibilityRole": "switch", "accessibilityChecked": "true", "accessibilityLabel": "Sound", "testId": "sound"]],
+            ["op": "children", "id": 12, "ids": [13]],
+            ["op": "children", "id": 13, "ids": [14]],
+            ["op": "children", "id": 15, "ids": [16, 17]],
+            ["op": "children", "id": 1, "ids": [2, 3, 10, 11, 12, 15, 18, 19]],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 100.0, "w": 20.0, "h": 20.0],
+            ["op": "frame", "id": 11, "x": 30.0, "y": 100.0, "w": 60.0, "h": 20.0],
+            ["op": "frame", "id": 12, "x": 0.0, "y": 130.0, "w": 200.0, "h": 30.0],
+            ["op": "frame", "id": 13, "x": 0.0, "y": 0.0, "w": 80.0, "h": 30.0],
+            ["op": "frame", "id": 14, "x": 0.0, "y": 0.0, "w": 80.0, "h": 30.0],
+            ["op": "frame", "id": 15, "x": 0.0, "y": 170.0, "w": 200.0, "h": 30.0],
+            ["op": "frame", "id": 16, "x": 0.0, "y": 0.0, "w": 20.0, "h": 30.0],
+            ["op": "frame", "id": 17, "x": 30.0, "y": 0.0, "w": 100.0, "h": 30.0],
+            ["op": "frame", "id": 18, "x": 0.0, "y": 210.0, "w": 32.0, "h": 32.0],
+            ["op": "frame", "id": 19, "x": 0.0, "y": 250.0, "w": 80.0, "h": 30.0],
+        ]))
+        p.syncAccessibility()
+        let all = elements(p.axElements(roots: [p.viewport]))
+        func one(_ testId: String) throws -> [String: Any] {
+            try XCTUnwrap(all.first { $0["testId"] as? String == testId }, "\(testId) in \(all.map { "\($0["role"] ?? "") \($0["testId"] ?? "")" })")
+        }
+        let design = try one("design")
+        XCTAssertEqual([design["role"] as? String, design["name"] as? String], ["checkbox", "Design"])
+        XCTAssertFalse(all.contains { $0["testId"] as? String == "design-text" }, "aria-hidden text is off the tree")
+        let theme = try one("theme"), light = try one("light")
+        XCTAssertEqual([theme["role"] as? String, theme["name"] as? String], ["radiogroup", "Theme"])
+        XCTAssertEqual([light["role"] as? String, light["name"] as? String], ["radio", "Light"])
+        XCTAssertEqual(light["parent"] as? Int, theme["i"] as? Int)
+        XCTAssertEqual((light["states"] as? [String: Any])?["checked"] as? Bool, true)
+        let remind = try one("remind")
+        XCTAssertEqual([remind["role"] as? String, remind["name"] as? String], ["checkbox", "Remind me"], "a hidden glyph names nothing")
+        XCTAssertEqual((remind["states"] as? [String: Any])?["checked"] as? Bool, false)
+        let ring = try one("ring")
+        XCTAssertEqual([ring["role"] as? String, ring["name"] as? String], ["image", "33% done"])
+        let sound = try one("sound")
+        XCTAssertEqual([sound["role"] as? String, (sound["states"] as? [String: Any])?["checked"] as? Bool], ["switch", true] as [AnyHashable?])
+    }
+
     func testATargetScopesTheReply() throws {
         let p = try fixture()
         let ax = p.axElements(roots: [p.viewport], scope: [2])

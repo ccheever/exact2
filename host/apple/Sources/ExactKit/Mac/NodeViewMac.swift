@@ -331,23 +331,36 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         return super.accessibilityAttributeValue(attribute)
     }
+    /// `aria-hidden` takes the node and its subtree off the tree, as the
+    /// web's does (onboarding F16: a checkbox's visible label stayed exposed).
+    override func isAccessibilityElement() -> Bool {
+        props["accessibilityElementsHidden"] != "true" && super.isAccessibilityElement()
+    }
     override func accessibilityChildren() -> [Any]? {
-        actsAsButton ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
+        if props["accessibilityElementsHidden"] == "true" { return [] }
+        return actsAsButton || props["accessibilityRole"] == "img" ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
     }
     /// What VoiceOver reaches, as the web's accessibility tree and iOS's
-    /// traits have it: a pressable is a button — a link when its role says
-    /// so — and a labelled image an image. Headings are paragraphs
-    /// (`updateTextAccessibility`); names come from `syncAccessibility`.
+    /// traits have it: a pressable is a button — a link, checkbox, radio or
+    /// switch when its role says so — a labelled image (or `role="img"`,
+    /// an svg's) an image, and a `group` or `radiogroup` a group of its
+    /// children. Headings are paragraphs (`updateTextAccessibility`); names
+    /// come from `syncAccessibility`.
     func updateRoleAccessibility() {
+        let role = props["accessibilityRole"]
         if actsAsButton {
             setAccessibilityElement(true)
-            setAccessibilityToggle(pressedState, else: props["accessibilityRole"] == "link" ? .link : .button)
+            if let checked = checkedRole { setAccessibilityChecked(checked.role, checked.checked) }
+            else { setAccessibilityToggle(pressedState, else: role == "link" ? .link : .button) }
             setAccessibilitySelected(props["accessibilitySelected"] == "true")
             if let expanded = props["accessibilityExpanded"] { setAccessibilityExpanded(expanded == "true") }
-        } else if kind == "image" {
-            let labelled = !(props["accessibilityLabel"] ?? "").isEmpty
+        } else if kind == "image" || role == "img" {
+            let labelled = authoredLabel != nil
             setAccessibilityElement(labelled)
             setAccessibilityRole(labelled ? .image : nil)
+        } else if role == "group" || role == "radiogroup" {
+            setAccessibilityElement(true)
+            setAccessibilityRole(role == "radiogroup" ? .radioGroup : .group)
         }
     }
     /// Enter in a text field's editor: its `change` commits and, with a
