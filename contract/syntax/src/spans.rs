@@ -101,7 +101,7 @@ structs! {
     Binding { name, expr, span }
     ResourceDecl { name, source, args, identity, shape, placeholder, span }
     Placeholder { source, args, span }
-    MutationDecl { name, shape, refreshes, then, span }
+    MutationDecl { name, shape, queue, refreshes, then, span }
     Param { name, ty, span }
     Action { name, params, body, span }
     Task { name, kind, timer, span }

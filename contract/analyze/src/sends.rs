@@ -13,6 +13,9 @@
 //! when each tests one name against literals (`k == "m" or k == "M"`, alone
 //! or as a conjunct of an `and`), the literals differ, and nothing assigns
 //! or sends that name between them.
+//!
+//! A `queue` mutation is exempt (LLP 1092 D6): its sends wait in order and
+//! each reply reaches its `then`.
 
 use super::{AnalyzeError, Related};
 use contract_syntax::{BinOp, Component, Expr, Span, Stmt};
@@ -118,7 +121,32 @@ struct Walk<'a> {
     action: &'a str,
     /// The call being walked, innermost.
     frame: Frame<'a>,
+    /// The slots the action assigns anywhere, its calls included.
+    assigns: BTreeSet<&'a str>,
     errors: Vec<AnalyzeError>,
+}
+
+/// Every name `stmts` assigns, on any path, through calls too.
+fn assigned<'a>(stmts: &'a [Stmt], into: &mut BTreeSet<&'a str>) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Assign { target, .. } => {
+                into.insert(target);
+            }
+            Stmt::Call { body, .. } => assigned(body, into),
+            Stmt::If {
+                then, otherwise, ..
+            } => {
+                assigned(then, into);
+                assigned(otherwise, into);
+            }
+            Stmt::Match { some, none, .. } => {
+                assigned(&some.1, into);
+                assigned(none, into);
+            }
+            Stmt::Send { .. } | Stmt::Let { .. } | Stmt::Command { .. } | Stmt::Refresh { .. } => {}
+        }
+    }
 }
 
 impl<'a> Walk<'a> {
@@ -128,11 +156,17 @@ impl<'a> Walk<'a> {
         for stmt in stmts {
             match stmt {
                 Stmt::Send { target, span, .. } => {
+                    let mutation = self.c.mutations.iter().find(|m| &m.name == target);
+                    // @ref LLP 1092 D2 — a queue's sends each wait their
+                    // turn: none forgets another's reply.
+                    if mutation.is_some_and(|m| m.queue) {
+                        continue;
+                    }
                     let earlier = sent.entry(target).or_default();
                     if let Some((first, _, frame)) =
                         earlier.iter().find(|(_, g, _)| !exclusive(g, guard))
                     {
-                        let reaches = match self.c.mutations.iter().find(|m| &m.name == target) {
+                        let reaches = match mutation {
                             Some(m) => match &m.then {
                                 Some((then, _)) => format!("`then {then}`"),
                                 None => format!("`{target}`"),
@@ -140,15 +174,25 @@ impl<'a> Walk<'a> {
                             None => format!("`{target}`"),
                         };
                         let action = contract_syntax::inline::calls::shown(self.action);
+                        // The fix names `queue` (LLP 1092 D6) unless the
+                        // action also assigns the slot: a reply it means to
+                        // drop, which a queue would land anyway (D4).
+                        let fix = if self.assigns.contains(target.as_str()) {
+                            "send once, or use a mutation per request".to_string()
+                        } else {
+                            format!("send once, use a mutation per request, or declare `mutation {target} … queue` to run both in order")
+                        };
                         // Through a call, the refusal names the calls (LLP
                         // 1089 D6): neither body shows both sends.
                         let message = if frame.is_none() && self.frame.is_none() {
+                            let mut fix = fix;
+                            fix[..1].make_ascii_uppercase();
                             format!(
-                                "`{action}` sends `{target}` twice; only the last send's reply reaches {reaches} (LLP 1016 D5). Send once, or use a mutation per request"
+                                "`{action}` sends `{target}` twice; only the last send's reply reaches {reaches} (LLP 1016 D5). {fix}"
                             )
                         } else {
                             format!(
-                                "`{action}` sends `{target}` twice on one path: {} and {}. Only the last send's reply reaches {reaches} (LLP 1016 D5): send once, or use a mutation per request",
+                                "`{action}` sends `{target}` twice on one path: {} and {}. Only the last send's reply reaches {reaches} (LLP 1016 D5): {fix}",
                                 made_in(action, *frame, *first),
                                 made_in(action, self.frame, *span)
                             )
@@ -222,10 +266,13 @@ fn merge<'a>(into: &mut Sent<'a>, from: Sent<'a>) {
 pub(super) fn check(c: &Component) -> Vec<AnalyzeError> {
     let mut errors = Vec::new();
     for a in &c.actions {
+        let mut assigns = BTreeSet::new();
+        assigned(&a.body, &mut assigns);
         let mut walk = Walk {
             c,
             action: &a.name,
             frame: None,
+            assigns,
             errors: Vec::new(),
         };
         walk.block(&a.body, &mut Guard::new(), &mut BTreeMap::new());

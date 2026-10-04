@@ -125,7 +125,9 @@ export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTi
 export class Refusal extends Error {}
 /** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
 class Failed extends Refusal {}
-let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null;
+let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null, Sched = null;
+/** Queued sends and gated tasks (schedule.js, LLP 1092), installed by a plan that declares them; the last commit's refusal. */
+export const useSchedule = s => { Sched = s; }, refused = () => Refused;
 export const journal = Object.assign([], { start: 0, push(...l) { const over = Array.prototype.push.apply(this, l) - 4096; if (over > 0) this.start += this.splice(0, over).length; return this.length; } }); // the runner's ring (JOURNAL_RING): `start` is the oldest line's index
 const say = line => journal.push(`t=${clock.now} ${line}`);
 /** A write inside an action: collected, applied at commit. */
@@ -142,9 +144,9 @@ function settle() { for (const n of Settle) fresh(n); }
 export function commit(f, what = "commit") {
   if (Writes) return f();
   if (Poisoned) return say(`refused ${what}: the runner is poisoned; reload`);
-  Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = [];
+  Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = []; Refused = null;
   time();
-  const was = Now.v, undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save();
+  const was = Now.v, undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save(), queued = Sched?.save();
   let ok = true;
   try {
     untracked(f);
@@ -155,7 +157,7 @@ export function commit(f, what = "commit") {
       undo.push([n, n.v]); write(n, v);
       if (n.m && !n.landing) n.m.forget(undo);
     }
-    for (const [m, source, args] of Sends) m.send(source, args, undo);
+    for (const [m, source, args, own] of Sends) m.send(source, args, undo, own);
     for (const r of Refresh) r.force(undo);
     if (!routerValid()) throw new Refusal("invalid router value"); // runner/src/runner/router.rs `change`
     settle();
@@ -165,7 +167,7 @@ export function commit(f, what = "commit") {
     ok = false;
     for (const [n, v] of undo.reverse()) write(n, v);
     if (Now.v !== was) { Now.v = was; for (const o of Now.obs) stale(o, DIRTY); } // nor its time: the clock's readers read as they did
-    Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; });
+    Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; }); Sched?.restore(queued);
     Store.restore(store);
     Out = []; Commands = []; Landed = []; Refused = e;
     say(`refused ${what}: ${e.message}`);
@@ -180,12 +182,13 @@ export function commit(f, what = "commit") {
   const tail = () => { // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
     for (const f of Before) f();
     Pres?.before({ ops: [] }, Views); // presence measures what it tracks before the tree changes (LLP 1063)
-    try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
-    settled(); if (!ok) return false;
+    try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
+    settled(); if (!ok) return Sched?.scan(false), false;
     clock.epoch++; Store.persist();
     for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c);
     // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
     for (const m of landed) if (m.then) { m.due = clock.now; if (!clock.agent) drive(); }
+    Sched?.scan(true); // a free queue's waiting send is due (LLP 1092 D3)
     return true;
   };
   return Sh && ok ? Sh.commit(tail, Queue, inflight, After) : tail();
@@ -283,15 +286,18 @@ export function advance(to, wall, stop, timers = true) {
   if (!Number.isFinite(to)) return say(`refused advance: NonFiniteClock (${to})`), journal.at(-1);
   let fired = 0, stopped = false;
   for (;;) {
-    let next = null, then = null;
+    let next = null, then = null, head = null;
     if (timers) for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due)) next = t;
-    // An answer's `then` goes before a timer due at the same time: the answer landed first.
+    // An answer's `then` goes before a timer due at the same time: the answer landed first; a queue's `next` between them (LLP 1092 D3).
     for (const m of Mutations) if (m.due <= to && (!then || m.due < then.due) && (!next || m.due <= next.due)) then = m;
-    if (!next && !then) break;
+    for (const m of Mutations) if (m.next <= to && (!head || m.next < head.next) && (!next || m.next <= next.due) && (!then || m.next < then.due)) head = m;
+    if (head) then = null;
+    if (!next && !then && !head) break;
     if (fired === 4096) return say("refused advance: 4096 commits in one advance (TIMER_FIRE_LIMIT)"), journal.at(-1);
-    if (then) { clock.now = Math.max(clock.now, then.due); then.due = Infinity; }
+    if (head) clock.now = Math.max(clock.now, head.next);
+    else if (then) { clock.now = Math.max(clock.now, then.due); then.due = Infinity; }
     else { clock.now = next.due; if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else next.due = next.frame ? vf(next.base, ++next.k) : next.due + next.ms; }
-    if (fire(then ? () => commit(then.then, `${then.name} then`) : next.action) !== true) return journal.at(-1);
+    if (fire(head ? () => Sched.next(head) : then ? () => commit(then.then, `${then.name} then`) : next.action) !== true) return journal.at(-1);
     fired++;
     if (stop?.()) { stopped = true; break; }
   }
@@ -304,10 +310,11 @@ export function advance(to, wall, stop, timers = true) {
 }
 function fire(f) { for (const c of Clocked) c(); Timing = true; try { return f(); } finally { Timing = false; } }
 let driving = 0, start = 0, painting = 0;
-function drive() {
+export function drive() {
   clearTimeout(driving);
   let next = Infinity;
   for (const t of [...clock.timers, ...Mutations]) if (!t.frame && t.due < next) next = t.due;
+  for (const m of Mutations) if (m.next < next) next = m.next;
   if (!isFinite(next)) return;
   driving = setTimeout(() => { advance(performance.now() - start, true); drive(); }, Math.max(0, next - (performance.now() - start)));
 }
@@ -504,43 +511,53 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   m.r = r;
   return m;
 }
-/** A mutation (LLP 1016): its slot, resources, and newest-winning ticket. */
+/** A mutation (LLP 1016): its slot, resources, and newest-winning ticket — or, a `queue` (LLP 1092), one ticket
+ * and the sends waiting their turn (`wait`, schedule.js), each asked at its `next`. */
 export const Mutations = [];
-export function mut(name, slot, refreshes, type) {
+export function mut(name, slot, refreshes, type, queue) {
   const pend = sig(false);
-  const m = { name, ticket: null, then: null, due: Infinity };
+  const m = { name, ticket: null, then: null, due: Infinity, next: Infinity, queue: !!queue, pend };
   Mutations.push(m);
   slot.n.m = m;
-  const landWrite = (v, undo) => { slot.n.landing = 1; try { undo.push([slot.n, slot.n.v]); write(slot.n, v); } finally { slot.n.landing = 0; } Landed.push(m); };
+  // An answer now lands before the action's own writes, as the runner's do: an assignment in the same action wins.
+  const landWrite = (v, undo) => { if (!Writes.some(w => w[0] === slot.n)) { slot.n.landing = 1; try { undo.push([slot.n, slot.n.v]); write(slot.n, v); } finally { slot.n.landing = 0; } } Landed.push(m); };
   // A reply the source cannot take ends it unsent: its slot as it was, its `then` unarmed (`reply`).
   const land = t => reply(t, name, t.source, () => m.ticket === t, (p, o) => {
     if (p.req) { if (o.more) { const n = { id: ++Ticket, source: t.source, args: t.args, req: p.req }; m.ticket = n; send(n, land(n)); } else { t.req = p.req; send(t, land(t)); } return; }
     if (type && !conforms(p.v, type, [0], m.checked)) throw new Failed(`${name}: the answer does not conform to its shape`);
     m.checked = p.v;
-    if (!o.more) m.ticket = null; W(pend, false);
+    if (!o.more) m.ticket = null; W(pend, !!m.wait?.length);
     slot.n.landing = 1; W(slot, p.v); Landed.push(m);
     for (const r of refreshes) R(r.r);
     queueMicrotask(() => { slot.n.landing = 0; });
-  }, "it ends unsent", () => { m.ticket = null; write(pend.n, false); });
+  }, "it ends unsent", () => { m.ticket = null; write(pend.n, !!m.wait?.length); });
   Object.assign(m, {
-    forget(undo) { if (m.ticket) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } },
-    send(source, args, undo) {
-      const a = ask(source, args, name);
-      if (a && "v" in a) {
-        if (type && !conforms(a.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+    // A queue's assignment forgets nothing (LLP 1092 D4).
+    forget(undo) { if (m.ticket && !m.wait) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } },
+    send(source, args, undo, own) {
+      // A queue's send waits unless the mutation is free; `own` is a `next`'s, whose ask refusing drops it (LLP 1092 D3).
+      if (m.wait && !own && Sched.hold(m, source, args, undo)) return;
+      let a;
+      try {
+        a = ask(source, args, name);
+        if (!a || !("v" in a || a.req || a.promise || a.stream)) throw new Refusal(`${name}: its source is not ready`);
+        if ("v" in a && type && !conforms(a.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+      } catch (e) { if (own) Sched.own = e; throw e; }
+      if ("v" in a) {
         m.checked = a.v;
         landWrite(a.v, undo);
-      } else if (a && (a.req || a.promise || a.stream)) {
+        if (m.wait && pend.n.v !== !!m.wait.length) { undo.push([pend.n, pend.n.v]); write(pend.n, !!m.wait.length); } // a queue: pending while one waits
+      } else {
         const t = { id: ++Ticket, source, args, req: a.req, promise: a.promise, stream: a.stream };
         m.ticket = t; undo.push([pend.n, pend.n.v]); write(pend.n, true); send(t, land(t));
-      } else throw new Refusal(`${name}: its source is not ready`);
+      }
       for (const r of refreshes) r.r.reread_(undo);
     },
   });
   m.p = () => pend();
   return m;
 }
-export function M(m, source, args) { Sends.push([m, source, args]); }
+export function M(m, source, args, own) { Sends.push([m, source, args, own]); }
 // ---------------------------------------------------------------- the DOM
 const SVG = "http://www.w3.org/2000/svg";
 /** An element under `p`: its static class, attributes and text. */
@@ -1390,3 +1407,4 @@ export function language(slot) {
   effect(() => { const t = table(slot()) ?? Texts[0]; document.documentElement.lang = t[0]; document.documentElement.dir = t[1] ? "rtl" : "ltr"; });
 }
 export * from "./router.js"; import { routerValid } from "./router.js"; // the router (LLP 1038), its own file
+export { queues } from "./schedule.js"; // queued sends (LLP 1092), their own file

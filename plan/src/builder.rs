@@ -448,6 +448,7 @@ impl PlanBuilder {
             ty,
             refreshes: MutationRefreshesRange { start: 0, len: 0 },
             then: None,
+            queue: false,
         });
         MutationsId(self.plan.mutations.len() as u32 - 1)
     }
@@ -455,6 +456,11 @@ impl PlanBuilder {
     /// The action run after each of `mutation`'s answers lands.
     pub fn set_mutation_then(&mut self, mutation: MutationsId, action: ActionsId) {
         self.plan.mutations[mutation.0 as usize].then = Some(action);
+    }
+
+    /// `mutation … queue` (LLP 1092 D1): its sends wait their turn.
+    pub fn set_mutation_queue(&mut self, mutation: MutationsId) {
+        self.plan.mutations[mutation.0 as usize].queue = true;
     }
 
     /// The resources a send to `mutation` refreshes (LLP 1054.000.000 D1),

@@ -48,6 +48,8 @@ mod lines;
 mod lists;
 mod page;
 mod perf;
+mod queue;
+pub use queue::QUEUE_BOUND;
 pub mod router;
 pub use lists::ListTextPosition;
 mod settlement;
@@ -172,6 +174,10 @@ pub enum RunnerError {
     /// One seek reached the bounded number of timer commits it may perform.
     TimerFireLimit {
         limit: usize,
+    },
+    /// A send would be the 65th waiting for a `queue` mutation (LLP 1092 D4).
+    QueueFull {
+        mutation: String,
     },
     /// A region sits at the plan root; v1 requires one root node.
     RootRegion,
@@ -343,6 +349,8 @@ pub struct Runner<D: DataSource> {
     /// When each mutation's `then` action is due, as a one-shot timer:
     /// infinite until an answer lands.
     then_due: Vec<f64>,
+    /// `queue` mutations' waiting sends, `next`s and stalls (LLP 1092).
+    queues: queue::Queues,
     next_ticket: u64,
     /// Files picked this run, for `app:/tmp/picked/` names (LLP 1069.002 D3).
     picked_count: u64,
@@ -629,6 +637,7 @@ impl<D: DataSource> Runner<D> {
                 .collect(),
             now_ms: self.now_ms,
             store: self.store.snapshot(),
+            forgot_waiting: self.queued(),
         }
     }
 
@@ -784,6 +793,7 @@ impl<D: DataSource> Runner<D> {
             watching: Vec::new(),
             landed: Vec::new(),
             then_due: Vec::new(),
+            queues: Default::default(),
             next_ticket: 1,
             picked_count: 0,
             forgot: false,
@@ -922,6 +932,7 @@ impl<D: DataSource> Runner<D> {
         runner.watching = vec![Vec::new(); runner.plan.resources.len()];
         runner.failed_args = vec![None; runner.plan.resources.len()];
         runner.then_due = vec![f64::INFINITY; runner.plan.mutations.len()];
+        runner.queues = queue::Queues::new(runner.plan.mutations.len());
         // A carried boot never takes compiled data: it was baked for the
         // initial state, and the carried state is not that.
         runner.settle(carried.is_none())?;
@@ -956,6 +967,12 @@ impl<D: DataSource> Runner<D> {
         runner.publish_surfaces(surfaces);
         let line = lines::boot(carried.is_some(), runner.kernel.live_count(), receipt.epoch);
         runner.log(line);
+        for (name, n) in carried
+            .map(|c| c.forgot_waiting.as_slice())
+            .unwrap_or_default()
+        {
+            runner.log(lines::forgot_waiting(*n, name));
+        }
         if !note.is_empty() {
             runner.log(note);
         }
@@ -1194,9 +1211,15 @@ impl<D: DataSource> Runner<D> {
         found
     }
 
-    /// Whether the plan has timers (a host then drives `advance`).
+    /// Whether the plan has timers (a host then drives `advance`): a task, a
+    /// `then`, or a queue's `next` (LLP 1092 D3).
     pub fn has_timers(&self) -> bool {
-        !self.plan.timers.is_empty() || self.plan.mutations.iter().any(|m| m.then.is_some())
+        !self.plan.timers.is_empty()
+            || self
+                .plan
+                .mutations
+                .iter()
+                .any(|m| m.then.is_some() || m.queue)
     }
 
     /// Whether the plan has a frame task (LLP 1073 D4): a host keeps its
@@ -1216,6 +1239,7 @@ impl<D: DataSource> Runner<D> {
             .filter(|(_, row)| !(row.frame && self.presenting))
             .map(|(timer, _)| timer.next_ms)
             .chain(self.then_due.iter().copied())
+            .chain(self.queues.next_due.iter().copied())
             .filter(|ms| ms.is_finite())
             .reduce(f64::min)
     }

@@ -20,6 +20,8 @@ use exact_kernel::{Color, ColorValue, Dimension, Edge, NodeRef, PropValue, RowVa
 use exact_plan::{BindingKind, Plan, TypeKind, TypesId, Value};
 use std::fmt::Write as _;
 
+mod schedule;
+
 /// Answer one request: `{"op":"tree"}`, `{"op":"state"}`,
 /// `{"op":"logs","since":N}`, `{"op":"node","id":V}` — the runner's half
 /// of `layout <node>` (LLP 1035.002 D1) — or `{"op":"tags"}`, the identity
@@ -902,8 +904,10 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
             count.messages, count.coalesced
         );
     }
+    s.push(']');
+    schedule::queued(runner, &mut s);
     // Notifications posted under the agent, where none reaches the system.
-    s.push_str("],\"notifications\":[");
+    s.push_str(",\"notifications\":[");
     for (i, n) in runner.notifications().iter().enumerate() {
         if i > 0 {
             s.push(',');

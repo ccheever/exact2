@@ -559,6 +559,15 @@ Requests use newest-request-wins behavior; stale answers do not overwrite newer
 requests. A failed resource keeps its retained value or placeholder and clears
 pending. A changed argument or explicit refresh allows another attempt.
 
+A write log wants every send, not the newest. Declare the mutation `queue`
+(`mutation saved as shape SaveResult queue then afterSave`): one request is in
+flight, and each later send waits, in order, with the arguments it was made
+with, until the reply before it has landed and its `then` has run. The source
+sees one request at a time, `then` runs once per reply, and `pending(saved)`
+stays true while anything waits. Assigning `saved = none` forgets nothing under
+`queue`: every reply still lands. Keep newest-wins for a sign-in or a draft whose
+late reply should be dropped (LLP 1092).
+
 A source sometimes needs current context to answer a question whose last answer
 is still suitable to show. For example, a stored car status may need the current
 minute to decide whether it must be fetched again:

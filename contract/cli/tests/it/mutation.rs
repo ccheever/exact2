@@ -1150,7 +1150,7 @@ fn two_sends_to_one_mutation_on_one_path_are_refused() {
     let app = |body: &str| {
         format!("shape Ack\n  op: string\ncomponent App\n  state open = true\n  state mode = \"a\"\n  mutation edited as shape Ack then afterEdit\n  action afterEdit\n    open = false\n  action commitEdit(k: string)\n{body}  view\n    button \"s\" press=commitEdit(\"1\")\n")
     };
-    let message = "`commitEdit` sends `edited` twice; only the last send's reply reaches `then afterEdit` (LLP 1016 D5). Send once, or use a mutation per request";
+    let message = "`commitEdit` sends `edited` twice; only the last send's reply reaches `then afterEdit` (LLP 1016 D5). Send once, use a mutation per request, or declare `mutation edited … queue` to run both in order";
     for body in [
         // Flashcards' `commitEdit`.
         "    send edited = saveCard(\"a\")\n    send edited = setImage(\"b\")\n",

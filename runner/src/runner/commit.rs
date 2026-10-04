@@ -26,6 +26,7 @@ pub(super) struct Checkpoint {
     refresh_next: Vec<usize>,
     reread_next: Vec<usize>,
     pending: Vec<PendingReq>,
+    queues: super::queue::Saved,
     commands: usize,
 }
 
@@ -46,6 +47,7 @@ impl<D: DataSource> Runner<D> {
             refresh_next: self.refresh_next.clone(),
             reread_next: self.reread_next.clone(),
             pending: self.pending.clone(),
+            queues: self.queues.save(),
             commands: self.commands.len(),
         }
     }
@@ -77,6 +79,7 @@ impl<D: DataSource> Runner<D> {
                 self.refresh_next = c.refresh_next;
                 self.reread_next = c.reread_next;
                 self.pending = c.pending;
+                self.queues.restore(c.queues);
                 self.sync_pending_flags();
                 self.commands.truncate(c.commands);
             }
@@ -157,7 +160,10 @@ impl<D: DataSource> Runner<D> {
         let presenting = std::mem::replace(&mut self.presenting, true);
         let mut a = self.advance_timed(now_ms);
         self.presenting = presenting;
-        if a.error.is_some() || !self.wants_frames() {
+        // A refused `next` is journaled and the frame goes on: its frame
+        // tasks fire, and the `next` waits for a later wake (LLP 1092 D3).
+        let next_refused = std::mem::take(&mut self.queues.stopped_on_next);
+        if (a.error.is_some() && !next_refused) || !self.wants_frames() {
             return a;
         }
         let at = self.now_ms;
@@ -235,6 +241,7 @@ impl<D: DataSource> Runner<D> {
             };
         }
         let mut landed = now_ms;
+        self.queues.stopped_on_next = false;
         loop {
             // The earliest due timer, deterministic by index on ties.
             let due = self
@@ -248,15 +255,53 @@ impl<D: DataSource> Runner<D> {
                 })
                 .map(|(i, t)| (i, t.next_ms));
             // An answer's `then` goes before a timer due at the same time: the
-            // answer landed first.
+            // answer landed first. A queue's `next` goes after the `then`s and
+            // before the timers (LLP 1092 D3).
             let then = self
                 .then_due
                 .iter()
                 .enumerate()
                 .filter(|(_, at)| **at <= now_ms)
                 .min_by(|(ia, a), (ib, b)| a.partial_cmp(b).unwrap().then(ia.cmp(ib)))
-                .map(|(m, at)| (m, *at))
-                .filter(|(_, at)| due.is_none_or(|(_, timer)| *at <= timer));
+                .map(|(m, at)| (m, *at));
+            let next = self
+                .due_next(now_ms)
+                .filter(|(_, at)| due.is_none_or(|(_, timer)| *at <= timer))
+                .filter(|(_, at)| then.is_none_or(|(_, then)| *at < then));
+            let then = then.filter(|(_, at)| due.is_none_or(|(_, timer)| *at <= timer));
+            let then = then.filter(|_| next.is_none());
+            if let Some((m, at)) = next {
+                if receipts.len() == TIMER_FIRE_LIMIT {
+                    return Advanced {
+                        receipts,
+                        now_ms: self.now_ms,
+                        error: Some(RunnerError::TimerFireLimit {
+                            limit: TIMER_FIRE_LIMIT,
+                        }),
+                    };
+                }
+                self.now_ms = self.now_ms.max(at);
+                let ticket = self.next_ticket;
+                match self.run_next(m) {
+                    Ok(receipt) => receipts.push(Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }),
+                    Err(e) => {
+                        self.queues.stopped_on_next = true;
+                        return Advanced {
+                            receipts,
+                            now_ms: self.now_ms,
+                            error: Some(e),
+                        };
+                    }
+                }
+                if until_request && self.next_ticket != ticket {
+                    landed = self.now_ms;
+                    break;
+                }
+                continue;
+            }
             if let Some((m, at)) = then {
                 if receipts.len() == TIMER_FIRE_LIMIT {
                     return Advanced {
@@ -384,6 +429,7 @@ impl<D: DataSource> Runner<D> {
         let result = self.run_action_inner(action, args, frames);
         self.conclude(checkpoint, &result, was_poisoned);
         self.arm_then(result.is_ok());
+        self.arm_next(result.is_ok());
         result
     }
 
@@ -480,41 +526,34 @@ impl<D: DataSource> Runner<D> {
         };
         // Sends (LLP 1016 §4): each asks the source now. An answer lands in
         // the mutation's slot inside this commit; a request goes to the host
-        // once the commit stands.
+        // once the commit stands. A queue mutation's send is asked only when
+        // the mutation is free and it is the commit's first; else it waits
+        // its turn (LLP 1092 D2).
         let mut later: Vec<(usize, String, Vec<Value>, Request)> = Vec::new();
         let mut answered: Vec<(u32, Value)> = Vec::new();
+        let mut asked: Vec<usize> = Vec::new();
         for (m, source, sargs) in &outcome.sends {
             let m = *m as usize;
-            let mrow = self.plan.mutations[m].clone();
-            let name = self.plan.str(mrow.name).to_string();
-            let target = Target::Mutation(m);
-            let answer = match self.data.answer_for(target, &mut self.store, source, sargs) {
-                Ok(answer) => answer,
-                Err(error) => {
+            if self.plan.mutations[m].queue && (asked.contains(&m) || !self.asks_now(m)) {
+                if let Err(e) = self.wait_turn(m, source, sargs) {
                     self.discard_later(&later);
-                    return Err(RunnerError::Data {
-                        resource: name,
-                        error,
-                    });
+                    return Err(e);
                 }
-            };
-            match answer {
-                Answer::Now(v) => {
-                    if !self.conforms(&v, mrow.ty) {
-                        self.discard_later(&later);
-                        return Err(RunnerError::Shape { resource: name });
-                    }
-                    let slot = match self.mutation_slot(m) {
-                        Ok(slot) => slot,
-                        Err(e) => {
-                            self.discard_later(&later);
-                            return Err(e);
-                        }
-                    };
-                    answered.push((slot as u32, Value::some(v)));
+                continue;
+            }
+            asked.push(m);
+            match self.ask_send(m, source, sargs) {
+                Ok(super::queue::Asked::Now(slot, v)) => {
+                    answered.push((slot as u32, v));
                     self.landed.push(m);
                 }
-                Answer::Later(request) => later.push((m, source.clone(), sargs.clone(), request)),
+                Ok(super::queue::Asked::Later(request)) => {
+                    later.push((m, source.clone(), sargs.clone(), request))
+                }
+                Err(e) => {
+                    self.discard_later(&later);
+                    return Err(e);
+                }
             }
         }
         // Commit the writes, then everything downstream. If settlement refuses
@@ -567,8 +606,12 @@ impl<D: DataSource> Runner<D> {
         // An assignment to a mutation's slot tentatively makes it not
         // pending. The pending map is changed only after settlement stands:
         // a refused assignment did not change what reply the view wants.
+        // A queue's assignment forgets nothing: every reply still lands
+        // (LLP 1092 D4).
         let assigned: Vec<usize> = (0..self.plan.mutations.len())
-            .filter(|m| written.contains(&self.plan.mutations[*m].slot.0))
+            .filter(|m| {
+                written.contains(&self.plan.mutations[*m].slot.0) && !self.plan.mutations[*m].queue
+            })
             .collect();
         for m in &assigned {
             self.pending_mut[*m] = false;
@@ -584,10 +627,9 @@ impl<D: DataSource> Runner<D> {
         for r in outcome.refreshes.iter() {
             self.force_refresh(*r as usize);
         }
-        self.reread_next = outcome
-            .sends
+        self.reread_next = asked
             .iter()
-            .flat_map(|(m, _, _)| self.declared_refreshes(*m as usize))
+            .flat_map(|m| self.declared_refreshes(*m))
             .collect();
         // A refusal from here is put back by the checkpoint (run_action);
         // row slots live in the tree, so they are undone here.
@@ -666,6 +708,7 @@ impl<D: DataSource> Runner<D> {
         self.requests.clear();
         self.forgot |= !self.pending.is_empty();
         self.pending.clear();
+        self.forget_waiting();
         self.sync_pending_flags();
     }
 
@@ -785,6 +828,10 @@ impl<D: DataSource> Runner<D> {
                 Target::Resource(i) => self.pending_res[i] = true,
                 Target::Mutation(m) => self.pending_mut[m] = true,
             }
+        }
+        // A queue's waiting send is pending too (LLP 1092 D4).
+        for m in 0..self.pending_mut.len() {
+            self.pending_mut[m] |= self.queues.waits(m);
         }
         // A placeholder shown until the source can answer is pending too.
         for (i, awaiting) in self.awaiting.iter().enumerate() {
@@ -942,6 +989,7 @@ impl<D: DataSource> Runner<D> {
         let result = self.fulfill_inner(p, outcome);
         self.conclude(checkpoint, &result, was_poisoned);
         self.arm_then(result.is_ok());
+        self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         if refused && result.is_err() && self.holds(ticket) {
             return self.release_refused(ticket, target);
@@ -982,6 +1030,7 @@ impl<D: DataSource> Runner<D> {
         let result = self.fulfill_inner(p, outcome);
         self.conclude(checkpoint, &result, was_poisoned);
         self.arm_then(result.is_ok());
+        self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         if result.is_err() && self.holds(ticket) {
             return self.release_failed(ticket, target);

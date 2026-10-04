@@ -80,6 +80,16 @@ pub(super) fn forgot(ticket: u64, name: &str) -> String {
     text!("forget request {} ({})", ticket, name)
 }
 
+/// Sends that waited and were never asked (LLP 1092 D4).
+pub(super) fn forgot_waiting(n: usize, name: &str) -> String {
+    text!(
+        "forgot {} waiting send{} ({})",
+        n,
+        if n == 1 { "" } else { "s" },
+        name
+    )
+}
+
 pub(super) fn enqueued(ticket: u64, name: &str, request: &Request) -> String {
     match request.continuation {
         Some(token) => text!(

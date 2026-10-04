@@ -400,13 +400,15 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             .map(|x| format!("r_{}", plan.mutation_refreshes[x.0 as usize].resource.0))
             .collect();
         let mt = em.uses.rt("mut");
+        // A queue's sends wait their turn (LLP 1092 D6; schedule.js).
         let _ = write!(
             body,
-            "const m_{i}={mt}({},s_{},[{}],{});",
+            "const m_{i}={mt}({},s_{},[{}],{}{});",
             serde_json::to_string(plan.str(m.name)).unwrap(),
             m.slot.0,
             refreshes.join(","),
-            serde_json::to_string(&type_code(plan, m.ty)).unwrap()
+            serde_json::to_string(&type_code(plan, m.ty)).unwrap(),
+            if m.queue { ",1" } else { "" }
         );
     }
     // A child's state used outside every region: initialized as the root
@@ -548,6 +550,11 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         list("d", plan.derives.len()),
         list("r", plan.resources.len())
     );
+    // The queues read the state a stalled `next` saw (LLP 1092 D3).
+    if plan.mutations.iter().any(|m| m.queue) {
+        let queues = em.uses.rt("queues");
+        let _ = write!(body, "{queues}($state);");
+    }
     for t in plan.timers.iter() {
         if t.frame {
             // LLP 1073: once per presented frame, virtual frames on a seek.

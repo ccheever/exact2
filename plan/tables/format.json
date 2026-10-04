@@ -222,6 +222,11 @@
           "name": "then",
           "codec": "opt:actions",
           "_comment": "The action a `mutation … then action` runs after each answer lands, as its own commit (LLP 1016.001). None: nothing runs."
+        },
+        {
+          "name": "queue",
+          "codec": "bool",
+          "_comment": "@ref LLP 1092 D1, D2: `mutation m as shape T queue` — one send in flight; a later send waits, with its send-time arguments, until the one before it is answered or let go and its `then` has run. False: the newest send wins (LLP 1016 §4)."
         }
       ]
     },

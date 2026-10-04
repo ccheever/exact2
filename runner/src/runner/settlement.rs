@@ -75,6 +75,7 @@ impl<D: DataSource> Runner<D> {
             self.settle(false).and_then(|_| self.update())
         };
         self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         result
     }

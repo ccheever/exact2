@@ -13,7 +13,7 @@ import { resolve } from 'node:path';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-baked-'));
 const webJs = name => resolve(new URL(`../../web-js/${name}`, import.meta.url).pathname);
-for (const f of ['rt.js', 'roster.js', 'router.js', 'budget.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
+for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
 for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'],
   'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
@@ -63,6 +63,26 @@ test('a stream answer settles per message, keeps its ticket, and closes when let
   opened[1].end({ v: -1 });
   await new Promise(r => setTimeout(r, 0));
   expect([feed(), feed.p(), feed.r.ticket, inflight.n]).toEqual([-1, false, null, 0]);
+});
+
+// A queue with no `then` (LLP 1092 D3, D6): off the agent, the commit its reply lands in makes the waiting send due,
+// and the wall clock's `drive()` asks it with nothing else to wake it; the send waited with its own arguments.
+test('a queue with no then asks its waiting send by drive() alone, off the agent', async () => {
+  const { mut, M, act, sig, data, queues, clock } = await import(resolve(dir, 'rt.js'));
+  const asked = [], replies = [];
+  data.answer = (source, args) => { asked.push(args[0]); return { promise: new Promise(r => replies.push(r)) }; };
+  const slot = sig(null);
+  const m = mut('rec', slot, [], null, 1);
+  queues([[slot], [], []]);
+  const send = act(op => M(m, 'save', [op]));
+  send('p'); send('q');
+  expect([asked, m.p(), m.wait.length, clock.agent]).toEqual([['p'], true, 1, false]);
+  replies[0]('P');
+  for (let i = 0; i < 50 && asked.length < 2; i++) await new Promise(r => setTimeout(r, 5));
+  expect([asked, slot(), m.p(), m.wait.length]).toEqual([['p', 'q'], 'P', true, 0]);
+  replies[1]('Q');
+  for (let i = 0; i < 50 && m.p(); i++) await new Promise(r => setTimeout(r, 5));
+  expect([slot(), m.p(), m.next]).toEqual(['Q', false, Infinity]);
 });
 
 test('a key handler stops and prevents its event while a view transition holds the tree update', async () => {

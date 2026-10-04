@@ -170,7 +170,7 @@ compile complete examples, parse authored tests, and check local links.
 | `state name = expr` | Component | Stored state |
 | `derive name = expr` | Component | Dependency-driven computed value |
 | `resource name = source(args) as shape T` | Root component | Reactive data request |
-| `mutation name as shape T` | Root component | Optional reply slot for explicit sends |
+| `mutation name as shape T [queue]` | Root component | Optional reply slot for explicit sends |
 | `action name(args)` | Component | Event transaction; effects inferred |
 | `task name mount` | Root component | One timer/frame schedule |
 | `view` | Component | UI tree |
@@ -378,6 +378,7 @@ Choose the mechanism from its lifetime:
 | Re-request current resource arguments | `refresh result` |
 | Refresh reads around a mutation | `mutation … refreshes resourceA, resourceB` |
 | React once to a settled mutation | `mutation … then actionName` |
+| Writes that must all land, in order | `mutation … queue`: one in flight, later sends wait their turn |
 | Pending indicator | `pending(resourceOrMutationName)` |
 | Resource request failed without an answer | `failed(resourceName)` |
 | Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
@@ -399,8 +400,18 @@ ask. The default web JS target keeps no persisted resource answers
 The current request owns its answer; older replies cannot overwrite a newer
 request. Assigning a mutation forgets its in-flight reply, so an action that
 sends one mutation twice on one path is refused (`analyze-send-twice`), counting
-the sends of the actions it calls: send one combined request, or use a mutation
-per request. `refreshes` re-reads
+the sends of the actions it calls: send one combined request, use a mutation
+per request, or declare the mutation `queue`
+([LLP 1092](../llp/1092-sends-that-queue-and-timers-that-wait.rfc.md)). A
+`queue` mutation (`mutation wrote as shape Ack queue then afterWrote`) keeps one
+request in flight; every later send waits, in order, with the arguments it was
+made with, and is asked after the reply before it and that reply's `then`, so
+`then` runs once per reply, in send order. `pending(m)` is true while a send is
+in flight or waits: send while it is pending, since `not pending(m)` means the
+spinner is off, not that a send may be skipped. Assigning a queue's slot forgets
+nothing — every reply still lands over it — so a mutation that must drop a late
+reply (a session's sign-in) does not declare `queue`. At most 64 sends wait; the
+65th refuses its action. `refreshes` re-reads
 its resources when the mutation is sent (an answer the source gives at once shows
 immediately) and forces them again when the reply lands. `then` is parameterless,
 runs once at the host's next clock advance as a new commit (under the driver, an
@@ -842,7 +853,7 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | Add a function because it exists in JavaScript | Check the roster or put the operation in the data module; `len`, `split`, `push(xs, x)` and their kind are refused naming what to write |
 | `background-color: "#fff"` in a `style` | `background-color="#fff"` |
 | `change=flip(t.id)` on a checkbox, `action flip(id: string)` | The event appends its payload: `action flip(id: string, checked: bool)` (the refusal spells it) |
-| Two `send`s to one mutation in one action | One combined request, or a mutation per request |
+| Two `send`s to one mutation in one action | One combined request, a mutation per request, or `mutation … queue` to run both in order |
 
 What compiles and then misbehaves (an image tile at its intrinsic size, native bars
 the agent does not show, a back gesture refused) is in
