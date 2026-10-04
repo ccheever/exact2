@@ -946,7 +946,7 @@ final class Presenter {
                     if let node = child as? NodeView { reparented.insert(node.id) }
                     child.removeFromSuperview()
                 }
-                let mounted = want.filter { !dialogs.owns($0) && !menus.owns($0) && !isFlying($0) }
+                let mounted = NodeView.keepingGhosts(want.filter { !dialogs.owns($0) && !menus.owns($0) && !isFlying($0) }, in: container)
                 for (i, child) in mounted.enumerated() {
                     if child.superview !== container {
                         reparented.insert(child.id)
@@ -977,6 +977,8 @@ final class Presenter {
             case .exit: beginExit(id)
             case .flight: beginFlight(op)
             case .land: if let f = flights[id] { landFlight(f) }
+            case .rank:
+                if let rank = op.payload["rank"] as? NSNumber { views[id]?.setRank(rank.int64Value) }
             case .sticky: stickies.apply(id, op.payload)
             case .destroy:
                 elements.destroyed(id)

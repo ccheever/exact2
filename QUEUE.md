@@ -906,3 +906,5 @@ and the Linux headless CPU renderer without claiming display frame timing.
   - A native module view cannot report its intended size; a growing composer reports height through `message` and the app sizes its box.
   - `backgroundMaterial="glass"` is a glass effect behind an Exact box, not UIKit's glass controls (`UIButton.Configuration.glass()`, glass containers that merge); the app uses native module views for buttons and its composer.
   - A back swipe painted only the part of the incoming route visible as it began; fixed by painting each frame of the transition, but a device report says half the screen still fills in late.
+
+- **Apple paint order after A1 (LLP 1083.000 D4):** iOS flat leaves still ignore the rank op and `Prepared.swift` treats `position_type` as inert; promotion/demotion and flat-layer hit ownership remain for A2. macOS default `AgentMac.swift` capture still uses `cacheDisplay`, which does not compose the new ranks; use `screenshot … window` until its compositor lands.

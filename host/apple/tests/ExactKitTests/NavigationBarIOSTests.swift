@@ -173,7 +173,10 @@ final class NavigationBarIOSTests: XCTestCase {
     func testAPushedRouteShowsBackAsTheAuthoredControlAndAPopPressesItOnce() throws {
         let session = try fixture("bar-push", module: false)
         let agent = Agent(session: session)
-        _ = agent.tap(["id": Int(try node(session, "detail").id)])
+        let tapped = try node(session, "detail")
+        let reply = agent.tap(["id": Int(tapped.id)])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertEqual(reply["pressed"] as? Int, Int(tapped.id), "the native projection stays above its authored holders")
         let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
         until("the detail route is pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
         let detail = try XCTUnwrap(nav.topViewController), home = nav.viewControllers[0]

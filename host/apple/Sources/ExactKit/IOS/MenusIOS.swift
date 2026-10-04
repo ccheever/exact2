@@ -41,8 +41,11 @@ final class MenuHost {
     /// The top layer takes no touch itself, only what it holds.
     private final class TopLayer: UIView {
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-            let hit = super.hitTest(point, with: event)
-            return hit === self ? nil : hit
+            guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
+            for child in NodeView.hitOrder(subviews) {
+                if let hit = child.hitTest(convert(point, to: child), with: event) { return hit }
+            }
+            return nil
         }
     }
 
@@ -284,6 +287,7 @@ final class MenuHost {
         guard let presenter, let pop = entry.popover else { return }
         let host: UIView = presenter.modals.coordinateView ?? presenter.viewport
         if entry.layer.superview !== host || host.subviews.last !== entry.layer { host.addSubview(entry.layer) }
+        entry.layer.setPaintForeground()
         if entry.layer.frame != host.bounds { entry.layer.frame = host.bounds }
         if pop.superview !== entry.layer { entry.layer.addSubview(pop) }
         if pop.isHidden { pop.isHidden = false }

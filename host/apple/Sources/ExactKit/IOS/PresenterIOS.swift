@@ -826,6 +826,8 @@ final class Presenter {
                 beginFlight(op)
             case .land:
                 if let f = flights[id] { landFlight(f) }
+            case .rank:
+                if let rank = op.payload["rank"] as? NSNumber { views[id]?.setRank(rank.int64Value) }
             case .sticky:
                 if flats.isFlat(id) { flats.promote(id) }
                 stickies.apply(id, op.payload)
@@ -944,7 +946,7 @@ final class Presenter {
         // In order, below anything else in the container (a scroll
         // view's indicators): inserting a subview at an index moves
         // it when it is already there. One already there stays.
-        let contained = want.filter { !navigation.ownsContainment(of: $0, under: parent) && !menus.lifted($0) && !isFlying($0) }
+        let contained = NodeView.keepingGhosts(want.filter { !navigation.ownsContainment(of: $0, under: parent) && !menus.lifted($0) && !isFlying($0) }, in: container)
         current = container.subviews
         for (i, child) in contained.enumerated() where !(i < current.count && current[i] === child) {
             container.insertSubview(child, at: i)

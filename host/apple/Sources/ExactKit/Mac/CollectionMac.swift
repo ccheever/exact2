@@ -224,7 +224,7 @@ extension CollectionHost {
         // Spacer reuse can move a pinned row within the same parent. Detaching
         // it to reorder clears AppKit's first responder, even when its logical
         // selection and the row itself survive the collection commit.
-        let ordered = container.subviews.filter { !($0 is NodeView) } + children
+        let ordered = container.subviews.filter { !($0 is NodeView) } + NodeView.keepingGhosts(children, in: container)
         guard !ordered.elementsEqual(container.subviews, by: { $0 === $1 }) else { return }
         var ranks = Dictionary(uniqueKeysWithValues: ordered.enumerated().map { (ObjectIdentifier($0.element), $0.offset) })
         withUnsafeMutablePointer(to: &ranks) { context in

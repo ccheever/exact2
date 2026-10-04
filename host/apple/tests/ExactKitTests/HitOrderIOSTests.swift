@@ -22,9 +22,10 @@ final class HitOrderIOSTests: XCTestCase {
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "view", "handlers": ["press"], "props": ["testId": "menu"],
-             "style": ["position_type": "absolute", "z_index": raised, "text_color": [0, 0, 0, 255]]],
+             "style": ["position_type": raised == 0 ? "static" : "absolute", "z_index": raised, "text_color": [0, 0, 0, 255]]],
             ["op": "create", "id": 3, "kind": "view", "handlers": ["press"], "props": ["testId": "list"]],
             ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            ["op": "rank", "id": 2, "rank": raised * 2],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
             ["op": "frame", "id": 2, "x": 340.0, "y": 0.0, "w": 44.0, "h": 44.0],
             ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
@@ -50,6 +51,7 @@ final class HitOrderIOSTests: XCTestCase {
         p.apply(wireBatch([
             ["op": "create", "id": 4, "kind": "view", "style": ["position_type": "absolute", "z_index": 3.0, "pointer_events": "none", "text_color": [0, 0, 0, 255]]],
             ["op": "children", "id": 1, "ids": [2, 3, 4]],
+            ["op": "rank", "id": 4, "rank": 6],
             ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 400.0, "h": 120.0],
         ]))
         window.layoutIfNeeded()
@@ -73,7 +75,7 @@ final class HitOrderIOSTests: XCTestCase {
         XCTAssertTrue(hit(p, CGPoint(x: 360, y: 20)) === p.views[2], "the button around the native view")
     }
 
-    func testWithoutZIndexTheLaterSiblingIsOnTop() throws {
+    func testInFlowTheLaterSiblingIsOnTop() throws {
         let p = presenter(raised: 0)
         let list = try XCTUnwrap(p.views[3])
         XCTAssertTrue(hit(p, CGPoint(x: 360, y: 20)) === list, "tree order, as the web paints it")

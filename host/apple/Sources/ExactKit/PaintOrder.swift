@@ -1,0 +1,172 @@
+// LLP 1083.000 D4: tree order stays in subviews; Core Animation gets only
+// the dense sibling rank. Every layer standing for a node takes this value.
+#if os(macOS)
+import AppKit
+typealias PaintView = NSView
+#else
+import UIKit
+typealias PaintView = UIView
+#endif
+
+private var paintRanksKey: UInt8 = 0
+private var paintForegroundKey: UInt8 = 0
+private final class DensePaintRanks {
+    var positions: [Int64: CGFloat] = [0: 0]
+    static func of(_ parent: PaintView) -> DensePaintRanks {
+        if let ranks = objc_getAssociatedObject(parent, &paintRanksKey) as? DensePaintRanks { return ranks }
+        let ranks = DensePaintRanks()
+        objc_setAssociatedObject(parent, &paintRanksKey, ranks, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return ranks
+    }
+}
+
+extension NodeView {
+    var paintRank: Int64 {
+        if paintLifted { return 4_294_967_294 }
+        if paintGhost { return 4_294_967_292 }
+        return paintGhosts > 0 ? 1 : rank
+    }
+
+    var paintZPosition: CGFloat {
+        #if os(macOS)
+        return layer?.zPosition ?? 0
+        #else
+        return layer.zPosition
+        #endif
+    }
+
+    func setRank(_ value: Int64) {
+        guard rank != value else { return }
+        rank = value
+        refreshPaintOrder()
+    }
+
+    func setLifted(_ value: Bool) {
+        guard paintLifted != value else { return }
+        paintLifted = value
+        refreshPaintOrder()
+    }
+
+    func setGhost(_ value: Bool) {
+        guard paintGhost != value else { return }
+        paintGhost = value
+        if value {
+            var parent = superview
+            while let view = parent, !(view is NodeView) { parent = view.superview }
+            ghostParent = parent as? NodeView
+            ghostParent?.paintGhosts += 1
+        } else {
+            ghostParent?.paintGhosts -= 1
+        }
+        ghostParent?.refreshPaintOrder()
+        if !value { ghostParent = nil }
+        refreshPaintOrder()
+    }
+
+    /// Called after a mount, removal or change of native content holder.
+    func paintOrderMoved() {
+        let old = paintParent
+        paintParent = superview
+        if old !== superview, let old { Self.rankChildren(of: old) }
+        refreshPaintOrder()
+    }
+
+    private func refreshPaintOrder() {
+        if let parent = superview { Self.rankChildren(of: parent, changed: self) }
+        else { setPaintPosition(0) }
+    }
+
+    fileprivate static func rankChildren(of parent: PaintView, changed: PaintView? = nil) {
+        let children = parent.subviews.filter { $0 is NodeView || $0.paintForeground }
+        // Zero is the origin even when no child has rank zero. Native
+        // decoration/content layers remain there as well.
+        let distinct = Set(children.map(\.siblingPaintRank)).union([0])
+        let dense = DensePaintRanks.of(parent)
+        if distinct != Set(dense.positions.keys) {
+            let ranks = distinct.sorted()
+            let zero = ranks.firstIndex(of: 0)!
+            dense.positions = Dictionary(uniqueKeysWithValues: ranks.enumerated().map { ($0.element, CGFloat($0.offset - zero) * 0.001) })
+            for child in children { child.setPaintPosition(dense.positions[child.siblingPaintRank]!) }
+        }
+        if let changed { changed.setPaintPosition(dense.positions[changed.siblingPaintRank]!) }
+    }
+
+    /// Live children may reorder around an exit, but the ghost keeps its
+    /// existing slot rather than being moved to the end of the native tree.
+    static func keepingGhosts(_ children: [NodeView], in parent: PaintView) -> [NodeView] {
+        var result = children
+        for (index, view) in parent.subviews.enumerated() {
+            if let ghost = view as? NodeView, ghost.paintGhost {
+                result.insert(ghost, at: min(index, result.count))
+            }
+        }
+        return result
+    }
+
+    /// Front to back, stable among equals. The ordinary equal-depth case
+    /// needs only one linear check, and no invalidation cache.
+    static func hitOrder(_ views: [PaintView]) -> [PaintView] {
+        func z(_ view: PaintView) -> CGFloat {
+            #if os(macOS)
+            return view.layer?.zPosition ?? 0
+            #else
+            return view.layer.zPosition
+            #endif
+        }
+        guard let first = views.first else { return [] }
+        let depth = z(first)
+        guard views.contains(where: { z($0) != depth }) else { return views.reversed() }
+        return views.enumerated().sorted {
+            let a = z($0.element), b = z($1.element)
+            return a != b ? a > b : $0.offset > $1.offset
+        }.map(\.element)
+    }
+}
+
+extension PaintView {
+    fileprivate var paintForeground: Bool { (objc_getAssociatedObject(self, &paintForegroundKey) as? Bool) == true }
+    fileprivate var siblingPaintRank: Int64 { paintForeground ? Int64.max : (self as? NodeView)?.paintRank ?? 0 }
+
+    /// Native navigation replaces authored route holders, and a top-layer
+    /// popover sits above the document. Their foreground plane must survive
+    /// ranked authored siblings, just as their previous last-subview did.
+    func setPaintForeground(_ on: Bool = true) {
+        #if os(macOS)
+        if on { wantsLayer = true }
+        #endif
+        objc_setAssociatedObject(self, &paintForegroundKey, on, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        if let superview { NodeView.rankChildren(of: superview, changed: self) }
+        else { setPaintPosition(0) }
+    }
+
+    /// The one writer of a node's effective depth, including its stand-ins.
+    func setPaintPosition(_ value: CGFloat) {
+        #if os(macOS)
+        if layer?.zPosition != value { layer?.zPosition = value }
+        #else
+        if layer.zPosition != value { layer.zPosition = value }
+        Shadow.active?.rank(layer, value)
+        #endif
+        if let picture = (self as? NodeView)?.boxFilter?.picture {
+            if picture.zPosition != value { picture.zPosition = value }
+            #if os(iOS)
+            Shadow.active?.rank(picture, value)
+            #endif
+        }
+    }
+}
+
+#if os(macOS)
+extension NSView {
+    /// AppKit's hit supplies the bounds/clipping decision and the fallback
+    /// target. Try its child branches in paint order, including negative z.
+    func raisedHit(_ hit: NSView?, _ point: NSPoint) -> NSView? {
+        guard hit != nil, !isHidden else { return hit }
+        let local = convert(point, from: superview)
+        for view in NodeView.hitOrder(subviews) {
+            if let found = view.hitTest(local) { return found }
+        }
+        return hit
+    }
+}
+#endif

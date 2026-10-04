@@ -194,7 +194,7 @@ final class GlassGroupView: UIVisualEffectView {
     var spacing: CGFloat = -1
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard !isHidden, isUserInteractionEnabled else { return nil }
-        for child in contentView.subviews.reversed() {
+        for child in NodeView.hitOrder(contentView.subviews) {
             if let hit = child.hitTest(convert(point, to: child), with: event) { return hit }
         }
         return nil
@@ -315,7 +315,7 @@ class GlassGroupView: NSGlassEffectContainerView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, let content = contentView else { return nil }
         let inContent = content.convert(point, from: superview)
-        for child in content.subviews.reversed() {
+        for child in NodeView.hitOrder(content.subviews) {
             if let hit = child.hitTest(inContent) { return hit }
         }
         return nil
@@ -332,7 +332,7 @@ final class GlassIsolationView: GlassGroupView {}
 private final class GlassContent: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let hit = super.hitTest(point)
+        let hit = raisedHit(super.hitTest(point), point)
         return hit === self ? nil : hit
     }
 }

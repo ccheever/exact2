@@ -121,6 +121,7 @@ final class MenuHost: NSObject {
         } else {
             entry.layer.autoresizingMask = [.width, .height]
             presenter.viewport.addSubview(entry.layer)
+            entry.layer.setPaintForeground()
             entry.layer.addSubview(pop)
             pop.isHidden = false
             layout()
@@ -308,7 +309,7 @@ final class MenuHost: NSObject {
 private final class PopoverLayer: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let hit = super.hitTest(point)
+        let hit = raisedHit(super.hitTest(point), point)
         return hit === self ? nil : hit
     }
 }

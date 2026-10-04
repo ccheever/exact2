@@ -29,13 +29,14 @@ extension Presenter {
         view.accessibilityElementsHidden = true
         // A leaving modal no longer hides what stays (LLP 1080.003).
         view.accessibilityViewIsModal = false
-        view.superview?.bringSubviewToFront(view)
+        view.setGhost(true)
         leaving[id] = Leaving(view: view, members: members)
     }
 
     /// The host's `destroy` of a leaving view: its exit ended.
     func endExit(_ id: UInt32) -> Bool {
         guard let ended = leaving.removeValue(forKey: id) else { return false }
+        ended.view.setGhost(false)
         for member in ended.members { member.forget() }
         ended.view.removeFromSuperview()
         return true
