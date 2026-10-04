@@ -372,8 +372,9 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
           await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
           for (let clickCount = 1; clickCount <= (kind === 'dblclick' ? 2 : 1); clickCount++) {
             const button = kind === 'contextmenu' ? 'right' : 'left';
-            await call('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, clickCount });
-            await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, clickCount });
+            // `buttons` is what PointerEvent.buttons reports; CDP leaves it 0 unless told.
+            await call('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, buttons: button === 'right' ? 2 : 1, clickCount });
+            await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, buttons: 0, clickCount });
           }
         }
         else if (kind === 'key') {
@@ -394,8 +395,8 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         }
         else if (kind === 'press') {
           await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
-          await call('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
-          await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+          await call('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+          await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 });
         } else if (kind === 'type') {
           const f = await ask({ op: 'focus', id });
           if (f.error) throw new Error(f.error);
