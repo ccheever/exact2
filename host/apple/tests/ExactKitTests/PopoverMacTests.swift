@@ -250,7 +250,8 @@ final class PopoverMacTests: XCTestCase {
         p.onPress = { pressed.append($0) }
         p.press(2)
         defer { p.menus.reset() }
-        let item = try XCTUnwrap(menu.items.last)
+        // The presentation's own menu: one built before it opened is stale.
+        let item = try XCTUnwrap(p.menus.menu(of: pop, from: p.views[2]!).items.last)
         NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item)
         NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item)
         XCTAssertEqual(pressed, [], "not inside the menu's action")
@@ -310,6 +311,49 @@ final class PopoverMacTests: XCTestCase {
         p.menus.reset()
         turn()
         XCTAssertEqual(pressed, [], "reset before its turn")
+    }
+    /// A pick belongs to its invoker and its presentation: a batch before its
+    /// turn that unmounts, hides or disables the invoker — the shared
+    /// popover still mounted — cancels it, as does a retitle undone by a
+    /// later batch and the popover presented again. Untouched, it presses.
+    func testAPickDiesWithItsInvokerOrItsPresentation() throws {
+        let changes: [(String, (Presenter) -> Void)] = [
+            ("untouched", { _ in }),
+            ("invoker unmounted", { p in
+                p.apply(wireBatch([["op": "children", "id": 1, "ids": [6, 3]], ["op": "destroy", "id": 2]])) }),
+            ("invoker hidden", { p in p.apply(wireBatch([["op": "style", "id": 2, "style": ["display": "none"]]])) }),
+            ("invoker disabled", { p in p.apply(wireBatch([["op": "props", "id": 2, "set": ["disabled": "true"]]])) }),
+            ("retitled, then restored", { p in
+                p.apply(wireBatch([["op": "props", "id": 13, "set": ["text": "Print"]]]))
+                p.apply(wireBatch([["op": "props", "id": 13, "set": ["text": "Share"]]])) }),
+            ("presented again", { p in p.menus.show(p.views[3]!, from: p.views[2]!); p.menus.close(p.views[3]!) }),
+        ]
+        for (name, change) in changes {
+            let (p, _) = menuFixture()
+            // A second invoker keeps the popover shared and mounted.
+            p.apply(wireBatch([["op": "create", "id": 7, "kind": "button", "props": ["popovertarget": "form"]],
+                               ["op": "children", "id": 1, "ids": [2, 6, 7, 3]]]))
+            let menu = p.menus.menu(of: p.views[3]!, from: p.views[2]!)
+            var pressed: [UInt32] = []
+            p.onPress = { pressed.append($0) }
+            let share = menu.items[1]
+            NSApp.sendAction(try XCTUnwrap(share.action), to: share.target, from: share)
+            change(p)
+            turn()
+            XCTAssertEqual(pressed, name == "untouched" ? [11] : [], name)
+            p.menus.reset()
+        }
+    }
+    /// A hidden or inert row is an item that cannot be chosen, as a chooser's.
+    func testAHiddenOrInertRowIsADisabledItem() throws {
+        for change: [String: Any] in [["op": "style", "id": 11, "style": ["display": "none"]],
+                                      ["op": "props", "id": 11, "set": ["inert": "true"]]] {
+            let (p, _) = menuFixture()
+            p.apply(wireBatch([change]))
+            let menu = p.menus.menu(of: p.views[3]!, from: p.views[2]!)
+            XCTAssertEqual(menu.items.map(\.title), ["Copy", "Share"])
+            XCTAssertEqual(menu.items.map(\.isEnabled), [true, false], "\(change)")
+        }
     }
     /// The real popUp: a row picked inside AppKit's tracking whose press's
     /// batch unmounts the invoker the menu was popped up in. It presses

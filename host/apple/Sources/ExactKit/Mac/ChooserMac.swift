@@ -23,6 +23,8 @@ extension MenuHost {
     final class Confirmation {
         weak var source: NodeView?
         weak var popover: NodeView?
+        /// The popover's presentation this owner belongs to.
+        let presentation: Int
         /// An action as presented: the node, its title and whether it could be chosen.
         final class Presented {
             weak var node: NodeView?
@@ -37,8 +39,8 @@ extension MenuHost {
         /// The action chosen, pressed on the next turn unless cancelled first.
         var chosen: Int?
         func cancel() { finished = true; chosen = nil }
-        init(source: NodeView, popover: NodeView, actions: [Presented], heading: String?, message: [String]) {
-            self.source = source; self.popover = popover; self.actions = actions
+        init(source: NodeView, popover: NodeView, presentation: Int, actions: [Presented], heading: String?, message: [String]) {
+            self.source = source; self.popover = popover; self.presentation = presentation; self.actions = actions
             self.heading = heading; self.message = message
         }
     }
@@ -54,9 +56,6 @@ extension MenuHost {
     }
     func closes(_ row: NodeView, _ pop: NodeView) -> Bool {
         row.props["popovertarget"] == pop.props["id"] && row.props["popovertargetaction"] == "hide"
-    }
-    private func opens(_ source: NodeView, _ pop: NodeView) -> Bool {
-        source.props["popovertarget"] == pop.props["id"] && source.props["popovertargetaction"] != "hide"
     }
     /// Live, pressable, enabled, not inert, and not hidden by the page — its
     /// own or an ancestor's `display: none` or hiding — though the popover
@@ -84,18 +83,19 @@ extension MenuHost {
         guard actions.contains(where: { choosable($0, in: pop) }) else { return refuse("every action is disabled") }
         let texts = children.filter { $0.kind == "text" }.map(title(of:)).filter { !$0.isEmpty }
         let label = pop.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 }
-        return Confirmation(source: source, popover: pop,
+        return Confirmation(source: source, popover: pop, presentation: presentation(of: pop),
                             actions: actions.map { .init($0, title: title(of: $0), enabled: choosable($0, in: pop)) },
                             heading: texts.isEmpty && actions.count > 1 ? label : nil, message: texts)
     }
 
     /// The owner still shows what is there: invoker and popover live and
-    /// paired, each action live, in the popover, closing it, its title and
-    /// enablement as presented. A reused row given another provider ends
-    /// the menu rather than dispatching under its old title.
+    /// paired, the invoker shown and enabled, the popover not presented
+    /// again since, each action live, in the popover, closing it, its title
+    /// and enablement as presented. A reused row given another provider
+    /// ends the menu rather than dispatching under its old title.
     func valid(_ owner: Confirmation) -> Bool {
-        guard let source = owner.source, let pop = owner.popover, live(source), live(pop),
-              source.window != nil, !source.disabled, !source.inert, opens(source, pop), isConfirmation(pop) else { return false }
+        guard let source = owner.source, let pop = owner.popover, invokes(source, pop), isConfirmation(pop),
+              presentation(of: pop) == owner.presentation else { return false }
         return owner.actions.allSatisfy { presented(owner, $0) }
     }
     private func presented(_ owner: Confirmation, _ entry: Confirmation.Presented) -> Bool {
@@ -154,12 +154,12 @@ extension MenuHost {
         let owner = choice.owner
         owner.finished = true
         owner.chosen = choice.index
-        choosing = owner
+        choosing.append(owner)
         DispatchQueue.main.async { [weak self, owner] in self?.dispatch(owner) }
     }
     /// The recorded choice, once, if the menu still showed what is there.
     private func dispatch(_ owner: Confirmation) {
-        if choosing === owner { choosing = nil }
+        choosing.removeAll { $0 === owner }
         guard let index = owner.chosen else { return }
         owner.chosen = nil
         let entry = owner.actions[index]

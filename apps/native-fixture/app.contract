@@ -394,7 +394,7 @@ component NativeFixture
                       text "Open in (above)"
                     button press=refreshProviders popovertarget="open-above-sheet" testId="open-above-sheet" padding=6 background-color="#e5e7eb"
                       text "Open in (sheet above)"
-                    column id="open-above" testId="open-above-menu" popover="auto" position="absolute" position-area="top span-all" role="menu" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
+                    column id="open-above" testId="open-above-menu" popover="auto" position="absolute" position-area="top span-all" margin-bottom=12 role="menu" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
                       each p in providerItems key=p.id
                         button press=openIn(p.id) aria-checked=(p.id == remembered) popovertarget="open-above" popovertargetaction="hide" role="menuitemradio" testId=`open-above-${p.id}` height=44
                           text p.name

@@ -438,14 +438,23 @@ ends, as iOS presses after the sheet is dismissed. AppKit sends an item's
 action inside `popUp`, while it still tracks the menu in the invoker, and a
 press whose batch unmounts that invoker (Messages' Discard Changes
 navigates back) must not run under it. The owner checks above run then,
-and again as each batch lands: a batch that changes a row's title or
-enablement, hides it (its own or an ancestor's `display: none` or hiding,
-though not the popover's own, hidden in place while its menu shows it) or
-makes it inert, a reset or an unmount ends the menu, and a choice awaiting
-its turn presses nothing. A button menu's item is pressed the same way: on the next turn, once
-per menu, and only if its row is still the node the menu showed (live, in
-its popover, enabled, shown, the same title; an id reused by another node
-is not it); a reset before the turn presses nothing. A refused shape
+and again as each batch lands, while the menu is open and after it has
+ended with a choice awaiting its turn: a batch that changes a row's title
+or enablement, hides it (its own or an ancestor's `display: none` or
+hiding, though not the popover's own, hidden in place while its menu shows
+it) or makes it inert, that unmounts, hides, disables or makes inert the
+invoker or points it elsewhere, a reset or an unmount ends the menu, and
+the choice is cancelled for good: a later batch that undoes the change
+does not revive it. A choice belongs to its presentation: presenting the
+popover again cancels one still awaiting its turn, whose press would
+otherwise run under the new presentation (its hide closing it). A button
+menu's item is pressed the same way: on the next turn, once per menu, and
+only if its row is still the node the menu showed (live, in its popover,
+enabled, shown, the same title; an id reused by another node is not it),
+its invoker still opens the popover as above, and the popover has not been
+presented again; the same per-batch checks cancel it for good. A hidden or
+inert row is an item that cannot be chosen, as a chooser's. A reset before
+the turn presses nothing. A refused shape
 is logged and keeps its painted presentation, which macOS, unlike iOS, has.
 A menu-shaped popover is headed by its `aria-label` the same way, and a
 row of an `img` and text is menu-shaped, its item showing the bitmap fitted
@@ -495,8 +504,11 @@ and macOS pops a menu up at the point it gives (the menu's size the box).
 As CSS does, it aligns the popover's margin box, not its border box:
 `position-area="top"` with `margin-bottom=12` leaves 12 points between the
 popover and the invoker, and clamping keeps the margins inside the layer.
-Margins are the kernel's resolved points (`auto` is 0). The iOS sheet
-ignores them: UIKit places it.
+Margins are the kernel's resolved points (`auto` and a percentage are 0):
+the Apple style encoder, which leaves margins out of every other box's
+dictionary (the kernel placed the box), carries the four on a popover
+with a `position-area` other than `none`, as it carries a dialog's insets.
+The iOS sheet ignores them: UIKit places it.
 The iOS sheet (`role="alertdialog"`, a `UIAlertController` popover) takes a
 side from it: a `top` area permits only a down arrow, which UIKit places
 above the source, `bottom` only an up arrow; a centred area anchors at the
@@ -517,8 +529,11 @@ menu is placed by UIKit whatever its `position-area`. Linux has no popover
 presentation yet (`POPOVER_UNSUPPORTED`), so nothing there reads the row.
 The native fixture's `open-above` (a menu) and `open-above-sheet` (a
 sheet), in a row below the Detail screen's scroll, are the evidence: under
-the agent, on iOS, macOS and in Chrome (both web targets), each opens with its bottom at the invoker's
-top, centred on it (the menu clamped to the left edge).
+the agent, on iOS, macOS and in Chrome (both web targets), each opens above
+the invoker, centred on it (the menu clamped to the left edge): the sheet
+with its bottom at the invoker's top, the menu, whose `margin-bottom=12`
+crosses the Apple encoder, 12 points above it (iOS: bottom 665, invoker
+top 677; Chrome: 789 and 801).
 
 **D3 — menu-shaped popovers may present natively.** A popover whose
 children are exclusively `button` rows (each with optional

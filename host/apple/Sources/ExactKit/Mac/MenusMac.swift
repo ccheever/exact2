@@ -33,8 +33,15 @@ final class MenuHost: NSObject {
         }
     }
     private var entries: [Entry] = []
-    /// A confirmation whose chosen item awaits its turn (ChooserMac.swift).
-    var choosing: Confirmation?
+    /// Confirmations whose chosen item awaits its turn (ChooserMac.swift),
+    /// and picked button-menu items: each batch revalidates them, and one
+    /// that stops showing what is there is cancelled for good.
+    var choosing: [Confirmation] = []
+    private var picking: [Pick] = []
+    /// Each popover's presentation count: a choice made in one presentation
+    /// never dispatches once the popover has been presented again.
+    private var presentations: [UInt32: Int] = [:]
+    func presentation(of pop: NodeView) -> Int { presentations[pop.id] ?? 0 }
     private var popovers: [UInt32: NodeView] = [:]
     /// LLP 1080.001 D3: an open popover's layer, and the popovers this host
     /// hides while closed or lifts while open.
@@ -72,7 +79,7 @@ final class MenuHost: NSObject {
         guard let presenter else { return false }
         return contains(presenter.root, view) || presenter.dialogs.presented.contains { contains($0, view) }
     }
-    private func hidden(_ view: NSView) -> Bool {
+    func hidden(_ view: NSView) -> Bool {
         sequence(first: view, next: { self.parent(of: $0) }).contains {
             $0.isHidden || ($0 as? NodeView)?.style["display"]?.string == "none"
         }
@@ -106,6 +113,25 @@ final class MenuHost: NSObject {
             else { self.show(pop, from: source) }
         }
     }
+    func opens(_ source: NodeView, _ pop: NodeView) -> Bool {
+        source.props["popovertarget"] == pop.props["id"] && source.props["popovertargetaction"] != "hide"
+    }
+    /// `source` can still open `pop` in this presenter's window: live,
+    /// enabled, not inert, shown (or a toolbar's), and pointing at it.
+    func invokes(_ source: NodeView, _ pop: NodeView) -> Bool {
+        guard let presenter, let window = presenter.viewport.window else { return false }
+        return live(source) && live(pop) && source.window === window && !source.disabled && !source.inert
+            && opens(source, pop) && (!hidden(source) || presenter.toolbar.contains(source))
+    }
+    /// A choice awaiting its turn is checked as each batch lands and as a
+    /// popover is presented again: one a change has invalidated is
+    /// cancelled for good, even if a later batch undoes the change.
+    private func revalidate() {
+        for owner in choosing where !valid(owner) { owner.cancel() }
+        choosing.removeAll { $0.chosen == nil }
+        for pick in picking where !valid(pick) { pick.cancelled = true }
+        picking.removeAll { $0.cancelled }
+    }
     func show(_ pop: NodeView, from source: NodeView) {
         guard let presenter, !isOpen(pop), live(pop), live(source), pop.props["popover"] != nil,
               connected(pop), connected(source), !pop.inert, !source.inert, !source.disabled,
@@ -117,11 +143,13 @@ final class MenuHost: NSObject {
         while let last = entries.last, last !== ancestor { close(last.popover, restoreFocus: false) }
         guard live(pop), live(source), connected(pop), connected(source) else { return }
         let entry = Entry(pop, source: source, previous: focusOwner(window))
+        presentations[pop.id, default: 0] += 1
+        revalidate()
         if !ExactEnv.agentMode {
             if isConfirmation(pop) {
                 // A shape the menu cannot present is said, and stays painted.
                 if let owner = confirmation(of: pop, from: source) { entry.confirmation = owner; entry.menu = menu(of: owner) }
-            } else if isMenuShaped(pop) { entry.menu = menu(of: pop) }
+            } else if isMenuShaped(pop) { entry.menu = menu(of: pop, from: source) }
         }
         entries.append(entry)
         if let menu = entry.menu {
@@ -193,9 +221,9 @@ final class MenuHost: NSObject {
     }
     func reset() {
         while let last = entries.last { close(last.popover, restoreFocus: false) }
-        choosing?.cancel(); choosing = nil
-        picking?.cancelled = true; picking = nil
-        popovers.removeAll()
+        choosing.forEach { $0.cancel() }; choosing.removeAll()
+        picking.forEach { $0.cancelled = true }; picking.removeAll()
+        popovers.removeAll(); presentations.removeAll()
         pointerDown = nil; escapeHeld = false
     }
     func children(_ parent: NSView, _ wanted: [NodeView]) {
@@ -223,6 +251,7 @@ final class MenuHost: NSObject {
                   entry.menu == nil || (entry.confirmation.map(valid) ?? isMenuShaped(entry.popover))
             else { close(entry.popover); continue }
         }
+        revalidate()
         var changed = false
         let current = presenter.carrying("popover")
         for pop in popovers.values where live(pop) && pop.props["popover"] == nil {
@@ -310,7 +339,9 @@ final class MenuHost: NSObject {
             return images.count <= 1 && content.allSatisfy { textOnly($0) || images.contains($0) }
         }
     }
-    func menu(of pop: NodeView) -> NSMenu {
+    /// `pop`'s button menu, opened from `source` (nil only when a test
+    /// builds one with no invoker).
+    func menu(of pop: NodeView, from source: NodeView? = nil) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         let once = Picked()
@@ -321,9 +352,11 @@ final class MenuHost: NSObject {
             guard row.isButton else { continue }
             let item = NSMenuItem(title: title(of: row), action: #selector(pick(_:)), keyEquivalent: "")
             item.target = self
-            item.representedObject = Pick(row, in: pop, title: item.title, once: once)
+            item.representedObject = Pick(row, in: pop, from: source, presentation: presentation(of: pop),
+                                          title: item.title, once: once)
             item.state = row.props["accessibilityChecked"] == "true" ? .on : .off
-            item.isEnabled = !row.disabled
+            // As a chooser's: a hidden or inert row is shown, never chosen.
+            item.isEnabled = !row.disabled && !row.inert && shown(row, in: pop)
             item.image = image(of: row)
             menu.addItem(item)
         }
@@ -331,19 +364,33 @@ final class MenuHost: NSObject {
     }
     /// One menu's items share this: the first item taken is its only one.
     private final class Picked { var taken = false }
-    /// An item's row as the menu showed it.
+    /// An item's row as the menu showed it, in which presentation, opened
+    /// from which invoker.
     private final class Pick: NSObject {
         weak var row: NodeView?
         weak var pop: NodeView?
+        weak var source: NodeView?
+        let invoked: Bool
+        let presentation: Int
         let title: String
         let once: Picked
         var cancelled = false
-        init(_ row: NodeView, in pop: NodeView, title: String, once: Picked) {
-            self.row = row; self.pop = pop; self.title = title; self.once = once
+        init(_ row: NodeView, in pop: NodeView, from source: NodeView?, presentation: Int, title: String, once: Picked) {
+            self.row = row; self.pop = pop; self.source = source; invoked = source != nil
+            self.presentation = presentation; self.title = title; self.once = once
         }
     }
-    /// A picked item awaiting its turn; a reset cancels it.
-    private var picking: Pick?
+    /// Still the row the menu showed: live, in its popover, enabled, shown,
+    /// under the same title (a reused id is not that row); its invoker still
+    /// opening that popover, which has not been presented again since.
+    private func valid(_ pick: Pick) -> Bool {
+        guard !pick.cancelled, let row = pick.row, let pop = pick.pop, live(row), live(pop),
+              row.isDescendant(of: pop), row.isButton, !row.disabled, !row.inert,
+              shown(row, in: pop), title(of: row) == pick.title,
+              presentation(of: pop) == pick.presentation else { return false }
+        guard pick.invoked else { return true }
+        return pick.source.map { invokes($0, pop) } ?? false
+    }
     /// An item picked: recorded now, its row pressed on the next main-queue
     /// turn, once, as a chooser's is (ChooserMac.swift): AppKit sends the
     /// action inside `popUp`, still tracking the menu in the invoker, and
@@ -351,15 +398,12 @@ final class MenuHost: NSObject {
     @objc private func pick(_ sender: NSMenuItem) {
         guard let pick = sender.representedObject as? Pick, !pick.once.taken else { return }
         pick.once.taken = true
-        picking = pick
+        picking.append(pick)
         DispatchQueue.main.async { [weak self, pick] in
             guard let self else { return }
-            if self.picking === pick { self.picking = nil }
-            // Still the row the menu showed: live, in its popover, enabled,
-            // shown, under the same title. A reused id is not that row.
-            guard !pick.cancelled, let row = pick.row, let pop = pick.pop, self.live(row), self.live(pop),
-                  row.isDescendant(of: pop), row.isButton, !row.disabled, !row.inert,
-                  self.shown(row, in: pop), self.title(of: row) == pick.title else { return }
+            self.picking.removeAll { $0 === pick }
+            guard self.valid(pick), let row = pick.row else { return }
+            pick.cancelled = true
             self.presenter?.press(row.id, fromNativeMenu: true)
         }
     }

@@ -149,6 +149,35 @@ final class ChooserMacTests: XCTestCase {
         }
     }
 
+    /// A choice awaiting its turn stays under each batch's checks after its
+    /// menu has ended: a batch that hides or disables the invoker cancels
+    /// it, a retitle undone by the next batch still cancels it for good, and
+    /// presenting the popover again leaves the old choice nothing to press
+    /// (its hide command would close the new presentation).
+    func testAPendingChoiceIsCancelledByAnyBatchThatInvalidatesIt() throws {
+        let changes: [(String, (Presenter) -> Void)] = [
+            ("untouched", { _ in }),
+            ("invoker hidden", { p in p.apply(wireBatch([["op": "style", "id": 1, "style": ["display": "none"]]])) }),
+            ("invoker inert", { p in p.apply(wireBatch([["op": "props", "id": 1, "set": ["inert": "true"]]])) }),
+            ("retitled, then restored", { p in
+                p.apply(wireBatch([["op": "props", "id": 14, "set": ["text": "Citymapper"]]]))
+                p.apply(wireBatch([["op": "props", "id": 14, "set": ["text": "Google Maps"]]])) }),
+            ("presented again", { p in p.menus.show(p.views[2]!, from: p.views[1]!); p.menus.close(p.views[2]!) }),
+        ]
+        for (name, change) in changes {
+            let p = chooser()
+            var pressed: [UInt32] = []
+            p.onPress = { pressed.append($0) }
+            let (owner, menu) = try owner(p)
+            try send(menu.items[2])
+            change(p)
+            XCTAssertEqual(owner.chosen != nil, name == "untouched", "cancelled as the batch landed: \(name)")
+            turn()
+            XCTAssertEqual(pressed, name == "untouched" ? [4] : [], name)
+            p.menus.reset()
+        }
+    }
+
     func testResetEndsTheMenuAndNothingDispatches() throws {
         try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted (LLP 1021 D4)")
         let p = chooser()
