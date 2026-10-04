@@ -135,6 +135,14 @@ guide's rules don't make obvious.
   changes the bound value and redraws the field. (Authoring bench, LLP 1087, t2-todo:
   two builders, about 10 minutes each, 2026-10-04.)
 
+- **A `pan` hears nothing from a finger on the web.** A drag with
+  `tap <id> drag dx dy` (or a real touch) moves nothing and logs nothing. Cause:
+  without `touch-action="none"` on the pan's box the browser takes the touch for
+  scrolling and the pointer events are cancelled. Fix: `touch-action="none"` on the
+  dragged box (only that box, so the page still scrolls from elsewhere). (Authoring
+  bench, LLP 1087, t4-kanban: about 15 minutes, 2026-10-04.) **Candidate
+  diagnostic:** the compiler could warn on a `pan` without `touch-action`.
+
 ## Driving and testing
 
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
