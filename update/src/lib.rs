@@ -32,7 +32,9 @@
 //! - It uses `std::fs` for the store directory and **takes the network as a
 //!   closure** (`&mut dyn FnMut(&str) -> Result<Vec<u8>, String>`), so a host
 //!   runs [`Store::check`] on its own executor thread and this crate opens no
-//!   socket, links no TLS, and knows no platform.
+//!   socket and links no TLS. Windows durable storage is unqualified;
+//!   [`Store::open`] refuses there before touching any store files (LLP 1026 D11a).
+//!   Pure envelope, signature and baked-binary operations remain available.
 //! - It never boots anything: [`Store::prepare_selected`] and
 //!   [`Store::prepare_activation`] pin verified bytes; the host accepts
 //!   its whole app before [`Store::commit_activation`] changes the record.

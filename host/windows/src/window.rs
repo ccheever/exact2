@@ -19,6 +19,7 @@ use winit::{
 };
 
 struct App<D: DataSource> {
+    name: String,
     config: Config,
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
@@ -39,7 +40,7 @@ struct App<D: DataSource> {
     first_tap: Option<String>,
 }
 
-pub(super) fn run<D: DataSource + Default + 'static>(plan: &[u8], compat: &str) -> i32 {
+pub(super) fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &str) -> i32 {
     if app::print_baked_receipt(compat) {
         return 0;
     }
@@ -105,6 +106,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(plan: &[u8], compat: &str) 
         let _ = proxy.send_event(());
     })));
     let mut state = App::<D> {
+        name: name.to_owned(),
         config,
         window: None,
         surface: None,
@@ -262,12 +264,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
         if self.window.is_some() {
             return;
         }
-        let metadata: serde_json::Value =
-            serde_json::from_str(&self.config.compat).unwrap_or_default();
-        let title = metadata["inputs"]["app"].as_str().unwrap_or("Exact");
         let window = match events.create_window(
             Window::default_attributes()
-                .with_title(title)
+                .with_title(&self.name)
                 .with_inner_size(LogicalSize::new(self.config.size.0, self.config.size.1)),
         ) {
             Ok(value) => Rc::new(value),
