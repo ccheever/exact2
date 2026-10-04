@@ -204,6 +204,12 @@ pub fn deliver(w: &World) -> Result<String, String> {
         false
     });
     farm.orders += 1;
+    // The introductory requests must not wait on a rare seed's stock roll.
+    // This is shop inventory at its ordinary price, not a free seed or reward.
+    if let Some(&(next, _, _)) = ORDERS.get(farm.orders as usize) {
+        let mut shop = w.resource_mut::<shop::Shop>();
+        shop.stock[next as usize] = shop.stock[next as usize].max(1);
+    }
     farm.sheckles += paid;
     farm.earned += paid;
     farm.shop_dirty = true;

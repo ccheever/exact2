@@ -304,10 +304,12 @@ fn market_delivers_the_requested_fruit_once_and_preserves_its_full_value() {
     };
     let value = carrot.value();
     game.world_mut().resource_mut::<Farm>().bag = vec![extra, carrot];
+    game.world_mut().resource_mut::<Shop>().stock[1] = 0;
     let saved = game.save().unwrap();
     send(&mut game, "deliver");
     assert_eq!(sheckles(&game), 20 + value + 30);
     assert_eq!(game.world().resource::<Farm>().orders, 1);
+    assert_eq!(game.world().resource::<Shop>().stock[1], 1);
     assert_eq!(game.world().resource::<Farm>().bag.len(), 1);
     assert_eq!(game.world().resource::<Farm>().bag[0].kind, 2);
     assert!(game
@@ -327,6 +329,95 @@ fn market_delivers_the_requested_fruit_once_and_preserves_its_full_value() {
     send(&mut game, "sell typo");
     assert_eq!(game.world().resource::<Farm>().bag.len(), 1);
     assert_eq!(sheckles(&game), 20 + value + 30);
+}
+
+#[test]
+fn active_market_crop_is_available_after_every_restock() {
+    let mut game = new(7);
+    // Tomato has a 50% appearance chance; its active request survives many
+    // rolls without gifting the player a seed or changing the seed price.
+    game.world_mut().resource_mut::<Farm>().orders = 3;
+    for _ in 0..12 {
+        game.run(300_100.0);
+        assert!(game.world().resource::<Shop>().stock[3] > 0);
+    }
+    assert_eq!(sheckles(&game), 20);
+    assert_eq!(game.world().resource::<Farm>().seeds[3], 0);
+}
+
+#[test]
+fn order_guidance_tracks_equipped_seed_and_movement_between_empty_tiles() {
+    let mut game = new(7);
+    {
+        let mut farm = game.world_mut().resource_mut::<Farm>();
+        farm.orders = 2;
+        farm.seeds[0] = 2;
+        farm.seeds[2] = 1;
+    }
+    game.tap("KeyE");
+    game.run(100.0);
+    assert_eq!(
+        game.world().published("order_seed").unwrap().text(),
+        "blueberry"
+    );
+    assert!(game
+        .world()
+        .published("order_hint")
+        .unwrap()
+        .text()
+        .starts_with("Hold your Blueberry"));
+    send(&mut game, "equip blueberry");
+    assert!(game
+        .world()
+        .published("order_hint")
+        .unwrap()
+        .text()
+        .contains("Move to an empty tile"));
+    game.key_down("KeyD");
+    game.run(500.0);
+    game.key_up("KeyD");
+    game.run(100.0);
+    assert_eq!(
+        game.world().published("plot").unwrap().text(),
+        "Plot 2, 1 · Empty"
+    );
+    assert!(game
+        .world()
+        .published("order_hint")
+        .unwrap()
+        .text()
+        .starts_with("Press E to plant Blueberry"));
+    let saved = game.save().unwrap();
+    let mut restored = new(7);
+    restored.restore(&saved).unwrap();
+    for sim in [&mut game, &mut restored] {
+        // The next boundary is crossed after this second's timer publication.
+        // The planting prompt stays identical; changing the tile must publish too.
+        sim.key_down("KeyD");
+        sim.run(400.0);
+        sim.key_up("KeyD");
+        sim.run(100.0);
+        assert_eq!(
+            sim.world().published("plot").unwrap().text(),
+            "Plot 3, 1 · Empty"
+        );
+        sim.tap("KeyE");
+        sim.run(100.0);
+        assert_eq!(
+            sim.world().published("plot").unwrap().text(),
+            "Plot 3, 1 · Blueberry"
+        );
+        assert!(sim
+            .world()
+            .published("order_hint")
+            .unwrap()
+            .text()
+            .starts_with("Wait here for Blueberry"));
+    }
+    assert!(
+        game.save().unwrap() == restored.save().unwrap(),
+        "guided planting must continue identically after restore"
+    );
 }
 
 #[test]

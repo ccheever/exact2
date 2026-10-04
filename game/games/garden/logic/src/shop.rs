@@ -15,7 +15,7 @@ pub struct Shop {
 }
 
 pub fn restock(w: &mut World, at: u64) {
-    let stock: Vec<u32> = {
+    let mut stock: Vec<u32> = {
         let mut rng = w.rng();
         CROPS
             .iter()
@@ -28,6 +28,11 @@ pub fn restock(w: &mut World, at: u64) {
             })
             .collect()
     };
+    if let Some(&(kind, _, _)) =
+        crate::farm::ORDERS.get(w.resource::<crate::farm::Farm>().orders as usize)
+    {
+        stock[kind as usize] = stock[kind as usize].max(1);
+    }
     {
         let mut shop = w.resource_mut::<Shop>();
         shop.stock = stock;

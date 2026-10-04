@@ -4,7 +4,7 @@
 
 use crate::crops::{self, compact, crop, CROPS};
 use crate::farm::Farm;
-use crate::garden::{now_ms, Census, Schedule, Weather};
+use crate::garden::{now_ms, Census, Plant, Schedule, Weather};
 use crate::shop::Shop;
 use exact_game::*;
 
@@ -14,6 +14,7 @@ pub struct Status {
     pub sheckles_n: f64,
     pub held: String,
     pub prompt: String,
+    pub plot: String,
     pub weather: String,
     pub weather_left: String,
     pub restock_in: String,
@@ -30,6 +31,8 @@ pub struct Status {
     pub queued: u32,
     pub order: String,
     pub order_detail: String,
+    pub order_hint: String,
+    pub order_seed: String,
     pub order_ready: bool,
     pub orders: u32,
 }
@@ -150,6 +153,57 @@ pub fn publish(w: &World, prompt: String, force: bool) {
     let carried = order
         .map(|&(kind, _, _)| farm.bag.iter().filter(|i| i.kind == kind).count() as u32)
         .unwrap_or(0);
+    let tile = w
+        .global_position("player")
+        .and_then(|p| crate::farm::tile_at(w, p));
+    let planted = tile
+        .and_then(|tile| farm.at(tile))
+        .and_then(|e| w.get::<Plant>(e).map(|p| p.kind));
+    let order_hint = order
+        .map(|&(kind, count, _)| {
+            let c = crop(kind);
+            if carried >= count {
+                "Deliver the fruit in your backpack to collect the bonus.".into()
+            } else if planted == Some(kind) {
+                if prompt.starts_with("E: harvest") {
+                    format!("Press E to harvest the {} here.", c.name)
+                } else {
+                    format!("Wait here for {} to ripen, then harvest with E.", c.name)
+                }
+            } else if farm.seeds[kind as usize] > 0 {
+                if farm.held != Some(kind) {
+                    format!("Hold your {} seed, then find an empty tile.", c.name)
+                } else if tile.is_none() {
+                    format!("Walk onto the garden to plant {}.", c.name)
+                } else if let Some(other) = planted {
+                    format!(
+                        "This tile has {}. Move to an empty tile to plant {}.",
+                        crop(other).name,
+                        c.name
+                    )
+                } else {
+                    format!("Press E to plant {} on this empty tile.", c.name)
+                }
+            } else if shop.stock[kind as usize] == 0 {
+                format!(
+                    "{} seeds are sold out. Restock in {}.",
+                    c.name,
+                    crops::clock(shop.next.saturating_sub(now))
+                )
+            } else if farm.sheckles < c.price {
+                format!(
+                    "{} costs {}¢. Harvest and sell spare fruit to earn more.",
+                    c.name,
+                    compact(c.price)
+                )
+            } else {
+                format!(
+                    "Buy a {} seed in the shop, or return to a {} plant.",
+                    c.name, c.name
+                )
+            }
+        })
+        .unwrap_or_else(|| "Try rare seeds, mutations and a bigger garden.".into());
     w.publish_record(&Status {
         sheckles: compact(farm.sheckles),
         sheckles_n: farm.sheckles as f64,
@@ -158,6 +212,16 @@ pub fn publish(w: &World, prompt: String, force: bool) {
             .map(|k| format!("{} ×{}", crop(k).name, farm.seeds[k as usize]))
             .unwrap_or_default(),
         prompt,
+        plot: tile
+            .map(|[x, z]| {
+                format!(
+                    "Plot {}, {} · {}",
+                    x + 1,
+                    z + 1,
+                    planted.map(|k| crop(k).name).unwrap_or("Empty")
+                )
+            })
+            .unwrap_or_else(|| "Outside the garden".into()),
         weather: weather.sky.name().into(),
         weather_left: if weather.sky == crate::garden::Sky::Clear {
             String::new()
@@ -190,6 +254,16 @@ pub fn publish(w: &World, prompt: String, force: bool) {
                 format!("{carried}/{count} in backpack · full value + {bonus}¢ bonus")
             })
             .unwrap_or_else(|| "Keep growing, find mutations, expand your garden".into()),
+        order_hint,
+        order_seed: order
+            .filter(|&&(kind, count, _)| {
+                carried < count
+                    && planted != Some(kind)
+                    && farm.seeds[kind as usize] > 0
+                    && farm.held != Some(kind)
+            })
+            .map(|&(kind, _, _)| crop(kind).id.into())
+            .unwrap_or_default(),
         order_ready: order.is_some_and(|&(_, count, _)| carried >= count),
         orders: farm.orders,
     });

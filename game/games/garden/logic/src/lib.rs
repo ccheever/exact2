@@ -39,6 +39,7 @@ const STATUS_MS: u64 = 1000;
 pub struct Shown {
     pub second: u64,
     pub prompt: String,
+    pub tile: Option<[u16; 2]>,
     pub events: u64,
 }
 
@@ -148,6 +149,7 @@ impl Game for Garden {
             acted
                 || shown.second != now / STATUS_MS
                 || shown.prompt != prompt
+                || shown.tile != tile
                 || shown.events != processed
         };
         if changed {
@@ -156,6 +158,7 @@ impl Game for Garden {
                 let mut shown = w.resource_mut::<Shown>();
                 shown.second = now / STATUS_MS;
                 shown.prompt = prompt.clone();
+                shown.tile = tile;
                 shown.events = processed;
             }
             hud::publish(w, prompt, false);

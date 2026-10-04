@@ -34,13 +34,18 @@ Five market orders guide the early garden through carrots, strawberries,
 blueberries, tomatoes and corn. Harvest the requested quantity into your
 backpack and press **Deliver order**. Each delivery pays the fruit's full
 weight/mutation value plus a one-time bonus; unrelated fruit stays in the bag.
-The next order and reward are always visible, and completed orders survive saves.
-The shop shows first-harvest and regrowth times.
+The market shows the next step and offers **Hold requested seed** when you own
+the right seed but hold another. The plot readout names your current tile and
+crop; move to an empty tile when a fruiting plant still occupies the old one.
+Each new request and restock supplies at least one requested seed at its normal
+price. Completed orders survive saves. The shop shows first-harvest and regrowth
+times.
 
 `AI_GATEWAY_API_KEY=… bun proof.mjs web --playtest` (or `macos`) lets Jev try
 the first two orders through the HUD and E key. It gets visible text and
-enabled controls, with up to 48 decisions; it cannot use stress tools or
-write the world. `artifacts/<host>/jev-*` holds the transcript, outcome and
+enabled controls, with up to 48 decisions. Add `--full-market` for all five
+orders, walking and the first five crops, capped at 96 decisions. It cannot
+use stress tools or write the world. `artifacts/<host>/jev-*` holds the transcript, outcome and
 screenshot. This is exploratory play on the agent clock, not deterministic
 proof or a claim about visual perception or real-time input latency.
 
@@ -61,7 +66,8 @@ proof or a claim about visual perception or real-time input latency.
   Contract's `postMessage("buy carrot", "world")`, read once each, in order,
   from `input.messages()`.
 - **The HUD** is three published records — status, shop, backpack — each
-  republished only when it changes (status at most once a garden second).
+  republished only when it changes (status timers once a garden second;
+  actions, events and crossing a plot boundary publish immediately).
   The backpack is published 200 rows a page: a 164,000-fruit backpack would be
   a 13.6 MB field rebuilt on every harvest.
 

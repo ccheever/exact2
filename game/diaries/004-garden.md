@@ -544,3 +544,72 @@ playtest should go beyond the two-order, same-tile controller: ordinary walking,
 the remaining crop controls, and all five requests. Its evidence should drive
 the next navigation and progression improvements rather than another replay of
 the already-working opening.
+
+## Taking the market through all five crops (2026-10-04)
+
+Merged main through `548631e52` before this batch (`c2cf96958`), including the
+smaller production Apple bake. The existing playtest now accepts `--full-market`:
+96 decisions, all five crop controls, and ordinary WASD walking. Observations
+remain visible HUD text; the full world is recorded only after the run.
+
+The baseline bought a blueberry seed at decision 14, then spent the remainder
+of its budget harvesting strawberries on the same tile. It never walked or
+equipped blueberry. Its 24 strawberry harvests left order three untouched.
+This exposed a missing transition in the player's feedback: having a seed does
+not explain that a fruiting plant keeps its occupied tile after harvest.
+
+The first revision adds a market next-step hint, a **Hold requested seed**
+shortcut using the existing equip command, and a current-plot readout. Held
+seeds now have a dark background that stays readable against the sky. Plot
+crossings publish immediately, even between empty tiles with identical prompts;
+the remembered tile is saved with the other status dependencies. A regression
+crosses two such boundaries around a save/restore, plants, and compares bytes.
+The controller's short walk also changed from 350 to 500 ms: the Character's
+acceleration meant the shorter press could remain in the starting tile. These
+runs therefore compare the whole interaction change, not isolated HUD causality.
+
+Guidance got Jev to order four on web and order five on macOS. Both stalled on
+random seed stock. Tomato was absent through the early restocks; macOS bought
+one only at decision 74. The web player spent enough money on spare seeds to
+fall below tomato's price when stock finally appeared. The final revision
+stocks at least one requested seed when an order unlocks and at each restock
+while it is active. Its normal price still applies. Other stock keeps its
+random rolls, and no extra random numbers are drawn by the guarantee.
+
+| Run | Decisions | Orders completed | Purse | Decision p50 / p95 | Input / output tokens |
+|---|---:|---:|---:|---|---|
+| Full-market baseline, web | 96 (limit) | 2 | 55¢ | 282 / 590 ms | 110,795 / 9,828 |
+| Guidance, web | 96 (limit) | 3 | 756¢ | 319 / 715 ms | 117,966 / 10,632 |
+| Guidance, macOS | 96 (limit) | 4 | 1,640¢ | 351 / 818 ms | 116,934 / 10,349 |
+| Guidance + stock, web | 65 | 5 | 3,291¢ | 386 / 958 ms | 77,261 / 6,377 |
+| Guidance + stock, macOS | 63 | 5 | 3,291¢ | 426 / 783 ms | 74,787 / 6,166 |
+
+Final runs finish at garden time 11:05 with four persistent plants. Both still
+buy three unnecessary carrots; web repeats tomato and corn equip actions, and
+macOS repeats tomato. No further policy tuning in this batch: baseline and two
+gameplay revisions close the three-round loop. Model time does not advance the
+game clock. These are text-driven strategic runs, not a vision or physical
+latency benchmark. Wall times including builds were 56.5 s for baseline,
+59.1/65.7 s for guidance and 50.1/54.6 s for stock (web/macOS).
+
+Evidence: `artifacts/jev-full-baseline-web/`, `jev-guidance-{web,macos}/` and
+`jev-stock-{web,macos}/`. Both revisions' web and macOS screenshots were viewed:
+market text, plot coordinates and held seeds are readable; the capsule still
+obscures small plants directly beneath it, now queued. The guidance macOS run's
+optional descendant scan timed out while every owned carrier closed; the final
+stock runs' process audits both pass.
+
+The deterministic market proof now fills all five orders through normal host
+controls, with an intentionally wrong held seed to exercise the shortcut. It
+repeats that journey from a fresh process saved before the first delivery and
+requires identical continuation bytes. Fifteen simulation tests and three crop
+unit tests pass; active tomato stock is checked over twelve restocks without
+gifting seeds or money. The new stock test initially stopped just before the
+first due tick at exactly 300,000 ms; advancing 300,100 ms, as the existing
+restock test does, exercises the intended event. Stable Clippy also caught an
+existing modulo expression in crop formatting; it now uses `is_multiple_of`.
+
+The lesson for agentic development is that an understandable objective also
+needs a usable next action. A richer snapshot would not have fixed random stock
+blocking the market. Fixing the public game loop helped both hosts without an
+agent-only shortcut, and the ordinary proof can now preserve the whole journey.

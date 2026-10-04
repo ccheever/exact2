@@ -430,7 +430,7 @@ pub fn compact(n: u64) -> String {
     for &(unit, suffix) in UNITS {
         if n >= unit {
             let tenths = n * 10 / unit;
-            return if tenths >= 1000 || tenths % 10 == 0 {
+            return if tenths >= 1000 || tenths.is_multiple_of(10) {
                 format!("{}{suffix}", tenths / 10)
             } else {
                 format!("{}.{}{suffix}", tenths / 10, tenths % 10)

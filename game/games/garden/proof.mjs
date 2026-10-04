@@ -195,6 +195,48 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     tree = await session.tree();
     check('the second delivery funds blueberry', text(tree, 'objective') === 'Market order 3 · 5 Blueberry' && purseOf(tree) >= 400 && node(tree,'buy-blueberry')?.props?.disabled === false);
     check('delivered fruit leaves the backpack', label(tree, 'bag-tab') === 'Backpack 0');
+    // A spare seed keeps the wrong crop equipped. The market offers the same
+    // correction to a person and an agent, then explains why this tile is full.
+    await session.tap('buy-carrot');
+    await session.tap('buy-blueberry');
+    await g.run(100);
+    tree = await session.tree();
+    check('the market offers to hold the requested owned seed', !!node(tree, 'equip-order') && text(tree, 'order-hint')?.startsWith('Hold your Blueberry'));
+    await session.tap('equip-order');
+    await g.run(100);
+    check('the occupied plot explains the next step', text(await session.tree(), 'order-hint')?.includes('Move to an empty tile'));
+    await g.hold('KeyW', 500);
+    await g.run(100);
+    tree = await session.tree();
+    check('walking finds an empty plot for blueberry', text(tree, 'plot')?.startsWith('Plot 1, 2 · Empty') && text(tree, 'order-hint')?.startsWith('Press E to plant Blueberry'));
+    await g.tap('KeyE');
+    await g.run(100);
+    tree = await session.tree();
+    check('the planted plot and market agree on blueberry', text(tree, 'plot')?.startsWith('Plot 1, 2 · Blueberry') && text(tree, 'order-hint')?.startsWith('Wait here for Blueberry'));
+    await g.run(100_100);
+    await g.tap('KeyE');
+    await g.run(100);
+    await session.tap('deliver');
+    await g.run(100);
+    for (const [crop, order, key, growth] of [['tomato',4,'KeyD',150_100], ['corn',5,'KeyW',200_100]]) {
+      tree = await session.tree();
+      check(`order ${order} stocks its seed immediately`, text(tree, 'objective')?.startsWith(`Market order ${order}`) && node(tree, `buy-${crop}`)?.props?.disabled === false);
+      await session.tap(`buy-${crop}`);
+      await g.run(100);
+      await session.tap('equip-order');
+      await g.run(100);
+      await g.hold(key, 500);
+      await g.run(100);
+      await g.tap('KeyE');
+      await g.run(growth);
+      await g.tap('KeyE');
+      await g.run(100);
+      check(`order ${order} can be delivered`, node(await session.tree(), 'deliver')?.props?.disabled === false);
+      await session.tap('deliver');
+      await g.run(100);
+    }
+    tree = await session.tree();
+    check('all five orders finish without a stock wait', text(tree, 'objective')?.startsWith('Market regular') && !node(tree, 'deliver'));
   };
   await deliverAndGrow(market);
   const marketEnd = await mg.snapshot();
@@ -220,26 +262,29 @@ async function playtest({open, out, log}) {
   await game.run(100);
   const transcript = resolve(out, 'jev-decisions.jsonl');
   writeFileSync(transcript, '');
+  const fullMarket = process.argv.includes('--full-market');
+  const crops = fullMarket ? ['carrot','strawberry','blueberry','tomato','corn'] : ['carrot','strawberry','blueberry'];
+  const walking = {north:'KeyW', east:'KeyD', south:'KeyS', west:'KeyA'};
   const recent = [];
   let strawberryHarvests = 0;
-  for (let turn = 0; turn < 48; turn++) {
+  for (let turn = 0; turn < (fullMarket ? 96 : 48); turn++) {
     const tree = await s.tree();
-    const state = Object.fromEntries(['sheckles','prompt','held','census','last','weather','restock','objective','order-detail']
+    const state = Object.fromEntries(['sheckles','prompt','plot','held','census','last','weather','restock','objective','order-detail','order-hint']
       .map(id => [id, text(tree, id) ?? '']));
     state.backpack = label(tree, 'bag-tab');
-    state.shop = ['carrot','strawberry','blueberry'].map(id => {
+    state.shop = crops.map(id => {
       const row = node(tree, `shop-${id}`);
       const descendants = new Set(row ? [row.id] : []);
       for (const n of tree.nodes) if (descendants.has(n.parent)) descendants.add(n.id);
       return tree.nodes.filter(n => descendants.has(n.id) && n.props?.text).map(n => n.props.text).join(' · ');
     }).filter(Boolean);
     const choices = {wait:'Wait 20 seconds for growth or shop restock'};
+    if (fullMarket) for (const direction of Object.keys(walking)) choices[`walk_${direction}`] = `Walk a short distance ${direction}`;
     const buttons = {};
     for (const [id, description] of Object.entries({
       'shop-tab':'Open the seed shop', 'bag-tab':'Open the backpack',
-      'buy-carrot':'Buy one carrot seed', 'buy-strawberry':'Buy one strawberry seed',
-      'buy-blueberry':'Buy one blueberry seed', 'equip-carrot':'Hold a carrot seed',
-      'equip-strawberry':'Hold a strawberry seed', 'equip-blueberry':'Hold a blueberry seed',
+      'equip-order':'Hold the requested seed from your inventory',
+      ...Object.fromEntries(crops.flatMap(crop => [[`buy-${crop}`, `Buy one ${crop} seed`], [`equip-${crop}`, `Hold a ${crop} seed`]])),
       'sell-all':`Sell the backpack: ${label(tree, 'sell-all') ?? ''}`,
       deliver:'Deliver the market order for full fruit value plus its bonus',
     })) {
@@ -252,12 +297,16 @@ async function playtest({open, out, log}) {
     }
     if (state.prompt.startsWith('E:')) choices.act = `Press E: ${state.prompt}`;
     const decision = await decide({state:{...state, strawberryHarvests, recent}, choices, transcript,
-      goal:'Fill the first two market orders: carrot, then strawberry. Deliver requested fruit using the market button to earn its bonus. Buy and plant the requested crop, wait for it to ripen, then harvest with E and deliver. Use your current tile. Sell only extra fruit not needed for the order. The shop tells you growth times. Avoid buying excess seeds you cannot plant. Waiting advances time without spending money.'});
+      goal:(fullMarket ? 'Fill all five market orders: carrot, strawberry, blueberry, tomato, then corn. Walk to an empty tile to plant a different crop; a fruiting plant keeps its tile after harvest. North and east lead into the garden from its starting corner. ' : 'Fill the first two market orders: carrot, then strawberry. Use your current tile. ')
+        + 'Deliver requested fruit using the market button to earn its bonus. Buy and plant the requested crop, wait for it to ripen, then harvest with E and deliver. Sell only extra fruit not needed for the order. The shop tells you growth times. Avoid buying excess seeds you cannot plant. Waiting advances time without spending money.'});
     log(`JEV ${turn + 1}: ${decision.choice} · ${state.sheckles} · ${state.prompt}`);
     recent.push({action:decision.choice, prompt:state.prompt, purse:state.sheckles});
     if (recent.length > 6) recent.shift();
     if (decision.choice === 'wait') await game.run(20_000);
-    else if (decision.choice === 'act') {
+    else if (decision.choice.startsWith('walk_')) {
+      await game.hold(walking[decision.choice.slice(5)], 500);
+      await game.run(100);
+    } else if (decision.choice === 'act') {
       if (/^E: harvest \d+ Strawberry$/.test(state.prompt)) strawberryHarvests++;
       await game.tap('KeyE');
       await game.run(100);
@@ -265,10 +314,11 @@ async function playtest({open, out, log}) {
       await s.tap(buttons[decision.choice]);
       await game.run(100);
     }
-    if (text(await s.tree(), 'objective')?.startsWith('Market order 3')) break;
+    const objective = text(await s.tree(), 'objective') ?? '';
+    if (fullMarket ? objective.startsWith('Market regular') : objective.startsWith('Market order 3')) break;
   }
   const tree = await s.tree();
-  const outcome = {strawberryHarvests, purse:purseOf(tree), census:text(tree,'census'),
+  const outcome = {fullMarket, strawberryHarvests, purse:purseOf(tree), census:text(tree,'census'),
     objective:text(tree,'objective'), prompt:text(tree,'prompt'), last:text(tree,'last'), world:await game.snapshot()};
   writeFileSync(resolve(out, 'jev-outcome.json'), JSON.stringify(outcome, null, 2));
   log(`JEV outcome: ${strawberryHarvests} strawberry harvests · ${outcome.purse}¢ · ${outcome.census}`);

@@ -24,6 +24,7 @@ shape Hud
   sheckles_n: number
   held: string
   prompt: string
+  plot: string
   weather: string
   weather_left: string
   restock_in: string
@@ -40,6 +41,8 @@ shape Hud
   queued: number
   order: string
   order_detail: string
+  order_hint: string
+  order_seed: string
   order_ready: bool
   orders: number
   shop: list<ShopRow>
@@ -153,6 +156,10 @@ component Garden
           column testId="market" position="absolute" top=72 right=12 width=300 padding=12 gap=6 border-radius=12 background-color="#14532de6"
             text hud.order testId="objective" font-size=16 font-weight=700 color="#bef264"
             text hud.order_detail testId="order-detail" font-size=13
+            text hud.order_hint testId="order-hint" font-size=13
+            when hud.order_seed != ""
+              button press=run(`equip ${hud.order_seed}`) testId="equip-order" aria-label="Hold requested seed" padding=8 border-radius=8 background-color="#65a30d"
+                text "Hold requested seed" font-weight=700
             when hud.orders < 5
               button press=run("deliver") testId="deliver" aria-label="Deliver market order" disabled=(not hud.order_ready) padding=8 border-radius=8 background-color=(hud.order_ready ? "#ca8a04" : "#334155")
                 text (hud.order_ready ? "Deliver order" : "Harvest into your backpack") font-weight=700
@@ -164,11 +171,12 @@ component Garden
           when hud.away != ""
             text hud.away testId="away" position="absolute" top=240 right=12 max-width=320 padding=10 border-radius=10 background-color="#7c2d12e6" font-size=13
           column position="absolute" left=150 right=150 bottom=24 align-items="center" gap=6
+            text `${hud.plot} · W north · D east · S south · A west` testId="plot" padding=6 border-radius=8 background-color="#0f172ad9" font-size=13
             when hud.prompt != ""
               text hud.prompt testId="prompt" aria-live="polite" padding=10 border-radius=10 background-color="#0f172ad9" font-size=16
             when hud.last != ""
               text hud.last testId="last" padding=6 border-radius=8 background-color="#0f172a99" font-size=13 color="#e2e8f0"
-            text (hud.held == "" ? "No seeds in hand" : `Holding ${hud.held}`) testId="held" font-size=13 color="#bef264"
+            text (hud.held == "" ? "No seeds in hand" : `Holding ${hud.held}`) testId="held" padding=6 border-radius=8 background-color="#14532dd9" font-size=13 color="#bef264"
           button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#ffffff33"
             text "Move" text-align="center" padding-top=36
           button action="act" testId="act" aria-label="Plant or harvest (E)" position="absolute" right=24 bottom=24 width=96 height=96 border-radius=48 background-color="#65a30d"
