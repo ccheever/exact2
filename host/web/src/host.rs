@@ -699,6 +699,13 @@ impl<D: DataSource> Host<D> {
         self.advanced(a)
     }
 
+    /// The `then`s an agent's input settled, the clock unmoved
+    /// ([`exact_runner::Runner::land_then`]).
+    pub fn land_then(&mut self) -> String {
+        let a = self.runner.land_then();
+        self.advanced(a)
+    }
+
     /// A presented frame (LLP 1073 D2): the timers due by `now_ms`, then
     /// every frame task once at it, in one batch as [`Host::advance`]'s.
     pub fn frame(&mut self, now_ms: f64) -> String {

@@ -764,3 +764,43 @@ fn media_is_reported_unavailable() {
         .unwrap();
     assert_eq!(sound["unavailable"], true, "{tree}");
 }
+
+/// An input's end lands the `then` of the answer it settled (LLP 1012 §2;
+/// trivia F3): `clock land` runs it, the clock unmoved and no timer fired.
+#[test]
+fn land_runs_an_answers_then_and_no_timer() {
+    let plan = contract::compile(
+        "component App\n  state screen = \"start\"\n  state ticks = 0\n  mutation m as shape bool then opened\n  action go\n    send m = fallback()\n  action opened\n    screen = \"play\"\n  action tick\n    ticks = ticks + 1\n  task ticking mount\n    every(100, tick)\n  view\n    column\n      button press=go testId=\"go\" aria-label=\"Go\"\n        text \"Go\"\n      text `${screen} ${ticks}`\n",
+    )
+    .unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        Hung,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+    let slots = |p: &mut Presenter<Hung>| json(handle(p, r#"{"op":"state"}"#))["slots"].clone();
+    handle(&mut p, r#"{"op":"clock","to":100}"#);
+    let go = p
+        .host()
+        .runner()
+        .kernel()
+        .find_first_by_test_id("go")
+        .unwrap();
+    let go = p.host().runner().kernel().node_by_key(go).unwrap().id;
+    let tapped = handle(&mut p, &format!(r#"{{"op":"tap","id":{go}}}"#));
+    assert!(!tapped.contains("\"error\""), "{tapped}");
+    assert_eq!(slots(&mut p)["screen"], "start", "armed, not yet run");
+    let landed = json(handle(&mut p, r#"{"op":"clock","land":true}"#));
+    assert_eq!(landed["clock"], 100.0, "{landed}");
+    let s = slots(&mut p);
+    assert_eq!(
+        (s["screen"].clone(), s["ticks"].clone()),
+        ("play".into(), 1.into()),
+        "{s}"
+    );
+}

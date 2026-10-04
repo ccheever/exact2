@@ -526,7 +526,8 @@ The `refreshes items` clause re-reads `items` when the mutation is sent (an answ
 the source gives at once shows immediately) and forces it again when the reply
 lands. `then afterSave` runs a parameterless action in its own commit at the
 host's next clock advance, once for every answer that landed before it, so it
-reads the latest answer. It does not run for a failure that brought no answer,
+reads the latest answer (the agent driver lands it at the end of the input
+that settled the answer). It does not run for a failure that brought no answer,
 and it must not send its own mutation. Do not use `then` as a general event queue.
 
 `pending(resourceOrMutation)` asks whether a request is in flight.

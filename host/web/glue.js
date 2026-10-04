@@ -1210,6 +1210,9 @@ function tagged(reply) {
 // the runner says; a timer's refusal is the error. A promise: the driver
 // awaits it.
 async function clock(request) {
+  // The end of an input (LLP 1012 §2): the `then`s of the answers it settled
+  // land, the clock unmoved and no timer fired (Runner::land_then).
+  if (request.land) { const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(agentClock, 2)))); return batch.error ? { error: `clock: ${batch.error}`, clock: agentClock } : { clock: agentClock }; }
   const settle = !!request.settle; if (imageHold) await (await imageHold).ready(); // an animated image starts on the clock it lands at
   const deadline = performance.now() + SETTLE_DEADLINE_MS;
   let world = {};

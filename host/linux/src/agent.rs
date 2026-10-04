@@ -602,6 +602,20 @@ fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
 /// more, again — bounded, `settled: false` when the bound is hit (LLP 1012
 /// §2).
 fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+    // The end of an input (LLP 1012 §2): the `then`s of the answers it
+    // settled land, the clock unmoved and no timer fired (Runner::land_then).
+    if field_bool(line, "land") {
+        let (landed, e) = p.land_then();
+        p.sync_surfaces();
+        return match e {
+            Some(e) => {
+                let mut s = String::from("{\"error\":");
+                exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
+                format!("{s},\"clock\":{}}}", num(landed))
+            }
+            None => format!("{{\"clock\":{}}}", num(landed)),
+        };
+    }
     let reply = clock_within(p, line, SETTLE_BOUND);
     retell_offset(p);
     reply

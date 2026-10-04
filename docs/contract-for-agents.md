@@ -287,7 +287,8 @@ sends one mutation twice on one path is refused (`analyze-send-twice`): send one
 combined request, or use a mutation per request. `refreshes` re-reads
 its resources when the mutation is sent (an answer the source gives at once shows
 immediately) and forces them again when the reply lands. `then` is parameterless,
-runs once at the host's next clock advance as a new commit, reads the latest
+runs once at the host's next clock advance as a new commit (under the driver, an
+input's own answer's `then` before the input's reply), reads the latest
 answer, does not run for a failure that brought no answer, and cannot send its
 own mutation. Do not mistake the scheduling boundary
 for a general async workflow or a per-reply event log.
@@ -538,10 +539,12 @@ This test goes with the complete example above. The steps are `size 1200x800`
 `type "id" "text"` or `type "id" key "Name"`, `clock settle|+ms|+ms real|ms`,
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text, else its descendants' — a button's label — else a field's
-value), and `expect state name == <number|string|bool|none|[]>`. The clock
-stands still between steps: a reply, a mutation's `then`, a timer or a
-transition an input started lands at a `clock` step, so `clock settle` before
-the `expect` that depends on it. `type "id" key "Name"`
+value), and `expect state name == <number|string|bool|none|[]>`. An input
+step ends with what it settled: an answer the data module gave in the input's
+turn, and its mutation's `then`, are there for the next step. Otherwise the
+clock stands still between steps: a reply on real time (a store's, the
+network's), a timer or a transition an input started lands at a `clock` step,
+so `clock settle` before the `expect` that depends on it. `type "id" key "Name"`
 focuses the target if it takes the focus (else leaves the focus where it is)
 and presses the key as a keyboard would on every host: its `key` handlers,
 then its default — `"7"` types into a field, `"Enter"` submits it (a

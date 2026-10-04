@@ -33,7 +33,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     let r;
     try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, during: during.map(held) } }); }
     catch (error) { throw await tapRefusal(s, target, error); }
-    return s.tagged({ ...r, target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing });
+    return s.landed({ ...r, target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing });
   }
   // The carrier's phases, each reply checked: an error or a refusal releases the contact and throws.
   let down, done = [], up;

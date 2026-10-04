@@ -253,13 +253,14 @@ export function frames(action) {
  * tasks' virtual frames too, the wall clock's (`wall`) none. `stop()`, asked after each, ends it there (the agent's:
  * one that sent a request): true. A refusal, or 4096 commits (TIMER_FIRE_LIMIT), stops it at that time, and a
  * non-finite `to` (NonFiniteClock) leaves the clock where it was: its journal line, as the runner's error. Under the
- * agent the journal gets the runner's line for an advance that fired. */
-export function advance(to, wall, stop) {
+ * agent the journal gets the runner's line for an advance that fired. `timers` false fires none: the armed `then`s
+ * alone, at `to` = now, as an agent's input ends (Runner::land_then; trivia F3). */
+export function advance(to, wall, stop, timers = true) {
   if (!Number.isFinite(to)) return say(`refused advance: NonFiniteClock (${to})`), journal.at(-1);
   let fired = 0, stopped = false;
   for (;;) {
     let next = null, then = null;
-    for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due)) next = t;
+    if (timers) for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due)) next = t;
     // An answer's `then` goes before a timer due at the same time: the answer landed first.
     for (const m of Mutations) if (m.due <= to && (!then || m.due < then.due) && (!next || m.due <= next.due)) then = m;
     if (!next && !then) break;
