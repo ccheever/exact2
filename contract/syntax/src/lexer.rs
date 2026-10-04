@@ -365,14 +365,9 @@ impl Lexer {
         let mut chars = text[start + 1..].char_indices();
         while let Some((i, c)) = chars.next() {
             match c {
-                '\\' => match chars.next() {
-                    Some((_, 'n')) => out.push('\n'),
-                    Some((_, 't')) => out.push('\t'),
-                    Some((_, '"')) => out.push('"'),
-                    Some((_, '\\')) => out.push('\\'),
-                    Some((_, '`')) => out.push('`'),
-                    Some((_, '$')) => out.push('$'),
-                    _ => {
+                '\\' => match chars.next().and_then(|(_, c)| escaped(c)) {
+                    Some(c) => out.push(c),
+                    None => {
                         return Err(LexError {
                             id: "syntax-bad-escape",
                             message: "unknown escape".into(),
@@ -390,6 +385,20 @@ impl Lexer {
             span,
         })
     }
+}
+
+/// The character `\c` stands for, in a `"…"` string and a template's text
+/// alike: `\n`, `\t`, `\"`, `\\`, `` \` `` and `\$` (so `\${` is literal).
+pub(crate) fn escaped(c: char) -> Option<char> {
+    Some(match c {
+        'n' => '\n',
+        't' => '\t',
+        '"' => '"',
+        '\\' => '\\',
+        '`' => '`',
+        '$' => '$',
+        _ => return None,
+    })
 }
 
 /// The byte offset of the backtick closing a template literal. Nested

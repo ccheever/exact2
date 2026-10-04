@@ -241,6 +241,22 @@ fn a_template_with_an_inline_match_runs_through_the_compiler() {
 }
 
 #[test]
+fn template_escapes_run_as_the_text_they_spell() {
+    let src = "component App\n  state x = 7\n  view\n    column\n      text `a\\${x}` testId=\"literal\"\n      text `a\\tb \\` \\\\${x}` testId=\"decoded\"\n";
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(text_of(&r, "literal").as_deref(), Some("a${x}"));
+    assert_eq!(text_of(&r, "decoded").as_deref(), Some("a\tb ` \\7"));
+}
+
+#[test]
 fn state_initializers_keep_earlier_bindings_after_local_shadowing() {
     let src = r#"component App
   state value = 7
