@@ -150,7 +150,7 @@ fn a_bad_side_or_a_fifth_value_is_refused_at_compile_time() {
     for (value, says) in [
         (
             "#ff0000 #00ff00 #0000ff #ffffff #000000",
-            "one to four colours",
+            "one to four values",
         ),
         ("#ff0000 red", "not a valid `border-color`"),
     ] {
@@ -162,4 +162,50 @@ fn a_bad_side_or_a_fifth_value_is_refused_at_compile_time() {
     let e =
         contract::compile("component A\n  view\n    box border-left-color=\"#12\"\n").unwrap_err();
     assert_eq!(e.id, "lower-attr-value", "{e}");
+}
+
+#[test]
+fn padding_margin_border_width_and_inset_take_one_to_four_values_as_css_expands_them() {
+    // Each shorthand against its longhands: `"a b c"` is top a, right b, bottom c, left b.
+    let r = boot(
+        "component A\n  view\n    column\n      box testId=\"short\" padding=\"1px 2px 3px\" margin=\"4px 5%\" border-width=\"6px 7px 8px 9px\" border-style=\"solid none\" position=\"absolute\" inset=\"calc(50% - 4px) 10px\"\n      box testId=\"long\" padding-top=1 padding-right=2 padding-bottom=3 padding-left=2 margin-top=4 margin-right=\"5%\" margin-bottom=4 margin-left=\"5%\" border-top-width=6 border-right-width=7 border-bottom-width=8 border-left-width=9 border-top-style=\"solid\" border-right-style=\"none\" border-bottom-style=\"solid\" border-left-style=\"none\" position=\"absolute\" top=\"calc(50% - 4px)\" right=10 bottom=\"calc(50% - 4px)\" left=10\n      box testId=\"one\" padding=\"12px\" padding-left=3\n",
+    );
+    let (short, long) = (style_of(&r, "short"), style_of(&r, "long"));
+    macro_rules! same {
+        ($($field:ident),*) => { $(assert_eq!(short.$field, long.$field, stringify!($field));)* };
+    }
+    same!(
+        padding_top,
+        padding_right,
+        padding_bottom,
+        padding_left,
+        margin_top,
+        margin_right,
+        margin_bottom,
+        margin_left,
+        border_width_top,
+        border_width_right,
+        border_width_bottom,
+        border_width_left,
+        border_style_top,
+        border_style_right,
+        border_style_bottom,
+        border_style_left,
+        top,
+        right,
+        bottom,
+        left
+    );
+    let one = style_of(&r, "one");
+    assert_eq!(one.padding_top, one.padding_bottom);
+    assert_ne!(
+        one.padding_top, one.padding_left,
+        "a later longhand still wins"
+    );
+    let e = contract::compile("component A\n  view\n    box padding=\"1px 2px 3px 4px 5px\"\n")
+        .unwrap_err();
+    assert!(
+        format!("{e}").contains("`padding` takes one to four values"),
+        "{e}"
+    );
 }

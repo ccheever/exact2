@@ -36,6 +36,15 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
       assert.equal(result.status, 0, result.stderr);
       assert.deepEqual(JSON.parse(result.stdout), { args, app: realpathSync(dir) });
     }
+    // A stale web build (the driver's 3) is built, and the drive runs again; other hosts are not.
+    const calls = resolve(parent, 'calls');
+    writeFileSync(resolve(sdk, 'host/web/build.mjs'), `require('node:fs').appendFileSync(${JSON.stringify(calls)}, 'build\\n');`);
+    writeFileSync(resolve(sdk, 'scripts/agent.mjs'), `const fs = require('node:fs'); const n = fs.existsSync(${JSON.stringify(calls)}) ? fs.readFileSync(${JSON.stringify(calls)}, 'utf8').split('\\n').length - 1 : 0; fs.appendFileSync(${JSON.stringify(calls)}, process.argv[2] + '\\n'); process.exit(n === 0 ? 3 : 0);`);
+    const stale = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test'], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    assert.equal(stale.status, 0, stale.stderr);
+    assert.equal(readFileSync(calls, 'utf8'), 'web\nbuild\nweb\n');
+    rmSync(calls);
+    assert.equal(spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test', 'ios'], { cwd: parent, env: { ...process.env, EXACT2: sdk } }).status, 3);
     writeFileSync(resolve(sdk, 'scripts/agent.mjs'), 'process.exit(7);');
     const refused = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test', 'ios'], { cwd: parent, env: { ...process.env, EXACT2: sdk } });
     assert.equal(refused.status, 7, 'a failed app test fails the generated command');
