@@ -153,8 +153,7 @@ pub(crate) fn positioned(
         // Only its own rows (it clips, transforms or animates) and nothing
         // absolute can be under it (`Lowerer::may_hold_absolute`): it is the
         // containing block of nothing, and a positioned box costs a host a
-        // layer to paint and hit-test (10,000 grid rows' clipping cells: a
-        // 25 ms hit test a pointer event).
+        // layer to paint and hit-test (10,000 grid rows' clipping cells: a 25 ms hit test a pointer event).
         None if holds_nothing
             && !host_transform
             && !tag.node_type.scrolls_by_default()
@@ -374,8 +373,7 @@ pub fn tag(name: &str) -> Option<Tag> {
             positional: None,
         },
         // @ref LLP 1055.000 D7/D10 — a mask and a pattern render only where
-        // they are referenced; a pattern's tile clips its content, which
-        // the hosts do (no row says so).
+        // they are referenced; a pattern's tile clips its content, which the hosts do (no row says so).
         "mask" => Tag {
             node_type: NodeType::SvgMask,
             fixed_styles: &[],
@@ -567,8 +565,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "message" => AttrTarget::Handler("message"),
         "contextmenu" => AttrTarget::Handler("contextmenu"),
         "dblclick" => AttrTarget::Handler("dblclick"),
-        // @ref LLP 1005 §3 — DOM's pointer down and up (a cancel is an up).
-        "pointerdown" => AttrTarget::Handler("pointerdown"),
+        "pointerdown" => AttrTarget::Handler("pointerdown"), // LLP 1005 §Events, DOM's own
         "pointerup" => AttrTarget::Handler("pointerup"),
         "reachstart" => AttrTarget::Handler("reachstart"),
         "reachend" => AttrTarget::Handler("reachend"),

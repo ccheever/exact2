@@ -791,8 +791,7 @@ export function on(e, kind, f) {
     // Pull to refresh is a native port's; the web has none (`glue.js` attaches nothing).
     case "refresh": return;
     case "durationchange": return l(kind, () => Number.isFinite(e.duration) && f(e.duration));
-    case "contextmenu": case "dblclick": return l(kind, ev => { ev.preventDefault(); f(); });
-    case "pointerdown": case "pointerup": return pointer(e, kind, f); // pointer.js (LLP 1005 §3)
+    case "contextmenu": case "dblclick": return l(kind, ev => { ev.preventDefault(); f(); }); case "pointerdown": case "pointerup": return pointer(e, kind, f); // pointer.js (LLP 1005 §Events)
     // Chrome blurs an element it is removing (still connected); a retired view's blur is dropped (glue.js).
     case "blur": return l(kind, () => queueMicrotask(() => e.isConnected && f()));
     default: return l(kind, () => f());

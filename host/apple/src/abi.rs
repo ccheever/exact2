@@ -858,10 +858,8 @@ impl<D: DataSource> Bridge<D> {
         let event = match kind {
             0 => Event::Press,
             1 => Event::Change(payload.into()),
-            // @ref LLP 1069.001 D4 — 23 is a text field's `input`; 24 and
-            // 25 a checkbox's `change` and `input`, the payload `true`/`false`.
-            // @ref LLP 1069.002 D3, D2 — 26 is a file input's `change`, one
-            // picked file per line; 27 its `cancel`.
+            // @ref LLP 1069.001 D4 — 23 is a text field's `input`; 24 and 25 a checkbox's `change` and `input`, the payload `true`/`false`.
+            // @ref LLP 1069.002 D3, D2 — 26 is a file input's `change`, one picked file per line; 27 its `cancel`.
             26 => {
                 let Some(files) = exact_runner::Picked::payload(&payload) else {
                     return self.emit(r#"{"ops":[],"error":"invalid picked files"}"#.into());
@@ -890,8 +888,7 @@ impl<D: DataSource> Bridge<D> {
             9 => Event::Message(payload),
             10 => Event::Contextmenu,
             11 => Event::Dblclick,
-            // @ref LLP 1005 §3 — pointer down and up (Charlie, 2026-10-03).
-            29 => Event::Pointerdown,
+            29 => Event::Pointerdown, // LLP 1005 §Events
             30 => Event::Pointerup,
             12 => Event::Swiperight,
             // The platform's pull-to-refresh control fired.

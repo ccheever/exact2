@@ -1032,8 +1032,7 @@ impl Em<'_> {
         if let Some(sf) = row.surface {
             let sf = &plan.surfaces[sf.0 as usize];
             // A surface the app's GPU module draws (the build names them)
-            // goes to it; any other is a Canvas 2D surface, drawn by the
-            // data module and replayed by the web host's own glue.
+            // goes to it; any other is a Canvas 2D surface, drawn by the data module and replayed by the web host's own glue.
             let name = plan.str(sf.name);
             let gpu = gpu_surfaces().iter().any(|s| s == name);
             let named = sf.mode == exact_plan::SurfaceArgsMode::Named;
