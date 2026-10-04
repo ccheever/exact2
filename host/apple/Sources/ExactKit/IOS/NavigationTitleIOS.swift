@@ -23,6 +23,8 @@ struct HeaderTitle: Equatable {
     /// What VoiceOver reads for the subtitle: the glyph line's `aria-label`
     /// when it has one (a timer's "1w" means little alone), else its texts.
     let spoken: String
+    /// The glyph line's authored direction is right to left.
+    let rtl: Bool
     struct Glyph: Equatable { let symbol: String?; let text: String }
     /// The element a tap on the title presses.
     let tap: UInt32?
@@ -35,7 +37,7 @@ struct HeaderTitle: Equatable {
             at = view.superview
         }
         guard let group = tap ?? chain.last(where: { a in !apart.contains { $0.isDescendant(of: a) } }) else { return nil }
-        var avatar: BadgeFace?, subtitle = "", glyphs: [Glyph] = [], passed = false, spoken: String?
+        var avatar: BadgeFace?, subtitle = "", glyphs: [Glyph] = [], passed = false, spoken: String?, rtl = false
         func shown(_ node: NodeView) -> [NodeView] {
             node.container.subviews.compactMap { $0 as? NodeView }.filter { $0.style["display"]?.string != "none" }
         }
@@ -49,20 +51,29 @@ struct HeaderTitle: Equatable {
         /// nothing and costs the line nothing; any other child is not one.
         func line(_ node: NodeView) -> [Glyph]? {
             guard !node.isParagraph, passive(node) else { return nil }
-            var out: [Glyph] = []
+            var out: [Glyph] = [], symbols = false
             for child in shown(node) {
                 guard passive(child) else { return nil }
                 if child.kind == "image", child.props["imageSource"]?.hasPrefix("symbol:") == true {
+                    // A symbol source counts toward the shape even while its
+                    // name is blank, so the line keeps its texts and label.
+                    symbols = true
                     if let name = child.props["symbolName"], !name.isEmpty { out.append(Glyph(symbol: name, text: "")) }
                 } else if child.isParagraph {
                     if !child.accessibleText.isEmpty { out.append(Glyph(symbol: nil, text: child.accessibleText)) }
                 } else { return nil }
             }
-            return out.contains { $0.symbol != nil } && out.contains { $0.symbol == nil } ? out : nil
+            return symbols && out.contains { $0.symbol == nil } ? out : nil
+        }
+        /// A control or a link is its own (a bar item), not the title's to
+        /// read, unless it holds the heading (the pressable group).
+        func control(_ node: NodeView) -> Bool {
+            (node.isButton || node.actsAsButton || node.handlers.contains("press")) && !heading.isDescendant(of: node)
         }
         func walk(_ node: NodeView) {
             for child in shown(node) {
                 if child === heading { passed = true; continue }
+                if control(child) { continue }
                 if !passed, avatar == nil, !heading.isDescendant(of: child), let face = BadgeFace(box: child, authored: true) { avatar = face; continue }
                 if passed, subtitle.isEmpty, child.isParagraph, !child.accessibleText.isEmpty { subtitle = child.accessibleText; continue }
                 if passed, subtitle.isEmpty, let pieces = line(child) {
@@ -70,11 +81,12 @@ struct HeaderTitle: Equatable {
                     subtitle = pieces.compactMap { $0.symbol == nil ? $0.text : nil }.joined(separator: "  ")
                     // What it says, as the author named it, else its texts.
                     spoken = child.authoredLabel ?? subtitle
+                    rtl = child.style["direction"]?.string == "rtl"
                     continue
                 }
-                // A control inside the group is its own (a bar item), not
-                // the title's to read.
-                if child.isButton || child.handlers.contains("press"), !heading.isDescendant(of: child) { continue }
+                // After the heading, a filled box (a pill, a badge) keeps its
+                // own look: nothing in it is the subtitle.
+                if passed, child.channels("background_color") != nil { continue }
                 walk(child)
             }
         }
@@ -87,11 +99,12 @@ struct HeaderTitle: Equatable {
         self.subtitle = subtitle
         self.glyphs = glyphs
         self.spoken = spoken ?? subtitle
+        self.rtl = rtl
         self.tap = tap?.id
     }
 
     /// Everything the title is drawn from.
-    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(spoken):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }):\(tap ?? 0)" }
+    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(spoken):\(rtl):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }):\(tap ?? 0)" }
     static func == (a: HeaderTitle, b: HeaderTitle) -> Bool { a.source == b.source }
 
     static func holdsHeading(_ node: NodeView) -> Bool {
@@ -169,7 +182,7 @@ final class HeaderTitleView: UIControl {
     /// size and colour, an item two spaces from the next, or its text.
     static func line(_ group: HeaderTitle, font: UIFont, colour: UIColor) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
-        paragraph.baseWritingDirection = .natural
+        paragraph.baseWritingDirection = group.rtl ? .rightToLeft : .natural
         paragraph.lineBreakMode = .byTruncatingTail
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: colour, .paragraphStyle: paragraph]
         guard !group.glyphs.isEmpty else { return NSAttributedString(string: group.subtitle, attributes: attributes) }

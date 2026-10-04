@@ -126,7 +126,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(line.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor, view.subtitle.textColor)
         XCTAssertTrue(line.string.contains("Muted") && line.string.contains("1w"))
         try tapNode(session, "toggle-muted")
-        until("back to the text subtitle") { view.accessibilityValue == "Online" || view.subtitle.isHidden }
+        until("back to no subtitle (it was toggled off)") { view.accessibilityValue == nil && view.subtitle.isHidden }
         // A title view a hook sets stays: Exact draws only its own.
         let hooks = UILabel()
         item.titleView = hooks
