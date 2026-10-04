@@ -3,7 +3,7 @@
 import { agentStorageRefusal, directories, storageKey } from './storage-environment.js';
 let fileFactory, sqliteFactory;
 
-export function createStorage(win, admitted, scope, key = storageKey(admitted.appId, location.href)) {
+export function createStorage(win, admitted, scope, key = storageKey(admitted.appId)) {
   // Once storage has been used, a replacement reserves its owner before the
   // old realm is disposed, retaining the shared SQLite worker across reloads.
   let fs = key && fileFactory?.(key, admitted.grantSet);
