@@ -94,6 +94,10 @@ extension Agent {
     /// must finish before `clock settle` returns (LLP 1035.003 D5).
     func nativeInFlight() -> Bool {
         if presenter.navigation.inTransition || presenter.modals.inTransition || presenter.menus.inTransition || presenter.hasPendingKeyboardResize || nativeGeometryInFlight() { return true }
+        // A smooth correction (a list following its end, a smooth
+        // `scrollIntoView`) is UIKit's scroll animation under platform timing
+        // (LLP 1070.000 §6.2): the fixed point is where it lands.
+        if !presenter.collections.animating.isEmpty { return true }
         guard let editor = pendingTextReveal else { return false }
         guard let node = editor.owner, presenter.views[node.id] === node,
               node.textArea === editor, !presenter.navigation.isInactiveRoute(containing: node),
