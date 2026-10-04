@@ -20,6 +20,7 @@ mod catalog_recipe;
 mod flow;
 #[cfg(test)]
 mod flow_tests;
+mod font_cache;
 mod shaping;
 #[allow(dead_code)] // Private transfer proof; controller integration is a separate increment.
 pub(crate) mod transfer;
