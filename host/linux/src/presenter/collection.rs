@@ -921,10 +921,6 @@ mod tests {
             None,
             "origin changes also invalidate old corrections"
         );
-        let mut cursor = Cursor {
-            sequence: u64::MAX,
-            ..Cursor::default()
-        };
         // A resize in the pass that brings the correction (feed F14) is
         // not the reader: the correction planned before it lands.
         let mut cursor = Cursor {
