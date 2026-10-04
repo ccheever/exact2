@@ -470,6 +470,15 @@ commands. Use `tree` to find targets, `state` for data and delivery, `layout` fo
 geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: per
 plan site, evaluations, unchanged results, instances created and retired), and
 screenshots for rendered output. Logs name refused operations and data errors.
+For a game canvas, JavaScript `s.tap("world", {mouse:true, at:[x,y]})` sends one
+primary mouse click on web, Windows, and Linux. `{contextmenu:true, at:[x,y]}`
+sends a right-click. Coordinates are relative to the target's top-left; omit
+`at` for its center. Both refuse invalid, covered, or offscreen points and held
+contacts. The CLI forms are `tap world mouse` and `tap world contextmenu`, or use
+a JSON options object for coordinates. Plain canvas taps and held contacts are
+fingers, so their platform pointer identity and retained press history can differ
+from a mouse's; use the intended physical input when comparing game saves.
+
 `tap` and `type` scroll a target whose middle is out of view into it first (its
 nearest scroll containers, then the page) and say so in the reply's `scrolled`.
 `type` on a control sets it as a person choosing would, with `input` then

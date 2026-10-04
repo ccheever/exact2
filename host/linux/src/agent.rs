@@ -121,8 +121,8 @@ fn tagged<D: DataSource>(p: &Presenter<D>, line: &str, mut reply: String) -> Str
 
 pub(crate) fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     // An agent's taps and contacts reach a canvas as a finger, as on the web
-    // and iOS. An explicit contextmenu is a mouse's secondary button (LLP 1015.000).
-    p.agent_finger(!field_bool(line, "contextmenu"));
+    // and iOS. Explicit mouse/contextmenu use device mouse buttons (LLP 1015.000).
+    p.agent_finger(!field_bool(line, "contextmenu") && !field_bool(line, "mouse"));
     let reply = answer_line(p, line);
     p.agent_finger(false);
     reply
@@ -226,28 +226,13 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 Ok(request) => request,
                 Err(_) => return error("unreadable tap request"),
             };
+            if field_bool(line, "contextmenu") || field_bool(line, "mouse") {
+                return p
+                    .mouse_request(id(), &request)
+                    .unwrap_or_else(|e| error(&e));
+            }
             if request.get("resize").is_some() {
                 return resize(p, &request);
-            }
-            if field_bool(line, "contextmenu") {
-                let at = match request.get("at") {
-                    None => None,
-                    Some(value) => match value.as_array().map(Vec::as_slice) {
-                        Some([x, y]) => match (x.as_f64(), y.as_f64()) {
-                            (Some(x), Some(y))
-                                if (x as f32).is_finite() && (y as f32).is_finite() =>
-                            {
-                                Some((x as f32, y as f32))
-                            }
-                            _ => return error("contextmenu at needs two finite numbers"),
-                        },
-                        _ => return error("contextmenu at needs two finite numbers"),
-                    },
-                };
-                return match id() {
-                    Some(id) => p.contextmenu(id, at).unwrap_or_else(|e| error(&e)),
-                    None => error("contextmenu needs an id"),
-                };
             }
             if let Some(reply) = p.control_tap(&request) {
                 return reply.to_string();
