@@ -181,25 +181,9 @@ function storageOf(grants) {
     work: promise => Promise.resolve(promise),
   });
 }
-// A stream (LLP 1016.000; ts-fetch.js): the web host's reader (http-body.js,
-// loaded on first use) opens it under the module's grants, and the source's
-// `exactStream` maps each message, and the end, to the answer now, with the
-// event Hermes gives it (js/src/prelude.js `__exact_message`).
-const KINDS = ['Response', 'Network', 'Refused', 'Unsupported', 'Aborted'], said = new TextDecoder();
-const opener = ({ req, map }, conv) => (deliver, controller) => {
-  const value = event => {
-    try {
-      const v = map(event);
-      if (v && typeof v.then === 'function') throw new Error('exactStream answers each event now; it cannot await');
-      return { v: conv(v) };
-    } catch (e) { return { error: String(e?.message ?? e) }; }
-  };
-  return import('./http-body.js').then(({ streamed }) => streamed(req, tsGrantSet,
-    m => deliver({ ...value({ type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced }), coalesced: m.coalesced }), controller))
-    .then(o => value(o.kind
-      ? { type: 'error', data: '', lastEventId: '', coalesced: 0, kind: KINDS[o.kind], message: said.decode(o.body), status: 0 }
-      : { type: 'error', data: said.decode(o.body), lastEventId: '', coalesced: 0, kind: 'Response', message: `HTTP ${o.status}`, status: o.status }));
-};
+// A stream (LLP 1016.000; ts-fetch.js), opened by ts-stream.js, loaded on
+// first use so a module that never streams carries none of it.
+const opener = (stream, conv) => (deliver, controller) => import('./ts-stream.js').then(m => m.open(stream, conv, tsGrantSet, deliver, controller));
 export function install(data, mixed = false, modules = null) {
   data.appId = source.appId;
   data.grants = setAppGrantSet(tsGrantSet);

@@ -13,7 +13,8 @@ import { resolve } from 'node:path';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-baked-'));
 const webJs = name => resolve(new URL(`../../web-js/${name}`, import.meta.url).pathname);
-for (const f of ['rt.js', 'roster.js', 'router.js', 'shape.js']) copyFileSync(webJs(f), resolve(dir, f));
+for (const f of ['rt.js', 'roster.js', 'router.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
+copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
 for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer'], 'commands.js': ['commands'],
   'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
   'svg-transform.js': ['svgTransform'], 'dataset.js': ['ds'], 'hooks.js': ['hk'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber'] }))
@@ -80,41 +81,38 @@ test('a key handler stops and prevents its event while a view transition holds t
   } finally { delete globalThis.document; delete globalThis.requestAnimationFrame; }
 });
 
-// Local notifications on the JS target (commands.js, over the web host's
-// notify-glue.js): the runner's rule (runner/src/notify.rs) refuses without
-// `device.notifications`, lists under the agent (a tag replacing its older
-// one), and otherwise asks permission once and posts through the
-// Notification API, now or at `showTrigger` while the page is open; a
-// tag's `closeNotification` takes away a shown or a waiting one.
+// Local notifications on the JS target (notify.js, linked by use, over the
+// web host's notify-glue.js): the runner's rule (runner/src/notify.rs)
+// refuses without `device.notifications`, lists under the agent (a tag
+// replacing its older one), and otherwise asks permission once and posts
+// through the Notification API, now or at `showTrigger` while the page is
+// open; a tag's `closeNotification` takes away a shown or a waiting one.
 test('notifications: refused without the grant, listed under the agent, else posted by the Notification API', async () => {
-  const at = mkdtempSync(resolve(tmpdir(), 'exact-js-notify-'));
-  copyFileSync(webJs('commands.js'), resolve(at, 'commands.js'));
-  copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(at, 'notify-glue.js'));
-  const { commands, notices } = await import(resolve(at, 'commands.js'));
-  const lines = [], posted = [], closed = [];
-  let agent = true, grants = '';
-  const c = commands(l => lines.push(l), { agent: () => agent, grants: () => grants });
-  c.showNotification('Stretch', null, 'stretch', null);
-  expect(lines.pop()).toBe('showNotification: refused: the grants name no device.notifications');
-  grants = 'net.fetch https://a.example\ndevice.notifications purpose.notifications\n';
-  c.showNotification('Stretch', 'Now', 'stretch', null);
-  c.showNotification('Stretch', 'Later', 'stretch', 5);
-  c.showNotification('Alert', null, null, null);
+  const { Hosts, clock, data, journal } = await import(resolve(dir, 'rt.js'));
+  await import(resolve(dir, 'notify.js'));
+  const notices = globalThis.exact.notices, posted = [], closed = [], last = () => journal.at(-1).replace(/^t=\S+ /, '');
+  clock.agent = true; data.grants = '';
+  Hosts.showNotification('Stretch', null, 'stretch', null);
+  expect(last()).toBe('showNotification: refused: the grants name no device.notifications');
+  data.grants = 'net.fetch https://a.example\ndevice.notifications purpose.notifications\n';
+  Hosts.showNotification('Stretch', 'Now', 'stretch', null);
+  Hosts.showNotification('Stretch', 'Later', 'stretch', 5);
+  Hosts.showNotification('Alert', null, null, null);
   expect(notices).toEqual([{ title: 'Stretch', body: 'Later', tag: 'stretch', showTrigger: 5 }, { title: 'Alert', body: null, tag: null, showTrigger: null }]);
-  c.closeNotification('stretch');
+  Hosts.closeNotification('stretch');
   expect(notices.map(n => n.title)).toEqual(['Alert']);
   globalThis.Notification = class { static permission = 'default'; static requestPermission() { Notification.permission = 'granted'; return Promise.resolve('granted'); }
     constructor(title, options) { this.title = title; this.options = options; posted.push(this); } close() { closed.push(this.title); } };
   try {
-    agent = false;
-    await c.showNotification('Price alert', 'BTC crossed 100k', 'btc', null);
-    expect([posted[0].title, posted[0].options, lines.at(-1)]).toEqual(['Price alert', { body: 'BTC crossed 100k', tag: 'btc' }, 'showNotification: shown']);
-    await c.showNotification('Stretch', null, 'stretch', Date.now() + 60_000);
-    expect([posted.length, lines.at(-1)]).toEqual([1, 'showNotification: scheduled while this page is open']);
-    await c.closeNotification('stretch'); await c.closeNotification('btc');
+    clock.agent = false;
+    await Hosts.showNotification('Price alert', 'BTC crossed 100k', 'btc', null);
+    expect([posted[0].title, posted[0].options, last()]).toEqual(['Price alert', { body: 'BTC crossed 100k', tag: 'btc' }, 'showNotification: shown']);
+    await Hosts.showNotification('Stretch', null, 'stretch', Date.now() + 60_000);
+    expect([posted.length, last()]).toEqual([1, 'showNotification: scheduled while this page is open']);
+    await Hosts.closeNotification('stretch'); await Hosts.closeNotification('btc');
     expect(closed).toEqual(['Price alert']);
-    await c.showNotification('Soon', null, null, Date.now() + 20);
+    await Hosts.showNotification('Soon', null, null, Date.now() + 20);
     await new Promise(r => setTimeout(r, 60));
-    expect([posted.at(-1).title, lines.at(-1)]).toEqual(['Soon', 'showNotification: shown']);
+    expect([posted.at(-1).title, last()]).toEqual(['Soon', 'showNotification: shown']);
   } finally { delete globalThis.Notification; }
 });

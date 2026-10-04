@@ -85,11 +85,14 @@ pub enum Capability {
     /// A navigation root's tabs (LLP 1075.003 §3.7): a plan that binds
     /// `aria-controls`. The web's document shows each tab's stack.
     Tabs,
+    /// `showNotification` and `closeNotification` (rules/DEFERRED.md,
+    /// 2026-10-04): a plan whose code runs one.
+    Notifications,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 22] = [
+    pub const ALL: [Capability; 23] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -112,6 +115,7 @@ impl Capability {
         Capability::Segments,
         Capability::Dataset,
         Capability::Tabs,
+        Capability::Notifications,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -139,6 +143,7 @@ impl Capability {
             Capability::Segments => "segments",
             Capability::Dataset => "dataset",
             Capability::Tabs => "tabs",
+            Capability::Notifications => "notifications",
         }
     }
 
@@ -326,6 +331,9 @@ pub fn uses(plan: &Plan) -> Uses {
     }
     if runs_command(plan, &["share"]) {
         uses = uses.with(Capability::Share);
+    }
+    if runs_command(plan, &["showNotification", "closeNotification"]) {
+        uses = uses.with(Capability::Notifications);
     }
     if runs_command(
         plan,

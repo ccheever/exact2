@@ -173,7 +173,8 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
             | Capability::Geometry
             | Capability::Segments
             | Capability::Dataset
-            | Capability::Tabs => {}
+            | Capability::Tabs
+            | Capability::Notifications => {}
         }
     }
     entry

@@ -172,6 +172,11 @@ fn main() -> ExitCode {
                 {
                     let _ = std::fs::write(dir.join("files.flag"), "");
                 }
+                // `showNotification`/`closeNotification` (notify.js).
+                let _ = std::fs::remove_file(dir.join("notify.flag"));
+                if u.has(Capability::Notifications) {
+                    let _ = std::fs::write(dir.join("notify.flag"), "");
+                }
             }
             // Every portable symbol role, which symbols.js loads when a bound
             // source names one the plan's strings don't (ledger diary F10).

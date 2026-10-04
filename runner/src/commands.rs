@@ -28,8 +28,10 @@ pub fn request<D: DataSource>(runner: &mut Runner<D>, json: &str) -> String {
                 None => error("the file pickers are not linked into this artifact"),
             }
         }
-        // Local notifications are the core's: a small rule and no answer.
-        Some("showNotification" | "closeNotification") => crate::notify::request(runner, json),
+        Some("showNotification" | "closeNotification") => match links.notifications {
+            Some(request) => request(runner, json),
+            None => error("showNotification is not linked into this artifact"),
+        },
         Some(other) => error(&format!("no ruling for command {other}")),
         None => error("no command"),
     }

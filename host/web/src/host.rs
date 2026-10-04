@@ -182,28 +182,7 @@ impl<D: DataSource> HostLinks<D> {
             } else {
                 None
             },
-            device: exact_runner::DeviceLinks {
-                auth: if linked.auth {
-                    Some(exact_runner::AuthLinks::LINKED)
-                } else {
-                    None
-                },
-                share: if linked.share {
-                    exact_runner::DeviceLinks::<D>::ALL.share
-                } else {
-                    None
-                },
-                documents: if linked.documents {
-                    exact_runner::DeviceLinks::<D>::ALL.documents
-                } else {
-                    None
-                },
-                picker: if linked.picker.is_some() {
-                    Some(exact_runner::PickerLinks::LINKED)
-                } else {
-                    None
-                },
-            },
+            device: linked.device_links(),
             auth: if linked.auth {
                 Some(Host::<D>::auth_linked)
             } else {
