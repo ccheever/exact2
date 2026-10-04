@@ -449,6 +449,16 @@ commands. Use `tree` to find targets, `state` for data and delivery, `layout` fo
 geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: per
 plan site, evaluations, unchanged results, instances created and retired), and
 screenshots for rendered output. Logs name refused operations and data errors.
+`tap` and `type` scroll a target whose middle is out of view into it first (its
+nearest scroll containers, then the page) and say so in the reply's `scrolled`.
+`type` on a control sets it as a person choosing would, with `input` then
+`change`: a `select` takes an option's value or its label, a date, time or
+`datetime-local` input its HTML value (`2026-10-09`, `14:00`,
+`2026-10-09T14:30`), a range a number, a checkbox `true` or `false`.
+`tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
+move, with the finger still down. `clock +N` moves the virtual clock without
+waiting for a store's or the network's reply on real time (unless a timer fires
+first); its reply says what is still in flight, and `clock settle` lands it.
 
 Authored tests are a smaller language over that API:
 

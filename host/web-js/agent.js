@@ -304,8 +304,12 @@ export function install(exact) {
         // host's does (Runner::advance_until_request): the runner keeps one
         // request per target, so the next tick's send would drop it.
         // A jump that fires timers which send nothing is one advance (one
-        // journal line), as the runner's is.
+        // journal line), as the runner's is. What was in flight before the
+        // jump lands before a timer fires too, as the wasm and native hosts'
+        // jumps wait for it (calendar F10: a store's reply is on real time).
+        const due = () => exact.clock.timers.some(t => t.due <= req.to);
         for (const end = performance.now() + 20000; ;) {
+          while (due() && exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
           const before = exact.inflight.n, stopped = exact.advance(req.to, false, () => exact.inflight.n > before);
           // A refusal stops the jump at its time: the runner's error (a timer's, a `then`'s).
           if (typeof stopped === 'string') { retime(); seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
@@ -319,7 +323,9 @@ export function install(exact) {
         await new Promise(r => requestAnimationFrame(() => r()));
         const gpuPending = await settleGpu();
         if (gpuPending.length) return gpuPendingReply(req, gpuPending);
-        return { clock: exact.clock.now };
+        // Requests still in flight on real time, which a jump does not wait for (`clock settle` does): the driver says so.
+        const inflight = exact.inflight.n - holds().length;
+        return { clock: exact.clock.now, ...(inflight > 0 ? { inflight } : {}) };
       }
       case 'tags': return tags();
       // @ref LLP 1080.002 D4 — the ids `tree` gives, where CDP's DOM snapshot reads them, and the document's nonce.

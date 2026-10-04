@@ -7,8 +7,9 @@ import { DRAG_BOUNDS } from '../host/apple/touches.mjs';
  * `tap <target> drag …` (LLP 1080.000 §11): one whole gesture from `from`
  * (an offset from the target's box, its middle by default): press `press`
  * ms, one straight drag by (dx, dy) over `over` ms, hold `hold` ms, lift;
- * `during` thunks run while the finger is down, when no input is accepted
- * (`s.held`). The start and the end must be in the viewport. A real touch
+ * `during` thunks run while the finger is down after the move, before the
+ * hold (kanban F14: a screenshot during a drag shows it moved), when no
+ * input is accepted (`s.held`). The start and the end must be in the viewport. A real touch
  * under `--touch platform`; elsewhere the carrier's own contact phases,
  * refused where the carrier refuses them.
  */
@@ -48,7 +49,9 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
       const { phase: _, ...refused } = down;
       return s.tagged({ ...refused, drag: said, reason: `${down.reason ?? 'no held contact'}; a real drag is --touch platform's (LLP 1080.000 §11)` });
     }
-    // Here the ops come before the press, and each is bounded by the gesture's own bound.
+    if (press) await phase('hold', { ms: press });
+    if (moves) await phase('move', { dx, dy, ms: over });
+    // The ops run where the finger has moved to, each bounded by the gesture's own bound.
     for (const op of during) {
       let timer;
       const late = new Promise((_, no) => { timer = setTimeout(() => no(new Error(`drag: an op during it outlasted ${DRAG_BOUNDS.total} ms`)), DRAG_BOUNDS.total); });
@@ -56,8 +59,6 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
       running.catch(() => {});
       try { done.push(await Promise.race([running, late])); } finally { clearTimeout(timer); }
     }
-    if (press) await phase('hold', { ms: press });
-    if (moves) await phase('move', { dx, dy, ms: over });
     if (hold) await phase('hold', { ms: hold });
     up = await phase('up');
   } catch (error) {

@@ -1245,7 +1245,7 @@ async function clock(request) {
     if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock };
     if (gpuInPlay()) { const pending = await settleGpu(); if (pending.length) return gpuPendingReply(request, pending); }
     world = globalThis.exact.gpu?.clock?.(settle) ?? {};
-    if (!settle) { if (imageHold) await (await imageHold).ready(); return reply(); }
+    if (!settle) { if (imageHold) await (await imageHold).ready(); const n = waiting().length; return n ? { ...reply(), inflight: n } : reply(); } // what a jump leaves in flight on real time, which the driver names (calendar F10)
     collections.settle(); // every list built and measured where it shows (LLP 1070 G3)
     if (waiting().length) { if (rounds >= 15) return reply(false, true); continue; }
     const next = Math.max(settleCandidate(), world.settleAt ?? agentClock);
