@@ -1,11 +1,10 @@
 //! Bounded native I/O, shared with Apple. A nonblocking socketpair makes
 //! completions and admission refusals visible to the Linux display loop.
+use crate::wake::Stream as UnixStream;
 use exact_runner::{Outcome, RequestOut, Work};
 use std::io::{Read, Write};
-use std::os::unix::{
-    io::{AsRawFd, RawFd},
-    net::UnixStream,
-};
+#[cfg(unix)]
+use std::os::unix::io::{AsRawFd, RawFd};
 #[path = "../../apple/src/executor_core.rs"]
 mod core;
 /// A new executor waits for a native-worker slot only under test (the core's `reserve`).
@@ -61,6 +60,7 @@ impl Executor {
         self.note.as_deref()
     }
     /// FD readable when the presenter should pump.
+    #[cfg(unix)]
     pub fn fd(&self) -> RawFd {
         self.wake.as_raw_fd()
     }

@@ -18,6 +18,8 @@ use std::{
 
 #[path = "surface_controls.rs"]
 mod controls;
+mod pixels;
+mod shaders;
 
 const LIMIT: usize = 256 * 1024 * 1024;
 type Read = unsafe extern "C" fn(u32) -> u32;
@@ -27,6 +29,8 @@ struct Abi {
     // Symbols never outlive this library; unload TLS before dlclose.
     library: Library,
     output_error: std::cell::RefCell<Option<String>>,
+    rendered: bool,
+    shaders: shaders::Pack,
 }
 impl Abi {
     fn open(compat: &Value, artifact: &str) -> Result<Self, String> {
@@ -53,6 +57,8 @@ impl Abi {
         let abi = Self {
             library: unsafe { Library::new(path) }.map_err(|e| e.to_string())?,
             output_error: Default::default(),
+            shaders: Default::default(),
+            rendered: std::env::var("EXACT_GPU_RENDER").as_deref() == Ok("1"),
         };
         unsafe {
             for name in [
@@ -80,15 +86,35 @@ impl Abi {
             ] {
                 abi.library
                     .get::<*const ()>(name.as_bytes())
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| format!("GPU ABI {name}: {e}"))?;
             }
-            abi.symbol::<unsafe extern "C" fn()>(b"gpu_load_headless")();
+            if abi.rendered {
+                for name in ["gpu_load", "gpu_readback", "gpu_seekable", "gpu_lifecycle"] {
+                    abi.library
+                        .get::<*const ()>(name.as_bytes())
+                        .map_err(|e| format!("GPU ABI {name}: {e}"))?;
+                }
+                if abi.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_load")() != 0 {
+                    return Err(abi.error().unwrap_or("GPU initialization failed".into()));
+                }
+                abi.symbol::<unsafe extern "C" fn(bool)>(b"gpu_seekable")(
+                    std::env::var("EXACT_AGENT").as_deref() == Ok("1"),
+                );
+            } else {
+                abi.symbol::<unsafe extern "C" fn()>(b"gpu_load_headless")();
+            }
         }
         Ok(abi)
     }
     // SAFETY: all callers supply the signature declared by gpu/src/native.rs.
     unsafe fn symbol<T: Copy>(&self, name: &[u8]) -> T {
         *unsafe { self.library.get::<T>(name) }.expect("validated module ABI")
+    }
+    fn lifecycle(&self, id: u32, code: u32) {
+        if self.rendered {
+            // SAFETY: validated rendered-module ABI; id belongs to this module.
+            unsafe { self.symbol::<unsafe extern "C" fn(u32, u32)>(b"gpu_lifecycle")(id, code) };
+        }
     }
     fn bytes(&self, len: u32) -> Option<Vec<u8>> {
         if len == u32::MAX {
@@ -323,12 +349,38 @@ pub(crate) struct Surfaces {
     finger: bool,
     // postMessage events waiting for a live canvas of their surface name.
     posts: BTreeMap<String, Vec<Value>>,
+    // Independent lifecycle causes; also applied before a newly mounted surface
+    // can bind or render, including replacement while the window is suspended.
+    hidden: bool,
+    interrupted: bool,
 }
 /// Posts held per surface name until a canvas of that name is live; past it a
 /// post is dropped and logged. The same bound and rule on every host.
 /// Web: glue.js POST_BOUND (gpu-glue.js reads it); Apple: Canvases.postBound.
 pub(crate) const POST_BOUND: usize = 64;
 impl Surfaces {
+    fn lifecycle(&mut self, hidden: bool, interrupted: bool) {
+        for canvas in self.canvases.values() {
+            let abi = &self.abis[&canvas.artifact];
+            if self.hidden != hidden {
+                abi.lifecycle(canvas.id, u32::from(!hidden));
+            }
+            if self.interrupted != interrupted {
+                abi.lifecycle(canvas.id, if interrupted { 2 } else { 3 });
+            }
+        }
+        self.hidden = hidden;
+        self.interrupted = interrupted;
+    }
+    fn initial_lifecycle(&self, abi: &Abi, id: u32) {
+        if self.hidden {
+            abi.lifecycle(id, 0);
+        }
+        if self.interrupted {
+            abi.lifecycle(id, 2);
+        }
+    }
+
     pub(crate) fn enqueue(&mut self, request: RequestOut, admitted: &str) {
         let oversized = matches!(
             request.request.surface.as_deref(),
@@ -397,19 +449,28 @@ impl Surfaces {
             if !self.attempted.insert(artifact.clone()) {
                 continue;
             }
-            match Abi::open(&compat, &artifact) {
+            match Abi::open(&compat, &artifact).and_then(|mut abi| {
+                if artifact.is_empty() {
+                    let pack = abi.prepare_shaders(&compat, assets)?;
+                    abi.commit_shaders(pack)?;
+                }
+                Ok(abi)
+            }) {
                 Ok(abi) => {
                     let length =
                         unsafe { abi.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_recover")() };
                     let report = abi
                         .bytes(length)
                         .and_then(|b| serde_json::from_slice::<Value>(&b).ok());
-                    if report.as_ref().is_none_or(|r| r["status"] != "no device") {
+                    if !abi.rendered && report.as_ref().is_none_or(|r| r["status"] != "no device") {
                         self.error = Some("headless recovery did not report no device".into());
                     }
                     self.abis.insert(artifact, abi);
                 }
-                Err(e) => host.log(format!("surface module unavailable: {e}")),
+                Err(e) => {
+                    host.log(format!("surface module unavailable: {e}"));
+                    self.error = Some(e);
+                }
             }
         }
         if self.abis.is_empty() {
@@ -453,6 +514,7 @@ impl Surfaces {
                     self.error = abi.error();
                     continue;
                 }
+                self.initial_lifecycle(abi, id);
                 let owner = !self.canvases.values().any(|c| c.name == update.name);
                 if !owner {
                     host.log(format!(
@@ -879,7 +941,13 @@ impl Surfaces {
     }
 }
 impl<D: DataSource> Presenter<D> {
-    pub(crate) fn sync_surfaces(&mut self) {
+    /// Presentation visibility and interruption, independent of saved simulation.
+    pub fn surface_lifecycle(&mut self, hidden: bool, interrupted: bool) {
+        self.surfaces.lifecycle(hidden, interrupted);
+    }
+
+    /// Settle mounted GPU surfaces after first pixel and forward their public state.
+    pub fn sync_surfaces(&mut self) {
         // LLP 1056: the 2D canvases' draws for this turn's commits.
         self.dirty |= self
             .host
@@ -917,6 +985,28 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn surface_input(&mut self, id: u32, event: Value) -> bool {
         self.input_surface(id)
             .is_some_and(|view| self.surfaces.input(view, event))
+    }
+    /// Wheel targets the painted canvas itself, not its focused/captured input
+    /// owner or a child HUD element. A refused ABI delivery is still consumed.
+    pub(crate) fn surface_wheel(&mut self, x: f32, y: f32, dx: f32, dy: f32, at: f64) -> bool {
+        let Some(view) = self
+            .hit(x, y)
+            .filter(|view| self.surfaces.wants_input(*view))
+        else {
+            return false;
+        };
+        let Some((ox, oy, _, _)) = self.rect_of(view) else {
+            return false;
+        };
+        if !self.surfaces.input(
+            view,
+            json!({"t":"wheel","dx":dx,"dy":dy,"x":x-ox,"y":y-oy,"at":at}),
+        ) {
+            self.surfaces
+                .error
+                .get_or_insert_with(|| "GPU surface refused wheel input".into());
+        }
+        true
     }
     pub(crate) fn surface_pointer(&mut self, id: u32, x: f32, y: f32, at: f64) -> Option<u32> {
         let view = self.input_surface(id)?;
@@ -1161,7 +1251,14 @@ impl<D: DataSource> Presenter<D> {
             }
             Some("state") => r["world"] = self.worlds(json!({"op":"state"})).into(),
             Some("logs") => r["world"] = self.worlds(json!({"op":"logs"})).into(),
-            Some("screenshot") if !self.surfaces.canvases.is_empty() => {
+            Some("screenshot")
+                if self.surfaces.canvases.values().any(|canvas| {
+                    self.surfaces
+                        .abis
+                        .get(&canvas.artifact)
+                        .is_some_and(|abi| !abi.rendered)
+                }) =>
+            {
                 r["note"] = "Contract painted; canvas rectangles are flat (no device)".into()
             }
             _ => {}

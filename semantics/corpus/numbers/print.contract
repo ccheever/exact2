@@ -1,0 +1,66 @@
+// How numbers print (JavaScript's Number#toString): exponent at 1e21 and
+// below 1e-6, shortest round-trip digits. Literals have no exponent syntax,
+// so magnitudes are spelled out or computed.
+component App
+  state k = 1
+  derive big = 1000000000000000000000 * k
+  derive justBelow = 999999999999999900000 * k
+  derive micro = 0.000001 * k
+  derive belowMicro = 0.0000001 * k
+  derive third = k / 3
+  derive twoThirds = 2 * k / 3
+  derive pow53 = 9007199254740992 * k
+  derive pow53p1 = 9007199254740993 * k
+  derive negSmall = -0.0000001 * k
+  derive tiny = 0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005 * k
+  derive maxd = 179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 * k
+  derive scaled = 1024 * 1024 * k
+  derive inv = 1 / scaled
+  derive cents = 4.35 * 100 * k
+  action grow
+    k = k * 10
+  action shrink
+    k = k / 10
+  view
+    column
+      text `${big}|${justBelow}` testId="big"
+      text `${micro}|${belowMicro}|${negSmall}` testId="small"
+      text `${third}|${twoThirds}` testId="thirds"
+      text `${pow53}|${pow53p1}` testId="pow53"
+      text `${tiny}` testId="tiny"
+      text `${maxd}` testId="maxd"
+      text `${inv}` testId="inv"
+      text `${cents}` testId="cents"
+      text toString(123.456) testId="ts"
+      text toString(0.000001234) testId="ts2"
+      button "grow" press=grow testId="grow"
+      button "shrink" press=shrink testId="shrink"
+
+test "boot prints"
+  expect text "big" == "1e+21|999999999999999900000"
+  expect text "small" == "0.000001|1e-7|-1e-7"
+  expect text "thirds" == "0.3333333333333333|0.6666666666666666"
+  expect text "pow53" == "9007199254740992|9007199254740992"
+  expect text "tiny" == "5e-324"
+  expect text "maxd" == "1.7976931348623157e+308"
+  expect text "inv" == "9.5367431640625e-7"
+  expect text "cents" == "434.99999999999994"
+  expect text "ts" == "123.456"
+  expect text "ts2" == "0.000001234"
+
+test "grow refused: maxd would overflow to Infinity"
+  tap "grow"
+  expect state k == 1
+  expect text "big" == "1e+21|999999999999999900000"
+
+test "shrink by ten"
+  tap "shrink"
+  expect state k == 0.1
+  expect text "big" == "100000000000000000000|100000000000000000000"
+  expect text "small" == "1e-7|1e-8|-1e-8"
+  expect text "thirds" == "0.03333333333333333|0.06666666666666667"
+  expect text "pow53" == "900719925474099.2|900719925474099.2"
+  expect text "tiny" == "0"
+  expect text "maxd" == "1.7976931348623158e+307"
+  expect text "inv" == "0.0000095367431640625"
+  expect text "cents" == "43.5"

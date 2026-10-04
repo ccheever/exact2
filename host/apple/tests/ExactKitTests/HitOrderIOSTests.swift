@@ -22,9 +22,10 @@ final class HitOrderIOSTests: XCTestCase {
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "view", "handlers": ["press"], "props": ["testId": "menu"],
-             "style": ["position_type": "absolute", "z_index": raised, "text_color": [0, 0, 0, 255]]],
+             "style": ["position_type": raised == 0 ? "static" : "absolute", "z_index": raised, "text_color": [0, 0, 0, 255]]],
             ["op": "create", "id": 3, "kind": "view", "handlers": ["press"], "props": ["testId": "list"]],
             ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            ["op": "rank", "id": 2, "rank": raised * 2],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
             ["op": "frame", "id": 2, "x": 340.0, "y": 0.0, "w": 44.0, "h": 44.0],
             ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
@@ -50,6 +51,7 @@ final class HitOrderIOSTests: XCTestCase {
         p.apply(wireBatch([
             ["op": "create", "id": 4, "kind": "view", "style": ["position_type": "absolute", "z_index": 3.0, "pointer_events": "none", "text_color": [0, 0, 0, 255]]],
             ["op": "children", "id": 1, "ids": [2, 3, 4]],
+            ["op": "rank", "id": 4, "rank": 6],
             ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 400.0, "h": 120.0],
         ]))
         window.layoutIfNeeded()
@@ -57,7 +59,89 @@ final class HitOrderIOSTests: XCTestCase {
         XCTAssertTrue(hit(p, CGPoint(x: 100, y: 60)) === list, "through the backdrop to the list")
     }
 
-    func testWithoutZIndexTheLaterSiblingIsOnTop() throws {
+    /// `pointer-events` is inherited: a box carrying its parent's `none`
+    /// passes the touch through where it paints outside the parent's box
+    /// (x2apps repro pointer-events-inherit-translate); `auto` again is hit.
+    func testAnInheritedPointerEventsNoneInVisibleOverflowLetsTheTouchThrough() throws {
+        let p = presenter(raised: 0)
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "style": ["position_type": "absolute", "pointer_events": "none"]],
+            ["op": "create", "id": 5, "kind": "view", "style": ["pointer_events": "none"]],
+            ["op": "children", "id": 4, "ids": [5]],
+            ["op": "children", "id": 1, "ids": [3, 2, 4]],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 300.0, "w": 400.0, "h": 60.0],
+            // Painted 300 above the row's box, over the raised button.
+            ["op": "frame", "id": 5, "x": 300.0, "y": -300.0, "w": 100.0, "h": 60.0],
+        ]))
+        window.layoutIfNeeded()
+        let menu = try XCTUnwrap(p.views[2]), toast = try XCTUnwrap(p.views[5])
+        XCTAssertTrue(hit(p, CGPoint(x: 360, y: 20)) === menu, "through the inheriting toast to the button")
+        toast.applyStyle(["pointer_events": "auto"])
+        XCTAssertTrue(hit(p, CGPoint(x: 360, y: 20)) === toast, "a toast that sets auto again takes the touch")
+    }
+
+    /// A placement or projection that hides and restores a `display: none`
+    /// box restores the host's word, so it shows once displayed (review B1).
+    func testADisplayNoneBoxHiddenAndRestoredByTheHostShowsOnceDisplayed() throws {
+        let p = presenter(raised: 0)
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "style": ["display": "none"]],
+            ["op": "children", "id": 1, "ids": [3, 2, 4]],
+        ]))
+        let n = try XCTUnwrap(p.views[4])
+        XCTAssertTrue(n.isHidden)
+        n.placementHidden = true
+        n.placementHidden = false
+        let saved = n.hiddenByHost
+        n.isHidden = true
+        n.isHidden = saved
+        n.applyStyle(["display": "block"])
+        XCTAssertFalse(n.isHidden)
+    }
+
+    /// An iPad keyboard's Enter, Tab, Escape, Backspace and Delete arrive as
+    /// one character; each is named back to ARIA's key before it is matched,
+    /// so the button that declares it is pressed (review B2: only longer
+    /// inputs were, and the command, taken over the system's, was dropped).
+    func testANamedOneCharacterShortcutPressesItsButton() throws {
+        let p = presenter(raised: 0)
+        p.apply(wireBatch([
+            ["op": "create", "id": 5, "kind": "button", "handlers": ["press"], "props": ["accessibilityKeyShortcuts": "Escape"]],
+            ["op": "children", "id": 1, "ids": [3, 2, 5]],
+            ["op": "frame", "id": 5, "x": 10.0, "y": 300.0, "w": 80.0, "h": 40.0],
+        ]))
+        window.layoutIfNeeded()
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let cases: [(String, String, UIKeyModifierFlags)] = [
+            ("Escape", UIKeyCommand.inputEscape, []), ("Meta+Enter", "\r", .command), ("Tab", "\t", []),
+            ("Backspace", "\u{8}", []), ("Delete", UIKeyCommand.inputDelete, []), ("Meta+k", "k", .command),
+        ]
+        for (chord, input, flags) in cases {
+            p.apply(wireBatch([["op": "props", "id": 5, "set": ["accessibilityKeyShortcuts": chord], "clear": []]]))
+            pressed = []
+            p.performShortcut(UIKeyCommand(input: input, modifierFlags: flags, action: #selector(UIResponder.becomeFirstResponder)))
+            XCTAssertEqual(pressed, [5], chord)
+        }
+    }
+
+    /// A native module's view inside a `pointer-events: none` box is not a
+    /// target either: the touch reaches the button around it (paint F9).
+    func testAPointerEventsNoneBoxsPlatformViewLetsTheTouchThrough() throws {
+        let p = presenter(raised: 0)
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "style": ["pointer_events": "none"]],
+            ["op": "children", "id": 2, "ids": [4]],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 44.0, "h": 44.0],
+        ]))
+        let thumbnail = try XCTUnwrap(p.views[4])
+        thumbnail.addSubview(UIView(frame: thumbnail.bounds)) // the module's view
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": [3, 2]]]))
+        window.layoutIfNeeded()
+        XCTAssertTrue(hit(p, CGPoint(x: 360, y: 20)) === p.views[2], "the button around the native view")
+    }
+
+    func testInFlowTheLaterSiblingIsOnTop() throws {
         let p = presenter(raised: 0)
         let list = try XCTUnwrap(p.views[3])
         XCTAssertTrue(hit(p, CGPoint(x: 360, y: 20)) === list, "tree order, as the web paints it")

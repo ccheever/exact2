@@ -18,6 +18,8 @@ pub const FIELDS: &[&str] = &[
     "devicePosture",
     "horizontalViewportSegments",
     "verticalViewportSegments",
+    "pointer",
+    "hover",
 ];
 
 /// The host's layout viewport, before the first settlement.
@@ -174,6 +176,54 @@ pub struct Preferences {
     /// `prefers-color-scheme: dark` — the system's scheme, beneath any
     /// `setScheme` the app chose (LLP 1034 D3 as amended).
     pub dark: bool,
+    /// `pointer`: the primary input's pointing accuracy.
+    pub pointer: Pointer,
+    /// `hover`: whether the primary input can hover.
+    pub hover: Hover,
+}
+
+/// CSS's `pointer` values (Media Queries 4 §7.1): a mouse is `fine`, a
+/// finger `coarse`, a TV remote's D-pad `none`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Pointer {
+    /// `fine`.
+    #[default]
+    Fine,
+    /// `coarse`.
+    Coarse,
+    /// `none`.
+    None,
+}
+
+impl Pointer {
+    /// CSS's keyword.
+    pub fn keyword(self) -> &'static str {
+        match self {
+            Pointer::Fine => "fine",
+            Pointer::Coarse => "coarse",
+            Pointer::None => "none",
+        }
+    }
+}
+
+/// CSS's `hover` values (Media Queries 4 §7.2).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Hover {
+    /// `hover`.
+    #[default]
+    Hover,
+    /// `none`.
+    None,
+}
+
+impl Hover {
+    /// CSS's keyword.
+    pub fn keyword(self) -> &'static str {
+        match self {
+            Hover::Hover => "hover",
+            Hover::None => "none",
+        }
+    }
 }
 
 /// CSS's `prefers-contrast` values (Media Queries 5 §11.3).
@@ -210,11 +260,15 @@ impl Preferences {
         reduced_transparency: false,
         contrast: Contrast::NoPreference,
         dark: false,
+        pointer: Pointer::Fine,
+        hover: Hover::Hover,
     };
 
     /// The hosts' wire form: bit 0 reduced motion, bit 1 reduced
     /// transparency, bit 2 contrast `more`, bit 3 contrast `less` (both is
-    /// `custom`), bit 4 a dark system scheme; other bits are ignored.
+    /// `custom`), bit 4 a dark system scheme, bit 5 pointer `coarse`, bit 6
+    /// pointer `none` (over bit 5), bit 7 hover `none`; other bits are
+    /// ignored. Zero is a mouse's `fine` and `hover`.
     pub fn from_bits(bits: u32) -> Self {
         Self {
             reduced_motion: bits & 1 != 0,
@@ -226,6 +280,16 @@ impl Preferences {
                 (true, true) => Contrast::Custom,
             },
             dark: bits & 16 != 0,
+            pointer: match (bits & 32 != 0, bits & 64 != 0) {
+                (false, false) => Pointer::Fine,
+                (true, false) => Pointer::Coarse,
+                (_, true) => Pointer::None,
+            },
+            hover: if bits & 128 != 0 {
+                Hover::None
+            } else {
+                Hover::Hover
+            },
         }
     }
 
@@ -241,6 +305,12 @@ impl Preferences {
             | (u32::from(self.reduced_transparency) << 1)
             | contrast
             | (u32::from(self.dark) << 4)
+            | match self.pointer {
+                Pointer::Fine => 0,
+                Pointer::Coarse => 32,
+                Pointer::None => 64,
+            }
+            | (u32::from(self.hover == Hover::None) << 7)
     }
 
     /// `"light"` or `"dark"`, CSS's words for the system's scheme.
@@ -298,6 +368,8 @@ impl Viewport {
             "devicePosture" => Some(Value::str(self.fold.posture.keyword())),
             "horizontalViewportSegments" => Some(Value::Number(f64::from(self.fold.cols))),
             "verticalViewportSegments" => Some(Value::Number(f64::from(self.fold.rows))),
+            "pointer" => Some(Value::str(self.preferences.pointer.keyword())),
+            "hover" => Some(Value::str(self.preferences.hover.keyword())),
             _ => None,
         }
     }
@@ -305,7 +377,9 @@ impl Viewport {
 
 #[cfg(test)]
 mod tests {
-    use super::{even_segments, Contrast, Fold, Posture, Preferences, Viewport, FIELDS};
+    use super::{
+        even_segments, Contrast, Fold, Pointer, Posture, Preferences, Value, Viewport, FIELDS,
+    };
 
     #[test]
     fn even_segments_split_the_viewport_with_the_gap_centred() {
@@ -394,5 +468,29 @@ mod tests {
         assert_eq!(Preferences::from_bits(8).contrast.keyword(), "less");
         assert_eq!(Preferences::from_bits(12).contrast.keyword(), "custom");
         assert_eq!(Preferences::from_bits(16).color_scheme(), "dark");
+    }
+
+    #[test]
+    fn pointer_and_hover_bits_fill_their_fields() {
+        let field = |bits: u32, name: &str| {
+            Viewport {
+                preferences: Preferences::from_bits(bits),
+                ..Viewport::default()
+            }
+            .field(name)
+        };
+        assert_eq!(field(0, "pointer"), Some(Value::str("fine")));
+        assert_eq!(field(0, "hover"), Some(Value::str("hover")));
+        assert_eq!(field(32 | 128, "pointer"), Some(Value::str("coarse")));
+        assert_eq!(field(64 | 128, "pointer"), Some(Value::str("none")));
+        assert_eq!(field(64 | 128, "hover"), Some(Value::str("none")));
+        assert_eq!(
+            Preferences::from_bits(96).pointer,
+            Pointer::None,
+            "none wins over coarse"
+        );
+        for bits in [32, 64, 128, 32 | 128, 64 | 128 | 16] {
+            assert_eq!(Preferences::from_bits(bits).bits(), bits);
+        }
     }
 }

@@ -27,8 +27,8 @@ pub struct File {
     pub names: NameSpans,
     /// The app's router declaration. @ref LLP 1038 D2/D3.
     pub routes: Option<RoutesDecl>,
-    /// `use Name from "./file.contract"` declarations, in order (LLP 1017 P8);
-    /// resolved by the driver, which merges the used file's declarations in.
+    /// `use … from "…"` declarations, in order (LLP 1017 P8); resolved by
+    /// the driver, which scopes each file's names (LLP 1091).
     pub uses: Vec<UseDecl>,
     /// `font "Name"` declarations, in order (LLP 1019 D1).
     pub fonts: Vec<FontDecl>,
@@ -37,13 +37,20 @@ pub struct File {
     /// `style` declarations, in order (LLP 1017 P6).
     pub styles: Vec<StyleDecl>,
     /// `keyframes` declarations, in order (LLP 1055 D5): CSS `@keyframes`,
-    /// global by name as in CSS.
+    /// scoped to their file as in CSS Modules (LLP 1091 D5).
     pub keyframes: Vec<KeyframesDecl>,
+    /// `timeline` declarations, in order (LLP 1055.002 D1): clock timelines
+    /// that `animation-timeline=Name` puts animations on.
+    pub timelines: Vec<TimelineDecl>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
     /// their own beside the app, `app.test.contract`.
     pub tests: Vec<TestDecl>,
+    /// A test file's launch lines (`size`, `epoch`, `time-zone`, `locale`,
+    /// `seed`), which every test in the file opens with unless it names its
+    /// own (habits F7, calendar F13).
+    pub launch: Vec<Step>,
     /// `component` declarations, in order. The first is the root.
     pub components: Vec<Component>,
 }
@@ -138,21 +145,91 @@ pub struct TestDecl {
 /// One step of a `test`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
-    /// `tap "testId"` (`hover` for a pointer over).
+    /// `tap "testId"`, or one of the driver's other forms of it
+    /// (`modifiers "Shift"` for a press with keys held).
     Tap {
         /// The node, by `testId`.
         target: String,
-        /// `hover` instead of a press.
-        hover: bool,
+        /// Which input: a press, unless the step names another.
+        form: TapForm,
+        /// `modifiers "Shift+Meta"`: the keys held through a press (empty
+        /// for none; gallery F20).
+        modifiers: String,
         /// Where.
         span: Span,
     },
-    /// `type "testId" "text"`.
+    /// `tap "testId" drag dx dy [from x y] [mouse] [press ms] [over ms]
+    /// [hold ms]`: one whole drag from the node's middle, or from `from` in
+    /// its box, a finger's or the left button's; the driver's `tap … drag`
+    /// (kanban F18, files diary F10).
+    Drag {
+        /// The node, by `testId`.
+        target: String,
+        /// Points across.
+        dx: f64,
+        /// Points down.
+        dy: f64,
+        /// Where it starts, an offset from the node's top left; its middle
+        /// when `None`.
+        from: Option<(f64, f64)>,
+        /// The left button rather than a finger, where a carrier has both.
+        mouse: bool,
+        /// Milliseconds held before the move.
+        press: Option<f64>,
+        /// Milliseconds the move takes.
+        over: Option<f64>,
+        /// Milliseconds held after the move.
+        hold: Option<f64>,
+        /// Where.
+        span: Span,
+    },
+    /// `size 1200x800`: the viewport the test's session opens at, its first
+    /// step (the driver's `--size`; kanban F18, paint F5).
+    Size {
+        /// Points across.
+        width: f64,
+        /// Points down.
+        height: f64,
+        /// Where.
+        span: Span,
+    },
+    /// `epoch "2026-09-21T12:00:00Z"` (or Unix milliseconds): the date at
+    /// the session clock's zero, the driver's `--epoch` (habits F7).
+    Epoch {
+        /// An ISO date or whole milliseconds, as the driver takes it.
+        value: String,
+        /// Where.
+        span: Span,
+    },
+    /// `time-zone "America/New_York"`: the session's IANA zone, `--time-zone`.
+    TimeZone {
+        /// The zone.
+        zone: String,
+        /// Where.
+        span: Span,
+    },
+    /// `locale "fr-FR"`: the session's BCP 47 locale, `--locale`.
+    Locale {
+        /// The tag.
+        tag: String,
+        /// Where.
+        span: Span,
+    },
+    /// `seed 7`: the session's `exactTime().seed`, `--seed`.
+    Seed {
+        /// A whole number from 0 through 2^53 − 1.
+        seed: f64,
+        /// Where.
+        span: Span,
+    },
+    /// `type "testId" "text"`, or `… append`.
     Type {
         /// The field, by `testId`.
         target: String,
         /// The text.
         text: String,
+        /// `append`: after the field's value, not in place of it (feed F8).
+        append: bool,
         /// Where.
         span: Span,
     },
@@ -165,7 +242,31 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `clock settle`, `clock +ms`, `clock ms`.
+    /// `pick "id" "path"…` / `pick "id" cancel`: answer the device request
+    /// held at the node whose `id` (or `testId`) a picker named, or the one
+    /// hold with that capability (`open-directory`, `pick`, `export`, …),
+    /// whatever its ticket (files F11). Paths are the test file's.
+    Pick {
+        /// The node the answer arrives at, or a capability.
+        target: String,
+        /// The files or folders chosen; empty for `cancel`.
+        paths: Vec<String>,
+        /// Where.
+        span: Span,
+    },
+    /// `type "testId" copy`, `… cut`, `… paste "text"`: the clipboard's
+    /// event at the node, a paste carrying `text` as the clipboard's.
+    Clipboard {
+        /// The node, by `testId`.
+        target: String,
+        /// `copy`, `cut` or `paste`.
+        edit: String,
+        /// A paste's text; empty for copy and cut.
+        text: String,
+        /// Where.
+        span: Span,
+    },
+    /// `clock settle`, `clock +ms`, `clock +ms real`, `clock ms`.
     Clock {
         /// The argument as the agent takes it.
         arg: String,
@@ -188,7 +289,9 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `expect text "testId" == "value"`: the node's `text` prop.
+    /// `expect text "testId" == "value"`: the node's text — its `text` prop,
+    /// else its descendants' text in order (the web's `textContent`), else a
+    /// field's value.
     ExpectText {
         /// The node, by `testId`.
         target: String,
@@ -197,16 +300,39 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `reload`: the app restarts on the scratch store it had, so what it
+    /// kept is what it reads (mail F19, kanban F25, weather F3).
+    Reload {
+        /// Where.
+        span: Span,
+    },
     /// `expect state name == literal`: a slot, derive, or resource from the
-    /// `state` reply, compared to a number, string, bool, or `none`.
+    /// `state` reply, or a field of one (`name.field.field`, feed F10),
+    /// compared to a number, string, bool, or `none`.
     ExpectState {
-        /// The declaration's name.
+        /// The declaration's name, then any fields, joined by `.`.
         name: String,
         /// The literal.
         value: Expr,
         /// Where.
         span: Span,
     },
+}
+
+/// Which input a `tap` step gives: the driver's `tap` forms (LLP 1012).
+#[derive(Debug, Clone, PartialEq)]
+pub enum TapForm {
+    /// A press: down and up at the node's middle.
+    Press,
+    /// `hover`: a pointer over it.
+    Hover,
+    /// `dblclick`: two presses, the second a double click (feed F10).
+    Dblclick,
+    /// `contextmenu`: a secondary press.
+    Contextmenu,
+    /// `into "key"`: a virtualized list's row brought into view by its key
+    /// (LLP 1070.000 §5), so a row outside the rendered window can be tapped.
+    Into(String),
 }
 
 /// `fn name(param: type, …): type = expr` — a pure function written in
@@ -228,16 +354,35 @@ pub struct FnDecl {
     pub span: Span,
 }
 
-/// `use Name from "./file.contract"` — a component, shape, or style from
-/// another Contract file; never anything else (`contract-no-imports`).
+/// `use A, B as C from "./file.contract"` — declarations of another Contract
+/// file, named one by one, each optionally renamed in this file (LLP 1017 P8,
+/// LLP 1091 D1/D2); never anything else (`contract-no-imports`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseDecl {
-    /// The declaration's name.
-    pub name: String,
+    /// The names, in order; at least one.
+    pub names: Vec<UseName>,
     /// The file, relative to this one.
     pub path: String,
     /// Where.
     pub span: Span,
+}
+
+/// One name a `use` brings: `Card`, or `Card as UiCard`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UseName {
+    /// The declaration's name in the used file.
+    pub name: String,
+    /// The name in this file, when `as` renames it.
+    pub alias: Option<String>,
+    /// The declaration's name as written.
+    pub span: Span,
+}
+
+impl UseName {
+    /// The name this file reads it by.
+    pub fn local(&self) -> &str {
+        self.alias.as_deref().unwrap_or(&self.name)
+    }
 }
 
 /// `style Name` with lines of `attr=literal` — a named set of style rows a
@@ -259,6 +404,16 @@ pub struct KeyframesDecl {
     pub name: String,
     /// The keyframes, in source order.
     pub frames: Vec<KeyframeDecl>,
+    /// Where.
+    pub span: Span,
+}
+
+/// `timeline Name`: a clock timeline (LLP 1055.002 D1). Every animation on
+/// it starts in step with the others.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TimelineDecl {
+    /// The name `animation-timeline` refers to.
+    pub name: String,
     /// Where.
     pub span: Span,
 }
@@ -643,8 +798,11 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `when cond … else …`.
+    /// `when cond … else …`. `tag` is the inliner's, as on `Each`: its
+    /// arms own the state of the children used in them; 0 as parsed.
     When {
+        /// The inliner's tag.
+        tag: u32,
         /// Condition.
         cond: Expr,
         /// Then-branch.
@@ -656,8 +814,9 @@ pub enum Node {
     },
     /// `each x in list key=expr`, or `each x, i in list key=expr` binding
     /// the item's position too (LLP 1062 D8). `tag` is the inliner's: unique
-    /// per `each` in the expanded root, so a row slot can name the `each`
-    /// that owns it before regions exist (LLP 1017 P4c); 0 as parsed.
+    /// per region (`each`, `when`, `match`) in the expanded root, so a
+    /// lifted slot can name the region that owns it before regions exist
+    /// (LLP 1017 P4c); 0 as parsed.
     Each {
         /// The inliner's tag.
         tag: u32,
@@ -674,8 +833,11 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `match subject` with `case some(x)` and `case none` arms.
+    /// `match subject` with `case some(x)` and `case none` arms; `tag` as
+    /// on `When`.
     Match {
+        /// The inliner's tag.
+        tag: u32,
         /// The subject.
         subject: Expr,
         /// The bound name and body of `case some(x)`.
@@ -918,6 +1080,11 @@ pub enum Expr {
         /// Where.
         span: Span,
     },
+    /// `value` as the declared type it fills. Compiler-only: no surface
+    /// syntax spells it. Expansion wraps a use's argument that holds a
+    /// `none` or a `[]` in the prop's declared type, so `C(o=none)` for
+    /// `o: option<number>` is an `option<number>` wherever the child reads it.
+    Typed(Box<Expr>, TypeExpr, Span),
 }
 
 /// One part of a template string.
@@ -927,6 +1094,31 @@ pub enum TemplatePart {
     Text(String),
     /// `${expr}`.
     Expr(Expr),
+}
+
+impl Step {
+    /// Where: the step's line.
+    pub fn span(&self) -> Span {
+        match self {
+            Step::Tap { span, .. }
+            | Step::Drag { span, .. }
+            | Step::Size { span, .. }
+            | Step::Epoch { span, .. }
+            | Step::TimeZone { span, .. }
+            | Step::Locale { span, .. }
+            | Step::Seed { span, .. }
+            | Step::Type { span, .. }
+            | Step::Key { span, .. }
+            | Step::Pick { span, .. }
+            | Step::Clipboard { span, .. }
+            | Step::Clock { span, .. }
+            | Step::Reload { span, .. }
+            | Step::Screenshot { span, .. }
+            | Step::ExpectTree { span, .. }
+            | Step::ExpectText { span, .. }
+            | Step::ExpectState { span, .. } => *span,
+        }
+    }
 }
 
 impl Expr {
@@ -949,7 +1141,8 @@ impl Expr {
             | Expr::Ternary(_, _, _, s)
             | Expr::Match { span: s, .. }
             | Expr::Arrow { span: s, .. }
-            | Expr::Let { span: s, .. } => *s,
+            | Expr::Let { span: s, .. }
+            | Expr::Typed(_, _, s) => *s,
         }
     }
 }

@@ -16,7 +16,7 @@ import { createServer, request } from 'node:http';
 import { existsSync, readFileSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { webRequestURL } from '../../scripts/origin.mjs';
-import { appManifestDigest, buildFileCards, buildTreeFile, saveTrace, sendStaticBody, webContentType } from '../web/serve.mjs';
+import { appManifestDigest, buildFileCards, buildTreeFile, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
@@ -86,6 +86,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // a path not modified since the last build started is no edit.
   const changed = (base) => (_, name) => {
     if (name && skipped.test(String(name))) return;
+    // The declarations a build writes beside app.ts, for an editor.
+    if (base === app.dir && String(name) === 'app.contract.d.ts') return;
     try { if (name && statSync(resolve(base, String(name))).mtimeMs < since) return; } catch { /* removed: an edit */ }
     if (!timer) saved = Date.now();
     clearTimeout(timer);
@@ -96,6 +98,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // The app's sources, and the runtime and compiler it builds with.
   const watchers = [watch(app.dir, { recursive: true }, changed(app.dir)), watch(resolve(root, 'host/web-js'), { recursive: true }, changed(resolve(root, 'host/web-js')))];
   for (const f of ['navigation.js', 'index.html']) watchers.push(watch(resolve(root, 'host/web', f), changed(resolve(root, 'host/web'))));
+  // The one TypeScript configuration app.ts is checked with (js/bake/src/typescript.mjs).
+  watchers.push(watch(resolve(root, 'js/bake/src/typescript.mjs'), changed(resolve(root, 'js/bake/src'))));
   // The page's side: reload on a new build, the errors of a failed one in an
   // overlay, and a beacon when the reloaded page's runtime is up.
   const client = (n, revision) => `<script>(()=>{const seq=${n},logicRevision=${JSON.stringify(revision)},es=new EventSource('/__dev/page');let o,reloading=false;
@@ -195,7 +199,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
       probe.close(() => {
         console.log(`native client: starting the resident loop's producers (loopback :${internal})`);
         residentChild = spawn(process.execPath, [resolve(root, 'host/web/dev.mjs'), '--app', app.name, '--wasm', '--port', String(internal), '--serve-as', String(port), ...(lan ? ['--lan'] : []), ...allowHosts.flatMap((name) => ['--allow-host', name])],
-          { cwd: root, env: { ...process.env, EXACT_WEB_DIST: resolve(app.target, 'web-dist-resident') }, stdio: ['ignore', 'pipe', 'inherit'] });
+          { cwd: root, env: { ...process.env, EXACT_WEB_DIST: resolve(app.target, 'web-dist-resident'), EXACT_LAUNCHER_PID: String(process.pid) }, stdio: ['ignore', 'pipe', 'inherit'] });
         let buf = '';
         residentChild.stdout.on('data', (d) => {
           buf += d; const lines = buf.split('\n'); buf = lines.pop();
@@ -219,8 +223,10 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
   };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
+  process.on('SIGHUP', stop);
+  watchLauncher(stop);
   await new Promise((ok, fail) => { server.on('error', fail); server.listen(port, host, ok); })
-    .catch((e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}`); process.exit(1); });
+    .catch((e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); process.exit(1); });
   const urls = origins.map((o) => `${o.origin}/`);
   console.log(urls.join('\n'));
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));

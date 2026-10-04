@@ -14,10 +14,29 @@ needs it. An app whose other screens draw too can give the world a module of its
 (`gpu.modules` in `app.json`, LLP 1009 D6), loaded only when the world's canvas mounts.
 Removing the app's game module removes the engine from its bundle.
 The root build, test and boot checks stay independent of the engine workspace.
+
+On Windows, build the generated native shell from the exact2 root in PowerShell:
+
+```powershell
+$env:EXACT_APP_DIR = 'C:\path\to\my-game'
+bun host/windows/build.mjs my-game
+```
+
+The resulting `my-game/dist-windows` directory contains the standalone executable,
+game DLL and assets. Keep these files together; the executable resolves assets
+relative to itself and needs no web server. `--release` selects the release profile,
+and `--run` opens the game. The initial Windows host uses GPU canvas readback and
+CPU UI composition, and reports mean and p50/p95 frame costs when its window closes.
+It supports store level 0; native update-store delivery is refused. Use
+`bun my-game/proof.mjs windows` for the native gameplay and pixel proof.
+For a bounded development window measurement, set `EXACT_AGENT_WINDOW_FRAMES`
+to 1–10,000 and optionally `EXACT_AGENT_WINDOW_TAP` to one authored test ID to tap
+after first pixel. Production bakes ignore these agent variables.
+
 Asset names have no fixed per-surface count limit. Web loading still bounds
 concurrent requests and decoded asset bytes; a queued request's timeout begins
 when its fetch starts.
-Weird Castle is the external consumer, with a full-screen Beacons demo in its own
+Weird Castle was the first external consumer, with a full-screen Beacons demo in its own
 engine module; its title sky never loads the engine.
 
 The integration source is Black's `lane/game` at `126daba5` plus its working-tree
@@ -71,7 +90,7 @@ generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.
 | `app.contract` | Menus, HUD, layout, accessibility and app actions |
 | `proof.mjs`, `logic/tests/*.rs` | Real-host assertions and hostless simulation tests |
 | `pins.json` | Verified tick/save baselines, written by `prove.mjs` |
-| `app.json` (optional) | Authored keys only: a title, bundle id, `game.audio`, `game.assets`, a data crate |
+| `app.json` (optional) | Authored keys only: a title, bundle id, `game.audio`, `game.assets`, data and presentation crates |
 | `logic/Cargo.toml`, `Cargo.lock` (optional) | Only when the game adds dependencies ([below](#exact2-integration)) |
 
 The crate is `<Game::ID>-logic` and the bundle id `com.exact.<Game::ID>`; the title
@@ -79,6 +98,46 @@ follows the directory name. Run the Rust tests with
 `bun game/app/shells.mjs ./my-game --test` — in a fresh clone too, with no bake and
 no environment variables. It generates `.shells/`, resolves offline and locked, runs
 the determinism lints and then `cargo test` on the game's crates.
+The generated workspace carries the SDK's Rust toolchain pin, including for games
+outside the SDK. Explicit `cargo +toolchain` and `RUSTUP_TOOLCHAIN` overrides still
+apply. Run direct Cargo commands from the game's `.shells/` directory so they also load its deterministic compiler
+flags and lint configuration; `--manifest-path` alone does not load that config
+when Cargo starts elsewhere. Regenerate the shells after updating the SDK.
+
+### Authored render hooks
+
+Use `game.presentation` to add game-owned passes through the existing
+`exact_game_render::Hooks` API. Keep GPU resources in an authored `presentation/`
+crate; its Cargo package must match the declaration and set
+`workspace = "../.shells"` under `[package]`:
+
+```json
+{"game":{"presentation":{"crate":"my-game-presentation","type":"Fog","shaders":"SHADERS"}},
+ "gpu":{"shaderRoots":["presentation/shaders"]}}
+```
+
+`type` and optional `shaders` are Rust paths exported by that crate. Omit `shaders`
+for the empty registry. Shader files and preludes use the existing `gpu.shaderRoots`
+and `gpu.shaderPreludes` declarations; the registry has type
+`&'static [(&'static str, u64)]`, holding shader names and reflected interface hashes.
+The generated GPU shell combines these hooks with `game.audio` and `game.assets`.
+Never edit `.shells/` to install hooks.
+Presentation games also expose `exact-gpu.workspace = true` and
+`exact-gpu-reflect.workspace = true` (the latter as a build dependency). A
+`presentation/build.rs` can call `exact_gpu_reflect::generate` on its shader
+directory, write the generated Rust to `OUT_DIR`, and export its `SHADERS` table.
+Generated registry keys are file stems such as `fog`, without `.wgsl`.
+
+Presentation may depend on logic to read component/resource types through
+`RenderWorld`. Logic, data, native/web host adapters and build-time metadata must
+not depend on presentation, including indirectly or behind target-specific/build
+dependencies. The bake checks Cargo's unfiltered dependency graph. Hooks cannot
+mutate the saved world through `RenderWorld`; gameplay state stays in logic.
+Presentation receives normal strict Clippy and package tests, while the simulation
+determinism lints remain scoped to logic. Run the ordinary bake after declaring the
+crate, or `bun game/app/shells.mjs ./my-game --update-lock` when adding dependencies.
+Source/manifest edits invalidate GPU builds and proof inputs; declared shaders keep
+their existing reflection, delivery and live-reload behavior.
 
 ## The programming model
 
@@ -187,6 +246,7 @@ The dev compiler retains its last good plan on an error.
 | Mouse look | `input.pointer()`'s `delta` is the device's motion this tick, not a difference of positions. Mark the canvas `data-pointer-lock="true"` (declared in `app.json`'s `data`) and a mouse press captures the mouse on the web, macOS and iPadOS (`GCMouse`) until Escape or blur, so the delta never stops at an edge; the Linux host always sends evdev's relative motion. |
 | Turn the drawn camera between ticks | Put `MouseLook { yaw_per_point, pitch_per_point, pitch_limit }` on the camera at the rates the tick turns it by: the drawn camera and its children turn by `Sim::unshown_motion()`, so a turn shows at the next frame whatever the tick and display rates (`engine/tests/look.rs`). Presentation only; insert it in `setup` or register it. |
 | Right or middle mouse button | Bind it as a key: `.button("aim", &["MouseRight"])`; `MouseLeft` and `MouseMiddle` too (`MOUSE_BUTTONS`). Touch contacts press none. |
+| Start a selection rectangle | `input.pointer().and_then(\|p\| p.press_origin)` is the latest MouseLeft/touch Down point, even if movement and Up reach the same tick. Gate commands on your action's pressed/released edges. The origin survives normal Up and saves; Cancel, Blur or replacement clears it. EXSIM v7 saves are required. |
 
 `Character` saves velocity and configuration and reports displacement, grounded,
 jumped and landed. `near`/`near_xz` use current global poses, inclusive radii and
@@ -449,7 +509,7 @@ dependency writes `logic/Cargo.toml` (`package.workspace = "../.shells"`, SDK cr
 crates alone need no lock of the game's own. When the SDK's dependencies change,
 `bun game/app/shells.mjs --update-lock` refreshes the SDK lock, and
 `bun app/shells.mjs --test` refuses a stale one. The game workspace also carries
-the core’s vendored patches and `apple-dev` profile; the existing SDK test checks
+the core’s vendored patches and `host-dev` profile; the existing SDK test checks
 those against the root workspace. Web builds retain the game’s non-contracting
 floating-point flag alongside the core’s path-remapping flags.
 

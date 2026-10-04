@@ -1,0 +1,21 @@
+// Options of options: some(none) is not none; matches nest.
+component App
+  state o = some(none)
+  derive outer = o != none
+  derive inner = match o { case some(x) => x == none, case none => false }
+  action fill
+    o = some(some(5))
+  action clear
+    o = none
+  view
+    column
+      text `${outer} ${inner}` testId="r"
+      button "fill" press=fill testId="fill"
+      button "clear" press=clear testId="clear"
+
+test "some(none)"
+  expect text "r" == "true true"
+  tap "fill"
+  expect text "r" == "true false"
+  tap "clear"
+  expect text "r" == "false false"

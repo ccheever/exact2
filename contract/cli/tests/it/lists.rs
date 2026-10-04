@@ -427,7 +427,8 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
         "compute it in the data source",
     );
     for f in [
-        "reduce", "find", "every", "sort", "slice", "flatMap", "concat",
+        // `slice` and `concat` name LLP 1088 §9's follow-up (`diagnostics.rs`).
+        "reduce", "find", "every", "sort", "flatMap",
     ] {
         refused(
             &format!("text toString({f}(xs, x => x.n))"),

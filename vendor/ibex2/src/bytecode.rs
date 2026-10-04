@@ -363,8 +363,9 @@ fn hermesc_path(repo_root: &Path) -> PathBuf {
                 "x64"
             };
             repo_root.join(format!(
-                "tools/hermes-vanilla/hermesc-{}-{arch}",
-                std::env::consts::OS
+                "tools/hermes-vanilla/hermesc-{}-{arch}{}",
+                std::env::consts::OS,
+                std::env::consts::EXE_SUFFIX
             ))
         }
     }

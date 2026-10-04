@@ -15,7 +15,7 @@ use exact_kernel::{
 };
 
 mod identified;
-use exact_plan::{Plan, StackMemberKind};
+use exact_plan::Plan;
 use std::ffi::c_void;
 
 /// Offer value meaning "as wide/tall as the content wants".
@@ -120,7 +120,7 @@ pub struct CFontFace {
     pub source_len: usize,
     /// Plan stack id.
     pub stack: u16,
-    /// CSS weight.
+    /// CSS weight; with an empty source, 0 names a local family and 1 a generic.
     pub weight: u16,
     /// 1 for italic.
     pub italic: u8,
@@ -146,24 +146,42 @@ pub type FontsFn = extern "C" fn(ctx: *mut c_void, catalog: *const CFontCatalog)
 pub fn install_fonts(plan: &Plan, callback: FontsFn, ctx: *mut c_void) {
     let mut faces = Vec::new();
     for (stack_index, stack) in plan.stacks.iter().enumerate() {
-        let member = plan.stack_member(stack.members.iter().next().expect("validated stack"));
-        if member.kind != StackMemberKind::Family {
+        if stack_index < 8 {
             continue;
         }
-        let family = plan.familie(member.family.expect("validated family member"));
-        let name = plan.str(family.name);
-        for face_id in family.faces.iter() {
-            let face = plan.face(face_id);
-            let source = plan.str(face.source);
-            faces.push(CFontFace {
-                family: name.as_ptr(),
-                family_len: name.len(),
-                source: source.as_ptr(),
-                source_len: source.len(),
-                stack: stack_index as u16,
-                weight: face.weight,
-                italic: u8::from(face.italic),
-            });
+        for member_id in stack.members.iter() {
+            let member = plan.stack_member(member_id);
+            let (name, family) = if let Some(id) = member.family {
+                (plan.str(plan.familie(id).name), Some(plan.familie(id)))
+            } else {
+                (member.kind.name(), None)
+            };
+            if family.is_none_or(|f| f.faces.len == 0) {
+                faces.push(CFontFace {
+                    family: name.as_ptr(),
+                    family_len: name.len(),
+                    source: "".as_ptr(),
+                    source_len: 0,
+                    stack: stack_index as u16,
+                    weight: u16::from(family.is_none()),
+                    italic: 0,
+                });
+            }
+            if let Some(family) = family {
+                for face_id in family.faces.iter() {
+                    let face = plan.face(face_id);
+                    let source = plan.str(face.source);
+                    faces.push(CFontFace {
+                        family: name.as_ptr(),
+                        family_len: name.len(),
+                        source: source.as_ptr(),
+                        source_len: source.len(),
+                        stack: stack_index as u16,
+                        weight: face.weight,
+                        italic: u8::from(face.italic),
+                    });
+                }
+            }
         }
     }
     let catalog = CFontCatalog {

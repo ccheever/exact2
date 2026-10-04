@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { sweep } from './sweep.mjs';
+import { startSweep, sweep } from './sweep.mjs';
 
 const DAY = 86_400_000;
 const A = '0123456789abcdef', B = 'fedcba9876543210';
@@ -24,7 +24,7 @@ function target() {
 }
 const has = (t, ...p) => existsSync(resolve(t, 'debug', ...p));
 
-test('a unit no build has read for a week goes; one read since the last sweep stays', async () => {
+test.skipIf(process.platform === 'win32')('a unit no build has read for a week goes; one read since the last sweep stays', async () => {
   const t = target(), now = Date.now();
   try {
     assert.deepEqual(await sweep(t, now), {}); // first sight: everything is new
@@ -40,7 +40,7 @@ test('a unit no build has read for a week goes; one read since the last sweep st
   } finally { rmSync(t, { recursive: true, force: true }); }
 });
 
-test('a profile directory a build holds is left alone, and its units keep their standing', async () => {
+test.skipIf(process.platform === 'win32')('a profile directory a build holds is left alone, and its units keep their standing', async () => {
   const t = target(), now = Date.now();
   await sweep(t, now);
   // Hold `debug/.cargo-lock` the way Cargo does (flock), from another process.
@@ -56,4 +56,16 @@ test('a profile directory a build holds is left alone, and its units keep their 
     assert.deepEqual(await sweep(t, now + 9 * DAY), { debug: 3 }); // a and b unread since, and a week past the cache
     assert.deepEqual(readdirSync(resolve(t, 'debug/.fingerprint')), []);
   } finally { holder.kill(); rmSync(t, { recursive: true, force: true }); }
+});
+
+test.skipIf(process.platform !== 'win32')('Windows keeps Cargo units instead of using an unverified lock protocol', async () => {
+  const t = target();
+  try {
+    startSweep(t);
+    await assert.rejects(sweep(t), /unavailable on Windows/);
+    assert.ok(has(t, '.fingerprint', `a-${A}`));
+    assert.ok(has(t, '.fingerprint', `b-${B}`));
+    assert.ok(!existsSync(resolve(t, '.exact-sweep.json')));
+    assert.ok(!existsSync(resolve(t, '.exact-swept')));
+  } finally { rmSync(t, { recursive: true, force: true }); }
 });

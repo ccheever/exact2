@@ -10,6 +10,10 @@ use exact_update::{canonical_bytes, sha256_hex, Check, Envelope, Store};
 // ------------------------------------------------------------------- selection
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_fresh_store_selects_entry_zero() {
     let temp = Temp::new("fresh");
     let store = open(&temp);
@@ -28,6 +32,10 @@ fn a_fresh_store_selects_entry_zero() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_valid_head_is_staged_and_selected_at_the_next_launch() {
     let temp = Temp::new("staged");
     let bundle = Bundle::new(4, b"plan four").asset("mark.png", b"a mark");
@@ -61,6 +69,10 @@ fn a_valid_head_is_staged_and_selected_at_the_next_launch() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_selected_plan_changed_after_staging_is_refused_before_it_counts_or_boots() {
     let temp = Temp::new("selected-plan-corrupt");
     let mut origin = Origin::of(&Bundle::new(4, b"plan four"));
@@ -100,6 +112,10 @@ fn a_selected_plan_changed_after_staging_is_refused_before_it_counts_or_boots() 
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn selected_assets_are_a_complete_lazy_verified_generation() {
     let temp = Temp::new("selected-assets");
     let bundle = Bundle::new(4, b"plan four")
@@ -182,6 +198,10 @@ fn selected_assets_are_a_complete_lazy_verified_generation() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_selected_asset_changed_before_first_resolution_is_refused_by_its_card() {
     let temp = Temp::new("selected-asset-corrupt");
     let bundle = Bundle::new(4, b"plan four").asset("mark.png", b"a mark");
@@ -205,6 +225,10 @@ fn a_selected_asset_changed_before_first_resolution_is_refused_by_its_card() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn the_same_head_again_is_current() {
     let temp = Temp::new("current");
     let bundle = Bundle::new(4, b"plan four");
@@ -224,6 +248,10 @@ fn the_same_head_again_is_current() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_refused_selection_reports_entry_zero_as_the_running_generation() {
     let temp = Temp::new("refused-running");
     let mut origin = Origin::of(&Bundle::new(4, b"plan four"));
@@ -250,6 +278,10 @@ fn a_refused_selection_reports_entry_zero_as_the_running_generation() {
 // ------------------------------------------------------------------- refusals
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_lower_seq_is_refused() {
     let temp = Temp::new("rollback");
     let mut origin = Origin::of(&Bundle::new(5, b"plan five"));
@@ -270,6 +302,10 @@ fn a_lower_seq_is_refused() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn the_embedded_and_observed_sequences_remain_rollback_floors() {
     let fresh = Temp::new("embedded-floor");
     let mut origin = Origin::of(&Bundle::new(2, b"plan two"));
@@ -299,6 +335,10 @@ fn the_embedded_and_observed_sequences_remain_rollback_floors() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_signed_sequence_cannot_name_two_bundles() {
     let signing = key(13);
     let keys = [("k1", signing.verifying_key().to_bytes())];
@@ -330,6 +370,10 @@ fn a_signed_sequence_cannot_name_two_bundles() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn another_compatibility_id_is_refused_before_any_download() {
     let temp = Temp::new("cohort");
     let mut other = Bundle::new(4, b"plan four");
@@ -352,6 +396,10 @@ fn another_compatibility_id_is_refused_before_any_download() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn another_app_id_is_refused() {
     let temp = Temp::new("app");
     let mut other = Bundle::new(4, b"plan four");
@@ -367,6 +415,10 @@ fn another_app_id_is_refused() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_tampered_plan_is_refused_and_nothing_is_written() {
     let temp = Temp::new("tamper");
     let mut bundle = Bundle::new(4, b"plan four");
@@ -402,6 +454,10 @@ fn a_tampered_plan_is_refused_and_nothing_is_written() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_head_over_64_kb_is_refused() {
     let temp = Temp::new("huge");
     let mut origin = Origin::of(&Bundle::new(4, b"plan four"));
@@ -421,6 +477,10 @@ fn key(seed: u8) -> SigningKey {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_signed_head_verifies_with_the_right_key_and_is_refused_with_the_wrong_one() {
     let signing = key(7);
     let mut bundle = Bundle::new(4, b"plan four");
@@ -461,6 +521,10 @@ fn a_signed_head_verifies_with_the_right_key_and_is_refused_with_the_wrong_one()
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn an_unsigned_head_requires_explicit_development_policy() {
     let bundle = Bundle::new(4, b"plan four");
     let mut origin = Origin::of(&bundle);
@@ -484,6 +548,10 @@ fn an_unsigned_head_requires_explicit_development_policy() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_production_store_with_no_keys_refuses_unsigned_and_signed_heads() {
     for signed in [false, true] {
         let temp = Temp::new(if signed {
@@ -508,6 +576,10 @@ fn a_production_store_with_no_keys_refuses_unsigned_and_signed_heads() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn development_does_not_ignore_a_supplied_unverifiable_signature() {
     let temp = Temp::new("dev-bad-signature");
     let mut bundle = Bundle::new(4, b"plan four");
@@ -527,6 +599,10 @@ fn development_does_not_ignore_a_supplied_unverifiable_signature() {
 // -------------------------------------------------------------- crash recovery
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn two_failed_boots_fall_back_to_the_last_good_entry_then_to_entry_zero() {
     let temp = Temp::new("crash");
     let good = Bundle::new(4, b"plan four");
@@ -582,6 +658,10 @@ fn two_failed_boots_fall_back_to_the_last_good_entry_then_to_entry_zero() {
 // ---------------------------------------------------------- assets and sunset
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn an_asset_already_in_the_store_is_reused_by_digest() {
     let temp = Temp::new("assets");
     let first = Bundle::new(4, b"plan four").asset("mark.png", b"a mark");
@@ -618,6 +698,10 @@ fn an_asset_already_in_the_store_is_reused_by_digest() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn the_sunset_card_passes_through() {
     let temp = Temp::new("sunset");
     let mut bundle = Bundle::new(4, b"plan four");
@@ -648,6 +732,10 @@ fn the_sunset_card_passes_through() {
 // ------------------------------------------------------------ codec and record
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn an_unknown_record_codec_selects_entry_zero_and_leaves_the_record_alone() {
     let temp = Temp::new("codec");
     let record = temp.path().join("record.json");
@@ -667,6 +755,10 @@ fn an_unknown_record_codec_selects_entry_zero_and_leaves_the_record_alone() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn the_pre_one_point_zero_record_is_replaced_without_booting_its_selection() {
     let temp = Temp::new("old-codec");
     let record = temp.path().join("record.json");
@@ -689,6 +781,10 @@ fn the_pre_one_point_zero_record_is_replaced_without_booting_its_selection() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_record_from_another_cohort_starts_this_one_at_entry_zero() {
     let temp = Temp::new("othercohort");
     let mut origin = Origin::of(&Bundle::new(4, b"plan four"));
@@ -708,6 +804,10 @@ fn a_record_from_another_cohort_starts_this_one_at_entry_zero() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_record_from_another_channel_starts_at_entry_zero() {
     let temp = Temp::new("other-channel");
     let mut origin = Origin::of(&Bundle::new(4, b"release plan"));
@@ -728,6 +828,10 @@ fn a_record_from_another_channel_starts_at_entry_zero() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn activate_hands_over_the_staged_plan_and_status_follows_each_step() {
     let temp = Temp::new("activate");
     let mut origin = Origin::of(&Bundle::new(4, b"plan four"));
@@ -762,6 +866,10 @@ fn activate_hands_over_the_staged_plan_and_status_follows_each_step() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn app_decides_holds_a_checked_bundle_until_the_app_activates_it() {
     let temp = Temp::new("app-decides");
     let mut origin = Origin::of(&Bundle::new(4, b"plan four"));
@@ -866,6 +974,10 @@ fn envelope_parse_refuses_node_normalizations_before_admission() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_head_naming_the_embedded_plan_and_assets_is_current_and_downloads_nothing() {
     let temp = Temp::new("embedded-plan");
     let bundle = Bundle::new(EMBEDDED_SEQ, b"plan three").asset("mark.png", b"a mark");
@@ -910,6 +1022,10 @@ fn a_head_naming_the_embedded_plan_and_assets_is_current_and_downloads_nothing()
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn every_asset_url_is_admitted_before_embedded_current_advances_the_floor() {
     let temp = Temp::new("embedded-current-card-origin");
     let bundle = Bundle::new(4, b"plan three")
@@ -950,6 +1066,10 @@ fn every_asset_url_is_admitted_before_embedded_current_advances_the_floor() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_plan_url_is_admitted_before_a_whole_old_entry_is_reused() {
     let temp = Temp::new("whole-entry-card-origin");
     let bundle = Bundle::new(4, b"plan four").asset("mark.png", b"a mark");
@@ -984,6 +1104,10 @@ fn a_plan_url_is_admitted_before_a_whole_old_entry_is_reused() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn another_channel_is_refused_before_any_download() {
     let temp = Temp::new("channel");
     let mut beta = Bundle::new(4, b"plan four");
@@ -1006,6 +1130,10 @@ fn another_channel_is_refused_before_any_download() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn the_canonical_bytes_are_what_a_head_is_signed_over() {
     // The publisher signs canonical bytes; a head that differs only in
     // whitespace and key order still verifies, and one whose seq was edited
@@ -1081,6 +1209,10 @@ fn the_canonical_bytes_are_what_a_head_is_signed_over() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn reserializing_a_bad_signed_bundle_does_not_evade_quarantine() {
     let signing = key(12);
     let mut bundle = Bundle::new(4, b"plan four");
@@ -1130,6 +1262,10 @@ fn activate(store: &mut Store) -> Option<Vec<u8>> {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn preparation_refusal_and_stale_commit_leave_the_running_generation_and_record() {
     let temp = Temp::new("activation-atomic");
     let mut store = open(&temp);
@@ -1175,6 +1311,10 @@ fn preparation_refusal_and_stale_commit_leave_the_running_generation_and_record(
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn complete_rosters_represent_embedded_and_stored_removal_then_readdition() {
     let temp = Temp::new("complete-rosters");
     let mut binary = embedded(&[]);
@@ -1213,6 +1353,10 @@ fn complete_rosters_represent_embedded_and_stored_removal_then_readdition() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn embedded_current_and_fallback_keep_the_accepted_canonical_digest() {
     let temp = Temp::new("current-digest");
     let first = Bundle::new(4, b"same");
@@ -1248,6 +1392,10 @@ fn embedded_current_and_fallback_keep_the_accepted_canonical_digest() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn an_exclusive_owner_protects_signed_floors_and_live_downloads() {
     const CHILD_DIR: &str = "EXACT_UPDATE_OWNER_TEST_DIR";
     let signing = key(73);

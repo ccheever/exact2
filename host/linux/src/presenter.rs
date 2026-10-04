@@ -42,6 +42,7 @@ mod display_frame;
 mod events;
 mod pan_release;
 mod picker;
+mod pointer;
 #[cfg(test)]
 mod save_tests;
 mod svg_hit;
@@ -59,6 +60,7 @@ mod height_drag_tests;
 mod images;
 mod preferences;
 mod retained_action;
+mod reveal;
 mod swipe;
 mod transform;
 mod transform_geometry;
@@ -103,6 +105,9 @@ pub struct Presenter<D: DataSource> {
     /// The text field typed into since it took the focus: its `change`
     /// fires on blur or Enter, HTML's commit (LLP 1069.001 D4).
     pub(crate) edited: Option<ViewId>,
+    /// The modifier keys held, each side a bit (Shift, Control, Alt, Meta,
+    /// left then right): a `key` event's flags (`KeyboardEvent.shiftKey`…).
+    pub(crate) held: u8,
     /// Unbound checkboxes' own states, as a browser keeps an uncontrolled
     /// control's (LLP 1069.001 D4); a bound one draws its `checked`.
     pub(crate) controls: BTreeMap<ViewId, bool>,
@@ -112,6 +117,8 @@ pub struct Presenter<D: DataSource> {
     pointer: Option<(f32, f32)>,
     /// The nodes with a `hover` handler under the pointer, innermost first.
     hovered: Vec<ViewId>,
+    /// The node holding the pointer's `pointerdown` until it lifts.
+    pointer_held: Option<exact_kernel::NodeKey>,
     pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
@@ -399,11 +406,13 @@ impl<D: DataSource> Presenter<D> {
             hosts: 0,
             focus: None,
             edited: None,
+            held: 0,
             controls: BTreeMap::new(),
             menu: None,
             autofocus_processed: Default::default(),
             pointer: None,
             hovered: Vec::new(),
+            pointer_held: None,
             control_contact: None,
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
@@ -458,9 +467,10 @@ impl<D: DataSource> Presenter<D> {
                     Some(v) if v.as_str() == Some("light") => Some(false),
                     _ => None,
                 }),
-                "copyText" => eprintln!("exact: copyText unsupported on the headless/DRM host"),
                 // No haptic engine here (LLP 1077 D14): nothing to feel.
                 "haptic" => {}
+                // Outside a `key` event (`key_event` takes a key's), nothing to prevent or stop.
+                "preventDefault" | "stopPropagation" => {}
                 // No share sheet here: refused into the journal, or held for
                 // the agent like every host (LLP 1069.003 D6).
                 "share" => {
@@ -468,21 +478,10 @@ impl<D: DataSource> Presenter<D> {
                     let runner = self.host.runner_mut();
                     exact_runner::share::arm(runner, share, c.source, self.agent, false);
                 }
-                // `blur()` drops the focus; `blur(id)` only when that node holds it.
-                "blur" => {
-                    let holds = |name: &str| {
-                        self.focus
-                            .and_then(|id| self.host.kernel().node(id))
-                            .is_some_and(|n| n.props.str(PropId::Id) == Some(name))
-                    };
-                    if match c.args.first().and_then(exact_plan::Value::as_str) {
-                        Some(s) => holds(s),
-                        None => true,
-                    } {
-                        self.blur();
-                    }
-                }
-                "selectText" => eprintln!("exact: selectText unsupported on the headless/DRM host"),
+                "blur" => self.blur_command(&c.args),
+                "focus" => self.focus_command(&c.args),
+                // An element's, by its id (minesweeper F3); a row's is the runner's.
+                "scrollIntoView" => self.scroll_element_into_view(&c.args),
                 // The inverse of `message=`: text into the named surface's
                 // canvas, stamped now and delivered in order with its input.
                 "postMessage" => {
@@ -509,6 +508,11 @@ impl<D: DataSource> Presenter<D> {
                 // `cancel`, or held for the agent.
                 name @ ("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
                     self.document_picker(name, &c.args)
+                }
+                // No clipboard, text selection, browser, editor or dev menu
+                // here: known, and named so.
+                name @ ("copyText" | "selectText" | "openURL" | "format" | "reload") => {
+                    eprintln!("exact: {name} unsupported on the headless/DRM host")
                 }
                 other => eprintln!("exact: unknown command {other}"),
             }
@@ -573,6 +577,13 @@ impl<D: DataSource> Presenter<D> {
             return Err(HostError::Layout(error));
         }
         self.restore_time(&mut host)?;
+        let shaders = self
+            .surfaces
+            .prepare_shaders(&self.compat, &self.assets)
+            .map_err(HostError::Asset)?;
+        self.surfaces
+            .commit_shaders(shaders)
+            .map_err(HostError::Asset)?;
         self.host = host;
         self.replaced();
         if self.display.new_session() {
@@ -696,6 +707,21 @@ impl<D: DataSource> Presenter<D> {
             self.pointer = pointer;
             self.dirty = true;
         }
+    }
+
+    /// The viewport changed.
+    pub fn resize_scaled(&mut self, width: f32, height: f32, scale: f32) -> Option<String> {
+        if !scale.is_finite() || scale <= 0.0 {
+            return Some("display scale must be finite and positive".into());
+        }
+        self.brush.scale = scale;
+        self.dirty = true;
+        self.resize(width, height)
+    }
+
+    /// A display needs another animation or GPU canvas frame.
+    pub fn wants_display_frames(&self) -> bool {
+        self.host.wants_frames() || self.surfaces.has_rendered_canvas()
     }
 
     /// The viewport changed.
@@ -914,7 +940,19 @@ impl<D: DataSource> Presenter<D> {
         let page = self.page;
         self.page.0 = self.page.0.clamp(0.0, (doc.0 - viewport.0).max(0.0));
         self.page.1 = self.page.1.clamp(0.0, (doc.1 - viewport.1).max(0.0));
+        self.publish_scroll();
         changed || self.page != page
+    }
+
+    /// Tell the runner where every scroller and the page stand, for
+    /// `frame()` (LLP 1051.000 D1): after a clamp, and wherever a scroll
+    /// moves geometry (`refresh_transform_geometry`).
+    pub(crate) fn publish_scroll(&mut self) {
+        let runner = self.host.runner_mut();
+        runner.scrolled(None, f64::from(self.page.0), f64::from(self.page.1));
+        for (id, (left, top)) in &self.scroll {
+            runner.scrolled(Some(*id), f64::from(*left), f64::from(*top));
+        }
     }
 
     /// Every node's painted box, in paint order (a fresh frame when stale).
@@ -1094,12 +1132,12 @@ impl<D: DataSource> Presenter<D> {
         self.boxes
             .iter()
             .rev()
-            .find(|b| {
+            .filter(|b| {
                 b.contains(x, y)
                     && !self.host.route_visibility(b.id).1
                     && self.display.allows(self.host.kernel(), b.id)
             })
-            .map(|b| self.svg_hit(b, x, y))
+            .find_map(|b| self.svg_hit(b, x, y))
     }
 
     /// The agent's `tap`: a press at the node's center through the same
@@ -1162,11 +1200,21 @@ impl<D: DataSource> Presenter<D> {
     /// up, then the page, unless its `overscroll-behavior` is `contain` or
     /// `none` on an axis the tick moves along: it keeps (drops) the tick.
     pub fn wheel_at(&mut self, x: f32, y: f32, dx: f32, dy: f32) {
-        if (dx == 0.0 && dy == 0.0) || !self.display.contains(x, y) {
+        if ![x, y, dx, dy].iter().all(|v| v.is_finite())
+            || (dx == 0.0 && dy == 0.0)
+            || !self.display.contains(x, y)
+        {
             return;
         }
-        if let Err(error) = self.pointer_cancel(self.pointer_now()) {
-            self.host.log(error);
+        if self.surface_wheel(x, y, dx, dy, self.pointer_now()) {
+            return;
+        }
+        // A UI wheel can take over a UI gesture, but does not release a game's
+        // captured pointer. Browser wheel events do not end pointer capture.
+        if self.contact_canvas().is_none() {
+            if let Err(error) = self.pointer_cancel(self.pointer_now()) {
+                self.host.log(error);
+            }
         }
         let mut at = self.hit(x, y);
         let collection_limits = self.collection_scroll_limits();
@@ -1182,7 +1230,9 @@ impl<D: DataSource> Presenter<D> {
                 )
             });
             let (ox, oy) = bounds.axes;
-            if ox == Overflow::Scroll || oy == Overflow::Scroll {
+            if matches!(ox, Overflow::Scroll | Overflow::Auto)
+                || matches!(oy, Overflow::Scroll | Overflow::Auto)
+            {
                 let max = bounds.max;
                 let off = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
                 let takes = |scrolls: bool, d: f32, off: f32, max: f32| {
@@ -1191,8 +1241,18 @@ impl<D: DataSource> Presenter<D> {
                         && max > 0.0
                         && ((d > 0.0 && off < max) || (d < 0.0 && off > 0.0))
                 };
-                let take_x = takes(ox == Overflow::Scroll, dx, off.0, max.0);
-                let take_y = takes(oy == Overflow::Scroll, dy, off.1, max.1);
+                let take_x = takes(
+                    matches!(ox, Overflow::Scroll | Overflow::Auto),
+                    dx,
+                    off.0,
+                    max.0,
+                );
+                let take_y = takes(
+                    matches!(oy, Overflow::Scroll | Overflow::Auto),
+                    dy,
+                    off.1,
+                    max.1,
+                );
                 if take_x || take_y {
                     let nx = if take_x {
                         (off.0 + dx).clamp(0.0, max.0)
@@ -1243,6 +1303,9 @@ impl<D: DataSource> Presenter<D> {
 
     /// The agent's wheel: over the node's center.
     pub fn wheel(&mut self, id: ViewId, dx: f32, dy: f32) -> Result<String, String> {
+        if !dx.is_finite() || !dy.is_finite() {
+            return Err("wheel needs finite deltas".into());
+        }
         if self.host.route_visibility(id).1 {
             return Err(format!("view {id} is hidden or inert"));
         }
@@ -1322,11 +1385,13 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// The executor's wake: readable when a reply is queued (for `poll`).
+    #[cfg(unix)]
     pub fn executor_fd(&self) -> std::os::unix::io::RawFd {
         self.executor.fd()
     }
 
     /// Metadata, decode completion or changed budget demand wakes an idle display.
+    #[cfg(unix)]
     pub fn image_fd(&self) -> std::os::unix::io::RawFd {
         self.images.wake_fd()
     }
@@ -1338,6 +1403,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Another host took over: it is measured as the last was, and counted.
     pub(crate) fn replaced(&mut self) {
+        self.brush.paint_epoch = None; // A new kernel may have the same epoch.
         self.hosts += 1;
         self.measure();
     }

@@ -1,0 +1,39 @@
+// A child's action used as a timer target is not possible (tasks are the
+// root's), but a root timer writing root state that rows read is: rows
+// re-render, keeping their own state.
+shape Item
+  id: string
+
+component App
+  resource a = items(1) as shape list<Item>
+  resource b = items(2) as shape list<Item>
+  derive items = length(a) >= length(b) ? a : b
+  state beat = 0
+  action tick
+    beat = beat + 1
+  task t mount
+    every(100, tick)
+  view
+    column
+      text `${beat}` testId="beat"
+      each it, i in items key=i
+        Row(index=i, beat=beat)
+
+component Row
+  props
+    index: number
+    beat: number
+  state mine = 0
+  action bump
+    mine = mine + 1
+  view
+    button "b" press=bump testId=`b-${index}`
+      text `${index}:${mine}:${beat}` testId=`r-${index}`
+
+test "rows across ticks"
+  tap "b-0"
+  clock +100
+  tap "b-0"
+  tap "b-1"
+  clock +250
+  expect state beat == 3

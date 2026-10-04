@@ -1,5 +1,5 @@
 // NSURLSessionWebSocketTask behind SocketTransport: the platform half of a
-// listening WebSocket (LLP 0057 §3; Exact's LLP 1016.000 D3). The platform
+// listening WebSocket (LLP 0057 §3; LLP 0059.000 §3.12). The platform
 // owns TLS with the system trust store, proxies, pings and the closing
 // handshake; Rust owns the grant check and the message vocabulary.
 //

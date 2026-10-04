@@ -1,0 +1,90 @@
+// Accept fixture: tabs with a stack each, the one layout
+// docs/contract-for-agents.md ("Tabs and stacks") blesses for web, macOS and
+// iOS (shop F9, F21, F22, F26; recipes F6, F19, F20, F23; hn-reader F5).
+// The root `main` is a flex column: a box that takes the room the tablist
+// leaves, then the tablist, then root overlays (a toast). Each tab's stack is
+// a `role="tabpanel"` its tab names with `aria-controls`, and each route is a
+// direct child of its panel (or, without tabs, of the root), absolutely
+// positioned to fill it, so a covered route takes no room. iOS makes the
+// panels a UITabBarController (the tablist its bar, tinted by
+// `accent-color`); the tablist hides with `display="none"`, never `when`, and
+// the toast after it paints over the routes on every host. A pushed screen's
+// content is a keyed `each`, as shop's product screen was, and a location
+// typed into the root (LLP 1038 D11) selects a tab.
+routes nav
+  tab home "/"
+    item "/item/:id"
+    add "/add"
+    full "/full"
+  tab saved "/saved"
+    note "/note"
+
+component Tabs
+  state toast = ""
+  state count = 2
+  derive current = top(nav)
+  action pick(name: string)
+    nav = select(nav, name)
+  action follow(url: string)
+    nav = go(nav, url)
+  action open(id: string)
+    nav = push(nav, path("item", id))
+  action back
+    nav = back(nav)
+  action openAdd
+    nav = push(nav, "/add")
+  action openFull
+    nav = push(nav, "/full")
+  action openNote
+    nav = push(nav, "/note")
+  action say
+    toast = "Saved"
+    count = count + 1
+  action hush
+    toast = ""
+  view
+    main testId="navigation" navigationKey=`${current.id}` navigationBack="back" navigate=follow width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#111111" accent-color="#0a7d32"
+      column testId="panels" flex=1 min-height=0 position="relative"
+        each t in nav.tabs key=t.name
+          column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" inset=0
+            each e in t.stack key=e.id
+              column navigationKey=`${e.id}` navigationPresentation=(e.name == "add" ? "modal" : "") testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column" gap=8 padding=16 background-color=(e.name == "add" ? "#fde68a" : "#ffffff")
+                when e.name != "home" and e.name != "saved"
+                  button id="back" press=back testId=`back-${e.name}`
+                    text "Back"
+                when e.name == "home"
+                  text "Home" testId="home-title"
+                  button press=open("1") testId="open-1"
+                    text "Open 1"
+                  button press=openAdd testId="open-add"
+                    text "Add"
+                  button press=openFull testId="open-full"
+                    text "Full screen"
+                  button press=say testId="say"
+                    text "Toast"
+                when e.name == "item"
+                  each p in filter(stack(nav), x => x.name == "item") key=p.id
+                    text `Item ${p.params.id}` testId=`item-title-${p.id}`
+                when e.name == "add"
+                  text "Add something" testId="add-title"
+                when e.name == "full"
+                  text "No tab bar here" testId="full-title"
+                when e.name == "saved"
+                  text "Saved" testId="saved-title"
+                  button press=openNote testId="open-note"
+                    text "Note"
+                when e.name == "note"
+                  text "A note" testId="note-title"
+      row role="tablist" testId="tabs" display=(current.name == "full" or current.name == "add" ? "none" : "flex") flex-shrink=0 height=56 border-top-width=1 border-top-style="solid" border-color="#e5e7eb"
+        button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=pick("home") testId="tab-home" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center"
+          image "symbol:home" width=22 height=22 object-fit="contain"
+          text "Home"
+        button role="tab" aria-controls="panel-saved" aria-selected=(nav.tab == "saved") press=pick("saved") testId="tab-saved" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center"
+          image "symbol:heart" width=22 height=22 object-fit="contain"
+          text "Saved"
+          // A filled box holding a text: the iOS bar item's badge.
+          row background-color="#dc2626" border-radius=8 padding-left=5 padding-right=5
+            text `${count}` color="#ffffff" font-size=11
+      when toast != ""
+        button press=hush testId="toast" position="absolute" top=60 left=16 right=16 padding=12 background-color="#111827" border-radius=8
+          text toast color="#ffffff"

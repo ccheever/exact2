@@ -1,5 +1,5 @@
-//! The socket transports against a local WebSocket peer (LLP 1069.004 slice
-//! 3): upgrade, text frames (fragmented and extended-length), a ping, the
+//! The socket transports against a local WebSocket peer (LLP 0059.000
+//! §3.12): upgrade, text frames (fragmented and extended-length), a ping, the
 //! closing handshake, an over-limit frame, a binary frame, a refused
 //! handshake, a connection dropped without a close, and an abort.
 use super::*;

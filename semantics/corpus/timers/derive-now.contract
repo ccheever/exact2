@@ -1,0 +1,22 @@
+// A derive that reads now(): when is it recomputed? At boot it is 0; an
+// advance with no timer commits nothing; a tap recomputes at the current
+// clock.
+component App
+  state n = 0
+  derive t = now()
+  derive label = `${t}`
+  action poke
+    n = n + 1
+  view
+    column
+      text label testId="t"
+      button "poke" press=poke testId="poke"
+
+test "now in a derive"
+  expect state t == 0
+  clock +100
+  tap "poke"
+  expect state t == 100
+  clock +5
+  tap "poke"
+  expect text "t" == "105"

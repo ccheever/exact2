@@ -50,7 +50,7 @@ final class NavigationHost {
             guard let at = found else {
                 if refused[nav.id] != key {
                     refused[nav.id] = key
-                    presenter.session?.log("navigationKey \"\(key)\" matches no route; the stack is unchanged")
+                    presenter.session?.log("navigationKey \"\(key)\" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged")
                 }
                 managed.formUnion((tabs?.panels ?? []).map(\.id))
                 continue

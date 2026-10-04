@@ -265,6 +265,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.dispatch(view, kind, len, now_ms), |n| n)
         }
 
+        /// A scroller (or, nonzero `page`, the page) now stands at `left`,
+        /// `top` CSS px: what `frame` subtracts (LLP 1051.000 D1). No batch.
+        #[no_mangle]
+        pub extern "C" fn exact_scrolled(rt: u32, page: u32, view: u32, left: f64, top: f64) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.scrolled(page != 0, view, left, top), |_| ())
+        }
+
         /// Copy current region source/paint metadata. No returned bytes outlive exact_out.
         #[no_mangle]
         pub extern "C" fn exact_region_request(rt: u32, id: u64, known_source: u64) -> u32 {
@@ -347,11 +354,11 @@ macro_rules! host {
             $crate::abi::gesture_constant(which)
         }
 
-        /// Move the clock; nonzero `until_request` stops after a timer that
-        /// sends. Returns the batch's length.
+        /// Move the clock; `mode` as `Bridge::advance` (0 the wall clock, 1
+        /// the agent's jump, 2 an input's `then`s). Returns the batch's length.
         #[no_mangle]
-        pub extern "C" fn exact_advance(rt: u32, now_ms: f64, until_request: u32) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.advance(now_ms, until_request != 0), |n| n)
+        pub extern "C" fn exact_advance(rt: u32, now_ms: f64, mode: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.advance(now_ms, mode), |n| n)
         }
 
         /// A presented display frame at `now_ms` (LLP 1073 D5): timers due
@@ -542,6 +549,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_press_face(rt: u32, view: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.press_face(view), |n| n)
+        }
+
+        /// A grouped list's sections and rows (LLP 1084 D4), JSON; returns
+        /// its length.
+        #[no_mangle]
+        pub extern "C" fn exact_grouped_list(rt: u32, view: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.grouped_list(view), |n| n)
         }
 
         /// A select's options and the one it shows (LLP 1069.001 D5), JSON;

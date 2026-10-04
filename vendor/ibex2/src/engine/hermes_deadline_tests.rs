@@ -14,8 +14,9 @@ use std::time::{Duration, Instant};
 
 fn runtime() -> Hermes {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-    assert!(rt.install_stdlib());
-    rt.install_bindings().expect("bindings");
+    let context = crate::bindings::Context::new(crate::grant::GrantSet::none());
+    rt.install_runtime(crate::bindings::Groups::DEFAULT, &context)
+        .expect("bindings");
     // The console buffer is per-thread and the test harness reuses threads.
     let _ = rt.drain_console();
     rt

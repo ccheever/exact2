@@ -7,6 +7,14 @@ import CoreText
 final class TextCSSTests: XCTestCase {
     let engine = TextEngine(resolve: { _ in nil })
 
+    func testHTMLMaxlengthCountsUTF16AndAllowsDeletingAnAuthoredLongValue() {
+        let props = ["maxlength": "3"]
+        XCTAssertEqual(TextInputLimit.prefix("a😀b", props: props), "a😀")
+        XCTAssertFalse(TextInputLimit.allows("abc", range: NSRange(location: 3, length: 0), replacement: "d", props: props))
+        XCTAssertTrue(TextInputLimit.allows("long authored", range: NSRange(location: 4, length: 1), replacement: "", props: props))
+        XCTAssertEqual(TextInputLimit.prefix("12345", props: ["type": "number", "maxlength": "3"]), "12345")
+    }
+
     private func run(_ text: String, numeric: Int = 0) -> Run {
         Run(text: text, size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0, numeric: numeric)
     }

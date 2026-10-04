@@ -1,0 +1,37 @@
+// `when` / `else` regions: only the taken branch renders; nested whens.
+component App
+  state n = 0
+  action inc
+    n = n + 1
+  action reset
+    n = 0
+  view
+    column
+      when n == 0
+        text "zero" testId="zero"
+      else
+        text `n=${n}` testId="nonzero"
+        when n > 2
+          text "many" testId="many"
+        else
+          text "few" testId="few"
+      when n % 2 == 1
+        button "odd reset" press=reset testId="reset"
+      button "inc" press=inc testId="inc"
+
+test "branches"
+  expect tree has "zero"
+  expect tree missing "nonzero"
+  expect tree missing "reset"
+  tap "inc"
+  expect tree missing "zero"
+  expect text "nonzero" == "n=1"
+  expect tree has "few"
+  expect tree has "reset"
+  tap "inc"
+  expect tree missing "reset"
+  tap "inc"
+  expect tree has "many"
+  expect tree missing "few"
+  tap "reset"
+  expect tree has "zero"

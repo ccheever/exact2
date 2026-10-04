@@ -95,6 +95,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// The store's wake, for the display loop's poll set.
+    #[cfg(unix)]
     pub fn update_fd(&self) -> Option<std::os::unix::io::RawFd> {
         self.updates.as_ref().map(|u| u.fd())
     }
@@ -197,10 +198,15 @@ impl<D: DataSource> Presenter<D> {
         if let Some(reason) = assets.take_refusal() {
             return Err(HostError::Asset(reason));
         }
-        self.updates
-            .as_mut()
-            .unwrap()
-            .commit_activation(candidate.entry, candidate.seq)
+        let shaders = self
+            .surfaces
+            .prepare_shaders(&self.compat, &assets)
+            .map_err(HostError::Asset)?;
+        let updates = self.updates.as_mut().unwrap();
+        self.surfaces
+            .activate_shaders(shaders, || {
+                updates.commit_activation(candidate.entry, candidate.seq)
+            })
             .map_err(HostError::Asset)?;
         self.updates.as_mut().unwrap().boot_started();
         self.host = host;
@@ -250,5 +256,107 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = self.after_commit() {
             eprintln!("exact: {e}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::delivery::{Selection, Store};
+
+    struct StagedPlan(Arc<[u8]>);
+
+    impl Store for StagedPlan {
+        fn prepare_selected(&mut self) -> Option<Selection> {
+            None
+        }
+        fn boot_started(&mut self) {}
+        fn entry_refused(&mut self, _: &str, _: &str) {}
+        fn selection_corrupt(&mut self, _: &str) {}
+        fn boot_succeeded(&mut self) {}
+        fn take_note(&mut self) -> Option<String> {
+            None
+        }
+        #[cfg(unix)]
+        fn fd(&self) -> std::os::unix::io::RawFd {
+            -1
+        }
+        fn check(&self) -> bool {
+            false
+        }
+        fn take_line(&mut self) -> Option<String> {
+            None
+        }
+        fn prepare_activation(&self) -> Result<Option<Selection>, String> {
+            Ok(Some(Selection {
+                entry: Some("new-paint-order".into()),
+                seq: 1,
+                plan: self.0.clone(),
+                assets: Arc::new(|_| Ok(None)),
+            }))
+        }
+        fn commit_activation(&mut self, entry: Option<String>, seq: u64) -> Result<(), String> {
+            assert_eq!(entry.as_deref(), Some("new-paint-order"));
+            assert_eq!(seq, 1);
+            Ok(())
+        }
+        fn staged_stream_into(&self, _: &mut exact_runner::Delivery) {}
+        fn status_into(&self, _: &mut exact_runner::Delivery) {}
+    }
+
+    #[test]
+    fn delivered_update_recomputes_paint_ranks_at_the_same_kernel_epoch() {
+        let source = r##"component Paint
+  view
+    box width=100 height=100
+      box testId="red" position="absolute" z-index=0 width=100 height=100 background-color="#ff0000"
+      box testId="blue" position="absolute" z-index=1 width=100 height=100 background-color="#0000ff"
+"##;
+        let old = contract::compile(source).unwrap().encode();
+        let new = contract::compile(&source.replace("z-index=0", "z-index=2"))
+            .unwrap()
+            .encode();
+        let (mut p, error) = Presenter::boot_with(
+            &old,
+            (),
+            (100., 100.),
+            1.,
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        let id = |p: &Presenter<()>, name| {
+            let k = p.host.kernel();
+            k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+        };
+        let pixel = |p: &mut Presenter<()>| {
+            let frame = p.frame();
+            let c = frame.pixel(50, 50).unwrap().demultiply();
+            (c.red(), c.green(), c.blue())
+        };
+        assert_eq!(pixel(&mut p), (0, 0, 255));
+        assert_eq!(p.hit(50., 50.), Some(id(&p, "blue")));
+        let epoch = p.host.kernel().epoch();
+        let passes = p.brush.rank_passes;
+        assert_eq!(p.brush.paint_epoch, Some(epoch));
+        p.set_updates(Some(Box::new(StagedPlan(new.into()))));
+        assert!(p.activate_update(()).unwrap());
+        assert_eq!(
+            p.host.kernel().epoch(),
+            epoch,
+            "replacement epochs must collide"
+        );
+        assert_eq!(
+            pixel(&mut p),
+            (255, 0, 0),
+            "the delivered rank paints immediately"
+        );
+        assert_eq!(p.hit(50., 50.), Some(id(&p, "red")));
+        assert_eq!(p.brush.rank_passes, passes + 1);
+        // A host-only repaint at that epoch retains the new ranks.
+        p.dirty = true;
+        assert_eq!(pixel(&mut p), (255, 0, 0));
+        assert_eq!(p.brush.rank_passes, passes + 1);
     }
 }

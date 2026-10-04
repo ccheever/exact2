@@ -306,6 +306,10 @@ pub struct PointerState {
     pub id: u64,
     /// Latest canvas position in points.
     pub position: Vec2,
+    /// Most recent primary (MouseLeft or touch) Down on this pointer, in points.
+    /// Retained through normal Up and saves; cleared on Cancel/Blur/replacement.
+    /// This is a snapshot, not an edge: gate commands on pressed/released actions.
+    pub press_origin: Option<Vec2>,
     /// Whether contact remains down.
     pub down: bool,
     /// Device motion accumulated since the last tick, in points. A locked
@@ -400,9 +404,11 @@ impl Input {
             return Err("saved keys must be sorted and unique".into());
         }
         if !saved.viewport.is_finite()
-            || saved
-                .pointer
-                .is_some_and(|p| !p.position.is_finite() || !p.delta.is_finite())
+            || saved.pointer.is_some_and(|p| {
+                !p.position.is_finite()
+                    || !p.delta.is_finite()
+                    || p.press_origin.is_some_and(|origin| !origin.is_finite())
+            })
         {
             return Err("saved input needs finite points".into());
         }
@@ -535,6 +541,12 @@ impl Input {
     pub fn messages(&self) -> &[String] {
         &self.messages
     }
+    /// The canvas size in points that pointer coordinates are relative to; zero
+    /// before the host reports one. With `Camera::matrix` it turns a pointer
+    /// position into a world ray.
+    pub fn viewport(&self) -> Vec2 {
+        self.viewport
+    }
     pub(crate) fn clear_edges(&mut self) {
         self.messages.clear();
         self.pressed.clear();
@@ -659,6 +671,9 @@ impl Input {
                 buttons,
                 ..
             } => {
+                let previous_buttons = self.mouse_buttons();
+                let primary_down = phase == PointerPhase::Down
+                    && (buttons == 0 || (buttons & 1 != 0 && previous_buttons & 1 == 0));
                 for (code, bit) in MOUSE_BUTTONS {
                     match (
                         self.keys.binary_search_by(|k| k.as_str().cmp(code)),
@@ -677,8 +692,14 @@ impl Input {
                     if p.id == id {
                         p.delta += motion;
                         p.position = position;
-                        p.down = matches!(phase, PointerPhase::Down)
-                            || (p.down && phase == PointerPhase::Move);
+                        p.down = phase == PointerPhase::Down
+                            || (p.down && phase == PointerPhase::Move)
+                            || (phase == PointerPhase::Up && buttons != 0);
+                        if primary_down {
+                            p.press_origin = Some(position);
+                        } else if phase == PointerPhase::Cancel {
+                            p.press_origin = None;
+                        }
                     } else if !p.down && phase == PointerPhase::Down {
                         self.pointer = None;
                     }
@@ -687,22 +708,36 @@ impl Input {
                     self.pointer = Some(PointerState {
                         id,
                         position,
-                        down: phase == PointerPhase::Down,
+                        press_origin: primary_down.then_some(position),
+                        down: phase != PointerPhase::Cancel
+                            && (buttons != 0 || phase == PointerPhase::Down),
                         delta: motion,
                     });
                 }
                 match phase {
                     PointerPhase::Down => {
-                        self.contacts.retain(|p| p.id != id || !p.action.is_empty());
-                        self.contacts.push(Contact {
-                            id,
-                            action: String::new(),
-                            origin: position,
-                            position,
-                        });
-                    }
-                    PointerPhase::Move => {
                         if let Some(p) = self
+                            .contacts
+                            .iter_mut()
+                            .find(|p| p.id == id && p.action.is_empty())
+                        {
+                            p.position = position;
+                            if primary_down {
+                                p.origin = position;
+                            }
+                        } else {
+                            self.contacts.push(Contact {
+                                id,
+                                action: String::new(),
+                                origin: position,
+                                position,
+                            });
+                        }
+                    }
+                    PointerPhase::Move | PointerPhase::Up => {
+                        if phase == PointerPhase::Up && buttons == 0 {
+                            self.contacts.retain(|p| p.id != id || !p.action.is_empty());
+                        } else if let Some(p) = self
                             .contacts
                             .iter_mut()
                             .find(|p| p.id == id && p.action.is_empty())
@@ -710,7 +745,7 @@ impl Input {
                             p.position = position;
                         }
                     }
-                    PointerPhase::Up | PointerPhase::Cancel => {
+                    PointerPhase::Cancel => {
                         self.contacts.retain(|p| p.id != id || !p.action.is_empty())
                     }
                 }
@@ -722,6 +757,127 @@ impl Input {
 #[cfg(test)]
 mod control_tests {
     use super::*;
+
+    fn pointer_event(id: u64, phase: PointerPhase, x: f32, buttons: u32) -> InputEvent {
+        InputEvent::Pointer {
+            id,
+            phase,
+            x,
+            y: 10.,
+            dx: 0.,
+            dy: 0.,
+            buttons,
+            at_ms: 0.,
+        }
+    }
+    #[test]
+    fn primary_origin_survives_both_button_chords_and_secondary_release() {
+        for right_first in [false, true] {
+            let mut input = Input::new(Actions::new().button("fire", &["MouseLeft"]));
+            input.apply(pointer_event(1, PointerPhase::Move, 90., 0));
+            assert!(input.pointer().unwrap().press_origin.is_none());
+            if right_first {
+                input.apply(pointer_event(1, PointerPhase::Down, 80., 2));
+            }
+            input.apply(pointer_event(
+                1,
+                PointerPhase::Down,
+                20.,
+                if right_first { 3 } else { 1 },
+            ));
+            input.clear_edges();
+            if !right_first {
+                input.apply(pointer_event(1, PointerPhase::Down, 50., 3));
+            }
+            assert_eq!(
+                input.pointer().unwrap().press_origin,
+                Some(Vec2::new(20., 10.))
+            );
+            assert_eq!(input.contacts[0].origin, Vec2::new(20., 10.));
+            input.apply(pointer_event(1, PointerPhase::Up, 60., 1));
+            assert!(input.pointer().unwrap().down && input.held("fire"));
+            assert!(!input.released("fire"));
+            assert_eq!(input.contacts.len(), 1);
+            assert_eq!(input.contacts[0].origin, Vec2::new(20., 10.));
+            input.apply(pointer_event(1, PointerPhase::Up, 70., 0));
+            assert!(!input.pointer().unwrap().down && input.released("fire"));
+            assert_eq!(
+                input.pointer().unwrap().press_origin,
+                Some(Vec2::new(20., 10.))
+            );
+            assert!(input.contacts.is_empty());
+            input.apply(pointer_event(1, PointerPhase::Down, 30., 1));
+            assert_eq!(
+                input.pointer().unwrap().press_origin,
+                Some(Vec2::new(30., 10.))
+            );
+            input.clear_edges();
+            input.apply(pointer_event(1, PointerPhase::Down, 50., 3));
+            input.apply(pointer_event(1, PointerPhase::Up, 60., 2));
+            assert!(input.pointer().unwrap().down && input.released("fire"));
+            assert!(!input.held("fire"));
+            assert_eq!(input.contacts.len(), 1);
+            assert_eq!(
+                input.pointer().unwrap().press_origin,
+                Some(Vec2::new(30., 10.))
+            );
+            input.apply(pointer_event(1, PointerPhase::Up, 70., 0));
+            assert!(!input.pointer().unwrap().down && input.contacts.is_empty());
+        }
+    }
+    #[test]
+    fn touch_origin_survives_up_but_cancel_blur_and_replacement_clear_it() {
+        let mut input = Input::default();
+        input.apply(pointer_event(7, PointerPhase::Down, 20., 0));
+        input.apply(pointer_event(7, PointerPhase::Move, 60., 0));
+        input.apply(pointer_event(7, PointerPhase::Up, 70., 0));
+        assert_eq!(
+            input.pointer().unwrap().press_origin,
+            Some(Vec2::new(20., 10.))
+        );
+        input.clear_edges();
+        assert_eq!(
+            input.pointer().unwrap().press_origin,
+            Some(Vec2::new(20., 10.))
+        );
+        input.apply(pointer_event(9, PointerPhase::Down, 80., 2));
+        assert_eq!(input.pointer().unwrap().id, 9);
+        assert!(input.pointer().unwrap().press_origin.is_none());
+        input.apply(pointer_event(9, PointerPhase::Cancel, 80., 0));
+        input.apply(pointer_event(12, PointerPhase::Down, 30., 0));
+        input.apply(pointer_event(12, PointerPhase::Cancel, 80., 0));
+        assert!(input.pointer().unwrap().press_origin.is_none());
+        input.apply(pointer_event(12, PointerPhase::Down, 40., 0));
+        input.apply(InputEvent::Blur { at_ms: 0. });
+        assert!(input.pointer().is_none());
+    }
+    #[test]
+    fn malformed_saved_press_origins_are_refused_before_live_state_changes() {
+        use crate::{Game, Sim, World};
+        struct Empty;
+        impl Game for Empty {
+            const ID: &'static str = "origin-preflight";
+            type Args = ();
+            fn setup(_: &mut World, _: &()) {}
+            fn tick(_: &mut World, _: &Input, _: &()) {}
+        }
+        let mut live = Sim::<Empty>::new(()).unwrap();
+        let before = live.save().unwrap();
+        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut source = Sim::<Empty>::new(()).unwrap();
+            source
+                .input
+                .apply(pointer_event(1, PointerPhase::Down, 20., 1));
+            source.input.pointer.as_mut().unwrap().press_origin = Some(Vec2::new(value, 10.));
+            let malformed = source.save().unwrap();
+            assert!(live
+                .restore(&malformed)
+                .unwrap_err()
+                .to_string()
+                .contains("finite"));
+            assert_eq!(live.save().unwrap(), before);
+        }
+    }
 
     #[test]
     fn restore_rejects_unknown_saved_control_atomically() {

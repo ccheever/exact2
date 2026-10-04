@@ -228,6 +228,8 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     check(await sheetShown(), `${host} native: the sheet is presented over the tabs`);
     await s.tap('close-sheet'); await settle(s);
     check(!(await sheetShown()), `${host} native: Close dismisses the sheet`);
+    // UIKit's dismissal runs in platform time, its snapshot over the tabs until it ends (LLP 1035.003 D5).
+    await s.clock('settle');
     // Retained tabs (LLP 1075.003 §3.7): a tab's scroll survives a switch away and back.
     await s.tap('tab-second'); await settle(s); await s.clock('settle');
     await s.tap('list-second', { wheel: [0, 300] }); await settle(s); await s.clock('settle');

@@ -14,8 +14,9 @@ fn webcrypto_randomness_wpt() {
             .join(file);
         let source = std::fs::read_to_string(path).unwrap();
         let mut rt = Hermes::new(DynamicCode::Closed).unwrap();
-        assert!(rt.install_stdlib());
-        rt.install_bindings().unwrap();
+        let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+        rt.install_runtime(ibex2::bindings::Groups::DEFAULT, &context)
+            .unwrap();
         rt.harden().unwrap();
         rt.install_test_harness().unwrap();
         // WPT's worker-global alias, test-only (no worker is being installed).

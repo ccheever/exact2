@@ -46,14 +46,15 @@ impl<D: DataSource> Presenter<D> {
         if node.props.bool(PropId::EmojiPicker) == Some(true) {
             return Err("emoji selection is not supported on the Linux host".into());
         }
+        let text = exact_kernel::control::limit_text(node.props, text).to_string();
         let now = self.host.now();
         if let Some(e) = self.set_focus(Some(id), now) {
             return Err(e);
         }
         let mut error = None;
         for (event, kind) in [
-            (Event::Input(text.into()), EventKind::Input),
-            (Event::Change(text.into()), EventKind::Change),
+            (Event::Input(text.clone().into()), EventKind::Input),
+            (Event::Change(text.clone().into()), EventKind::Change),
         ] {
             if self.host.runner().handlers_of(id).contains(&kind) {
                 error = error.or(self.host.dispatch_at(id, event, now));
@@ -74,6 +75,50 @@ impl<D: DataSource> Presenter<D> {
         quote(&value, &mut s);
         s.push('}');
         Ok(s)
+    }
+
+    /// `type <id> copy|cut|paste [text]` (spreadsheet F6): the clipboard's
+    /// event with the focus at `id`, heard by the nearest node with a
+    /// handler — itself or an ancestor — as on the web; a paste carries
+    /// `text` as the clipboard's. This host has no clipboard of its own.
+    pub fn clipboard(&mut self, id: ViewId, edit: &str, text: &str) -> Result<String, String> {
+        let kind = match edit {
+            "copy" => EventKind::Copy,
+            "cut" => EventKind::Cut,
+            "paste" => EventKind::Paste,
+            _ => return Err(format!("type: {edit} is not copy, cut or paste")),
+        };
+        if self.host.route_visibility(id).1 {
+            return Err(format!("view {id} is hidden or inert"));
+        }
+        let mut at = Some(id);
+        let target = loop {
+            let Some(node) = at.and_then(|n| self.host.kernel().node(n)) else {
+                return Err(format!("no {edit} handler at view {id} or above it"));
+            };
+            if self.host.runner().handlers_of(node.id).contains(&kind)
+                && node.props.bool(PropId::Disabled) != Some(true)
+            {
+                break node.id;
+            }
+            at = node.parent;
+        };
+        let now = self.host.now();
+        if self.focusable(id) {
+            if let Some(e) = self.set_focus(Some(id), now) {
+                return Err(e);
+            }
+        }
+        let text = if kind == EventKind::Paste { text } else { "" };
+        let error = self
+            .host
+            .dispatch_at(target, Event::Clipboard(kind, text.to_owned()), now);
+        if let Some(e) = error.or(self.after_commit()) {
+            return Err(e);
+        }
+        Ok(format!(
+            "{{\"typed\":{id},\"clipboard\":\"{edit}\",\"delivery\":\"recognized\"}}"
+        ))
     }
 
     /// Targeted keyboard input for both the agent and device adapters.
@@ -175,9 +220,9 @@ impl<D: DataSource> Presenter<D> {
         self.key_down(&name, now_ms);
     }
 
-    /// A key down at the focused node, by the web's name (`e.key`). The
-    /// nearest `key` handler at or above it hears it first, as a keydown
-    /// bubbles; then its default action: Enter or Space presses a button and
+    /// A key down at the focused node, by the web's name (`e.key`). Every
+    /// `key` handler at or above it hears it first, as a keydown bubbles;
+    /// then, unless one called `preventDefault()`, its default action: Enter or Space presses a button and
     /// Enter a link; Enter submits a single-line input (its `submit`) or
     /// breaks a textarea's line; Backspace deletes; a character is typed —
     /// each an edit the runner hears as one `change`.
@@ -194,11 +239,12 @@ impl<D: DataSource> Presenter<D> {
         {
             return;
         }
-        if let Some(e) = self.key_event(name, now_ms) {
+        let (error, prevented) = self.key_event(name, now_ms);
+        if let Some(e) = error {
             eprintln!("exact: {e}");
         }
-        // The handler may have moved the focus or removed the node.
-        if self.focus != Some(id) {
+        // A handler may have prevented the default, moved the focus or removed the node.
+        if prevented || self.focus != Some(id) {
             return;
         }
         let Some(node) = self.host.kernel().node(id) else {
@@ -206,10 +252,18 @@ impl<D: DataSource> Presenter<D> {
         };
         let role = node.props.str(PropId::AccessibilityRole);
         // A native button presses under any role, a tab's or a menu item's
-        // (LLP 1069.011.000 D1).
+        // (LLP 1069.011.000 D1); any other pressable as a button does, unless
+        // it is a link (chat F14).
         let native = exact_kernel::ControlKind::of(node.node_type, node.props)
             == Some(exact_kernel::ControlKind::Button);
-        if (role == Some("button") || native) && matches!(name, " " | "Enter")
+        let pressable = node.node_type != NodeType::TextInput
+            && self
+                .host
+                .runner()
+                .handlers_of(id)
+                .contains(&EventKind::Press);
+        if (role == Some("button") || native || pressable && role != Some("link"))
+            && matches!(name, " " | "Enter")
             || role == Some("link") && name == "Enter"
         {
             self.dispatch_press(id, now_ms, false);
@@ -237,8 +291,21 @@ impl<D: DataSource> Presenter<D> {
                     return;
                 }
             }
-            s if s.chars().count() == 1 => value.push_str(s),
+            // A Control or Meta chord types nothing, as in a browser.
+            s if s.chars().count() == 1 && self.held & 0b1100_1100 == 0 => value.push_str(s),
             _ => return,
+        }
+        if exact_kernel::control::text_maxlength(node.props).is_some_and(|limit| {
+            value.encode_utf16().count() > limit
+                && value.encode_utf16().count()
+                    > node
+                        .props
+                        .str(PropId::Value)
+                        .unwrap_or("")
+                        .encode_utf16()
+                        .count()
+        }) {
+            return;
         }
         self.edited = Some(id);
         if self

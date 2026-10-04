@@ -1,0 +1,35 @@
+// A row's slots initialise in order: a later one may read an earlier one,
+// the item, and root state.
+shape Item
+  id: string
+  n: number
+
+component App
+  resource a = items(1) as shape list<Item>
+  resource b = items(2) as shape list<Item>
+  resource c = items(3) as shape list<Item>
+  derive ab = length(a) >= length(b) ? a : b
+  derive items = length(ab) >= length(c) ? ab : c
+  state base = 100
+  action raise
+    base = base + 1
+  view
+    column
+      button "raise" press=raise testId="raise"
+      each it, i in items key=i
+        Row(item=it, index=i, base=base)
+
+component Row
+  props
+    item: Item
+    index: number
+    base: number
+  state first = item.n + base
+  state second = first * 2
+  state label = `${item.id}:${second}`
+  view
+    text `${first} ${second} ${label} ${base}` testId=`row-${index}`
+
+test "init chain"
+  tap "raise"
+  tap "raise"

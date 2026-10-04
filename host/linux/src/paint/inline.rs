@@ -41,7 +41,15 @@ pub(super) fn text_backgrounds(
         n.style
             .mask
             .has(StyleId::BackgroundColor)
-            .then(|| rgba(n.style.background_color.resolve(dark)))
+            .then(|| {
+                let current = || n.text_color();
+                rgba(
+                    n.style
+                        .background_color
+                        .unwrap_or_else(current)
+                        .resolve(dark),
+                )
+            })
             .filter(|c| c[3] != 0)
     };
     if node.props.str(PropId::Text).is_some() {

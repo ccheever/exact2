@@ -87,3 +87,47 @@ fn a_zero_length_subpath_paints_its_cap() {
     assert_eq!(red(40), (255, 0, 255), "M p L p, square: a square");
     assert_ne!(red(70), (255, 0, 255), "a butt cap paints nothing");
 }
+
+/// LLP 1084 §4: a portable symbol role is its path, stroked as the web
+/// strokes it, in its tint; an `sf/` name stays an empty box.
+#[test]
+fn a_symbol_role_is_its_path_and_an_sf_name_is_empty() {
+    const SYMBOLS: &str = "component App\n  view\n    row\n      image \"symbol:checkmark\" testId=\"role\" width=48 height=48 object-fit=\"contain\" tint-color=\"#ff0000\"\n      image \"symbol:sf/checkmark\" testId=\"sf\" width=48 height=48 object-fit=\"contain\" tint-color=\"#ff0000\"\n";
+    let plan = contract::compile(SYMBOLS).unwrap_or_else(|e| panic!("{e}"));
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (100., 48.),
+        1.,
+        std::env::temp_dir(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let reds = |p: &mut Presenter<NoData>, id: &str| {
+        let k = p.host().kernel();
+        let node = k.node_by_key(k.find_by_test_id(id)[0]).unwrap().id;
+        let b = *p.boxes().iter().find(|b| b.id == node).unwrap();
+        let frame = p.frame();
+        let mut n = 0;
+        for y in 0..48 {
+            for x in 0..48 {
+                let c = frame
+                    .pixel(b.rect.0 as u32 + x, b.rect.1 as u32 + y)
+                    .unwrap()
+                    .demultiply();
+                n += usize::from(c.red() > 200 && c.green() < 80 && c.alpha() > 200);
+            }
+        }
+        n
+    };
+    assert!(
+        reds(&mut p, "role") > 40,
+        "the checkmark's stroke, in its tint"
+    );
+    assert_eq!(
+        reds(&mut p, "sf"),
+        0,
+        "an SF Symbol name draws nothing on Linux"
+    );
+}

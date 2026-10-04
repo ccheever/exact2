@@ -1,0 +1,33 @@
+// A timer whose action is refused partway through an advance: what fired
+// before it stays; the advance stops there.
+component App
+  state n = 0
+  state d = 1
+  state log = ""
+  action tick
+    n = n + 1 / d
+    log = log + "t"
+  action other
+    log = log + "o"
+  action breakIt
+    d = 0
+  task t1 mount
+    every(10, tick)
+  task t2 mount
+    every(15, other)
+  view
+    column
+      text log testId="log"
+      button "break" press=breakIt testId="break"
+
+test "refused tick"
+  clock +25
+  expect state log == "tot"
+  tap "break"
+  clock +100
+  clock +100
+
+test "refusal state"
+  tap "break"
+  clock +50
+  expect state n == 0

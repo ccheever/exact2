@@ -9,6 +9,15 @@ use std::collections::BTreeSet;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
+/// Refuse an unqualified durable-store platform before touching its directory.
+pub(super) fn require_durable_store() -> Result<(), String> {
+    if cfg!(windows) {
+        Err("Windows durable update storage is unsupported (LLP 1026 D11a); no store files were touched".into())
+    } else {
+        Ok(())
+    }
+}
+
 /// Remove every `.tmp-…` left in `dir` by a write that did not finish.
 pub(super) fn sweep(dir: &Path) {
     let Ok(read) = std::fs::read_dir(dir) else {

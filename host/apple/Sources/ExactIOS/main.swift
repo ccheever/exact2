@@ -124,7 +124,10 @@ func agentReady() {
 let launchColor = UIColor(named: "ExactLaunch") ?? .white
 
 final class Controller: UIViewController {
+    // tvOS has no pointer lock.
+    #if !os(tvOS)
     override var prefersPointerLocked: Bool { ExactPointerLock.preferred }
+    #endif
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = launchColor
@@ -169,11 +172,20 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                    UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(focusLast))]
         tab.forEach { $0.wantsPriorityOverSystemBehavior = true }
         guard DevMenu.enabled else { return tab }
+        #if os(tvOS)
+        // tvOS key commands carry no title.
+        return tab + [
+            UIKeyCommand(input: "d", modifierFlags: .command, action: #selector(devMenu)),
+            UIKeyCommand(input: "r", modifierFlags: .command, action: #selector(devReload)),
+            UIKeyCommand(input: "r", modifierFlags: [.command, .shift], action: #selector(devReload)),
+        ]
+        #else
         return tab + [
             UIKeyCommand(title: "Exact Menu", action: #selector(devMenu), input: "d", modifierFlags: .command),
             UIKeyCommand(title: "Reload", action: #selector(devReload), input: "r", modifierFlags: .command),
             UIKeyCommand(title: "Reload", action: #selector(devReload), input: "r", modifierFlags: [.command, .shift]),
         ]
+        #endif
     }
     @objc func focusFirst() { session.moveFocus(backward: false) }
     @objc func focusLast() { session.moveFocus(backward: true) }

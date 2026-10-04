@@ -6,11 +6,23 @@ use std::{
     process::{Command, Output},
 };
 
+#[test]
+fn diagnostics_keep_the_by_value_error_below_the_large_result_threshold() {
+    assert!(std::mem::size_of::<contract::CompileError>() < 128);
+}
+
 struct App(PathBuf);
 impl App {
     fn new(name: &str) -> Self {
+        // Windows forbids quotes in filenames; backslashes still exercise JSON
+        // path escaping, and both platforms retain Unicode and whitespace.
+        let suffix = if cfg!(windows) {
+            "é space"
+        } else {
+            "é space\""
+        };
         let path =
-            std::env::temp_dir().join(format!("exact-json-{name}-{}-é\"", std::process::id()));
+            std::env::temp_dir().join(format!("exact-json-{name}-{}-{suffix}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
     }
@@ -327,7 +339,7 @@ fn unknown_types_list_named_choices_at_the_original_import() {
         .unwrap();
     let expected = contract::compile_path(&root).unwrap_err();
     assert_eq!(expected.id, "type-unknown");
-    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `Contact`, `Geometry`, `MarkdownSelection`, `Picked`, `Wrapper`, `Zulu`");
+    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `ClipboardEvent`, `Contact`, `Geometry`, `KeyboardEvent`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ScrollEvent`, `Wrapper`, `Zulu`");
     let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
     same_error(&errors[0], &expected);
     assert_eq!(errors[0]["file"], model.to_str().unwrap());
@@ -349,13 +361,14 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     for prefix in ["", "shape string\n", "shape Later\n  value: number\n"] {
         let root = app.write("app.contract", &format!("{prefix}{body}"));
         let error = contract::compile_path(&root).unwrap_err();
-        // `MarkdownSelection` and `Picked` are the `select` and file
-        // `change` payloads every file can name, and `Geometry` what
-        // `frame` and `measure` answer.
+        // `ClipboardEvent`, `KeyboardEvent`, `MarkdownSelection`, `MouseEvent`,
+        // `Picked`, `PointerEvent` and `ScrollEvent` are the clipboard, `key`,
+        // `select`, `press`, file `change`, pointer and scroll payloads every
+        // file can name, and `Geometry` what `frame` and `measure` answer.
         let extra = if prefix.contains("Later") {
-            ", `Geometry`, `Later`, `MarkdownSelection`, `Picked`"
+            ", `ClipboardEvent`, `Geometry`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ScrollEvent`"
         } else {
-            ", `Geometry`, `MarkdownSelection`, `Picked`"
+            ", `ClipboardEvent`, `Geometry`, `KeyboardEvent`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ScrollEvent`"
         };
         assert_eq!(error.id, "type-unknown");
         assert_eq!(
@@ -366,7 +379,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     let root = app.write("app.contract", &format!("routes nav\n  home \"/\"\n{body}"));
     let error = contract::compile_path(&root).unwrap_err();
     assert_eq!(error.id, "type-unknown");
-    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `Entry`, `Geometry`, `MarkdownSelection`, `Params`, `Picked`, `Router`, `Tab`"));
+    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `ClipboardEvent`, `Entry`, `Geometry`, `KeyboardEvent`, `MarkdownSelection`, `MouseEvent`, `Params`, `Picked`, `PointerEvent`, `Router`, `ScrollEvent`, `Tab`"));
     // Field resolution has already seen later declarations, even when it fails
     // while resolving the first shape's fields.
     let root = app.write("app.contract", "shape First\n  value: Ltaer\nshape Later\n  value: string\ncomponent App\n  view\n    text \"hello\"\n");
@@ -374,7 +387,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     assert_eq!(error.id, "type-unknown");
     assert!(error
         .message
-        .ends_with("`First`, `Geometry`, `Later`, `MarkdownSelection`, `Picked`"));
+        .ends_with("`First`, `Geometry`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ScrollEvent`"));
 }
 
 #[test]
@@ -509,7 +522,9 @@ fn unknown_import_lists_only_target_exports_and_repairs_through_the_cli() {
     assert_eq!(expected.id, "contract-use-unknown");
     assert_eq!(expected.span.line, 3);
     assert_eq!(expected.file.as_deref(), Some(root.as_path()));
-    assert_eq!(expected.message, "`./barrel.contract` declares no component, shape, style, or function `Rwo`; available components: `Wrapper`, `Left`, `Row`, `Badge`, `Right`; shapes: `Item`; styles: `Line`; functions: `label`");
+    // Only what barrel declares or itself names: Row, Item, Line and label
+    // reach it through Left and Right, which do not pass them on (LLP 1091 D1).
+    assert_eq!(expected.message, "`./barrel.contract` declares no component, shape, style, function, keyframes, or timeline `Rwo`; available components: `Left`, `Right`, `Wrapper`");
     let output = app.run(&[root.to_str().unwrap(), "--json", "-o", "out.plan"]);
     let errors = diagnostics(&output, 1);
     assert_eq!(errors.len(), 1);
@@ -521,12 +536,11 @@ fn unknown_import_lists_only_target_exports_and_repairs_through_the_cli() {
         .unwrap()
         .contains(&expected.message));
     // Every offered declaration is actually admitted by this use syntax.
-    for name in [
-        "Wrapper", "Left", "Row", "Badge", "Right", "Item", "Line", "label",
-    ] {
+    let source = source.replace("    Row()\n", "    Wrapper()\n");
+    for name in ["Wrapper", "Left", "Right"] {
         app.write(
             "app.contract",
-            &source.replace("use Rwo from", &format!("use {name} from")),
+            &source.replace("use Rwo from", &format!("use {name} as Chosen from")),
         );
         assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
     }
@@ -552,7 +566,7 @@ fn empty_import_choices_exclude_fonts_and_keep_nested_locations() {
         assert_eq!(expected.id, "contract-use-unknown");
         assert_eq!(expected.file.as_deref(), Some(nested.as_path()));
         assert_eq!(expected.span.line, 1);
-        assert_eq!(expected.message, "`./empty.contract` declares no component, shape, style, or function `Brand`; this file exports no components, shapes, styles, or functions");
+        assert_eq!(expected.message, "`./empty.contract` declares no component, shape, style, function, keyframes, or timeline `Brand`; this file declares nothing that can be used");
         let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
         same_error(&errors[0], &expected);
     }
@@ -713,7 +727,7 @@ fn a_child_action_cannot_write_its_parents_state() {
 #[test]
 fn the_plans_allowlist_is_every_slot_the_body_writes_or_sends_in_slot_order() {
     // Router state, a send, a branch, a repeat; a lifted child's slots stay its own.
-    let source = "shape Reply\n  ok: bool\nroutes nav\n  home \"/\"\ncomponent App\n  state count = 0\n  state waiting = false\n  derive total = count + 1\n  resource data = load() as shape Reply\n  mutation result as shape Reply\n  action submit(value: number)\n    send result = save()\n    count = value\n    if value > 1\n      nav = push(nav, \"/\")\n      send result = save()\n    else\n      count = 0\n  action idle\n    focus(\"save\")\n  view\n    column\n      Child()\n      Child()\n      button \"Save\" press=submit(1) testId=\"save\"\ncomponent Child\n  state hidden = false\n  action hide\n    hidden = true\n  view\n    button \"child\" press=hide\n";
+    let source = "shape Reply\n  ok: bool\nroutes nav\n  home \"/\"\ncomponent App\n  state count = 0\n  state waiting = false\n  derive total = count + 1\n  resource data = load() as shape Reply\n  mutation result as shape Reply\n  action submit(value: number)\n    count = value\n    if value > 1\n      nav = push(nav, \"/\")\n      send result = save()\n    else\n      count = 0\n      send result = save()\n  action idle\n    focus(\"save\")\n  view\n    column\n      Child()\n      Child()\n      button \"Save\" press=submit(1) testId=\"save\"\ncomponent Child\n  state hidden = false\n  action hide\n    hidden = true\n  view\n    button \"child\" press=hide\n";
     let writes = plan_writes(&contract::compile(source).unwrap());
     let of = |name: &str| writes.iter().find(|(n, _)| n == name).unwrap().1.clone();
     assert_eq!(of("submit"), ["nav", "count", "result"]);
@@ -1334,4 +1348,101 @@ fn scroll_payload_arity_is_a_diagnostic() {
             assert_eq!(result.unwrap_err().id, "analyze-handler-arity");
         }
     }
+}
+
+/// LLP 1088 D4, D7.1, D7.4: refusals that name the fix, each asserted whole.
+#[test]
+fn refusals_from_the_app_diaries_name_the_fix() {
+    let refused = |src: &str| {
+        let e = contract::compile(src).unwrap_err();
+        (e.id, e.message)
+    };
+    let says = |src: &str, id: &str, message: &str| {
+        assert_eq!(refused(src), (id.to_string(), message.to_string()), "{src}");
+    };
+    // D4 (kanban F5): an initializer's scope is said, not guessed at.
+    let reads = "a state's initializer runs before any resource answers, and reads only props, injects and earlier states";
+    says(
+        "shape Col\n  id: string\nshape Board\n  cols: list<Col>\ncomponent App\n  resource board = loadBoard() as shape Board\n  resource boardX = loadBoard() as shape Board\n  state scrolls = map(board.cols, c => c.id)\n  view\n    text \"a\"\n",
+        "type-initializer-scope",
+        &format!("`board` is a resource; {reads}. Derive it from `board`, or keep per-row state in a component used inside `each … in board.cols`"),
+    );
+    says(
+        "component App\n  derive two = 2\n  state n = two\n  view\n    text \"a\"\n",
+        "type-initializer-scope",
+        &format!("`two` is a derive; {reads}. Make `n` a derive too, or start it from a value and write it in an action"),
+    );
+    says(
+        "component App\n  state a = b\n  state b = 1\n  view\n    text \"a\"\n",
+        "type-initializer-scope",
+        &format!("`b` is declared after `a`; {reads}: declare `b` above `a`"),
+    );
+    // A row's state is held to the same scope in its component.
+    says(
+        "component App\n  view\n    Row(n=1)\ncomponent Row\n  props\n    n: number\n  derive twice = n * 2\n  state x = twice\n  view\n    text \"a\"\n",
+        "type-initializer-scope",
+        &format!("`twice` is a derive; {reads}. Make `x` a derive too, or start it from a value and write it in an action"),
+    );
+    // D7.1 (pomodoro F1): the declaration that fits, payload named and typed.
+    says(
+        "shape Task\n  id: string\n  done: bool\ncomponent App\n  resource tasks = loadTasks() as shape list<Task>\n  action flipTask(id: string)\n    refresh tasks\n  view\n    column\n      each t in tasks key=t.id\n        input type=\"checkbox\" checked=t.done change=flipTask(t.id)\n",
+        "analyze-handler-arity",
+        "`change=flipTask(t.id)` calls `flipTask` with `t.id` and then the checkbox's new `checked` (bool); declare `action flipTask(id: string, checked: bool)`",
+    );
+    says(
+        "component App\n  state q = \"\"\n  action setQ\n    q = \"\"\n  view\n    input value=q input=setQ\n",
+        "analyze-handler-arity",
+        "`input=setQ` calls `setQ` with the field's new `value` (string); declare `action setQ(value: string)`",
+    );
+    says(
+        "component App\n  state n = 0\n  action save(id: string, extra: number)\n    n = 1\n  view\n    button \"s\" press=save(\"a\")\n",
+        "analyze-handler-arity",
+        "`press=save(\"a\")` calls `save` with `\"a\"` and nothing more; declare `action save(id: string)`, or `action save(id: string, event: MouseEvent)` for its `MouseEvent`",
+    );
+    // D7.4 (ledger F3, hn-reader F2): the web's spellings, rewritten.
+    says(
+        "style Card\n  background-color: \"#fff\"\ncomponent App\n  view\n    text \"a\" class=Card\n",
+        "syntax-expected-attr",
+        "`background-color:` is CSS's declaration; a line of `style Card` is `attr=literal`: write `background-color=\"#fff\"`",
+    );
+    says(
+        "component App\n  state s = \"ab\"\n  view\n    text toString(len(s))\n",
+        "type-refused-idiom",
+        "write `length(x)`: Contract spells the web's `.length`, of text or of a list, as a roster function",
+    );
+    let idiom = |call: &str| {
+        refused(&format!("component App\n  state s = \"a\"\n  state xs = []\n  action go\n    xs = {call}\n  view\n    text s\n"))
+    };
+    for (call, says) in [
+        (
+            "push(xs, s)",
+            "building a list in a view waits on LLP 1088 §9",
+        ),
+        (
+            "concat(xs, xs)",
+            "building a list in a view waits on LLP 1088 §9",
+        ),
+        (
+            "slice(xs, 1)",
+            "building a list in a view waits on LLP 1088 §9",
+        ),
+        ("split(s, \",\")", "split the text there"),
+        (
+            "replace(s, \"a\", \"b\")",
+            "write `replaceAll(s, find, with)`",
+        ),
+        ("indexOf(s, \"a\")", "`includes(s, t)`"),
+        ("substring(s, 1)", "cut the text in the data module"),
+        ("padStart(s, 2, \"0\")", "LLP 1088 D2 defers it"),
+        ("toUpperCase(s)", "`text-transform=\"uppercase\"`"),
+        ("parseInt(s)", "Contract does not parse numbers from text"),
+        ("Number(s)", "Contract does not parse numbers from text"),
+    ] {
+        let (id, message) = idiom(call);
+        assert_eq!(id, "type-refused-idiom", "{call}: {message}");
+        assert!(message.contains(says), "{call}: {message}");
+    }
+    let e = contract::compile("component App\n  view\n    text toString(length([1, 2]))\n")
+        .unwrap_err();
+    assert!(e.message.contains("LLP 1088 §9's follow-up"), "{e}");
 }

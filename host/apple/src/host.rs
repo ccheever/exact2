@@ -31,6 +31,8 @@ pub(crate) mod canvas2d;
 mod content_region_host;
 #[path = "covers.rs"]
 mod covers;
+#[path = "flights.rs"]
+mod flights;
 #[path = "fold.rs"]
 mod fold;
 #[path = "height.rs"]
@@ -130,6 +132,9 @@ pub struct Host<D: DataSource> {
     canvas_deferred: bool,
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
+    /// Each sticky node's constraint as the presenter last heard it (LLP 1083).
+    stickies: IdMap<ViewId, exact_kernel::StickyConstraint>,
+    ranks: IdMap<ViewId, i64>,
     roots: Vec<ViewId>,
     /// Last published common collection snapshot; refreshed only after layout.
     collections_json: String,
@@ -144,6 +149,7 @@ pub struct Host<D: DataSource> {
     /// The one Arrange contact, from its catch until its source settles.
     arrange: Option<arrange::Arrange>,
     presence: presence::Presence,
+    flights: flights::Flights,
     content_region: Option<crate::content_region::RegionState>,
     height_projection: Vec<(NodeKey, f32)>,
     height_sampling: Vec<(NodeKey, f32)>,
@@ -250,8 +256,7 @@ impl<D: DataSource> Host<D> {
             PlanBytes::Copied(plan_bytes),
             data,
             measurer,
-            width,
-            height,
+            exact_runner::Viewport::sized(width as f64, height as f64),
             carried,
             snapshot,
             secrets,
@@ -274,8 +279,7 @@ impl<D: DataSource> Host<D> {
         plan_bytes: PlanBytes<'_>,
         data: D,
         measurer: Box<dyn TextMeasurer>,
-        width: f32,
-        height: f32,
+        viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
         secrets: Option<Platform>,
@@ -290,8 +294,7 @@ impl<D: DataSource> Host<D> {
             plan_bytes,
             data,
             measurer,
-            width,
-            height,
+            viewport,
             carried,
             snapshot,
             secrets,
@@ -310,8 +313,7 @@ impl<D: DataSource> Host<D> {
         plan_bytes: PlanBytes<'_>,
         data: D,
         measurer: Box<dyn TextMeasurer>,
-        width: f32,
-        height: f32,
+        viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
         secrets: Option<Platform>,
@@ -335,6 +337,7 @@ impl<D: DataSource> Host<D> {
         // Native hosts link every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
         exact_kernel::style::link_segments();
+        exact_kernel::style::link_wide_colors();
         exact_kernel::timeline::link();
         let kernel = Kernel::new(measurer);
         let facts = candidate_delivery.unwrap_or_else(|| {
@@ -347,15 +350,11 @@ impl<D: DataSource> Host<D> {
             }
             facts
         });
+        // An `app:/data` image shows from the first frame, before storage
+        // is configured and whether or not anything was picked (D7).
+        crate::picker::know_roots(data.app_id());
         let mut runner = Runner::boot_with_delivery(
-            plan,
-            data,
-            kernel,
-            carried,
-            snapshot,
-            facts,
-            exact_runner::Viewport::sized(width as f64, height as f64),
-            launch,
+            plan, data, kernel, carried, snapshot, facts, viewport, launch,
         )
         .map_err(HostError::Runner)?;
         // @ref LLP 1079 D1 — a development build measures its work.
@@ -392,17 +391,22 @@ impl<D: DataSource> Host<D> {
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
             viewless_hooks: Default::default(),
-            svg: svg::SvgState::new(cfg!(target_os = "ios")),
+            svg: svg::SvgState::new(cfg!(any(target_os = "ios", target_os = "tvos"))),
             canvas_held: IdSet::default(),
             canvas_kept: Default::default(),
             canvas_deferred: false,
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
+            stickies: IdMap::default(),
+            ranks: IdMap::default(),
             roots: Vec::new(),
             collections_json: "[]".into(),
             engine: {
                 let mut engine = Engine::new();
-                engine.set_lowered_properties(&svg::lowered(cfg!(target_os = "ios")));
+                engine.set_lowered_properties(&svg::lowered(cfg!(any(
+                    target_os = "ios",
+                    target_os = "tvos"
+                ))));
                 engine
             },
             paint: paint::Paint::default(),
@@ -414,6 +418,7 @@ impl<D: DataSource> Host<D> {
             transform_drags: TransformDrags::new()?,
             arrange: None,
             presence: presence::Presence::default(),
+            flights: flights::Flights::default(),
             content_region,
             height_projection: Vec::new(),
             height_sampling: Vec::new(),
@@ -425,7 +430,7 @@ impl<D: DataSource> Host<D> {
             height_target_passes: 0,
             #[cfg(test)]
             layout_calls: 0,
-            viewport: (width, height),
+            viewport: (viewport.width as f32, viewport.height as f32),
             now_ms: 0.0,
             data_activated: false,
             secrets,
@@ -521,12 +526,17 @@ impl<D: DataSource> Host<D> {
     /// `pickedPath`, whose reply adds the file to copy into. A `share` hold
     /// delivers nothing but the journal line the runner writes (LLP 1069.003
     /// D6). `appFile` names the file behind an `app:/` path, what an export
-    /// copies from (LLP 1069.010 D3). `None` for an ordinary `tap` or `type`.
+    /// copies from (LLP 1069.010 D3); `appRoots` the three roots, which the
+    /// Swift host resolves an image's `app:/` source against (LLP 1069.002
+    /// D7). `None` for an ordinary `tap` or `type`.
     pub fn answer_hold(&mut self, request: &str) -> Option<String> {
         let op = exact_runner::agent::field_str(request, "op");
         if op.as_deref() == Some("appFile") {
             let path = exact_runner::agent::field_str(request, "path").unwrap_or_default();
             return Some(crate::picker::app_file(&path));
+        }
+        if op.as_deref() == Some("appRoots") {
+            return Some(crate::picker::roots_reply());
         }
         // The documents a person chose (LLP 1069.010 D1), minted for the
         // session that asks: `openDocument` for a host route, `mintDocument`
@@ -588,45 +598,22 @@ impl<D: DataSource> Host<D> {
     }
 
     fn configure_storage(source: &mut D) -> Result<(), exact_runner::DataError> {
-        use exact_runner::DataError;
-        use std::path::PathBuf;
-        // Scripted drives must not read or write the developer's app files;
-        // one that names a scratch tree gets storage there instead.
-        let scratch = match std::env::var_os("EXACT_AGENT") {
-            Some(_) => match agent_scratch()? {
-                Some(name) => Some(name),
-                None => return Ok(()),
-            },
-            None => None,
-        };
-        let app_id = source.app_id().to_string();
-        if app_id.is_empty() {
+        let Some(([data, cache, temporary], fresh)) = crate::picker::app_dirs(source.app_id())?
+        else {
             return Ok(());
+        };
+        // An authored test's store starts empty every run (`agent --test`).
+        if let Some(tree) = fresh {
+            match std::fs::remove_dir_all(&tree) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(exact_runner::DataError::Unavailable(format!(
+                        "EXACT_AGENT_STORAGE_FRESH: could not empty {}: {e}",
+                        tree.display()
+                    )));
+                }
+                _ => {}
+            }
         }
-        if matches!(app_id.as_str(), "." | "..")
-            || !app_id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b))
-        {
-            return Err(DataError::Unavailable("unsafe app storage identity".into()));
-        }
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-            .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))?;
-        let mut data = home
-            .join("Library/Application Support/exact")
-            .join(&app_id)
-            .join("data");
-        let mut cache = home.join("Library/Caches/exact").join(&app_id);
-        if let Some(name) = scratch {
-            cache = cache.join("agent").join(name);
-            data = cache.join("data");
-        }
-        // Sibling roots keep app:/cache grants from implicitly reaching tmp.
-        // The user's cache base avoids a predictable shared /tmp directory.
-        let temporary = cache.join("temporary");
-        let cache = cache.join("cache");
         // What `app:/` names for the picker and an image's source (LLP
         // 1069.002 D4, D7); the last launch's picks go.
         crate::picker::set_roots(data.clone(), cache.clone(), temporary.clone());
@@ -878,6 +865,13 @@ impl<D: DataSource> Host<D> {
     /// agent's jump ([`exact_runner::Runner::advance_until_request`]).
     pub fn advance_until_request(&mut self, now_ms: f64) -> String {
         let a = self.runner.advance_until_request(now_ms);
+        self.advanced(a)
+    }
+
+    /// The `then`s an agent's input settled, the clock unmoved
+    /// ([`exact_runner::Runner::land_then`]).
+    pub fn land_then(&mut self) -> String {
+        let a = self.runner.land_then();
         self.advanced(a)
     }
 
@@ -1170,9 +1164,13 @@ impl<D: DataSource> Host<D> {
         .then(|| self.runner.handlers());
         for t in receipts {
             let r = &t.receipt;
+            // Flights capture their leavers before an exit takes them
+            // out of the presenter's maps (LLP 1013.000 D4.1).
+            self.begin_flights(r, &mut batch);
             self.begin_exits(r, &mut batch);
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
+                    self.ranks.remove(&id);
                     self.paint.runs.remove(&id);
                     if let Some((owner, _)) = self.inline_runs.remove(&id) {
                         self.dirty_paragraphs.insert(owner);
@@ -1180,6 +1178,7 @@ impl<D: DataSource> Host<D> {
                         self.mirror.remove(&id);
                     } else if !self.native_selected_id(id) {
                         self.mirror.remove(&id);
+                        self.end_flight_of(id);
                         if !self.exit_holds(id, &mut batch) {
                             batch.destroy(id);
                         }
@@ -1249,6 +1248,7 @@ impl<D: DataSource> Host<D> {
                 self.svg.element(self.runner.kernel(), view);
             }
             self.play_exits(&mut batch);
+            self.start_flights(&t.receipt);
             self.seed_layout(&t.receipt, &mut batch);
             self.sync_paint(&t.receipt, &mut batch);
             self.reconcile_height_handles(&mut batch, true);
@@ -1271,6 +1271,9 @@ impl<D: DataSource> Host<D> {
         } else {
             self.layout(&mut batch).err()
         };
+        if layout_error.is_some() && !receipts.is_empty() {
+            self.emit_ranks(&mut batch);
+        }
         self.canvas_turn(&mut batch);
         for s in self.runner.take_surface_updates() {
             batch.surface(&s);
@@ -1333,7 +1336,8 @@ fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         exact_kernel::Dimension::Calc(p, x) => against * p / 100.0 + x,
         exact_kernel::Dimension::Auto
         | exact_kernel::Dimension::Env(..)
-        | exact_kernel::Dimension::Segment(..) => 0.0,
+        | exact_kernel::Dimension::Segment(..)
+        | exact_kernel::Dimension::Viewport(..) => 0.0,
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);
     let pad_bottom = pad(node.style.padding_bottom, node.frame.width);
@@ -1451,27 +1455,5 @@ fn handler_name(e: EventKind) -> Option<&'static str> {
     match e {
         EventKind::Reachstart | EventKind::Reachend => None,
         _ => Some(e.name()),
-    }
-}
-
-/// A scripted drive's scratch storage (`EXACT_AGENT_STORAGE=<name>`): a tree
-/// of its own under the cache base, so a drive can exercise storage without
-/// touching the app's real files. Absent, a drive has no storage.
-fn agent_scratch() -> Result<Option<String>, exact_runner::DataError> {
-    let Some(name) = std::env::var_os("EXACT_AGENT_STORAGE") else {
-        return Ok(None);
-    };
-    match name.to_str() {
-        Some(name)
-            if !matches!(name, "" | "." | "..")
-                && name
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b)) =>
-        {
-            Ok(Some(name.to_owned()))
-        }
-        _ => Err(exact_runner::DataError::Unavailable(
-            "EXACT_AGENT_STORAGE: one name of letters, digits, '.', '-' or '_'".into(),
-        )),
     }
 }

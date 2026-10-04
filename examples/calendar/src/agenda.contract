@@ -1,0 +1,69 @@
+use Schedule from "./models.contract"
+
+component AgendaRow
+  props
+    id: string
+    title: string
+    color: string
+    rangeLabel: string
+    kind: string
+    completed: bool
+    hidden: bool
+    disabled: bool
+    hot: bool
+    ink: string
+    muted: string
+    fill: string
+    toggle: action
+    edit: action
+    command: action
+    remove: action
+    hover: action
+  view
+    box testId=`agenda-row-${id}` position="relative" width="100%" height=52 flex-shrink=0 hover=hover(`row-${id}`)
+      row aria-hidden=true width="100%" height=52 box-sizing="border-box" padding-left=12 padding-right=36 border-radius=8 background-color=(hot and not hidden ? fill : "#ffffff00") opacity=(hidden ? 0 : 1) align-items="center" gap=10 transition="background-color 100ms ease-out"
+        box id=`row-mark-${id}` testId=`row-mark-${id}` width=20 height=20 flex-shrink=0
+          AgendaMark(kind=kind, color=color, completed=completed)
+        column flex=1 min-width=0 gap=3 align-items="flex-start"
+          text title id=`row-title-${id}` testId=`row-title-${id}` font-size=14 font-weight=500 color=ink opacity=(completed ? 0.5 : 1) text-decoration-line=(completed ? "line-through" : "none") white-space="nowrap" overflow="hidden" text-overflow="ellipsis" max-width="100%"
+          text rangeLabel id=`row-range-${id}` font-size=12 color=muted white-space="nowrap" overflow="hidden" text-overflow="ellipsis" max-width="100%"
+      calendar-drag-handle id=`agenda-item-${id}` testId=`agenda-item-${id}` event-id=id menu-kind=kind completed=(completed ? "true" : "false") enabled=(disabled ? "false" : "true") press=edit(id, kind) message=command(id, kind, completed) aria-label=`${title}, ${rangeLabel}` position="absolute" left=0 top=0 right=0 bottom=0
+      when kind == "todo"
+        button testId=`todo-check-${id}` press=toggle(id, not completed) role="checkbox" aria-checked=completed aria-label=`Complete ${title}` disabled=disabled position="absolute" left=4 top=8 width=36 height=36 padding=0 border-width=0 background-color="#ffffff00"
+      when hot and not hidden and not disabled
+        button testId=`delete-${id}` press=remove(id) aria-label=`Delete ${title}` position="absolute" right=8 top=15 width=22 height=22 padding=0 border-width=0 border-radius=11 background-color="#ffffff00" display="flex" align-items="center" justify-content="center" press-scale=0.92
+          image "symbol:close" font-size=10 tint-color=muted
+
+
+component AgendaMark
+  props
+    kind: string
+    color: string
+    completed: bool
+  view
+    box width=20 height=20 flex-shrink=0 display="flex" align-items="center" justify-content="center" aria-hidden=true
+      when kind == "todo"
+        TodoMark(completed=completed, color=color, size=18)
+      else
+        when kind == "plan"
+          svg width=20 height=20 viewBox="0 0 24 24"
+            circle cx=3 cy=12 r=2 fill=color
+            path d="M 3 12 L 21 12 M 15.5 6.5 L 21 12 L 15.5 17.5" fill="none" stroke=color stroke-width=1.8 stroke-linecap="round" stroke-linejoin="round"
+        else
+          box width=10 height=10 border-radius=5 background-color=color
+
+// One schedule in the inspector. The drag handle covers the row: a click
+// edits, a drag moves, a secondary click opens the Mac's context menu. While
+// the row is hovered, a delete button sits above the handle at its right.
+// The mark and title carry ids so a drag's ghost starts exactly on them.
+
+component TodoMark
+  props
+    completed: bool
+    color: string
+    size: number
+  view
+    svg width=size height=size viewBox="0 0 20 20" flex-shrink=0 aria-hidden=true opacity=(completed ? 0.55 : 1)
+      circle cx=10 cy=10 r=8.5 fill=(completed ? color : "none") stroke=color stroke-width=1.5
+      when completed
+        path d="M 5.5 10 L 8.5 13 L 14.5 7" fill="none" stroke="#ffffff" stroke-width=1.8 stroke-linecap="round" stroke-linejoin="round"

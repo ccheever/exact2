@@ -4,7 +4,9 @@
 #[test]
 #[ignore]
 fn measure_userland_harden() {
+    use ibex2::bindings::{Context, Groups};
     use ibex2::engine::hermes::{DynamicCode, Hermes};
+    use ibex2::grant::GrantSet;
     use std::time::Instant;
 
     // A SES-style transitive freeze, in userland: walk property DESCRIPTORS so
@@ -40,7 +42,8 @@ fn measure_userland_harden() {
     let mut count = String::new();
     for _ in 0..runs {
         let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-        rt.install_stdlib();
+        let context = Context::new(GrantSet::none());
+        rt.install_runtime(Groups::DEFAULT, &context).unwrap();
         rt.eval(HARDEN).unwrap();
         let t = Instant::now();
         count = rt.eval("String(__harden())").unwrap();
@@ -52,7 +55,8 @@ fn measure_userland_harden() {
 
     // A number for a freeze that does not freeze is worthless. Check it holds.
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-    rt.install_stdlib();
+    let context = Context::new(GrantSet::none());
+    rt.install_runtime(Groups::DEFAULT, &context).unwrap();
     rt.eval(HARDEN).unwrap();
     rt.eval("__harden()").unwrap();
     for probe in [

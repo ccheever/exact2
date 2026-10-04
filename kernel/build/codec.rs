@@ -191,6 +191,12 @@ impl Codec {
                 "ColorValue::Fixed(Color({}u32))",
                 int(value, 0.0, u32::MAX as f64)
             ),
+            // The keyword itself, or a colour (`background-color` is
+            // transparent initially and still takes `currentcolor`).
+            Codec::KeywordColor(keyword) if value.is_number() => format!(
+                "Some(ColorValue::Fixed(Color({}u32)))",
+                int(value, 0.0, u32::MAX as f64)
+            ),
             Codec::KeywordColor(keyword) => {
                 assert_eq!(value.as_str(), Some(*keyword));
                 "None".into()

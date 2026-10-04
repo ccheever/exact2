@@ -68,7 +68,10 @@ enum ShareSheet {
     @discardableResult
     static func present(_ items: [Any], title: String?, from view: ShareAnchorView, at rect: CGRect,
                         outcome: @escaping (String) -> Void) -> AnyObject? {
-        #if canImport(UIKit)
+        #if os(tvOS)
+        // tvOS has no share sheet.
+        return nil
+        #elseif canImport(UIKit)
         var responder: UIResponder? = view
         while responder != nil && !(responder is UIViewController) { responder = responder?.next }
         var controller = (responder as? UIViewController) ?? view.window?.rootViewController
@@ -95,7 +98,8 @@ enum ShareSheet {
     }
 }
 
-#if canImport(UIKit)
+#if os(tvOS)
+#elseif canImport(UIKit)
 /// One shared item; the title is the subject a mail or message takes.
 private final class ShareItem: NSObject, UIActivityItemSource {
     let item: Any, title: String?

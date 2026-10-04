@@ -325,7 +325,11 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 true
             }
             RowValue::Number(n) => {
-                push_num(&mut out, n as f32);
+                if id == StyleId::ZIndex {
+                    push_int(&mut out, n as i64);
+                } else {
+                    push_num(&mut out, n as f32);
+                }
                 true
             }
             RowValue::Transitions(_) => false, // the engine's, not the presenter's
@@ -415,7 +419,9 @@ fn push_dimension(out: &mut String, d: Dimension) {
             push_num(out, x);
             out.push('}');
         }
-        Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved"),
+        Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
+            unreachable!("resolved")
+        }
     }
 }
 
@@ -493,7 +499,7 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     let y = if s.mask.has(StyleId::OverflowY) {
         s.overflow_y
     } else if node.node_type.scrolls_by_default() {
-        Overflow::Scroll
+        Overflow::Auto
     } else {
         Overflow::Visible
     };
@@ -504,11 +510,11 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     };
     let mut y = y;
     // Symmetric, as the kernel computes: a `visible` axis beside a
-    // non-visible one is scrollable (CSS's `auto`; the schema has no `auto`).
+    // non-visible one computes to `auto` (CSS Overflow §3).
     if x == Overflow::Visible && y != Overflow::Visible {
-        x = Overflow::Scroll;
+        x = Overflow::Auto;
     } else if y == Overflow::Visible && x != Overflow::Visible {
-        y = Overflow::Scroll;
+        y = Overflow::Auto;
     }
     (x, y)
 }
@@ -558,11 +564,11 @@ fn paint_over(computed: &mut StyleProps, shown: &Shown) {
         computed.mask.set(StyleId::TextColor);
     }
     if let Some(c) = shown.get(Property::BackgroundColor) {
-        computed.background_color = fixed(c);
+        computed.background_color = Some(fixed(c));
         computed.mask.set(StyleId::BackgroundColor);
     }
     if let Some(c) = shown.get(Property::TintColor) {
-        computed.tint_color = fixed(c);
+        computed.tint_color = Some(fixed(c));
         computed.mask.set(StyleId::TintColor);
     }
     // @ref LLP 1077 D4 — the engine moves the list's first shadow (one
@@ -698,7 +704,14 @@ pub fn style_json_presented(
     ) {
         StyleMask::INHERITED
     } else {
-        StyleMask::of(StyleId::TextColor).union(StyleMask::of(StyleId::Direction))
+        // `pointer-events` is inherited too: a box under a `none` parent
+        // passes the pointer through wherever it paints, translated out of
+        // its parent's box included (feed's toast, x2apps repro
+        // pointer-events-inherit-translate).
+        StyleMask::of(StyleId::TextColor)
+            .union(StyleMask::of(StyleId::Direction))
+            .union(StyleMask::of(StyleId::Cursor))
+            .union(StyleMask::of(StyleId::PointerEvents))
     };
     let mut computed = node.computed_style(rows);
     computed.mask.set(StyleId::TextColor);
@@ -737,6 +750,10 @@ pub fn style_json_presented(
             computed.mask.set(id);
         }
     }
+    // `currentcolor` (feed F1) is the presented `color`, as a side's is.
+    let current = computed.text_color;
+    computed.background_color = Some(computed.background_color.unwrap_or(current));
+    computed.tint_color = Some(computed.tint_color.unwrap_or(current));
     let (mut json, skipped) = style_json_sized(&computed, env, node.node_type == NodeType::Video);
     // A modal's top layer is positioned in the viewport by AppKit, outside
     // its authored parent. Keep only the existing inset rows for dialogs.
@@ -759,6 +776,7 @@ pub fn style_json_presented(
         Overflow::Visible => "visible",
         Overflow::Hidden => "hidden",
         Overflow::Scroll => "scroll",
+        Overflow::Auto => "auto",
     };
     if x != Overflow::Visible || y != Overflow::Visible {
         let head = format!(

@@ -4,7 +4,7 @@
 // transform is CSS's matrix (WebKit draws CSS 3D with it); its sublayers
 // flatten into its plane, which is CSS's initial `transform-style: flat`.
 import QuartzCore
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 #else
 import AppKit
@@ -42,7 +42,7 @@ extension NodeView {
     /// box not in space (UIKit converts through a 2D transform); on macOS an
     /// untransformed box, and a child a canvas's surface places itself.
     var plane: [Double]? {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         let own: CALayer? = standsInSpace ? layer : nil
         #else
         // AppKit sees no layer transform at all: translate, rotate, scale, a
@@ -62,7 +62,7 @@ extension NodeView {
         // AppKit's own geometry, since the layer's position is in its
         // superlayer's space, which is not the superview's until a layerless
         // superview's subtree is attached and flipped.
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         let position = own.position
         #else
         let position = CGPoint(x: frame.minX + frame.width * own.anchorPoint.x, y: frame.minY + frame.height * own.anchorPoint.y)
@@ -112,7 +112,7 @@ extension NodeView {
     /// `perspective` on the box that holds the children, about
     /// `perspective-origin`, and `backface-visibility` on the box itself.
     func applyPerspective() {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         let own: CALayer? = layer
         let holder: CALayer? = container.layer
         #else
@@ -202,7 +202,7 @@ extension NodeView {
 }
 #endif
 
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 typealias SpaceView = UIView
 #else
 typealias SpaceView = NSView
@@ -216,7 +216,7 @@ extension NodeView {
     /// canvas then carried out the same way — `local` the other way.
     func drawnPoint(_ p: CGPoint, in top: SpaceView? = nil) -> CGPoint {
         func out(_ v: NodeView, _ p: CGPoint, _ top: SpaceView?) -> CGPoint {
-            #if os(iOS)
+            #if os(iOS) || os(tvOS)
             return v.convert(p, to: top)
             #else
             return v.ascend(p, to: top)

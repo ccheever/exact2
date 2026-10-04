@@ -119,6 +119,14 @@ final class SpaceHitIOSTests: XCTestCase {
         let sup = try XCTUnwrap(box.superview)
         XCTAssertTrue(box.hitTest(sup.convert(CGPoint(x: 180, y: 80), to: box), with: nil) === button, "where it is drawn")
         XCTAssertFalse(box.hitTest(sup.convert(CGPoint(x: 80, y: 80), to: box), with: nil) === button, "placed, but not translated")
+        // A point that misses every placed child is the canvas's, unless the
+        // canvas lets the touch through (Grok's batch 2 review).
+        let canvas = try XCTUnwrap(p.views[2])
+        XCTAssertTrue(box.hitTest(sup.convert(CGPoint(x: 180, y: 150), to: box), with: nil) === canvas)
+        canvas.applyStyle(["pointer_events": "none"])
+        XCTAssertFalse(box.hitTest(sup.convert(CGPoint(x: 180, y: 150), to: box), with: nil) === canvas, "pointer-events: none")
+        XCTAssertTrue(box.hitTest(sup.convert(CGPoint(x: 180, y: 80), to: box), with: nil) === button, "its placed child still takes it")
+        canvas.applyStyle([:])
         let inButton = button.local(sup.convert(CGPoint(x: 180, y: 80), to: nil))
         XCTAssertEqual(inButton.x, 30, accuracy: 1e-6)
         XCTAssertEqual(inButton.y, 30, accuracy: 1e-6)

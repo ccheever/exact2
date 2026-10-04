@@ -99,16 +99,28 @@ impl<D: DataSource> Runner<D> {
             }
             // A declared `else source()` row must answer now: no zero hides
             // one that answers later (its owner is refused, by name).
-            None if self
-                .plan
-                .resources
-                .iter()
-                .any(|r| r.placeholder.is_some_and(|p| p.0 as usize == i)) =>
-            {
-                None
-            }
+            None if self.is_placeholder_row(i) => None,
             None => zero(&self.plan, row.ty),
         }
+    }
+
+    /// The journal's word when an answer lands on a build-time one shown
+    /// until its source was ready (LLP 1048.003 D6).
+    pub(super) fn revalidated(&mut self, i: usize, shown: Option<&ResourceState>, answer: &Value) {
+        let Some(shown) = shown.filter(|s| self.stale[i] && s.value.is_compiled()) else {
+            return;
+        };
+        let same = crate::compare::equivalent(shown.value.get(&self.plan), answer);
+        let line = super::lines::revalidated(self.plan.str(self.plan.resources[i].name), same);
+        self.log(line);
+    }
+
+    /// Whether resource `i` is another's `else` row (LLP 1048.003 D6).
+    fn is_placeholder_row(&self, i: usize) -> bool {
+        self.plan
+            .resources
+            .iter()
+            .any(|r| r.placeholder.is_some_and(|p| p.0 as usize == i))
     }
 
     /// A resource whose source answers later with nothing to show: no
@@ -496,17 +508,15 @@ impl<D: DataSource> Runner<D> {
                         {
                             // Keep deferred placeholders until activation, even
                             // when timers or a deep launch change arguments after
-                            // boot (LLP 1038 D5, LLP 1027 D4). data_ready asks the
-                            // current arguments once the executor can answer —
-                            // unless they are the ones the bake answered, from
-                            // no store: that answer stands (LLP 1048.003 D6), as
-                            // it does when the source is ready at boot.
+                            // boot (LLP 1038 D5, LLP 1027 D4). The bake's answer
+                            // is the first frame, not the answer: data_ready asks
+                            // the current arguments once the executor can answer,
+                            // as the web asks its module at launch (LLP 1048.003
+                            // D6, 2026-10-04; feed F24). An `else` row is the
+                            // bake's for every launch and is never asked again
+                            // (each was a worker turn, c318ed04), unless forced.
                             if !self.data.ready()
-                                && (forced
-                                    || self.store_readers[i]
-                                    || Value::from_bytes(self.plan.bytes(row.initial_args))
-                                        .map_err(RunnerError::Plan)?
-                                        != Value::list(args.clone()))
+                                && (forced || self.store_readers[i] || !self.is_placeholder_row(i))
                             {
                                 self.stale[i] = true;
                             }
@@ -595,6 +605,7 @@ impl<D: DataSource> Runner<D> {
                                         effects[i] = RequestEffect::Answered;
                                         pending_res[i] = false;
                                     }
+                                    self.revalidated(i, states[i].as_ref(), &v);
                                     self.stale[i] = false;
                                     self.keep_answer(i, &args, &v);
                                     Held::new(v)

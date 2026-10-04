@@ -1,22 +1,40 @@
 // Session setup shared by the agent CLI and its programmatic driver.
 import { spawnSync } from 'node:child_process';
-import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { delimiter, relative, resolve } from 'node:path';
-import { bakeOutput, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
+import { createHash } from 'node:crypto';
+import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { basename, delimiter, dirname, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+/** Only the caller's throwaway browser profile. Bun 1.4.2 on Windows ignores
+ * rmSync's maxRetries: a real sharing lock fails in <1 ms. Yield between bounded
+ * attempts so browser shutdown can finish; a persistent lock still fails. */
+export async function removeBrowserProfile(profile) {
+  for (let attempt = 0; ; attempt++) {
+    try { rmSync(profile, {recursive:true, force:true}); return; }
+    catch (error) {
+      if (attempt === 5 || !['EBUSY','ENOTEMPTY','EPERM'].includes(error.code)) throw error;
+      await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
+    }
+  }
+}
 
 /** One browser lookup for the agent and its tests: an explicit override,
  * otherwise the platform's ordinary Chromium installation. A bare CHROME
  * name is resolved through PATH before a test decides whether to skip. */
 export function chromium(environment = process.env, platform = process.platform) {
-  const named = environment.CHROME ?? (platform === 'darwin'
-    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-    : '/usr/bin/chromium');
-  const candidates = named.includes('/') ? [resolve(named)]
-    : (environment.PATH ?? '').split(delimiter).filter(Boolean).map(dir => resolve(dir, named));
+  const named = environment.CHROME ? [environment.CHROME] : platform === 'win32' ? [
+    resolve(environment.ProgramFiles ?? 'C:\\Program Files', 'Google/Chrome/Application/chrome.exe'),
+    resolve(environment['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Google/Chrome/Application/chrome.exe'),
+    ...(environment.LOCALAPPDATA ? [resolve(environment.LOCALAPPDATA, 'Google/Chrome/Application/chrome.exe')] : []),
+    resolve(environment['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Microsoft/Edge/Application/msedge.exe'),
+  ] : [platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/usr/bin/chromium'];
+  const candidates = named.flatMap(name => /[/\\]/.test(name) ? [resolve(name)]
+    : (environment.PATH ?? '').split(delimiter).filter(Boolean).map(dir => resolve(dir, name)));
   const executable = candidates.find(path => { try { accessSync(path, constants.X_OK); return true; } catch { return false; } });
-  return { executable: executable ?? named, unavailable: executable ? null : `Chromium is missing at ${named}; set CHROME to an installed browser` };
+  return { executable: executable ?? named[0], unavailable: executable ? null : `Chromium is missing at ${named.join(', ')}; set CHROME to an installed browser` };
 }
 
 export function parseFlags(argv) {
@@ -82,8 +100,13 @@ const listed = changed => changed.slice(0, 3).join(', ') + (changed.length > 3 ?
 
 /** Throws when `changed` names anything: what, since which build, and the command that rebuilds it. */
 export function refuseStale(what, built, changed, command) {
-  if (changed.length) throw new Error(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}`);
+  if (changed.length) throw staleError(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}`);
 }
+
+/** A refusal that a rebuild answers: the driver exits 3 for it, so an app's
+ * `exact.mjs` can build and drive again (LLP 1012.001.000: the driver itself
+ * never builds). */
+export const staleError = message => Object.assign(new Error(message), { stale: true });
 
 /** Says, without refusing, what a coarse rule found or what was not checked. */
 export function warnStale(what, built, changed, command) {
@@ -116,6 +139,35 @@ export function depInfoNewer(since, bin, info) {
 /** Cargo's dep-info beside a binary: every source input newer than the binary, or gone. */
 export const depInfoChanges = bin => existsSync(bin) ? depInfoNewer(statSync(bin).mtimeMs, bin) : [];
 
+/** A packaged Windows game keeps compiler provenance in the private bake cache.
+ * Require both unchanged source inputs and the exact copied executable/DLLs. */
+export function packagedBuildChanges(receipt, directory) {
+  if (!existsSync(receipt)) return ['missing compiler build receipt'];
+  const build = JSON.parse(readFileSync(receipt, 'utf8'));
+  if (build.version !== 1 || !build.binary?.inputs || !build.products?.length) return ['invalid compiler build receipt'];
+  const changed = pendingBuildInputs(build);
+  const products = build.products.filter(product => /\.(exe|dll)$/.test(product.path));
+  if (!products.some(product => product.path.endsWith('.exe'))) changed.push('receipt has no executable');
+  for (const product of products) {
+    const path = resolve(directory, basename(product.path));
+    try {
+      if (createHash('sha256').update(readFileSync(path)).digest('hex') !== product.sha256) changed.push(path);
+    } catch { changed.push(path); }
+  }
+  const compatibility = resolve(directory, 'compat.json');
+  if (existsSync(compatibility)) {
+    const assets = JSON.parse(readFileSync(compatibility, 'utf8')).embedded?.assets ?? [];
+    for (const asset of assets.filter(asset => /^shaders\/[A-Za-z_][A-Za-z0-9_]*\.wgsl$/.test(asset.name))) {
+      const path = resolve(directory, asset.name);
+      try {
+        const bytes = readFileSync(path);
+        if (bytes.length !== asset.bytes || createHash('sha256').update(bytes).digest('hex') !== asset.sha256) changed.push(path);
+      } catch { changed.push(path); }
+    }
+  }
+  return changed;
+}
+
 /** The plans a development bake of this app left a source map beside (LLP 1012.001.000 D6), as `sourceMapReader` locators: the Linux binary's own (its dep-info names the plan in OUT_DIR) and each platform's in the bake output (Apple, web). Which one describes the running plan is the reply's digest's to say. */
 export function bakedPlans(linuxBin, bakeDir) {
   const out = depInfoInputs(linuxBin).filter(p => p.endsWith('/out/app.plan'));
@@ -128,12 +180,12 @@ export function bakedPlans(linuxBin, bakeDir) {
  * left — where the live driver looks. */
 export function traceLocators(appName) {
   const out = [process.env.EXACT_DEV_PLAN, resolve(webDist(), 'app.plan')].filter(Boolean);
-  try { const a = resolveApp(appName); out.push(...bakedPlans(process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`), bakeOutput(a))); } catch {}
+  try { const a = resolveApp(appName); out.push(...bakedPlans(process.env.EXACT_LINUX_BIN ?? linuxBinary(a), bakeOutput(a))); } catch {}
   return out;
 }
 
 // Outputs, fixtures and prose are not what a build is made from.
-const NOT_INPUT = /^(target|dist|dist.previous|web-dist|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.md$/;
+const NOT_INPUT = /^(target|dist|dist.previous|dist-windows|web-dist|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.test\.contract$|\.md$/;
 /** Files under `roots` modified after `since`; `{shallow}` roots contribute only their own files. */
 export function newerThan(since, roots, skip = () => false) {
   const out = [];
@@ -153,11 +205,11 @@ export function newerThan(since, roots, skip = () => false) {
 
 // What a build can read from an app: the bake's capture (`js/bake/src/lib.rs`,
 // `sources`), and Rust and WGSL sources and manifests.
-const BUILD_SOURCE = /\.(ts|json|contract|ttf|otf|rs|toml|wgsl)$|^(assets|deck|gpu\/shaders)\//;
-/** The app's gitignored paths, as a skip for its own files: a screenshot
- * saved into the app is not an input. One a build can read still counts,
- * ignored or not (a generated asset or source, a local key), as does anything
- * under `keep` (declared shader roots). Outside Git, nothing. */
+const BUILD_SOURCE = /\.(ts|json|contract|ttf|otf|rs|toml|wgsl)$|(^|\/)Cargo\.lock$|^(assets|deck|gpu\/shaders)\//;
+/** The app's gitignored paths, as a skip for its own files: an ignored file
+ * no build reads is not an input. One a build can read still counts (a
+ * generated asset or source, a local key), as does anything under `keep`
+ * (declared shader roots). Outside Git, nothing. */
 export function gitIgnored(dir, keep = []) {
   const listed = spawnSync('git', ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'], { cwd: dir, encoding: 'utf8' });
   const paths = listed.status === 0 ? listed.stdout.split('\0').filter(Boolean).map(p => resolve(dir, p)) : [];
@@ -168,15 +220,48 @@ export function gitIgnored(dir, keep = []) {
     !statSync(path, { throwIfNoEntry: false })?.isDirectory() && !BUILD_SOURCE.test(relative(dir, path));
 }
 
+// What an agent leaves in an app as it works — a screenshot, a log, notes, a
+// saved world — and the trees a build takes files from (the bake's assets and
+// deck, a game's art and logic, a native module's scripts, the host crates,
+// fonts and strings). A build reads more than the bake captures, so the rule
+// names the outputs and leaves everything else an input.
+const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world)$/i;
+const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|ios|macos|linux)(\/|$)/;
+/** A skip for an app's own files that no build reads. A file a build can
+ * read always counts, ignored by Git or not: what the bake captures, anything
+ * in an input tree, under `keep` (declared shader roots) or in one of the
+ * app's Rust crates (which can `include_bytes!` any file beside them), and
+ * what `app.json` names (an icon). Of the rest, a gitignored file or a
+ * picture, log, note or saved world is not an input: a screenshot saved into
+ * the app is not a change to it. */
+export function notBuildInput(dir, keep = []) {
+  const ignored = gitIgnored(dir, keep);
+  const under = (path, roots) => roots.some(p => path === p || path.startsWith(p + '/'));
+  let manifest = ''; try { manifest = readFileSync(resolve(dir, 'app.json'), 'utf8'); } catch {}
+  const inCrate = path => {
+    for (let at = dirname(path); at.startsWith(dir + '/'); at = dirname(at)) if (existsSync(resolve(at, 'Cargo.toml'))) return true;
+    return false;
+  };
+  return path => {
+    const rel = relative(dir, path);
+    if (BUILD_SOURCE.test(rel) || INPUT_TREE.test(rel) || under(path, keep) || inCrate(path) || manifest.includes(rel)) return false;
+    return OUTPUT.test(rel) || ignored(path);
+  };
+}
+
 /** An Apple build's receipt: its Rust and Swift inputs by digest, then by mtime the app's own files the receipt leaves out on purpose (the root build script's watches: the contract, app.json, data, shaders, assets — what the baked plan and bundle are made from). */
 export function receiptChanges(receipt, app) {
   if (!existsSync(receipt)) return [];
   const { build, target } = JSON.parse(readFileSync(receipt, 'utf8')), since = statSync(receipt).mtimeMs;
-  const ignored = gitIgnored(app.dir, shaderWatchRoots(app));
-  const own = newerThan(since, [app.dir], path => /\/(apple|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path));
+  const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
+  const own = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path));
+  // Platform-local modules live under the host crate directory skipped above,
+  // but their separate dylib's sources are absent from the binary receipt.
+  const platform = target.includes('-ios') ? 'ios' : 'macos';
+  own.push(...newerThan(since, [moduleDirectory(app.dir, platform)], ignored));
   // The receipt names what the binary links, not what built it: the Rust
   // archive's own dep-info also names its build script's (the compiler, the bake).
-  const archive = `lib${app.crate('apple').replace(/-/g, '_')}.d`;
+  const archive = `lib${app.crate(platform).replace(/-/g, '_')}.d`;
   let infos = []; try { infos = readdirSync(resolve(app.target, target)).map(p => resolve(app.target, target, p, archive)).filter(existsSync); } catch {}
   const info = infos.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
   const tools = info ? depInfoNewer(since, null, info) : [];
@@ -190,17 +275,18 @@ export function receiptChanges(receipt, app) {
  * its proof, pins, documents, tests, and helper scripts outside the built trees.
  * The proof's input digest (game/proof.mjs) and the web staleness check share it. */
 export function gameNonInput(path) {
+  path = path.replaceAll('\\', '/');
   return /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.md)$/.test(path)
-    || (/\.m?js$/.test(path) && !/^(logic|data|gpu|art|assets|deck)\//.test(path));
+    || (/\.m?js$/.test(path) && !/^(logic|data|gpu|presentation|art|assets|deck)\//.test(path));
 }
 export function webChanges(dist, app) {
   const marker = resolve(dist, '.exact-build.json');
   if (!existsSync(marker)) return { app: [], shared: [], all: [] };
   const since = statSync(marker).mtimeMs, js = JSON.parse(readFileSync(marker, 'utf8')).target === 'js';
-  const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'plan', 'motion', 'num', 'contract'];
-  const ignored = gitIgnored(app.dir, shaderWatchRoots(app));
+  const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'svg-filter', 'plan', 'motion', 'num', 'contract'];
+  const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
-  const appChanges = newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
+  const appChanges = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
   const shared = newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) }));
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }

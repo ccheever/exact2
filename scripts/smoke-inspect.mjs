@@ -19,6 +19,9 @@ export async function explainNode(s, { tree, layout, check }) {
   check(n && ['authored', 'inherited', 'initial'].includes(n.style.text_color?.source), `text_color has no source: ${JSON.stringify(n?.style?.text_color)}`);
   check(n && listed && Math.abs(n.space.viewport.x - listed.x) < 0.01 && Math.abs(n.space.viewport.w - listed.w) < 0.01, `the explained box ${JSON.stringify(n?.space?.viewport)} disagrees with the listing ${JSON.stringify(listed)}`);
   check(await s.op({ op: 'layout', id: 999999 }).then(() => false, (e) => /stale node/.test(e.message)), 'a stale node id was not refused by name');
+  // The wire refuses what it would answer by doing nothing (habits F8): a method's `target`, an unknown op.
+  check(await s.op({ op: 'tap', target: 'station-name' }).then(() => false, (e) => /s\.tap\("station-name"/.test(e.message)), 'a raw tap with a target was not refused');
+  check(await s.op({ op: 'tapp', id: n?.id }).then(() => false, () => true), 'an unknown op was not refused');
 }
 
 // 2c. `state`'s host sections (LLP 1035.002 D2) are present on every host

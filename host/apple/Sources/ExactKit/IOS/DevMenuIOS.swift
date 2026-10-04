@@ -8,7 +8,7 @@
 // Screen; ⇧⌘R gets through). EXACT_DEV_MENU=0 removes all of it. The
 // standalone adapter installs it (LLP 1031 D11); an embedder installs
 // nothing.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 final class DevMenuTarget: NSObject, UIGestureRecognizerDelegate {
@@ -42,13 +42,17 @@ public enum DevMenu {
         DevMenu.planPath = planPath
         guard enabled else { return }
         let reload = UITapGestureRecognizer(target: target, action: #selector(DevMenuTarget.reloadTap(_:)))
+        #if !os(tvOS)
         reload.numberOfTouchesRequired = 4
+        #endif
         reload.numberOfTapsRequired = 2
         // Developer shortcuts must not hold app touches across a URL restart.
         // iOS 26.6.1 crashed in UIKit's delayed-event queue on the physical phone.
         reload.delaysTouchesEnded = false
         let menu = UITapGestureRecognizer(target: target, action: #selector(DevMenuTarget.menuTap(_:)))
+        #if !os(tvOS)
         menu.numberOfTouchesRequired = 4
+        #endif
         menu.delaysTouchesEnded = false
         menu.require(toFail: reload)
         for recognizer in [reload, menu] {
@@ -70,7 +74,9 @@ public enum DevMenu {
         let a = UIAlertController(title: "Exact", message: text, preferredStyle: .actionSheet)
         a.addAction(UIAlertAction(title: "Reload", style: .default) { _ in reload() })
         a.addAction(UIAlertAction(title: "Open Project…", style: .default) { _ in openProject() })
+        #if !os(tvOS)
         a.addAction(UIAlertAction(title: "Copy Info", style: .default) { _ in UIPasteboard.general.string = text })
+        #endif
         // LLP 1079 D5: the session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
         if session?.sampler != nil { a.addAction(UIAlertAction(title: "Save Trace", style: .default) { _ in saveTrace() }) }
         a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
@@ -93,7 +99,10 @@ public enum DevMenu {
         case .failure(let error): message = "Not saved: \(error)"
         }
         let a = UIAlertController(title: "Trace", message: message, preferredStyle: .alert)
+        // tvOS has no pasteboard.
+        #if !os(tvOS)
         a.addAction(UIAlertAction(title: "Copy Path", style: .default) { _ in UIPasteboard.general.string = message })
+        #endif
         a.addAction(UIAlertAction(title: "OK", style: .cancel))
         c.present(a, animated: true)
     }

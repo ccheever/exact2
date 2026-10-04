@@ -380,3 +380,50 @@ fn abi_kind18_uses_common_binary_codec_and_refuses_before_clock() {
         .unwrap()
         .contains("malformed reorder input"));
 }
+/// A remeasure mid-drag: the collection's rows, the source (`grip-0`'s row,
+/// the first) at `source` and the rest at 20.
+fn remeasure(h: &mut Host<Rows>, b: ReorderBinding, source: f64) {
+    let c = h.runner.collections().remove(0);
+    let f = CollectionFeedback {
+        view: c.view,
+        revision: c.revision,
+        scroll_sequence: c.scroll_sequence,
+        offset: 0.,
+        port_cross: 320.,
+        port_main: 100.,
+        cross: 320.,
+        focus_view: None,
+        interaction_view: Some(h.runner.kernel().node_by_key(b.handle).unwrap().id),
+        measurements: c
+            .rows
+            .iter()
+            .map(|r| RowMeasurement {
+                view: r.view,
+                epoch: r.epoch,
+                size: if r.index == 0 { source } else { 20. },
+            })
+            .collect(),
+    };
+    let reply = h.collection_feedback(&f.encode().unwrap());
+    assert!(reply.contains("\"error\":null"), "{reply}");
+}
+#[test]
+fn a_float_noise_remeasure_of_the_translated_source_keeps_the_preview() {
+    // habits F10: the source row, measured through its preview translate,
+    // came back 76 as 75.99998 and ended the drag; a real change still does.
+    for (size, drops) in [(20. - 1.5e-5, true), (25., false)] {
+        let (mut h, b) = fixture();
+        begin(&mut h, b);
+        accepted(&h.reorder_motion(&packet(&h, b, 16, 110., 50.)));
+        remeasure(&mut h, b, size);
+        let token = h.reorder_drags.active.as_ref().unwrap().token;
+        assert_eq!(h.runner.reorder_frame(token).unwrap().terminal, !drops);
+        let reply = h.reorder_motion(&packet(&h, b, 17, 200., 50.));
+        let count = if drops { 1. } else { 0. };
+        assert_eq!(
+            h.runner.slot("count"),
+            Some(&DataValue::Number(count)),
+            "{reply}"
+        );
+    }
+}

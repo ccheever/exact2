@@ -78,6 +78,18 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertFalse(tabs.tabBar.isHidden)
         XCTAssertEqual(tabs.viewControllers?.map { $0.tabBarItem.title }, ["Home", "Second"])
         XCTAssertTrue(try node(session, "tabs").isHidden, "the bar takes the authored tablist's place")
+        // The container paints where the panels are among the root's
+        // children: under the tablist after them, as CSS paints a later
+        // sibling over an earlier one (shop F21, recipes F23).
+        let root = try node(session, "navigation"), tablist = try node(session, "tabs")
+        let order = root.subviews.map { ObjectIdentifier($0) }
+        XCTAssertLessThan(try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(tabs.view))), try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(tablist))), "the tablist after the panels paints over the container")
+        XCTAssertGreaterThan(try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(tabs.view))), try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(try node(session, "panels")))), "the container paints over the panels' box")
+        // The tablist's `accent-color` is the bar's tint (recipes F20, shop F28).
+        let tint = try XCTUnwrap(tabs.tabBar.tintColor).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+        var rgb: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        tint.getRed(&rgb.0, green: &rgb.1, blue: &rgb.2, alpha: &rgb.3)
+        XCTAssertEqual([rgb.0, rgb.1, rgb.2].map { Int(($0 * 255).rounded()) }, [0x38, 0x38, 0xf5])
         let home = try XCTUnwrap(tabs.viewControllers?[0] as? UINavigationController)
         let second = try XCTUnwrap(tabs.viewControllers?[1] as? UINavigationController)
         XCTAssertEqual(second.viewControllers.count, 1, "another tab's stack is built too")
@@ -165,6 +177,20 @@ final class NavigationTabsIOSTests: XCTestCase {
         try tapNode(session, "detail")
         until("detail pushed in Home") { home.viewControllers.count == 2 && home.transitionCoordinator == nil }
         XCTAssertEqual(mayPop(home), pops(home).map { _ in true }, "the pushed screen with its back control pops")
+        // Over a `swiperight` row the edge decides: a finger that landed at
+        // x = 1 pops, and the start is where it landed, not the pan's
+        // translation origin (which leaves out the travel before recognition).
+        let detail = try node(session, "route-detail")
+        detail.handlers.insert("swiperight")
+        defer { detail.handlers.remove("swiperight") }
+        // (A test cannot place a `UITouch`, so `shouldReceive`'s first-finger
+        // gate is proved by the live drive, LLP 1080.000 §11.)
+        for pop in pops(home).compactMap({ $0 as? UIPanGestureRecognizer }) {
+            navigation.notePopTouchDown(pop, at: CGPoint(x: 30, y: 400))
+            XCTAssertFalse(navigation.popShouldBegin(pop, in: home.view, velocity: right), "landed past the edge: the row's swipe")
+            navigation.notePopTouchDown(pop, at: CGPoint(x: 1, y: 400))
+            XCTAssertTrue(navigation.popShouldBegin(pop, in: home.view, velocity: right), "landed at the edge: the pop")
+        }
         XCTAssertFalse(mayPop(home, velocity: CGPoint(x: 20, y: 600)).contains(true), "a vertical pan is the content's")
         XCTAssertFalse(mayPop(second).contains(true), "a hidden tab's stack does not pop")
         // Its own depth decides once it shows: Second is a root.

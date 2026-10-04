@@ -180,7 +180,7 @@ open class ExactModule {
     /// command items and delegate slot Exact's.
     open func toolbar(_ toolbar: ExactToolbar) {}
     #endif
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// A navigation controller Exact built: once, before any route in it is
     /// laid out (at a cold launch, once the module loads, for each one
     /// already built). Set `showsBar` here; the bar's look is the app's.
@@ -229,7 +229,7 @@ final class ExactHooks {
     let resolveFn: ResolveFn, actFn: ActFn, logFn: LogFn, delegateFn: DelegateFn
     /// A host table of 48 bytes or more: an item added to the window toolbar.
     let toolbarItemFn: ToolbarItemFn?
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     var navigations: [ObjectIdentifier: ExactNavigation] = [:]
     var routes: [String: ExactRoute] = [:]
     var tabs: ExactTabs?
@@ -267,7 +267,7 @@ final class ExactHooks {
     func act(_ node: UInt32, _ action: UInt32) -> Bool { actFn(host, node, action) == 0 }
 }
 
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 /// A navigation controller Exact built (LLP 1075.003 §3.2, §3.7).
 public final class ExactNavigation {
     public let controller: UINavigationController
@@ -389,7 +389,7 @@ public final class ExactElement {
     /// Its HTML id ("" when it has none).
     public let id: String
     let node: UInt32, key: String
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// The route it was resolved in: once that ends (a pop, a reload), the
     /// element does nothing, so a saved one never reaches a later node.
     weak var route: ExactRoute?
@@ -426,12 +426,12 @@ public final class ExactElement {
     /// False once the element's route or node has ended: it then does nothing.
     public var isLive: Bool {
         guard !ended else { return false }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         if hook == nil { return route?.isLive == true }
         #endif
         return hook != nil
     }
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     init(id: String, node: UInt32, route: ExactRoute, hooks: ExactHooks) {
         self.id = id; self.node = node; key = route.key; self.route = route; self.hooks = hooks
     }
@@ -449,7 +449,7 @@ public final class ExactElement {
     /// Focus it (LLP 1035.001's focus rules).
     public func focus() { act(1, "focus") }
     public func blur() { act(2, "blur") }
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     public var scrollView: UIScrollView? { platform as? UIScrollView }
     public var textField: UITextField? { platform as? UITextField }
     public var textView: UITextView? { platform as? UITextView }
@@ -536,7 +536,7 @@ open class ExactNativeInstance {
     /// The view the host puts in the node's box; it fills the box, and
     /// observes its own bounds.
     open var view: ExactNativeView { fatalError("\(type(of: self)) has no view") }
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// A native screen (LLP 1075.003 §3.6): a controller whose view is
     /// `view`, contained in the route's controller as a child while it shows.
     open var controller: UIViewController? { nil }
@@ -562,7 +562,7 @@ open class ExactNativeInstance {
     open func prepareForReuse() throws { throw ExactNativeRefusal("no reuse") }
 }
 
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 /// A module view that is a whole screen (LLP 1075.003 §3.6): `screen`'s view
 /// fills the node's box, and `screen` is a child of the route's controller,
 /// with UIKit's appearance, safe-area and trait propagation.
@@ -767,7 +767,7 @@ private let moduleConnect: @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPo
 /// hook runs), 1 retired (the handle goes). Bit 0 of the flags is
 /// `showsBar`, Exact's default in and the stack's choice out.
 private let moduleNavigation: @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UInt32) -> UInt32 = { raw, event, controller, flags in
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     guard let m = module(raw), let hooks = m.hooks, let controller else { return flags }
     let nav = Unmanaged<UINavigationController>.fromOpaque(controller).takeUnretainedValue()
     let id = ObjectIdentifier(nav)
@@ -788,7 +788,7 @@ private let moduleNavigation: @convention(c) (UnsafeMutableRawPointer?, UInt32, 
 /// `route(module, event, controller, navigation, scroll, json, len)`: event
 /// 0 built, 1 changed, 2 ended; json `{"key": …, "data": {…}}`.
 private let moduleRoute: @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void = { raw, event, controller, navigation, scroll, json, length in
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     guard let m = module(raw), let hooks = m.hooks, let controller, let json, length > 0,
           let object = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [String: Any],
           let key = object["key"] as? String else { return }
@@ -825,7 +825,7 @@ private let moduleRoute: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsaf
 /// container (the hook runs), 1 it retired, 2 the router selected `index` in
 /// a container the app owns, 3 that container retired.
 private let moduleTabs: @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UInt32) -> Void = { raw, event, controller, index in
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     guard let m = module(raw), let hooks = m.hooks else { return }
     switch event {
     case 0:
@@ -850,7 +850,7 @@ private let moduleTabs: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsafe
 /// tabs (`{"names": […], "nodes": […], "selected": i}`) and their navigation
 /// controllers; a container the app owns, retained once for the host, or nil.
 private let moduleTabContainer: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> UnsafeMutableRawPointer? = { raw, json, length, controllers, count in
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     guard let m = module(raw), let hooks = m.hooks, let json, let controllers,
           let object = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [String: Any],
           let names = object["names"] as? [String], let nodes = object["nodes"] as? [NSNumber], names.count == Int(count) else { return nil }
@@ -911,7 +911,7 @@ private let moduleToolbar: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutab
 /// `platform_controller(handle) → UIViewController?`: a native screen's
 /// controller (the module keeps ownership), or nil for a plain view.
 private let platformController: @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? = { raw in
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     handle(raw)?.instance.controller.map { Unmanaged.passUnretained($0).toOpaque() }
     #else
     nil

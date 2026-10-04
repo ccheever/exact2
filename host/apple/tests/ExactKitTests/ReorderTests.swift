@@ -26,7 +26,7 @@ final class ReorderRecorder: ReorderCalls {
         return state("settling", dispatched: drop)
     }
     static func finished() -> ReorderState? {
-        ReorderState(["op": "reorder", "token": "7", "list": 1, "wrapper": 2, "phase": "finished", "dispatched": true])
+        ReorderState(["op": "reorder", "token": "7", "list": 0, "wrapper": 0, "phase": "finished", "dispatched": true])
     }
 }
 

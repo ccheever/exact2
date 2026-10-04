@@ -1,0 +1,39 @@
+// Row keys 0 and -0: are they one key or two? Rows alternate the two keys;
+// hiding the first row shows which old row each survivor is matched to.
+shape Item
+  id: string
+
+component App
+  resource a = items(1) as shape list<Item>
+  resource b = items(2) as shape list<Item>
+  resource c = items(3) as shape list<Item>
+  derive ab = length(a) >= length(b) ? a : b
+  derive items = length(ab) >= length(c) ? ab : c
+  state skip = 0
+  derive visible = filter(items, (it, i) => i >= skip)
+  action hideFirst
+    skip = 1
+  view
+    column
+      each it, i in visible key=((i + skip) % 2 == 0 ? 0 : -0)
+        Cell(index=i + skip)
+      button "hide" press=hideFirst testId="hide"
+
+component Cell
+  props
+    index: number
+  state hits = 0
+  action hit
+    hits = hits + 1
+  view
+    button "hit" press=hit testId=`hit-${index}`
+      text `${index}:${hits}` testId=`cell-${index}`
+
+test "signed zero keys"
+  tap "hit-0"
+  tap "hit-1"
+  tap "hit-1"
+  tap "hit-2"
+  tap "hit-2"
+  tap "hit-2"
+  tap "hide"

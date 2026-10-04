@@ -12,6 +12,9 @@
 //! Exit animation is refused here: this painter reads the live kernel tree
 //! every frame, and a destroyed node is not in it, so there is nothing to
 //! keep painting. A removed node leaves at once and the journal says so.
+//!
+//! Shared-element flights (LLP 1013.000) are refused for a like reason in
+//! stage 1: an arriver appears in place, and the journal says so once.
 
 use super::*;
 use exact_kernel::motion::LayoutMotion;
@@ -23,6 +26,8 @@ pub(super) struct Presence {
     pub(super) layout: LayoutMotion,
     /// Whether the refusal of exit animation is in the journal.
     refused: bool,
+    /// Whether the refusal of shared-element flights is.
+    refused_flights: bool,
     /// A resize lays out next: positions are taken, not animated.
     pub(super) snap: bool,
 }
@@ -35,6 +40,10 @@ impl<D: DataSource> Host<D> {
             if !t.receipt.exits.is_empty() && !self.presence.refused {
                 self.presence.refused = true;
                 self.log("exit-animation: refused on Linux (LLP 1063): the painter reads the live tree, so a removed node leaves at once");
+            }
+            if !t.receipt.handoffs.is_empty() && !self.presence.refused_flights {
+                self.presence.refused_flights = true;
+                self.log("shared element: flights are not drawn on Linux (LLP 1013.000); an arriver appears in place");
             }
             let retired =
                 self.presence

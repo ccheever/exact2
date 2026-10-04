@@ -34,12 +34,12 @@ fn boot() -> Phases {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     let create = t.elapsed();
 
-    let t = Instant::now();
-    assert!(rt.install_stdlib());
-    let stdlib = t.elapsed();
+    let stdlib = Duration::ZERO;
 
     let t = Instant::now();
-    rt.install_bindings().expect("bindings");
+    let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+    rt.install_runtime(ibex2::bindings::Groups::DEFAULT, &context)
+        .expect("bindings");
     let bindings = t.elapsed();
 
     let t = Instant::now();

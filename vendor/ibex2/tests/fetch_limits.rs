@@ -170,7 +170,8 @@ mod common;
 #[cfg(all(feature = "hermes", feature = "loader"))]
 mod request_headers {
     use super::*;
-    use ibex2::engine::hermes::{DynamicCode, Grants, Hermes};
+    use ibex2::bindings::{Context, Groups};
+    use ibex2::engine::hermes::{DynamicCode, Hermes};
     use ibex2::loader::{ModuleGrants, Root};
 
     fn listener() -> (TcpListener, String) {
@@ -180,26 +181,31 @@ mod request_headers {
         (listener, origin)
     }
 
-    // Exercise the shipped factory, with the same frozen intrinsics as an
-    // effect runtime. The raw binding is exposed only by this test's boot.
+    // Exercise the production installation and loader projection used by an
+    // effect runtime.
     fn run(name: &str, origin: &str, allowed: bool, source: &str) -> Vec<String> {
         let spec = if allowed {
             format!("net.fetch {origin}")
         } else {
             String::new()
         };
-        run_with_setup(name, &spec, source, "")
+        run_with_spec(name, &spec, source)
     }
 
-    fn run_with_setup(name: &str, spec: &str, source: &str, setup: &str) -> Vec<String> {
+    fn run_with_spec(name: &str, spec: &str, source: &str) -> Vec<String> {
+        run_with_spec_and_live_headers(name, spec, source).0
+    }
+
+    fn run_with_spec_and_live_headers(
+        name: &str,
+        spec: &str,
+        source: &str,
+    ) -> (Vec<String>, usize) {
         let project = super::common::Project::new(name);
         project.file("index.js", source);
         let mut rt = Hermes::new(DynamicCode::Closed).unwrap();
-        assert!(rt.install_stdlib());
-        rt.eval(setup).unwrap();
-        rt.install_bindings().unwrap();
-        let grants = Grants::parse(spec).unwrap();
-        assert!(rt.install_fetch(&grants));
+        let context = Context::new(ibex2::grant::GrantSet::none());
+        rt.install_runtime(Groups::DEFAULT, &context).unwrap();
         rt.set_loader(
             Root::Declared(project.0.clone()),
             ModuleGrants::parse(&format!("[*]\n{spec}\n")).unwrap(),
@@ -208,7 +214,8 @@ mod request_headers {
         rt.harden().unwrap();
         rt.run_entry("./index.js").unwrap();
         rt.run_to_quiescence(Duration::from_secs(30));
-        rt.drain_console().into_iter().map(|r| r.message).collect()
+        let output = rt.drain_console().into_iter().map(|r| r.message).collect();
+        (output, rt.live_header_handles_for_test())
     }
 
     fn capture(listener: TcpListener) -> thread::JoinHandle<(String, Vec<u8>)> {
@@ -304,11 +311,11 @@ mod request_headers {
     const PAIRS: &str = "[['Content-Type',' application/json '], ['Idempotency-Key','effect-123'], ['Authorization','Bearer token'], ['X-Repeat','first'], ['x-repeat','second']]";
 
     #[test]
-    fn raw_fetch_sends_the_headers_handle() {
+    fn fetch_sends_a_headers_instance() {
         let (listener, origin) = listener();
         let server = capture(listener);
         let out = run("fetch-raw-headers", &origin, true, &format!(
-            "__ibex2_fetch('{origin}/submit', 'POST', new TextEncoder().encode('{{\"ok\":true}}'), 'manual', new Headers({PAIRS})._handle).then(() => console.log('ok'), e => console.log(e.message));"
+            "fetch('{origin}/submit', {{method:'POST', body:'{{\"ok\":true}}', headers:new Headers({PAIRS}), redirect:'manual'}}).then(() => console.log('ok'), e => console.log(e.message));"
         ));
         assert_eq!(out, ["ok"]);
         let (head, body) = server.join().unwrap();
@@ -349,14 +356,14 @@ mod request_headers {
     }
 
     #[test]
-    fn default_follow_retains_authored_headers_across_granted_origins() {
+    fn default_follow_drops_credentials_across_granted_origins_and_keeps_the_rest() {
         let (destination, destination_origin) = listener();
         let destination = capture(destination);
         let (redirector, origin) = listener();
         let redirector = capture_with_response(redirector, format!(
             "HTTP/1.1 302 Found\r\nLocation: {destination_origin}/final\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         ));
-        let out = run_with_setup(
+        let out = run_with_spec(
             "fetch-follow-headers",
             &format!("net.fetch {origin}\nnet.fetch {destination_origin}"),
             &format!(
@@ -364,7 +371,6 @@ mod request_headers {
                  .then(r => {{ console.log(r.status, r.redirected, r.url); return r.text(); }})
                  .then(console.log, e => console.log(e.message));"
             ),
-            "",
         );
         assert_eq!(
             out,
@@ -375,9 +381,24 @@ mod request_headers {
         let (head, body) = destination.join().unwrap();
         assert!(head.starts_with("GET /final HTTP/1.1\r\n"), "{head:?}");
         assert!(body.is_empty(), "redirect rewrite must drop the body");
-        // Pin the current follower: credentials and Content-Type survive
-        // even this cross-origin POST-to-GET rewrite. Both servers were hit.
-        assert_authored_headers(&head);
+        // Pin the follower: across origins the credentials are dropped
+        // (LLP 0059.000 §3.5), while Content-Type and the rest survive even
+        // this POST-to-GET rewrite. Both servers were hit.
+        let headers = folded_headers(&head);
+        assert!(
+            !headers.iter().any(|(key, _)| key == "authorization"),
+            "credentials crossed origins: {head:?}"
+        );
+        for (name, value) in [
+            ("content-type", " application/json"),
+            ("idempotency-key", " effect-123"),
+            ("x-repeat", " first, second"),
+        ] {
+            assert!(
+                headers.contains(&(name.into(), value.into())),
+                "lost {name}: {head:?}"
+            );
+        }
     }
 
     #[test]
@@ -411,49 +432,37 @@ mod request_headers {
     }
 
     #[test]
-    fn fetch_without_init_and_raw_without_headers_reach_the_wire() {
-        for (name, call) in [
-            ("wrapped", "fetch(url)"),
-            ("omitted", "__ibex2_fetch(url, '', undefined, 'manual')"),
-            (
-                "undefined",
-                "__ibex2_fetch(url, '', undefined, 'manual', undefined)",
+    fn fetch_without_init_reaches_the_wire_without_authored_headers() {
+        let (listener, origin) = listener();
+        let server = capture(listener);
+        let out = run(
+            "fetch-empty-headers",
+            &origin,
+            true,
+            &format!(
+                "fetch('{origin}/ping').then(r => console.log(r.status), e => console.log(e.message));"
             ),
-        ] {
-            let (listener, origin) = listener();
-            let server = capture(listener);
-            let out = run_with_setup(
-                &format!("fetch-empty-headers-{name}"),
-                &format!("net.fetch {origin}"),
-                &format!(
-                    "const url = '{origin}/ping';
-                     {call}.then(r => console.log(typeof r === 'number' ? testResponseStatus(r) : r.status), e => console.log(e.message));"
-                ),
-                // Retain just the status accessor in this test's bootstrap.
-                "(function () { const field = __ibex2_response_field; globalThis.testResponseStatus = h => field(h, 0); })();",
+        );
+        assert_eq!(out, ["200"]);
+        let (head, body) = server.join().unwrap();
+        assert!(head.starts_with("GET /ping HTTP/1.1\r\n"), "{head:?}");
+        for (key, _) in folded_headers(&head) {
+            assert!(
+                ![
+                    "content-type",
+                    "authorization",
+                    "idempotency-key",
+                    "x-repeat"
+                ]
+                .contains(&key.as_str()),
+                "unexpected authored header: {head:?}"
             );
-            assert_eq!(out, ["200"], "{name}");
-            // Joining a capture proves accept fired, not just a JS rejection.
-            let (head, body) = server.join().unwrap();
-            assert!(head.starts_with("GET /ping HTTP/1.1\r\n"), "{head:?}");
-            for (key, _) in folded_headers(&head) {
-                assert!(
-                    ![
-                        "content-type",
-                        "authorization",
-                        "idempotency-key",
-                        "x-repeat"
-                    ]
-                    .contains(&key.as_str()),
-                    "unexpected authored header: {head:?}"
-                );
-            }
-            assert!(body.is_empty());
         }
+        assert!(body.is_empty());
     }
 
     #[test]
-    fn raw_fetch_with_valid_headers_still_denies_before_accept() {
+    fn fetch_with_valid_headers_still_denies_before_accept() {
         let (listener, origin) = listener();
         let out = run(
             "fetch-denied-raw-headers",
@@ -461,7 +470,7 @@ mod request_headers {
             false,
             &format!(
                 "const headers = new Headers({{x:'y'}});
-             __ibex2_fetch('{origin}/', '', undefined, 'manual', headers._handle)
+             fetch('{origin}/', {{headers}})
              .then(() => console.log('accepted'), e => console.log(e.message, headers.get('x')));"
             ),
         );
@@ -473,7 +482,7 @@ mod request_headers {
     }
 
     #[test]
-    fn raw_fetch_keeps_a_callers_handle_alive_for_reuse() {
+    fn fetch_keeps_a_callers_headers_alive_for_reuse() {
         let (first, origin) = listener();
         let second = first.try_clone().unwrap();
         let server = thread::spawn(move || {
@@ -483,7 +492,7 @@ mod request_headers {
         });
         let out = run("fetch-reused-raw-headers", &origin, true, &format!(
             "const headers = new Headers({PAIRS});
-             function send() {{ return __ibex2_fetch('{origin}/submit', 'POST', new TextEncoder().encode('{{\"ok\":true}}'), 'manual', headers._handle); }}
+             function send() {{ return fetch('{origin}/submit', {{method:'POST', body:'{{\"ok\":true}}', headers, redirect:'manual'}}); }}
              send().then(send).then(() => console.log(headers.get('Idempotency-Key')), e => console.log(e.message));"
         ));
         assert_eq!(out, ["effect-123"]);
@@ -492,63 +501,37 @@ mod request_headers {
         }
     }
 
-    // Observe real registry allocations and liveness through existing ops,
-    // captured before bindings remove them; no production test API is needed.
-    const TRACK_HEADERS: &str = r#"(function () {
-      const ops = __ibex2_headers, create = ops.create, handles = [];
-      ops.create = function () { const h = create(); handles.push(h); return h; };
-      globalThis.headerLiveness = function () {
-        return handles.map(h => {
-          try { ops.count(h); return true; }
-          catch (e) { if (!e.message.includes('unknown headers handle')) throw e; return false; }
-        }).join(',');
-      };
-    })();"#;
-
     #[test]
-    fn fetch_releases_its_snapshot_after_success() {
+    fn fetch_preserves_the_callers_headers_after_success() {
         let (listener, origin) = listener();
         let server = capture(listener);
-        let out = run_with_setup("fetch-release-success", &format!("net.fetch {origin}"), &format!(
+        let (out, live_headers) = run_with_spec_and_live_headers("fetch-release-success", &format!("net.fetch {origin}"), &format!(
             "if (typeof globalThis.__ibex2_headers_free !== 'undefined') throw new Error('free op exposed');
              const headers = new Headers({PAIRS});
              const pending = fetch('{origin}/submit', {{method:'POST', headers, body:'{{\"ok\":true}}'}});
-             console.log(headerLiveness());
-             pending.then(r => {{ console.log(headerLiveness(), headers.get('Idempotency-Key')); return r.text(); }})
+             pending.then(r => {{ console.log(headers.get('Idempotency-Key')); return r.text(); }})
              .then(console.log, e => console.log(e.message));"
-        ), TRACK_HEADERS);
-        assert_eq!(out, ["true,true", "true,false,true effect-123", "ok"]);
+        ));
+        assert_eq!(out, ["effect-123", "ok"]);
+        // The caller's Headers and the Response headers remain. A leaked
+        // request snapshot would make this three.
+        assert_eq!(live_headers, 2);
         let (head, body) = server.join().unwrap();
         assert_authored(&head, &body);
     }
 
     #[test]
-    fn fetch_releases_its_snapshot_after_rejection() {
+    fn fetch_preserves_the_callers_headers_after_rejection() {
         let (listener, origin) = listener();
-        let out = run_with_setup("fetch-release-rejection", "", &format!(
+        let (out, live_headers) = run_with_spec_and_live_headers("fetch-release-rejection", "", &format!(
             "const headers = new Headers({RECORD});
              const pending = fetch('{origin}/', {{headers}});
-             console.log(headerLiveness());
-             pending.then(() => console.log('accepted'), e => console.log(e.message, headerLiveness(), headers.get('Idempotency-Key')));"
-        ), TRACK_HEADERS);
-        assert_eq!(
-            out,
-            ["true,true", "denied: net.fetch true,false effect-123"]
-        );
-        assert_eq!(
-            listener.accept().unwrap_err().kind(),
-            std::io::ErrorKind::WouldBlock
-        );
-    }
-
-    #[test]
-    fn fetch_releases_a_partially_initialized_header_list() {
-        let (listener, origin) = listener();
-        let out = run_with_setup("fetch-release-invalid", &format!("net.fetch {origin}"), &format!(
-            "fetch('{origin}/', {{headers:[['x','y'], ['bad name','value']]}})
-             .then(() => console.log('accepted'), e => console.log(e.constructor.name, headerLiveness()));"
-        ), TRACK_HEADERS);
-        assert_eq!(out, ["TypeError false"]);
+             pending.then(() => console.log('accepted'), e => console.log(e.message, headers.get('Idempotency-Key')));"
+        ));
+        assert_eq!(out, ["denied: net.fetch effect-123"]);
+        // Only the caller's Headers remains. A leaked request snapshot would
+        // make this two.
+        assert_eq!(live_headers, 1);
         assert_eq!(
             listener.accept().unwrap_err().kind(),
             std::io::ErrorKind::WouldBlock
@@ -556,13 +539,31 @@ mod request_headers {
     }
 
     #[test]
-    fn fetch_releases_its_snapshot_when_raw_argument_conversion_throws() {
+    fn fetch_rejects_a_partially_initialized_header_list() {
         let (listener, origin) = listener();
-        let out = run_with_setup("fetch-release-sync-throw", &format!("net.fetch {origin}"), &format!(
+        let out = run_with_spec(
+            "fetch-release-invalid",
+            &format!("net.fetch {origin}"),
+            &format!(
+                "fetch('{origin}/', {{headers:[['x','y'], ['bad name','value']]}})
+             .then(() => console.log('accepted'), e => console.log(e.constructor.name));"
+            ),
+        );
+        assert_eq!(out, ["TypeError"]);
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[test]
+    fn fetch_rejects_when_body_conversion_throws() {
+        let (listener, origin) = listener();
+        let out = run_with_spec("fetch-release-sync-throw", &format!("net.fetch {origin}"), &format!(
             "fetch('{origin}/', {{headers:{{x:'y'}}, body:{{toString() {{ throw new Error('body conversion failed'); }}}}}})
-             .then(() => console.log('accepted'), e => console.log(e.message, headerLiveness()));"
-        ), TRACK_HEADERS);
-        assert_eq!(out, ["body conversion failed false"]);
+             .then(() => console.log('accepted'), e => console.log(e.message));"
+        ));
+        assert_eq!(out, ["body conversion failed"]);
         assert_eq!(
             listener.accept().unwrap_err().kind(),
             std::io::ErrorKind::WouldBlock
@@ -595,22 +596,6 @@ mod request_headers {
             ),
         );
         assert_eq!(out, [["TypeError"; 7].join(",")]);
-        assert_eq!(
-            listener.accept().unwrap_err().kind(),
-            std::io::ErrorKind::WouldBlock
-        );
-    }
-
-    #[test]
-    fn raw_fetch_rejects_invalid_or_unknown_header_handles() {
-        let (listener, origin) = listener();
-        let out = run("fetch-invalid-handles", &origin, false, &format!(
-            "const h = new Headers()._handle;
-             Promise.all([null, true, '1', {{}}, [], NaN, Infinity, -1, 0, h + 0.5, 9007199254740992, 999999].map(handle =>
-               __ibex2_fetch('{origin}/', '', undefined, 'manual', handle).then(() => 'accepted', e => e.message.startsWith('invalid argument:'))
-             )).then(results => console.log(results.join(',')));"
-        ));
-        assert_eq!(out, [["true"; 12].join(",")]);
         assert_eq!(
             listener.accept().unwrap_err().kind(),
             std::io::ErrorKind::WouldBlock

@@ -1,6 +1,7 @@
-# Canvas 2D (LLP 1056): the recorder, the list format, the canvas colour
-# parser and f64 path geometry. A leaf: nothing above it; it reads numbers
-# with exact-num, std's reader without std's tables (LLP 1047 §6).
+# Canvas 2D (LLP 1056): the recorder, the list format and f64 path geometry.
+# Nothing above it; it reads numbers with exact-num, std's reader without
+# std's tables (LLP 1047 §6), and colours with exact-motion's CSS colour
+# parser, the one the kernel's colour rows use.
 [package]
 name = "exact-canvas"
 version.workspace = true
@@ -14,4 +15,5 @@ name = "exact_canvas"
 crate-type = ["rlib"]
 
 [dependencies]
+exact-motion = { path = "../motion" }
 exact-num = { path = "../num" }

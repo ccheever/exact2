@@ -235,7 +235,7 @@ final class SvgScene {
 
     init() { root.masksToBounds = false; root.anchorPoint = .zero }
 
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// Filtered pictures that follow a changing input on the GPU, by element.
     private var live: [Int: SvgFilterLive] = [:]
     #endif
@@ -244,7 +244,7 @@ final class SvgScene {
     /// redrawn on the GPU after this commit (`SvgFilterLive`); `nil` for a
     /// first picture, or a chain or host the GPU path does not take.
     private func follow(_ id: Int, _ fl: [String: Any], k: CGFloat, dark: Bool, clock: Double?) -> CALayer? {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         // A picture whose content animates follows it from its first frame:
         // its animations play in its sub-scene (`svg_lower::in_picture`).
         let animated = SvgFilterLive.animated(fl["c"] as Any)
@@ -267,7 +267,7 @@ final class SvgScene {
     }
 
     private func forget(_ id: Int) {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         live.removeValue(forKey: id)?.stop()
         #endif
     }
@@ -404,7 +404,7 @@ final class SvgScene {
         if force { installed = [:]; wrapInstalled = [:] }
         for (id, list) in specs { if let layer = layers[id] { CssAnimations.apply(list, to: layer, clock: clock, installed: &installed[id, default: [:]], offscreen: offscreen) } }
         for (id, list) in wrapSpecs { if let outer = wrappers[id]?.outer { CssAnimations.apply(list, to: outer, clock: clock, installed: &wrapInstalled[id, default: [:]], offscreen: offscreen) } }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         for l in live.values { l.seek(clock) }
         #endif
     }
@@ -415,7 +415,7 @@ final class SvgScene {
         root.sublayers?.forEach { $0.removeFromSuperlayer() }
         for pair in wrappers.values { pair.outer.removeAllAnimations() }
         layers = [:]; installed = [:]; specs = [:]; wrappers = [:]; wrapSpecs = [:]; wrapInstalled = [:]; islands = [:]; pictures = [:]; drawn = [:]; shadows = [:]
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         for l in live.values { l.stop() }
         live = [:]
         #endif
@@ -584,6 +584,10 @@ final class SvgScene {
 /// `animations` ops, the agent clock's re-seek, and cleanup when a view goes.
 final class SvgHost {
     private var scenes: [UInt32: SvgScene] = [:]
+    /// Each view's last scene: a `light-dark()` paint is resolved when a
+    /// scene is applied, so an appearance change applies it again
+    /// (minesweeper F11, paint F10).
+    private var payloads: [UInt32: [String: Any]] = [:]
     /// The session's fonts, for SVG text: set by the presenter.
     var fonts: SvgText.Fonts?
     private var boxSpecs: [UInt32: (layer: CALayer, specs: [[String: Any]])] = [:]
@@ -596,7 +600,17 @@ final class SvgHost {
         if scene.root.superlayer !== layer { layer.addSublayer(scene.root) }
         scene.scale = max(1, layer.contentsScale)
         scene.fonts = fonts
-        scene.apply(payload["scene"] as? [String: Any] ?? [:], dark: dark, clock: clock)
+        let spec = payload["scene"] as? [String: Any] ?? [:]
+        payloads[id] = spec
+        scene.apply(spec, dark: dark, clock: clock)
+    }
+
+    /// `id`'s view changed appearance: its scene is applied again in the
+    /// new one. Only what the appearance reaches redraws (`drew`, and the
+    /// islands' and pictures' keys, hash it); animations keep running.
+    func reappear(_ id: UInt32, dark: Bool, clock: Double?) {
+        guard let scene = scenes[id], let spec = payloads[id] else { return }
+        scene.apply(spec, dark: dark, clock: clock)
     }
 
     func animations(_ id: UInt32, _ payload: [String: Any], layer: CALayer?, clock: Double?) {
@@ -620,6 +634,7 @@ final class SvgHost {
 
     func forget(_ id: UInt32) {
         if let scene = scenes.removeValue(forKey: id) { scene.reset(); scene.root.removeFromSuperlayer() }
+        payloads.removeValue(forKey: id)
         if let entry = boxSpecs.removeValue(forKey: id) { CssAnimations.apply([], to: entry.layer, clock: nil, installed: &boxInstalled[id, default: [:]]) }
         boxInstalled.removeValue(forKey: id)
     }

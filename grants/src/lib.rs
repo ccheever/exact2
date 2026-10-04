@@ -18,6 +18,8 @@
 //! @ref LLP 0059.000#4-capability-summary — the six capabilities and their granularity
 
 use std::collections::BTreeSet;
+mod windows_path;
+pub use windows_path::WindowsPath;
 
 /// An origin, for the two network capabilities.
 ///
@@ -64,6 +66,9 @@ impl PathPrefix {
     /// because admitting either would mean deciding traversal semantics here,
     /// where the answer cannot be checked against the real filesystem.
     pub fn new(path: &str) -> Option<Self> {
+        if let Ok(native) = WindowsPath::parse(path, false) {
+            return Some(Self(native.grant_components()));
+        }
         // `doc:/` names the documents a person chose (Exact patch: LLP
         // 1069.010 D1), a namespace beside `app:/` resolved by the host.
         let (namespace, path) = if let Some(path) = path.strip_prefix("app:/") {
@@ -102,6 +107,27 @@ impl PathPrefix {
     /// this parsed form directly; they never re-read the source grammar.
     pub fn components(&self) -> &[String] {
         &self.0
+    }
+}
+
+// @ref LLP 1027.001#proposed-windows-native-filesystem-grant-integration — one printable target.
+impl std::fmt::Display for PathPrefix {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let namespace = self.0[0].strip_prefix("win:").unwrap_or(&self.0[0]);
+        let separator = if self.0[0].starts_with("win:") {
+            ":/"
+        } else {
+            "/"
+        };
+        let path = format!("{namespace}{separator}{}", self.0[1..].join("/"));
+        if path
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '"' | '\\'))
+        {
+            f.write_str(&serde_json::to_string(&path).map_err(|_| std::fmt::Error)?)
+        } else {
+            f.write_str(&path)
+        }
     }
 }
 
@@ -211,7 +237,11 @@ impl GrantSet {
     /// (`stdlib::fs::realize`). Other families are unchanged.
     pub fn map_fs(&self, resolve: impl Fn(&str) -> String) -> GrantSet {
         let realize = |prefix: &PathPrefix| {
-            if prefix.0.first().is_some_and(|p| p == "app:" || p == "doc:") {
+            if prefix
+                .0
+                .first()
+                .is_some_and(|p| p == "app:" || p == "doc:" || p.starts_with("win:"))
+            {
                 return prefix.clone();
             }
             let spelt = format!("/{}", prefix.0[1..].join("/"));
@@ -305,9 +335,36 @@ impl GrantSet {
             }
             let mut parts = line.split_whitespace();
             let capability = parts.next().unwrap_or_default();
-            let target = parts
+            let first = parts
                 .next()
                 .ok_or_else(|| format!("line {}: `{capability}` needs a target", index + 1))?;
+            // Decode one complete target; never reinterpret decoded content as
+            // grant lines. Legacy unquoted tokenization stays unchanged.
+            let quoted = if matches!(capability, "fs.read" | "fs.write") && first.starts_with('"') {
+                let value: String = serde_json::from_str(line[capability.len()..].trim_start())
+                    .map_err(|e| {
+                        format!("line {}: bad quoted filesystem target: {e}", index + 1)
+                    })?;
+                if value.chars().any(char::is_control) {
+                    return Err(format!(
+                        "line {}: quoted filesystem target contains a control character",
+                        index + 1
+                    ));
+                }
+                Some(value)
+            } else {
+                None
+            };
+            let target = quoted.as_deref().unwrap_or(first);
+            if matches!(capability, "net.fetch" | "net.websocket") && target.contains('@') {
+                // `https://api.example.com@evil.com` is the origin `evil.com`:
+                // a line that reads as one host and admits another is refused
+                // here, before either parser (native or the browser's) sees it.
+                return Err(format!(
+                    "line {}: `{target}`: an origin has no user or password",
+                    index + 1
+                ));
+            }
             let grant = match capability {
                 "net.fetch" if target.contains("://*.") => {
                     Grant::FetchSubdomains(subdomains(target).map_err(|e| {
@@ -366,7 +423,7 @@ impl GrantSet {
             // One capability and one target per line. Anything after the
             // target refuses the line: a manifest typo that split a target
             // must stop a deployment, not silently grant its first word.
-            if let Some(extra) = parts.next() {
+            if let Some(extra) = parts.next().filter(|_| quoted.is_none()) {
                 return Err(format!(
                     "line {}: unexpected `{extra}` after the target",
                     index + 1
@@ -377,6 +434,9 @@ impl GrantSet {
         Ok(set)
     }
 }
+
+#[cfg(test)]
+mod quoted_tests;
 
 /// The suffix origin of `scheme://*.suffix[:port]` (Exact patch 1): `*` is
 /// the whole leftmost label and appears nowhere else, the suffix is a domain
@@ -555,10 +615,23 @@ mod tests {
             "net.fetch https://*.example.com/path",
             "net.fetch https://*example.com",
             "net.websocket wss://*.example.com",
+            "net.fetch https://*.example.com@evil.com",
+            "net.fetch https://*.example.com:pw@evil.com",
         ] {
             assert!(GrantSet::parse(bad).is_err(), "{bad} parsed");
         }
         assert!(GrantSet::parse("net.fetch https://*.example.com:8443").is_ok());
+    }
+
+    #[test]
+    fn an_origin_spelt_with_userinfo_is_refused() {
+        for bad in [
+            "net.fetch https://api.example.com@evil.com",
+            "net.fetch https://user:pw@api.example.com",
+            "net.websocket wss://api.example.com@evil.com",
+        ] {
+            assert!(GrantSet::parse(bad).is_err(), "{bad} parsed");
+        }
     }
 
     #[test]

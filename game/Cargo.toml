@@ -23,6 +23,7 @@ exact-data-host = { path = "../data/host" }
 exact-web = { path = "../host/web" }
 exact-web-capabilities = { path = "../host/web-capabilities" }
 exact-linux = { path = "../host/linux" }
+exact-windows = { path = "../host/windows" }
 exact-apple = { path = "../host/apple" }
 exact-runner = { path = "../runner" }
 wasm-bindgen = "=0.2.127"
@@ -68,13 +69,14 @@ cosmic-text = { path = "../vendor/cosmic-text" }
 # exact-gpu presents through the patched Metal backend (vendor/wgpu-hal/EXACT-PATCHES.md).
 wgpu-hal = { path = "../vendor/wgpu-hal" }
 
-# Apple development hosts use the core's non-LTO release profile.
-[profile.apple-dev]
+# Development native hosts use the core's non-LTO release profile.
+[profile.host-dev]
 inherits = "release"
 lto = false
 codegen-units = 16
 incremental = true
-[profile.apple-dev.build-override]
+strip = false
+[profile.host-dev.build-override]
 strip = false
 
 # Fast surface module rebuilds; dependencies stay optimized, the game links cheaply.

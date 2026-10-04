@@ -1,0 +1,35 @@
+// Rows whose keys collide: the semantics distinguishes them by how many
+// earlier rows share the key. Every row here has the same key.
+shape Item
+  id: string
+
+component App
+  resource a = items(1) as shape list<Item>
+  resource b = items(2) as shape list<Item>
+  resource c = items(3) as shape list<Item>
+  resource d = items(4) as shape list<Item>
+  // The longest of four answers, so whatever the oracle's seed some rows
+  // are almost surely there.
+  derive ab = length(a) >= length(b) ? a : b
+  derive cd = length(c) >= length(d) ? c : d
+  derive items = length(ab) >= length(cd) ? ab : cd
+  view
+    column
+      each it, i in items key="same"
+        Tick(index=i)
+
+component Tick
+  props
+    index: number
+  state n = 0
+  action inc
+    n = n + 1
+  view
+    button "t" press=inc testId=`t-${index}`
+      text `${index}:${n}` testId=`v-${index}`
+
+test "same key"
+  tap "t-0"
+  tap "t-1"
+  tap "t-1"
+  tap "t-2"

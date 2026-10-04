@@ -1,0 +1,40 @@
+// A row's action that writes both its own slot and a root slot, through an
+// action prop; both land in one commit.
+shape Item
+  id: string
+
+component App
+  resource a = items(1) as shape list<Item>
+  resource b = items(2) as shape list<Item>
+  derive items = length(a) >= length(b) ? a : b
+  state total = 0
+  state lastId = ""
+  action note(id: string)
+    lastId = id
+    total = total + 1
+  view
+    column
+      text `${total} ${lastId}` testId="root"
+      each it, i in items key=it.id
+        Row(item=it, index=i, onTap=note)
+
+component Row
+  props
+    item: Item
+    index: number
+    onTap: action
+  state mine = 0
+  action local
+    mine = mine + 10
+  view
+    row
+      button "local" press=local testId=`local-${index}`
+      button "up" press=onTap(item.id) testId=`up-${index}`
+      text `${mine}` testId=`mine-${index}`
+
+test "row and root"
+  tap "local-0"
+  tap "up-0"
+  tap "local-1"
+  tap "up-1"
+  tap "up-0"

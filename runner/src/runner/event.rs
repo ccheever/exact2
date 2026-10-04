@@ -170,8 +170,12 @@ pub enum Event {
         /// Exact insertion-before key; None denotes the actual logical end.
         before: Option<String>,
     },
-    /// A press on the view.
+    /// A press on the view, no modifier key held.
     Press,
+    /// A press with modifier keys held (gallery F20: shift-click, ⌘-click),
+    /// the `MouseEvent` flags a `press` action may take; dispatched as
+    /// `Press`. [`Event::press`] makes whichever the modifiers call for.
+    PressWith(KeyModifiers),
     /// A control's value moved (HTML's `input`): a text field's every
     /// keystroke, a checkbox's toggle (LLP 1069.001 D4).
     Input(ControlValue),
@@ -201,8 +205,10 @@ pub enum Event {
     /// The view lost the focus.
     Blur,
     /// A key went down while the view had the focus: the key's name as the
-    /// web spells it (`"Enter"`, `"ArrowDown"`, `"a"`).
-    Key(String),
+    /// web spells it (`"Enter"`, `"ArrowDown"`, `"a"`), and the modifiers
+    /// held (`KeyboardEvent`'s flags). A host writes both as a chord,
+    /// [`Event::key`].
+    Key(String, KeyModifiers),
     /// Enter in an input with a `submit` handler — the web's implicit
     /// submission (HTML forms §4.10.21.2), without a form.
     Submit,
@@ -216,17 +222,21 @@ pub enum Event {
     Dblclick,
     /// A touch or primary button went down on the view (DOM's
     /// `pointerdown`), before any gesture is recognized (LLP 1005 §3).
-    Pointerdown,
+    Pointerdown(super::PointerEvent),
     /// That touch or button came up, or the platform cancelled it (DOM's
     /// `pointerup`; a `pointercancel` is delivered as one).
-    Pointerup,
+    Pointerup(super::PointerEvent),
+    /// The pointer moved over the view, or while held after going down on
+    /// it: at most one a frame (LLP 1056 §3 stage 3, as built).
+    Pointermove(super::PointerEvent),
     /// A platform-recognized right swipe.
     Swiperight,
     /// A pull past the top of a scroll container asked for fresh content
     /// (UIKit's `UIRefreshControl`); the app answers through `refreshing`.
     Refresh,
-    /// A changed scroll position, in CSS pixels (left, top).
-    Scroll(f64, f64),
+    /// A changed scroll position, in CSS pixels, and the scroller's extents
+    /// as the host had them: what a web handler reads off `event.target`.
+    Scroll(ScrollEvent),
     /// Incremental recognized pan displacement in viewport CSS pixels.
     /// @ref LLP 1043.000 §3 D8 — the action commits layout state, never a hold.
     Pan(f64, f64),
@@ -237,6 +247,11 @@ pub enum Event {
     PanRelease(f64, f64),
     /// A standard media event. Numeric payloads are seconds.
     Media(EventKind, String),
+    /// DOM's `copy`, `cut` or `paste` at the focused view (spreadsheet F4,
+    /// F14): the clipboard's plain text as the event carries it — what is
+    /// pasted; empty on copy and cut, whose action writes the clipboard
+    /// (`copyText`), as a DOM listener's `setData` does.
+    Clipboard(EventKind, String),
     /// An incoming location at the navigation root. @ref LLP 1038 D8/D11
     Navigate(String),
     /// An authored sheet handle released: logical height and signed pixels/second.
@@ -276,7 +291,148 @@ pub enum Event {
     },
 }
 
+/// A scroll event's position and the scroller's extents, in CSS pixels: the
+/// web's `scrollLeft`, `scrollTop`, `scrollWidth`, `scrollHeight`,
+/// `clientWidth` and `clientHeight` of the element that scrolled, read when
+/// the event fires (chat F4: a jump-to-latest pill asks whether the list is
+/// at its end, `scrollHeight - scrollTop - clientHeight` as on the web).
+/// A native host's `scrollWidth`/`scrollHeight` is its client size plus its
+/// scroll range, so the difference is the range it clamps to.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ScrollEvent {
+    /// The offset from the start, along x (`scrollLeft`).
+    pub left: f64,
+    /// The offset from the start, along y (`scrollTop`).
+    pub top: f64,
+    /// The scrolled content's width (`scrollWidth`).
+    pub width: f64,
+    /// The scrolled content's height (`scrollHeight`).
+    pub height: f64,
+    /// The scrollport's width (`clientWidth`).
+    pub client_width: f64,
+    /// The scrollport's height (`clientHeight`).
+    pub client_height: f64,
+}
+
+/// The modifier keys held as a key went down: `KeyboardEvent`'s
+/// `shiftKey`, `ctrlKey`, `altKey` and `metaKey` (chat F2, kanban F27 in the
+/// x2apps diaries: Shift+Enter and ⌘S were not expressible).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct KeyModifiers {
+    /// Shift.
+    pub shift: bool,
+    /// Control.
+    pub ctrl: bool,
+    /// Alt, Option on a Mac.
+    pub alt: bool,
+    /// Meta: Command on a Mac, the Windows key elsewhere.
+    pub meta: bool,
+}
+
+impl KeyModifiers {
+    /// The modifiers a host writes as a chord prefix with no key —
+    /// `Shift+Meta`, `Control+`, or nothing — as [`KeyModifiers::split`]
+    /// names them; `None` for any other word.
+    pub fn held(prefix: &str) -> Option<Self> {
+        let mut held = Self::default();
+        for name in prefix.split('+').filter(|n| !n.is_empty()) {
+            *match name {
+                "Shift" => &mut held.shift,
+                "Control" => &mut held.ctrl,
+                "Alt" => &mut held.alt,
+                "Meta" => &mut held.meta,
+                _ => return None,
+            } = true;
+        }
+        Some(held)
+    }
+
+    /// The `MouseEvent` record `press` offers, its fields in the compiler's
+    /// order (`contract/types/src/selection.rs`).
+    pub fn mouse(&self) -> Value {
+        Value::record(vec![
+            Value::Bool(self.shift),
+            Value::Bool(self.ctrl),
+            Value::Bool(self.alt),
+            Value::Bool(self.meta),
+        ])
+    }
+
+    /// A key as a host writes it, split: the modifiers named before it with
+    /// any of `Shift+`, `Control+`, `Alt+` and `Meta+`, and the key's name —
+    /// the chord syntax of `aria-keyshortcuts` and Playwright
+    /// (`"Shift+Enter"`, `"Meta+s"`, `"+"`, `"Shift++"`). A bare name holds
+    /// no modifier.
+    pub fn split(chord: &str) -> (Self, &str) {
+        let mut held = Self::default();
+        let mut rest = chord;
+        while let Some((name, key)) = rest.split_once('+').filter(|(_, key)| !key.is_empty()) {
+            *match name {
+                "Shift" => &mut held.shift,
+                "Control" => &mut held.ctrl,
+                "Alt" => &mut held.alt,
+                "Meta" => &mut held.meta,
+                _ => break,
+            } = true;
+            rest = key;
+        }
+        (held, rest)
+    }
+}
+
 impl Event {
+    /// A press with the modifiers a host held ([`KeyModifiers::held`]):
+    /// `Press` when none is; `None` for a word DOM does not name.
+    pub fn press(held: &str) -> Option<Self> {
+        let held = KeyModifiers::held(held)?;
+        Some(if held == KeyModifiers::default() {
+            Self::Press
+        } else {
+            Self::PressWith(held)
+        })
+    }
+
+    /// A key from its chord ([`KeyModifiers::split`]).
+    pub fn key(chord: &str) -> Self {
+        let (held, key) = KeyModifiers::split(chord);
+        Self::Key(key.into(), held)
+    }
+
+    /// The DOM record this event offers its action as an optional last
+    /// parameter, its fields in the compiler's order
+    /// (`contract_types::event_record`, `contract/types/src/selection.rs`):
+    /// `key`'s `KeyboardEvent`, `press`'s `MouseEvent`, the pointer's
+    /// `PointerEvent`, `scroll`'s `ScrollEvent` and the clipboard's
+    /// `ClipboardEvent`.
+    pub fn record(&self) -> Option<Value> {
+        match self {
+            Event::Key(key, held) => Some(Value::record(vec![
+                Value::str(key),
+                Value::Bool(held.shift),
+                Value::Bool(held.ctrl),
+                Value::Bool(held.alt),
+                Value::Bool(held.meta),
+            ])),
+            Event::Pointerdown(p) | Event::Pointerup(p) | Event::Pointermove(p) => Some(p.value()),
+            Event::Scroll(s) => Some(Value::record(
+                [
+                    s.left,
+                    s.top,
+                    s.width,
+                    s.height,
+                    s.client_width,
+                    s.client_height,
+                ]
+                .map(Value::Number)
+                .to_vec(),
+            )),
+            Event::Clipboard(_, text) => Some(Value::record(vec![Value::str(text)])),
+            Event::Press => Some(KeyModifiers::default().mouse()),
+            Event::PressWith(held) => Some(held.mouse()),
+            _ => None,
+        }
+    }
+
     /// Decode host kind 21: formats, mixed (0/1), unavailable, then the link
     /// remainder, separated by newlines. Token lists never contain newlines;
     /// a target may, so the final remainder is kept verbatim.
@@ -315,6 +471,18 @@ impl Event {
             return None;
         }
         Some(Self::Media(kind, value.into()))
+    }
+
+    /// Decode ABI kind 32 (`copy`), 33 (`cut`) or 34 (`paste`): the
+    /// payload is the clipboard's plain text, verbatim.
+    pub fn clipboard_payload(kind: u32, payload: &str) -> Option<Self> {
+        let kind = match kind {
+            32 => EventKind::Copy,
+            33 => EventKind::Cut,
+            34 => EventKind::Paste,
+            _ => return None,
+        };
+        Some(Self::Clipboard(kind, payload.into()))
     }
 
     /// Decode exactly four comma-separated geometry dimensions. Hosts validate
@@ -417,14 +585,22 @@ impl Event {
         valid_height_release(height, velocity).then_some(Self::HeightRelease { height, velocity })
     }
 
-    /// Decode the scroll event's two finite CSS-pixel coordinates.
+    /// Decode the scroll event: `left,top,scrollWidth,scrollHeight,
+    /// clientWidth,clientHeight`, finite CSS pixels, the extents not negative.
     pub fn scroll_payload(payload: &str) -> Option<Self> {
-        let (left, top) = payload.split_once(',')?;
-        let (left, top) = (
-            exact_num::parse_f64(left).ok()?,
-            exact_num::parse_f64(top).ok()?,
-        );
-        (left.is_finite() && top.is_finite()).then_some(Self::Scroll(left, top))
+        let [left, top, width, height, client_width, client_height] = tuple::<6>(payload)?;
+        ([left, top].iter().all(|v| v.is_finite())
+            && [width, height, client_width, client_height]
+                .iter()
+                .all(|v| v.is_finite() && *v >= 0.0))
+        .then_some(Self::Scroll(ScrollEvent {
+            left,
+            top,
+            width,
+            height,
+            client_width,
+            client_height,
+        }))
     }
 }
 
@@ -576,7 +752,7 @@ impl<D: DataSource> Runner<D> {
             Opcode::LoadSlot => {
                 let id = first.args[0] as u32;
                 let row = self.plan.slots.get(id as usize).ok_or(Unsupported)?;
-                match row.owner {
+                match self.plan.owner_region(row) {
                     Some(owner) => super::Frame::row_of(frames, owner.0)
                         .and_then(|slots| slots.borrow().get(&id).cloned())
                         .ok_or(Unsupported)?,
@@ -760,7 +936,7 @@ impl<D: DataSource> Runner<D> {
         let mut what = super::lines::event(
             match &event {
                 Event::ReorderDrop { .. } => "reorderdrop",
-                Event::Press => "press",
+                Event::Press | Event::PressWith(_) => "press",
                 Event::Input(_) => "input",
                 Event::Change(_) => "change",
                 Event::Cancel => "cancel",
@@ -769,20 +945,21 @@ impl<D: DataSource> Runner<D> {
                 Event::Hover(false) => "hover out",
                 Event::Focus => "focus",
                 Event::Blur => "blur",
-                Event::Key(_) => "key",
+                Event::Key(..) => "key",
                 Event::Submit => "submit",
                 Event::Load => "load",
                 Event::Message(_) => "message",
                 Event::Contextmenu => "contextmenu",
                 Event::Dblclick => "dblclick",
-                Event::Pointerdown => "pointerdown",
-                Event::Pointerup => "pointerup",
+                Event::Pointerdown(_) => "pointerdown",
+                Event::Pointerup(_) => "pointerup",
+                Event::Pointermove(_) => "pointermove",
                 Event::Swiperight => "swiperight",
                 Event::Refresh => "refresh",
-                Event::Scroll(_, _) => "scroll",
+                Event::Scroll(_) => "scroll",
                 Event::Pan(_, _) => "pan",
                 Event::PanRelease(_, _) => "panrelease",
-                Event::Media(kind, _) => kind.name(),
+                Event::Media(kind, _) | Event::Clipboard(kind, _) => kind.name(),
                 Event::Navigate(_) => "navigate",
                 Event::HeightRelease { .. } => "heightrelease",
                 Event::TransformGeometry { .. } => "transformgeometry",
@@ -831,7 +1008,7 @@ impl<D: DataSource> Runner<D> {
         };
         let (kind, payload, name) = match &event {
             Event::ReorderDrop { .. } => (EventKind::Reorderdrop, None, "reorderdrop"),
-            Event::Press => (EventKind::Press, None, "press"),
+            Event::Press | Event::PressWith(_) => (EventKind::Press, None, "press"),
             Event::Input(_) => (EventKind::Input, control, "input"),
             Event::Change(_) => (EventKind::Change, control, "change"),
             Event::Cancel => (EventKind::Cancel, None, "cancel"),
@@ -853,17 +1030,18 @@ impl<D: DataSource> Runner<D> {
             Event::Hover(over) => (EventKind::Hover, Some(Value::Bool(*over)), "hover"),
             Event::Focus => (EventKind::Focus, None, "focus"),
             Event::Blur => (EventKind::Blur, None, "blur"),
-            Event::Key(key) => (EventKind::Key, Some(Value::str(key)), "key"),
+            Event::Key(key, _) => (EventKind::Key, Some(Value::str(key)), "key"),
             Event::Submit => (EventKind::Submit, None, "submit"),
             Event::Load => (EventKind::Load, None, "load"),
             Event::Message(message) => (EventKind::Message, Some(Value::str(message)), "message"),
             Event::Contextmenu => (EventKind::Contextmenu, None, "contextmenu"),
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
-            Event::Pointerdown => (EventKind::Pointerdown, None, "pointerdown"),
-            Event::Pointerup => (EventKind::Pointerup, None, "pointerup"),
+            Event::Pointerdown(_) => (EventKind::Pointerdown, None, "pointerdown"),
+            Event::Pointerup(_) => (EventKind::Pointerup, None, "pointerup"),
+            Event::Pointermove(_) => (EventKind::Pointermove, None, "pointermove"),
             Event::Swiperight => (EventKind::Swiperight, None, "swiperight"),
             Event::Refresh => (EventKind::Refresh, None, "refresh"),
-            Event::Scroll(_, _) => (EventKind::Scroll, None, "scroll"),
+            Event::Scroll(_) => (EventKind::Scroll, None, "scroll"),
             Event::Media(kind, value) => (
                 *kind,
                 match kind {
@@ -875,6 +1053,7 @@ impl<D: DataSource> Runner<D> {
                 },
                 kind.name(),
             ),
+            Event::Clipboard(kind, _) => (*kind, None, kind.name()),
             Event::Pan(_, _) => (EventKind::Pan, None, "pan"),
             Event::PanRelease(_, _) => (EventKind::Panrelease, None, "panrelease"),
             Event::HeightRelease { .. } => (EventKind::Heightrelease, None, "heightrelease"),
@@ -907,12 +1086,17 @@ impl<D: DataSource> Runner<D> {
                 args.push(p);
             }
         }
+        // The event's record, after what it always carries, to an action
+        // that declares one more parameter (`contract_types::event_record`).
+        let record = event.record();
         match event {
             Event::ReorderDrop { item, before } => {
                 args.push(Value::str(&item));
                 args.push(before.map_or(Value::NONE, |s| Value::some(Value::str(&s))));
             }
-            Event::Scroll(left, top) | Event::Pan(left, top) | Event::PanRelease(left, top) => {
+            Event::Scroll(ScrollEvent { left, top, .. })
+            | Event::Pan(left, top)
+            | Event::PanRelease(left, top) => {
                 args.extend([Value::Number(left), Value::Number(top)])
             }
             Event::HeightRelease { height, velocity } => {
@@ -937,6 +1121,11 @@ impl<D: DataSource> Runner<D> {
                 args.extend([x, y, scale, vx, vy, vscale].map(Value::Number));
             }
             _ => {}
+        }
+        if let Some(record) = record {
+            if self.plan.action(handler.action).params.len as usize > args.len() {
+                args.push(record);
+            }
         }
         super::lines::ran(what, self.plan.str(self.plan.action(handler.action).name));
         self.run_action(handler.action, args, &frames)

@@ -7,7 +7,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import vm from 'node:vm';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ALLOWED = new Set(['host/web/glue.js', 'host/web/navigation.js']);
@@ -19,7 +19,8 @@ const ALLOWED = new Set(['host/web/glue.js', 'host/web/navigation.js']);
 // hash, in review.
 const CAPTURE = { path: 'host/web/capture.js', maxBytes: 1024,
   sha256: '9f2f1e8ebbc83b2c2f928627384bceb66d94dc174a8a284360765cdf30d10a55' };
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+const rootPath = path => relative(ROOT, path).replaceAll('\\', '/');
 
 // The page is deliberately small, so a fail-closed tokenizer is preferable
 // to a dependency. It recognizes HTML comments, quoted and unquoted
@@ -128,7 +129,7 @@ function codeOnly(source) {
 function localModule(root, from, specifier, problems) {
   if (specifier.startsWith('./') || specifier.startsWith('../')) return resolve(dirname(from), specifier);
   if (specifier.startsWith('/')) return resolve(root, '.' + specifier);
-  problems.push(`unsupported non-local module specifier in ${from.slice(root.length + 1)}: ${specifier}`);
+  problems.push(`unsupported non-local module specifier in ${rootPath(from)}: ${specifier}`);
   return null;
 }
 
@@ -163,7 +164,7 @@ function run() {
     const file = queue.shift();
     if (seen.has(file)) continue;
     seen.add(file);
-    const rel = file.slice(root.length + 1);
+    const rel = rootPath(file);
     if (!ALLOWED.has(rel)) problems.push(`module before first pixel is outside the allowed host paths: ${rel}`);
     if (rel.startsWith('apps/')) problems.push(`app JS before first pixel: ${rel}`);
     if (!existsSync(file)) { problems.push(`missing module: ${rel}`); continue; }
@@ -218,7 +219,7 @@ function run() {
   }
   const wasm = (html.match(/\.wasm/g) ?? []).length + [...sources.values()].reduce((n, source) => n + (source.match(/\.wasm/g) ?? []).length, 0);
   const modules = [...sources].map(([file, source]) => ({
-    path: file.slice(root.length + 1), bytes: Buffer.byteLength(source),
+    path: rootPath(file), bytes: Buffer.byteLength(source),
     sha256: createHash('sha256').update(source).digest('hex'),
   }));
   const report = { modules: seen.size, javascript_bytes: modules.reduce((n, m) => n + m.bytes, 0),
@@ -227,7 +228,7 @@ function run() {
     capture_script: { inline: 1, bytes: capture.bytes, max_bytes: CAPTURE.maxBytes, sha256: capture.sha256, checked: capture.checked, found: capture.found, stale: capture.stale }, problems };
   if (process.argv.includes('--json')) console.log(JSON.stringify(report));
   else {
-    console.log(`boot — modules reachable before first pixel: ${seen.size} (${[...seen].map((file) => file.slice(root.length + 1)).join(', ') || 'none'}); wasm references: ${wasm}`);
+    console.log(`boot — modules reachable before first pixel: ${seen.size} (${[...seen].map(rootPath).join(', ') || 'none'}); wasm references: ${wasm}`);
     console.log(`  reachable JavaScript: ${report.javascript_bytes} B; page: ${report.html_bytes} B (diagnostic sizes, no byte budget)`);
     console.log(`  interaction document: 1 host module (${documentBytes} B), no imports`);
     const built = !capture.checked ? '' : capture.found ? `; ${capture.checked} runs it and no other`

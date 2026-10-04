@@ -12,12 +12,22 @@
 // where there is no Metal device.
 import Metal
 import QuartzCore
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 final class Shadow {
     /// The one shadow renderer, or nil where Metal is absent.
-    nonisolated(unsafe) static let shared: Shadow? = Shadow()
+    nonisolated(unsafe) static var active: Shadow?
+    nonisolated(unsafe) static let shared: Shadow? = {
+        let shadow = Shadow()
+        active = shadow
+        return shadow
+    }()
+
+    /// Update an existing mirror immediately; creation takes the same setter.
+    func rank(_ layer: CALayer, _ value: CGFloat) {
+        if let mirror = mirrors[ObjectIdentifier(layer)], mirror.zPosition != value { mirror.zPosition = value }
+    }
 
     let device: MTLDevice
     let queue: MTLCommandQueue
@@ -202,6 +212,8 @@ final class Shadow {
         // colour: LLP 1055.000) is captured as it shows, not as its model.
         let shown = layer.animationKeys()?.isEmpty == false ? (layer.presentation() ?? layer) : layer
         copy(shown, to: shadow)
+        if let node = layer.delegate as? NodeView { node.setPaintPosition(node.paintZPosition) }
+        else { rank(layer, shown.zPosition) }
         // An SVG part's mask (a gradient under its shape) comes along.
         if let mask = layer.mask {
             let m = mirror(mask)
@@ -272,7 +284,6 @@ final class Shadow {
         if b.contentsScale != a.contentsScale { b.contentsScale = a.contentsScale }
         if b.contentsGravity != a.contentsGravity { b.contentsGravity = a.contentsGravity }
         if b.isOpaque != a.isOpaque { b.isOpaque = a.isOpaque }
-        if b.zPosition != a.zPosition { b.zPosition = a.zPosition }
         // A `box-shadow` (`BoxShadow.swift`): the shadow, and the mask that
         // keeps it outside the box.
         if a is ShadowCaster {

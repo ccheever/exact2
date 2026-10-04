@@ -1,5 +1,5 @@
-//! A WebSocket that only listens (LLP 1016.000 D3; Exact's LLP 1069.004
-//! slice 3): the socket is opened by the host, admitted by `net.websocket
+//! A WebSocket that only listens (LLP 0059.000 §3.12, the receive-only
+//! subset built first): the socket is opened by the host, admitted by `net.websocket
 //! <origin>`, and read one message at a time. Nothing is sent but what the
 //! protocol requires (the handshake, a pong, the closing handshake): the
 //! consumer has no outbound frame.

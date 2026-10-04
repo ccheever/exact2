@@ -6,6 +6,14 @@
 // with, then answers JSON lines until the driver hangs up:
 //   {"op":"tap","point":[x,y]}   a tap at a point in the app's scene, points
 //                                → {"done":true,"injected":{"start":ms,"end":ms}}
+//   {"op":"drag","point":[x,y],"to":[x,y],"press":s,"velocity":v,"hold":s}
+//                                one whole gesture (LLP 1080.000 §11): press,
+//                                one straight drag at `v` points per second
+//                                (the header says pixels; on the simulator a
+//                                drag at v covers v points a second, measured
+//                                at 3x), hold, lift; `to` equal to `point` is
+//                                a still press for `press + hold`
+//                                → {"done":true,"injected":{"start":ms,"end":ms}}
 //   {"op":"foreground"}          → {"state":"runningForeground"|…}
 //   {"op":"orientation","to":O}  turns the device (portrait, portraitUpsideDown,
 //                                landscapeLeft, landscapeRight) → {"device":O}
@@ -37,6 +45,17 @@ final class ExactTouches: XCTestCase {
                 guard target.state == .runningForeground else { link.send(["error": "the app is \(Self.name(target.state)), not in the foreground"]); continue }
                 let start = Date().timeIntervalSince1970 * 1000
                 target.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: p[0], dy: p[1])).tap()
+                link.send(["done": true, "injected": ["start": start, "end": Date().timeIntervalSince1970 * 1000]])
+            case "drag":
+                guard let p = req["point"] as? [Double], p.count == 2, let q = req["to"] as? [Double], q.count == 2, (p + q).allSatisfy(\.isFinite),
+                      let press = req["press"] as? Double, let hold = req["hold"] as? Double, let velocity = req["velocity"] as? Double,
+                      [press, hold, velocity].allSatisfy({ $0.isFinite && $0 >= 0 }) else { link.send(["error": "drag needs finite points and non-negative press, hold and velocity"]); continue }
+                guard target.state == .runningForeground else { link.send(["error": "the app is \(Self.name(target.state)), not in the foreground"]); continue }
+                let origin = target.coordinate(withNormalizedOffset: .zero)
+                let from = origin.withOffset(CGVector(dx: p[0], dy: p[1]))
+                let start = Date().timeIntervalSince1970 * 1000
+                if p == q { from.press(forDuration: press + hold) }
+                else { from.press(forDuration: press, thenDragTo: origin.withOffset(CGVector(dx: q[0], dy: q[1])), withVelocity: XCUIGestureVelocity(velocity), thenHoldForDuration: hold) }
                 link.send(["done": true, "injected": ["start": start, "end": Date().timeIntervalSince1970 * 1000]])
             case "orientation":
                 let names: [String: UIDeviceOrientation] = ["portrait": .portrait, "portraitUpsideDown": .portraitUpsideDown, "landscapeLeft": .landscapeLeft, "landscapeRight": .landscapeRight]

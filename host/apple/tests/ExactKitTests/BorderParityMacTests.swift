@@ -50,8 +50,11 @@ final class BorderParityMacTests: XCTestCase {
         CATransaction.flush()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.15))
         typealias Create = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        // A sleeping display or a locked screen answers with an empty picture
+        // (`Agent.emptyPicture`): no picture, as with no window server.
         guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage"),
-              let image = unsafeBitCast(sym, to: Create.self)(.null, 1 << 3, UInt32(window.windowNumber), 1 << 0)?.takeRetainedValue()
+              let image = unsafeBitCast(sym, to: Create.self)(.null, 1 << 3, UInt32(window.windowNumber), 1 << 0)?.takeRetainedValue(),
+              !Agent.emptyPicture(image)
         else { return nil }
         let ctx = BorderParity.canvas(page)
         ctx.saveGState()
@@ -67,7 +70,7 @@ final class BorderParityMacTests: XCTestCase {
     /// antialiased edge a little (the drawn cases measure 1–2.2 mean there),
     /// so the band is wider than the drawing tests'.
     func testEveryCaseMatchesChromeOnScreen() throws {
-        guard onScreen([:], dark: false, page: CGColor(gray: 1, alpha: 1)) != nil else { throw XCTSkip("no window server picture") }
+        guard onScreen([:], dark: false, page: CGColor(gray: 1, alpha: 1)) != nil else { throw XCTSkip("no window server picture (no window server, or its display is asleep or the screen locked)") }
         let band = (mean: 3.0, over: 4.0)
         var failures = BorderParity.check(flipped: false, dark: false, band: band) { onScreen($0, dark: $1, page: $2)! }
         failures += GradientParity.check(dark: false, band: band) { onScreen($0, dark: $1, page: $2)! }

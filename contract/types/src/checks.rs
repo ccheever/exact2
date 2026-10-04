@@ -4,7 +4,8 @@ use super::{
     arms, disagree, err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
 use contract_syntax::{
-    one_spelling_edit, Attr, Binding, Component, Expr, File, Node, Span, TemplatePart, TypeExpr,
+    one_spelling_edit, Attr, Binding, Component, Expr, File, Node, Owner, Span, TemplatePart,
+    TypeExpr,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -85,7 +86,8 @@ fn calls_in(e: &Expr, indices: &BTreeMap<&str, usize>, out: &mut Vec<usize>) {
         Expr::Some(x, _)
         | Expr::Unary(_, x, _)
         | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _) => calls_in(x, indices, out),
+        | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _) => calls_in(x, indices, out),
         Expr::Binary(_, a, b, _) => {
             calls_in(a, indices, out);
             calls_in(b, indices, out);
@@ -389,33 +391,43 @@ fn visit_shape(
     Ok(())
 }
 
-/// The lexical scope at each expanded `each` tag.
+/// The lexical scope at each expanded region arm, by tag and arm, whose
+/// subject types now, and whether every region's subject typed. A region
+/// over a list a later write completes (`state items = []`) is skipped,
+/// with all it holds: the view check refuses a list that never types
+/// (@ref LLP 1088 D6's two repros, without its fixed point).
 fn owner_scopes(
     c: &Component,
     ct: &ComponentTypes,
     types: &Types,
-) -> Result<BTreeMap<u32, Scope>, TypeError> {
+) -> (BTreeMap<(u32, u8), Scope>, bool) {
     let mut scopes = BTreeMap::new();
-    collect_owner_scopes(
+    let complete = collect_owner_scopes(
         &c.view,
         &types.component_scope(c, ct),
         &types.shapes,
         &mut scopes,
-    )?;
-    Ok(scopes)
+    );
+    (scopes, complete)
 }
 
-/// Infer lifted row-slot initializers in the region frames that own them.
+/// Infer each lifted child state's initializer where its instance is
+/// created: in its use site's scope, after derives and resources have
+/// types, so it may read them, a row's item, a `match` binding, and every
+/// earlier state (LLP 1017 P4c).
 pub(super) fn infer_owned_state_initializers(
     c: &Component,
     ct: &mut ComponentTypes,
     types: &Types,
-    owners: Option<&[Option<u32>]>,
+    owners: Option<&[Owner]>,
 ) -> Result<(), TypeError> {
     let Some(owners) = owners else {
         return Ok(());
     };
-    let scopes = owner_scopes(c, ct, types)?;
+    if owners.iter().all(|o| *o == Owner::Root) {
+        return Ok(());
+    }
+    let (scopes, complete) = owner_scopes(c, ct, types);
     let mut names: Vec<(String, Ref, Ty)> = c
         .props
         .iter()
@@ -426,24 +438,57 @@ pub(super) fn infer_owned_state_initializers(
         let i = c.props.len() + j;
         names.push((p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()));
     }
+    // What settled before any instance renders: derives and resources.
+    let mut settled = Vec::new();
+    for (i, d) in c.derives.iter().enumerate() {
+        settled.push((d.name.clone(), Ref::Derive(i as u32), ct.derives[i].clone()));
+    }
+    for (i, r) in c.resources.iter().enumerate() {
+        settled.push((
+            r.name.clone(),
+            Ref::Resource(i as u32),
+            ct.resources[i].clone(),
+        ));
+    }
+    for (i, m) in c.mutations.iter().enumerate() {
+        let t = Ty::Option(Box::new(ct.mutations[i].clone()));
+        settled.push((m.name.clone(), Ref::Mutation(i as u32), t));
+    }
     for (i, state) in c.states.iter().enumerate() {
-        if let Some(tag) = owners.get(i).copied().flatten() {
-            let Some(owner_scope) = scopes.get(&tag) else {
-                return err(
-                    "type-row-slot",
-                    format!("row state `{}` has no owning `each`", state.name),
-                    state.span,
-                );
-            };
+        let regions = match owners.get(i).copied().unwrap_or(Owner::Root) {
+            Owner::Root => None,
+            Owner::Instance => Some(Vec::new()),
+            Owner::Arm { tag, arm } => {
+                let Some(owner_scope) = scopes.get(&(tag, arm)) else {
+                    if !complete {
+                        // Its region was skipped: the view check says why.
+                        names.push((state.name.clone(), Ref::Slot(i as u32), ct.slots[i].clone()));
+                        continue;
+                    }
+                    return err(
+                        "type-row-slot",
+                        format!("child state `{}` has no owning region", state.name),
+                        state.span,
+                    );
+                };
+                Some(
+                    owner_scope
+                        .frames
+                        .iter()
+                        .filter(|frame| frame.region)
+                        .cloned()
+                        .collect(),
+                )
+            }
+        };
+        if let Some(regions) = regions {
             let mut scope = Scope::default();
-            scope.frames_reset(&names);
-            scope.frames.extend(
-                owner_scope
-                    .frames
-                    .iter()
-                    .filter(|frame| frame.region)
-                    .cloned(),
-            );
+            scope.push(settled.clone());
+            scope.push(names.clone());
+            scope.frames.extend(regions);
+            if let Some(e) = super::component::initializer_scope(c, i, &scope, &types.shapes) {
+                return Err(e);
+            }
             ct.slots[i] = infer(&state.expr, &scope, &types.shapes)?;
         }
         names.push((state.name.clone(), Ref::Slot(i as u32), ct.slots[i].clone()));
@@ -455,19 +500,25 @@ fn collect_owner_scopes(
     nodes: &[Node],
     scope: &Scope,
     shapes: &Shapes,
-    scopes: &mut BTreeMap<u32, Scope>,
-) -> Result<(), TypeError> {
+    scopes: &mut BTreeMap<(u32, u8), Scope>,
+) -> bool {
+    let mut complete = true;
     for node in nodes {
         match node {
             Node::Element { children, .. } | Node::Use { children, .. } => {
-                collect_owner_scopes(children, scope, shapes, scopes)?;
+                complete &= collect_owner_scopes(children, scope, shapes, scopes);
             }
             Node::Children { .. } => {}
             Node::When {
-                then, otherwise, ..
+                tag,
+                then,
+                otherwise,
+                ..
             } => {
-                collect_owner_scopes(then, scope, shapes, scopes)?;
-                collect_owner_scopes(otherwise, scope, shapes, scopes)?;
+                scopes.insert((*tag, 0), scope.clone());
+                scopes.insert((*tag, 1), scope.clone());
+                complete &= collect_owner_scopes(then, scope, shapes, scopes);
+                complete &= collect_owner_scopes(otherwise, scope, shapes, scopes);
             }
             Node::Each {
                 tag,
@@ -477,43 +528,38 @@ fn collect_owner_scopes(
                 body,
                 ..
             } => {
-                let ty = infer(list, scope, shapes)?;
-                let Ty::List(item) = ty else {
-                    return err(
-                        "type-each-list",
-                        format!("`each` needs a list, given `{ty}`"),
-                        list.span(),
-                    );
+                let Ok(Ty::List(item)) = infer(list, scope, shapes) else {
+                    complete = false;
+                    continue;
                 };
                 let mut inner = scope.clone();
                 inner.push_each(var, index.as_deref(), *item);
-                scopes.insert(*tag, inner.clone());
-                collect_owner_scopes(body, &inner, shapes, scopes)?;
+                scopes.insert((*tag, 0), inner.clone());
+                complete &= collect_owner_scopes(body, &inner, shapes, scopes);
             }
             Node::Match {
+                tag,
                 subject,
                 some,
                 none,
                 ..
             } => {
-                let ty = infer(subject, scope, shapes)?;
-                let Ty::Option(item) = ty else {
-                    return err(
-                        "type-match-subject",
-                        format!("`match` needs an option, given `{ty}`"),
-                        subject.span(),
-                    );
+                let Ok(Ty::Option(item)) = infer(subject, scope, shapes) else {
+                    complete = false;
+                    continue;
                 };
                 let mut inner = scope.clone();
                 inner.push_region(Some((some.0.clone(), Ref::Bound(0), *item)));
-                collect_owner_scopes(&some.1, &inner, shapes, scopes)?;
+                scopes.insert((*tag, 0), inner.clone());
+                complete &= collect_owner_scopes(&some.1, &inner, shapes, scopes);
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
-                collect_owner_scopes(none, &none_scope, shapes, scopes)?;
+                scopes.insert((*tag, 1), none_scope.clone());
+                complete &= collect_owner_scopes(none, &none_scope, shapes, scopes);
             }
         }
     }
-    Ok(())
+    complete
 }
 
 /// A slot's fill, checked where `children` stands with its caller's scope
@@ -705,6 +751,9 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     // @ref LLP 1077 D14 — `haptic("success" | "warning" | "error" | …)`.
     "haptic",
     "openURL",
+    // `reload()`: the development host boots the app again, as its dev
+    // menu's Reload does; a host without a dev menu refuses it.
+    "reload",
     "selectText",
     "setScheme",
     // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
@@ -721,6 +770,12 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     // The inverse of a canvas's `message=`: `postMessage(text, "world")` queues
     // text into the surface of that name, delivered in order, never coalesced.
     "postMessage",
+    // `event.preventDefault()` for the `key` event that ran the action: the
+    // host skips the key's default action (docs/contract-grammar.md#events).
+    "preventDefault",
+    // `event.stopPropagation()` for the same event: no ancestor's `key`
+    // handler hears it, and its default still happens (files diary F8).
+    "stopPropagation",
 ];
 
 /// The three pickers' positional arguments (LLP 1069.010 D2): an element
@@ -856,23 +911,52 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
 /// 1070.000 §1): a virtualized list's `id` as a literal, a row key, and the
 /// web's `ScrollIntoViewOptions` by name with literal values; `row=` names an
 /// inner list's outer row. Whether the list exists is the runner's to find.
+/// With one positional argument, `scrollIntoView("element-id", block=,
+/// inline=, behavior=)` is `Element.scrollIntoView()` on any element by its
+/// HTML `id`, as `focus("id")` names one (minesweeper F3): its scroll
+/// containers, innermost first, then the page; the host finds it.
 fn into_view_args(
     args: &[Expr],
     scope: &Scope,
     shapes: &Shapes,
     span: Span,
 ) -> Result<(), TypeError> {
-    const USAGE: &str = "`scrollIntoView(\"list-id\", key, block=\"start\", inline=\"nearest\", behavior=\"auto\", row=outerKey)`";
+    const USAGE: &str = "`scrollIntoView(\"element-id\", block=\"start\", inline=\"nearest\", behavior=\"auto\")`, or a virtualized list's row by key: `scrollIntoView(\"list-id\", key, …, row=outerKey)`";
     let positional: Vec<_> = args
         .iter()
         .filter(|a| !matches!(a, Expr::NamedArg(..)))
         .collect();
-    let [list, key] = positional.as_slice() else {
-        return err(
-            "type-scroll-into-view",
-            format!("{USAGE}: a list's `id` and a row's key, then options by name"),
-            span,
-        );
+    let (list, key) = match positional.as_slice() {
+        [element] => (element, None),
+        [list, key] => (list, Some(key)),
+        _ => {
+            return err(
+                "type-scroll-into-view",
+                format!("{USAGE}: an element's `id`, or a list's `id` and a row's key, then options by name"),
+                span,
+            )
+        }
+    };
+    let Some(key) = key else {
+        // Any string names the element, as `focus` takes one.
+        if infer(list, scope, shapes)? != Ty::String {
+            return err(
+                "type-scroll-into-view",
+                format!("the element is named by its `id`, a string: {USAGE}"),
+                list.span(),
+            );
+        }
+        if let Some(Expr::NamedArg(_, _, at)) = args
+            .iter()
+            .find(|a| matches!(a, Expr::NamedArg(name, ..) if name == "row"))
+        {
+            return err(
+                "type-scroll-into-view",
+                "`row=` names an inner list's outer row: it goes with a list's `id` and a row's key",
+                *at,
+            );
+        }
+        return into_view_options(args, scope, shapes, USAGE);
     };
     if !matches!(list, Expr::Str(..)) {
         return err(
@@ -882,6 +966,16 @@ fn into_view_args(
         );
     }
     infer(key, scope, shapes)?;
+    into_view_options(args, scope, shapes, USAGE)
+}
+
+/// The web's `ScrollIntoViewOptions` by name, literal values, each once.
+fn into_view_options(
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    usage: &str,
+) -> Result<(), TypeError> {
     let mut seen = BTreeSet::new();
     for arg in args {
         let Expr::NamedArg(name, value, at) = arg else {
@@ -904,7 +998,7 @@ fn into_view_args(
             _ => {
                 return err(
                     "type-scroll-into-view",
-                    format!("`scrollIntoView` has no option `{name}`: {USAGE}"),
+                    format!("`scrollIntoView` has no option `{name}`: {usage}"),
                     *at,
                 )
             }
@@ -945,6 +1039,20 @@ pub(super) fn check_command(
             ),
         };
         return err("type-unknown-command", message, span);
+    }
+    if name == "preventDefault" && !args.is_empty() {
+        return err(
+            "type-prevent-default",
+            "`preventDefault()` takes no arguments: it prevents the default action of the key event that ran this action",
+            span,
+        );
+    }
+    if name == "stopPropagation" && !args.is_empty() {
+        return err(
+            "type-stop-propagation",
+            "`stopPropagation()` takes no arguments: it stops the key event that ran this action at this handler, so no ancestor's `key` handler hears it",
+            span,
+        );
     }
     if name == "share" {
         return share_args(args, scope, shapes, span);

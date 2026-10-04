@@ -1,0 +1,23 @@
+// A slot initialised to `[]`, compared and rewritten.
+shape Item
+  id: string
+
+component App
+  resource items = items() as shape list<Item>
+  state picked = []
+  derive count = length(picked)
+  action take
+    picked = map(items, i => i.id)
+  action drop
+    picked = []
+  view
+    column
+      text `${count}` testId="count"
+      button "take" press=take testId="take"
+      button "drop" press=drop testId="drop"
+
+test "list slot"
+  expect state count == 0
+  tap "take"
+  tap "drop"
+  expect state count == 0

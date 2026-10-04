@@ -8,7 +8,7 @@
 // (a rotation, a split) and every change of the insets. Bounded
 // containment: the session's page scrolls inside this view exactly as the
 // standalone host's does.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 public final class ExactView: UIView {
@@ -46,10 +46,12 @@ public final class ExactView: UIView {
         // The launch screen's colour (the manifest's `launch`) until the first frame names the canvas.
         backgroundColor = UIColor(named: "ExactLaunch") ?? .white
         addSubview(session.presenter.viewport)
+        #if !os(tvOS)
         keyboardObserver = NotificationCenter.default.addObserver(
             forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.installKeyboardProbe() }
         }
+        #endif
         session.view = self
         session.presenter.onViewportFit = { [weak self] in self?.setNeedsLayout(); self?.onViewportFit?() }
         session.presenter.onCanvasColor = { [weak self] color in self?.backgroundColor = color; self?.onCanvasColor?(color) }
@@ -61,11 +63,14 @@ public final class ExactView: UIView {
         // Without this the page stayed laid out above keys that had left —
         // the bottom of the list missing after a swipe back. Fitting is
         // idempotent, so fit again when the keyboard has settled.
+        // tvOS has no keyboard frame notifications.
+        #if !os(tvOS)
         keyboardSettled = [UIResponder.keyboardDidHideNotification, UIResponder.keyboardDidChangeFrameNotification].map { name in
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.fit() }
             }
         }
+        #endif
         session.presenter.observeKeyboard()
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
         // A hinge moving from flat to a book angle changes the division
@@ -99,6 +104,7 @@ public final class ExactView: UIView {
     /// the window gives the window a layout engine, and every view added
     /// after joins it (`_switchToLayoutEngine:`), which a list pays for each
     /// view of each row it builds. No node view uses a constraint.
+    #if !os(tvOS)
     private func installKeyboardProbe() {
         guard keyboardProbe == nil else { return }
         keyboardObserver.map(NotificationCenter.default.removeObserver)
@@ -115,6 +121,7 @@ public final class ExactView: UIView {
         ])
         keyboardProbe = probe
     }
+    #endif
 
     /// The first root's `viewport-fit` prop (`"cover"` or nothing).
     public var viewportFit: String? { session.presenter.viewportFit }
@@ -123,6 +130,13 @@ public final class ExactView: UIView {
         super.layoutSubviews()
         fit()
     }
+
+    #if os(iOS)
+    // aria-keyshortcuts as key commands (ShortcutsIOS, gallery F18).
+    public override var canBecomeFirstResponder: Bool { true }
+    public override var keyCommands: [UIKeyCommand]? { session.presenter.shortcutCommands(#selector(exactShortcut(_:))) }
+    @objc private func exactShortcut(_ command: UIKeyCommand) { session.presenter.performShortcut(command) }
+    #endif
 
     public override func willMove(toWindow newWindow: UIWindow?) {
         // Child didMoveToWindow callbacks can retry focus before our own
@@ -148,6 +162,11 @@ public final class ExactView: UIView {
                 fit()
                 session.presenter.navigation.mounted()
                 session.presenter.syncAccessibility()
+                #if os(iOS)
+                // Nothing focused (autofocus has run): this view holds the
+                // focus, so a hardware keyboard's shortcuts are heard (ShortcutsIOS).
+                if session.presenter.focusedNode == nil { _ = becomeFirstResponder() }
+                #endif
             }
         }
         // Mounted and visible participate in frame demand (D3): an unmounted
@@ -200,8 +219,13 @@ public final class ExactView: UIView {
             // occupied geometry while this session retains its editor.
             if presenter.interactiveKeyboardDrag || presenter.modals.active ||
                 presenter.hasKeyboardEditor {
+                #if os(tvOS)
+                // tvOS has no keyboard layout guide.
+                top = .infinity
+                #else
                 let guide = container.keyboardLayoutGuide.layoutFrame
                 top = guide.height > safe.bottom + 1 ? guide.minY : .infinity
+                #endif
             } else if let edge = presenter.keyboardTop, let window {
                 top = container.convert(CGPoint(x: 0, y: edge), from: window).y
             } else { top = .infinity }

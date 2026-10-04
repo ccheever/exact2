@@ -1,0 +1,40 @@
+// floor, max, min: floor rounds toward -Infinity; max/min with NaN return
+// the other operand (the runner's fmaxnm/fminnm), and +0 is above -0.
+component App
+  state x = 2.5
+  derive f = floor(x)
+  derive fneg = floor(-x)
+  derive mx = max(x, 3)
+  derive mn = min(x, 3)
+  derive mxNaN = max(0 / 0, x)
+  derive mnNaN = min(x, 0 / 0)
+  derive bigFloor = floor(4503599627370495.5)
+  derive tinyFloor = floor(0.0000001)
+  derive negTinyFloor = floor(-0.0000001)
+  derive maxInf = min(1 / 0, x)
+  action set(v: number)
+    x = v
+  view
+    column
+      text `${f} ${fneg} ${mx} ${mn}` testId="r"
+      text `${negTinyFloor} ${bigFloor}` testId="edges"
+      button "neg" press=set(-1.5) testId="neg"
+      button "int" press=set(7) testId="int"
+
+test "values"
+  expect state f == 2
+  expect state mx == 3
+  expect state mn == 2.5
+  expect state mxNaN == 2.5
+  expect state mnNaN == 2.5
+  expect state bigFloor == 4503599627370495
+  expect state tinyFloor == 0
+  expect state maxInf == 2.5
+  expect text "r" == "2 -3 3 2.5"
+  expect text "edges" == "-1 4503599627370495"
+
+test "negative and integer"
+  tap "neg"
+  expect text "r" == "-2 1 3 -1.5"
+  tap "int"
+  expect text "r" == "7 -7 7 3"

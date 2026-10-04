@@ -99,3 +99,63 @@ fn before_the_first_layout_every_read_is_unavailable() {
     assert!(!flag(&r, "answered"));
     assert_eq!((num(&r, "room"), num(&r, "natural")), (0.0, 0.0));
 }
+
+#[test]
+fn a_read_sees_the_box_where_the_viewer_does_with_every_scroll_above_it_applied() {
+    // The kanban diary's F4: a drop target under the pointer, read from a
+    // scrolled column, without the app tracking `scrollTop` itself.
+    let plan = contract::compile(
+        r#"component App
+  state y = 0
+  state x = 0
+  state top = 0
+  state pane = 0
+  action read
+    y = frame("card").y
+    x = frame("card").x
+    top = measure("card").y
+    pane = frame("pane").y
+  view
+    column
+      column height=40
+      scroll id="pane" height=200
+        column height=300
+        column id="card" height=50
+      button press=read testId="read"
+        text "read"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    let pane = r.kernel().find_by_id("pane")[0];
+    let pane = r.kernel().arena().local_id(pane.index);
+    r.act("read", vec![]).unwrap();
+    assert_eq!(
+        num(&r, "y"),
+        340.0,
+        "unscrolled: 40 above the pane, 300 above the card"
+    );
+    r.scrolled(Some(pane), 7.0, 120.0);
+    r.scrolled(None, 0.0, 10.0);
+    r.act("read", vec![]).unwrap();
+    assert_eq!(
+        num(&r, "y"),
+        210.0,
+        "the pane's 120 and the page's 10 are applied"
+    );
+    assert_eq!(num(&r, "x"), -7.0);
+    assert_eq!(num(&r, "top"), 210.0, "measure answers at the same origin");
+    assert_eq!(
+        num(&r, "pane"),
+        30.0,
+        "a scroller's own offset moves its content, not its box"
+    );
+}

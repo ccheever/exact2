@@ -1,0 +1,94 @@
+// data: video-player
+// Synthetic conformance plan: a `video` with every LLP 1042 property bound
+// and every media event heard (jukebox F1, F5, F6). The counts are what an
+// engine reports the same way each run; the time is the one a seek
+// reports, not where playing reached. A missing source's `error` is a code,
+// never the engine's text. (No slot shares a name with Video Player's: the
+// wasm page carries its first world into this plan by slot name.) An
+// `audio` beside it (LLP 1042 §8) is hidden and plays from the play press.
+component Media
+  state held = true
+  state muted = false
+  state looped = false
+  state volume = 1
+  state rate = 1
+  state pitch = true
+  state seek = 0
+  state src = "assets/motion.mp4"
+  state metas = 0
+  state dur = 0
+  state at = -1
+  state fresh = false
+  state vols = 0
+  state rates = 0
+  state seeks = 0
+  state plays = 0
+  state pauses = 0
+  state ready = false
+  state problem = ""
+  state hush = true
+  state sounds = 0
+  action quieter
+    volume = 0.25
+  action mute
+    muted = not muted
+  action faster
+    rate = 2
+  action unpitch
+    pitch = false
+  action jump
+    seek = 1.5
+  action back
+    seek = 0.5
+  action play
+    held = false
+    looped = true
+    hush = false
+  action pause
+    held = true
+  action other
+    src = "assets/motion.mp4?other"
+  action missing
+    src = "assets/missing.mp4"
+  action meta
+    metas = metas + 1
+  action length(d: number)
+    dur = d
+  action seeking
+    fresh = true
+  action tick(t: number)
+    at = fresh ? floor(t) : at
+    fresh = false
+  action vol
+    vols = vols + 1
+  action rated
+    rates = rates + 1
+  action seeked
+    seeks = seeks + 1
+  action played
+    plays = plays + 1
+  action stopped
+    pauses = pauses + 1
+  action can
+    ready = true
+  action failed(code: string)
+    problem = code
+  action heard
+    problem = problem
+  action sounded
+    sounds = sounds + 1
+  view
+    column testId="root" gap=4 padding=8 height="100%" box-sizing="border-box" background-color="#ffffff" color="#000000"
+      video src testId="video" width=160 height=90 paused=held muted=muted loop=looped volume=volume playbackRate=rate preservesPitch=pitch currentTime=seek preload="auto" playsinline=true controls=false loadedmetadata=meta durationchange=length timeupdate=tick play=played playing=heard pause=stopped ended=heard waiting=heard seeking=seeking seeked=seeked ratechange=rated volumechange=vol canplay=can error=failed
+      text `metas ${metas} dur ${dur} at ${at} vols ${vols} rates ${rates} seeks ${seeks} plays ${plays} pauses ${pauses} ready ${ready} error ${problem} sounds ${sounds}` testId="seen"
+      button "quieter" press=quieter testId="quieter"
+      button "mute" press=mute testId="mute"
+      button "faster" press=faster testId="faster"
+      button "unpitch" press=unpitch testId="unpitch"
+      button "jump" press=jump testId="jump"
+      button "play" press=play testId="play"
+      button "pause" press=pause testId="pause"
+      button "back" press=back testId="back"
+      button "other" press=other testId="other"
+      button "missing" press=missing testId="missing"
+      audio "assets/motion.mp4" testId="audio" preload="auto" paused=hush play=sounded

@@ -1,6 +1,6 @@
 // UIKit moves the scrollport; row construction follows outside its layout pass.
 // @ref LLP 1044.000 §6 S5; LLP 1010 §6 — visible-only rescue, bounded lead.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 final class ScrollPump: NSObject, UIScrollViewDelegate {
@@ -129,7 +129,10 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         scheduleAfterScroll()
         start()
     }
-    func scrollViewDidScroll(_ scrollView: UIScrollView) { scrolled(nil) }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        presenter?.onScrolled?(nil, Double(scrollView.contentOffset.x), Double(scrollView.contentOffset.y))
+        presenter?.stickies.scrolled(nil); scrolled(nil)
+    }
 
     func batchApplied() {
         // A list that never scrolls, or whose rows change in place (live

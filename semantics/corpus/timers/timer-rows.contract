@@ -1,0 +1,37 @@
+// A timer that changes a list's source argument: rows follow the new list
+// on each fire, keyed rows keeping state across fires.
+shape Item
+  id: string
+
+component App
+  state page = 0
+  resource items = items(page % 2) as shape list<Item>
+  action flip
+    page = page + 1
+  task t mount
+    every(100, flip)
+  view
+    column
+      text `${page}` testId="page"
+      each it, i in items key=it.id
+        Row(id=it.id, index=i)
+
+component Row
+  props
+    id: string
+    index: number
+  state hits = 0
+  action hit
+    hits = hits + 1
+  view
+    button "hit" press=hit testId=`hit-${index}`
+      text `${id}:${hits}` testId=`row-${index}`
+
+test "rows across fires"
+  tap "hit-0"
+  clock +100
+  tap "hit-0"
+  clock +100
+  tap "hit-1"
+  clock +300
+  expect state page == 5

@@ -6,7 +6,7 @@
 // node's activation (D4); the node keeps keys and focus; the control is the
 // one accessibility element. A glass style's control is the glass body the
 // glass-group pass isolates (D9).
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// UIKit's button, as a native button's control: never a UIKit focus item
@@ -92,9 +92,9 @@ extension ControlHost {
         // (`LinkedDesign`), the table's earlier column: UIKit draws a glass
         // configuration there as a bordered button.
         var current = false
-        if #available(iOS 26.0, *) { current = LinkedDesign.liquidGlass }
+        if #available(iOS 26.0, tvOS 26.0, *) { current = LinkedDesign.liquidGlass }
         let name = ButtonFace.drawn(current ? face.ios : face.iosBefore26).name
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, tvOS 26.0, *) {
             switch name {
             case "glass": return (.glass(), name, true)
             case "prominentGlass": return (.prominentGlass(), name, true)
@@ -143,7 +143,7 @@ extension ControlHost {
         button.accessibilityIdentifier = written.testId
         if written.selected { button.accessibilityTraits.insert(.selected) } else { button.accessibilityTraits.remove(.selected) }
         button.setAccessibilityToggle(written.pressed)
-        if #available(iOS 18, *) {
+        if #available(iOS 18, tvOS 18, *) {
             button.accessibilityExpandedStatus = written.expanded.map { $0 == "true" ? .expanded : .collapsed } ?? .unsupported
         }
         button.drawn = drawn

@@ -1,0 +1,49 @@
+// Rows inside a component that is itself in a row, each level with its
+// own state: inner row state belongs to the inner row.
+shape Group
+  name: string
+  members: list<string>
+
+component App
+  resource g1 = groups(1) as shape list<Group>
+  resource g2 = groups(2) as shape list<Group>
+  derive groups = length(g1) >= length(g2) ? g1 : g2
+  view
+    column
+      each g, gi in groups key=gi
+        Box(group=g, gi=gi)
+
+component Box
+  props
+    group: Group
+    gi: number
+  state open = true
+  action toggle
+    open = not open
+  view
+    column
+      button "t" press=toggle testId=`box-${gi}`
+      when open
+        each m, mi in group.members key=mi
+          Member(gi=gi, mi=mi, name=m)
+
+component Member
+  props
+    gi: number
+    mi: number
+    name: string
+  state likes = 0
+  action like
+    likes = likes + 1
+  view
+    button "like" press=like testId=`like-${gi}-${mi}`
+      text `${name}:${likes}` testId=`m-${gi}-${mi}`
+
+test "levels"
+  tap "like-0-0"
+  tap "like-0-0"
+  tap "like-0-1"
+  tap "like-1-0"
+  tap "box-0"
+  tap "box-0"
+  tap "like-0-0"

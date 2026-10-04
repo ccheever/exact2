@@ -1,14 +1,20 @@
 use super::*;
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::symlink;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
+#[cfg(unix)]
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(unix)]
 use std::sync::Arc;
 
-const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef";
-struct Fixture(PathBuf);
+pub(super) const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef";
+pub(super) struct Fixture(PathBuf);
 impl Fixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
             "exact-fs-{}-{}",
@@ -18,10 +24,10 @@ impl Fixture {
         fs::create_dir(&path).unwrap();
         Self(path)
     }
-    fn path(&self, name: &str) -> PathBuf {
+    pub(super) fn path(&self, name: &str) -> PathBuf {
         self.0.join(name)
     }
-    fn dir(&self, name: &str) -> Directory {
+    pub(super) fn dir(&self, name: &str) -> Directory {
         Directory::root(self.path(name).to_str().unwrap(), true).unwrap()
     }
 }
@@ -32,6 +38,7 @@ impl Drop for Fixture {
 }
 
 #[test]
+#[cfg(unix)]
 fn a_static_inventory_refuses_a_fifo() {
     let fixture = Fixture::new();
     let root = fixture.dir("assets");
@@ -133,6 +140,7 @@ fn retained_payload_failure_never_publishes_the_envelope() {
 }
 
 #[test]
+#[cfg(unix)]
 fn retained_completion_counts_require_the_last_successful_holder() {
     let fixture = Fixture::new();
     let root = fixture.dir("cache");
@@ -206,6 +214,7 @@ fn retained_completion_counts_require_the_last_successful_holder() {
 }
 
 #[test]
+#[cfg(unix)]
 fn retained_generations_cannot_bypass_heads_or_symlink_gate() {
     let fixture = Fixture::new();
     let root = fixture.dir("cache");
@@ -236,6 +245,7 @@ fn retained_generations_cannot_bypass_heads_or_symlink_gate() {
 }
 
 #[test]
+#[cfg(unix)]
 fn held_parent_cannot_be_redirected_after_validation() {
     let fixture = Fixture::new();
     let root = fixture.dir("origin");
@@ -255,6 +265,7 @@ fn held_parent_cannot_be_redirected_after_validation() {
 }
 
 #[test]
+#[cfg(unix)]
 fn replaced_lock_and_head_are_refused_before_commit() {
     let fixture = Fixture::new();
     let root = fixture.dir("origin");
@@ -283,6 +294,7 @@ fn replaced_lock_and_head_are_refused_before_commit() {
 
 // Atomic exchange gives the adversary a continuously present path: no test
 // can pass merely because every operation caught a missing-name gap.
+#[cfg(unix)]
 fn exchange(left: &Path, right: &Path) {
     use std::ffi::CString;
     let left = CString::new(left.to_str().unwrap()).unwrap();
@@ -311,6 +323,7 @@ fn exchange(left: &Path, right: &Path) {
 }
 
 #[test]
+#[cfg(unix)]
 fn concurrent_intermediate_symlinks_never_supply_or_receive_bytes() {
     let fixture = Fixture::new();
     let root = fixture.dir("origin");
@@ -380,6 +393,7 @@ fn concurrent_intermediate_symlinks_never_supply_or_receive_bytes() {
 }
 
 #[test]
+#[cfg(unix)]
 fn resident_reader_reopens_roots_and_refuses_mutations() {
     let fixture = Fixture::new();
     let path = fixture.path("root");

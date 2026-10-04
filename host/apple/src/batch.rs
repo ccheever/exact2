@@ -446,6 +446,22 @@ impl Batch {
         self.ops.push(format!("{{\"op\":\"exit\",\"id\":{id}}}"));
     }
 
+    /// `{"op":"flight","id":…,"from":…}` — the view's shared-element name
+    /// arrives from `from` (LLP 1013.000 D4). Sent before the batch's
+    /// destroys: the presenter captures where `from` is shown, then, once
+    /// the batch is applied, lifts `id` and flies it from there to its place
+    /// by the `flight` progress it is presented.
+    pub fn flight(&mut self, id: u32, from: u32) {
+        self.ops
+            .push(format!("{{\"op\":\"flight\",\"id\":{id},\"from\":{from}}}"));
+    }
+
+    /// `{"op":"land","id":…}` — the flight's curve settled: the view goes
+    /// back to its place.
+    pub fn land(&mut self, id: u32) {
+        self.ops.push(format!("{{\"op\":\"land\",\"id\":{id}}}"));
+    }
+
     /// `{"op":"roots","ids":[…]}`.
     pub fn roots(&mut self, ids: &[u32]) {
         let mut s = String::from("{\"op\":\"roots\",\"ids\":");
@@ -481,6 +497,45 @@ impl Batch {
         crate::style::push_num(&mut s, w);
         s.push_str(",\"h\":");
         crate::style::push_num(&mut s, h);
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// Twice the sibling paint rank, losslessly encoded (LLP 1083.000 D4).
+    pub fn rank(&mut self, id: u32, rank: i64) {
+        self.ops
+            .push(format!("{{\"op\":\"rank\",\"id\":{id},\"rank\":{rank}}}"));
+    }
+
+    /// `{"op":"sticky","id":…,"scroller":…,"natural":[…],"limit":[…],
+    /// "port":[…],"insets":[…]}` — a sticky box's constraint (LLP 1083 D3),
+    /// or `{"op":"sticky","id":…}` when it is no longer sticky.
+    pub fn sticky(&mut self, id: u32, constraint: Option<&exact_kernel::StickyConstraint>) {
+        let mut s = format!("{{\"op\":\"sticky\",\"id\":{id}");
+        if let Some(c) = constraint {
+            let _ = write!(s, ",\"scroller\":{}", c.scroller);
+            for (name, rect) in [("natural", c.natural), ("limit", c.limit), ("port", c.port)] {
+                let _ = write!(s, ",\"{name}\":[");
+                for (i, v) in rect.into_iter().enumerate() {
+                    if i > 0 {
+                        s.push(',');
+                    }
+                    crate::style::push_num(&mut s, v);
+                }
+                s.push(']');
+            }
+            s.push_str(",\"insets\":[");
+            for (i, v) in c.insets.into_iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                match v {
+                    Some(v) => crate::style::push_num(&mut s, v),
+                    None => s.push_str("null"),
+                }
+            }
+            s.push(']');
+        }
         s.push('}');
         self.ops.push(s);
     }

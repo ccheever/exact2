@@ -1,0 +1,28 @@
+// An infinite row key (1/0). The list arrives through a mutation, so the program boots
+// (with no rows) and the source's answers reach both sides; the rows appear
+// on "load" (each tap asks with a new argument, so some answer has rows). (Booting straight into NaN keys drops the oracle transcript on
+// the runner side, so the Lean side refuses for a different reason and the
+// two agree by accident.)
+shape Item
+  id: string
+
+component App
+  mutation loaded as shape list<Item>
+  derive items = match loaded { case some(xs) => xs, case none => [] }
+  state z = 0
+  state k = 0
+  action load
+    k = k + 1
+    send loaded = items(k)
+  view
+    column
+      button "load" press=load testId="load"
+      text `${length(items)}` testId="count"
+      each it, i in items key=(1 / z)
+        text it.id testId=`row-${i}`
+
+test "infinite keys"
+  tap "load"
+  tap "load"
+  tap "load"
+  tap "load"

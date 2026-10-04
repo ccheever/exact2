@@ -45,6 +45,20 @@
     throw new Error("Math.random() is unavailable in data sources; pass time or a random seed as an argument, or use crypto.getRandomValues");
   });
 
+  // No timers and no clock to read (LLP 1027.000): refused by name, as the
+  // web's module bindings refuse them (host/web-js/ts-fetch.js), rather than
+  // a bare "doesn't exist". Clearing what was never set is harmless.
+  function noTimers(api) {
+    return function () { throw new Error(api + " is unavailable in data sources: there are no timers; pass time as an argument"); };
+  }
+  ["setTimeout", "setInterval", "requestAnimationFrame", "requestIdleCallback"].forEach(function (name) {
+    fixed(global, name, noTimers(name + "()"));
+  });
+  ["clearTimeout", "clearInterval", "cancelAnimationFrame", "cancelIdleCallback"].forEach(function (name) {
+    fixed(global, name, function () {});
+  });
+  fixed(global, "performance", Object.freeze({ now: function () { return refuseAmbient("performance.now()"); } }));
+
   // Intl's formatting methods also default an omitted/undefined date to
   // machine time. Guard the prototype before an app can capture its bound
   // format getter or formatToParts method; explicit timestamps still use
@@ -147,13 +161,14 @@
     var work = nativeStorage && nativeStorage.work;
     if (!call || call.status !== "pending" || typeof work !== "function") return promise;
     call.storage++;
+    storing.add(call);
     return work(promise).then(function (value) {
       currentCall = call;
-      call.storage--;
+      unstore(call);
       return value;
     }, function (error) {
       currentCall = call;
-      call.storage--;
+      unstore(call);
       throw error;
     });
   }
@@ -389,8 +404,34 @@
 
   // --- fetch: a request the host runs; a Promise for its reply -------------
   var nextTicket = 1;
-  var pending = new Map();   // ticket -> { resolve, reject, call }
+  // ticket -> { resolve, reject, call, claimed, stream, signal, release }:
+  // `claimed` once a settle has handed the executor its request, `release`
+  // ends its watch on `signal`.
+  var pending = new Map();
   var currentCall = null;    // the answer a fetch belongs to
+  // A fetch's `signal` is watched through Ibex's own abort hooks natively,
+  // which run before any listener and so cannot be stopped by one; a
+  // browser realm's signal is the browser's, watched by a listener, and
+  // checked again when the reply lands. Either watch ends with the fetch.
+  // Calls with storage steps in flight, settled or not: a step a settled
+  // call left behind is still the module's work (see `settle`).
+  var storing = new Set();
+  function unstore(call) {
+    call.storage--;
+    if (!call.storage) storing.delete(call);
+  }
+  var abortHooks = global.__ibex2_abort;
+  delete global.__ibex2_abort;
+  function watchAbort(signal, aborted) {
+    if (abortHooks) return abortHooks.subscribe(signal, aborted);
+    signal.addEventListener("abort", aborted);
+    return function () { signal.removeEventListener("abort", aborted); };
+  }
+  function settled(ticket) {
+    var p = pending.get(ticket);
+    if (p) { pending.delete(ticket); p.release(); }
+    return p;
+  }
 
   function Headers(init) {
     this._h = [];
@@ -437,7 +478,14 @@
   global.Response = Response;
   global.fetch = function (url, init) {
     var call = currentCall;
-    if (!call) return Promise.reject(new Error("fetch called outside an answer"));
+    // A continuation running as an answer already given still fetches: the
+    // next answer to settle claims the request (see `settle`).
+    if (!call) {
+      var refused = new Error("fetch() called outside an answer: it was never run. Start a fetch inside an answer");
+      if (global.console) global.console.error(refused.message);
+      return Promise.reject(refused);
+    }
+    if (call.letGo) return Promise.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this fetch" }));
     var method = init && init.method ? String(init.method).toUpperCase() : "GET";
     var headers = new Headers(init && init.headers).entries();
     var body = init && init.body != null ? String(init.body) : "";
@@ -458,12 +506,26 @@
       return Promise.reject(new TypeError("exactStream maps each event to the answer: (event) => value"));
     if (stream && call.stream) return Promise.reject(new Error("an answer streams one request"));
     if (stream && ceiling === undefined) ceiling = 1048576;
+    // The web's `signal`: an aborted fetch rejects with its reason at once.
+    // The host's request still runs; its reply is dropped (`__exact_fulfill`).
+    var signal = init ? init.signal : undefined;
+    if (signal != null && abortHooks) {
+      try { abortHooks.subscribe(signal, function () {})(); }
+      catch (e) { return Promise.reject(new TypeError("fetch: init.signal is not an AbortSignal")); }
+    }
+    if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
     var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, max_response_bytes: ceiling, stream: stream ? true : undefined }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
-    return new Promise(function (resolve, reject) { pending.set(ticket, { resolve: resolve, reject: reject, call: call }); });
+    return new Promise(function (resolve, reject) {
+      // `early`: made while its answer was still in flight (its body, or its
+      // own continuation), so that answer's own, whoever else is pending.
+      var p = { resolve: resolve, reject: reject, call: call, claimed: false, stream: !!stream, signal: signal, release: function () {}, early: call.status === "pending" };
+      pending.set(ticket, p);
+      if (signal) p.release = watchAbort(signal, function () { if (settled(ticket)) reject(signal.reason); });
+    });
   };
 
   // --- signing in through the system browser (LLP 1069.006) ---------------
@@ -518,30 +580,64 @@
     delete global.__exact_storage;
     delete global.__exact_install_storage;
   };
-  function storageError(message) {
+  // A storage refusal is `{kind: "Unavailable", code, message}`, the code
+  // the same on every host (kanban F28; host/web-js/ts-data.js `coded`):
+  // storage itself is unavailable ("bake", "agent", "unsupported"), the
+  // grants do not cover the operation ("denied"), the filesystem's POSIX
+  // name ("ENOENT", "EEXIST", "ENOTDIR", "EISDIR", "ENOTEMPTY", "EBUSY"),
+  // else "failed". The message says more and differs by host.
+  var REFUSED = {
+    bake: "storage is unavailable during bake",
+    agent: "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)",
+    unsupported: "storage is unsupported by this host",
+  };
+  // Rust's `io::Error` ends with its errno; these are the same on Darwin and
+  // Linux but ENOTEMPTY (66, 39).
+  var ERRNO = { 2: "ENOENT", 16: "EBUSY", 17: "EEXIST", 20: "ENOTDIR", 21: "EISDIR", 39: "ENOTEMPTY", 66: "ENOTEMPTY" };
+  function storageCode(message) {
+    if (/^denied: /.test(message)) return "denied";
+    var errno = /\(os error (\d+)\)$/.exec(message);
+    if (errno && ERRNO[errno[1]]) return ERRNO[errno[1]];
+    return /\bbusy\b|database is locked/.test(message) ? "EBUSY" : "failed";
+  }
+  function storageError(message, code) {
     var error = new Error(message);
     error.kind = "Unavailable";
+    error.code = code || storageCode(String(message));
     return error;
   }
   function storageCall(receiver, method, args, convert) {
     var call = currentCall;
-    if (!call || call.status !== "pending") return Promise.reject(storageError("storage called outside an answer"));
-    try {
-      host(5, "", ""); // no filesystem or database effects during bake
-      if (!receiver) throw storageError("storage is unsupported by this host");
-    } catch (e) { return Promise.reject(storageError(e.message || String(e))); }
+    // An answer's work, awaited or not, lands before its reply (see `settle`),
+    // so nothing can reach here after it; if something does, say so loudly
+    // rather than lose a write in a rejection nobody handles (kanban F22).
+    if (!call || call.replied) {
+      var refused = storageError("storage." + method + "() called outside an answer: it was never run. Start storage inside an answer");
+      if (global.console) global.console.error(refused.message);
+      return Promise.reject(refused);
+    }
+    var refused;
+    // A file operation names its path: a document the person chose
+    // (`doc:/`) needs no app storage (LLP 1069.010 D1).
+    var path = receiver && nativeStorage && receiver === nativeStorage.fs && typeof args[0] === "string" ? args[0] : "";
+    try { refused = host(5, path, "") || (receiver ? undefined : "unsupported"); }
+    catch (e) { refused = "bake"; } // no filesystem or database effects during bake
+    if (refused) return Promise.reject(storageError(REFUSED[refused], refused));
     call.storage++;
+    storing.add(call);
     var promise;
     try { promise = receiver[method].apply(receiver, args); }
     catch (e) { promise = Promise.reject(e); }
     return promise.then(function (value) {
       currentCall = call;
-      call.storage--;
+      unstore(call);
       return convert ? convert(value) : value;
     }, function (error) {
       currentCall = call;
-      call.storage--;
-      throw error && error.kind ? error : storageError(error.message || String(error));
+      unstore(call);
+      if (!error || !error.kind) throw storageError(error && error.message || String(error), error && error.code);
+      if (!error.code) try { error.code = storageCode(String(error.message)); } catch (_) { /* a frozen error keeps its own */ }
+      throw error;
     });
   }
   function statement(raw) {
@@ -617,25 +713,98 @@
     var message = e && typeof e === "object" && e.message !== undefined ? e.message : e;
     return JSON.stringify({ tag: 2, kind: kind, message: String(message) });
   }
-  function settle(call) {
-    if (call.status === "done") { calls.delete(call.id); return ok(call.value); }
-    if (call.status === "failed") { calls.delete(call.id); return fail(call.error); }
-    for (var i = 0; i < call.tickets.length; i++) if (pending.has(call.tickets[i])) return JSON.stringify({ tag: 1, call: call.id, ticket: call.tickets[i] });
-    if (call.storage > 0) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
+  // Natively, liveness is the module's, as a browser's event loop has it
+  // (LLP 1027.003.000 §13; hn-reader F7): an answer awaiting a promise
+  // another answer started (one memoized fetch, a queue chained through
+  // another's storage) waits while any fetch or storage step of the module
+  // is outstanding, and the executor asks again after each one lands. The
+  // web's module realm (module-glue.js, the wasm target's) runs one answer
+  // at a time and keeps the per-answer rule.
+  //
+  // A continuation runs as the answer whose reply settled the promise it
+  // awaited, so a fetch an answer makes after awaiting another's lands among
+  // that other's tickets (hn-reader F7, review finding 1). A fetch no settle
+  // has handed the executor yet, or a storage step a settled answer left in
+  // flight, is the module's: the next answer to settle without work of its
+  // own claims it and waits on it, so no request is left behind.
+  var moduleWide = bytesDoor !== undefined;
+  function claim(call, ticket) {
+    var p = pending.get(ticket);
+    p.claimed = true;
+    if (p.call !== call) { p.call = call; call.tickets.push(ticket); }
+    return JSON.stringify({ tag: 1, call: call.id, ticket: ticket });
+  }
+  // Whether an answer still has a fetch or storage step of its own in flight.
+  function owes(call) {
+    for (var i = 0; i < call.tickets.length; i++) {
+      var p = pending.get(call.tickets[i]);
+      if (p && p.call === call) return true;
+    }
+    return call.storage > 0 && !call.lost;
+  }
+  // The answer is given once the work it started has landed, awaited or not:
+  // a browser runs a write nobody awaits to its end, and a host only runs an
+  // answer's steps while that answer is in flight, so an answer that replied
+  // first would strand them (kanban F22: an edit answered at once, its save
+  // queued behind it, never written on macOS).
+  function reply(call, text) {
+    call.replied = true;
     calls.delete(call.id);
+    return text;
+  }
+  function settle(call, final) {
+    // Its own work first, awaited or not: a fetch it made that no settle
+    // has handed out, then its storage steps. A fetch made while it was in
+    // flight is its own (an unawaited POST), and it claims it whoever else
+    // is pending. One made only after it finished ran in a continuation it
+    // settled for another answer: with another answer in flight, which may
+    // be that one, it is left to it (review r4a, finding 1); with none, it
+    // waits for the fetch itself. Either way nothing is left behind (Grok's
+    // batch 2 review).
+    var finished = call.status === "done" || call.status === "failed", others = false;
+    if (finished && moduleWide) calls.forEach(function (c) { if (c !== call && !c.letGo && c.status === "pending") others = true; });
+    for (var i = 0; i < call.tickets.length; i++) {
+      var own = pending.get(call.tickets[i]);
+      if (own && !own.claimed && own.call === call && (own.early || !others)) return claim(call, call.tickets[i]);
+    }
+    if (call.storage > 0 && !call.lost) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
+    if (finished) {
+      // A fetch of its own already handed out and still in flight: asked
+      // again once it lands (natively; the module realm runs one at a time).
+      var inFlight = false;
+      pending.forEach(function (p) { if (p.call === call && p.claimed) inFlight = true; });
+      if (moduleWide && inFlight) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
+      return reply(call, call.status === "done" ? ok(call.value) : fail(call.error));
+    }
+    if (moduleWide) {
+      var unclaimed;
+      pending.forEach(function (p, ticket) { if (unclaimed === undefined && !p.claimed && !p.stream) unclaimed = ticket; });
+      if (unclaimed !== undefined) return claim(call, unclaimed);
+      var left = false;
+      storing.forEach(function (c) { if (!calls.has(c.id)) left = true; });
+      if (left) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
+      if (!final && (pending.size || storing.size)) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
+    }
+    call.replied = true;
+    calls.delete(call.id);
+    if (moduleWide) return fail(new Error("the answer is pending on nothing: it awaits a promise that no fetch or storage step " +
+      "in flight in this module will settle"));
     return fail(new Error("the answer is pending on nothing: no host operation it started will resolve it. " +
       "An answer that awaits a promise another answer started (a fetch shared between answers, or a queue chained through a " +
-      "fetch another answer is waiting on) waits on work it does not own; make each answer's own fetch, or share the resolved " +
-      "value rather than the promise. Storage is different: an answer queued behind another's storage turn waits for it"));
+      "fetch another answer is waiting on) waits on work it does not own in the web's module realm; make each answer's own " +
+      "fetch, or share the resolved value rather than the promise. Storage is different: an answer queued behind another's " +
+      "storage turn waits for it"));
   }
   // The executor: `__exact_call(source, argsJson)` → tag 0/2 at once, or
   // tag 3 with a call id — then it drains microtasks and asks
   // `__exact_settle(id)`, which is tag 0/2, or tag 1 with the ticket of the
-  // fetch the answer is waiting on. `__exact_fulfill(ticket, outcomeJson)`
-  // resolves that fetch; drain and settle again.
+  // fetch the answer is waiting on (0: its storage; 0 and `waiting`: another
+  // answer's work). `__exact_fulfill(ticket, outcomeJson)` resolves that
+  // fetch; drain and settle again. `__exact_settle(id, "final")` refuses an
+  // answer still waiting on nothing of its own.
   global.__exact_call = function (source, argsJson) {
     initializing = false;
-    var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0 };
+    var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false };
     var result;
     currentCall = call;
     try {
@@ -672,13 +841,27 @@
       });
       result = global.exact.answer(source, JSON.parse(argsJson), store, storage, native);
     }
-    catch (e) { currentCall = null; return fail(e); }
+    catch (e) {
+      currentCall = null;
+      if (!owes(call)) { call.replied = true; return fail(e); }
+      calls.set(call.id, call);
+      call.status = "failed"; call.error = e;
+      return JSON.stringify({ tag: 3, call: call.id });
+    }
     if (result && typeof result.then === "function") {
       calls.set(call.id, call);
       result.then(function (v) { call.status = "done"; call.value = v; }, function (e) { call.status = "failed"; call.error = e; });
       return JSON.stringify({ tag: 3, call: call.id });
     }
     currentCall = null;
+    // A value given at once while a write it started is still in flight
+    // waits for the write, as a promised one does (`settle`).
+    if (owes(call)) {
+      calls.set(call.id, call);
+      call.status = "done"; call.value = result;
+      return JSON.stringify({ tag: 3, call: call.id });
+    }
+    call.replied = true;
     return ok(result);
   };
   // Canvas 2D (LLP 1056 D1): the module's draw seam, when it exports `draw`.
@@ -696,19 +879,39 @@
     if (global.exact.retireCanvases) global.exact.retireCanvases(retired);
     return "";
   };
-  global.__exact_settle = function (id) {
+  global.__exact_settle = function (id, final) {
     currentCall = null;
     var call = calls.get(Number(id));
-    return call ? settle(call) : fail(new Error("no such call"));
+    return call ? settle(call, final === "final") : fail(new Error("no such call"));
   };
   // The runner let this call's request go (LLP 1016 D5): drop the call and
   // the fetches it waits on, so nothing keeps them alive.
+  // One let go between storage steps answers "storage": its steps are
+  // running and the chain behind them goes on, so the executor delivers them
+  // until `__exact_let_go` says none is left, and its answer is never given
+  // (ledger F12). A fetch it makes then is refused: no one wants its reply.
   global.__exact_forget = function (id) {
     var call = calls.get(Number(id));
     if (!call) return "";
+    // Not a fetch another answer has since claimed: that one waits on it.
+    for (var i = 0; i < call.tickets.length; i++) {
+      var p = pending.get(call.tickets[i]);
+      if (p && p.call === call) settled(call.tickets[i]);
+    }
+    if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage"; }
+    call.replied = true;
     calls.delete(call.id);
-    for (var i = 0; i < call.tickets.length; i++) pending.delete(call.tickets[i]);
     return "";
+  };
+  global.__exact_let_go = function (failed, message) {
+    var owed = false;
+    calls.forEach(function (c) {
+      if (!c.letGo) return;
+      if (failed) { c.lost = true; storing.delete(c); }
+      if (c.storage > 0 && !c.lost) owed = true;
+      else { c.replied = true; calls.delete(c.id); }
+    });
+    return owed ? "storage" : "";
   };
   // One message of the stream answer `id` began, or its end: the mapper's
   // value, now — a stream's answer never awaits (LLP 1016.000 D1). The end
@@ -731,17 +934,20 @@
   };
   global.__exact_storage_failed = function (id, outcomeJson) {
     var call = calls.get(Number(id));
-    if (call) { call.status = "failed"; call.error = storageError(JSON.parse(outcomeJson).failed.message); }
+    // Its storage steps will not land: refuse the answer without them.
+    if (call) { call.status = "failed"; call.lost = true; storing.delete(call); call.error = storageError(JSON.parse(outcomeJson).failed.message, "failed"); }
   };
   global.__exact_fulfill = function (ticket, outcomeJson) {
-    var p = pending.get(Number(ticket));
+    var p = settled(Number(ticket));
     if (!p) return;
-    pending.delete(Number(ticket));
     var o = JSON.parse(outcomeJson);
     // The continuation runs in the drain that follows, and a fetch it
     // makes belongs to this call.
     currentCall = p.call;
-    if (o.failed) p.reject(new FetchError(o.failed));
+    // A browser realm's abort listener can be stopped by an earlier one;
+    // the signal itself still says so.
+    if (p.signal && p.signal.aborted) p.reject(p.signal.reason);
+    else if (o.failed) p.reject(new FetchError(o.failed));
     else p.resolve(new Response(o.response));
   };
 })(globalThis);

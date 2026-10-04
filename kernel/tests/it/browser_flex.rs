@@ -287,3 +287,97 @@ fn direction_rtl_orders_flex_rows_and_places_blocks() {
         );
     });
 }
+
+/// CSS `order` (feed F19): flex and grid items lay out in order-modified
+/// document order, equal orders in document order; a block container
+/// ignores it. A changed `order` moves its item at the next layout.
+#[test]
+fn order_lays_items_out_in_order_modified_document_order() {
+    let items = |orders: [f64; 3]| -> Vec<(u32, u32, crate::browser_cases::Rows)> {
+        (0..3)
+            .map(|i| {
+                (
+                    2 + i as u32,
+                    1,
+                    vec![(Width, n(100.0)), (Height, n(10.0)), (Order, n(orders[i]))],
+                )
+            })
+            .collect()
+    };
+    run(|case| {
+        case(
+            "a flex row: -1, then 0, then 1",
+            vec![(Display, t("flex")), (Width, n(300.0))],
+            items([1.0, -1.0, 0.0]),
+            &[],
+            &[],
+            &[
+                (3, [0.0, 0.0, 100.0, 10.0]),
+                (4, [100.0, 0.0, 100.0, 10.0]),
+                (2, [200.0, 0.0, 100.0, 10.0]),
+            ],
+        );
+        case(
+            "a grid's auto-placement, equal orders in document order",
+            vec![
+                (Display, t("grid")),
+                (Width, n(300.0)),
+                (GridTemplateColumns, t("100px 100px 100px")),
+            ],
+            items([2.0, 1.0, 1.0]),
+            &[],
+            &[],
+            &[
+                (3, [0.0, 0.0, 100.0, 10.0]),
+                (4, [100.0, 0.0, 100.0, 10.0]),
+                (2, [200.0, 0.0, 100.0, 10.0]),
+            ],
+        );
+        case(
+            "a block ignores order",
+            vec![(Width, n(300.0))],
+            items([1.0, -1.0, 0.0]),
+            &[],
+            &[],
+            &[
+                (2, [0.0, 0.0, 100.0, 10.0]),
+                (3, [0.0, 10.0, 100.0, 10.0]),
+                (4, [0.0, 20.0, 100.0, 10.0]),
+            ],
+        );
+    });
+    let mut k = lay_out_with(
+        props(&vec![(Display, t("flex")), (Width, n(300.0))]),
+        items([0.0, 0.0, 0.0]),
+        &[],
+        &[],
+    );
+    let x = |k: &exact_kernel::Kernel, id| k.node(id).unwrap().frame.x;
+    assert_eq!([x(&k, 2), x(&k, 3), x(&k, 4)], [0.0, 100.0, 200.0]);
+    k.apply(
+        1,
+        2,
+        &[exact_kernel::Op::SetStyle {
+            id: 4,
+            patch: Box::new(props(&vec![(Order, n(-1.0))])),
+        }],
+    )
+    .unwrap();
+    k.compute_layout(1, exact_kernel::Offer::definite(800.0, 600.0))
+        .unwrap();
+    assert_eq!([x(&k, 4), x(&k, 2), x(&k, 3)], [0.0, 100.0, 200.0]);
+    // The container turns block: its children stack in document order.
+    k.apply(
+        2,
+        3,
+        &[exact_kernel::Op::SetStyle {
+            id: 1,
+            patch: Box::new(props(&vec![(Display, t("block"))])),
+        }],
+    )
+    .unwrap();
+    k.compute_layout(1, exact_kernel::Offer::definite(800.0, 600.0))
+        .unwrap();
+    let y = |id| k.node(id).unwrap().frame.y;
+    assert_eq!([y(2), y(3), y(4)], [0.0, 10.0, 20.0]);
+}

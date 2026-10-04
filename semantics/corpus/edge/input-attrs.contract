@@ -1,0 +1,35 @@
+// Text changes to inputs carrying attributes that constrain text on the
+// web: readonly, disabled, type="number".
+component App
+  state a = ""
+  state b = ""
+  state c = ""
+  state d = ""
+  action setA(v: string)
+    a = v
+  action setB(v: string)
+    b = v
+  action setC(v: string)
+    c = v
+  action setD(v: string)
+    d = v
+  view
+    column
+      input value=a change=setA testId="max"
+      input value=b readonly=true change=setB testId="ro"
+      input value=c disabled=true change=setC testId="dis"
+      input type="number" value=d change=setD testId="num"
+
+test "plain"
+  type "max" "abcdef"
+  expect state a == "abcdef"
+
+test "readonly"
+  type "ro" "x"
+
+test "disabled"
+  type "dis" "x"
+
+test "number"
+  type "num" "12"
+  type "num" "abc"
