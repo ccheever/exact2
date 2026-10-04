@@ -75,8 +75,10 @@ The plan in brief:
 
 ## 2. Where it lives
 
-The bench gets its own repository, `authoring-bench`, on the operator box. Charlie
-says where it is hosted. It lives outside exact2 for three reasons:
+The bench gets its own repository, **`github.com/ccheever/authoring-bench`**
+(private), which is where machines coordinate. Its README says what the seed holds
+(two tasks, a verified Claude Code adapter, a prototype runner that predates r3). It
+lives outside exact2 for three reasons:
 
 - RULES §Agents forbids adding apparatus to exact2 without a human's yes.
 - Builders must meet exact2 the way an outsider does.
@@ -692,8 +694,11 @@ is reached only for the items in §12.5.
    - the exact2 checkout's `bun scripts/exact.mjs setup --check` is clean
 2. **Create the `bench` macOS user** (§2). Builders run as `bench` via
    `sudo -u bench`.
-3. **Set up the bench repository.** Ask Charlie where it is hosted if that isn't
-   decided. Until then, keep it local and commit there.
+3. **Clone the bench repository**, `ccheever/authoring-bench`. Read its README first.
+   Then push working steps there, so other boxes can see them. One operator box owns
+   the nightly batch and `ledger.jsonl`; any other box takes lanes the owner assigns.
+   Transcripts and app snapshots stay on the box that ran them; records, diaries and
+   grades are committed.
 4. **Harness credentials.** The builder needs credentials it can use without a human:
    - For Claude Code, a long-lived OAuth token in `CLAUDE_CODE_OAUTH_TOKEN`, with a
      fresh `CLAUDE_CONFIG_DIR` per trial (§4.1).
