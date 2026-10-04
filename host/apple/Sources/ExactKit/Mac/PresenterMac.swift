@@ -1171,7 +1171,7 @@ final class Presenter {
         if let dialog = dialogs.active { walk(dialog) }
         else { for r in root.subviews.compactMap({ $0 as? NodeView }) { walk(r) } }
         let tabbable = listed.enumerated().sorted { a, b in
-            let ia = Self.tabIndex(a.element), ib = Self.tabIndex(b.element)
+            let ia = a.element.tabOrder, ib = b.element.tabOrder
             let pa = ia > 0 ? ia : Int.max, pb = ib > 0 ? ib : Int.max
             if pa != pb { return pa < pb }
             return a.offset < b.offset
@@ -1190,17 +1190,15 @@ final class Presenter {
         viewport.nextKeyView = keyView(of: tabbable[0])
     }
 
-    private static func tabIndex(_ v: NodeView) -> Int { Int(v.props["tabIndex"] ?? "0") ?? 0 }
-
+    /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is
+    /// one by kind; an explicit negative never, though it still takes a click.
     static func tabbable(_ v: NodeView) -> Bool {
         if v.props["disabled"] == "true" { return false }
-        let index = tabIndex(v)
-        if index < 0 { return false }
+        if let index = v.explicitTabIndex, index < 0 { return false }
         if v.field != nil || v.textArea != nil { return true }
         if v.kind == "native", v.presenter?.session?.natives.focusTarget(v) != nil { return true }
         if v.isButton || v.kind == "toggle" || v.pressable { return true }
-        if v.canBecomeKeyView { return true }
-        return index > 0
+        return v.canBecomeKeyView
     }
 
     /// An op touched a node (LLP 1014 D4 a): every canvas it is painted

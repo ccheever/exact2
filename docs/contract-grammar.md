@@ -606,7 +606,7 @@ hardware keyboard, Linux):
 - **Where.** The key goes to the focused element: a field or textarea being
   edited, a `button`, or any element with a `press`, `focus`, `blur` or `key`
   handler (such an element takes the focus, as `tabindex="0"` gives it, and
-  is in the Tab order). It then bubbles: the
+  is in the Tab order), or with a `tabindex`. It then bubbles: the
   focused element's handler hears it first, then every ancestor's, innermost
   first. With nothing focused, only `aria-keyshortcuts` buttons hear keys.
 - **What.** The payload is `KeyboardEvent.key`: the character typed, Shift's
@@ -669,6 +669,20 @@ Mac and elsewhere. The driver presses chords in Playwright's spelling (`type
   inside it hear their chords, and Enter or Space with the focus on a
   control they activate (a button, a pressable, a checkbox) is that
   control's, whatever button declares it. Linux carries no shortcuts.
+
+### Focus order: `tabindex`
+
+HTML's `tabindex` (no `tabIndex` alias; [LLP 1088](../llp/1088-what-the-app-diaries-ask-of-contract.rfc.md)
+D7.3), on any element and a module tag's box, a number or bound to state. Present, it
+makes the element focusable — a click, `focus(id)` and `autofocus` reach it, and the
+`key` handlers above it hear its keys; absent is never `0`, so a plain box is no stop.
+`tabindex >= 0` is a Tab stop: positive values first in ascending order, then `0` and
+the elements that are stops by kind (inputs, buttons, handlers) in tree order. A
+negative value is focusable but skipped by Tab, a handler's element included
+(`button tabindex=(revealed ? 0 : -1)` keeps a hidden swipe action out of the order).
+A disabled, inert or `display: none` element is never focusable. Tab and Shift-Tab walk
+and wrap on the web, macOS, iPadOS's hardware keyboard and Linux; tvOS's remote skips a
+negative value and keeps UIKit's geometric order.
 
 ## Host commands
 

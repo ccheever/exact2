@@ -1,7 +1,7 @@
 # LLP 1088: What the app diaries ask of Contract
 
 **Type:** RFC
-**Status:** Accepted (stages 1–3 as descoped), r5, 2026-10-04. Accepted by the orchestrator for Charlie under the three-round rule (`rules/RULES.md`, "Fix loops get 3 rounds") after Astra's r3; D6 deferred. Stage 1 is built as of 2026-10-04, without D6's fixed point (§10, "As built"); stages 2 and 3 are not. All three review rounds were one family (Astra, `gpt-6-astra`, max; Grok was unavailable): r1 NOT READY (7 MATERIAL, 6 MINOR); r2 NOT READY (4 new MATERIAL, 3 new MINOR); r3 NOT READY on one MATERIAL (D6's convergence) and three MINORs. The reviewer stated that only D6 blocked stage 1. r4 is a final edit with no further review: D6 moves to §9 with the requirement a follow-up must meet, and r3's MINORs are folded in. A second family, Grok 4.7 (xhigh), then reviewed r4 (truncated); r5 folds its findings into the decisions with no new round. Renumbered from 1085, then from 1086 (origin/main took 1085, then 1086 and 1087). §8 lists each revision.
+**Status:** Accepted (stages 1–3 as descoped), r5, 2026-10-04. Accepted by the orchestrator for Charlie under the three-round rule (`rules/RULES.md`, "Fix loops get 3 rounds") after Astra's r3; D6 deferred. Stage 1 is built as of 2026-10-04, without D6's fixed point, and stage 2 as of 2026-10-04 (§10, "As built"); stage 3 is not. All three review rounds were one family (Astra, `gpt-6-astra`, max; Grok was unavailable): r1 NOT READY (7 MATERIAL, 6 MINOR); r2 NOT READY (4 new MATERIAL, 3 new MINOR); r3 NOT READY on one MATERIAL (D6's convergence) and three MINORs. The reviewer stated that only D6 blocked stage 1. r4 is a final edit with no further review: D6 moves to §9 with the requirement a follow-up must meet, and r3's MINORs are folded in. A second family, Grok 4.7 (xhigh), then reviewed r4 (truncated); r5 folds its findings into the decisions with no new round. Renumbered from 1085, then from 1086 (origin/main took 1085, then 1086 and 1087). §8 lists each revision.
 **Systems:** Contract compiler (`contract/{syntax,types,analyze,lower}`, `contract/cli/src/lean.rs`), Plan (`plan/tables/format.json` `stdlib`), Runner (`vm.rs`, `stdlib.rs`, `uses.rs`), JS target (`host/web-js`), web host (`host/web`), Apple hosts (`host/apple`), Linux host, Lean semantics and difftest (`semantics/`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
@@ -751,3 +751,46 @@ pass that cannot loop instead.
   draft saved on the way to a new message); its draft send now has its own
   mutation, `draftSaved`. Outside the repo, flashcards' `commitEdit` and
   spreadsheet's `down` and `openSheet` are refused.
+
+### Stage 2, 2026-10-04 (branch `fix/impl1088`)
+
+D7.3 as specified, on every host:
+
+- **Compiler.** `tabindex` binds `PropId::TabIndex` on every element and a
+  module tag's box (`BOX_PROPS`); `tabIndex` is a renamed spelling, refused
+  as "`tabIndex` is spelled `tabindex` here", on a module tag too. `tabindex`
+  leaves the host's `data-` words, since no host writes `data-tabindex` now.
+- **Web.** `props_of` names the prop `tabindex`, which the JS target's
+  prop-name discovery inherits, so `P()` sets the real attribute. Both
+  renderers skip the synthesized `tabindex="0"` when the attribute is
+  present (`document.rs`, `emit.rs`); `glue.js` already checked.
+- **macOS.** `explicitTabIndex` (absent is nil) is shared by the Apple hosts.
+  `acceptsFirstResponder` admits any explicit value; `tabbable`, and so
+  `canBecomeKeyView` and `Presenter.tabbable`, an explicit value ≥ 0 or
+  what is a stop by kind, never an explicit negative. Driving it found that
+  a click never kept the focus on a non-pressable focusable node (a `key`
+  handler's included): NSView forwarded the `mouseDown` up the chain, so an
+  ancestor took the focus and `PageScrollView` then blurred it. The
+  innermost node the web would focus now keeps it, and the page blurs only
+  when what was clicked is not inside the focus — HTML's "nearest focusable
+  ancestor".
+- **iOS.** `canBecomeFirstResponder` admits any explicit value; `moveFocus`
+  skips an explicit negative and orders by HTML's rule. **tvOS:**
+  `canBecomeFocused` is false for an explicit negative; there is no tvOS
+  test target in the tree, so that line is compiled, not tested.
+- **Linux.** `focusable` (tap, `autofocus`, `focus()`) admits any explicit
+  value; the new `tabbable` (in `presenter/typing.rs`) is an explicit value
+  ≥ 0 or what is focusable by kind, shown, not inert, with a box. Tab is the
+  key's default action after the `key` handlers (a `preventDefault()` keeps
+  it): HTML's order, wrapping, Shift-Tab back, from no focus the first or
+  the last. Nothing consumes Tab, as on the web, where neither a canvas nor
+  a textarea does. Tab's release does not refocus its target.
+- **Tests.** `aria.rs` (binding, state, the case refusal, a module tag);
+  `host/web/tests/it/document.rs` (the attribute wins, a negative one
+  included; absent writes none); `AccessibilityTests` and
+  `KeyboardFocusIOSTests` (order, `-1` by click or tap, absent, disabled,
+  inert, hidden, a change while mounted); `events_tests.rs` on Linux (the
+  whole list, the ancestor's `key` included). Driven on the web and macOS
+  with a scratch app: Tab from a `tabindex=0` box with no handler, `-1`
+  skipped and focused by tap, the bound value joining the order, Shift-Tab.
+

@@ -188,8 +188,7 @@ final class DialogHost {
         }
         walk(dialog)
         return nodes.enumerated().sorted { a, b in
-            let ai = Int(a.element.props["tabIndex"] ?? "0") ?? 0
-            let bi = Int(b.element.props["tabIndex"] ?? "0") ?? 0
+            let ai = a.element.tabOrder, bi = b.element.tabOrder
             let ap = ai > 0 ? ai : Int.max, bp = bi > 0 ? bi : Int.max
             return ap == bp ? a.offset < b.offset : ap < bp
         }.map { presenter.keyView(of: $0.element) }

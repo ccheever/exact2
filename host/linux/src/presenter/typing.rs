@@ -1,5 +1,6 @@
 //! Text and keyboard input, sharing the presenter's focus owner.
 use super::*;
+use std::collections::BTreeSet;
 
 impl<D: DataSource> Presenter<D> {
     /// Set an input's value as typing does and commit it: focused, the
@@ -146,6 +147,11 @@ impl<D: DataSource> Presenter<D> {
                 Err("control release refused".into())
             };
         }
+        // Tab's release goes wherever its press moved the focus, and has no
+        // default; refocusing the target would undo the move (LLP 1088 D7.3).
+        if !down && code == "Tab" {
+            return Ok(format!("{{\"typed\":{id}}}"));
+        }
         let node = self
             .host
             .kernel()
@@ -209,6 +215,60 @@ impl<D: DataSource> Presenter<D> {
         Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"))
     }
 
+    /// A Tab stop (LLP 1088 D7.3): focusable, and an explicit `tabindex` ≥ 0
+    /// or none at all — a negative one is focusable but skipped — shown,
+    /// not inert, with a box (display: none and `hidden` have none).
+    fn tabbable(&self, id: ViewId, boxed: &BTreeSet<ViewId>) -> bool {
+        let explicit = self
+            .host
+            .kernel()
+            .node(id)
+            .and_then(|n| n.props.get(PropId::TabIndex).and_then(|v| v.as_int()));
+        explicit.is_none_or(|i| i >= 0)
+            && self.focusable(id)
+            && self.host.route_visibility(id) == (false, false)
+            && boxed.contains(&id)
+    }
+
+    /// Tab's default action, HTML's sequential focus navigation (LLP 1088
+    /// D7.3): the Tab stops in tree order, positive `tabindex` values first
+    /// in ascending order; from the focus to the next (Shift: the previous),
+    /// wrapping, and from no focus, or one out of the order, to the first
+    /// (Shift: the last). A `key` handler's `preventDefault()` keeps Tab.
+    pub(crate) fn move_focus(&mut self, backward: bool, now_ms: f64) -> Option<String> {
+        self.boxes();
+        let boxed: BTreeSet<ViewId> = self
+            .boxes
+            .iter()
+            .filter(|b| b.rect.2 > 0.0 && b.rect.3 > 0.0)
+            .filter(|b| self.display.allows(self.host.kernel(), b.id))
+            .map(|b| b.id)
+            .collect();
+        let mut order: Vec<(i64, usize, ViewId)> = Vec::new();
+        for (at, id) in self.host.preorder().into_iter().enumerate() {
+            if self.tabbable(id, &boxed) {
+                let index = self
+                    .host
+                    .kernel()
+                    .node(id)
+                    .and_then(|n| n.props.get(PropId::TabIndex).and_then(|v| v.as_int()))
+                    .filter(|&i| i > 0)
+                    .unwrap_or(i64::MAX);
+                order.push((index, at, id));
+            }
+        }
+        order.sort_unstable();
+        let n = order.len();
+        let next = match self.focus.and_then(|f| order.iter().position(|o| o.2 == f)) {
+            _ if n == 0 => return None,
+            Some(i) if backward => (i + n - 1) % n,
+            Some(i) => (i + 1) % n,
+            None if backward => n - 1,
+            None => 0,
+        };
+        self.set_focus(Some(order[next].2), now_ms)
+    }
+
     /// A key from the display's keyboard: a character, Enter, or Backspace.
     pub fn key(&mut self, ch: Option<char>, backspace: bool, now_ms: f64) {
         let name = match (ch, backspace) {
@@ -227,7 +287,15 @@ impl<D: DataSource> Presenter<D> {
     /// breaks a textarea's line; Backspace deletes; a character is typed —
     /// each an edit the runner hears as one `change`.
     pub(crate) fn key_down(&mut self, name: &str, now_ms: f64) {
-        let Some(id) = self.focus else { return };
+        let Some(id) = self.focus else {
+            // From no focus, Tab takes the first stop (LLP 1088 D7.3).
+            if name == "Tab" {
+                if let Some(e) = self.move_focus(self.modifiers().shift, now_ms) {
+                    eprintln!("exact: {e}");
+                }
+            }
+            return;
+        };
         if !self.display.allows(self.host.kernel(), id) {
             return;
         }
@@ -245,6 +313,14 @@ impl<D: DataSource> Presenter<D> {
         }
         // A handler may have prevented the default, moved the focus or removed the node.
         if prevented || self.focus != Some(id) {
+            return;
+        }
+        // Tab's default action moves the focus, from a canvas or a field too,
+        // as the browser's does (LLP 1088 D7.3).
+        if name == "Tab" {
+            if let Some(e) = self.move_focus(self.modifiers().shift, now_ms) {
+                eprintln!("exact: {e}");
+            }
             return;
         }
         let Some(node) = self.host.kernel().node(id) else {

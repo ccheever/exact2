@@ -953,7 +953,12 @@ impl Em<'_> {
                 "focus" | "blur" | "key" | "press" | "copy" | "cut" | "paste"
             )
         });
-        if on && !["input", "button", "select", "textarea", "a", "summary"].contains(&element) {
+        // An authored `tabindex` is explicit and wins, a negative one
+        // included (LLP 1088 D7.3); a bound one `P` sets over this.
+        if on
+            && !["input", "button", "select", "textarea", "a", "summary"].contains(&element)
+            && !attrs.iter().any(|(k, _)| k == "tabindex")
+        {
             attrs.push(("tabindex".into(), "0".into()));
         }
         // A `symbol`'s content is drawn as `use`'s clones, which Chrome

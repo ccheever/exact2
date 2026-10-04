@@ -202,16 +202,18 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// field does by itself): the web's rule that only a focusable element
     /// hears these. A pressable is in the tab order the way a `<button>` is.
     /// A paragraph takes the focus too, for selection, but plain text is
-    /// never a Tab stop on the web.
+    /// never a Tab stop on the web. An explicit `tabindex` makes any box
+    /// focusable, and a Tab stop only when ≥ 0 (LLP 1088 D7.3).
     override var acceptsFirstResponder: Bool {
         if disabled || inert || isHiddenOrHasHiddenAncestor { return false }
         if field != nil || textArea != nil { return false }
-        return props["semanticTag"] == "dialog" || isParagraph || tabbable
+        return props["semanticTag"] == "dialog" || isParagraph || explicitTabIndex != nil || tabbable
     }
     /// A native button's command is its own too (a confirmation's close row, LLP 1069.011.000 D9).
     var pressable: Bool { handlers.contains("press") || (isButton && (props["commandfor"] != nil || props["popovertarget"] != nil)) }
     var tabbable: Bool {
-        kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: Self.focusEvents)
+        if let index = explicitTabIndex { return index >= 0 }
+        return kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: Self.focusEvents)
     }
     /// Sequential focus follows the web: a button is in the loop even when
     /// macOS "Keyboard navigation" is off (that setting would otherwise
@@ -1388,7 +1390,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             if (view as? NodeView)?.props["retainFocus"] == "true" { retainFocus = true; break }
             focusNode = view.superview
         }
-        if acceptsFirstResponder, !retainFocus { window?.makeFirstResponder(self) }
+        // NSView forwards a click up the chain: a node under it the web would focus (not a paragraph selecting) took it first and keeps it (LLP 1088 D7.3).
+        let inner = (window?.firstResponder as? NodeView).map { $0 !== self && ($0.tabbable || $0.explicitTabIndex != nil) && (window?.contentView?.hitTest(event.locationInWindow)?.isDescendant(of: $0) ?? false) } ?? false
+        if acceptsFirstResponder, !retainFocus, !inner { window?.makeFirstResponder(self) }
         if pressable {
             if !acceptsFirstResponder, !retainFocus { window?.makeFirstResponder(nil) }
             pressed = true

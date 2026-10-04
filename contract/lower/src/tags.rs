@@ -718,6 +718,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // ARIA's name by reference (ledger2 Rough 3): the ids, space-separated,
         // of the elements whose text names this one, before `aria-label`.
         "aria-labelledby" => AttrTarget::Prop(p("accessibilityLabelledBy")),
+        // HTML's `tabindex`, no alias (LLP 1088 D7.3): present makes a box
+        // focusable, `>= 0` a Tab stop; absent is never `0`.
+        "tabindex" => AttrTarget::Prop(p("tabIndex")),
         "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
         "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
@@ -1125,6 +1128,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "zIndex" => "z-index",
         "accessibilityOrientation" => "aria-orientation",
         "label" | "accessibilityLabel" => "aria-label",
+        "tabIndex" => "tabindex",
         "hint" | "accessibilityHint" => "aria-description",
         "headingLevel" => "aria-level",
         "inputMode" | "keyboardType" => "inputmode",
