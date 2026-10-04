@@ -65,6 +65,8 @@ async function waitAtMost(operation, ms, onTimeout) {
  * exceptions and console errors arrive over CDP separately and remain logs. */
 export function browserDiagnosticNoise(line) {
   return /crashpad|updater|gcm|VERBOSE|DevTools listening/i.test(line)
+    // Linux without a session bus: Chrome's dbus client reports it on every launch.
+    || /\bdbus\/(bus|object_proxy)\.cc:\d+\]/.test(line)
     || /CVDisplayLinkCreateWithCGDisplay failed|CVReturn:\s*-6670/i.test(line)
     // The browser process checking the renderer's paint-timing report
     // against itself (two paints in one frame, image before first): its
