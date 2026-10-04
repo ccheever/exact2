@@ -898,16 +898,21 @@ fn exports(source: &str, name: &str) -> bool {
 
 fn contract_error(mut error: contract::CompileError, stage: &Path, app: &Path) -> String {
     let canonical = stage.canonicalize().unwrap_or_else(|_| stage.to_path_buf());
-    for path in error
-        .file
-        .iter_mut()
-        .chain(error.related.iter_mut().filter_map(|r| r.file.as_mut()))
-    {
-        if let Ok(relative) = path
-            .strip_prefix(stage)
+    // The staged path an app reads as its own: the error's file and each related one.
+    let own = |path: &Path| {
+        path.strip_prefix(stage)
             .or_else(|_| path.strip_prefix(&canonical))
-        {
-            *path = app.join(relative);
+            .ok()
+            .map(|relative| app.join(relative))
+    };
+    if let Some(path) = error.file.as_mut() {
+        if let Some(mapped) = own(path) {
+            *path = mapped.into_boxed_path();
+        }
+    }
+    for path in error.related.iter_mut().filter_map(|r| r.file.as_mut()) {
+        if let Some(mapped) = own(path) {
+            *path = mapped;
         }
     }
     error.to_string()
