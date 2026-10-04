@@ -54,6 +54,21 @@ final class AgentClockIOSTests: XCTestCase {
         // Taken: a later take is a no-op seek, and a target behind the clock is refused.
         XCTAssertEqual(Agent(session: session).clock(["take": true])["clock"] as? Double, session.clock)
         XCTAssertNotNil(Agent(session: session).clock(["to": 100.0])["error"], "the clock cannot go backwards")
+        // While the runner catches up its stops never set the host's clock behind the floor.
+        let floor = try XCTUnwrap(session.clock) + 1000
+        _ = Agent(session: session).advanceStepped(to: floor - 1000, deadline: Date().addingTimeInterval(1), floor: floor)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(session.clock), floor)
+    }
+
+    func testARunnerAheadOfTheWallSetsTheFloor() throws {
+        if ExactEnv.agentFreezes { throw XCTSkip("frozen agent timing starts the clock at 0") }
+        let session = try booted()
+        let agent = Agent(session: session)
+        let wall = try XCTUnwrap(agent.clock(["take": true])["clock"] as? Double)
+        let ahead = try XCTUnwrap(agent.clock(["to": wall + 60000])["clock"] as? Double)
+        session.clock = nil // by hand: no known path leaves the runner ahead with the host's clock unset
+        let taken = try XCTUnwrap(agent.clock(["take": true])["clock"] as? Double)
+        XCTAssertGreaterThanOrEqual(taken, ahead, "the runner's clock, ahead of the wall, is the floor")
     }
 
     func testAFirstTargetBehindTheWallNeverSetsTheClockBack() throws {

@@ -294,8 +294,9 @@ public final class Agent {
 
     /// Move both clocks to one instant: the runner's (timers, each fired at
     /// its own due time) and the motion engine's (a seek). The clock lands
-    /// where the runner says (`batch.clock`): a timer's refusal stops it at
-    /// that timer's due time and is the reply's error. `settle` is a fixed
+    /// where the runner says (`batch.clock`), never behind where it stood
+    /// (LLP 1080.000 §12): a timer's refusal stops it there and is the
+    /// reply's error; the timer-fire limit is progress. `settle` is a fixed
     /// point: advance to when the last transition in flight ends, and if
     /// the timers crossed on the way started more, again — bounded, and
     /// `settled: false` when the bound is hit.
@@ -403,9 +404,16 @@ public final class Agent {
         // the runner's clock stood behind it. The clock is taken over at the
         // wall, frozen there before anything waits, and never set behind it:
         // a hold begun behind the motion engine's time is refused
-        // (ClockWentBackwards). The runner catches up in the seek. `take`
-        // alone is that takeover, a seek to where the clock now stands.
-        if session.clock == nil, !ExactEnv.agentFreezes { session.clock = session.now() }
+        // (ClockWentBackwards). The runner catches up in the next seek. A
+        // runner already ahead of the wall (no known path; the safe floor) sets the floor
+        // instead. `take` is the takeover alone: it moves nothing and
+        // reports where the clock stands.
+        if session.clock == nil, !ExactEnv.agentFreezes {
+            let runner = session.agent("{\"op\":\"tags\"}").data(using: .utf8)
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["clock"] as? Double
+            session.clock = max(session.now(), runner ?? 0)
+        }
+        if req["take"] as? Bool == true { return ["clock": session.clock ?? 0] }
         let from = session.clock ?? 0
         let settle = req["settle"] as? Bool == true
         // A request in flight (LLP 1016) is waited for first: its reply
@@ -419,7 +427,7 @@ public final class Agent {
         // Settle ends motion: every leaf held mid-fling is made (LLP 1068 §5.1).
         if settle { presenter.leaves.settle() }
         waitForImages()
-        var target = req["take"] as? Bool == true ? from : req["to"] as? Double
+        var target = req["to"] as? Double
         if settle { target = max(from, self.settle() ?? from) }
         guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
