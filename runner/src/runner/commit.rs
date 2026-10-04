@@ -1047,6 +1047,8 @@ impl<D: DataSource> Runner<D> {
         }
         match p.target {
             Target::Resource(i) => {
+                let shown = self.resources[i].take();
+                self.revalidated(i, shown.as_ref(), &value);
                 self.stale[i] = false;
                 self.failed_args[i] = None;
                 self.keep_answer(i, &p.args, &value);

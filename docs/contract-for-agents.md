@@ -344,8 +344,11 @@ its arguments, declared result, grants, storage access, and bake-time behavior.
 Keep generated output out of version control. Use app-local sources for domain
 formatting or algorithms beyond the finite standard roster.
 
-A bake runs initial data work and packages first-frame values. Live requests
-run after that under host scheduling. Do not assume a secret store, disk database,
+A bake runs initial data work and packages first-frame values. A first-frame
+value is not the answer: every host asks the TypeScript module again at launch,
+natively once it loads after first pixel, even a source with no arguments
+(`logs`: `<resource> shows its build-time answer until its source answers`, then
+`<resource> answered: …`). Live requests run after that under host scheduling. Do not assume a secret store, disk database,
 or authenticated network session is available while baking. See
 [the data-module reference](reference.md#generate-typescript-data-source-types).
 
