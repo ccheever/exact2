@@ -1124,3 +1124,90 @@ and saves also match `plates-main-macos` before the change. Both descendant
 audits pass with no recorded children left, and both empty-direction
 captures were inspected. Artifacts: `artifacts/inline-{web,macos}/`.
 No gameplay or Jev-policy changes.
+
+## Watering gives waiting players something useful to do (2026-10-04)
+
+The previous full-market Jev runs used 28 waits each, out of 53/54 decisions
+(`jev-empty-{web,macos}`). This batch adds optional plant care: Q spends one of three water doses to cut the
+current plot's remaining growth or fruit wait by 25%. Each growing plant
+and each new unripe fruit can take one dose. R refills beside a blue barrel
+west of the first plot. The HUD exposes both buttons, dose count, current
+care status and a direction to the barrel; a watered outline turns blue.
+Unwatered growth and the five-order economy keep their existing rules.
+
+The implementation uses the game's saved components and event heap. A dose
+shifts the effective start and deadline together, retaining smooth-growth
+progress. The earlier event is inserted in the same heap; only an event
+matching the current deadline may advance the plant or ripen its fruit.
+Old events become harmless when reached. Work is bounded to the current
+plant and its fruit slots, with no scan of the world or heap. This is a
+useful authoring pattern for rescheduling saved gameplay work through the
+existing engine's Data and clock, and it survives offline catch-up.
+
+One compile attempt used a nonexistent Transform constructor; corrected to
+`Transform::at`. The first Linux drive then exposed delayed barrel-range
+publication: within the same plot, the refill button could lag until the
+next status second, and the scripted walker overshot outside the garden.
+`Shown` now watches the range boundary as well as the plot, event count and
+clock. The proof also follows the public return hint before harvesting;
+being close enough to a barrel does not imply standing on a crop. Original
+failure artifacts remain in `artifacts/water-linux/` (four fixture failures,
+with both continuations still equal). The corrected Linux candidate has
+zero failures in 3.6 s; web/macOS candidates in 104.5/44.2 s also have zero.
+Their inputs, eight worlds and twelve saves agree. These are candidate
+observations, reported UNVERIFIED until strict acceptance updates the pins.
+Both watering screenshots were inspected. A final visual adjustment extends
+the ground padding so the barrel's whole base sits on it.
+
+Tests now cover late and early watering, repeated-dose refusal, old deadline
+suppression, fruit regrowth, empty cans, distance-limited refills and their
+immediate HUD availability within one plot and one second. The offline
+catch-up comparison also waters before going away. All 27 enabled game
+tests pass (24 simulation, three library; five measurements ignored), as do
+strict Clippy and formatting. The new real-host sequence saves while away
+from a watered carrot, follows the barrel hint, refills, returns and harvests
+at 19 seconds, before the ordinary 20-second deadline, then repeats from a
+fresh process and compares the complete continuation save.
+
+
+Periodic merge `869619101` integrates main `b89e55179`, a docs-only delta.
+The five root checks pass in 42.409 s: build 0.253, tests 39.777 (2,351
+passed in 81 binaries, nine ignored), Clippy 0.232, formatting 2.048, caps
+0.083 and boot 0.016 s. Logs: `/tmp/exact2-water-root-*.log`.
+Forest and Rivals' executable input digests still match their accepted
+`inline-macos` proofs, so their unchanged runs are not repeated.
+
+The first Jev pair found a real input problem that the basic care fixture
+missed. Native finished all five orders in 56 decisions, using three doses
+and 26 waits. Web reached its 22nd decision at a blueberry's fruit stage,
+then tapping Water failed: `node #50 covers its middle`. The visible text
+was clear of the button, but the bottom text column's transparent box had
+grown over it after a held seed added the empty-plot hint. This is CSS hit
+testing doing what it says, and the game had omitted `pointer-events="none"`
+on that read-only overlay. That property now belongs to the text container;
+the real-host care fixture buys a spare seed before watering to retain the
+exact obstructing layout. The author guide records the pattern. Original
+browser failure: `artifacts/jev-water-web/`; successful native observation:
+`artifacts/jev-water-macos/`. Jev's choices and goal remain unchanged for the
+browser follow-up. The input fix is tested on both hosts.
+
+
+The corrected tall-HUD proofs have zero failures on web/macOS in 82.8/41.5 s,
+with matching inputs, eight worlds and twelve saves. Both cleanup audits pass
+and both watering captures were inspected (`artifacts/water-hit-{web,macos}/`).
+The browser Jev follow-up finishes all five orders in 53 decisions, using
+three water doses and 26 waits, with 3,076¢ at game time 524.3 s. Native's
+previous successful run finishes in 56 decisions, 3,016¢ at 524.6 s; it
+predates only the pointer-hit fix. Neither chose to refill; the deterministic
+proof exercises that route. Both final screenshots were inspected and both
+audits pass. These text-driven exploratory runs show the action being used,
+not a measured improvement in fun or success rate; the older 28-wait runs
+started outside the garden and are not a controlled timing comparison.
+This feedback batch is closed, with no model-policy tuning after the results.
+
+Browser/native decision latency p50/p95 is 416/673 and 335/599 ms; gateway
+input/output token totals are 68,023/5,289 and 72,447/5,783. Wall times are
+29.9/33.5 s, and model latency does not advance game time. Artifacts:
+`artifacts/jev-water-hit-web/` and `artifacts/jev-water-macos/`.
+Strict baseline acceptance follows for the saved can, growth spans, barrel,
+HUD fields and the new watering continuation pin.

@@ -36,6 +36,11 @@ pub struct Status {
     pub order_seed: String,
     pub order_ready: bool,
     pub orders: u32,
+    pub water: u32,
+    pub water_ready: bool,
+    pub care: String,
+    pub refill: String,
+    pub refill_ready: bool,
 }
 
 #[derive(Default, Data)]
@@ -160,6 +165,8 @@ pub fn publish(w: &World, prompt: String, force: bool) {
     let planted = tile
         .and_then(|tile| farm.at(tile))
         .and_then(|e| w.get::<Plant>(e).map(|p| p.kind));
+    let target = tile.and_then(|tile| farm.at(tile));
+    let needs_water = target.is_some_and(|p| crate::garden::needs_water(w, p));
     let order_hint = order
         .map(|&(kind, count, _)| {
             let c = crop(kind);
@@ -268,5 +275,25 @@ pub fn publish(w: &World, prompt: String, force: bool) {
             .unwrap_or_default(),
         order_ready: order.is_some_and(|&(_, count, _)| carried >= count),
         orders: farm.orders,
+        water: farm.water as u32,
+        water_ready: farm.water > 0 && needs_water,
+        care: if farm.water == 0 {
+            "Can empty · refill at the blue barrel".into()
+        } else if needs_water {
+            "Water this plot · remaining wait −25%".into()
+        } else if target.is_some_and(|p| is_growing(w, p)) {
+            "Watered · growing faster".into()
+        } else if target.is_some() {
+            "Harvest ripe fruit before watering".into()
+        } else {
+            "Stand on a growing plot to water".into()
+        },
+        refill: crate::farm::refill_guidance(w),
+        refill_ready: farm.water < crate::farm::WATER_CAPACITY && crate::farm::at_barrel(w),
     });
+}
+
+fn is_growing(w: &World, e: Entity) -> bool {
+    w.get::<Plant>(e).is_some_and(|p| p.stage < 4)
+        || crate::garden::fruits_of(w, e).iter().any(|f| !f.1)
 }

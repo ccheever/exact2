@@ -146,8 +146,12 @@ fn same_seed_same_mutations_other_seed_other_mutations() {
 fn away_is_the_same_as_playing_through() {
     let mut live = new(5);
     send(&mut live, "fill 300");
+    live.tap("KeyQ");
+    live.run(100.0);
     let mut away = new(5);
     send(&mut away, "fill 300");
+    away.tap("KeyQ");
+    away.run(100.0);
     live.run(20.0 * 60_000.0);
     let target = now_ms(live.world());
     let gap = target - now_ms(away.world()) - 1000 / 30;
@@ -171,6 +175,156 @@ fn away_is_the_same_as_playing_through() {
         .resource::<Farm>()
         .away
         .starts_with("While you were away"));
+}
+
+#[test]
+fn watering_once_preserves_progress_and_old_events_cannot_regrow_the_plant() {
+    for delay in [100.0, 4900.0, 5100.0, 14900.0, 19000.0] {
+        let mut game = new(7);
+        game.tap("KeyE");
+        game.run(delay);
+        let e = game.world().resource::<Farm>().at([0, 0]).unwrap();
+        let before = game.world().require::<Plant>(e).stage;
+        let old_deadline = {
+            let p = game.world().require::<Plant>(e);
+            p.planted + p.grow_ms
+        };
+        let at = now_ms(game.world());
+        game.tap("KeyQ");
+        game.run(100.0);
+        let p = game.world().require::<Plant>(e);
+        assert!(p.watered);
+        assert!(p.stage >= before && p.stage <= 4);
+        let deadline = p.planted + p.grow_ms;
+        let expected = at + (old_deadline - at) * 3 / 4;
+        assert!(deadline.abs_diff(expected) <= 34, "{deadline} / {expected}");
+        drop(p);
+        assert_eq!(game.world().resource::<Farm>().water, 2);
+        game.tap("KeyQ");
+        game.run(100.0);
+        assert_eq!(game.world().resource::<Farm>().water, 2, "no repeat dose");
+        assert!(game
+            .world()
+            .published("care")
+            .unwrap()
+            .text()
+            .contains("Watered"));
+        let saved = game.save().unwrap();
+        let mut restored = new(7);
+        restored.restore(&saved).unwrap();
+        // Cross both the accelerated and obsolete deadlines, then another minute.
+        game.run(80_000.0);
+        restored.run(80_000.0);
+        assert_eq!(game.save().unwrap(), restored.save().unwrap());
+        assert_eq!(game.world().require::<Plant>(e).stage, 4);
+        let census = game.world().resource::<Census>();
+        assert_eq!((census.plants, census.fruit, census.ripe), (1, 1, 1));
+    }
+}
+
+#[test]
+fn watering_fruit_resets_after_harvest_and_refilling_requires_the_barrel() {
+    let mut game = new(7);
+    {
+        let mut farm = game.world_mut().resource_mut::<Farm>();
+        farm.seeds[1] = 1;
+        farm.held = Some(1);
+    }
+    game.tap("KeyE");
+    game.run(100.0);
+    game.tap("KeyQ");
+    game.run(30_100.0);
+    let plant = game.world().resource::<Farm>().at([0, 0]).unwrap();
+    assert_eq!(game.world().require::<Plant>(plant).stage, 4);
+    assert_eq!(game.world().resource::<Census>().ripe, 0);
+    let old_ripe = garden_logic::garden::fruits_of(game.world(), plant)[0].2;
+    game.tap("KeyQ");
+    game.run(100.0);
+    assert_eq!(game.world().resource::<Farm>().water, 1);
+    let fruit = garden_logic::garden::fruits_of(game.world(), plant);
+    assert!(fruit
+        .iter()
+        .all(|&(e, ripe, at)| !ripe && at < old_ripe && game.world().require::<Fruit>(e).watered));
+    game.tap("KeyQ");
+    game.run(100.0);
+    assert_eq!(game.world().resource::<Farm>().water, 1);
+    game.run(22_500.0);
+    assert_eq!(
+        game.world().resource::<Census>().ripe,
+        4,
+        "accelerated fruit ripens before its original deadline"
+    );
+    game.tap("KeyE");
+    game.run(100.0);
+    game.tap("KeyQ");
+    game.run(100.0);
+    assert_eq!(game.world().resource::<Farm>().water, 0);
+    game.tap("KeyQ");
+    game.run(100.0);
+    assert!(game.world().resource::<Farm>().last.contains("Can empty"));
+    game.hold("KeyD", 1000.0);
+    game.run(100.0);
+    game.tap("KeyR");
+    game.run(100.0);
+    assert_eq!(game.world().resource::<Farm>().water, 0, "no remote refill");
+    for _ in 0..20 {
+        if garden_logic::farm::at_barrel(game.world()) {
+            break;
+        }
+        let hint = game.world().published("refill").unwrap().text().to_string();
+        let key = [
+            ("west", "KeyA"),
+            ("east", "KeyD"),
+            ("north", "KeyW"),
+            ("south", "KeyS"),
+        ]
+        .iter()
+        .find(|(word, _)| hint.contains(word))
+        .unwrap()
+        .1;
+        game.hold(key, 200.0);
+        game.run(100.0);
+    }
+    game.tap("KeyR");
+    game.run(100.0);
+    assert_eq!(game.world().resource::<Farm>().water, 3);
+    game.run(60_000.0);
+    let census = game.world().resource::<Census>();
+    assert_eq!((census.plants, census.fruit, census.ripe), (1, 4, 4));
+}
+
+#[test]
+fn refill_availability_updates_at_the_range_boundary_within_one_plot_and_second() {
+    let mut game = new(7);
+    game.tap("KeyE");
+    game.run(100.0);
+    game.tap("KeyQ");
+    game.run(100.0);
+    game.world_mut()
+        .require_mut::<Transform>("player")
+        .position
+        .x = 0.6;
+    game.run(100.0);
+    assert!(!game
+        .world()
+        .published("refill_ready")
+        .unwrap()
+        .as_bool()
+        .unwrap());
+    let plot = game.world().published("plot").unwrap().text().to_string();
+    game.world_mut()
+        .require_mut::<Transform>("player")
+        .position
+        .x = 0.4;
+    game.run(100.0);
+    assert_eq!(game.world().published("plot").unwrap().text(), plot);
+    assert!(now_ms(game.world()) < 1000);
+    assert!(game
+        .world()
+        .published("refill_ready")
+        .unwrap()
+        .as_bool()
+        .unwrap());
 }
 
 #[test]

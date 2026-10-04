@@ -10,6 +10,8 @@ use exact_game::*;
 pub const START_SIZE: u16 = 6;
 pub const MAX_SIZE: u16 = 256;
 pub const START_SHECKLES: u64 = 20;
+pub const WATER_CAPACITY: u8 = 3;
+pub const BARREL: Vec3 = Vec3::new(-2.0, 0.0, 0.0);
 
 /// A short ladder of market requests: crop, quantity, bonus on top of value.
 pub const ORDERS: &[(u8, u32, u64)] = &[
@@ -23,6 +25,7 @@ pub const ORDERS: &[(u8, u32, u64)] = &[
 #[derive(Default, Resource)]
 pub struct Farm {
     pub sheckles: u64,
+    pub water: u8,
     /// Seeds in hand, by crop kind.
     pub seeds: Vec<u32>,
     pub held: Option<u8>,
@@ -51,6 +54,7 @@ impl Farm {
         seeds[0] = 1;
         Farm {
             sheckles: START_SHECKLES,
+            water: WATER_CAPACITY,
             seeds,
             held: Some(0),
             size: START_SIZE,
@@ -116,6 +120,7 @@ pub fn show_plot(w: &World, tile: Option<[u16; 2]>) {
     let color = match plant {
         None => [0.2, 0.85, 1.0],
         Some(p) if garden::fruits_of(w, p).iter().any(|fruit| fruit.1) => [0.35, 1.0, 0.3],
+        Some(p) if !garden::needs_water(w, p) => [0.2, 0.65, 1.0],
         Some(_) => [1.0, 0.7, 0.15],
     };
     let material = garden::paint(color).emissive(color[0] * 0.15, color[1] * 0.15, color[2] * 0.15);
@@ -297,7 +302,8 @@ pub fn lay_ground(w: &World) {
     };
     let span = size * TILE;
     let mid = (size - 1.0) * TILE / 2.0;
-    *w.require_mut::<Mesh>("ground") = Mesh::plane(span + 2.0, span + 2.0);
+    // Two metres around the plots keep the barrel wholly on the garden's pad.
+    *w.require_mut::<Mesh>("ground") = Mesh::plane(span + 4.0, span + 4.0);
     w.require_mut::<Transform>("ground").position = Vec3::new(mid, 0.0, -mid);
     w.require_mut::<Character>("player").bounds = Some([-span, span]);
     let mut follow = w.require_mut::<Follow>("camera");
@@ -546,13 +552,13 @@ pub fn prompt(w: &World) -> (Option<[u16; 2]>, String) {
             None => "Buy seeds in the shop".into(),
         },
         Some(p) => {
-            let (kind, stage, planted) = w
+            let (kind, stage, planted, span) = w
                 .get::<Plant>(p)
-                .map(|p| (p.kind, p.stage, p.planted))
+                .map(|p| (p.kind, p.stage, p.planted, p.grow_ms))
                 .unwrap_or_default();
             let c = crop(kind);
             if stage < 4 {
-                let left = (planted + c.grow_s as u64 * 1000).saturating_sub(now);
+                let left = (planted + span).saturating_sub(now);
                 format!("{} growing · {}", c.name, crate::crops::clock(left))
             } else {
                 let fruits = garden::fruits_of(w, p);
@@ -571,6 +577,55 @@ pub fn prompt(w: &World) -> (Option<[u16; 2]>, String) {
         }
     };
     (Some(tile), text)
+}
+
+pub fn at_barrel(w: &World) -> bool {
+    w.global_position("player").is_some_and(|p| {
+        let delta = p - BARREL;
+        delta.x * delta.x + delta.z * delta.z <= 2.5 * 2.5
+    })
+}
+
+pub fn refill_guidance(w: &World) -> String {
+    if at_barrel(w) {
+        "At the blue barrel · R refills the can".into()
+    } else {
+        let p = w.global_position("player").unwrap_or_default();
+        let d = BARREL - p;
+        format!("Blue barrel: {}", bearing(Vec3::new(d.x, 0.0, d.z)))
+    }
+}
+
+pub fn water_here(w: &World) -> Result<String, String> {
+    if w.resource::<Farm>().water == 0 {
+        return Err("Can empty · refill at the blue barrel with R".into());
+    }
+    let plant = w
+        .global_position("player")
+        .and_then(|p| tile_at(w, p))
+        .and_then(|tile| w.resource::<Farm>().at(tile))
+        .ok_or("Stand on a growing plot to water")?;
+    if !garden::needs_water(w, plant) {
+        return Err("Already watered or ripe · wait for the next growth".into());
+    }
+    garden::water(w, plant, now_ms(w));
+    w.resource_mut::<Farm>().water -= 1;
+    Ok(format!(
+        "Watered {} · remaining wait cut by 25%",
+        crop(w.require::<Plant>(plant).kind).name
+    ))
+}
+
+pub fn refill(w: &World) -> Result<String, String> {
+    if !at_barrel(w) {
+        return Err(refill_guidance(w));
+    }
+    let mut farm = w.resource_mut::<Farm>();
+    if farm.water == WATER_CAPACITY {
+        return Err("The watering can is full".into());
+    }
+    farm.water = WATER_CAPACITY;
+    Ok("Watering can refilled · 3 doses".into())
 }
 
 /// E on a tile: harvest what is ripe there, or plant the held seed.

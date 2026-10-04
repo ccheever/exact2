@@ -15,7 +15,7 @@ bun game/app/shells.mjs ./game/games/garden --test
 Walk with WASD or the stick. **E** plants the seed in your hand on the tile
 under you, or harvests what is ripe there. You start with 20¢ and one carrot.
 The outline marks that tile: cyan when empty, amber while growing or regrowing,
-green when fruit is ready. Crops stand to one side of the tile's centre so you
+blue after watering, green when fruit is ready. Crops stand to one side of the tile's centre so you
 can see them beside your character. Outside the plots, the prompt gives a
 direction, WASD key and approximate distance back to the nearest plot. It
 updates as you walk and follows the garden when you expand it.
@@ -23,6 +23,14 @@ With a seed in hand on an occupied plot, a separate hint points to the nearest
 empty plot. A full garden says so and suggests expansion when it is available.
 Growth and harvest prompts stay visible, and the direction disappears once
 you reach an empty tile or run out of seeds.
+
+**Q** waters the current plot, cutting its remaining growth or fruit wait by
+25%. The can holds three doses. A growing plant takes one dose; when it matures,
+its fruit can take another. Each new regrowth can be watered once. Ripe fruit,
+empty plots and repeated watering spend nothing. The care panel shows what is
+ready and points toward the blue barrel just west of the first plot. Stand near
+it and press **R** to refill for free. Both actions also have HUD buttons.
+Watering is optional; crops still grow while you explore or are away.
 
 - **Shop**: fourteen seeds from Common to Divine. Stock rolls every five
   minutes; rarer seeds appear less often. Buy, then hold a seed (`×N`).
@@ -79,9 +87,13 @@ proof or a claim about visual perception or real-time input latency.
   from `input.messages()`.
 - **The HUD** is three published records — status, shop, backpack — each
   republished only when it changes (status timers once a garden second;
-  actions, events and crossing a plot boundary publish immediately).
+    actions, events and crossing a plot boundary publish immediately).
   The backpack is published 200 rows a page: a 164,000-fruit backpack would be
   a 13.6 MB field rebuilt on every harvest.
+- **Watering** shifts the effective start and deadline together, preserving
+  smooth-growth progress. It queues an earlier event; the old deadline is ignored
+  when it comes due. Only this plant and its bounded fruit slots are visited.
+  The can, growth clocks and queue are all saved, including during offline growth.
 
 | File | |
 |---|---|

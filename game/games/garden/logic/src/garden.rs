@@ -143,6 +143,9 @@ pub struct Plant {
     pub kind: u8,
     pub tile: [u16; 2],
     pub planted: u64,
+    /// Effective growth span; watering preserves progress and shortens what remains.
+    pub grow_ms: u64,
+    pub watered: bool,
     pub stage: u8,
     /// The fruit in each slot. `World::children` scans every entity, so the
     /// plant keeps its own list.
@@ -158,6 +161,7 @@ pub struct Fruit {
     pub set_at: u64,
     pub ripe_at: u64,
     pub ripe: bool,
+    pub watered: bool,
     pub weight: f32,
     pub muts: u8,
 }
@@ -210,6 +214,8 @@ pub fn plant(w: &mut World, kind: u8, tile: [u16; 2], at: u64) -> Entity {
             kind,
             tile,
             planted: at,
+            grow_ms: c.grow_s as u64 * 1000,
+            watered: false,
             stage: 0,
             fruits: vec![None; c.slots as usize],
         },
@@ -254,6 +260,7 @@ pub fn bear(w: &mut World, plant: Entity, kind: u8, slot: u8, at: u64) -> Entity
             set_at: at,
             ripe_at,
             ripe: false,
+            watered: false,
             weight: c.weight,
             muts: 0,
         },
@@ -358,7 +365,9 @@ pub fn run_due(w: &mut World, until: u64) -> Ran {
             Due::Nothing => {}
             Due::Grow(e) => grow(w, e, entry.at),
             Due::Ripen(e) => {
-                if w.get::<Fruit>(e).is_some_and(|f| !f.ripe) {
+                if w.get::<Fruit>(e)
+                    .is_some_and(|f| !f.ripe && f.ripe_at == entry.at)
+                {
                     ripen(w, e);
                     ran.ripened += 1;
                 }
@@ -378,7 +387,13 @@ pub fn run_due(w: &mut World, until: u64) -> Ran {
 }
 
 fn grow(w: &mut World, e: Entity, at: u64) {
-    let Some((kind, tile, stage)) = w.get::<Plant>(e).map(|p| (p.kind, p.tile, p.stage + 1)) else {
+    // Watering leaves the old event in the heap. Only the current deadline may
+    // advance a stage; an obsolete event cannot bear a second set of fruit.
+    let Some((kind, tile, stage, planted, span)) = w
+        .get::<Plant>(e)
+        .filter(|p| p.stage < 4 && at == p.planted + p.grow_ms * (p.stage as u64 + 1) / 4)
+        .map(|p| (p.kind, p.tile, p.stage + 1, p.planted, p.grow_ms))
+    else {
         return;
     };
     w.require_mut::<Plant>(e).stage = stage;
@@ -386,10 +401,50 @@ fn grow(w: &mut World, e: Entity, at: u64) {
     let c = crop(kind);
     if stage < 4 {
         w.resource_mut::<Schedule>()
-            .push(at + c.grow_s as u64 * 1000 / 4, Due::Grow(e));
+            .push(planted + span * (stage as u64 + 1) / 4, Due::Grow(e));
     } else {
         for slot in 0..c.slots {
             bear(w, e, kind, slot, at);
+        }
+    }
+}
+
+/// One dose per growing plant, or per new unripe fruit. The effective start
+/// moves forward by a quarter of elapsed time, preserving visual progress;
+/// the deadline moves nearer by a quarter of the remaining time. No world scan.
+pub fn needs_water(w: &World, plant: Entity) -> bool {
+    w.get::<Plant>(plant).is_some_and(|p| {
+        if p.stage < 4 {
+            !p.watered
+        } else {
+            p.fruits
+                .iter()
+                .flatten()
+                .any(|&e| w.get::<Fruit>(e).is_some_and(|f| !f.ripe && !f.watered))
+        }
+    })
+}
+
+pub fn water(w: &World, plant: Entity, now: u64) {
+    let mut p = w.require_mut::<Plant>(plant);
+    if p.stage < 4 && !p.watered {
+        p.watered = true;
+        p.planted += now.saturating_sub(p.planted) / 4;
+        p.grow_ms = p.grow_ms * 3 / 4;
+        w.resource_mut::<Schedule>().push(
+            p.planted + p.grow_ms * (p.stage as u64 + 1) / 4,
+            Due::Grow(plant),
+        );
+    } else if p.stage == 4 {
+        for &e in p.fruits.iter().flatten() {
+            let Some(mut f) = w.get_mut::<Fruit>(e).filter(|f| !f.ripe && !f.watered) else {
+                continue;
+            };
+            let span = (f.ripe_at - f.set_at) * 3 / 4;
+            f.set_at += now.saturating_sub(f.set_at) / 4;
+            f.ripe_at = f.set_at + span;
+            f.watered = true;
+            w.resource_mut::<Schedule>().push(f.ripe_at, Due::Ripen(e));
         }
     }
 }
@@ -511,7 +566,7 @@ pub fn animate(w: &World, now: u64) {
     for (_, (t, p)) in w.query::<(&mut Transform, &Plant)>().iter() {
         if p.stage < 4 {
             let c = crop(p.kind);
-            let f = ((now - p.planted.min(now)) as f32 / (c.grow_s as f32 * 1000.0)).min(1.0);
+            let f = ((now - p.planted.min(now)) as f32 / p.grow_ms.max(1) as f32).min(1.0);
             let s = 0.25 + 0.75 * f;
             t.scale = Vec3::splat(s);
             t.position.y = c.height * s / 2.0;

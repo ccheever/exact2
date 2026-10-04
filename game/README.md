@@ -298,6 +298,12 @@ named, with its size and the limit, in the app's log and the agent's
 `state.surfaceRefusals`.
 Only the first live canvas owns a given surface's public record.
 
+Give a read-only HUD overlay `pointer-events="none"` on its Contract container.
+The transparent parts of a wide positioned column still participate in hit-testing;
+an extra status line can make that column cover a nearby button without hiding it.
+Put interactive controls in their own container. Garden's watering proof exercises
+this by adding the empty-plot hint before tapping the Water button.
+
 `w.emit("won")` separately queues a string for the canvas's `message=` handler.
 Undelivered events save in order but stay outside the simulation hash.
 

@@ -41,6 +41,7 @@ pub struct Shown {
     pub prompt: String,
     pub tile: Option<[u16; 2]>,
     pub events: u64,
+    pub at_barrel: bool,
 }
 
 pub struct Garden;
@@ -54,6 +55,8 @@ impl Game for Garden {
         Actions::new()
             .stick("move", Stick::wasd().or_arrows())
             .button("act", &["KeyE"])
+            .button("water", &["KeyQ"])
+            .button("refill", &["KeyR"])
             .button("jump", &["Space"])
     }
     fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
@@ -112,6 +115,22 @@ impl Game for Garden {
         );
         farm::lay_ground(w);
         farm::create_plot_outline(w);
+        w.spawn_named(
+            "water-barrel",
+            (
+                Transform::at(farm::BARREL.x, 0.5, farm::BARREL.z),
+                Mesh::cylinder(0.65, 1.0),
+                garden::paint([0.2, 0.35, 0.65]),
+            ),
+        );
+        w.spawn_named(
+            "barrel-water",
+            (
+                Transform::at(farm::BARREL.x, 1.01, farm::BARREL.z),
+                Mesh::cylinder(0.53, 0.04),
+                garden::paint([0.2, 0.7, 1.0]),
+            ),
+        );
         shop::restock(w, 0);
         w.resource_mut::<Schedule>()
             .push(garden::change_after(w), Due::Weather);
@@ -143,8 +162,22 @@ impl Game for Garden {
                 acted = true;
             }
         }
+        for (action, f) in [
+            (
+                "water",
+                farm::water_here as fn(&World) -> Result<String, String>,
+            ),
+            ("refill", farm::refill),
+        ] {
+            if input.pressed(action) {
+                let message = f(w).unwrap_or_else(|why| why);
+                w.resource_mut::<Farm>().last = message;
+                acted = true;
+            }
+        }
         let now = garden::now_ms(w);
         let processed = w.resource::<Schedule>().processed;
+        let at_barrel = farm::at_barrel(w);
         let changed = {
             let shown = w.resource::<Shown>();
             acted
@@ -152,6 +185,7 @@ impl Game for Garden {
                 || shown.prompt != prompt
                 || shown.tile != tile
                 || shown.events != processed
+                || shown.at_barrel != at_barrel
         };
         if changed {
             let prompt = if acted { farm::prompt(w).1 } else { prompt };
@@ -162,6 +196,7 @@ impl Game for Garden {
                 shown.prompt = prompt.clone();
                 shown.tile = tile;
                 shown.events = processed;
+                shown.at_barrel = at_barrel;
             }
             hud::publish(w, prompt, false);
         }

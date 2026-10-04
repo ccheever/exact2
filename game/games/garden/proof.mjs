@@ -328,6 +328,64 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await lostBack.world('world').save(resolve(out, 'returned-restored.world'));
   check('returning and planting saves are byte-identical', readFileSync(resolve(out, 'returned.world')).equals(readFileSync(resolve(out, 'returned-restored.world'))));
   await lostBack.close();
+
+  // Care is a saved action: accelerate growth, leave its plot, return using
+  // public barrel guidance and refill, then harvest in a fresh-process replay.
+  const care = await open({fresh:true, epoch:EPOCH});
+  await care.tap('play');
+  const cg = care.world('world');
+  await cg.run(100);
+  await cg.tap('KeyE'); await cg.run(100);
+  await care.tap('buy-carrot'); await cg.run(100);
+  check('the tall text HUD is present while watering', !!node(await care.tree(),'planting'));
+  check('a growing plot offers watering', node(await care.tree(), 'water')?.props?.disabled === false);
+  await care.tap('water'); await cg.run(100);
+  let cared = await care.tree();
+  check('one dose accelerates growth and disables another', text(cared,'water-count') === 'Watering can · 2/3'
+    && text(cared,'care') === 'Watered · growing faster' && node(cared,'water')?.props?.disabled === true);
+  if (host !== 'linux') await care.screenshot(resolve(out,'watering.png'));
+  await cg.tap('KeyQ'); await cg.run(100);
+  check('the keyboard cannot spend a second dose on the same growth', text(await care.tree(),'water-count') === 'Watering can · 2/3');
+  await cg.hold('KeyD',1000); await cg.run(100);
+  check('refilling away from the barrel is disabled', node(await care.tree(),'refill')?.props?.disabled === true);
+  await cg.save(resolve(out,'watering.world'));
+  const finishCare = async session => {
+    const g = session.world('world');
+    for (let step=0;step<20;step++) {
+      const tree = await session.tree();
+      if (node(tree,'refill')?.props?.disabled === false) break;
+      const hint = text(tree,'refill-hint') ?? '';
+      const key = hint.match(/\(([WASD])\)/)?.[1];
+      check('the barrel hint names a movement key', !!key, hint);
+      if (!key) break;
+      await g.hold(`Key${key}`,200); await g.run(100);
+    }
+    await g.tap('KeyR'); await g.run(100);
+    check('R refills all three doses near the barrel', text(await session.tree(),'water-count') === 'Watering can · 3/3');
+    for (let step=0;step<10;step++) {
+      const prompt = text(await session.tree(),'prompt') ?? '';
+      if (!prompt.startsWith('Return to garden:')) break;
+      const key = prompt.match(/\(([WASD])\)/)?.[1];
+      if (!key) break;
+      await g.hold(`Key${key}`,200); await g.run(100);
+    }
+    const left = 19_000 - (await g.snapshot()).tick * 1000 / 30;
+    if (left > 0) await g.run(left);
+    check('the watered carrot ripens before twenty seconds', text(await session.tree(),'prompt') === 'E: harvest 1 Carrot' && (await g.snapshot()).tick < 600);
+    await g.tap('KeyE'); await g.run(100);
+    check('the accelerated harvest fills the backpack once', label(await session.tree(),'bag-tab') === 'Backpack 1');
+    return g.snapshot();
+  };
+  const watered = await finishCare(care);
+  await cg.save(resolve(out,'watering-continued.world'));
+  pinSave('watering',resolve(out,'watering-continued.world'));
+  await care.close();
+  const careBack = await open({fresh:true,world:resolve(out,'watering.world'),epoch:EPOCH});
+  await careBack.tap('play');
+  check('watered growth and barrel travel continue identically', JSON.stringify(await finishCare(careBack)) === JSON.stringify(watered));
+  await careBack.world('world').save(resolve(out,'watering-restored.world'));
+  check('watered continuation saves are byte-identical',readFileSync(resolve(out,'watering-continued.world')).equals(readFileSync(resolve(out,'watering-restored.world'))));
+  await careBack.close();
 });
 
 // Jev sees the player's text and enabled controls, and acts through those
@@ -354,7 +412,7 @@ async function playtest({open, out, log}) {
   let strawberryHarvests = 0;
   for (let turn = 0; turn < (fullMarket ? 96 : 48); turn++) {
     const tree = await s.tree();
-    const state = Object.fromEntries(['sheckles','prompt','plot','planting','held','census','last','weather','restock','objective','order-detail','order-hint']
+    const state = Object.fromEntries(['sheckles','prompt','plot','planting','held','census','last','weather','restock','objective','order-detail','order-hint','water-count','care','refill-hint']
       .map(id => [id, text(tree, id) ?? '']));
     state.backpack = label(tree, 'bag-tab');
     state.shop = crops.map(id => {
@@ -372,6 +430,8 @@ async function playtest({open, out, log}) {
       ...Object.fromEntries(crops.flatMap(crop => [[`buy-${crop}`, `Buy one ${crop} seed`], [`equip-${crop}`, `Hold a ${crop} seed`]])),
       'sell-all':`Sell the backpack: ${label(tree, 'sell-all') ?? ''}`,
       deliver:'Deliver the market order for full fruit value plus its bonus',
+      water:'Use one watering-can dose on this plot to cut its remaining growth or fruit wait by 25%',
+      refill:'Refill all three watering-can doses at the nearby blue barrel',
     })) {
       const n = node(tree, id);
       if (!n || n.props?.disabled || (id === 'shop-tab' && node(tree, 'shop'))
@@ -383,7 +443,7 @@ async function playtest({open, out, log}) {
     if (state.prompt.startsWith('E:')) choices.act = `Press E: ${state.prompt}`;
     const decision = await decide({state:{...state, strawberryHarvests, recent}, choices, transcript,
       goal:(fullMarket ? 'Fill all five market orders: carrot, strawberry, blueberry, tomato, then corn. Walk to an empty tile to plant a different crop; a fruiting plant keeps its tile after harvest. North and east lead into the garden from its starting corner. ' : 'Fill the first two market orders: carrot, then strawberry. Use your current tile. ')
-        + 'Deliver requested fruit using the market button to earn its bonus. Buy and plant the requested crop, wait for it to ripen, then harvest with E and deliver. Sell only extra fruit not needed for the order. The shop tells you growth times. Avoid buying excess seeds you cannot plant. Waiting advances time without spending money.'});
+        + 'Deliver requested fruit using the market button to earn its bonus. Buy and plant the requested crop, wait for it to ripen, then harvest with E and deliver. Watering is optional and makes the remaining wait 25% shorter; the blue barrel refills your three doses. Sell only extra fruit not needed for the order. The shop tells you growth times. Avoid buying excess seeds you cannot plant. Waiting advances time without spending money.'});
     log(`JEV ${turn + 1}: ${decision.choice} · ${state.sheckles} · ${state.prompt}`);
     recent.push({action:decision.choice, prompt:state.prompt, purse:state.sheckles});
     if (recent.length > 6) recent.shift();
@@ -404,7 +464,7 @@ async function playtest({open, out, log}) {
   }
   const tree = await s.tree();
   const outcome = {fullMarket, startOutside, strawberryHarvests, purse:purseOf(tree), census:text(tree,'census'),
-    objective:text(tree,'objective'), prompt:text(tree,'prompt'), last:text(tree,'last'), world:await game.snapshot()};
+    objective:text(tree,'objective'), prompt:text(tree,'prompt'), last:text(tree,'last'), water:text(tree,'water-count'), care:text(tree,'care'), world:await game.snapshot()};
   writeFileSync(resolve(out, 'jev-outcome.json'), JSON.stringify(outcome, null, 2));
   log(`JEV outcome: ${strawberryHarvests} strawberry harvests · ${outcome.purse}¢ · ${outcome.census}`);
   await s.screenshot(resolve(out, 'jev-playtest.png'));
