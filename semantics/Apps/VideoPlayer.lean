@@ -1,11 +1,14 @@
 import Contract
 
 def videoPlayer : Contract.Program := {
-  shapes := [{ name := "Geometry", fields := [{ name := "x", ty := .number }, { name := "y", ty := .number }, { name := "width", ty := .number }, { name := "height", ty := .number }, { name := "provisional", ty := .bool }, { name := "unavailable", ty := .bool }] },
+  shapes := [{ name := "ClipboardEvent", fields := [{ name := "text", ty := .string }] },
+    { name := "Geometry", fields := [{ name := "x", ty := .number }, { name := "y", ty := .number }, { name := "width", ty := .number }, { name := "height", ty := .number }, { name := "provisional", ty := .bool }, { name := "unavailable", ty := .bool }] },
     { name := "KeyboardEvent", fields := [{ name := "key", ty := .string }, { name := "shiftKey", ty := .bool }, { name := "ctrlKey", ty := .bool }, { name := "altKey", ty := .bool }, { name := "metaKey", ty := .bool }] },
     { name := "MarkdownSelection", fields := [{ name := "formats", ty := .string }, { name := "mixed", ty := .bool }, { name := "link", ty := .string }, { name := "unavailable", ty := .string }] },
+    { name := "MouseEvent", fields := [{ name := "shiftKey", ty := .bool }, { name := "ctrlKey", ty := .bool }, { name := "altKey", ty := .bool }, { name := "metaKey", ty := .bool }] },
     { name := "Picked", fields := [{ name := "path", ty := .string }, { name := "name", ty := .string }, { name := "type", ty := .string }, { name := "size", ty := .number }, { name := "width", ty := (.option .number) }, { name := "height", ty := (.option .number) }, { name := "duration", ty := (.option .number) }] },
-    { name := "PointerEvent", fields := [{ name := "offsetX", ty := .number }, { name := "offsetY", ty := .number }, { name := "buttons", ty := .number }, { name := "pressure", ty := .number }, { name := "pointerType", ty := .string }, { name := "pointerId", ty := .number }] }],
+    { name := "PointerEvent", fields := [{ name := "offsetX", ty := .number }, { name := "offsetY", ty := .number }, { name := "buttons", ty := .number }, { name := "pressure", ty := .number }, { name := "pointerType", ty := .string }, { name := "pointerId", ty := .number }, { name := "shiftKey", ty := .bool }, { name := "ctrlKey", ty := .bool }, { name := "altKey", ty := .bool }, { name := "metaKey", ty := .bool }] },
+    { name := "ScrollEvent", fields := [{ name := "scrollLeft", ty := .number }, { name := "scrollTop", ty := .number }, { name := "scrollWidth", ty := .number }, { name := "scrollHeight", ty := .number }, { name := "clientWidth", ty := .number }, { name := "clientHeight", ty := .number }] }],
   fns := [],
   states := [{ name := "note", ty := .string, init := (.str ""), owner := .none, late := false },
     { name := "paused", ty := .bool, init := (.bool false), owner := .none, late := false },

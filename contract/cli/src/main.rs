@@ -22,7 +22,7 @@ const USAGE: &str = "usage:
   contract types <file.contract> [-o <app.d.ts>]
   contract rust <file.contract> [-o <shapes.rs>]
   contract test <file.test.contract>
-  contract lean <file.contract> [--name <ident>] [-o <file.lean>]
+  contract lean <file.contract> [--components] [--name <ident>] [-o <file.lean>]
   contract verify <file.contract> [--types] [--prove <Module>]
   contract vocab [--json] [<name>]";
 
@@ -231,10 +231,12 @@ fn fmt(args: &[String]) -> ExitCode {
 /// term of the Lean semantics (`semantics/`), after the whole compiler
 /// accepts it.
 fn lean(args: &[String]) -> ExitCode {
-    const USAGE: &str = "usage: contract lean <file.contract> [--name <ident>] [-o <file.lean>]";
+    const USAGE: &str =
+        "usage: contract lean <file.contract> [--components] [--name <ident>] [-o <file.lean>]";
     let mut input = None;
     let mut name = "program".to_string();
     let mut output = None;
+    let mut components = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -242,6 +244,7 @@ fn lean(args: &[String]) -> ExitCode {
                 println!("{USAGE}");
                 return ExitCode::SUCCESS;
             }
+            "--components" => components = true,
             "--name" => match it.next() {
                 Some(n) => name = n.clone(),
                 None => {
@@ -267,7 +270,13 @@ fn lean(args: &[String]) -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
-    match contract::lean::lean_path(std::path::Path::new(&input), &name) {
+    let path = std::path::Path::new(&input);
+    let emitted = if components {
+        contract::lean::lean_components_path(path, &name)
+    } else {
+        contract::lean::lean_path(path, &name)
+    };
+    match emitted {
         Ok(text) => {
             let text = format!("import Contract\n\n{text}");
             match output {

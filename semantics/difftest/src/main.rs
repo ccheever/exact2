@@ -19,6 +19,9 @@
 //!   difftest lowering [--seed S] [--count N] [--batch B]
 //!   difftest lowering-corpus [<dir|file>…]     the compiler's bytecode against the
 //!                                              Lean VM model and `eval` (semantics/README.md)
+//!   difftest expansion [<dir|file>…] [--seed S] [--count N] [--batch B]
+//!                                        component expansion against the Lean expander
+//!                                        and the component-level semantics
 //!
 //! Prints one line per divergence with where its reproduction was kept, then
 //! a summary; exits 1 when anything diverged, a corpus program was refused,
@@ -44,7 +47,8 @@ const USAGE: &str = "usage:
   difftest show <seed>
   difftest apps [--write]
   difftest lowering [--seed <u64>] [--count <n>] [--batch <n>]
-  difftest lowering-corpus [<dir|file>…]";
+  difftest lowering-corpus [<dir|file>…]
+  difftest expansion [<dir|file>…] [--seed <u64>] [--count <n>] [--batch <n>]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -60,6 +64,7 @@ fn main() -> ExitCode {
         Some("apps") => run_apps(&args[1..]),
         Some("lowering") => run_lowering(&args[1..]),
         Some("lowering-corpus") => run_lowering_corpus(&args[1..]),
+        Some("expansion") => run_expansion(&args[1..]),
         Some("show") => match args.get(1).map(|s| s.parse::<u64>()) {
             Some(Ok(seed)) => {
                 let case = gen::case(seed, &gen::Size::default());
@@ -295,6 +300,42 @@ fn run_lowering_corpus(args: &[String]) -> Result<bool, String> {
     }
     let cases: Vec<Case> = scripted.into_iter().map(|s| s.case).collect();
     lowering::run(cases, 16, "lowering-corpus")
+}
+
+/// Component expansion: the files given (scripted, or explored when they
+/// have no tests) and `count` generated programs, each expanded by Rust and
+/// by `Contract.Expand` and run on the component-level and flat semantics
+/// (`contract_difftest::expansion`). With neither, semantics/corpus.
+fn run_expansion(args: &[String]) -> Result<bool, String> {
+    let mut seed: u64 = 1;
+    let mut count = 0usize;
+    let mut batch = 32usize;
+    let mut dirs = Vec::new();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut value = || it.next().ok_or_else(|| format!("{a} needs a value"));
+        match a.as_str() {
+            "--seed" => seed = value()?.parse().map_err(|e| format!("--seed: {e}"))?,
+            "--count" => count = value()?.parse().map_err(|e| format!("--count: {e}"))?,
+            "--batch" => batch = value()?.parse().map_err(|e| format!("--batch: {e}"))?,
+            other if !other.starts_with('-') => dirs.push(PathBuf::from(other)),
+            other => return Err(format!("unknown argument {other}\n{USAGE}")),
+        }
+    }
+    if dirs.is_empty() && count == 0 {
+        dirs.push(leanrun::project().join("corpus"));
+    }
+    let mut cases: Vec<Case> = Vec::new();
+    if !dirs.is_empty() {
+        let (scripted, errors) = corpus(&dirs)?;
+        for e in &errors {
+            println!("SCRIPT {e}");
+        }
+        cases.extend(scripted.into_iter().map(|s| s.case));
+    }
+    let size = gen::Size::default();
+    cases.extend((0..count as u64).map(|i| gen::case(seed.wrapping_add(i), &size)));
+    contract_difftest::expansion::run(cases, batch, &format!("expansion-{seed}"))
 }
 
 /// The Lean type checker against the Rust one over generated programs and
