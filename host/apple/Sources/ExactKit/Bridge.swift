@@ -275,6 +275,15 @@ final class Runtime {
     /// the engine's tracker (LLP 1057.001 §3), viewport px at `t` seconds.
     func panSample(first: Bool, x: Double, y: Double, t: Double) { on { () -> Void in _ = exact_pan_sample(rt, first ? 1 : 0, x, y, t) } }
     func panVelocity(at t: Double) -> (Double, Double) { on(busy: (0, 0)) { (exact_pan_velocity(rt, 0, t), exact_pan_velocity(rt, 1, t)) } }
+    /// A scroller (nil: the page) now stands at `left`, `top` (LLP 1051.000
+    /// D1): posted, never waited for, since AppKit calls from inside its
+    /// scroll synchronizer.
+    func scrolled(_ view: UInt32?, left: Double, top: Double) {
+        Owner.shared.notify { [self] in
+            guard !destroyed else { return }
+            exact_scrolled(rt, view == nil ? 1 : 0, view ?? 0, left, top)
+        }
+    }
     func scroll(_ view: UInt32, left: Double, top: Double, now: Double) -> Batch {
         return on {
             let n = write("\(left),\(top)")

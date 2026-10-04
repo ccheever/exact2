@@ -334,7 +334,7 @@ Signatures are authored forms; localization's internal lowered signature differs
 | `params(router, parameterName)` | `list<string>` |
 | `searchParam(entry, name)` | String |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders |
-| `frame(id)` | `Geometry`, actions only; last layout in root space |
+| `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it: in the viewport, every scroll offset applied, transforms not |
 | `measure("id")` | `Geometry`, actions only; literal id, height-auto measurement |
 
 The router functions (`open` through `searchParam`) and `encodeRouteSegment`

@@ -423,6 +423,7 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         self.scroll.entry(id).or_default().1 = next;
+        self.publish_scroll();
         self.collection_scrolled_by_arrange(id);
         if let Some(point) = self.contact_position() {
             if let Err(e) = self.pointer_move(point.0, point.1, now) {

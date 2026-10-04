@@ -265,6 +265,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.dispatch(view, kind, len, now_ms), |n| n)
         }
 
+        /// A scroller (or, nonzero `page`, the page) now stands at `left`,
+        /// `top` CSS px: what `frame` subtracts (LLP 1051.000 D1). No batch.
+        #[no_mangle]
+        pub extern "C" fn exact_scrolled(rt: u32, page: u32, view: u32, left: f64, top: f64) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.scrolled(page != 0, view, left, top), |_| ())
+        }
+
         /// Copy current region source/paint metadata. No returned bytes outlive exact_out.
         #[no_mangle]
         pub extern "C" fn exact_region_request(rt: u32, id: u64, known_source: u64) -> u32 {

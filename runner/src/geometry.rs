@@ -5,13 +5,19 @@
 //! answered before the action runs), D3 (the kernel natively), D4 (the page
 //! on the web, through the artifact's link), D5 (provisional, unavailable)
 //!
+//! Both answer the box where the viewer sees it, as `getBoundingClientRect`
+//! does: every scroll offset above it applied, the page's included. The
+//! kernel lays out free of scrolling, so natively the host tells the runner
+//! where each scroller it presents stands ([`Scrolled`]) and the read
+//! subtracts them; the page's answer already has them.
+//!
 //! An action runs against a read-only runner, so `frame` reads through a
 //! borrowed kernel while the body runs, and every `measure` in the body is
 //! answered just before, with the kernel's engine tree to lay out. The
 //! compiler requires `measure`'s id to be a literal, which is what lets the
 //! runner find them all first.
 
-use exact_kernel::{Frame, Kernel, ViewId};
+use exact_kernel::{Frame, Kernel, NodeKey, ViewId};
 use exact_plan::{Opcode, Plan, Stdlib, StrId, Value};
 
 /// One answer: a border box and its two flags (LLP 1051.000 D5).
@@ -43,11 +49,11 @@ impl GeometryAnswer {
         unavailable: true,
     };
 
-    /// A kernel frame as an answer.
-    pub fn of(frame: Frame, provisional: bool) -> GeometryAnswer {
+    /// A kernel frame as an answer, moved by `(left, top)` of scrolling.
+    pub fn of(frame: Frame, provisional: bool, (left, top): (f64, f64)) -> GeometryAnswer {
         GeometryAnswer {
-            x: f64::from(frame.x),
-            y: f64::from(frame.y),
+            x: f64::from(frame.x) - left,
+            y: f64::from(frame.y) - top,
             width: f64::from(frame.width),
             height: f64::from(frame.height),
             provisional,
@@ -72,6 +78,60 @@ impl GeometryAnswer {
 /// id of the literal each was asked with.
 pub type Measured = Vec<(StrId, GeometryAnswer)>;
 
+/// Where the host last showed each scroll container, and the page, in CSS
+/// px (`scrollLeft`, `scrollTop`): what a native read subtracts from the
+/// kernel's scroll-free box (kanban diary F4: an app hand-tracked every
+/// column's offset to drop a card where the pointer was). A host notes an
+/// offset whenever one changes, handler or not; a read sees the offsets as
+/// last shown, as it sees the layout (LLP 1051.000 D1).
+#[derive(Debug, Default, Clone)]
+pub struct Scrolled {
+    page: (f64, f64),
+    boxes: Vec<(NodeKey, f64, f64)>,
+}
+
+impl Scrolled {
+    /// `view`'s offset, or the page's for `None`. An id that names no live
+    /// node, or a non-finite offset, is ignored; a node's entry goes with
+    /// it, since its key is generation-checked.
+    pub fn note(&mut self, kernel: &Kernel, view: Option<ViewId>, left: f64, top: f64) {
+        if !(left.is_finite() && top.is_finite()) {
+            return;
+        }
+        let Some(view) = view else {
+            self.page = (left, top);
+            return;
+        };
+        let arena = kernel.arena();
+        self.boxes.retain(|(key, ..)| arena.resolve(*key).is_some());
+        let Some(key) = arena.key_of(view) else {
+            return;
+        };
+        match self.boxes.iter_mut().find(|(k, ..)| *k == key) {
+            Some(entry) => *entry = (key, left, top),
+            None => self.boxes.push((key, left, top)),
+        }
+    }
+
+    /// The scrolling above `view`: the page's and each ancestor
+    /// scroller's, summed. A scroller's own offset moves its content, not
+    /// its box.
+    pub fn above(&self, kernel: &Kernel, view: ViewId) -> (f64, f64) {
+        let arena = kernel.arena();
+        let (mut left, mut top) = self.page;
+        let mut at = arena.key_of(view).and_then(|key| arena.parent(key.index));
+        while let Some(slot) = at {
+            let key = arena.key(slot);
+            if let Some((_, l, t)) = self.boxes.iter().find(|(k, ..)| *k == key) {
+                left += l;
+                top += t;
+            }
+            at = arena.parent(slot);
+        }
+        (left, top)
+    }
+}
+
 /// How a runner answers geometry: `frame` from a borrowed kernel while an
 /// action runs, `measure` from the kernel just before it (natively it lays
 /// out the engine tree). The web's pair asks the page instead and never
@@ -83,9 +143,9 @@ pub type Measured = Vec<(StrId, GeometryAnswer)>;
 /// geometry carries none of it (LLP 1047 D3).
 #[derive(Clone, Copy)]
 pub struct GeometryLinks {
-    frame: fn(&Kernel, ViewId) -> GeometryAnswer,
-    measure: fn(&mut Kernel, ViewId) -> GeometryAnswer,
-    ahead: fn(&Plan, &[u8], &mut Kernel, &GeometryLinks) -> Measured,
+    frame: fn(&Kernel, &Scrolled, ViewId) -> GeometryAnswer,
+    measure: fn(&mut Kernel, &Scrolled, ViewId) -> GeometryAnswer,
+    ahead: fn(&Plan, &[u8], &mut Kernel, &Scrolled, &GeometryLinks) -> Measured,
     read: fn(&GeometryEnv<'_>, &Plan, Stdlib, &[Value]) -> Option<Value>,
 }
 
@@ -93,8 +153,8 @@ impl GeometryLinks {
     /// A host's reads: `frame`, where layout put a view as last laid out,
     /// and `measure`, the view's box as if its `height` were `auto`.
     pub const fn new(
-        frame: fn(&Kernel, ViewId) -> GeometryAnswer,
-        measure: fn(&mut Kernel, ViewId) -> GeometryAnswer,
+        frame: fn(&Kernel, &Scrolled, ViewId) -> GeometryAnswer,
+        measure: fn(&mut Kernel, &Scrolled, ViewId) -> GeometryAnswer,
     ) -> GeometryLinks {
         GeometryLinks {
             frame,
@@ -106,37 +166,45 @@ impl GeometryLinks {
 
     /// Every `measure` in an action's `code`, answered before it runs, by
     /// its literal id.
-    pub fn ahead(&self, plan: &Plan, code: &[u8], kernel: &mut Kernel) -> Measured {
-        (self.ahead)(plan, code, kernel, self)
+    pub fn ahead(
+        &self,
+        plan: &Plan,
+        code: &[u8],
+        kernel: &mut Kernel,
+        scrolled: &Scrolled,
+    ) -> Measured {
+        (self.ahead)(plan, code, kernel, scrolled, self)
     }
 }
 
-/// The kernel's answers: a native host's kernel is its layout.
+/// The kernel's answers: a native host's kernel is its layout, and its
+/// presenters' scroll offsets are noted in [`Scrolled`].
 pub static KERNEL: GeometryLinks = GeometryLinks::new(kernel_frame, kernel_measure);
 
-fn kernel_frame(kernel: &Kernel, view: ViewId) -> GeometryAnswer {
+fn kernel_frame(kernel: &Kernel, scrolled: &Scrolled, view: ViewId) -> GeometryAnswer {
     kernel
         .arena()
         .key_of(view)
         .and_then(|key| kernel.laid_out_frame(key))
         .map_or(GeometryAnswer::UNAVAILABLE, |(frame, provisional)| {
-            GeometryAnswer::of(frame, provisional)
+            GeometryAnswer::of(frame, provisional, scrolled.above(kernel, view))
         })
 }
 
-fn kernel_measure(kernel: &mut Kernel, view: ViewId) -> GeometryAnswer {
-    kernel
+fn kernel_measure(kernel: &mut Kernel, scrolled: &Scrolled, view: ViewId) -> GeometryAnswer {
+    let answer = kernel
         .arena()
         .key_of(view)
-        .and_then(|key| kernel.measure_auto_height(key))
-        .map_or(GeometryAnswer::UNAVAILABLE, |(frame, provisional)| {
-            GeometryAnswer::of(frame, provisional)
-        })
+        .and_then(|key| kernel.measure_auto_height(key));
+    answer.map_or(GeometryAnswer::UNAVAILABLE, |(frame, provisional)| {
+        GeometryAnswer::of(frame, provisional, scrolled.above(kernel, view))
+    })
 }
 
 /// What an action's body reads geometry through (the VM's `Env`).
 pub struct GeometryEnv<'a> {
     kernel: &'a Kernel,
+    scrolled: &'a Scrolled,
     links: &'a GeometryLinks,
     measured: &'a [(StrId, GeometryAnswer)],
 }
@@ -146,11 +214,13 @@ impl<'a> GeometryEnv<'a> {
     /// answers found before its body ran.
     pub fn new(
         kernel: &'a Kernel,
+        scrolled: &'a Scrolled,
         links: &'a GeometryLinks,
         measured: &'a [(StrId, GeometryAnswer)],
     ) -> GeometryEnv<'a> {
         GeometryEnv {
             kernel,
+            scrolled,
             links,
             measured,
         }
@@ -174,7 +244,7 @@ fn read(env: &GeometryEnv<'_>, plan: &Plan, f: Stdlib, args: &[Value]) -> Option
             .map_or(GeometryAnswer::UNAVAILABLE, |(_, answer)| *answer)
     } else {
         view_of(env.kernel, id).map_or(GeometryAnswer::UNAVAILABLE, |view| {
-            (env.links.frame)(env.kernel, view)
+            (env.links.frame)(env.kernel, env.scrolled, view)
         })
     };
     Some(answer.value())
@@ -192,7 +262,13 @@ fn view_of(kernel: &Kernel, id: &str) -> Option<ViewId> {
 /// Answer every `measure` in `code` before it runs: each literal id once,
 /// in the order the body names them. The compiler writes a literal id as the
 /// `Str` push just before the call.
-fn measure_ahead(plan: &Plan, code: &[u8], kernel: &mut Kernel, links: &GeometryLinks) -> Measured {
+fn measure_ahead(
+    plan: &Plan,
+    code: &[u8],
+    kernel: &mut Kernel,
+    scrolled: &Scrolled,
+    links: &GeometryLinks,
+) -> Measured {
     let mut answers: Measured = Vec::new();
     let mut literal = None;
     for instruction in crate::vm::instructions(code).map_while(Result::ok) {
@@ -205,7 +281,7 @@ fn measure_ahead(plan: &Plan, code: &[u8], kernel: &mut Kernel, links: &Geometry
                     if !answers.iter().any(|(named, _)| *named == at) {
                         let answer = view_of(kernel, plan.str(at))
                             .map_or(GeometryAnswer::UNAVAILABLE, |view| {
-                                (links.measure)(kernel, view)
+                                (links.measure)(kernel, scrolled, view)
                             });
                         answers.push((at, answer));
                     }

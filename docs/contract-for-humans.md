@@ -901,8 +901,10 @@ recognition and competition with scrolling; Contract does not define a general
 gesture arena. See [Interaction Gallery](../apps/interaction-gallery/app.contract)
 and [Spark](../apps/spark/app.contract) for complete bindings.
 
-`frame("id")` reads the last laid-out border box in root coordinates, without
-transforms or scrolling. `measure("id")` asks for its height-auto layout under its
+`frame("id")` reads the last laid-out border box where the viewer sees it, as
+`getBoundingClientRect` does: in the viewport, every scroll offset above it
+applied (the page's too), but without transforms. `measure("id")` asks for its
+height-auto layout, at the same origin, under its
 current offer; its id is literal. Both are action-only and return `Geometry`,
 including `unavailable` and `provisional`; handle those flags rather than assuming
 layout already happened. Geometry reads are not reactive view expressions.

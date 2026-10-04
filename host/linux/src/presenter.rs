@@ -917,7 +917,19 @@ impl<D: DataSource> Presenter<D> {
         let page = self.page;
         self.page.0 = self.page.0.clamp(0.0, (doc.0 - viewport.0).max(0.0));
         self.page.1 = self.page.1.clamp(0.0, (doc.1 - viewport.1).max(0.0));
+        self.publish_scroll();
         changed || self.page != page
+    }
+
+    /// Tell the runner where every scroller and the page stand, for
+    /// `frame()` (LLP 1051.000 D1): after a clamp, and wherever a scroll
+    /// moves geometry (`refresh_transform_geometry`).
+    pub(crate) fn publish_scroll(&mut self) {
+        let runner = self.host.runner_mut();
+        runner.scrolled(None, f64::from(self.page.0), f64::from(self.page.1));
+        for (id, (left, top)) in &self.scroll {
+            runner.scrolled(Some(*id), f64::from(*left), f64::from(*top));
+        }
     }
 
     /// Every node's painted box, in paint order (a fresh frame when stale).

@@ -329,6 +329,11 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * A change's text, key's name, or guest message is the payload in the input
  * buffer's first len bytes. */
 uint32_t exact_dispatch(ExactRuntime rt, uint32_t view, uint32_t kind, size_t len, double now_ms);
+/* A scroll container the presenter shows (or, nonzero page, the page) now
+ * stands at left, top CSS px (scrollLeft, scrollTop), handler or not: what
+ * frame() and measure() subtract from the kernel's scroll-free box, so an
+ * action reads the box where the viewer sees it (LLP 1051.000 D1). No batch. */
+void exact_scrolled(ExactRuntime rt, uint32_t page, uint32_t view, double left, double top);
 /* Versioned LE collection feedback in exact_in; returns the ordinary batch. */
 uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
 /* The agent's tap <list> into <key> (LLP 1070.000): "key\nblock\ninline" in

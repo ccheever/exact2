@@ -402,8 +402,11 @@ specific documented behavior;
 they do not admit arbitrary frame callbacks or a second app-state graph.
 
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
-`Geometry`. Handle `unavailable` and `provisional`. `frame` reads the last layout's untransformed
-border box in root space; `measure` reads an auto-height hypothetical layout.
+`Geometry`. Handle `unavailable` and `provisional`. `frame` reads the last layout's border box
+where the viewer sees it, as `getBoundingClientRect` does: in the viewport, with every
+scroll offset above it (the page's too) applied, but untransformed, so a drop target
+needs no scroll bookkeeping; `measure` reads an auto-height hypothetical layout at
+the same origin.
 Neither is a computed style binding to run every render.
 
 SVG uses SVG names. `foreignObject` compiles and renders on the web; native hosts
