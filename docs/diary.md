@@ -5,7 +5,8 @@ how Exact went, so it can fix what was rough and keep what was good. The diary
 stays on this machine. Nothing is sent unless the person you work for says yes.
 
 Run `bun exact.mjs feedback status` once at the start. If it says `never`, skip
-everything below: no diary, no asking.
+everything below: no diary, no asking. If it says `local`, keep the diary and skip
+Asking to share. If `feedback status` prints more instructions, follow them too.
 
 ## What to keep
 

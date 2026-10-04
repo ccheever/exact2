@@ -7,11 +7,16 @@
 //   feedback [preview]      print exactly what `send` would send
 //   feedback send [--yes]   send it (asks first on a terminal unless --yes)
 //   feedback delete <id>    delete a sent diary by its receipt
-//   feedback always|never|ask   this project's standing answer
+//   feedback always|never|ask|local   this project's standing answer
 //   feedback status         that answer, and what is unsent
 //
 // The standing answer is per user and per project (~/.config/exact/feedback.json,
-// keyed by the app's real path), so cloning an app never carries consent along.
+// keyed by the app's real path), so cloning an app never carries consent along. A
+// `*` key there answers for every project without its own; a study that hands an
+// agent a private EXACT_CONFIG_DIR sets `{"*": "local"}` before the app exists.
+// `local` keeps the diary and never asks or sends. With EXACT_DIARY=detailed set,
+// `status` also prints the detailed diary's extra instructions (DETAILED below), so
+// only a study's agents carry them in context.
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
@@ -22,7 +27,8 @@ const SETTINGS = () => resolve(process.env.EXACT_CONFIG_DIR ?? resolve(homedir()
 
 const readJson = (path, fallback) => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return fallback; } };
 
-export function standing(dir) { return readJson(SETTINGS(), {})[realpathSync(dir)] ?? 'ask'; }
+export const ANSWERS = ['always', 'never', 'ask', 'local'];
+export function standing(dir) { const all = readJson(SETTINGS(), {}); return all[realpathSync(dir)] ?? all['*'] ?? 'ask'; }
 export function setStanding(dir, answer) {
   const all = readJson(SETTINGS(), {});
   if (answer === 'ask') delete all[realpathSync(dir)]; else all[realpathSync(dir)] = answer;
@@ -86,6 +92,7 @@ async function confirm(question) {
 
 export async function send(dir, { yes = false, fetch: post = fetch } = {}) {
   if (standing(dir) === 'never') return 'This project is set to never send feedback (`feedback ask` undoes that).';
+  if (standing(dir) === 'local') return 'This project keeps its diary on this machine and never sends it (`feedback ask` undoes that).';
   const { diaries, commands, logLength, text } = pending(dir);
   if (!diaries.length && !commands.length) return 'Nothing unsent.';
   if (!yes) {
@@ -103,19 +110,36 @@ export async function send(dir, { yes = false, fetch: post = fetch } = {}) {
   return `Sent ${diaries.length} ${diaries.length === 1 ? 'diary' : 'diaries'} and ${commands.length} logged commands. Receipt: ${id}\nTo delete it: bun exact.mjs feedback delete ${id}`;
 }
 
+/** The detailed diary (EXACT_DIARY=detailed): what a study of authoring needs beyond docs/diary.md. */
+export const DETAILED = `This session keeps the detailed diary. In the same diary file, also keep:
+
+- A timeline: a line at each step, stamped with the time from \`date +%H:%M:%S\`. Run it; never estimate a time.
+- For every error: the command, the first lines of its output, what you believed was wrong, each attempt, and what worked.
+- Every doc you read: what you were looking for, and whether it was there.
+- Every guess you made where the docs were silent. Later, mark each one right or wrong.
+- Every workaround left in the app.
+- At the end, a self-assessment for each platform: what works, how you checked it, and what you are unsure of.`;
+
+/** The standing answer and what is unsent; the detailed diary's instructions when a study asks for them. */
+export function status(dir, env = process.env) {
+  const { diaries, commands } = pending(dir);
+  const line = `${standing(dir)}: ${diaries.length} unsent diaries, ${commands.length} unsent logged commands`;
+  return env.EXACT_DIARY === 'detailed' && standing(dir) !== 'never' ? `${line}\n\n${DETAILED}` : line;
+}
+
 async function main([verb = 'preview', ...rest]) {
   const dir = process.env.EXACT_APP_DIR;
   if (!dir) throw new Error('run this through an app\'s exact.mjs (bun exact.mjs feedback …)');
   if (verb === 'preview') { const { text } = pending(dir); return text || 'Nothing unsent.'; }
   if (verb === 'send') return send(dir, { yes: rest.includes('--yes') });
-  if (verb === 'status') { const { diaries, commands } = pending(dir); return `${standing(dir)}: ${diaries.length} unsent diaries, ${commands.length} unsent logged commands`; }
-  if (['always', 'never', 'ask'].includes(verb)) { setStanding(dir, verb); return `This project's feedback answer is now: ${verb}.`; }
+  if (verb === 'status') return status(dir);
+  if (ANSWERS.includes(verb)) { setStanding(dir, verb); return `This project's feedback answer is now: ${verb}.`; }
   if (verb === 'delete' && rest[0]) {
     const response = await fetch(`${ENDPOINT}/diary/${encodeURIComponent(rest[0])}`, { method: 'DELETE' });
     if (!response.ok) throw new Error(`the feedback endpoint answered ${response.status}`);
     return `Deleted ${rest[0]}.`;
   }
-  throw new Error('usage: bun exact.mjs feedback [preview|send [--yes]|delete <id>|always|never|ask|status]');
+  throw new Error('usage: bun exact.mjs feedback [preview|send [--yes]|delete <id>|always|never|ask|local|status]');
 }
 
 if (import.meta.main) {
