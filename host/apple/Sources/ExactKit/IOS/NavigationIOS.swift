@@ -536,17 +536,19 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// recognized: a real touch from x = 1 read as starting at 30, past the
     /// 20-point edge, and over a `swiperight` row the pop was refused (LLP
     /// 1080.000 §11). The edge rule judges where the finger landed.
-    private var popTouchDown: [ObjectIdentifier: CGPoint] = [:]
+    /// Keyed weakly: a retired stack's recognizers take their entries with them.
+    private let popTouchDown = NSMapTable<UIGestureRecognizer, NSValue>.weakToStrongObjects()
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        // The first finger of each gesture replaces the last gesture's; a second finger does not.
         if gestureRecognizer.numberOfTouches == 0 { notePopTouchDown(gestureRecognizer, at: touch.location(in: gestureRecognizer.view)) }
         return true
     }
-    func notePopTouchDown(_ gestureRecognizer: UIGestureRecognizer, at point: CGPoint) { popTouchDown[ObjectIdentifier(gestureRecognizer)] = point }
+    func notePopTouchDown(_ gestureRecognizer: UIGestureRecognizer, at point: CGPoint) { popTouchDown.setObject(NSValue(cgPoint: point), forKey: gestureRecognizer) }
 
     /// The swipe's start: its first touch's point, else (no touch seen) its translation's origin.
     func popStart(_ pan: UIPanGestureRecognizer, in view: UIView) -> CGPoint {
-        if let down = popTouchDown[ObjectIdentifier(pan)] { return down }
+        if let down = popTouchDown.object(forKey: pan)?.cgPointValue { return down }
         let location = pan.location(in: view), delta = pan.translation(in: view)
         return CGPoint(x: location.x - delta.x, y: location.y - delta.y)
     }

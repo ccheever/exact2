@@ -165,6 +165,19 @@ final class NavigationTabsIOSTests: XCTestCase {
         try tapNode(session, "detail")
         until("detail pushed in Home") { home.viewControllers.count == 2 && home.transitionCoordinator == nil }
         XCTAssertEqual(mayPop(home), pops(home).map { _ in true }, "the pushed screen with its back control pops")
+        // Over a `swiperight` row the edge decides: a finger that landed at
+        // x = 1 pops, and the start is where it landed, not the pan's
+        // translation origin (which leaves out the travel before recognition).
+        let detail = try node(session, "route-detail")
+        detail.handlers.insert("swiperight")
+        defer { detail.handlers.remove("swiperight") }
+        for pop in pops(home).compactMap({ $0 as? UIPanGestureRecognizer }) {
+            XCTAssertFalse(navigation.popMayBegin(pop, from: CGPoint(x: 30, y: 400), in: home.view, velocity: right), "past the edge, the row's swipe")
+            pop.setTranslation(CGPoint(x: -29, y: 0), in: home.view)
+            navigation.notePopTouchDown(pop, at: CGPoint(x: 1, y: 400))
+            XCTAssertEqual(navigation.popStart(pop, in: home.view), CGPoint(x: 1, y: 400))
+            XCTAssertTrue(navigation.popMayBegin(pop, from: navigation.popStart(pop, in: home.view), in: home.view, velocity: right), "from the edge, the pop")
+        }
         XCTAssertFalse(mayPop(home, velocity: CGPoint(x: 20, y: 600)).contains(true), "a vertical pan is the content's")
         XCTAssertFalse(mayPop(second).contains(true), "a hidden tab's stack does not pop")
         // Its own depth decides once it shows: Second is a root.
@@ -172,12 +185,6 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("Second selected") { tabs.selectedIndex == 1 }
         XCTAssertFalse(mayPop(second).contains(true), "Second is a root")
         XCTAssertFalse(mayPop(home).contains(true), "Home's pushed screen is hidden now")
-        // The edge rule judges where the finger landed, not the pan's
-        // translation origin, which leaves out the travel before recognition.
-        for pop in pops(home).compactMap({ $0 as? UIPanGestureRecognizer }) {
-            navigation.notePopTouchDown(pop, at: CGPoint(x: 1, y: 400))
-            XCTAssertEqual(navigation.popStart(pop, in: home.view), CGPoint(x: 1, y: 400))
-        }
     }
 
     func testASheetOverTheTabsIsPresentedByTheContainersParent() throws {

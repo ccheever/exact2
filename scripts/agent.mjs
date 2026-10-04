@@ -766,6 +766,60 @@ export function worldView(session, name) {
   };
 }
 
+/**
+ * `tap <target> drag …` (LLP 1080.000 §11): one whole gesture from `from`
+ * (an offset from the target's box, its middle by default): press `press`
+ * ms, one straight drag by (dx, dy) over `over` ms, hold `hold` ms, lift;
+ * `during` thunks run while the finger is down, when no input is accepted
+ * (`s.held`). The start and the end must be in the viewport. A real touch
+ * under `--touch platform`; elsewhere the carrier's own contact phases,
+ * refused where the carrier refuses them.
+ */
+async function dragTap({ s, carrier, node, target, host, timing }, opts) {
+  const { dx, dy, from, press = 0, over = 250, hold = 0, during = [] } = opts, drag = { dx, dy, press, over, hold, during }, said = { dx, dy, press, over, hold };
+  if (![dx, dy, press, over, hold].every(Number.isFinite) || [press, over, hold].some((v) => v < 0)) throw new Error('drag: expected finite dx, dy and non-negative press, over and hold (ms)');
+  if (from !== undefined && !(Array.isArray(from) && from.length === 2 && from.every(Number.isFinite))) throw new Error('drag: from takes two finite numbers, an offset from the target\'s box');
+  const moves = dx !== 0 || dy !== 0;
+  if (moves && over <= 0) throw new Error('drag: a drag that moves needs over > 0');
+  for (const k of ['press', 'over', 'hold']) if (drag[k] > DRAG_BOUNDS[k]) throw new Error(`drag: ${k} ${drag[k]} ms is past its bound, ${DRAG_BOUNDS[k]} ms`);
+  if (press + hold + (moves ? over : 0) > DRAG_BOUNDS.total) throw new Error(`drag: the gesture lasts past ${DRAG_BOUNDS.total} ms`);
+  if (s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
+  const layout = await s.layout(), b = layout.nodes.find((n) => n.id === node.id), vp = layout.viewport;
+  if (!b) throw new Error(`view ${node.id} has no box on screen`);
+  const start = from ? [b.x + from[0], b.y + from[1]] : [b.x + b.w / 2, b.y + b.h / 2], end = [start[0] + dx, start[1] + dy];
+  const inside = ([x, y]) => x >= 0 && y >= 0 && x <= vp.w && y <= vp.h;
+  if (vp && !(inside(start) && inside(end))) throw new Error(`drag: from (${start}) to (${end}) leaves the viewport (${vp.w} × ${vp.h})`);
+  const held = (thunks) => async () => {
+    const out = [];
+    s.held = target;
+    try { for (const op of thunks) out.push(await op()); } finally { s.held = null; }
+    return out;
+  };
+  if (carrier.touches) {
+    let r;
+    try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, during: during.length ? [held(during)] : [] } }); }
+    catch (error) { throw await tapRefusal(s, target, error); }
+    return s.tagged({ ...r, ...(r.during ? { during: r.during[0] } : {}), target, carrier: host, mode: timing });
+  }
+  const down = await s.tap(target, { down: true, at: from });
+  const { phase: _, ...refused } = down;
+  if (down.delivery === 'unsupported') return s.tagged({ ...refused, drag: said, reason: `${down.reason ?? 'no held contact'}; a real drag is --touch platform's (LLP 1080.000 §11)` });
+  let done = [], up;
+  try {
+    if (during.length) done = await held(during)();
+    if (press) await s.pointer('hold', { ms: press });
+    if (moves) await s.pointer('move', { dx, dy, ms: over });
+    if (hold) await s.pointer('hold', { ms: hold });
+    up = await s.pointer('up');
+  } catch (error) {
+    // Never leave the finger down: cancel, else lift (AppKit has no cancel), else forget it.
+    for (const phase of ['cancel', 'up']) if (s.contact) { const r = await s.pointer(phase).catch(() => null); if (r?.delivery === 'unsupported') continue; }
+    s.contact = null;
+    throw error;
+  }
+  return s.tagged({ tapped: node.id, target, at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing });
+}
+
 /** Explain a refused placed-child tap using the world's own visibility. */
 export async function tapRefusal(session, target, error) {
   if (error.transport) return error; // the carrier failed: no diagnostic read can answer
@@ -938,6 +992,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     contact: null,
     /** A press on the target through the host's input path (an iframe target accepts guest `selector` or `x`/`y`); with `{ wheel: [dx, dy] }`, a wheel over it (dy > 0 scrolls down); with `{ hover: true }`, the pointer moved onto it (a hover — and off whatever it was over); with `{ down: true[, at: [x, y]] }`, a contact goes down on it (at its centre, or at an offset from its corner) and stays down until `pointer('up')` (LLP 1035.003 D1). Every reply says how it was delivered (`delivery`), by which carrier, in which mode. */
     async tap(target, opts = {}) {
+      if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       if (ticketOf(target) != null) return s.answer('tap', target, opts.choice);
       let node;
       try { node = await s.target(target); }
@@ -975,35 +1030,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         return s.tagged({ ...r, tapped: node.id, target, delivery: 'runner', carrier: host, mode: timing });
       }
       // @ref LLP 1080.000 §11 — one whole gesture: press, one straight drag, hold, lift.
-      if (opts.drag) {
-        const { dx, dy, from, press = 0, over = 250, hold = 0, during = [] } = opts.drag, drag = { dx, dy, press, over, hold, during };
-        if (![dx, dy, press, over, hold].every(Number.isFinite) || [press, over, hold].some((v) => v < 0)) throw new Error('drag: expected finite dx, dy and non-negative press, over and hold (ms)');
-        const moves = dx !== 0 || dy !== 0;
-        if (moves && over <= 0) throw new Error('drag: a drag that moves needs over > 0');
-        for (const k of ['press', 'over', 'hold']) if (drag[k] > DRAG_BOUNDS[k]) throw new Error(`drag: ${k} ${drag[k]} ms is past its bound, ${DRAG_BOUNDS[k]} ms`);
-        if (press + hold + (moves ? over : 0) > DRAG_BOUNDS.total) throw new Error(`drag: the gesture lasts past ${DRAG_BOUNDS.total} ms`);
-        if (s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
-        let at;
-        if (from) { const b = (await s.layout()).nodes.find((n) => n.id === node.id); if (!b) throw new Error(`view ${node.id} has no box on screen`); at = [b.x + from[0], b.y + from[1]]; }
-        if (carrier.touches) {
-          let r;
-          try { r = await carrier.input(node.id, 'drag', { at, drag }); } catch (error) { throw await tapRefusal(s, target, error); }
-          return s.tagged({ ...r, target, carrier: host, mode: timing });
-        }
-        // Elsewhere the carrier's own held contact, phase by phase, refused where it is (iOS without the runner).
-        const down = await s.tap(target, { down: true, at: from });
-        const { phase: _, ...refused } = down;
-        if (down.delivery === 'unsupported') return s.tagged({ ...refused, drag: { dx, dy, press, over, hold }, reason: `${down.reason ?? 'no held contact'}; a real drag is --touch platform's (LLP 1080.000 §11)` });
-        const done = [];
-        try {
-          for (const op of during) done.push(await op());
-          if (press) await s.pointer('hold', { ms: press });
-          if (moves) await s.pointer('move', { dx, dy, ms: over });
-          if (hold) await s.pointer('hold', { ms: hold });
-        } catch (error) { if (s.contact) await s.pointer('cancel').catch(() => {}); throw error; }
-        const up = await s.pointer('up');
-        return s.tagged({ tapped: node.id, target, at: down.at, drag: { dx, dy, press, over, hold }, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing });
-      }
+      if (opts.drag) return dragTap({ s, carrier, node, target, host, timing }, opts.drag);
       const kind = opts.history !== undefined ? 'history' : opts.pinch !== undefined ? 'pinch' : opts.down ? 'down' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : opts.contextmenu ? 'contextmenu' : opts.dblclick ? 'dblclick' : 'press';
       if (kind === 'down' && s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
       let at;
@@ -1046,6 +1073,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     /** Deliver a location to a navigation root (LLP 1038 D11), or set an input's text through the host's text input path; an iframe accepts `{text, selector}` or `{key, selector}` for its guest. */
     async type(target, text) {
+      if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       if (ticketOf(target) != null) return s.answer('type', target, typeof text === 'object' && text !== null ? JSON.stringify(text) : text);
       const node = await s.find(target);
       const options = typeof text === 'object' && text !== null ? text : { text };
@@ -1114,6 +1142,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     /** The device facts by their web names (LLP 1061 D5; LLP 1069.000 D6), grouped on the wire as LLP 1069.007 D2 groups them. `media`: `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-contrast": "more"|"less"|"custom"|"no-preference"`, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). `page`: `"visibility-state": "visible"|"hidden"`, `online` and `can-share` `"true"|"false"`, `"root-font-size"` in px (what `rem` follows). `fold` (LLP 1078 D7): `posture folded|continuous`, `segments <cols>x<rows>`, `gap <points>` — a host without a fold splits its viewport evenly with the gap centred on each divider; a host with a real fold refuses ("the device decides"). Unnamed facts stay. The reply is what the host now reports, by group. */
     async prefer(facts) {
+      if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       const { media, page, fold } = preferGroups(facts);
       if (carrier.prefer) return s.tagged(await carrier.prefer(media, page, fold));
       return s.op(preferOp(media, page, fold));
@@ -1389,17 +1418,18 @@ async function main(argv) {
             const drag = { dx: Number(args[2]), dy: Number(args[3]) };
             for (let i = 4; i < args.length;) {
               if (args[i] === 'during') {
-                const ops = [...line.slice(line.search(/\sduring\s/)).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`));
-                if (!ops.length) throw new Error('tap … drag … during: quote each op, as during "state" "clock +600"');
-                // Reads and the clock only: a tap would be a second finger.
-                const refused = ops.find((op) => !['tree', 'layout', 'state', 'logs', 'screenshot', 'clock', 'perf'].includes(op.trim().split(/\s+/)[0]));
+                // The rest of the line is quoted ops and nothing else; reads and the clock only (a tap would be a second finger).
+                const rest = line.slice(line.search(/\sduring\s/) + ' during '.length);
+                const ops = [...rest.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`));
+                if (!ops.length || rest.replace(/"((?:[^"\\]|\\.)*)"/g, '').trim()) throw new Error('tap … drag … during: the last option, each op quoted, as during "state" "clock +600"');
+                const refused = ops.find((op) => !['tree', 'layout', 'state', 'logs', 'screenshot', 'clock'].includes(op.trim().split(/\s+/)[0]));
                 if (refused) throw new Error(`tap … drag … during: ${JSON.stringify(refused)} is not a read or the clock`);
                 drag.during = ops.map((op) => async () => (await step(op))[1]);
                 break;
               }
               if (args[i] === 'from') { drag.from = [Number(args[i + 1]), Number(args[i + 2])]; i += 3; }
               else if (['press', 'over', 'hold'].includes(args[i])) { drag[args[i]] = Number(args[i + 1]); i += 2; }
-              else throw new Error(`tap … drag: unknown option ${args[i]}; from <x> <y>, press <ms>, over <ms>, hold <ms>`);
+              else throw new Error(`tap … drag: unknown option ${args[i]}; from <x> <y>, press <ms>, over <ms>, hold <ms>, during "<op>" …`);
             }
             r = await s.tap(args[0], { drag });
           }

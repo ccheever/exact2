@@ -249,21 +249,33 @@ export async function realTap({ ask, touches, id, at, drag, abandon }) {
   const a = aim.aim;
   let request = { op: 'tap', point: a.point }, moves = false, ms = 0;
   if (drag) {
-    const to = [a.point[0] + drag.dx, a.point[1] + drag.dy];
-    if (!(to[0] >= 0 && to[1] >= 0 && to[0] <= a.screen.w && to[1] <= a.screen.h)) throw new Error(`${what}: the drag would end at (${to}), off the screen (${a.screen.w} × ${a.screen.h})`);
+    // The driver checked the end against the viewport (`s.tap`); the runner works in the scene's space.
     moves = drag.dx !== 0 || drag.dy !== 0;
     ms = drag.press + drag.hold + (moves ? drag.over : 0);
     // Points per second: what XCTest's velocity measured as on a 3x simulator, whatever its header says (§11).
-    request = { op: 'drag', point: a.point, to, press: drag.press / 1000, hold: drag.hold / 1000, velocity: moves ? Math.hypot(drag.dx, drag.dy) / (drag.over / 1000) : 0 };
+    request = { op: 'drag', point: a.point, to: [a.point[0] + drag.dx, a.point[1] + drag.dy], press: drag.press / 1000, hold: drag.hold / 1000, velocity: moves ? Math.hypot(drag.dx, drag.dy) / (drag.over / 1000) : 0 };
   }
   const injecting = touches.ask(request, RUNNER_MS + ms);
+  let finished = false;
+  injecting.then(() => { finished = true; });
   const during = [];
+  // The runner's call holds the finger and the app's carrier is free
+  // meanwhile: `during` reads the log (each read bounded by what is left of
+  // the runner's own bound), waits for the touch to begin, runs the ops, and
+  // checks it has not lifted. Whatever fails, the gesture is let finish
+  // first, and the runner's own error wins.
   if (drag?.during?.length) {
-    // The runner's call holds the finger; the app's carrier is free meanwhile.
+    const until = Date.now() + RUNNER_MS + ms;
     const entries = async () => {
       const out = [];
       for (let cursor = a.seq; ;) {
-        const page = await ask({ op: 'tap', log: cursor });
+        const page = await within(ask({ op: 'tap', log: cursor }), Math.max(until - Date.now(), 1), () => null);
+        if (!page) {
+          const why = `${what}: the dispatch log did not answer while the finger was down; the app's carrier and the touch runner were stopped`;
+          abandon?.(why);
+          touches.end?.();
+          throw transport(why);
+        }
         if (page.error || page.lost) throw new Error(`${what}: the dispatch log: ${page.error ?? `dropped entries past seq ${cursor}`}`);
         out.push(...page.log);
         if (page.log.length) cursor = page.log[page.log.length - 1].seq;
@@ -271,15 +283,23 @@ export async function realTap({ ask, touches, id, at, drag, abandon }) {
       }
     };
     const lifted = (log) => log.some((e) => e.phase === 'ended');
-    for (const limit = Date.now() + ms + 1000; ;) {
-      const log = await entries();
-      if (lifted(log)) throw new Error(`${what}: the touch lifted before the ops during it began; lengthen press or hold`);
-      if (log.some((e) => e.phase === 'began')) break;
-      if (Date.now() > limit) { await injecting; throw new Error(`${what}: no touch began within ${ms + 1000} ms`); }
-      await new Promise((r) => setTimeout(r, 16));
+    const early = `${what}: the touch lifted before the ops during it`;
+    try {
+      for (;;) {
+        const log = await entries();
+        if (lifted(log)) throw new Error(`${early} began; lengthen press or hold`);
+        if (log.some((e) => e.phase === 'began')) break;
+        // Read again: the touch may have come and gone since the read above.
+        if (finished) throw new Error(lifted(await entries()) ? `${early} began; lengthen press or hold` : `${what}: the runner finished and no touch had begun`);
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      for (const op of drag.during) during.push(await op());
+      if (lifted(await entries())) throw new Error(`${early} finished; lengthen press or hold`);
+    } catch (error) {
+      const done = await injecting;
+      if (done.error) throw transport(`${what}: the touch runner: ${done.error}`);
+      throw error;
     }
-    for (const op of drag.during) during.push(await op());
-    if (lifted(await entries())) { await injecting; throw new Error(`${what}: the touch lifted before the ops during it finished; lengthen press or hold`); }
   }
   const injected = await injecting;
   if (injected.error) throw transport(`${what}: the touch runner: ${injected.error}`);
@@ -313,10 +333,12 @@ export async function realTap({ ask, touches, id, at, drag, abandon }) {
       const moved = seen.filter((e) => e.phase === 'moved');
       const travel = [end.at[0] - began.at[0], end.at[1] - began.at[1]];
       if (drag) {
-        // The lift must be where the drag was asked to end, within a point or 5% of the distance.
-        const off = Math.hypot(travel[0] - drag.dx, travel[1] - drag.dy), tolerance = Math.max(1, 0.05 * Math.hypot(drag.dx, drag.dy));
-        if (moves && (!moved.length || off > tolerance)) throw new Error(`${what}: the touch moved (${travel}) in ${moved.length} moves, not the asked (${drag.dx}, ${drag.dy}) within ${tolerance.toFixed(1)} pt`);
-        if (!moves && off > 1) throw new Error(`${what}: a still press moved (${travel})`);
+        // It began where aimed and lifted where asked, each within a point
+        // or 5% of the distance, in the window's space the log records.
+        const tolerance = Math.max(1, 0.05 * Math.hypot(drag.dx, drag.dy)), w = a.window;
+        const startOff = Math.hypot(began.at[0] - w[0], began.at[1] - w[1]), endOff = Math.hypot(end.at[0] - w[0] - drag.dx, end.at[1] - w[1] - drag.dy);
+        if (startOff > tolerance) throw new Error(`${what}: the touch began at (${began.at}), not at the aimed (${w}) within ${tolerance.toFixed(1)} pt`);
+        if (endOff > tolerance || (moves && !moved.length)) throw new Error(`${what}: the touch moved (${travel}) in ${moved.length} moves, not the asked (${drag.dx}, ${drag.dy}) within ${tolerance.toFixed(1)} pt`);
       }
       return {
         tapped: id, at: a.at, delivery: 'platform',
