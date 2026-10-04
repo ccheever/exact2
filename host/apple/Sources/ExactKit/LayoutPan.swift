@@ -40,7 +40,11 @@ final class MouseLayoutPan {
                     presenter!.onPanSample?(true, Double(last.x), Double(last.y), event.timestamp)
                     return true
                 }
-                if view.field != nil || view.textArea != nil || view.handlers.contains("press") { return false }
+                // An editor keeps the contact; a press between keeps it only
+                // within the slop — the pan that begins takes the press (the
+                // chain clears it), as a draggable element hears a drag that
+                // starts on a button inside it (LLP 1057.001 rule 3; kanban F6).
+                if view.field != nil || view.textArea != nil { return false }
             }
             at = current.superview
         }

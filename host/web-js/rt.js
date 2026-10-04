@@ -186,10 +186,10 @@ export function commit(f, what = "commit") {
 /** What runs after each commit's tree update (a loaded piece's publication),
  * and before it (the text flow piece puts flowed paragraphs back). */
 export const After = [], Before = [];
-/** Authored scroll offsets (`scrollTop`, `scrollLeft`), set once the
- * commit's tree is in place, as the web host's `pendingScrolls`; a
- * virtualized list builds the rows there first (`$jump`, list.js). */
-const Scrolls = new Map();
+/** Authored scroll offsets (`scrollTop`, `scrollLeft`), set once the commit's tree is in place, as the web host's `pendingScrolls`
+ * (a virtualized list builds the rows there first: `$jump`, list.js); and a select's committed
+ * `$value` once written or its options change, as glue.js `settleValue` (a reader's pick stands until its action). */
+const Scrolls = new Map(), Selects = new Set();
 /** What a commit does once its tree is in place: authored scrolls, then the
  * loaded pieces' publications (also after a list's report, list.js). */
 export function settled() { drain(); Present?.(); markDocument(); paintFlush(); for (const f of After) f(); }
@@ -200,7 +200,8 @@ function drain() {
     if (e.$jump) e.$jump(name, at);
     else if (e[name] !== at) { if (Booting) e.$bootScroll = true; if (clock.agent && e.style.scrollBehavior === "smooth") e.scrollTo({ [name === "scrollTop" ? "top" : "left"]: at, behavior: "instant" }); else e[name] = at; }
   }
-  Scrolls.clear();
+  // Options compare as nodes and values: a branch that replaces them with equal values still resets the pick.
+  Scrolls.clear(); for (const e of Selects) if (!e.isConnected) Selects.delete(e); else { const o = [...e.options], v = o.map(x => x.value); if (e.$set || o.length !== e.$options?.length || o.some((x, i) => x !== e.$options[i] || v[i] !== e.$values[i])) { e.$set = false; e.$options = o; e.$values = v; if (e.value !== e.$value) e.value = e.$value; } }
 }
 /** An action: each call is one commit. */
 export function act(fn) { return (...a) => commit(() => fn(...a), "action"); }
@@ -211,6 +212,7 @@ export const Hosts = {
   setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; },
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), // LLP 1077 D14: vibration where the browser has it
 };
+let KeyEvent = null; Hosts.preventDefault = () => KeyEvent?.preventDefault(); // the keydown whose `key` handler is running (`on`): commands run before its commit returns
 function command(name, args) {
   const f = Hosts[name];
   say(`command ${name}`);
@@ -568,7 +570,7 @@ export function P(e, name, f) {
     if (v != null && (name === "href" || (name === "src" && e.localName === "iframe")) && !navigable(v)) v = name === "src" ? "about:blank" : null;
     if (PropHooks[name]?.(e, v)) return;
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
-    else if (name === "value") { if (e.value !== (v ?? "")) e.value = v ?? ""; }
+    else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } if (e.value !== (v ?? "")) e.value = v ?? ""; }
     else if (name === "scrollTop" || name === "scrollLeft") { if (v != null) (Scrolls.get(e) ?? Scrolls.set(e, {}).get(e))[name] = Number(v); }
     else if (name === "paused") {
       if (v === "true") e.pause(); else e.play().catch(err => e.dispatchEvent(new CustomEvent("exact-error", { detail: err.message })));
@@ -775,11 +777,11 @@ export function on(e, kind, f) {
     // A checkbox's value is whether it is checked; the platform flips the
     // box at once, and an action that refuses snaps it back (glue.js). A
     // host's change carries its own text (files.js: a picker's lines, which
-    // an input's value would flatten).
-    case "change": case "input": return l(kind, ev => { if (ev instanceof CustomEvent) return f(ev.detail); if (e.type !== "checkbox") return f(e.value); f(e.checked); if (e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked; });
+    // an input's value would flatten). A range's is a number (the events table).
+    case "change": case "input": return l(kind, ev => { if (ev instanceof CustomEvent) return f(ev.detail); if (e.type !== "checkbox") return f(e.type === "range" ? Number(e.value) : e.value); f(e.checked); if (e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked; });
     case "hover": l("pointerenter", () => f(true)); return l("pointerleave", () => f(false));
-    case "key": return l("keydown", ev => f(ev.key));
-    case "submit": return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing) { ev.preventDefault(); f(); } });
+    case "key": return l("keydown", ev => { const outer = KeyEvent; KeyEvent = ev; try { f(ev.key); } finally { KeyEvent = outer; } }); // it bubbles to every ancestor's handler
+    case "submit": return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing && !ev.$submit) { ev.$submit = true; addEventListener("keydown", w => { if (w === ev && !ev.defaultPrevented) { ev.preventDefault(); f(); } }, { once: true }); } }); // Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it
     // Only from the origin of the src the app committed (glue.js
     // `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is
     // not heard; an opaque sandbox's origin is "null".
@@ -1036,7 +1038,7 @@ export function each(p, list, key, row, pure) {
   let [a, b] = range(p), own = Owner;
   let rows = new Map(), single = false, order = null;
   effect(() => {
-    const items = list();
+    const items = list(), parent = b?.parentNode ?? p; // rows go where the end anchor is: at an arm's top, `p` is the fragment the arm was built in
     untracked(() => {
       // Rows moving or leaving are adopted rows (a row waiting for its slice
       // shows its rendered values until then, and adopts at the current ones).
@@ -1101,8 +1103,8 @@ export function each(p, list, key, row, pure) {
       // Every row goes and the region is all its parent holds: emptied at once.
       if (rows.size && b && !Leave && list.every(r => r.frag) && !a.previousSibling && !b.nextSibling) {
         endAll(rows);
-        p.textContent = "";
-        p.append(a, b);
+        parent.textContent = "";
+        parent.append(a, b);
       }
       else if (rows.size) { endAll(rows); for (const r of rows.values()) { let n = r.start; while (n) { const m = n.nextSibling; Leave ? Leave(n, b) : n.remove(); if (n === r.end) break; n = m; } } }
       // Order, from the last row back: kept rows on the longest run already in
@@ -1111,7 +1113,7 @@ export function each(p, list, key, row, pure) {
       if (b) {
         const stay = inOrder(list);
         let anchor = b, batch = null, first = null;
-        const flush = () => { if (batch) { p.insertBefore(batch, anchor); anchor = first; batch = null; } };
+        const flush = () => { if (batch) { parent.insertBefore(batch, anchor); anchor = first; batch = null; } };
         for (let i = list.length - 1; i >= 0; i--) {
           const r = list[i];
           if (r.frag) { if (batch) batch.prepend(r.frag); else batch = r.frag; first = r.start; r.frag = null; continue; }
@@ -1119,13 +1121,13 @@ export function each(p, list, key, row, pure) {
           if (!stay.has(i)) {
             const f = document.createDocumentFragment();
             let n = r.start; while (n) { const m = n.nextSibling; f.append(n); if (n === r.end) break; n = m; }
-            p.insertBefore(f, anchor);
+            parent.insertBefore(f, anchor);
           }
           anchor = r.start;
         }
         flush();
       }
-      rows = next; paintList(p);
+      rows = next; paintList(parent);
       b ??= mark(p);
     });
   });
@@ -1273,7 +1275,6 @@ export function checkpoint() {
 /** A checkpoint value (`push_value`, host/web/src/page.rs) as a runtime value:
  * lists and records are arrays, unit and `none` null, `some(v)` v. */
 const value_ = v => v === null || typeof v !== "object" ? v : Array.isArray(v) ? v.map(value_) : "r" in v ? v.r.map(value_) : "s" in v ? value_(v.s) : "n" in v ? Number(v.n) : null;
-
 // ---------------------------------------------------------------- the roster (runner/src/stdlib.rs)
 /** A native module's props (LLP 1024 D1): key/value pairs to one JSON
  * object of strings, a none left out (`stdlib::native_props`). */
@@ -1287,13 +1288,11 @@ export const x_toString = v => String(v);
 export const x_includes = (a, b) => a.includes(b), x_startsWith = (a, b) => a.startsWith(b), x_endsWith = (a, b) => a.endsWith(b);
 export const x_trim = s => s.trim();
 export const x_first = l => l.length ? l[0] : null;
+/** `Array.prototype.at`, `none` where JavaScript answers undefined (`Stdlib::At`). */
+export const x_at = (l, i) => { const v = l.at(i); return v === undefined ? null : v; };
 export const x_join = (l, s) => l.map(String).join(s);
 export const x_encodeURIComponent = encodeURIComponent;
-/** `h:mm AM` of (epoch ms, UTC offset minutes east), U+0020 before the period. */
-export function x_formatTime(ms, off) {
-  const w = Math.trunc(ms) + off * 60000, m = Math.floor((((w % 864e5) + 864e5) % 864e5) / 6e4), h = m / 60 | 0;
-  return `${h % 12 || 12}:${String(m % 60).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
-}
+export { x_formatTime, x_formatDate, x_formatNumber } from "./format.js";
 // ---------------------------------------------------------------- localized strings (LLP 1060)
 // The plan's tables, base first: [name, rtl, {key: text}]. The locale slot
 // starts at the base, and after boot holds the table the viewer's locale

@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, delimiter, relative, resolve } from 'node:path';
+import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bakeOutput, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
@@ -156,7 +156,7 @@ export function traceLocators(appName) {
 }
 
 // Outputs, fixtures and prose are not what a build is made from.
-const NOT_INPUT = /^(target|dist|dist.previous|dist-windows|web-dist|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.md$/;
+const NOT_INPUT = /^(target|dist|dist.previous|dist-windows|web-dist|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.test\.contract$|\.md$/;
 /** Files under `roots` modified after `since`; `{shallow}` roots contribute only their own files. */
 export function newerThan(since, roots, skip = () => false) {
   const out = [];
@@ -176,11 +176,11 @@ export function newerThan(since, roots, skip = () => false) {
 
 // What a build can read from an app: the bake's capture (`js/bake/src/lib.rs`,
 // `sources`), and Rust and WGSL sources and manifests.
-const BUILD_SOURCE = /\.(ts|json|contract|ttf|otf|rs|toml|wgsl)$|^(assets|deck|gpu\/shaders)\//;
-/** The app's gitignored paths, as a skip for its own files: a screenshot
- * saved into the app is not an input. One a build can read still counts,
- * ignored or not (a generated asset or source, a local key), as does anything
- * under `keep` (declared shader roots). Outside Git, nothing. */
+const BUILD_SOURCE = /\.(ts|json|contract|ttf|otf|rs|toml|wgsl)$|(^|\/)Cargo\.lock$|^(assets|deck|gpu\/shaders)\//;
+/** The app's gitignored paths, as a skip for its own files: an ignored file
+ * no build reads is not an input. One a build can read still counts (a
+ * generated asset or source, a local key), as does anything under `keep`
+ * (declared shader roots). Outside Git, nothing. */
 export function gitIgnored(dir, keep = []) {
   const listed = spawnSync('git', ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'], { cwd: dir, encoding: 'utf8' });
   const paths = listed.status === 0 ? listed.stdout.split('\0').filter(Boolean).map(p => resolve(dir, p)) : [];
@@ -191,11 +191,40 @@ export function gitIgnored(dir, keep = []) {
     !statSync(path, { throwIfNoEntry: false })?.isDirectory() && !BUILD_SOURCE.test(relative(dir, path));
 }
 
+// What an agent leaves in an app as it works — a screenshot, a log, notes, a
+// saved world — and the trees a build takes files from (the bake's assets and
+// deck, a game's art and logic, a native module's scripts, the host crates,
+// fonts and strings). A build reads more than the bake captures, so the rule
+// names the outputs and leaves everything else an input.
+const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world)$/i;
+const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|linux)(\/|$)/;
+/** A skip for an app's own files that no build reads. A file a build can
+ * read always counts, ignored by Git or not: what the bake captures, anything
+ * in an input tree, under `keep` (declared shader roots) or in one of the
+ * app's Rust crates (which can `include_bytes!` any file beside them), and
+ * what `app.json` names (an icon). Of the rest, a gitignored file or a
+ * picture, log, note or saved world is not an input: a screenshot saved into
+ * the app is not a change to it. */
+export function notBuildInput(dir, keep = []) {
+  const ignored = gitIgnored(dir, keep);
+  const under = (path, roots) => roots.some(p => path === p || path.startsWith(p + '/'));
+  let manifest = ''; try { manifest = readFileSync(resolve(dir, 'app.json'), 'utf8'); } catch {}
+  const inCrate = path => {
+    for (let at = dirname(path); at.startsWith(dir + '/'); at = dirname(at)) if (existsSync(resolve(at, 'Cargo.toml'))) return true;
+    return false;
+  };
+  return path => {
+    const rel = relative(dir, path);
+    if (BUILD_SOURCE.test(rel) || INPUT_TREE.test(rel) || under(path, keep) || inCrate(path) || manifest.includes(rel)) return false;
+    return OUTPUT.test(rel) || ignored(path);
+  };
+}
+
 /** An Apple build's receipt: its Rust and Swift inputs by digest, then by mtime the app's own files the receipt leaves out on purpose (the root build script's watches: the contract, app.json, data, shaders, assets — what the baked plan and bundle are made from). */
 export function receiptChanges(receipt, app) {
   if (!existsSync(receipt)) return [];
   const { build, target } = JSON.parse(readFileSync(receipt, 'utf8')), since = statSync(receipt).mtimeMs;
-  const ignored = gitIgnored(app.dir, shaderWatchRoots(app));
+  const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const own = newerThan(since, [app.dir], path => /\/(apple|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path));
   // The receipt names what the binary links, not what built it: the Rust
   // archive's own dep-info also names its build script's (the compiler, the bake).
@@ -222,7 +251,7 @@ export function webChanges(dist, app) {
   if (!existsSync(marker)) return { app: [], shared: [], all: [] };
   const since = statSync(marker).mtimeMs, js = JSON.parse(readFileSync(marker, 'utf8')).target === 'js';
   const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'plan', 'motion', 'num', 'contract'];
-  const ignored = gitIgnored(app.dir, shaderWatchRoots(app));
+  const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
   const appChanges = newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
   const shared = newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) }));

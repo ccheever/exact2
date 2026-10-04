@@ -2,10 +2,21 @@
 // web host's rendering (`glue.js` `refreshSymbols`) — the role's path as a
 // mask over the node's tint, sized by its font — after each commit. A
 // dynamic source names a role from `table`, the plan's own strings that are
-// roles. Imported by an app's module only when its plan draws a symbol.
-import { After, PropHooks } from "./rt.js";
+// roles, or, for one its data names (ledger diary F10), from every role,
+// loaded once (`symbol-roles.js`, the build's). Imported by an app's module
+// only when its plan draws a symbol.
+import { After, PropHooks, inflight, journal, clock } from "./rt.js";
 
-let Table = {};
+let Table = {}, All = null; // every role: not asked for, loading, or loaded (true)
+const draw = (e, role) => { const [path, filled] = Table[role] ?? [""]; e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled); };
+function everyRole() {
+  inflight.n++;
+  All = import("./symbol-roles.js").then(m => {
+    Table = { ...m.default, ...Table }; All = true;
+    for (const e of document.querySelectorAll("#exact-root img[data-symbol-source]")) draw(e, e.getAttribute("data-symbol-source").slice(7));
+    refresh();
+  }).finally(() => inflight.n--);
+}
 const STYLE = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
 /** `table`: role → [path, filled], for sources a binding names. */
 export function symbols(table) {
@@ -15,8 +26,8 @@ export function symbols(table) {
   PropHooks.src = (e, v) => {
     if (e.localName !== "img" || !v?.startsWith("symbol:")) { e.removeAttribute("data-symbol-path"); e.removeAttribute("data-symbol-fill"); e.removeAttribute("data-symbol-source"); e.symbolKey = null; template(e, v); return false; }
     template(e, null);
-    const [path, filled] = Table[v.slice(7)] ?? [""];
-    e.setAttribute("data-symbol-source", v); e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled); e.alt = "";
+    if (!Table[v.slice(7)] && !All && !v.startsWith("symbol:sf/")) everyRole();
+    e.setAttribute("data-symbol-source", v); draw(e, v.slice(7)); e.alt = "";
     return true;
   };
   After.push(refresh);
@@ -41,6 +52,11 @@ function refresh() {
   for (const el of document.querySelectorAll("#exact-root img[data-symbol-path]")) {
     const cs = getComputedStyle(el), size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight);
     const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), key = `${path}:${filled}:${size}:${weight}`;
+    // As the web host says it (glue.js `refreshSymbols`), once every role is here.
+    const source = el.getAttribute("data-symbol-source");
+    if (!path && All === true && !source?.startsWith("symbol:sf/") && el.symbolRefusal !== source) {
+      journal.push(`t=${clock.now} image ${source} refused: unknown symbol role`); el.symbolRefusal = source;
+    }
     if (el.symbolKey !== key) {
       el.symbolKey = key;
       const point = size, stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;

@@ -236,10 +236,11 @@ exact_web::host!(
   }
   writeFileSync(resolve(dir, 'Cargo.lock'), readFileSync(resolve(ROOT, 'Cargo.lock')));
   const deferred = resolveOffline(dir, true);
-  const run = `bun ${JSON.stringify(relative(process.cwd(), resolve(dir, 'exact.mjs')) || 'exact.mjs')}`;
+  const run = 'bun exact.mjs';
   return `Created ${dir}
+  cd '${dir.replaceAll("'", "'\\''")}'
   ${run} web          the web dev loop
-  ${run} test web     run app.test.contract (web, macos or ios)
+  ${run} test web     build, then run app.test.contract (web; macos or ios after mac/ios)
   ${run} agent web tree  inspect or drive the app
   ${run} ios --run    build and launch on an iOS simulator
   ${run} mac --run    build and launch on this Mac${deferred ? `
@@ -273,12 +274,16 @@ if (!verbs[verb]) {
   console.error(\`Usage: bun exact.mjs <\${Object.keys(verbs).join('|')}> [arguments for that script]\`);
   process.exit(2);
 }
-const [script, ...args] = verbs[verb];
-const result = spawnSync(process.execPath, [resolve(EXACT2, script), ...args, ...rest], {
-  stdio: 'inherit',
+// The automatic build reports on stderr, so a drive's stdout stays its reply (\`--json\`).
+const run = ([script, ...args], more = [], stdio = 'inherit') => spawnSync(process.execPath, [resolve(EXACT2, script), ...args, ...more], {
+  stdio,
   env: { ...process.env, EXACT_APP_DIR: import.meta.dir },
-});
-process.exit(result.status ?? 1);
+}).status ?? 1;
+// The web build is about a second when nothing changed, so a web drive builds
+// first rather than refusing a stale build; a native build stays explicit.
+const drivesWeb = (verb === 'test' || verb === 'agent') && host === 'web' && !rest.some(a => a === '--url' || a === '--web-dist');
+if (drivesWeb) { const built = run(verbs['web-build'], [], [0, 2, 2]); if (built) process.exit(built); }
+process.exit(run(verbs[verb], rest));
 `;
 }
 
@@ -289,6 +294,7 @@ process.exit(result.status ?? 1);
 function resolveOffline(dir, deferrable = false) {
   const lock = spawnSync('cargo', ['metadata', '--offline', '--format-version', '1'], { cwd: dir, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
   if (lock.status === 0) return false;
+  if (lock.error?.code === 'ENOENT') throw new Error('cargo was not found on PATH or in ~/.cargo/bin; install Rust with rustup (https://rustup.rs)');
   // Cargo may have rewritten the lock before failing to download; the first
   // build recognises exact2's bytes, so put them back.
   if (deferrable && /no matching package named|attempting to make an HTTP request|in the offline mode/.test(lock.stderr ?? '')) return writeFileSync(resolve(dir, 'Cargo.lock'), readFileSync(resolve(ROOT, 'Cargo.lock'))), true;

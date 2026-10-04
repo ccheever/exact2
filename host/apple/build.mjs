@@ -425,14 +425,27 @@ export function distributionKeys() {
 // one deviation from IANA's registry — freedesktop's spelling for a folder,
 // because the web has no MIME type for one and an app that opens a directory
 // (the LLP reader) must be able to say so. An unmapped type fails the bake
-// rather than guessing `public.data` (LLP 0382: fail closed, loudly).
+// rather than guessing `public.data` (LLP 0382: fail closed, loudly), and
+// before anything is compiled (`main`): the common document and image types
+// are here (ledger diary F9).
 const UTIS = {
   'text/markdown': 'net.daringfireball.markdown',
   'text/plain': 'public.plain-text',
   'text/html': 'public.html',
+  'text/csv': 'public.comma-separated-values-text',
+  'text/tab-separated-values': 'public.tab-separated-values-text',
   'application/json': 'public.json',
+  'application/pdf': 'com.adobe.pdf',
+  'application/zip': 'public.zip-archive',
+  'image/png': 'public.png',
+  'image/jpeg': 'public.jpeg',
+  'image/gif': 'com.compuserve.gif',
+  'image/webp': 'org.webmproject.webp',
+  'image/svg+xml': 'public.svg-image',
   'inode/directory': 'public.folder',
 };
+// The types iOS does not declare itself, which the bundle imports.
+const IMPORTED = new Set(['net.daringfireball.markdown']);
 
 /** `CFBundleDocumentTypes` from the manifest's `file_handlers` (LLP 1033 D1):
  *  one entry per handler, `Viewer` and `Alternate` so declaring a type never
@@ -441,7 +454,7 @@ export function documentTypes(app) {
   return (app.manifest.file_handlers ?? []).map((handler) => {
     const types = Object.keys(handler.accept).map((mime) => {
       const uti = UTIS[mime];
-      if (!uti) throw new Error(`host/apple: ${app.name}'s file_handlers accepts ${mime}, which names no Apple type; add it to UTIS in host/apple/build.mjs`);
+      if (!uti) throw new Error(`host/apple: ${app.name}'s file_handlers accepts ${mime}, which names no Apple type this host maps (it maps ${Object.keys(UTIS).join(', ')})`);
       return uti;
     });
     const extensions = [...new Set(Object.values(handler.accept).flat().map((e) => e.replace(/^\./, '')).filter(Boolean))];
@@ -455,12 +468,12 @@ export function documentTypes(app) {
   });
 }
 
-/** `UTImportedTypeDeclarations` for the non-`public.` types `file_handlers`
- *  names (Markdown's `net.daringfireball.markdown`), which iOS does not
- *  declare itself: its extensions and MIME type, conforming to plain text. */
+/** `UTImportedTypeDeclarations` for the types `file_handlers` names that
+ *  iOS does not declare itself (Markdown's `net.daringfireball.markdown`):
+ *  its extensions and MIME type, conforming to plain text. */
 export function importedTypes(app) {
   return (app.manifest.file_handlers ?? []).flatMap((handler) => Object.entries(handler.accept)
-    .filter(([mime]) => UTIS[mime] && !UTIS[mime].startsWith('public.'))
+    .filter(([mime]) => IMPORTED.has(UTIS[mime]))
     .map(([mime, extensions]) => ({
       UTTypeIdentifier: UTIS[mime],
       UTTypeDescription: handler.name ?? mime,
@@ -698,6 +711,7 @@ function main(args) {
     process.exitCode = 1; return;
   }
   const app = resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive'].includes(args[i - 1])));
+  documentTypes(app); // an unmapped `file_handlers` type is refused before a long build
   const release = appleBuildLock(app);
   const cleanup = [];
   try {

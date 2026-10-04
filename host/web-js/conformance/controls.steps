@@ -1,0 +1,9 @@
+# A control's value, as a choice sets it; then two taps whose targets start
+# out of view, scrolled into it first.
+type pick Beta
+type day 2026-10-09
+type hour 14:00
+type level 8
+type agree true
+tap far
+tap inner

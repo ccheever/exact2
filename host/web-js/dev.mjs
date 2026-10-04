@@ -86,6 +86,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // a path not modified since the last build started is no edit.
   const changed = (base) => (_, name) => {
     if (name && skipped.test(String(name))) return;
+    // The declarations a build writes beside app.ts, for an editor.
+    if (base === app.dir && String(name) === 'app.contract.d.ts') return;
     try { if (name && statSync(resolve(base, String(name))).mtimeMs < since) return; } catch { /* removed: an edit */ }
     if (!timer) saved = Date.now();
     clearTimeout(timer);
@@ -96,6 +98,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // The app's sources, and the runtime and compiler it builds with.
   const watchers = [watch(app.dir, { recursive: true }, changed(app.dir)), watch(resolve(root, 'host/web-js'), { recursive: true }, changed(resolve(root, 'host/web-js')))];
   for (const f of ['navigation.js', 'index.html']) watchers.push(watch(resolve(root, 'host/web', f), changed(resolve(root, 'host/web'))));
+  // The one TypeScript configuration app.ts is checked with (js/bake/src/typescript.mjs).
+  watchers.push(watch(resolve(root, 'js/bake/src/typescript.mjs'), changed(resolve(root, 'js/bake/src'))));
   // The page's side: reload on a new build, the errors of a failed one in an
   // overlay, and a beacon when the reloaded page's runtime is up.
   const client = (n, revision) => `<script>(()=>{const seq=${n},logicRevision=${JSON.stringify(revision)},es=new EventSource('/__dev/page');let o,reloading=false;

@@ -765,6 +765,9 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     // The inverse of a canvas's `message=`: `postMessage(text, "world")` queues
     // text into the surface of that name, delivered in order, never coalesced.
     "postMessage",
+    // `event.preventDefault()` for the `key` event that ran the action: the
+    // host skips the key's default action (docs/contract-grammar.md#events).
+    "preventDefault",
 ];
 
 /// The three pickers' positional arguments (LLP 1069.010 D2): an element
@@ -989,6 +992,13 @@ pub(super) fn check_command(
             ),
         };
         return err("type-unknown-command", message, span);
+    }
+    if name == "preventDefault" && !args.is_empty() {
+        return err(
+            "type-prevent-default",
+            "`preventDefault()` takes no arguments: it prevents the default action of the key event that ran this action",
+            span,
+        );
     }
     if name == "share" {
         return share_args(args, scope, shapes, span);
