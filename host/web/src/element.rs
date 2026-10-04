@@ -727,6 +727,9 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::NavigationBack => "navigationBack",
             PropId::NavigationPresentation => "navigationPresentation",
             PropId::NavigationSource => "navigationSource",
+            // LLP 1013.000 D7: the shared-element name the JS target's view
+            // transitions pair by.
+            PropId::SharedElement => "data-shared-element",
             PropId::Closedby => "closedby",
             PropId::ContextTarget => "contextTarget",
             PropId::ContextMagnify => "contextMagnify",
@@ -1120,6 +1123,7 @@ mod dataset_tests {
             NodeType::Svg,
             NodeType::Control,
         ];
+        let mut unreserved = std::collections::BTreeSet::new();
         for prop in PropId::ALL {
             if prop == PropId::Dataset || svg_only(prop) {
                 continue;
@@ -1133,15 +1137,17 @@ mod dataset_tests {
             for kind in kinds {
                 for name in written(kind, prop, value.clone()).keys() {
                     if let Some(word) = name.strip_prefix("data-") {
-                        assert!(
-                            contract_lower::dataset::reserved(word),
-                            "`{name}` (from {}) is not reserved in contract/lower/src/dataset.rs",
-                            prop.name()
-                        );
+                        if !contract_lower::dataset::reserved(word) {
+                            unreserved.insert(format!("`{name}` (from {})", prop.name()));
+                        }
                     }
                 }
             }
         }
+        assert!(
+            unreserved.is_empty(),
+            "not reserved in contract/lower/src/dataset.rs: {unreserved:?}"
+        );
     }
 
     #[test]

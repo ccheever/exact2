@@ -225,7 +225,7 @@ use the existing presenters and the same Contract and data source:
 bun host/apple/build.mjs messages-stress-apple
 bun apps/messages-stress/native-smoke.mjs macos --samples 12
 
-EXACT_UPDATE_TRUST=development cargo build --release -p messages-stress-linux
+EXACT_UPDATE_TRUST=development cargo build --profile host-dev -p messages-stress-linux
 bun apps/messages-stress/native-smoke.mjs linux --samples 12
 ```
 

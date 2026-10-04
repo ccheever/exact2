@@ -52,6 +52,13 @@ margin stays inside it. On the web a root is an element inside
 `#exact-root`, where that margin would collapse through to the page, so the
 web host lowers a block root to `display: flow-root` (2026-09-23; a root at
 y 0 with its child at 30, where the page had both at 30).
+Declared: a `button` is a `display: flex; flex-direction: column` box
+(Charlie, 2026-09-23: "One native button, flex column"; LLP 1006 §3), where
+Chrome's `<button>` is `inline-block` and centres its content in an anonymous
+box. The kernel has no anonymous button box, and a column lays the button out
+the same on every host; an author centres it with `align-items` and
+`justify-content`, and an authored `display: flex` keeps the column, as a
+UA sheet's `flex-direction` stays in CSS (kanban diary F16).
 
 **Native tab-bar projection (LLP 1059; Charlie, 2026-09-27):** an iOS
 symbol-and-label tablist can report its native control size through the host
@@ -406,6 +413,15 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   `UITabBar` reports its intrinsic height through the kernel measurement seam
   and fills the resulting box. The former overflow deviation is removed
   (`issues/closed/20260927-tab-bar-height-to-layout.md`).
+
+**Clock timelines (2026-10-03, [LLP 1055.002](1055.002-synced-animations.rfc.md)
+D2; not reviewed).** `animation-timeline` takes a third value, `clock(<ident>)`,
+which CSS has no form of. Its animations stay on the clock (it is `auto` to
+every other reader, the name lookup included) and each starts at the last
+cycle boundary of the timeline it names, so every animation on one timeline is
+in phase. The reason: indicators that appear at different moments (two pending
+commands, skeletons) should pulse together, and CSS can only do that with a
+script setting each animation's `startTime`; the web host does exactly that.
 
 **Drag timelines (2026-09-27, [LLP 1057.003](1057.003-gesture-timelines.rfc.md)
 D1, accepted by Charlie).** `drag-timeline`, bit 150, is not CSS. CSS names a

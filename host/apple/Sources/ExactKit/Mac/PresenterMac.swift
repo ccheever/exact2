@@ -28,6 +28,8 @@ final class Presenter {
     private(set) var chrome = ChromeIndex()
     /// Views leaving with their exit, by id (LLP 1063, `PresenceMac.swift`).
     var leaving: [UInt32: Leaving] = [:]
+    /// Shared elements in flight, by the arriver's id (LLP 1013.000, `FlightsMac.swift`).
+    var flights: [UInt32: Flight] = [:]
     /// A view's props were written (`NodeView.props`' own observer).
     func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props) }
     /// Views carrying an indexed prop, in id order (the passes' old order was
@@ -543,6 +545,7 @@ final class Presenter {
     func reset() {
         pointerHeld = nil
         elements.reset()
+        resetFlights()
         viewport.invalidateDocumentFit()
         session?.regions.reset()
         session?.rasters.reset()
@@ -608,6 +611,8 @@ final class Presenter {
     var onIntrinsic: (([(UInt32, CGSize?)]) -> Void)?
     /// A capability an action called (LLP 1005 §3), after its commit.
     var onCommand: ((String, [Any], UInt32?) -> Void)?
+    /// A `key` handler called `preventDefault()` (`keyDown(at:_:)`, KeyEvents.swift).
+    var defaultPrevented = false
 
     /// The action's focus(html-id), delivered only after the batch is mounted.
     func focusElement(_ args: [Any], selectText: Bool = false) {
@@ -927,7 +932,7 @@ final class Presenter {
                     if let node = child as? NodeView { reparented.insert(node.id) }
                     child.removeFromSuperview()
                 }
-                let mounted = want.filter { !dialogs.owns($0) && !menus.owns($0) }
+                let mounted = want.filter { !dialogs.owns($0) && !menus.owns($0) && !isFlying($0) }
                 for (i, child) in mounted.enumerated() {
                     if child.superview !== container {
                         reparented.insert(child.id)
@@ -952,12 +957,17 @@ final class Presenter {
             case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock) }
             case .animations: svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
             case .command:
-                onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [], (op.payload["source"] as? NSNumber)?.uint32Value)
+                let name = op.payload["name"] as? String ?? ""
+                if name == "preventDefault" { defaultPrevented = true; break }
+                onCommand?(name, op.payload["args"] as? [Any] ?? [], (op.payload["source"] as? NSNumber)?.uint32Value)
             case .exit: beginExit(id)
+            case .flight: beginFlight(op)
+            case .land: if let f = flights[id] { landFlight(f) }
             case .sticky: stickies.apply(id, op.payload)
             case .destroy:
                 elements.destroyed(id)
                 stickies.forget(id)
+                forgetFlight(id)
                 if endExit(id) { continue }
                 release(id, forget: true)?.removeFromSuperview()
             case .roots:
@@ -972,6 +982,7 @@ final class Presenter {
             case .frame:
                 guard let v = views[id] else { continue }
                 let frame = NSRect(x: op.x, y: op.y, width: op.w, height: op.h)
+                if flightFrame(id, frame) { continue }
                 if !dialogs.frame(v, frame) && !menus.frame(v, frame) { v.frame = frame }
                 v.arrangeShift = .zero
                 v.textRasterGeometryChanged()
@@ -998,11 +1009,13 @@ final class Presenter {
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alphaValue = x
+                case "flight": presentFlight(id, x)
                 default: break
                 }
             default: break
             }
         }
+        if !flights.isEmpty { flightsBatchApplied() }
         navigation.sync(batch, reparented: reparented)
         fitDocument()
         // The page's canvas colour is the first root's background — what

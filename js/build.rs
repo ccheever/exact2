@@ -55,6 +55,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/shim.cc");
     println!("cargo:rerun-if-changed=src/prelude.js");
     println!("cargo:rerun-if-changed=src/pure.js");
+    println!("cargo:rerun-if-changed=src/standard.js");
 
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     // ibex2's sources are vendored; the engine builds stay in the ibex checkout.
@@ -63,6 +64,7 @@ fn main() {
     for file in [
         "include/ibex2_jsi.h",
         "src/engine/ibex2_jsi.cc",
+        "src/bindings/abort.js",
         "src/bindings/crypto.js",
         "src/bindings/domexception.js",
         "src/bindings/harden.js",
@@ -301,13 +303,16 @@ fn main() {
     };
     // Pure class shapes share Ibex's URL implementation, and its `crypto`
     // (ops 70/71, OS entropy) is what the prelude wraps as a counted read
-    // (LLP 1069.005 D2). All are baked; the runtime only evaluates bytecode,
-    // before any application module.
+    // (LLP 1069.005 D2); its AbortController and `standard.js` are the rest
+    // of the web's globals a module expects. All are baked; the runtime only
+    // evaluates bytecode, before any application module.
     let prelude = [
         manifest.join("src/pure.js"),
         bindings.join("src/bindings/url.js"),
         bindings.join("src/bindings/domexception.js"),
         bindings.join("src/bindings/crypto.js"),
+        bindings.join("src/bindings/abort.js"),
+        manifest.join("src/standard.js"),
         manifest.join("src/prelude.js"),
     ]
     .iter()

@@ -953,8 +953,135 @@ fn agent_contextmenu_delivers_a_secondary_mouse_click_and_refuses_controls() {
     let (x, y, w, h) = p.rect_of(raw).unwrap();
     assert!(p.pointer_down(x + w / 2., y + h / 2., 1.).unwrap());
     let count = last_input(&p).1;
-    assert!(p.contextmenu(raw).unwrap_err().contains("held contact"));
+    assert!(p
+        .contextmenu(raw, None)
+        .unwrap_err()
+        .contains("held contact"));
     assert_eq!(last_input(&p).1, count);
     p.pointer_lost(2.).unwrap();
+    done(p, path);
+}
+
+#[test]
+fn agent_contextmenu_uses_the_requested_point_and_refuses_invalid_points_without_input() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let (x, y, _, _) = p.rect_of(raw).unwrap();
+    let reply: Value = serde_json::from_str(&crate::agent::answer(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{raw},"contextmenu":true,"at":[25,75]}}"#),
+    ))
+    .unwrap();
+    assert_eq!(
+        (reply["at"][0].as_f64(), reply["at"][1].as_f64()),
+        (Some(f64::from(x + 25.)), Some(f64::from(y + 75.))),
+        "{reply}"
+    );
+    let (_, count, up) = last_input(&p);
+    assert_eq!(count, 3);
+    assert_eq!((up["x"].as_f64(), up["y"].as_f64()), (Some(25.), Some(75.)));
+    assert_eq!(up["buttons"], 0);
+    // The first point is covered by the HUD button; others are outside the
+    // target or not an exact finite pair. Refusal must not leak a mouse event.
+    for at in [
+        "[25,15]",
+        "[-1,75]",
+        "[100,75]",
+        "[25,100]",
+        "null",
+        "[]",
+        "[25]",
+        "[25,75,0]",
+        r#"["25",75]"#,
+        "[1e100,75]",
+    ] {
+        let reply: Value = serde_json::from_str(&crate::agent::answer(
+            &mut p,
+            &format!(r#"{{"op":"tap","id":{raw},"contextmenu":true,"at":{at}}}"#),
+        ))
+        .unwrap();
+        assert!(reply.get("error").is_some(), "accepted {at}: {reply}");
+        assert_eq!(last_input(&p).1, count, "{at} delivered input");
+    }
+    assert!(p.contextmenu(raw, Some((f32::NAN, 75.))).is_err());
+    assert!(p.contextmenu(raw, Some((25., f32::INFINITY))).is_err());
+    p.resize(100., y + 60.);
+    assert!(p
+        .contextmenu(raw, Some((25., 75.)))
+        .unwrap_err()
+        .contains("viewport"));
+    assert_eq!(last_input(&p).1, count);
+    done(p, path);
+}
+
+#[test]
+fn agent_primary_mouse_after_touch_preserves_device_identity_and_refusal_atomicity() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    crate::agent::answer(&mut p, &format!(r#"{{"op":"tap","id":{raw}}}"#));
+    assert_eq!(last_input(&p).2["kind"], "touch");
+    for (mode, buttons) in [("mouse", 1), ("contextmenu", 2)] {
+        let reply: Value = serde_json::from_str(&crate::agent::answer(
+            &mut p,
+            &format!(r#"{{"op":"tap","id":{raw},"{mode}":true,"at":[25,75]}}"#),
+        ))
+        .unwrap();
+        assert_eq!(reply["delivery"], "presenter", "{reply}");
+        let (_, _, up) = last_input(&p);
+        let down: Value = unsafe {
+            let abi = &p.surfaces.abis[""];
+            serde_json::from_str(
+                std::ffi::CStr::from_ptr(abi
+                    .symbol::<unsafe extern "C" fn() -> *const std::ffi::c_char>(
+                        b"test_previous_input",
+                    )())
+                .to_str()
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        for (event, phase, buttons) in [(&down, "down", buttons), (&up, "up", 0)] {
+            assert_eq!(event["id"], 1);
+            assert_eq!(event["kind"], "mouse");
+            assert_eq!(event["phase"], phase);
+            assert_eq!(event["buttons"], buttons);
+            assert_eq!(
+                (event["x"].as_f64(), event["y"].as_f64()),
+                (Some(25.), Some(75.))
+            );
+        }
+        assert!(p.contact_position().is_none());
+    }
+    let count = last_input(&p).1;
+    for extra in [
+        r#""at":[25,15]"#,
+        r#""at":[-1,75]"#,
+        r#""at":[100,75]"#,
+        r#""at":null"#,
+        r#""at":[25]"#,
+        r#""at":[1e100,75]"#,
+        r#""phase":"down""#,
+        r#""contextmenu":true"#,
+        r#""resize":[200,200]"#,
+    ] {
+        let reply: Value = serde_json::from_str(&crate::agent::answer(
+            &mut p,
+            &format!(r#"{{"op":"tap","id":{raw},"mouse":true,{extra}}}"#),
+        ))
+        .unwrap();
+        assert!(reply.get("error").is_some(), "{reply}");
+        assert_eq!(last_input(&p).1, count);
+    }
+    let control = find(&p, "a-jump");
+    assert!(p.mouse_click(control, None, false).is_err());
+    let (x, y, _, _) = p.rect_of(raw).unwrap();
+    p.pointer_down(x + 25., y + 75., 0.).unwrap();
+    let count = last_input(&p).1;
+    assert!(p
+        .mouse_click(raw, Some((25., 75.)), false)
+        .unwrap_err()
+        .contains("held contact"));
+    assert_eq!(last_input(&p).1, count);
+    p.pointer_lost(1.).unwrap();
     done(p, path);
 }

@@ -362,6 +362,25 @@ fn an_elements_attributes_continue_on_deeper_lines_that_begin_with_name_equals()
     assert_eq!(tag, "text");
     assert_eq!(attrs[0].name, "font-size");
 
+    // Continued lines may sit deeper than the children that follow them.
+    let file = parse("component A\n  view\n    main\n        display=\"flex\" gap=8\n        padding=4\n      text \"a\"\n        font-size=12\n      text \"b\"\n    text \"after\"\n").unwrap();
+    let Node::Element {
+        attrs, children, ..
+    } = &file.components[0].view[0]
+    else {
+        panic!()
+    };
+    assert_eq!(
+        attrs.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
+        ["display", "gap", "padding"]
+    );
+    assert_eq!(children.len(), 2);
+    assert_eq!(file.components[0].view.len(), 2);
+    // A deeper block that is not attributes still has to dedent to a level.
+    let e =
+        parse("component A\n  view\n    main\n        text \"a\"\n      text \"b\"\n").unwrap_err();
+    assert_eq!(e.id, "syntax-bad-dedent");
+
     // At the element's own depth (or shallower) `name=` is refused.
     let e = parse("component A\n  view\n    column gap=8\n      text \"a\"\n    width=40\n")
         .unwrap_err();

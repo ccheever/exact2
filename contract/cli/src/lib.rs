@@ -212,7 +212,8 @@ from_pass!(contract_lower::LowerError, "lower");
 /// `use … from "./file.contract"` in it cannot be resolved: compile a file
 /// that uses others with [`compile_path`].
 pub fn compile(src: &str) -> Result<Plan, CompileError> {
-    let file = contract_syntax::parse(src)?;
+    let mut file = contract_syntax::parse(src)?;
+    contract_syntax::resolve_clock_timelines(&mut file)?;
     if let Some(u) = file.uses.first() {
         return Err(CompileError {
             pass: "use",
@@ -415,6 +416,8 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
             }
             let line = match step {
                 Step::Tap { span, .. }
+                | Step::Drag { span, .. }
+                | Step::Size { span, .. }
                 | Step::Type { span, .. }
                 | Step::Key { span, .. }
                 | Step::Clock { span, .. }
@@ -428,6 +431,29 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     s.push_str("{\"op\":\"tap\",\"target\":");
                     q(target, &mut s);
                     s.push_str(&format!(",\"hover\":{hover}"));
+                }
+                Step::Drag {
+                    target,
+                    dx,
+                    dy,
+                    press,
+                    over,
+                    hold,
+                    ..
+                } => {
+                    s.push_str("{\"op\":\"drag\",\"target\":");
+                    q(target, &mut s);
+                    s.push_str(&format!(",\"dx\":{dx},\"dy\":{dy}"));
+                    for (name, ms) in [("press", press), ("over", over), ("hold", hold)] {
+                        if let Some(ms) = ms {
+                            s.push_str(&format!(",\"{name}\":{ms}"));
+                        }
+                    }
+                }
+                Step::Size { width, height, .. } => {
+                    s.push_str(&format!(
+                        "{{\"op\":\"size\",\"width\":{width},\"height\":{height}"
+                    ));
                 }
                 Step::Type { target, text, .. } => {
                     s.push_str("{\"op\":\"type\",\"target\":");

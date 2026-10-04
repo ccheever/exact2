@@ -121,8 +121,8 @@ fn tagged<D: DataSource>(p: &Presenter<D>, line: &str, mut reply: String) -> Str
 
 pub(crate) fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     // An agent's taps and contacts reach a canvas as a finger, as on the web
-    // and iOS. An explicit contextmenu is a mouse's secondary button (LLP 1015.000).
-    p.agent_finger(!field_bool(line, "contextmenu"));
+    // and iOS. Explicit mouse/contextmenu use device mouse buttons (LLP 1015.000).
+    p.agent_finger(!field_bool(line, "contextmenu") && !field_bool(line, "mouse"));
     let reply = answer_line(p, line);
     p.agent_finger(false);
     reply
@@ -221,21 +221,18 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         }
         Some("layout") => p.layout_json(id(), field_bool(line, "plan")),
         Some("tap") => {
-            // LLP 1041 §8: optional input variant, never a ninth operation.
-            // Parse this bounded pair strictly; the legacy wheel pair reader
-            // intentionally accepts a smaller flat-request vocabulary.
+            // Bounded input variants use the full JSON parser, never the legacy wheel reader.
             let request: serde_json::Value = match serde_json::from_str(line) {
                 Ok(request) => request,
                 Err(_) => return error("unreadable tap request"),
             };
+            if field_bool(line, "contextmenu") || field_bool(line, "mouse") {
+                return p
+                    .mouse_request(id(), &request)
+                    .unwrap_or_else(|e| error(&e));
+            }
             if request.get("resize").is_some() {
                 return resize(p, &request);
-            }
-            if field_bool(line, "contextmenu") {
-                return match id() {
-                    Some(id) => p.contextmenu(id).unwrap_or_else(|e| error(&e)),
-                    None => error("contextmenu needs an id"),
-                };
             }
             if let Some(reply) = p.control_tap(&request) {
                 return reply.to_string();
@@ -285,6 +282,11 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             let text = field_str(line, "text").unwrap_or_default();
             p.type_text(id, &text).unwrap_or_else(|e| error(&e))
         }
+        // Before a tap or a type: a target out of view, scrolled into it.
+        Some("reveal") => match id() {
+            Some(id) => p.reveal(id).unwrap_or_else(|e| error(&e)),
+            None => error("reveal needs an id"),
+        },
         Some("clock") => clock(p, line),
         Some("prefer") => prefer(p, line),
         Some("screenshot") => match field_str(line, "path") {
@@ -1409,5 +1411,73 @@ mod tests {
             "false 0 kept Escape",
             "a key is heard by name and types nothing"
         );
+    }
+
+    #[test]
+    fn a_target_out_of_view_is_revealed_and_a_control_takes_a_value() {
+        // ledger F7, shop F11: a scroller's row and a row below the fold
+        // scroll into view; kanban F17: a checkbox and a select by label.
+        let plan = contract::compile("component App\n  state on = false\n  state pick = \"a\"\n  action set(value: bool)\n    on = value\n  action choose(value: string)\n    pick = value\n  view\n    column width=300\n      input type=\"checkbox\" checked=on change=set testId=\"agree\"\n      select value=pick change=choose testId=\"pick\"\n        option \"Alpha\" value=\"a\"\n        option \"Beta\" value=\"b\"\n      text `${on} ${pick}` testId=\"log\" height=20\n      scroll testId=\"inner\" height=100\n        box height=400\n        box testId=\"deep\" width=50 height=20\n      box height=900\n      box testId=\"far\" width=50 height=20\n").unwrap();
+        let (mut p, boot_error) = Presenter::boot_with(
+            &plan.encode(),
+            NoData,
+            (300.0, 300.0),
+            1.0,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(boot_error.is_none(), "{boot_error:?}");
+        let id = |p: &Presenter<NoData>, test_id: &str| {
+            let k = p.host().kernel();
+            k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+        };
+        let log = |p: &Presenter<NoData>| {
+            let k = p.host().kernel();
+            let node = k.node_by_key(k.find_by_test_id("log")[0]).unwrap();
+            node.props
+                .str(exact_kernel::PropId::Text)
+                .unwrap()
+                .to_string()
+        };
+        let (agree, pick, deep, far) = (
+            id(&p, "agree"),
+            id(&p, "pick"),
+            id(&p, "deep"),
+            id(&p, "far"),
+        );
+        let reply = handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{agree},"text":"true"}}"#),
+        );
+        assert!(reply.contains("\"checked\":true"), "{reply}");
+        handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{agree},"text":"true"}}"#),
+        );
+        let reply = handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{pick},"text":"Beta"}}"#),
+        );
+        assert!(reply.contains("\"value\":\"b\""), "{reply}");
+        assert_eq!(
+            log(&p),
+            "true b",
+            "on stays on, and the label chose its value"
+        );
+        let reply = handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{agree},"text":"yes"}}"#),
+        );
+        assert!(reply.contains("takes true or false"), "{reply}");
+        for target in [deep, far] {
+            let reply = handle(&mut p, &format!(r#"{{"op":"reveal","id":{target}}}"#));
+            assert!(reply.contains("\"scrolled\":true"), "{reply}");
+            let to: serde_json::Value = serde_json::from_str(&reply).unwrap();
+            let y = to["to"][1].as_f64().unwrap();
+            assert!((0.0..300.0).contains(&y), "#{target} is in view: {reply}");
+            let again = handle(&mut p, &format!(r#"{{"op":"reveal","id":{target}}}"#));
+            assert!(again.contains("\"scrolled\":false"), "{again}");
+        }
     }
 }

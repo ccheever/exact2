@@ -3,18 +3,28 @@
 import UIKit
 
 // The software keyboard calls UIKeyInput directly, including deletion in an
-// empty field. Its editing command still belongs to the authored key handler.
+// empty field: its Backspace and Return are keys the `key` handlers hear
+// too. A hardware keyboard's keys reach them in `pressesBegan`, before UIKit
+// edits with them (KeyEvents.swift).
 final class TextField: UITextField {
     weak var owner: NodeView?
+    /// The hardware key whose handlers ran in `pressesBegan`: UIKit's own
+    /// Backspace or Return for it does not run them again.
+    var heard: String?
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let remaining=owner?.pressedControls(presses,down:true) ?? presses
-        if !remaining.isEmpty {super.pressesBegan(remaining,with:event)}
+        if remaining.isEmpty { return }
+        if owner?.editorKeyDown(remaining) == true { return }
+        heard = remaining.first?.key.map(NodeView.keyName)
+        super.pressesBegan(remaining,with:event)
     }
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        heard = nil
         let remaining=owner?.pressedControls(presses,down:false) ?? presses
         if !remaining.isEmpty {super.pressesEnded(remaining,with:event)}
     }
     override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        heard = nil
         let remaining=owner?.pressedControls(presses,down:false) ?? presses
         if !remaining.isEmpty {super.pressesCancelled(remaining,with:event)}
     }
@@ -26,11 +36,7 @@ final class TextField: UITextField {
         return super.textInputMode
     }
     override func deleteBackward() {
-        if let owner, !owner.disabled {
-            var node: UIView? = owner
-            while let current = node, !((current as? NodeView)?.handlers.contains("key") ?? false) { node = current.superview }
-            if let target = node as? NodeView { target.presenter?.key(target.id, "Backspace") }
-        }
+        if heard != "Backspace", let owner, !owner.disabled, owner.presenter?.keyDown(at: owner, "Backspace") == true { return }
         super.deleteBackward()
     }
 }
@@ -69,7 +75,8 @@ final class TextArea: UITextView {
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let remaining=owner?.pressedControls(presses,down:true) ?? presses
-        if !remaining.isEmpty {super.pressesBegan(remaining,with:event)}
+        if remaining.isEmpty || owner?.editorKeyDown(remaining) == true { return }
+        super.pressesBegan(remaining,with:event)
     }
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let remaining=owner?.pressedControls(presses,down:false) ?? presses

@@ -651,7 +651,9 @@ name = "contract-difftest"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "contract-lower",
  "contract-syntax",
+ "contract-types",
  "exact-kernel",
  "exact-plan",
  "exact-runner",
@@ -669,6 +671,7 @@ dependencies = [
  "exact-num",
  "exact-plan",
  "icu_locale",
+ "serde_json",
 ]
 
 [[package]]
@@ -1630,9 +1633,9 @@ dependencies = [
 name = "exact-windows"
 version = "0.1.0"
 dependencies = [
+ "exact-kernel",
  "exact-linux",
  "exact-runner",
- "serde_json",
  "softbuffer",
  "winit",
 ]
@@ -2166,6 +2169,7 @@ dependencies = [
  "ureq",
  "url",
  "webpki-roots",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4149,6 +4153,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "shared-elements-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "shared-elements-data",
+]
+
+[[package]]
+name = "shared-elements-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "shared-elements-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "shared-elements-data",
+]
+
+[[package]]
+name = "shared-elements-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "shared-elements-data",
+]
+
+[[package]]
 name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5641,6 +5687,17 @@ dependencies = [
  "windows-link",
  "windows-result",
  "windows-strings",
+]
+
+[[package]]
+name = "windows-desk"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

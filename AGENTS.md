@@ -1,5 +1,9 @@
 # Agent instructions
 
+**Building an app with Exact rather than working on it?** Make it with `bun scripts/exact.mjs
+new <path>`. Its own `AGENTS.md` has the commands. Read `docs/contract-for-agents.md` first,
+then `docs/agent-pitfalls.md`; `contract vocab` lists every tag and property Contract accepts.
+
 Read `rules/RULES.md` and `rules/DEFERRED.md` first; they bind and this file does not.
 `llp/1000-exact2-root.explainer.md` is the map. `docs/agent-pitfalls.md` lists verified
 footguns in writing apps here; add to it when you hit one. Design documents under `llp/research/`
@@ -54,9 +58,10 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   origin named by `EXACT_UPDATE_ORIGIN`. `EXACT_UPDATE_TRUST=production` native
   bakes require an authenticated `EXACT_UPDATE_RECEIPT` or explicit new-stream
   `EXACT_UPDATE_GENESIS=1` (README).
-- An app outside this repo (weird-castle, `~/projects/weird-castle`) builds, runs, and is
+- An app outside this repo (one `bun scripts/exact.mjs new <path>` made) builds, runs, and is
   driven through these same scripts with `EXACT_APP_DIR` set — `scripts/app.mjs` is the
-  one place that knows; its `exact.mjs` sets it. exact2 is consumed there by path.
+  one place that knows; its `exact.mjs` sets it. exact2 is consumed there by path. What
+  `exact new` writes (its `AGENTS.md`, `exact.mjs` verbs, `app.json` `$schema`) is LLP 1086.
 - The web build, `bun host/web/build.mjs <app>`, makes the JS target (LLP 1071: the
   plan compiled to one ES module over a ~20 KB runtime, `host/web-js`); what it refuses
   fails the build. A game builds the wasm target (LLP 1071 §8), and `--wasm` is the
@@ -93,7 +98,11 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   50"` films motion on it as a contact sheet, `.apng` to play). The driver refuses a
   build older than its sources and names the rebuild (LLP 1012.001.000). `bun scripts/smoke.mjs
   <web|macos|ios|linux|host>` is the whole app driven that way. The Linux host
-  (`cargo build --release -p caltrain-linux`) runs headless anywhere, macOS included.
+  (`cargo build --profile host-dev -p caltrain-linux`: a development build, as
+  `build.mjs` makes for Apple; `--release` is the one that ships) runs headless
+  anywhere, macOS included. `host-dev` compiles incrementally unless the shell
+  exports `CARGO_INCREMENTAL=0`, which a hand-run cargo obeys (a touched kernel
+  line is then 17 s, not 6) and `build.mjs` overrides, saying so.
 - Delivery (LLP 1030.000): `bun scripts/deploy.mjs <app> [--origin <dir>]` prints the
   classifier's table (a dry run); `--yes` publishes the web root and signed bundles per stream through
   `scripts/origin.mjs`; `keygen <id>` makes a signing key (the private half never enters

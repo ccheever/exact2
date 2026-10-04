@@ -27,6 +27,8 @@ pub use rustls_http::RustlsHttpTransport;
 pub mod darwin_websocket;
 #[cfg(any(not(target_vendor = "apple"), test))]
 pub mod websocket;
+#[cfg(windows)]
+mod windows_connect;
 
 /// The transport this build uses by default.
 ///
@@ -44,6 +46,33 @@ pub fn default_transport() -> Box<dyn crate::stdlib::fetch::Transport> {
     {
         // rustls through `ureq` (OQ2, 2026-08-30): TLS off Apple, in Rust.
         Box::new(RustlsHttpTransport::new())
+    }
+}
+
+/// Context construction should not initialize a platform transport that an
+/// owning runtime is about to replace. The cloned host endowment keeps this
+/// cell, so the selected default is constructed only if that endowment fetches.
+pub(crate) struct LazyDefaultTransport {
+    transport: std::sync::OnceLock<Box<dyn crate::stdlib::fetch::Transport>>,
+}
+
+impl LazyDefaultTransport {
+    pub(crate) fn new() -> Self {
+        Self {
+            transport: std::sync::OnceLock::new(),
+        }
+    }
+}
+
+impl crate::stdlib::fetch::Transport for LazyDefaultTransport {
+    fn open(
+        &self,
+        request: &crate::stdlib::fetch::Request,
+        signal: &crate::stdlib::abort::AbortSignal,
+    ) -> Result<crate::stdlib::fetch::StreamingResponse, crate::boundary::HostError> {
+        self.transport
+            .get_or_init(default_transport)
+            .open(request, signal)
     }
 }
 

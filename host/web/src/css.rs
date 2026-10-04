@@ -101,8 +101,13 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     push_text!(&mut out, "--exact-drag-timeline:{};", d.css());
                 }
             }
+            // @ref LLP 1055.002 — a clock is no CSS timeline either: the
+            // animations play on the page's, and the glue sets their start
+            // (navigation.js `animationClocks`).
             (StyleId::AnimationTimeline, RowValue::AnimationTimeline(t)) => {
-                if t.0.is_some() {
+                if let Some(clock) = t.clock() {
+                    push_text!(&mut out, "--exact-animation-clock:{};", clock);
+                } else if t.0.is_some() {
                     push_text!(
                         &mut out,
                         "--exact-animation-timeline:{};animation-play-state:paused;",
@@ -891,6 +896,16 @@ mod declaration_tests {
         }
         let fonts: Vec<String> = fonts.iter().map(|f| f.to_string()).collect();
         css_text(&style, &fonts).0
+    }
+
+    #[test]
+    fn cursor_emits_the_css_keyword_including_explicit_auto_override() {
+        for value in ["auto", "default", "crosshair"] {
+            assert_eq!(
+                css(&[(StyleId::Cursor, StyleValue::Text(value.into()))], &[]),
+                format!("cursor:{value};")
+            );
+        }
     }
 
     /// The declarations `css_text` composes itself, as the `write!`-built

@@ -93,6 +93,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var lastAccessibilityWrite = AccessibilityWrite()
     var boxGradient: CAGradientLayer?
     var imageLayer: CALayer?
+    /// While it flies as a shared element (LLP 1013.000 D4): where its image is drawn.
+    var flightLook: FlightLook?
     var materialView: NSView?
     /// `glassGroup`'s view and a grouped glass's isolation (`GlassGroup.swift`).
     var glassGroupView: NSView?
@@ -206,8 +208,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard field == nil, pressable else { return }
         roundedPath(in: bounds).fill()
     }
-    /// A key down at a focused node, by the web's key name. Space and Enter
-    /// on a pressable fire `press`, as they do on a `<button>`.
+    /// A key down's default action at a focused node; its `key` handlers
+    /// heard it before AppKit delivered it (`Presenter.keyDown`, KeyEvents.swift).
+    /// Space and Enter on a pressable fire `press`, as they do on a `<button>`.
     override func keyDown(with event: NSEvent) {
         guard !inert else { return }
         if inputCanvas?.canvasInput?.key(event, down: true, source: self) == true { return }
@@ -221,7 +224,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             }
         }
         let name = NodeView.keyName(event)
-        if handlers.contains("key") { presenter?.key(id, name) }
         // Sequential focus from every stop, as on the web: AppKit moves on from
         // a non-text view only with macOS "Keyboard navigation" on, while
         // Exact's loop holds buttons and native editors either way.
@@ -286,22 +288,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             f.selectText(nil)
         }
     }
-    /// The web's key names for AppKit's: the function keys by their names,
-    /// the rest by the character typed.
-    static func keyName(_ event: NSEvent) -> String {
-        switch event.keyCode {
-        case 36, 76: return "Enter"
-        case 53: return "Escape"
-        case 48: return "Tab"
-        case 51: return "Backspace"
-        case 117: return "Delete"
-        case 126: return "ArrowUp"
-        case 125: return "ArrowDown"
-        case 123: return "ArrowLeft"
-        case 124: return "ArrowRight"
-        default: return event.charactersIgnoringModifiers ?? ""
-        }
-    }
     /// The tracking area a `hover` handler needs (LLP 1005 §3), on the node
     /// or an inline run, kept while one wants it. `.inVisibleRect`: AppKit
     /// keeps its rect, so nothing here overrides `updateTrackingAreas` —
@@ -361,29 +347,15 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             setAccessibilityRole(labelled ? .image : nil)
         }
     }
-    /// The editing commands of a text field's editor as key names (the
-    /// characters themselves are its `input`; Enter commits its `change`):
-    /// Enter is taken here, so it does not end the editing as AppKit would.
+    /// Enter in a text field's editor: its `change` commits and, with a
+    /// `submit` handler, the web's implicit submission. Taken here, so it
+    /// does not end the editing as AppKit would. Its `key` handlers heard
+    /// every key before the editor did (`Presenter.keyDown`).
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        let name: String
-        switch selector {
-        case #selector(NSResponder.insertNewline(_:)):
-            presenter?.commitEdit(id, textView.string, change: handlers.contains("change"))
-            // Enter in an input with a `submit` handler is the web's implicit
-            // submission; a `key` handler hears it as Enter as well.
-            if handlers.contains("submit") { presenter?.submit(id) }
-            name = "Enter"
-        case #selector(NSResponder.cancelOperation(_:)): name = "Escape"
-        case #selector(NSResponder.insertTab(_:)): name = "Tab"
-        case #selector(NSResponder.moveUp(_:)): name = "ArrowUp"
-        case #selector(NSResponder.moveDown(_:)): name = "ArrowDown"
-        case #selector(NSResponder.moveLeft(_:)): name = "ArrowLeft"
-        case #selector(NSResponder.moveRight(_:)): name = "ArrowRight"
-        case #selector(NSResponder.deleteBackward(_:)): name = "Backspace"
-        default: return false
-        }
-        if handlers.contains("key") { presenter?.key(id, name) }
-        return name == "Enter"
+        guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
+        presenter?.commitEdit(id, textView.string, change: handlers.contains("change"))
+        if handlers.contains("submit") { presenter?.submit(id) }
+        return true
     }
     func controlTextDidBeginEditing(_ obj: Notification) {
         presenter?.collections.pinsChanged()
@@ -1194,7 +1166,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // included, as it lays it out: the authored one goes back on.
         applyTransform()
         if style["perspective"] != nil { applyPerspective() }
-        if kind == "image" { presenter?.session?.rasters.resized(self) }
+        if kind == "image", flightLook == nil { presenter?.session?.rasters.resized(self) }
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
@@ -1267,7 +1239,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             let radii = BorderPaint.radii(style, in: bounds)
             BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, shape: CornerShape(style["corner_shape"]))
         }
-        if kind == "image", symbolView == nil, !(layerPaint && imageLayer != nil), let bitmap = raster?.image {
+        if kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, !(layerPaint && imageLayer != nil), let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
             // and padding), clipped by the border box's radius: `fill`
             // stretches, `contain`/`cover` keep the ratio, `none` is the

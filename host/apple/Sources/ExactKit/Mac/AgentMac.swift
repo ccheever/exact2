@@ -314,6 +314,36 @@ extension Agent {
         return presenter.textHost(UInt32(id))
     }
 
+    /// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
+    /// view whose middle is out of view is scrolled to the middle of each
+    /// enclosing clip view it is outside of, innermost first, then the page's
+    /// — as the web's `scrollIntoView` does there (block centre, inline only
+    /// as far as it takes), each clamped to its range. The clip views' bounds
+    /// observers tell the app, as a person's scroll does.
+    func reveal(_ req: [String: Any]) -> [String: Any] {
+        guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        let from = box(v)
+        var scrolled = false
+        for case let clip as NSClipView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) {
+            let frame = v.convert(v.bounds, to: clip), port = clip.bounds
+            let mid = CGPoint(x: frame.midX, y: frame.midY)
+            if port.contains(mid) { continue }
+            var origin = port.origin
+            if mid.y < port.minY || mid.y >= port.maxY { origin.y = mid.y - port.height / 2 }
+            if mid.x < port.minX || mid.x >= port.maxX { origin.x = frame.maxX > port.maxX ? frame.maxX - port.width : frame.minX }
+            let to = clip.constrainBoundsRect(NSRect(origin: origin, size: port.size)).origin
+            if to == port.origin { continue }
+            clip.scroll(to: to)
+            (clip.superview as? NSScrollView)?.reflectScrolledClipView(clip)
+            scrolled = true
+        }
+        guard scrolled else { return ["revealed": Int(v.id), "scrolled": false] }
+        presenter.settlePump()
+        let to = box(v)
+        return ["revealed": Int(v.id), "scrolled": true,
+                "from": [Agent.r2(from.midX), Agent.r2(from.midY)], "to": [Agent.r2(to.midX), Agent.r2(to.midY)]]
+    }
+
     /// A contact held across requests (LLP 1035.003 D1): the mouse button
     /// down at a point in the viewport, dragged along a declared path,
     /// held, released — each phase a real `NSEvent` through `sendEvent`,
@@ -529,6 +559,19 @@ extension Agent {
             return ["tapped": Int(v.id), "pinch": scale, "at": at, "delivery": "platform"]
         }
         if v.kind == "iframe" { return session.webviews.tap(v, request: req, at: at) }
+        // A right click (minesweeper F8): the right button down and up at the
+        // point through the window, as a mouse's are routed; `rightMouseUp`
+        // answers it on the node with a `contextmenu` handler.
+        if req["contextmenu"] as? Bool == true {
+            let t = ProcessInfo.processInfo.systemUptime
+            let eventNumber = AgentMouseRelease.nextEventNumber()
+            guard let down = NSEvent.mouseEvent(with: .rightMouseDown, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: 1, pressure: 1),
+                  let up = NSEvent.mouseEvent(with: .rightMouseUp, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: 1, pressure: 0)
+            else { return ["error": "no mouse event"] }
+            win.sendEvent(down)
+            win.sendEvent(up)
+            return ["tapped": Int(v.id), "at": at, "contextmenu": true, "delivery": "platform"]
+        }
         // A double click is two real clicks, the second with clickCount 2.
         for clicks in 1...(req["dblclick"] as? Bool == true ? 2 : 1) {
             let t = ProcessInfo.processInfo.systemUptime
@@ -638,7 +681,10 @@ extension Agent {
                 _ = v.focusSurfacePointer()
             } else if v.acceptsFirstResponder {
                 if win.firstResponder !== v { win.makeFirstResponder(v) }
-            } else { return ["error": "view \(v.id) takes no key"] }
+            }
+            // A target that takes no focus leaves it where it is, as the web's
+            // `focus()` on one does: the key goes to whatever holds the focus,
+            // or to the page's shortcuts when nothing does (pomodoro F5).
             let (chars, code): (String, UInt16) = {
                 switch key {
                 case "Plus": return ("+", 24)
@@ -668,7 +714,10 @@ extension Agent {
             // This driver sends directly to NSWindow, bypassing NSApplication's
             // local monitor. Use the same session command router first.
             presenter.flushKeyViewLoop()
-            if phase != "up", presenter.menus.key(down) || presenter.dialogs.key(down) || presenter.shortcuts.perform(down) {
+            // The monitor's route (`Presenter.routeKey`): shortcuts, the focus's
+            // `key` handlers (a prevented key goes no further), then the menus'
+            // and dialogs' defaults.
+            if phase != "up", presenter.routeKey(down, focused: true, in: win) {
                 if phase != "down" { _ = presenter.menus.key(up) }
                 if phase == "down", let release = req["releaseKey"] as? String {
                     // A host command consumed the down; its up belongs to no module instance.
@@ -724,7 +773,23 @@ extension Agent {
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil } // RTLD_DEFAULT
         let create = unsafeBitCast(symbol, to: Create.self)
         // kCGWindowListOptionIncludingWindow; kCGWindowImageBoundsIgnoreFraming | kCGWindowImageBestResolution
-        return create(.null, 1 << 3, UInt32(number), 1 << 0 | 1 << 3)?.takeRetainedValue()
+        guard let image = create(.null, 1 << 3, UInt32(number), 1 << 0 | 1 << 3)?.takeRetainedValue(), !emptyPicture(image) else { return nil }
+        return image
+    }
+
+    /// Whether the window server's picture holds nothing. A display that is
+    /// asleep, or a locked screen, still answers, with a transparent picture
+    /// a pixel or two short of the window: no picture, not a wrong one. An
+    /// opaque window's has no transparent pixel, so its average says.
+    static func emptyPicture(_ image: CGImage) -> Bool {
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let drawn = pixel.withUnsafeMutableBytes { bytes -> Bool in
+            guard let one = CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            one.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            return true
+        }
+        return !drawn || pixel[3] == 0
     }
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
@@ -749,7 +814,7 @@ extension Agent {
             CATransaction.flush()
             let refresh = 1 / Double(max(30, window.screen?.maximumFramesPerSecond ?? 60))
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 2 * refresh + 0.004))
-            guard let image = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber)"] }
+            guard let image = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber); a display that is asleep or a locked screen gives an empty one"] }
             guard let png = NSBitmapImageRep(cgImage: image).converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
             do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
             var r: [String: Any] = ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)]

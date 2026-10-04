@@ -142,7 +142,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if CanvasInput.owns(touch.view) { return false }
-        if stopsAtPress(gestureRecognizer), pressBoundary(touch) { return false } // LLP 1057.001 rule 3
+        if stopsAtPress(gestureRecognizer), pressBoundary(touch, presses: gestureRecognizer !== layoutPanRecognizer) { return false } // LLP 1057.001 rule 3
         // A nested editor owns its selection gestures, including read-only
         // text. A containing bubble's reply/Tapback recognizers must yield.
         var hit = touch.view
@@ -229,6 +229,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var raster: NativeRasterLease? { didSet { if raster == nil, let l = imageLayer { l.removeFromSuperlayer(); imageLayer = nil } } }
     /// An image's pixels as a sublayer's contents (`applyImageLayer`).
     var imageLayer: CALayer?
+    /// While it flies as a shared element (LLP 1013.000 D4): where its image is drawn.
+    var flightLook: FlightLook?
     var imageSource: String?
     var loadGeneration = 0
     var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
@@ -313,10 +315,12 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let presses=pressedControls(presses,down:true)
         if presses.isEmpty {return}
         if inputCanvas?.canvasInput?.presses(presses, down: true, source: self) == true { return }
-        if !disabled, handlers.contains("press"), let key = presses.first?.key,
-           ["Enter", " "].contains(NodeView.keyName(key)) { presenter?.press(id); return }
-        guard !disabled, handlers.contains("key"), let key = presses.first?.key else { return super.pressesBegan(presses, with: event) }
-        presenter?.key(id, NodeView.keyName(key))
+        // The focus's `key` handlers and its ancestors' (KeyEvents.swift); an
+        // ancestor UIKit passes the presses up to dispatches none again.
+        let name = presses.first?.key.map(NodeView.keyName)
+        if !disabled, isFirstResponder, let name, presenter?.keyDown(at: self, name) == true { return }
+        if !disabled, handlers.contains("press"), let name, ["Enter", " "].contains(name) { presenter?.press(id); return }
+        super.pressesBegan(presses, with: event)
     }
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         #if os(tvOS)
@@ -330,21 +334,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let presses=pressedControls(presses,down:false)
         if presses.isEmpty {return}
         if inputCanvas?.canvasInput?.presses(presses, down: false, source: self) != true { super.pressesCancelled(presses, with: event) }
-    }
-    /// The web's key names for UIKit's.
-    static func keyName(_ key: UIKey) -> String {
-        switch key.keyCode {
-        case .keyboardReturnOrEnter, .keypadEnter: return "Enter"
-        case .keyboardEscape: return "Escape"
-        case .keyboardTab: return "Tab"
-        case .keyboardDeleteOrBackspace: return "Backspace"
-        case .keyboardDeleteForward: return "Delete"
-        case .keyboardUpArrow: return "ArrowUp"
-        case .keyboardDownArrow: return "ArrowDown"
-        case .keyboardLeftArrow: return "ArrowLeft"
-        case .keyboardRightArrow: return "ArrowRight"
-        default: return key.charactersIgnoringModifiers
-        }
     }
     /// A pointer over the node (an iPad's trackpad or mouse; a phone has
     /// none): `hover` in and out.
@@ -368,11 +357,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         guard !disabled else { return false }
+        // The software keyboard's Return is a key the handlers hear first (a
+        // hardware one's they heard in `pressesBegan`); prevented, it neither
+        // commits nor submits.
+        if (textField as? TextField)?.heard != "Enter", presenter?.keyDown(at: self, "Enter") == true { return false }
         presenter?.commitEdit(id, textField.text ?? "", change: handlers.contains("change"))
-        // Enter in an input with a `submit` handler is the web's implicit
-        // submission; a `key` handler hears it as Enter as well.
+        // Enter in an input with a `submit` handler is the web's implicit submission.
         if handlers.contains("submit") { presenter?.submit(id) }
-        if handlers.contains("key") { presenter?.key(id, "Enter") }
         return false
     }
 
@@ -1258,7 +1249,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if materialView != nil { applyMaterialRadius() }
         syncEllipticalClip()
         if style["perspective"] != nil { applyPerspective() }
-        if kind == "image" { presenter?.session?.rasters.resized(self); if raster != nil { applyImageLayer() } }
+        if kind == "image" { if flightLook == nil { presenter?.session?.rasters.resized(self) }; if raster != nil { applyImageLayer() } }
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
@@ -1308,7 +1299,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             let radii = BorderPaint.radii(style, in: bounds)
             BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, shape: CornerShape(style["corner_shape"]))
         }
-        if kind == "image", symbolView == nil, let bitmap = raster?.image {
+        if kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
             // and padding), clipped by the border box's radius: `fill`
             // stretches, `contain`/`cover` keep the ratio, `none` is the

@@ -154,6 +154,13 @@ pub(super) fn fixture() -> (PathBuf, Value) {
 #include <stdio.h>
 #include <string.h>
 void gpu_load_headless(void) {}
+static uint32_t lifecycle_count, lifecycle_codes[32], lifecycle_ids[32];
+void gpu_lifecycle(uint32_t id, uint32_t code) {
+  if (lifecycle_count < 32) { lifecycle_ids[lifecycle_count] = id; lifecycle_codes[lifecycle_count++] = code; }
+}
+uint32_t test_lifecycle_count(void) { return lifecycle_count; }
+uint32_t test_lifecycle_code(uint32_t at) { return lifecycle_codes[at]; }
+uint32_t test_lifecycle_id(uint32_t at) { return lifecycle_ids[at]; }
 uint32_t gpu_recover(void) { return 0; }
 uint32_t gpu_child_view(void) { return 0; }
 uint32_t gpu_children_count(void) { return 0; }
@@ -572,4 +579,59 @@ fn posts_wait_for_their_surface_up_to_the_bound() {
     assert!(s.post("other", event()), "the bound is per surface name");
     s.deliver_posts();
     assert_eq!(s.posts["world"].len(), POST_BOUND, "no canvas: still held");
+}
+
+#[test]
+fn rendered_lifecycle_preserves_both_causes_and_initializes_replacements() {
+    let (path, compat) = fixture();
+    let mut abi = Abi::open_path(&path, &compat, "").unwrap();
+    // The C fixture records the existing ABI without allocating a real device.
+    abi.rendered = true;
+    let mut surfaces = Surfaces::default();
+    surfaces.abis.insert(String::new(), abi);
+    surfaces.canvases.insert(
+        7,
+        Canvas {
+            id: 41,
+            name: "world".into(),
+            artifact: String::new(),
+            owner: true,
+            since: 0,
+            held: BTreeSet::new(),
+            restored_controls: None,
+            restore_error: None,
+            restore_input: false,
+            restore_bytes: None,
+            restore_logged: false,
+        },
+    );
+    surfaces.lifecycle(true, true);
+    surfaces.lifecycle(true, true); // redundant event makes no device transition
+    surfaces.lifecycle(false, true); // visible still interrupted
+    surfaces.lifecycle(false, false);
+    surfaces.lifecycle(true, true);
+    surfaces.initial_lifecycle(&surfaces.abis[""], 99);
+    let abi = &surfaces.abis[""];
+    // SAFETY: these signatures are the C test fixture's exported observers.
+    unsafe {
+        let count = abi.symbol::<unsafe extern "C" fn() -> u32>(b"test_lifecycle_count")();
+        assert_eq!(count, 8);
+        let code = abi.symbol::<unsafe extern "C" fn(u32) -> u32>(b"test_lifecycle_code");
+        let id = abi.symbol::<unsafe extern "C" fn(u32) -> u32>(b"test_lifecycle_id");
+        assert_eq!(
+            (0..count).map(|i| (id(i), code(i))).collect::<Vec<_>>(),
+            [
+                (41, 0),
+                (41, 2),
+                (41, 1),
+                (41, 3),
+                (41, 0),
+                (41, 2),
+                (99, 0),
+                (99, 2)
+            ]
+        );
+    }
+    drop(surfaces);
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }

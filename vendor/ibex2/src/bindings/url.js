@@ -14,6 +14,8 @@
 (function (global) {
   "use strict";
 
+  var brand = global.__ibex2_brand || function (value) { return value; };
+
   // Captured, then removed from the global object, so that after boot the
   // global carries the classes and nothing underneath them.
   var parse = global.__ibex2_url_parse;
@@ -71,6 +73,7 @@
     if (!(this instanceof URL)) throw new TypeError("URL must be constructed with new");
     if (arguments.length === 0) throw new TypeError("URL constructor requires a URL");
     urls.set(this, components(input, base));
+    brand(this, "URL");
   }
 
   FIELDS.forEach(function (field, index) {
@@ -167,6 +170,7 @@
     }
     var p = { url: null, query: "" };
     params.set(this, p);
+    brand(this, "URLSearchParams");
     if (init === undefined || init === null) return;
     if (typeof init === "string") {
       p.query = sp.normalize(init.charAt(0) === "?" ? init.slice(1) : init);
@@ -249,21 +253,21 @@
     return JSON.parse(sp.entries(query(own(instance))));
   }
   proto.entries = function () {
-    return pairs(this)[Symbol.iterator]();
+    return brand(pairs(this)[Symbol.iterator](), "URLSearchParamsIterator");
   };
   proto.keys = function () {
-    return pairs(this)
+    return brand(pairs(this)
       .map(function (pair) {
         return pair[0];
       })
-      [Symbol.iterator]();
+      [Symbol.iterator](), "URLSearchParamsIterator");
   };
   proto.values = function () {
-    return pairs(this)
+    return brand(pairs(this)
       .map(function (pair) {
         return pair[1];
       })
-      [Symbol.iterator]();
+      [Symbol.iterator](), "URLSearchParamsIterator");
   };
   proto[Symbol.iterator] = proto.entries;
   proto.forEach = function (callback, thisArg) {

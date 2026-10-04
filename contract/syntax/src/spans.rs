@@ -81,8 +81,9 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, shapes, styles, keyframes, fns, tests, components }
+    File { names, routes, uses, fonts, shapes, styles, keyframes, timelines, fns, tests, components }
     KeyframesDecl { name, frames, span }
+    TimelineDecl { name, span }
     KeyframeDecl { selectors, attrs, span }
     RoutesDecl { slot, rows, span }
     RouteDecl { name, pattern, parent, tab, notfound, fields, span }
@@ -119,7 +120,8 @@ macro_rules! record_variants {
 }
 record_variants! {
     Step {
-        Tap { target, hover, span }, Type { target, text, span }, Key { target, key, span },
+        Tap { target, hover, span }, Drag { target, dx, dy, press, over, hold, span },
+        Size { width, height, span }, Type { target, text, span }, Key { target, key, span },
         Clock { arg, span }, Screenshot { path, span }, ExpectTree { target, present, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
     }

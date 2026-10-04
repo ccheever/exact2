@@ -55,7 +55,7 @@ import { fileURLToPath } from 'node:url';
 import { open } from '../../scripts/agent.mjs';
 import { chromium } from '../../scripts/agent-launch.mjs';
 import { probePlaywrightBrowser } from '../../scripts/agent-playwright.mjs';
-import { resolveApp } from '../../scripts/app.mjs';
+import { HOST_DEV, injectedProfiles, resolveApp } from '../../scripts/app.mjs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -341,7 +341,7 @@ async function drive(t, report, fail, dir, ws, js) {
       return tw;
     };
     // A scripted scenario (`conformance/<app>.steps`): one agent operation
-    // a line — `tap <target>`, `type <target> <text…>`, `clock <+ms|settle>`,
+    // a line — `tap <target>`, `type <target> <text…>`, `key <target> <name>`, `clock <+ms|settle>`,
     // `back` (the browser's history), `wheel <target> <dy> [dx]`, `into
     // <list> <key> [block]` (a virtualized list's row by key), `drag
     // <target> <dx> <dy> [ms]` (a finger: down, a move over ms of real time,
@@ -360,7 +360,7 @@ async function drive(t, report, fail, dir, ws, js) {
     let diverged = false;
     if (existsSync(script)) for (const line of readFileSync(script, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))) {
       const [op, target, ...rest] = line.split(/\s+/);
-      const run = s => op === 'tap' ? s.tap(target) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : op === 'prefer' ? s.prefer(Object.fromEntries([target, ...rest].flatMap((a, i, all) => i % 2 ? [] : [[a, all[i + 1]]]))) : Promise.reject(new Error(`unknown op ${op}`));
+      const run = s => op === 'tap' ? s.tap(target) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'key' ? s.type(target, { key: rest[0] }) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : op === 'prefer' ? s.prefer(Object.fromEntries([target, ...rest].flatMap((a, i, all) => i % 2 ? [] : [[a, all[i + 1]]]))) : Promise.reject(new Error(`unknown op ${op}`));
       // Playwright cannot make trusted phased touches in Firefox/WebKit.
       // Skip before resolving a target or touching either page; the carrier's
       // named, side-effect-free refusals are exercised by agent.test.mjs.
@@ -514,9 +514,9 @@ async function bootPress(t, report, fail, dist, browser) {
   const bin = `${t.app}-render`;
   const at = [['linux', `${t.app}-linux`], ['web', `${t.app}-web`]].find(([dir]) => existsSync(resolve(root, 'apps', t.app, dir, 'src/bin', `${bin}.rs`)));
   if (!at) return fail(step, `${t.app} has no ${bin} entry to serve the page`);
-  const b = spawnSync('cargo', ['build', '--release', '-q', '-p', at[1], '--bin', bin], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
+  const b = spawnSync('cargo', ['build', '--profile', HOST_DEV, '-q', '-p', at[1], '--bin', bin], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
   if (b.status !== 0) return fail(step, `${bin}: ${b.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300)}`);
-  const server = spawn(resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'release', bin), ['--serve', dist, '--port', '0'], { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] });
+  const server = spawn(resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), HOST_DEV, bin), ['--serve', dist, '--port', '0'], { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] });
   let proxy, S;
   try {
     const inner = await new Promise((ok, no) => {
@@ -585,7 +585,7 @@ async function bootPress(t, report, fail, dist, browser) {
 
 // ---------------------------------------------------------------- the Linux reference
 const linuxRef = argv.includes('--linux') && !crossBrowser;
-const LINUX_OPS = ['tap', 'type', 'clock', 'prefer'];
+const LINUX_OPS = ['tap', 'type', 'key', 'clock', 'prefer'];
 // Where an app's drive reaches what only one host has, the Linux comparison
 // stops before that step (null: from the start), saying why (each is a host
 // difference, not the runner's).
@@ -607,7 +607,7 @@ function linuxFor(t) {
   if (!crate) return { why: `not compared on Linux: ${t.app} has no Linux host` };
   if (LINUX_APART[t.name]?.[0] === null) return { why: `not compared on Linux: ${LINUX_APART[t.name][1]}` };
   // agent.mjs runs the crate's own binary; a crate that builds only other bins (a render server) has none.
-  if (!existsSync(resolve(resolveApp(t.app).target, 'release', crate))) return { why: `not compared on Linux: ${t.app}'s Linux crate has no ${crate} binary built` };
+  if (!existsSync(resolve(resolveApp(t.app).target, HOST_DEV, crate))) return { why: `not compared on Linux: ${t.app}'s Linux crate has no ${crate} binary built` };
   return {};
 }
 
@@ -665,10 +665,12 @@ if (linuxRef && argv.includes('--build') && engineReady) {
     const target = resolveApp(a).target;
     if (target === resolveApp('caltrain').target) rooted.push(crate); else own.push({ a, crate, target });
   }
+  // The development profile (Cargo.toml's `host-dev`), which a workspace of
+  // its own is given on the command line.
   const builds = [...(rooted.length ? [{ what: rooted.join(' '), args: rooted.flatMap(c => ['-p', c]), env: {} }] : []),
-    ...own.map(o => ({ what: o.crate, args: ['--manifest-path', resolve(root, 'apps', o.a, 'linux', 'Cargo.toml')], env: { CARGO_TARGET_DIR: o.target } }))];
+    ...own.map(o => ({ what: o.crate, args: [...injectedProfiles(resolveApp(o.a)), '--manifest-path', resolve(root, 'apps', o.a, 'linux', 'Cargo.toml')], env: { CARGO_TARGET_DIR: o.target } }))];
   for (const { what, args, env } of builds) {
-    const b = spawnSync('cargo', ['build', '-q', '--release', ...args], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, ...env } });
+    const b = spawnSync('cargo', ['build', '-q', '--profile', HOST_DEV, ...args], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, ...env } });
     if (b.status !== 0) report.failures.push({ target: 'linux', step: `linux-build ${what}`, what: b.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300) });
   }
 }

@@ -339,10 +339,11 @@ export function presenceLoader(load, root, apply, log) {
 // The agent's browser clock (LLP 1012): author-paused animations keep their
 // own time (LLP 1055 D10); every other animation follows the runner's clock.
 export function animationClock(now, settled, synced) {
-  const starts = new WeakMap(), held = new WeakSet();
+  const starts = new WeakMap(), held = new WeakSet(), clocks = animationClocks(document);
   return {
     register(t) {
-      for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, t); if (a.playState === 'paused') held.add(a); }
+      clocks.commit();
+      for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, clocks.start(a, t) ?? t); if (a.playState === 'paused') held.add(a); }
     },
     seek(to) {
       for (const a of document.getAnimations()) {
@@ -364,6 +365,67 @@ export function animationClock(now, settled, synced) {
         if (timing && timing.endTime !== Infinity && !held.has(a)) to = Math.max(to, (starts.get(a) ?? now()) + timing.endTime);
       }
       return to;
+    },
+  };
+}
+
+// Synced animations (LLP 1055.002): a node whose `animation-timeline` is
+// `clock(Name)` carries `--exact-animation-clock:Name` (css.rs), and each CSS
+// animation on it joins that clock. A clock is one origin, set when an
+// animation joins it idle (no other member unfinished) and kept while it is
+// busy; a joiner starts on the latest cycle boundary at or before it joins
+// (a cycle is two iterations under `alternate`), so it ends where it would.
+// `start` is the synced start at `now` (the agent's clock seeks from it);
+// `sync`, after a commit, sets each joined or resumed animation's
+// `startTime` once on the page's timeline. Nothing runs per frame.
+export function animationClocks(root) {
+  const origins = new Map(), members = new Map(), paused = new WeakMap(), clocked = new WeakMap();
+  const clockOf = a => a.animationName === undefined ? '' : a.effect?.target?.style?.getPropertyValue('--exact-animation-clock').trim() ?? '';
+  const live = a => a.effect?.target?.isConnected && a.playState !== 'idle' && a.playState !== 'finished';
+  // Each commit (`sync`, or the agent's `register`) first lets go of every
+  // member whose node left, whose play ended, or that moved to another
+  // clock: it holds no clock busy, and a removed screen's targets are not
+  // kept for the page's lifetime.
+  const commit = () => {
+    for (const [c, m] of members) { for (const b of m) if (!live(b) || clockOf(b) !== c) m.delete(b); if (!m.size) members.delete(c); }
+  };
+  function start(a, now) {
+    const c = clockOf(a);
+    if (!c) return null;
+    let m = members.get(c);
+    if (!m) members.set(c, m = new Set());
+    // Busy while any member is live, `a` included: a paused or resumed
+    // member keeps the origin, so a resume rejoins its phase (D6).
+    if (!m.size || !origins.has(c)) origins.set(c, now);
+    m.add(a);
+    const { duration, direction } = a.effect.getComputedTiming(), period = duration * (/alternate/.test(direction) ? 2 : 1);
+    if (!(period > 0 && Number.isFinite(period))) return now;
+    // On a boundary in float can read a hair before it: that is on it.
+    const into = ((now - origins.get(c)) % period + period) % period;
+    return now - (period - into < 1e-6 ? 0 : into);
+  }
+  return {
+    start,
+    commit,
+    sync(now = document.timeline.currentTime) {
+      commit();
+      if (!root.querySelector('[style*="--exact-animation-clock"]')) return;
+      for (const a of document.getAnimations()) {
+        const is = a.playState === 'paused', was = paused.get(a), c = clockOf(a), had = clocked.get(a) ?? '';
+        // On a clock and not its member: new, moved onto it, or let go
+        // while it was off one (its name taken away and given back).
+        const member = !c || members.get(c)?.has(a);
+        if (was === is && c === had && member) continue;
+        paused.set(a, is); clocked.set(a, c);
+        // An ended play stays ended: a clock does not restart it.
+        if (a.playState === 'finished' || a.playState === 'idle') continue;
+        // A pause keeps its membership: paused, it still holds the clock
+        // busy. A new one joins (paused, without a start, which would
+        // unpause it); a resume rejoins.
+        if (is && was !== undefined && c === had && member) continue;
+        const s = start(a, now);
+        if (s !== null && !is) a.startTime = s;
+      }
     },
   };
 }
@@ -806,20 +868,58 @@ export function settleValue(el) {
   const c = el instanceof HTMLOptionElement ? el.parentElement : el;
   if (c && valuedControl(c) && c.exactValue !== undefined && c.value !== c.exactValue) c.value = c.exactValue;
 }
+// What `type <id> <value>` sets rather than types into (D9): the valued
+// controls, and a checkbox (or `switch`), which a value turns on or off.
+export const typedControl = (el) => valuedControl(el) || (el instanceof HTMLInputElement && el.type === "checkbox");
 // D9: `type <id> <value>` sets a control's value as the platform would on a
 // choice or a release: HTML's `input`, then `change`. A select takes one of
-// its enabled options' values, and nothing else.
+// its enabled options by value, else by its one label (Playwright's
+// `selectOption`, the diaries' kanban F17 and shop F10); a checkbox takes
+// `true` or `false` and is clicked when that differs, as a person would.
 export function typeControl(el, request) {
-  const text = String(request.text ?? ""), id = request.id;
+  let text = String(request.text ?? "");
+  const id = request.id;
   if (el.disabled || inertAncestor(el)) return { handled: true, error: `view ${id} is disabled or inert` };
-  if (el instanceof HTMLSelectElement && ![...el.options].some((o) => o.value === text && !o.disabled))
-    return { handled: true, error: `select ${id} has no enabled option ${JSON.stringify(text)} (options: ${[...el.options].map((o) => JSON.stringify(o.value)).join(", ")})` };
+  // A read-only field takes no value a person could enter. HTML's `readonly` applies to a textarea and the
+  // text-like and date/time inputs only; a checkbox, range, color or select ignores it.
+  if (el.readOnly && (el instanceof HTMLTextAreaElement || /^(text|search|url|tel|email|password|date|month|week|time|datetime-local|number)$/.test(el.type))) return { handled: true, error: `view ${id} is read-only` };
+  if (el.type === "checkbox") {
+    if (text !== "true" && text !== "false") return { handled: true, error: `checkbox ${id} takes true or false, not ${JSON.stringify(text)}` };
+    if (el.checked !== (text === "true")) el.click();
+    return { typed: id, checked: el.checked, delivery: "recognized", handled: true };
+  }
+  if (el instanceof HTMLSelectElement) {
+    const enabled = [...el.options].filter((o) => !o.disabled), labelled = enabled.filter((o) => o.label.trim() === text.trim());
+    if (!enabled.some((o) => o.value === text) && labelled.length === 1) text = labelled[0].value;
+    else if (!enabled.some((o) => o.value === text))
+      return { handled: true, error: `select ${id} has no enabled option ${JSON.stringify(text)}${labelled.length > 1 ? " (that label is on more than one option: choose by value)" : ""} (options: ${enabled.map((o) => `${JSON.stringify(o.value)} ${JSON.stringify(o.label)}`).join(", ")})` };
+  }
   if (el.type === "range" && !(text.trim() !== "" && Number.isFinite(Number(text)))) return { handled: true, error: `${JSON.stringify(text)} is not a number` };
   el.value = text;
   if (el.value !== text && el instanceof HTMLInputElement && el.type !== "range") return settleValue(el), { handled: true, error: `${JSON.stringify(text)} is not a value an input type=${el.type} takes; it sanitized to ${JSON.stringify(el.value)}` };
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { typed: id, value: el.value, delivery: "recognized", handled: true };
+}
+
+// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
+// target whose middle is out of view is scrolled to the middle of its
+// nearest scroll containers, then of the page (across, only as far as it
+// takes) — Playwright's actionability scroll, the web's own `scrollIntoView`. A scroll event reaches the app as a
+// person's scroll would. `scrolled` is where the middle moved from and to;
+// a middle already in view moves nothing.
+export function reveal(el, id) {
+  if (!el?.isConnected) return { error: `no view ${id}` };
+  const middle = () => { const b = viewBox(el); return [b.left + b.width / 2, b.top + b.height / 2]; };
+  const [x, y] = middle();
+  let seen = x >= 0 && y >= 0 && x < innerWidth && y < innerHeight;
+  for (let a = el.parentElement; seen && a && a.id !== "exact-root"; a = a.parentElement) {
+    const cs = getComputedStyle(a), b = a.getBoundingClientRect();
+    if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
+  }
+  if (seen) return { revealed: id, scrolled: false };
+  (getComputedStyle(el).display === "contents" ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  return { revealed: id, scrolled: true, from: [x, y], to: middle() };
 }
 
 // A view's box as the agent reports it. A text folded into its box's content

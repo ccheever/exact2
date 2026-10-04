@@ -109,8 +109,9 @@ mod javascript {
 
     fn check(body: &str) {
         let mut rt = Hermes::new(DynamicCode::Closed).unwrap();
-        assert!(rt.install_stdlib());
-        rt.install_bindings().unwrap();
+        let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+        rt.install_runtime(ibex2::bindings::Groups::DEFAULT, &context)
+            .unwrap();
         rt.harden().unwrap();
         rt.eval(&format!(
             r#"(function () {{

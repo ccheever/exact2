@@ -87,7 +87,7 @@ import { basename, delimiter, dirname, resolve, sep } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
 import { hermesIos } from './app.mjs';
-import { HERMES_IOS_ARCHIVES, provisionHermesIos, iosAssets, infoPlist, macInfoPlist, macReleaseEntitlements, useXcode, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
+import { HERMES_IOS_ARCHIVES, provisionHermesIos, iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, macReleaseEntitlements, useXcode, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
 
 // Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
@@ -1083,6 +1083,13 @@ test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 
   const plain = macInfoPlist(app({}));
   assert.match(plain, /<key>ExactLaunchMode<\/key><string>navigate-existing<\/string>/);
   assert.doesNotMatch(plain, /CFBundleDocumentTypes/);
+  // The common document and image types each name their system type (ledger
+  // diary F9: CSV); only Markdown, which iOS does not declare, is imported.
+  const common = { 'text/plain': 'public.plain-text', 'application/json': 'public.json', 'text/csv': 'public.comma-separated-values-text', 'text/tab-separated-values': 'public.tab-separated-values-text', 'text/markdown': 'net.daringfireball.markdown', 'text/html': 'public.html', 'application/pdf': 'com.adobe.pdf', 'image/png': 'public.png', 'image/jpeg': 'public.jpeg', 'image/gif': 'com.compuserve.gif', 'image/webp': 'org.webmproject.webp', 'image/svg+xml': 'public.svg-image', 'application/zip': 'public.zip-archive' };
+  const every = app({ file_handlers: [{ action: '/', accept: Object.fromEntries(Object.keys(common).map(m => [m, []])) }] });
+  assert.deepEqual(documentTypes(every)[0].LSItemContentTypes, Object.values(common));
+  assert.deepEqual(importedTypes(every).map(t => t.UTTypeIdentifier), ['net.daringfireball.markdown']);
+  assert.throws(() => documentTypes(app({ file_handlers: [{ action: '/', accept: { 'text/x-unknown': ['.x'] } }] })), /text\/x-unknown, which names no Apple type this host maps \(it maps .*text\/csv/);
 });
 
 test('an Apple app records the SDK it is built with unless its manifest keeps the design before 26', async () => {

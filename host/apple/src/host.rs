@@ -31,6 +31,8 @@ pub(crate) mod canvas2d;
 mod content_region_host;
 #[path = "covers.rs"]
 mod covers;
+#[path = "flights.rs"]
+mod flights;
 #[path = "fold.rs"]
 mod fold;
 #[path = "height.rs"]
@@ -146,6 +148,7 @@ pub struct Host<D: DataSource> {
     /// The one Arrange contact, from its catch until its source settles.
     arrange: Option<arrange::Arrange>,
     presence: presence::Presence,
+    flights: flights::Flights,
     content_region: Option<crate::content_region::RegionState>,
     height_projection: Vec<(NodeKey, f32)>,
     height_sampling: Vec<(NodeKey, f32)>,
@@ -409,6 +412,7 @@ impl<D: DataSource> Host<D> {
             transform_drags: TransformDrags::new()?,
             arrange: None,
             presence: presence::Presence::default(),
+            flights: flights::Flights::default(),
             content_region,
             height_projection: Vec::new(),
             height_sampling: Vec::new(),
@@ -616,6 +620,18 @@ impl<D: DataSource> Host<D> {
         let mut cache = home.join("Library/Caches/exact").join(&app_id);
         if let Some(name) = scratch {
             cache = cache.join("agent").join(name);
+            // An authored test's store starts empty every run (`agent --test`).
+            if std::env::var_os("EXACT_AGENT_STORAGE_FRESH").is_some() {
+                match std::fs::remove_dir_all(&cache) {
+                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                        return Err(DataError::Unavailable(format!(
+                            "EXACT_AGENT_STORAGE_FRESH: could not empty {}: {e}",
+                            cache.display()
+                        )));
+                    }
+                    _ => {}
+                }
+            }
             data = cache.join("data");
         }
         // Sibling roots keep app:/cache grants from implicitly reaching tmp.
@@ -1165,6 +1181,9 @@ impl<D: DataSource> Host<D> {
         .then(|| self.runner.handlers());
         for t in receipts {
             let r = &t.receipt;
+            // Flights capture their leavers before an exit takes them
+            // out of the presenter's maps (LLP 1013.000 D4.1).
+            self.begin_flights(r, &mut batch);
             self.begin_exits(r, &mut batch);
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
@@ -1175,6 +1194,7 @@ impl<D: DataSource> Host<D> {
                         self.mirror.remove(&id);
                     } else if !self.native_selected_id(id) {
                         self.mirror.remove(&id);
+                        self.end_flight_of(id);
                         if !self.exit_holds(id, &mut batch) {
                             batch.destroy(id);
                         }
@@ -1244,6 +1264,7 @@ impl<D: DataSource> Host<D> {
                 self.svg.element(self.runner.kernel(), view);
             }
             self.play_exits(&mut batch);
+            self.start_flights(&t.receipt);
             self.seed_layout(&t.receipt, &mut batch);
             self.sync_paint(&t.receipt, &mut batch);
             self.reconcile_height_handles(&mut batch, true);

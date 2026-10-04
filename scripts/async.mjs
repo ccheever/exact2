@@ -102,7 +102,9 @@ function checks(sha) {
     // Lean project builds with every proof checked (the app proofs among
     // them, over embeddings `difftest apps` checks are current), then the runner against
     // the semantics over the scripted corpus and a fixed random sweep (fixed
-    // seeds, so a divergence is attributed to the commit that made it).
+    // seeds, so a divergence is attributed to the commit that made it), and
+    // the compiler's bytecode on the Lean VM model against the same,
+    // and the Lean type checker against the Rust one on those programs and mutants.
     // A `sorry` fails it: a proof that is not there is not checked. Every
     // part runs whatever the one before it found.
     ['semantics', 'sh', ['-c', [
@@ -113,7 +115,10 @@ function checks(sha) {
       'cargo run -q -p contract-difftest -- corpus || failed=1',
       'cargo run -q -p contract-difftest -- explore contract/corpus apps/*/app.contract || failed=1',
       'cargo run -q -p contract-difftest -- random --seed 1 --count 5000 || failed=1',
+      'cargo run -q -p contract-difftest -- lowering-corpus || failed=1',
+      'cargo run -q -p contract-difftest -- lowering --seed 1 --count 300 || failed=1',
       'cargo run -q -p contract-difftest -- numbers --count 200000 || failed=1',
+      'cargo run -q -p contract-difftest -- types --seed 1 --count 100 || failed=1',
       'exit $failed',
     ].join('\n')]],
     ['metrics', 'bun', ['scripts/metrics.mjs', '--long']],
@@ -144,6 +149,8 @@ function failures(name, log, status) {
   for (const m of log.matchAll(/^\(fail\) (.+?) \[[\d.]+m?s\]$/gm)) found.add(`${name}: ${m[1]}`);
   // difftest: a case that diverged, failed an expectation or was refused.
   for (const m of log.matchAll(/^(DIVERGE|EXPECT|EMIT|SCRIPT|REFUSED) (.+?)(?: at line \d+)?:/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);
+  // difftest types: the two checkers disagreed on a program or a mutant.
+  for (const m of log.matchAll(/^LEAN (ACCEPTS|REFUSES) (.+?) \(/gm)) found.add(`${name}: LEAN ${m[1]} ${m[2]}`);
   for (const m of log.matchAll(/^error: (\S+\.lean):\d+:\d+: (.*)$/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);
   if (status !== 0 && !found.size) found.add(`${name}: exit ${status} (see log)`);
   return [...found];

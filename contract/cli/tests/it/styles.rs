@@ -203,6 +203,7 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
             "local",
         ),
         ("touch-action", StyleId::TouchAction, "swipe"),
+        ("cursor", StyleId::Cursor, "pointer"),
     ] {
         for named_style in [false, true] {
             let source = if named_style {

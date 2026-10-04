@@ -948,6 +948,7 @@ impl Em<'_> {
             let press = self.uses.rt("pressFeedback");
             let _ = write!(self.out, "{press}();");
         }
+        self.clocks_in(&presence);
         if element == "a" {
             attrs.push(("data-view".into(), String::new()));
         }
@@ -1025,7 +1026,7 @@ impl Em<'_> {
             let pr = self.uses.rt("pr");
             let _ = write!(self.out, "{pr}({e});");
         }
-        self.element_extras(&parts.tag, &e, &attrs);
+        self.element_extras(&parts.tag, &e, &attrs, &parts.props);
         // Its surface's inputs, named or positional (LLP 1009 D2).
         if let Some(sf) = row.surface {
             let sf = &plan.surfaces[sf.0 as usize];

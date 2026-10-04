@@ -245,7 +245,10 @@ impl<D: DataSource> Presenter<D> {
         None
     }
     // @ref LLP 1043.000 §3 D8 — ordinary commits move layout, not a motion hold.
-    // Nearest explicit pan handler owns one contact; editor/press boundaries stop it.
+    // Nearest explicit pan handler owns one contact; an editor boundary stops
+    // it. A press between keeps the contact only within the slop (the pan
+    // that begins takes the press), as a draggable element hears a drag that
+    // starts on a button inside it (LLP 1057.001 rule 3; kanban F6).
     fn pan_candidate(&self, hit: NodeKey) -> Option<Candidate> {
         let mut at = self.host.kernel().node_by_key(hit).map(|n| n.id);
         while let Some(id) = at {
@@ -254,7 +257,7 @@ impl<D: DataSource> Presenter<D> {
             if self.input_live(n.key) && handlers.contains(&EventKind::Pan) {
                 return Some(Candidate::Pan(n.key));
             }
-            if n.node_type == NodeType::TextInput || handlers.contains(&EventKind::Press) {
+            if n.node_type == NodeType::TextInput {
                 return None;
             }
             at = n.parent;

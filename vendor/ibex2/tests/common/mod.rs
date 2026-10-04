@@ -52,6 +52,8 @@ impl Project {
                 std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                     .join("../../ios/Frameworks-vanilla")
             }
+            Err(_) if cfg!(windows) => std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tools/hermes-vanilla/windows-x64"),
             Err(_) => std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../../linux/Frameworks-vanilla"),
         }
@@ -65,8 +67,9 @@ impl Project {
         precompiled_only: bool,
     ) -> (Vec<String>, Option<String>) {
         let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-        assert!(rt.install_stdlib());
-        rt.install_bindings().expect("bindings");
+        let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+        rt.install_runtime(ibex2::bindings::Groups::DEFAULT, &context)
+            .expect("bindings");
         rt.set_loader_with(
             Root::Declared(self.0.clone()),
             ModuleGrants::parse(manifest).expect("manifest"),

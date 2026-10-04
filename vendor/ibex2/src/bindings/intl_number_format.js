@@ -5,6 +5,7 @@
   "use strict";
 
   var raw = global.__ibex2_intl_number_format;
+  var brand = global.__ibex2_brand || function (value) { return value; };
   delete global.__ibex2_intl_number_format;
 
   var IntlObject = global.Intl;
@@ -196,6 +197,7 @@
     if (new.target === undefined) return new NumberFormat(locales, options);
     var normalized = normalize(locales, options);
     raw.initialize.apply(raw, [this].concat(normalized));
+    brand(this, "Intl.NumberFormat");
   }
 
   // Concise methods and arrows are not constructors. The selected Intl

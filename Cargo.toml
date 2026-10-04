@@ -1,5 +1,5 @@
 [workspace]
-members = ["examples/calendar/data", "examples/calendar/ios", "examples/calendar/macos", "examples/calendar/web", "grants", "apps/messages/web", "apps/messages/apple", "apps/messages/linux", "apps/video-player/data", "apps/video-player/apple", "apps/video-player/web", "data/host", "apps/fieldnotes/data", "data", "apps/update-lab/logic", "logic/bake", "apps/caltrain/logic", "logic", "logic/abi", "apps/update-lab/data", "apps/update-lab/web", "apps/update-lab/apple", "kernel", "motion", "plan", "runner", "contract/syntax", "contract/types", "contract/analyze", "contract/lower", "contract/cli", "semantics/difftest", "apps/caltrain", "apps/caltrain/data", "host/web", "host/web-js", "host/web-js/motion", "host/web-capabilities", "host/web-geometry", "host/render", "apps/caltrain/web", "host/apple", "host/apple-update", "apps/caltrain/apple", "host/linux", "host/windows", "host/linux-update", "apps/caltrain/linux", "gpu", "gpu/reflect", "apps/caltrain/gpu", "js", "js/bake", "js/value", "js/web", "update", "filesystem", "apps/fieldnotes/web", "apps/fieldnotes/apple", "apps/markdown/parse", "apps/markdown/data", "apps/markdown/apple", "apps/markdown/web", "apps/llp/data", "apps/llp/apple", "apps/llp/web", "apps/weatherlight/web", "apps/realworld/web", "apps/weatherlight/apple", "apps/weatherlight/gpu", "apps/weatherlight/linux", "apps/typetour/data", "apps/typetour/apple", "apps/typetour/web", "apps/typetour/linux", "apps/interaction-gallery/data", "apps/interaction-gallery/web", "apps/interaction-gallery/apple", "apps/interaction-gallery/linux", "apps/markdown-stress/data", "apps/markdown-stress/web", "apps/markdown-stress/apple", "apps/markdown-stress/linux", "apps/messages-stress/linux", "apps/completion-storm/apple", "apps/completion-storm/linux", "apps/messages-stress/data", "apps/messages-stress/web", "apps/messages-stress/apple", "apps/completion-storm/data", "apps/completion-storm/web", "route", "num", "host/raster", "host/svg-raster", "apps/exact-live/data", "apps/exact-live/web", "apps/exact-live/apple", "apps/exact-live/linux", "apps/textflow/data", "apps/textflow/web", "apps/textflow/apple", "apps/textflow/linux", "textflow", "markdown", "markdown/editor", "apps/reflow/data", "apps/reflow/web", "apps/reflow/apple", "apps/reflow/linux", "bake", "apps/sparkline/data", "apps/sparkline/web", "apps/sparkline/apple", "apps/sparkline/linux", "apps/svg-gallery/data", "apps/svg-gallery/web", "apps/svg-gallery/apple", "apps/svg-gallery/linux", "apps/native-fixture/data", "apps/native-fixture/web", "apps/native-fixture/apple", "apps/native-fixture/linux", "apps/photo-editor/data", "apps/photo-editor/web", "apps/photo-editor/apple", "apps/photo-editor/linux", "apps/map-demo/data", "apps/map-demo/web", "apps/map-demo/apple", "apps/map-demo/linux", "canvas", "apps/canvas-gallery/apple", "apps/canvas-gallery/web", "apps/canvas-gallery/linux", "apps/recorder/web", "apps/recorder/apple", "apps/auth-fixture/web", "apps/auth-fixture/apple", "apps/carousel/data", "apps/carousel/web", "apps/carousel/apple", "apps/carousel/linux", "apps/spark/data", "apps/spark/web", "apps/spark/apple", "apps/spark/linux", "apps/motion-gallery/data", "apps/motion-gallery/web", "apps/motion-gallery/apple", "apps/motion-gallery/linux", "apps/expose/web", "apps/expose/apple", "apps/expose/linux", "canvas/vello", "apps/duo-lab/apple", "apps/duo-lab/web", "apps/duo-lab/linux"]
+members = ["apps/windows-desk", "examples/calendar/data", "examples/calendar/ios", "examples/calendar/macos", "examples/calendar/web", "grants", "apps/messages/web", "apps/messages/apple", "apps/messages/linux", "apps/video-player/data", "apps/video-player/apple", "apps/video-player/web", "data/host", "apps/fieldnotes/data", "data", "apps/update-lab/logic", "logic/bake", "apps/caltrain/logic", "logic", "logic/abi", "apps/update-lab/data", "apps/update-lab/web", "apps/update-lab/apple", "kernel", "motion", "plan", "runner", "contract/syntax", "contract/types", "contract/analyze", "contract/lower", "contract/cli", "semantics/difftest", "apps/caltrain", "apps/caltrain/data", "host/web", "host/web-js", "host/web-js/motion", "host/web-capabilities", "host/web-geometry", "host/render", "apps/caltrain/web", "host/apple", "host/apple-update", "apps/caltrain/apple", "host/linux", "host/windows", "host/linux-update", "apps/caltrain/linux", "gpu", "gpu/reflect", "apps/caltrain/gpu", "js", "js/bake", "js/value", "js/web", "update", "filesystem", "apps/fieldnotes/web", "apps/fieldnotes/apple", "apps/markdown/parse", "apps/markdown/data", "apps/markdown/apple", "apps/markdown/web", "apps/llp/data", "apps/llp/apple", "apps/llp/web", "apps/weatherlight/web", "apps/realworld/web", "apps/weatherlight/apple", "apps/weatherlight/gpu", "apps/weatherlight/linux", "apps/typetour/data", "apps/typetour/apple", "apps/typetour/web", "apps/typetour/linux", "apps/interaction-gallery/data", "apps/interaction-gallery/web", "apps/interaction-gallery/apple", "apps/interaction-gallery/linux", "apps/markdown-stress/data", "apps/markdown-stress/web", "apps/markdown-stress/apple", "apps/markdown-stress/linux", "apps/messages-stress/linux", "apps/completion-storm/apple", "apps/completion-storm/linux", "apps/messages-stress/data", "apps/messages-stress/web", "apps/messages-stress/apple", "apps/completion-storm/data", "apps/completion-storm/web", "route", "num", "host/raster", "host/svg-raster", "apps/exact-live/data", "apps/exact-live/web", "apps/exact-live/apple", "apps/exact-live/linux", "apps/textflow/data", "apps/textflow/web", "apps/textflow/apple", "apps/textflow/linux", "textflow", "markdown", "markdown/editor", "apps/reflow/data", "apps/reflow/web", "apps/reflow/apple", "apps/reflow/linux", "bake", "apps/sparkline/data", "apps/sparkline/web", "apps/sparkline/apple", "apps/sparkline/linux", "apps/svg-gallery/data", "apps/svg-gallery/web", "apps/svg-gallery/apple", "apps/svg-gallery/linux", "apps/native-fixture/data", "apps/native-fixture/web", "apps/native-fixture/apple", "apps/native-fixture/linux", "apps/photo-editor/data", "apps/photo-editor/web", "apps/photo-editor/apple", "apps/photo-editor/linux", "apps/map-demo/data", "apps/map-demo/web", "apps/map-demo/apple", "apps/map-demo/linux", "canvas", "apps/canvas-gallery/apple", "apps/canvas-gallery/web", "apps/canvas-gallery/linux", "apps/recorder/web", "apps/recorder/apple", "apps/auth-fixture/web", "apps/auth-fixture/apple", "apps/carousel/data", "apps/carousel/web", "apps/carousel/apple", "apps/carousel/linux", "apps/spark/data", "apps/spark/web", "apps/spark/apple", "apps/spark/linux", "apps/motion-gallery/data", "apps/motion-gallery/web", "apps/motion-gallery/apple", "apps/motion-gallery/linux", "apps/expose/web", "apps/expose/apple", "apps/expose/linux", "canvas/vello", "apps/duo-lab/apple", "apps/duo-lab/web", "apps/duo-lab/linux", "apps/shared-elements/data", "apps/shared-elements/web", "apps/shared-elements/apple", "apps/shared-elements/linux"]
 # The blocking gate (rules/RULES.md): deterministic, in-process crates. Hosts,
 # GPU, Hermes, platform shells and stress fixtures run in the async lane,
 # which adds `--workspace` to the same commands.
@@ -14,6 +14,7 @@ default-members = [
     "apps/fieldnotes/data", "apps/interaction-gallery/data", "apps/llp/data", "apps/markdown/data",
     "apps/markdown/parse", "apps/markdown-stress/data", "apps/textflow/data", "apps/typetour/data",
     "apps/update-lab/data", "apps/video-player/data", "apps/sparkline/data", "apps/svg-gallery/data", "apps/carousel/data", "apps/motion-gallery/data", "apps/spark/data",
+    "apps/shared-elements/data",
 ]
 # Vendored path dependencies are built, not linted or tested here.
 exclude = ["vendor", "snapback4", "apps/messages-legacy"]
@@ -87,17 +88,30 @@ opt-level = 3
 [profile.dev.package.base64]
 opt-level = 3
 
-# Development Apple builds (`host/apple/build.mjs` unless the trust is
-# production): release's optimizations without whole-graph LTO, so touching
-# one line of the host rebuilds in seconds (20 s through build.mjs at load
-# 650, against 57–228 s). Startup is ~5% slower and the binary ~1 MB larger
-# than release (Charlie, 2026-09-24); a production bake keeps `release`.
-[profile.apple-dev]
+# Development native builds — an Apple app (`host/apple/build.mjs` unless the
+# trust is production), the Linux host an agent drives (`cargo build --profile
+# host-dev -p caltrain-linux`) and an app's render entry at build time:
+# release's optimizations without whole-graph LTO, so touching one line of a
+# host rebuilds in seconds. Through build.mjs that was 20 s at load 650,
+# against 57–228 s; the Linux host on a Ryzen 3600 rebuilds a touched kernel in
+# 3.4 s, against 102 s at `release`, whose one codegen unit compiles the kernel
+# in 58 s on one core before a 36 s LTO link. Startup is ~5% slower and the
+# binary ~1 MB larger than release (Charlie, 2026-09-24); what ships is baked
+# at `release`. `lto = "off"`, which also drops the thin LTO rustc runs inside
+# each crate, was measured (an M4, 2026-10-04) and not taken: a cold build's
+# Rust is 21% less CPU and a rebuild no faster, while the runner's boot work is
+# 13% slower and the executable 3 MB larger.
+[profile.host-dev]
 inherits = "release"
 lto = false
 codegen-units = 16
 incremental = true
-[profile.apple-dev.build-override]
+# Every dylib of a development build was already built unstripped (Xcode 27's
+# strip, above), each by an override that made its dependencies separate
+# units. Said once here, the archive, the GPU crate and the host's two
+# on-demand modules are one profile, and Cargo compiles what they share once.
+strip = false
+[profile.host-dev.build-override]
 strip = false
 
 # Fast independent business-logic links in the resident development loop.

@@ -69,13 +69,14 @@ cosmic-text = { path = "../vendor/cosmic-text" }
 # exact-gpu presents through the patched Metal backend (vendor/wgpu-hal/EXACT-PATCHES.md).
 wgpu-hal = { path = "../vendor/wgpu-hal" }
 
-# Apple development hosts use the core's non-LTO release profile.
-[profile.apple-dev]
+# Development native hosts use the core's non-LTO release profile.
+[profile.host-dev]
 inherits = "release"
 lto = false
 codegen-units = 16
 incremental = true
-[profile.apple-dev.build-override]
+strip = false
+[profile.host-dev.build-override]
 strip = false
 
 # Fast surface module rebuilds; dependencies stay optimized, the game links cheaply.

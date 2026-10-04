@@ -102,8 +102,9 @@ fn boot_with(
 ) -> Boot {
     let t = Instant::now();
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-    assert!(rt.install_stdlib());
-    rt.install_bindings().expect("bindings");
+    let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+    rt.install_runtime(ibex2::bindings::Groups::DEFAULT, &context)
+        .expect("bindings");
     rt.set_loader_with(
         Root::Declared(root.to_path_buf()),
         ModuleGrants::none(),

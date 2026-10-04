@@ -25,11 +25,13 @@
 //! other throw is `Unavailable`). `fetch(url, init)` is the web's, over the
 //! host's ticket path: the module describes, the host runs under the grants,
 //! the Promise resolves to a `Response` with `status`, `ok`, `headers`,
-//! `text()`, `json()`, `arrayBuffer()`. Each answer owns the host work it
-//! starts: one that awaits a promise another answer started (a fetch
-//! memoized across answers) has nothing of its own to wait on and is
-//! refused as pending on nothing, so share a resolved value, never the
-//! promise (module-wide liveness is LLP 1027.003.000 §13's open question).
+//! `text()`, `json()`, `arrayBuffer()`. Liveness is the module's, as a
+//! browser's event loop has it (LLP 1027.003.000 §13, option 1; hn-reader
+//! F7): an answer that awaits a promise another answer started (a fetch
+//! memoized across answers, a queue behind another's storage) waits while
+//! the module has work outstanding and is asked again after each delivery;
+//! one that waits with nothing outstanding is refused as pending on nothing.
+//! A worker-placed source runs one turn to its end, so it still refuses one.
 //! `store` is `{get, set, forget}` over the runner's [`Store`]: reads
 //! counted, writes grant-checked, in Rust. `console` reaches the runner's
 //! logs. Time and random seeds are ordinary source arguments (LLP
@@ -53,6 +55,7 @@ mod paired;
 mod pure;
 mod storage;
 mod watch;
+mod wire;
 
 pub use engine::ENGINE_LINKED;
 pub use exact_data::Placed;
@@ -67,12 +70,13 @@ use exact_runner::{
     Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Request, Response,
     Store, Target, Work,
 };
-use serde_json::{json, Value as Json};
+use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{c_char, c_void, CStr};
 use std::sync::Arc;
 use std::time::Instant;
 use watch::{Watch, Watched};
+use wire::{canvas_image, canvas_measure, outcome_to_json, request_from_json};
 
 type NativeFactory = fn(&str) -> Box<dyn NativeModule>;
 
@@ -123,11 +127,21 @@ struct Parked {
     call: u64,
     ticket: u64,
     work_taken: bool,
+    /// The module's progress when it parked: an answer waiting on another
+    /// answer's work is asked again once something has landed since.
+    progress: u64,
+    /// Asked again with nothing outstanding in the module: its last settle.
+    last: bool,
 }
 
 /// The ticket of an answer that has not begun: it arrived while another
 /// answer's storage turn was open, and waits for it to end (see `begin`).
 const DEFERRED: u64 = u64::MAX;
+/// The ticket of an answer that awaits another answer's work (a fetch it
+/// shares, a queue behind another's storage): it waits while the module has
+/// work outstanding, and is asked again after each delivery (LLP
+/// 1027.003.000 §13, the module-wide rule; hn-reader F7).
+const WAITING: u64 = u64::MAX - 1;
 /// Deferred answers' continuation tokens, clear of the prelude's call ids.
 const FIRST_DEFERRED_TOKEN: u64 = 1 << 53;
 
@@ -186,6 +200,10 @@ pub struct Module {
     streams: Vec<(Key, Parked)>,
     /// Deferred answers whose dispatch was held, oldest first.
     held: std::collections::VecDeque<u64>,
+    /// Answers waiting on another answer's work whose dispatch was held.
+    waiters: Vec<u64>,
+    /// Deliveries and new answers so far: what a waiting answer waits for.
+    progress: u64,
     next_deferred: u64,
     budget_ms: f64,
     max_heap: u32,
@@ -339,55 +357,6 @@ unsafe extern "C" fn host_door(
     }
 }
 
-/// `measureText`'s run from the TypeScript recorder, measured by the
-/// canvas's text engine on this thread (LLP 1056 D8): the eleven raw metrics
-/// as a JSON array.
-fn canvas_measure(
-    env: Option<&exact_runner::exact_canvas::Env>,
-    json: &str,
-) -> Result<String, String> {
-    use exact_runner::exact_canvas::font::{Estimate, Font, TextEngine, TextRun};
-    let v: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
-    let n = |x: &serde_json::Value| x.as_f64().unwrap_or(0.0);
-    let f = &v["font"];
-    let font = Font {
-        size: n(&f[0]),
-        weight: n(&f[1]) as u16,
-        style: n(&f[2]) as u8,
-        stretch: n(&f[3]),
-        caps: n(&f[4]) as u8,
-        families: v["families"]
-            .as_str()
-            .unwrap_or("")
-            .split(',')
-            .map(str::to_string)
-            .collect(),
-    };
-    let run = TextRun {
-        font: &font,
-        text: v["text"].as_str().unwrap_or(""),
-        rtl: v["rtl"].as_bool().unwrap_or(false),
-        letter_spacing: n(&v["ls"]),
-        word_spacing: n(&v["ws"]),
-        kerning: n(&v["kerning"]) as u8,
-    };
-    let raw = match env.and_then(|e| e.text.as_ref()) {
-        Some(engine) => engine.measure(&run),
-        None => Estimate.measure(&run),
-    };
-    serde_json::to_string(&raw.to_array()).map_err(|e| e.to_string())
-}
-
-/// An image handle's natural size for the TypeScript recorder, or nothing
-/// while it is not decoded (which asks the host for it).
-fn canvas_image(env: Option<&exact_runner::exact_canvas::Env>, json: &str) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_str(json).ok()?;
-    let env = env?;
-    let (w, h) =
-        exact_runner::exact_canvas::images_in(&env.images).size(env.canvas, v["src"].as_str()?)?;
-    Some(format!("[{w},{h}]"))
-}
-
 /// A malloc'd copy the shim frees.
 fn c_string(text: &str) -> *mut c_char {
     let bytes = text.as_bytes();
@@ -403,93 +372,6 @@ fn c_string(text: &str) -> *mut c_char {
 extern "C" {
     #[link_name = "malloc"]
     fn libc_malloc(size: usize) -> *mut c_void;
-}
-
-fn request_from_json(text: &str) -> Result<Request, String> {
-    let j: Json = serde_json::from_str(text).map_err(|e| e.to_string())?;
-    let field = |k: &str| j.get(k).and_then(Json::as_str).map(str::to_string);
-    let mut headers = Vec::new();
-    if let Some(list) = j.get("headers").and_then(Json::as_array) {
-        for pair in list {
-            match (
-                pair.get(0).and_then(Json::as_str),
-                pair.get(1).and_then(Json::as_str),
-            ) {
-                (Some(k), Some(v)) => headers.push((k.to_string(), v.to_string())),
-                _ => return Err("a header that is not a name and a value".into()),
-            }
-        }
-    }
-    Ok(Request {
-        http: match j.get("max_response_bytes") {
-            None => exact_runner::HttpScheduling::Ordered,
-            Some(value) => exact_runner::HttpScheduling::Independent {
-                max_response_bytes: value
-                    .as_u64()
-                    .filter(|n| (1..=64 << 20).contains(n))
-                    .ok_or("invalid independent HTTP response ceiling")?
-                    as u32,
-            },
-        },
-        continuation: None,
-        storage: None,
-        surface: None,
-        grants: None,
-        method: field("method").ok_or("no method")?,
-        url: field("url").ok_or("no url")?,
-        headers,
-        body: field("body").unwrap_or_default().into_bytes(),
-        stream: j.get("stream").and_then(Json::as_bool).unwrap_or(false),
-    })
-}
-
-fn outcome_to_json(outcome: &Outcome) -> Json {
-    match outcome {
-        Outcome::Storage(_) => {
-            json!({"failed":{"kind":"Unsupported","message":"storage result supplied to a fetch continuation"}})
-        }
-        Outcome::Surface(_) => {
-            json!({"failed":{"kind":"Unsupported","message":"surface result supplied to a fetch continuation"}})
-        }
-        Outcome::Response(r) => json!({
-            "response": {
-                "status": r.status,
-                "headers": r.headers.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>(),
-                "body": String::from_utf8_lossy(&r.body),
-                "bodyBase64": base64(&r.body),
-            }
-        }),
-        Outcome::Failed { kind, message } => json!({
-            "failed": { "kind": format!("{kind:?}"), "message": message }
-        }),
-        Outcome::Message(m) => json!({
-            "message": { "event": m.event, "id": m.id, "data": m.data, "coalesced": m.coalesced }
-        }),
-    }
-}
-
-fn base64(bytes: &[u8]) -> String {
-    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let n = chunk.len();
-        let v = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-        out.push(T[(v >> 18) as usize & 63] as char);
-        out.push(T[(v >> 12) as usize & 63] as char);
-        out.push(if n > 1 {
-            T[(v >> 6) as usize & 63] as char
-        } else {
-            '='
-        });
-        out.push(if n > 2 {
-            T[v as usize & 63] as char
-        } else {
-            '='
-        });
-    }
-    out
 }
 
 /// One step of a call as the prelude reports it.
@@ -526,6 +408,8 @@ impl Module {
             parked: Vec::new(),
             streams: Vec::new(),
             held: std::collections::VecDeque::new(),
+            waiters: Vec::new(),
+            progress: 0,
             next_deferred: FIRST_DEFERRED_TOKEN,
             budget_ms: DEFAULT_BUDGET_MS,
             max_heap: DEFAULT_MAX_HEAP,
@@ -860,6 +744,12 @@ impl Module {
                 DataError::Unavailable(format!("`{source}` answered outside its shape: {e}"))
             })),
             Some(1) => match (num("call"), num("ticket")) {
+                (Some(call), Some(0)) if reply.get("waiting") == Some(&Json::Bool(true)) => {
+                    Step::Pending {
+                        call,
+                        ticket: WAITING,
+                    }
+                }
                 (Some(call), Some(ticket)) => Step::Pending { call, ticket },
                 _ => Step::Done(Err(DataError::Unavailable(format!(
                     "`{source}` is pending on no ticket"
@@ -904,6 +794,29 @@ impl Module {
                 body: Vec::new(),
             })
         })))
+    }
+
+    /// Whether anything in the module may yet settle a waiting answer: a
+    /// fetch, a storage step, a stream, an answer not yet begun.
+    fn outstanding(&self) -> bool {
+        !self.streams.is_empty() || self.parked.iter().any(|(_, p)| p.ticket != WAITING)
+    }
+
+    /// Ask a waiting answer again when something landed since it parked,
+    /// or, with nothing outstanding, for its last settle, which refuses it
+    /// as pending on nothing if it still waits.
+    fn wake(&mut self, token: u64) -> Option<Dispatch> {
+        let outstanding = self.outstanding();
+        let progress = self.progress;
+        let (_, parked) = self
+            .parked
+            .iter_mut()
+            .find(|(_, p)| p.call == token && p.ticket == WAITING)?;
+        if parked.progress < progress || !outstanding {
+            parked.last = !outstanding;
+            return Some(Module::deferred_work());
+        }
+        None
     }
 
     fn key(target: Option<Target>, source: &str, args: &[Value]) -> Key {
@@ -953,6 +866,8 @@ impl Module {
                     call: token,
                     ticket: DEFERRED,
                     work_taken: false,
+                    progress: self.progress,
+                    last: false,
                 },
             ));
             return Ok(Answer::Later(Request::continuation(token)));
@@ -975,6 +890,8 @@ impl Module {
             );
         }
         let args_text = Json::Array(json_args).to_string();
+        // A new answer's JavaScript may settle what another answer awaits.
+        self.progress += 1;
         self.host.store = store.map(|s| s as *mut Store);
         let started = Instant::now();
         let result: Result<Step, DataError> = (|| {
@@ -1021,7 +938,7 @@ impl Module {
         match result? {
             Step::Done(r) => r.map(Answer::Now),
             Step::Pending { call, ticket } => {
-                let request = if ticket == 0 {
+                let request = if ticket == 0 || ticket == WAITING {
                     Request::continuation(call)
                 } else {
                     self.take_request(ticket).ok_or_else(|| {
@@ -1068,7 +985,16 @@ impl Module {
                 "`{source}`: a reply for an answer not in flight"
             )));
         };
-        let Parked { call, ticket, .. } = self.parked.remove(pos).1;
+        let Parked {
+            call, ticket, last, ..
+        } = self.parked.remove(pos).1;
+        if ticket == WAITING {
+            if let Outcome::Failed { message, .. } = &outcome {
+                return Err(DataError::Unavailable(message.clone()));
+            }
+        } else if ticket != DEFERRED {
+            self.progress += 1; // a delivery: what a waiting answer waits for
+        }
         if ticket == DEFERRED {
             if let Outcome::Failed { message, .. } = &outcome {
                 return Err(DataError::Unavailable(message.clone()));
@@ -1080,7 +1006,9 @@ impl Module {
         let started = Instant::now();
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
-            if ticket == 0 {
+            if ticket == WAITING {
+                // Nothing to deliver: the work it waits on was another's.
+            } else if ticket == 0 {
                 if matches!(outcome, Outcome::Failed { .. }) {
                     engine
                         .call(
@@ -1101,8 +1029,9 @@ impl Module {
             engine
                 .drain()
                 .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
+            let settle = if last { "final" } else { "" };
             let text = engine
-                .call("__exact_settle", [&call.to_string(), "", ""])
+                .call("__exact_settle", [&call.to_string(), settle, ""])
                 .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
             let Some(sig) = self.sigs.get(source) else {
                 engine.clear_reply();
@@ -1131,7 +1060,7 @@ impl Module {
         match result? {
             Step::Done(r) => r.map(Answer::Now),
             Step::Pending { call, ticket } => {
-                let request = if ticket == 0 {
+                let request = if ticket == 0 || ticket == WAITING {
                     Request::continuation(call)
                 } else {
                     self.take_request(ticket).ok_or_else(|| {
@@ -1151,6 +1080,8 @@ impl Module {
             call,
             ticket,
             work_taken: false,
+            progress: self.progress,
+            last: false,
         };
         if request.stream {
             self.streams.push((key, parked));
@@ -1175,6 +1106,7 @@ impl Module {
         };
         let call = self.streams[at].1.call;
         let ended = !matches!(outcome, Outcome::Message(_));
+        self.progress += 1;
         let outcome_text = outcome_to_json(&outcome).to_string();
         self.host.store = Some(store as *mut Store);
         let started = Instant::now();
@@ -1244,6 +1176,16 @@ impl DataSource for Module {
             .parked
             .iter()
             .any(|(_, p)| p.call == token && p.ticket == DEFERRED);
+        if self
+            .parked
+            .iter()
+            .any(|(_, p)| p.call == token && p.ticket == WAITING)
+        {
+            return self.wake(token).unwrap_or_else(|| {
+                self.waiters.push(token);
+                Dispatch::Held
+            });
+        }
         if !deferred {
             return match self.continuation(token) {
                 Some(work) => Dispatch::Run(Work::Now(work)),
@@ -1259,6 +1201,17 @@ impl DataSource for Module {
 
     fn release(&mut self, store: &Store) -> Vec<(u64, Dispatch)> {
         let _ = store;
+        // Waiting answers whose wait may be over are asked again.
+        let mut released = Vec::new();
+        for token in std::mem::take(&mut self.waiters) {
+            match self.wake(token) {
+                Some(work) => released.push((token, work)),
+                None if self.parked.iter().any(|(_, p)| p.call == token) => {
+                    self.waiters.push(token)
+                }
+                None => {}
+            }
+        }
         // Once the open turn has ended, the oldest held answer begins; the
         // rest wait for the turn it may open in turn.
         while !self.turn_open() {
@@ -1270,10 +1223,11 @@ impl DataSource for Module {
                 .iter()
                 .any(|(_, p)| p.call == token && p.ticket == DEFERRED)
             {
-                return vec![(token, Module::deferred_work())];
+                released.push((token, Module::deferred_work()));
+                break;
             }
         }
-        Vec::new()
+        released
     }
 
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
@@ -1289,6 +1243,20 @@ impl DataSource for Module {
                     headers: Vec::new(),
                     body: Vec::new(),
                 })
+            }));
+        }
+        // An owner thread runs one turn to its end, so another answer's
+        // work cannot land while this one waits for it (LLP 1027.002).
+        if self
+            .parked
+            .iter()
+            .any(|(_, p)| p.call == token && p.ticket == WAITING)
+        {
+            return Some(Box::new(|| {
+                Outcome::Failed {
+                kind: exact_runner::FailureKind::Unsupported,
+                message: "the answer awaits work another answer started (a shared fetch or storage queue), which a worker-placed source cannot wait for; make each answer's own fetch, or share the resolved value rather than the promise".into(),
+            }
             }));
         }
         let (_, parked) = self

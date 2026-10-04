@@ -20,7 +20,8 @@ use std::path::Path;
 pub fn lean(src: &str, name: &str) -> Result<String, CompileError> {
     // The plan backend first: what it refuses is not a program.
     crate::compile(src)?;
-    let file = contract_syntax::parse(src)?;
+    let mut file = contract_syntax::parse(src)?;
+    contract_syntax::resolve_clock_timelines(&mut file)?;
     emit_file(&file, name)
 }
 
@@ -55,9 +56,17 @@ pub fn lean_path(path: &Path, name: &str) -> Result<String, CompileError> {
 fn emit_file(file: &File, name: &str) -> Result<String, CompileError> {
     let checked = contract_types::check_all(file, false, contract_lower::tags::style, None)
         .map_err(|mut all| CompileError::from(all.swap_remove(0)))?;
+    emit_checked(&checked, name)
+}
+
+/// Emit a checked expansion as `def <name> : Contract.Program`. The
+/// differential type test (`difftest types`) also calls this with an
+/// expansion the checker refused, typed by the program it was mutated
+/// from, to give the Lean checker the mutant to judge.
+pub fn emit_checked(checked: &Checked, name: &str) -> Result<String, CompileError> {
     let mut e = Emitter {
         out: String::new(),
-        checked: &checked,
+        checked,
     };
     e.program(name)?;
     Ok(e.out)
@@ -408,7 +417,16 @@ impl Emitter<'_> {
     }
 
     fn stmts(&self, body: &[Stmt]) -> Result<String, CompileError> {
-        list(body, |s| self.stmt(s))
+        // A tail call's type check (LLP 1017 §11) runs nothing: lowering
+        // drops it, so the semantics never sees it.
+        let run: Vec<&Stmt> = body
+            .iter()
+            .filter(|s| {
+                !matches!(s, Stmt::Command { name, .. }
+                    if name.starts_with(contract_syntax::inline::tail::CHECK))
+            })
+            .collect();
+        list(&run, |s| self.stmt(s))
     }
 
     fn stmt(&self, s: &Stmt) -> Result<String, CompileError> {

@@ -46,6 +46,7 @@ oxc_span = { version = "=0.140.0", optional = true }
 oxc_transformer = { version = "=0.140.0", optional = true }
 form_urlencoded = "1.2"
 sha2 = "0.10"
+ring = { version = "0.17", optional = true }
 url = "2.5"
 
 [dev-dependencies]
@@ -84,8 +85,17 @@ rustls-native-certs = "0.7"
 # (the copy ureq already links).
 webpki-roots = "1"
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Win32_Foundation", "Win32_Networking_WinSock", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO"] }
+
 [features]
-default = ["loader"]
+default = ["loader", "crypto"]
+# Symmetric WebCrypto algorithms backed by the workspace's unmodified,
+# vendored ring. Randomness remains available without this feature.
+crypto = ["dep:ring"]
+# ECDSA P-256, Ed25519, and their SPKI/PKCS#8 codecs exceed LLP 0057.000
+# D6's default-on size budget, so consumers opt in explicitly.
+crypto-asymmetric = ["crypto"]
 # The loader: TypeScript and JSX stripping, ESM lowering, and package
 # resolution — everything that turns source into a wrapper and a specifier
 # into a file. `ibex2 build` needs it; a `run --precompiled` does not, since

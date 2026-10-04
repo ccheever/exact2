@@ -484,6 +484,14 @@ pub static SYSTEM_COLOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::
 /// css.rs writes no declaration for the row's empty value.
 const NONE: &str = "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:v";
 
+// The bounded cursor vocabulary is the schema's, including dynamic bindings.
+static CURSOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
+        "v=>{{if(typeof v!==\"string\")return null;v=v.trim().toLowerCase();return {:?}.includes(v)?v:null}}",
+        StyleId::Cursor.enum_names()
+    )
+});
+
 fn one(name: impl Into<String>, unit: impl Into<String>) -> Vec<Write> {
     vec![Write {
         name: name.into(),
@@ -506,6 +514,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         map: Some(map),
     };
     Ok(match row {
+        StyleId::Cursor => vec![with("cursor", &CURSOR_MAP)],
         // @ref LLP 1055 D5/D7 — the browser runs it; its `@keyframes` are in
         // the stylesheet (emit.rs), under the author's names.
         StyleId::Animation if timeline => vec![
@@ -533,14 +542,20 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             with("--exact-accent", "v=>v==null?v:/^\\s*auto\\s*$/i.test(v)?\"AccentColor\":v"),
         ],
         StyleId::DragTimeline => vec![with("--exact-drag-timeline", NONE)],
+        // @ref LLP 1055.002 — `clock(Name)` is css.rs's clock property and
+        // leaves the play state alone; a drag timeline pauses.
         StyleId::AnimationTimeline => vec![
             with(
                 "--exact-animation-timeline",
-                "v=>v==null||/^\\s*auto\\s*$/i.test(v)?null:v",
+                "v=>v==null||/^\\s*(auto|clock\\(.*\\))\\s*$/i.test(v)?null:v",
+            ),
+            with(
+                "--exact-animation-clock",
+                "v=>v==null?v:/^\\s*clock\\(\\s*([^)\\s]+)\\s*\\)\\s*$/i.exec(v)?.[1]??null",
             ),
             with(
                 "animation-play-state",
-                "v=>v==null||/^\\s*auto\\s*$/i.test(v)?null:\"paused\"",
+                "v=>v==null||/^\\s*(auto|clock\\(.*\\))\\s*$/i.test(v)?null:\"paused\"",
             ),
         ],
         StyleId::AnimationRange => vec![with(

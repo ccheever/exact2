@@ -36,7 +36,7 @@ after first pixel. Production bakes ignore these agent variables.
 Asset names have no fixed per-surface count limit. Web loading still bounds
 concurrent requests and decoded asset bytes; a queued request's timeout begins
 when its fetch starts.
-Weird Castle is the external consumer, with a full-screen Beacons demo in its own
+Weird Castle was the first external consumer, with a full-screen Beacons demo in its own
 engine module; its title sky never loads the engine.
 
 The integration source is Black's `lane/game` at `126daba5` plus its working-tree
@@ -206,6 +206,7 @@ The dev compiler retains its last good plan on an error.
 | Mouse look | `input.pointer()`'s `delta` is the device's motion this tick, not a difference of positions. Mark the canvas `data-pointer-lock="true"` (declared in `app.json`'s `data`) and a mouse press captures the mouse on the web, macOS and iPadOS (`GCMouse`) until Escape or blur, so the delta never stops at an edge; the Linux host always sends evdev's relative motion. |
 | Turn the drawn camera between ticks | Put `MouseLook { yaw_per_point, pitch_per_point, pitch_limit }` on the camera at the rates the tick turns it by: the drawn camera and its children turn by `Sim::unshown_motion()`, so a turn shows at the next frame whatever the tick and display rates (`engine/tests/look.rs`). Presentation only; insert it in `setup` or register it. |
 | Right or middle mouse button | Bind it as a key: `.button("aim", &["MouseRight"])`; `MouseLeft` and `MouseMiddle` too (`MOUSE_BUTTONS`). Touch contacts press none. |
+| Start a selection rectangle | `input.pointer().and_then(\|p\| p.press_origin)` is the latest MouseLeft/touch Down point, even if movement and Up reach the same tick. Gate commands on your action's pressed/released edges. The origin survives normal Up and saves; Cancel, Blur or replacement clears it. EXSIM v7 saves are required. |
 
 `Character` saves velocity and configuration and reports displacement, grounded,
 jumped and landed. `near`/`near_xz` use current global poses, inclusive radii and
@@ -468,7 +469,7 @@ dependency writes `logic/Cargo.toml` (`package.workspace = "../.shells"`, SDK cr
 crates alone need no lock of the game's own. When the SDK's dependencies change,
 `bun game/app/shells.mjs --update-lock` refreshes the SDK lock, and
 `bun app/shells.mjs --test` refuses a stale one. The game workspace also carries
-the core’s vendored patches and `apple-dev` profile; the existing SDK test checks
+the core’s vendored patches and `host-dev` profile; the existing SDK test checks
 those against the root workspace. Web builds retain the game’s non-contracting
 floating-point flag alongside the core’s path-remapping flags.
 

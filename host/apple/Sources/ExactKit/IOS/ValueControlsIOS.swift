@@ -112,11 +112,27 @@ extension ControlHost {
             return typeDate(picker, node, value)
         }
         #endif
+        // A checkbox (or `switch`) takes `true` or `false`, and is toggled when that differs, as on the web.
+        if kinds[node.id] == "checkbox" || kinds[node.id] == "switch", let control = controls[node.id], !(control is NativeButtonIOS) {
+            guard value == "true" || value == "false" else { return ["error": "checkbox \(node.id) takes true or false, not \"\(value)\""] }
+            if checked(control) != (value == "true"), activate(node) != true { return ["error": "control #\(node.id) is disabled, inert or not shown"] }
+            return ["typed": Int(node.id), "checked": checked(control), "delivery": "host-activation", "native": "control"]
+        }
         guard let control = controls[node.id], control is UIButton, !(control is NativeButtonIOS) else { return nil }
         guard control.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
-        if let refusal = (presenter.selectOptions?(node.id) ?? SelectMenu()).refusal(value, id: node.id) { return ["error": refusal] }
-        chose(node.id, value)
+        let choice = (presenter.selectOptions?(node.id) ?? SelectMenu()).choose(value, id: node.id)
+        guard let chosen = choice.value else { return ["error": choice.refusal ?? "select \(node.id) refused \"\(value)\""] }
+        chose(node.id, chosen)
         return ["typed": Int(node.id), "value": menus[node.id]?.chosenValue ?? "", "delivery": "host-activation", "native": "control"]
+    }
+
+    /// Whether a checkbox or a switch is on.
+    func checked(_ control: UIControl) -> Bool {
+        #if os(tvOS)
+        return (control as? ExactCheckbox)?.isOn ?? false
+        #else
+        return (control as? UISwitch)?.isOn ?? (control as? ExactCheckbox)?.isOn ?? false
+        #endif
     }
 
     func valueObservation(_ control: UIControl) -> [String: Any]? {

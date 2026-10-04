@@ -77,7 +77,7 @@ never to block. Its design documents are imported under `llp/research/`.
 | `apps/exact-live/` | A creative production workspace combining photo zoom, scene ordering, crew chat and a runbook. The [browser preview](https://exact-live.tuft.host/) passes 19 interaction checks; native delivery and connected jobs remain in progress. See its [README](../apps/exact-live/README.md). | LLP 1041 §8 |
 | `gpu/` (`exact-gpu`) | The GPU canvas: a `Surface` trait against wgpu, a per-app module loaded on demand (a dylib on macOS, a second wasm on the web) after the first pixel; the same Rust renders on Metal and on the browser's WebGPU. `apps/caltrain/gpu` is the line map and the aurora. `gpu/reflect` (`exact-gpu-reflect`, naga only) reflects every `.wgsl` in a GPU crate's `build.rs`: bindings, struct layouts, vertex inputs, and entry points generated as Rust, the WGSL as the one declaration authority. | LLP 1009 |
 | `host/apple/` (`exact-apple`) | The Apple host: runner + kernel as a static library with a C ABI, the kernel's layout with CoreText measurement through a callback, `exact-motion` as the executor, typed batches; `macos/` is the AppKit presenter and `ios/` the UIKit one (SwiftPM, sharing `swift/`). `bun host/apple/build.mjs --run`; `bun host/apple/build.mjs --ios --run` on a simulator. | LLP 1008 |
-| `host/linux/` (`exact-linux`) | The Linux host, the first that paints: runner + kernel natively, cosmic-text measuring and painting from one cache, `exact-motion` as the executor, the kernel tree drawn by one walk over a backend — vello on the GPU (the main one), tiny-skia on the CPU (the fallback and the pixel oracle) — onto DRM/KMS dumb buffers with evdev input, or into a buffer with no display (the agent API, screenshots, the smoke; on macOS too). Pure Rust, no system library. `cargo build --release -p caltrain-linux`. | LLP 1015 |
+| `host/linux/` (`exact-linux`) | The Linux host, the first that paints: runner + kernel natively, cosmic-text measuring and painting from one cache, `exact-motion` as the executor, the kernel tree drawn by one walk over a backend — vello on the GPU (the main one), tiny-skia on the CPU (the fallback and the pixel oracle) — onto DRM/KMS dumb buffers with evdev input, or into a buffer with no display (the agent API, screenshots, the smoke; on macOS too). Pure Rust, no system library. `cargo build --profile host-dev -p caltrain-linux` for the one an agent drives (a touched line rebuilds in seconds); `--release` for the one that ships. | LLP 1015 |
 | `host/web/` (`exact-web`) | The web host: runner + kernel in wasm over the real DOM, CSS computed once from the kernel's rows, springs lowered to frames the browser plays, a no-`unsafe` ABI, ~150 lines of glue, a headless-Chrome smoke, the motion parity harness, and the dev loop (`bun host/web/dev.mjs`, edit → present ~20 ms). | LLP 1007 |
 | `vendor/taffy/` | Taffy 0.9.2 plus two Exact patches. | `vendor/taffy/EXACT-PATCHES.md` |
 
@@ -194,9 +194,16 @@ it. A path from the command line, from Finder, from ⌘O, or from a link inside
 a document all arrive at the same place: the app's `open-file` node
 (LLP 1033 D3). `exact uninstall <app>` takes both halves away.
 
-Apple products and Swift caches live under the resolved app's target directory,
-scoped by canonical source directory, manifest id, destination, composition and
-trust policy. `--bundle` prints the stable Mac bundle at
+Apple products live under the resolved app's target directory, scoped by
+canonical source directory, manifest id, destination, composition and trust
+policy. The Swift host is compiled once per destination for every app, in
+`<target>/apple-swift/<destination>-<minimum OS>`; each app only links there,
+one at a time, and its executable is copied to its own products before the next
+app links. A development build compiles it file by file and incrementally, and
+beside the app's Rust; the host's two Rust modules build in
+`<target>/apple-modules`. What is distributed (`--archive`, `exact release`) is
+the whole-module build, stripped, with its dSYM and whole receipt beside it
+(LLP 1036.000 §5–§9). `--bundle` prints the stable Mac bundle at
 `<target>/clients/<source-key>/<id>/macos/<Name>.app`; `scripts/exact.mjs`,
 `agent --app` and metrics use that same resolver. `--host` leaves both standalone
 and sample products; simulator and device bundles have separate destinations.
@@ -260,7 +267,45 @@ Annotate the provider map as `Sources`; each function takes `(args, store, stora
 returns its declared result or a Promise of it. An `Answer` dispatcher can call
 `sources[source](args, store, storage)` without casts. `bun install --frozen-lockfile` installs the pinned `tsc`.
 Use a distinct filename: adjacent `app.ts` shadows an `app.d.ts` import.
-Generated declarations are build artifacts, not files to commit.
+Generated declarations are build artifacts, not files to commit. A development
+build writes them beside `app.ts` for an editor: the web build and the native
+development bake both do.
+
+### What a data module can use
+
+Every build type-checks `app.ts` and what it imports with one configuration,
+`js/bake/src/typescript.mjs`: the web build (alongside bundling, ~40 ms for a
+small app, about nothing on the build's wall time) and the native bake, with
+the same capture, entry and diagnostics, so an `app.ts` that builds on one
+host builds on all of them and a type error stops every build the same way.
+`strict`; target and library ES2023, plus ES2024's `Object.groupBy`,
+`Map.groupBy`, `Promise.withResolvers` and well-formed strings; `WebWorker`'s
+web APIs, never the DOM's UI types (`Document`, `HTMLElement`, `Window`).
+Imports may name `.ts` files (`import { day } from './dates.ts'`) or leave the
+extension off; `tsconfig.json` contributes only `paths` and `baseUrl`.
+
+The language is the same everywhere. The globals beyond it are the browser's
+on the web and these on Hermes (macOS, iOS, Linux):
+
+| Available on every executor | Notes on Hermes |
+| --- | --- |
+| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts. A `Response` has `status`, `ok`, `headers`, `text()`, `json()`, `arrayBuffer()`; no `Request`, `Blob` or `FormData` |
+| `structuredClone` | No transfer list |
+| `TextEncoder`, `TextDecoder` | The decoder is UTF-8 only |
+| `URL`, `URLSearchParams`, `atob`, `btoa` | |
+| `crypto.getRandomValues`, `crypto.randomUUID`, `crypto.subtle` | Inside an answer; `subtle` digests (SHA-256/384/512) and ECDSA P-256 keys (LLP 1069.005), and refuses the rest by name |
+| `AbortController`, `AbortSignal` | `AbortSignal.timeout()` refuses: no timers |
+| `queueMicrotask`, `Promise` | |
+| `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter`, `DisplayNames` or `Locale` (Apple's engine; Linux's is built `--intl`) |
+| `console` | To the runner's logs |
+
+Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
+`setInterval`), `performance.now()`, `Date.now()`, `new Date()` without a value
+and `Math.random()`: time and seeds are source arguments. Hermes and the web's
+module realm refuse the clock and `Math.random` by name; the type check cannot
+see the difference, so an app that calls them builds and fails on a device.
+ES2024's resizable `ArrayBuffer`, shared memory and the RegExp `v` flag are not
+in Hermes, so they are not in the library.
 
 The dispatcher receives storage as its fourth argument:
 `answer(source, args, store, storage)`. `store` remains the grant-checked secrets
@@ -352,9 +397,7 @@ the running app.
 Browser providers support async answers and sequential/parallel `fetch` through
 the existing grant-checked host transport. Executor-local continuation tickets
 drain microtasks without re-entering wasm; stale incarnations cannot fulfill the
-replacement app. Real Chrome tests run all 20 Caltrain data cases and the same
-25 ambient-read probes at initialization, in answers, and after fetch as Hermes,
-plus store, errors, binary responses, interleaving and disposal cases.
+replacement app. 
 
 Linux provisions the same vanilla pin with `./scripts/build-hermes-linux.sh
 --vanilla --release --intl` in the sibling Ibex checkout. Exact links its lean
@@ -369,48 +412,12 @@ needs from ibex's Hermes source, once per machine, into
 `~/.cache/exact/hermes/<pin>-lean-ios` (override with `EXACT_HERMES_IOS_DIR`,
 LLP 1036.001 D5); the recipe and archive layout are in
 [LLP 1027 D6](../llp/1027-typescript-data-sources.rfc.md#d6--the-web-the-browser-is-the-executor-one-wasm-import-the-same-module-under-two-loaders).
-The normal Apple build captures the linked archives in its receipt. The iOS
-simulator executed an async module, fetched twice and followed a URL logic edit
-while retaining count 1 alongside the browser. The device-target archive also
-builds. The simulator guard app passed all 25 forms at initialization, in direct
-calls and after fetch, explicit UTC/Intl inputs, interleaved async calls and an
-uncaught-initialization refusal (27 HTTP requests, no pending work).
-The physical iPhone 17 Pro Max / iOS 26.6.1 now passes the same guard sweep,
-including all 75 refusals, 27 HTTP requests, no pending work, and a copied,
-inspected screenshot. A repeat assertion run passed in 5.7 s (83.5 ms first
-frame, one sample rather than a startup budget result).
-
-The TypeScript Caltrain twin passed the complete app drive and all three
-Contract tests on web, macOS, iOS simulator and physical iPhone, with its real assets, deck and
-GPU module. Production Caltrain remains Rust. `smoke.mjs --app-only` runs the
-selected app and its tests without unrelated bare-plan host fixtures, which a
-paired module client correctly refuses. The driver now supports
-`ios --device [--phone <name|udid>]`: the phone connects outward to a temporary
-Mac-side port with a per-launch token, because developer-console stdin closes
-immediately. Use a trusted LAN, allow local networking, and keep the app visible;
+The normal Apple build captures the linked archives in its receipt.
+`smoke.mjs --app-only` runs the selected app and its tests without unrelated
+bare-plan host fixtures. The driver supports `ios --device [--phone <name|udid>]`:
+the phone connects outward to a temporary Mac-side port with a per-launch token.
+Use a trusted LAN, allow local networking, and keep the app visible;
 `EXACT_AGENT_HOST` overrides the Mac IPv4 address. The carrier is not encrypted.
-Physical URL replacement is now driven alongside the browser: TypeScript edits
-change the answer with counter 1 and clock 12345 retained, unchanged plan and
-native binary, and the same phone PID. A candidate that throws only at the carried
-counter preserves both clients; the next valid edit recovers. Each valid revision
-passes the async guard sweep. Earlier apparent stalls included a UIKit delayed-touch
-crash; the dev-menu recognizers no longer delay touch endings. The complete proof
-passes with the menu enabled and tracing removed. The full Caltrain URL proof
-also passes: live edit, broken-candidate refusal and recovery preserve the selected
-station, clock and train boards, with unchanged phone PID/native binary. The
-initial menu-only mitigation was incomplete: Caltrain's hover recognizers still
-delayed touch endings. Hover now neither delays nor cancels finger events, and
-the four-finger shortcuts accept only direct touch events. Two physical Caltrain
-replacement/refusal/recovery runs pass with the menu enabled (the final one with
-tracing removed). Those gesture mitigations did not fix real finger scrolling:
-the same-binary diagnostic isolated session creation before UIApplicationMain.
-Both iOS adapters now create sessions after UIKit starts; Charlie confirmed
-scrolling in regular Caltrain and opening it natively from Safari. Normal URL
-module replacement also configures storage before activation, exactly once.
-Manual four-finger single/double-tap verification remains owed.
-Agent deadlines include native
-diagnostics; a closed carrier rejects later requests immediately. Systematic
-size/startup/per-call measurements remain to be proved.
 
 The dev page's **Open in native…** link offers an installed-client action and
 local setup instructions at `/__dev/open`. Development Apple builds register an
@@ -421,16 +428,12 @@ warm URL delivery. For a local macOS bundle, use
 The bundle includes its assets and native modules; it is not a notarized download.
 Browser navigation, both Apple cold/warm handlers and malformed-link refusals are
 tested. The page cannot detect installation, and does not trigger signing/builds.
-Safari's reported 5–10-second initial scroll delay remains unresolved: the web
-root is inert until the module loads. A held-loader Chrome probe confirmed that
-this blocks scrolling despite the complete list already being present; physical
-Safari timing still needs a working remote automation connection. Web-only program
-rebuilds also currently invalidate connected native clients unnecessarily.
 
-Remaining: Linux native TypeScript execution, npm dependency capture, signed
-module updates, downloadable custom clients, and the generic Go launcher.
-One async web/iOS edit measured 410 ms save-to-DOM / 430 ms to a rendering
-opportunity; the 100 ms save-to-present p50 target is not demonstrated.
+**Limits.** Linux native hosts don't run TypeScript yet (use a Rust data crate
+there); `app.ts` can't import npm packages; signed delivery of TypeScript and Rust
+modules isn't implemented, so set `deploy.store` to `"0"`. The history of how this
+was proved on each host is in [LLP 1027](../llp/1027-typescript-data-sources.rfc.md)
+and git.
 
 ## The five checks
 

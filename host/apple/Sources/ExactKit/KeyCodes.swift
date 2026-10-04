@@ -53,6 +53,12 @@ enum KeyCodes {
         for modifier in ["Shift", "Control", "Alt", "Meta"] where code == modifier + "Left" || code == modifier + "Right" { return modifier }
         return characters[code] ?? (code == "NumpadEnter" ? "Enter" : code)
     }
+    /// A key whose `KeyboardEvent.key` is a name, not the character it types.
+    static func named(_ code: String) -> Bool {
+        ["Enter", "NumpadEnter", "Escape", "Tab", "Backspace", "Delete", "Insert", "Home", "End", "PageUp", "PageDown",
+         "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "CapsLock"].contains(code)
+            || (code.hasPrefix("F") && Int(code.dropFirst()) != nil)
+    }
     static func device(_ name: String) -> (code: String, key: String)? {
         var code = name
         if ["Shift", "Control", "Alt", "Meta"].contains(name) { code += "Left" }

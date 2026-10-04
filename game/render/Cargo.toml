@@ -17,6 +17,8 @@ glam = { version = "0.33", default-features = false, features = ["std", "scalar-
 web-sys = { version = "0.3", features = ["Window", "Performance", "console"] }
 
 [dev-dependencies]
+flate2 = "1"
+sha2 = "0.10"
 exact-game-audio = { path = "../audio" }
 exact-game-bake = { path = "../bake" }
 serde_json = "1"

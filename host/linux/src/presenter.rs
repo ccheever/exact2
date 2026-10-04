@@ -59,6 +59,7 @@ mod height_drag_tests;
 mod images;
 mod preferences;
 mod retained_action;
+mod reveal;
 mod swipe;
 mod transform;
 mod transform_geometry;
@@ -461,6 +462,8 @@ impl<D: DataSource> Presenter<D> {
                 "copyText" => eprintln!("exact: copyText unsupported on the headless/DRM host"),
                 // No haptic engine here (LLP 1077 D14): nothing to feel.
                 "haptic" => {}
+                // Outside a `key` event (`key_event` takes a key's), nothing to prevent.
+                "preventDefault" => {}
                 // No share sheet here: refused into the journal, or held for
                 // the agent like every host (LLP 1069.003 D6).
                 "share" => {

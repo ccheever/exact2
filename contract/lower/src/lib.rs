@@ -37,6 +37,7 @@ mod strings;
 mod svg;
 pub mod tags;
 mod values;
+pub mod vocab;
 
 pub use dataset::{data_words, hook_words};
 pub use lint::lint;
@@ -1300,9 +1301,9 @@ impl<'a> Lowerer<'a> {
                     });
                     return Ok(());
                 }
-                // CSS's one-to-four-value `border-color`: a binding a side.
-                if rows == values::BORDER_COLORS {
-                    if let Some(sides) = values::border_color_sides(&a.value)? {
+                // CSS's one-to-four-value box shorthands: a binding a side.
+                if values::four_sided(rows) {
+                    if let Some(sides) = values::sides(&a.name, &a.value)? {
                         for (&row, value) in rows.iter().zip(sides) {
                             let (code, ty) = self.typed_code(&value, scope, locals)?;
                             let side = Attr { value, ..a.clone() };
@@ -1353,6 +1354,14 @@ impl<'a> Lowerer<'a> {
                 // ARIA's tristate is a word; a bool is written as `true`/`false`.
                 if prop == exact_kernel::PropId::AccessibilityPressed && ty == Ty::Bool {
                     asm.call(exact_plan::Stdlib::ToString);
+                }
+                // An enumerated attribute whose IDL attribute is a bool takes
+                // one, as its words (shop diary F7).
+                if let (Ty::Bool, Some((yes, no))) = (&ty, values::bool_words(prop)) {
+                    let word = |w: &str| Box::new(Expr::Str(w.into(), a.span));
+                    let words = Expr::Ternary(Box::new(value.clone()), word(yes), word(no), a.span);
+                    (asm, depth) = (Asm::new(), locals);
+                    expr::compile(self, &mut asm, &words, scope, &mut depth)?;
                 }
                 let code = self.b.code(asm);
                 bindings.push(BindingsRow {
