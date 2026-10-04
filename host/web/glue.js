@@ -30,7 +30,7 @@ function syncMedia(el, set = {}, clear = []) {
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
 const messageViews = new Set(), messageFrames = new Set(); // the latter: iframes whose node handles `message`
-let messageListening = false;
+let messageListening = false, keyEvent = null; // keyEvent: the keydown a `key` handler is running for, which its `preventDefault()` command prevents
 let wasm = null, memory = null, inputReady = false, inputHandlers;
 // Native modules (LLP 1024 D3): a module node is its custom element, empty until the adapter and the app's module load after first paint (the browser's paint entry; two frames and a beat where it records none).
 let nativePaint = null;
@@ -588,8 +588,8 @@ function attach(el, id, handlers) {
     } else if (kind === "blur") {
       on("blur", () => send(wasm.exact_dispatch(id, 5, 0, now())));
     } else if (kind === "key") {
-      // keydown, the key's name as the web spells it (`e.key`).
-      on("keydown", (e) => { const n = writeIn(e.key); send(wasm.exact_dispatch(id, 6, n, now())); });
+      // keydown, the key's name as the web spells it (`e.key`); it bubbles to every ancestor's handler.
+      on("keydown", (e) => { const outer = keyEvent; keyEvent = e; try { const n = writeIn(e.key); send(wasm.exact_dispatch(id, 6, n, now())); } finally { keyEvent = outer; } });
     }
     if (kind === "submit" && el.tagName !== "TEXTAREA" && !el.exactMarkup) {
       // The web's implicit submission: Enter in a text input submits — here
@@ -775,6 +775,7 @@ function apply(batch) {
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; } else if (op.name === "haptic") navigator.vibrate?.(op.args?.[0] === "selection" ? 5 : 12); // LLP 1077 D14
         else if (op.name === "focus" || op.name === "selectText" || op.name === "blur") focusCommands.push({ name: op.name, args: op.args });
+        else if (op.name === "preventDefault") keyEvent?.preventDefault();
         else if (op.name === "postMessage") { // the inverse of `message=`: text into the named surface, every one in order
           const text = String(op.args?.[0] ?? ""), name = String(op.args?.[1] ?? ""), at = now();
           if (globalThis.exact.gpu) globalThis.exact.gpu.post(name, text, at);
@@ -1155,9 +1156,8 @@ function agentReply(request) {
       case "focus": {
         const el = views.get(request.id);
         if (!el) return { error: `no view ${request.id}` };
-        if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el.exactMarkup)) return { error: `view ${request.id} is not an input` };
-        el.focus();
-        if (request.select !== false) el.select();
+        el.focus(); // any element, as the JS target's agent: a key at a grid is its keydown (docs/contract-grammar.md#keys)
+        if (request.select !== false) el.select?.();
         return { ok: true };
       }
       case "tap": {
@@ -1492,7 +1492,6 @@ async function main() {
 }
 ready = main();
 ready.catch((e) => { console.error(e); root.dataset.error = String(e); });
-
 // @ref LLP 1038 D7/D8/D11 — the mirror observes the handler's synchronous commit.
 function navigate(location) { return globalThis.exact.navigate(location); }
 navigation.connect(root, navigate, log);

@@ -38,15 +38,35 @@ impl<D: DataSource> Presenter<D> {
         error
     }
 
-    /// A key at the focused node, by the web's name, heard by the nearest
-    /// `key` handler at or above it (a keydown bubbles).
-    pub(crate) fn key_event(&mut self, name: &str, now_ms: f64) -> Option<String> {
-        let target = self
+    /// A key at the focused node, by the web's name: every `key` handler at
+    /// or above it hears it, innermost first, as a keydown bubbles — the path
+    /// fixed before the first runs. True when one called `preventDefault()`:
+    /// the caller skips the key's default action (docs/contract-grammar.md#events).
+    pub(crate) fn key_event(&mut self, name: &str, now_ms: f64) -> (Option<String>, bool) {
+        let mut path = Vec::new();
+        let mut at = self
             .focus
-            .and_then(|id| self.handler_target(id, EventKind::Key))?;
-        self.host
-            .dispatch_at(target, Event::Key(name.to_owned()), now_ms)
-            .or(self.after_commit())
+            .and_then(|id| self.handler_target(id, EventKind::Key));
+        while let Some(id) = at {
+            path.push(id);
+            at = self
+                .host
+                .kernel()
+                .node(id)
+                .and_then(|n| n.parent)
+                .and_then(|p| self.handler_target(p, EventKind::Key));
+        }
+        let (mut error, mut prevented) = (None, false);
+        for id in path {
+            error = error.or(self
+                .host
+                .dispatch_at(id, Event::Key(name.to_owned()), now_ms)
+                .or(self.after_commit()));
+            let queued = self.commands.len();
+            self.commands.retain(|c| c.name != "preventDefault");
+            prevented |= self.commands.len() != queued;
+        }
+        (error, prevented)
     }
 
     /// Enter in a single-line input: the web's implicit submission, at the

@@ -155,6 +155,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         // exact_motion::gesture::SLOP; a pan-only plan links no motion export to ask.
         if (!contact.active && Math.max(Math.abs(x-px),Math.abs(y-py)) <= 4) return;
         if (!contact.active) release(); // a pan ends a press, as it cancels a touch
+        if (!contact.active && contact.nested) el.setPointerCapture(contact.pointer); // the button's tap is over: the drag is the pan's
         contact.active = true; contact.from = [x,y];
         if (x !== px || y !== py) dispatch(id, `${x-px},${y-py}`);
       };
@@ -182,16 +183,22 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       // A child's implicit touch capture, lost when a deferred pan takes it, bubbles here.
       on("lostpointercapture", e => { if (e.target === el) cancel(); });
       el.addEventListener("click", e => { if (suppressClick) { suppressClick = false; e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+      el.addEventListener("dragstart", e => { if (contact?.nested) e.preventDefault(); }); // a link's own drag is not the pan's
       return e => {
         // Only the click right after a pan is suppressed; a drag makes none.
         suppressClick = false;
-        if (!live() || !e.isPrimary || e.button !== 0 || contact || el.matches("input,textarea,[contenteditable]")) return;
-        // A control or press handler between the contact and this node keeps it (rule 3).
-        const inner = e.target.closest("input,textarea,select,button,a[href],[contenteditable],[data-exact-on~='press']");
+        if (!live() || !e.isPrimary || e.button !== 0 || contact || e.exactPan || el.matches("input,textarea,[contenteditable]")) return;
+        // A control or editor between the contact and this node keeps it (rule 3).
+        const inner = e.target.closest("input,textarea,select,[contenteditable]");
         if (inner && inner !== el && el.contains(inner)) return;
+        // A press handler between keeps it only within the slop, as a draggable
+        // element hears a drag that starts on a button inside it (kanban F6):
+        // nothing is captured or prevented until the pan begins, so a tap stays the button's.
+        const press = e.target.closest("button,a[href],[data-exact-on~='press']"), nested = !!press && press !== el && el.contains(press);
         const deferred = contacts().get(e.pointerId) === "pending";
-        e.preventDefault(); e.stopPropagation(); if (!deferred) el.setPointerCapture(e.pointerId);
-        contact = {pointer:e.pointerId,from:[e.clientX,e.clientY],to:[e.clientX,e.clientY],active:false,deferred};
+        e.exactPan = true; // the innermost pan takes the contact (rule 3)
+        if (!nested) { e.preventDefault(); e.stopPropagation(); if (!deferred) el.setPointerCapture(e.pointerId); }
+        contact = {pointer:e.pointerId,from:[e.clientX,e.clientY],to:[e.clientX,e.clientY],active:false,deferred,nested};
         velocity.sample?.(id, e.clientX, e.clientY, e.timeStamp, true);
       };
     },

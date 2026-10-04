@@ -479,7 +479,12 @@ This test goes with the complete example above. The steps are `size 1200x800`
 value), and `expect state name == <number|string|bool|none|[]>`. The clock
 stands still between steps: a reply, a mutation's `then`, a timer or a
 transition an input started lands at a `clock` step, so `clock settle` before
-the `expect` that depends on it. Not every interactive
+the `expect` that depends on it. `type "id" key "Name"`
+focuses the target if it takes the focus (else leaves the focus where it is)
+and presses the key as a keyboard would on every host: its `key` handlers,
+then its default — `"7"` types into a field, `"Enter"` submits it, `"Space"`
+presses a button, `"r"` reaches an `aria-keyshortcuts="r"` button
+([keys](contract-grammar.md#keys)). Not every interactive
 driver operation is a test-file statement. `contract test` parses and prints JSON;
 `agent.mjs <host> --test <file>` actually drives the app.
 

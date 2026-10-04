@@ -675,8 +675,9 @@ the payload: `input=edit(item.id)` calls the bound action with the id followed
 by the new text. This syntax is binding, not immediate evaluation.
 
 Use explicit types when they make the interface clear; omitted action parameter
-types can be inferred from event sites. There is no event object with methods
-such as `preventDefault`, and no inline `() => …` handler.
+types can be inferred from event sites. There is no event object and no inline
+`() => …` handler; a `key` action claims its key with the host command
+`preventDefault()` ([keys](contract-grammar.md#keys)).
 
 The complete event inventory and payload groups are in the
 [event reference](contract-grammar.md#events). HTML controls include `select` and
