@@ -1093,3 +1093,12 @@ the planting hint remains readable on both hosts. Artifacts for each game:
 `/tmp/exact2-process-inventory-tools.log`. These are concurrent verification
 times including builds, not isolated performance measurements. No gameplay
 or Jev-policy changes are part of this batch.
+
+Feature `e4086cec8` is followed by periodic main merge `ebbd6ce65`, bringing
+`4e228c5d0` without conflicts. The incoming delta is only LLP 1092/1094
+documentation, reviews and their DEFERRED admissions; executable inputs are
+unchanged, so the six game comparisons above still apply. All five root checks
+pass: build, 2,351 enabled tests across 81 binaries (nine ignored), strict
+Clippy and formatting, caps and boot. This local run takes 65.2 s in total,
+including 62.5 s for tests, exceeding the 60 s target. Logs:
+`/tmp/exact2-auditmain-{build,test,clippy,fmt,caps,boot}.log`.
