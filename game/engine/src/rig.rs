@@ -19,13 +19,13 @@
 //! w.spawn_named("hero", (Transform::default(), mesh, Animator::new([
 //!     rig::locomotion("move", "idle", [(1.4, "walk"), (4.0, "run")]),
 //! ])));
-//! rig::drive(&mut w.require_mut::<Animator>("hero"), "move", 2.0);
+//! rig::drive(&w, "hero", "move", 2.0);
 //! ```
 use crate::animation::{Blend, State};
 use crate::asset::{
     Clip, Interpolation, MaterialData, MeshData, Model, Node, Skin, Track, TrackPath,
 };
-use crate::{math, Animator, Mat4, Quat, Vec3};
+use crate::{math, Animator, Mat4, Quat, Target, Vec3, World};
 use std::f32::consts::{PI, TAU};
 
 /// One bone in the rest pose, in model space (metres, +Y up, facing +Z).
@@ -831,26 +831,76 @@ pub fn locomotion<const N: usize>(state: &str, idle: &str, gaits: [(f32, &str); 
     State::blend(state, blend)
 }
 
-/// Set the `speed` parameter and keep planted feet still above the fastest gait:
-/// the state plays `speed / fastest` times faster there, and at its own rate below.
-pub fn drive(animator: &mut Animator, state: &str, speed: f32) {
+/// Below this ground speed (m/s) a [`locomotion`] state blends into its idle.
+pub const IDLE_BELOW: f32 = 0.05;
+
+/// Play `target`'s [`locomotion`] state `state` at ground speed `speed` (m/s) so
+/// planted feet stay planted at every speed: below the slowest gait it plays that
+/// gait at `speed / slowest` (blending idle in only under [`IDLE_BELOW`]); between
+/// gaits it blends them and corrects the rate for the blended stride; above the
+/// fastest it plays faster. Zero and negative speeds play the idle.
+/// Reads the clip lengths from the entity's generated or delivered model.
+pub fn drive(w: &World, target: impl Target, state: &str, speed: f32) {
     assert!(speed.is_finite(), "rig: invalid speed");
-    animator.set("speed", speed);
-    let fastest = animator
-        .state_named(state)
-        .and_then(|s| match &s.play {
-            crate::Play::Blend(b) => b.clips.last().map(|c| c.0),
-            _ => None,
-        })
-        .unwrap_or(0.);
-    if let Some(s) = animator.state_mut(state) {
-        let rate = if fastest > 0. && speed > fastest {
-            speed / fastest
-        } else {
-            1.
-        };
-        if s.speed != rate {
-            s.speed = rate;
-        }
+    let label = target.label();
+    let e = target
+        .entity(w)
+        .unwrap_or_else(|| panic!("rig: drive target `{label}` does not exist"));
+    let mesh = w.get::<crate::Mesh>(e);
+    let model = match mesh.as_deref() {
+        Some(crate::Mesh::Asset(name)) => w.model(name),
+        _ => None,
     }
+    .unwrap_or_else(|| panic!("rig: drive target `{label}` has no loaded model"));
+    let mut animator = w.require_mut::<Animator>(e);
+    let knots = match animator.state_named(state).map(|s| &s.play) {
+        Some(crate::Play::Blend(b)) => b.clips.clone(),
+        _ => panic!("rig: `{label}` has no locomotion state `{state}`"),
+    };
+    let period = |clip: &str| {
+        model
+            .clips
+            .iter()
+            .find(|c| c.name == clip)
+            .map_or(0., |c| c.duration())
+    };
+    let (axis, rate) = gait_rate(&knots, &period, speed);
+    animator.set("speed", axis);
+    let s = animator.state_mut(state).unwrap();
+    if s.speed != rate {
+        s.speed = rate;
+    }
+}
+
+// The blend axis and playback rate that make the blended gait cover `speed`.
+fn gait_rate(knots: &[(f32, String)], period: &dyn Fn(&str) -> f32, speed: f32) -> (f32, f32) {
+    let gaits = &knots[1..];
+    let (Some(slowest), Some(fastest)) = (gaits.first(), gaits.last()) else {
+        return (0., 1.);
+    };
+    if speed.is_nan() || speed <= 0. {
+        return (0., 1.);
+    }
+    if speed < slowest.0 {
+        if speed < IDLE_BELOW {
+            let k = speed / IDLE_BELOW;
+            return (slowest.0 * k, 1. + (IDLE_BELOW / slowest.0 - 1.) * k);
+        }
+        return (slowest.0, speed / slowest.0);
+    }
+    if speed >= fastest.0 {
+        return (fastest.0, speed / fastest.0);
+    }
+    let hi = gaits.partition_point(|g| g.0 <= speed);
+    let (a, b) = (&gaits[hi - 1], &gaits[hi]);
+    let k = (speed - a.0) / (b.0 - a.0);
+    let (ta, tb) = (period(&a.1), period(&b.1));
+    let (sa, sb) = (a.0 * ta, b.0 * tb);
+    let duration = ta + (tb - ta) * k;
+    let covered = if duration > 0. {
+        (sa + (sb - sa) * k) / duration
+    } else {
+        speed
+    };
+    (speed, if covered > 0. { speed / covered } else { 1. })
 }

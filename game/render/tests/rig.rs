@@ -37,9 +37,9 @@ impl Game for Walkers {
             .unwrap();
         // Side by side along their walking direction (+Z), seen in profile.
         for (name, mesh, z, speed) in [("hero", hero, -1.1, 1.4), ("dog", dog, 1.1, 1.2)] {
-            let mut a = Animator::new([rig::locomotion("move", "idle", [(speed, "walk")])]);
-            rig::drive(&mut a, "move", speed);
+            let a = Animator::new([rig::locomotion("move", "idle", [(speed, "walk")])]);
             w.spawn_named(name, (Transform::at(0., 0., z), mesh, a));
+            rig::drive(w, name, "move", speed);
         }
         w.spawn((
             Transform::default(),

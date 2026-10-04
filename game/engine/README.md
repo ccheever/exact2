@@ -200,11 +200,13 @@ w.spawn_named("hero", (Transform::default(), hero,
     Layers(vec![Layer::new(Animation::play("flinch").once()).additive().weight(0.)])));
 w.spawn((Mesh::cuboid(Vec3::new(0.04, 0.04, 0.9)), SocketFollow::new("hero", "hand_r")));
 // Each tick, with the ground speed the body actually moves at:
-rig::drive(&mut w.require_mut::<Animator>("hero"), "move", speed);
+rig::drive(w, "hero", "move", speed);
 ```
 
-Gaits blend by ground speed with a shared phase, so feet stay in step; above the
-fastest gait `drive` raises the playback rate so planted feet stay still. Walk clips
+Gaits blend by ground speed with a shared phase. `drive` picks the blend and the
+playback rate so planted feet stay planted at every speed: below the slowest gait it
+plays that gait slower (idle blends in under 5 cm/s), between gaits it corrects for
+the blended stride, and above the fastest it plays faster. Zero or negative speeds idle. Walk clips
 mark each footfall `step`. Every number comes from the engine's portable math, so
 the generated model's identity is the same on every host and saves restore.
 

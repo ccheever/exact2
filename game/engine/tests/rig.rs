@@ -67,8 +67,8 @@ impl Game for Yard {
         } else {
             5.
         };
-        rig::drive(&mut w.require_mut::<Animator>("hero"), "move", speed);
-        rig::drive(&mut w.require_mut::<Animator>("dog"), "move", 1.2);
+        rig::drive(w, "hero", "move", speed);
+        rig::drive(w, "dog", "move", 1.2);
         if w.tick() == 150 {
             let mut layers = w.require_mut::<Layers>("hero");
             layers.0[0] = Layer::new(Animation::play("flinch").once()).additive();
@@ -120,15 +120,70 @@ fn locomotion_sorts_gaits_and_refuses_bad_speeds() {
 }
 
 #[test]
-fn drive_matches_playback_to_ground_speed_above_the_fastest_gait() {
-    let mut a = Animator::new([rig::locomotion(
-        "move",
-        "idle",
-        [(1.4, "walk"), (4., "run")],
-    )]);
-    for (speed, rate) in [(0., 1.), (2., 1.), (4., 1.), (6., 1.5)] {
-        rig::drive(&mut a, "move", speed);
-        assert_eq!(a.state_named("move").unwrap().speed, rate, "{speed}");
+fn drive_picks_the_gait_and_rate_for_the_ground_speed() {
+    let mut w = World::new(60, 0);
+    let hero = w.generated_model("hero.model", humanoid()).unwrap();
+    w.spawn_named(
+        "hero",
+        (
+            Transform::default(),
+            hero,
+            Animator::new([rig::locomotion(
+                "move",
+                "idle",
+                [(1.4, "walk"), (4., "run")],
+            )]),
+        ),
+    );
+    let read = |w: &World| {
+        let a = w.require::<Animator>("hero");
+        let axis = match a.params.iter().find(|p| p.0 == "speed") {
+            Some((_, animation::Param::Number(v))) => *v,
+            _ => f32::NAN,
+        };
+        (axis, a.state_named("move").unwrap().speed)
+    };
+    // Idle at rest and backwards; the slowest gait slowed down below it; the
+    // fastest sped up above it.
+    for (speed, axis, rate) in [
+        (0., 0., 1.),
+        (-2., 0., 1.),
+        (0.7, 1.4, 0.5),
+        (1.4, 1.4, 1.),
+        (6., 4., 1.5),
+    ] {
+        rig::drive(&w, "hero", "move", speed);
+        assert_eq!(read(&w), (axis, rate), "{speed}");
+    }
+    // Between gaits the rate corrects the blended stride (shorter than the blend's speed).
+    rig::drive(&w, "hero", "move", 2.7);
+    let (axis, rate) = read(&w);
+    assert!(axis == 2.7 && rate > 1.01 && rate < 1.3, "{rate}");
+}
+
+#[test]
+fn feet_hold_the_ground_at_every_speed() {
+    for speed in [0.1, 0.3, 0.7, 1.0, 1.4, 2.0, 2.7, 3.5, 4., 5.] {
+        let samples = feet(speed, "", 300);
+        // A planted foot: the lower one, at its rest height (the foot joint sits
+        // 0.06 m up) on consecutive ticks. It must hold still in the world.
+        let mut moved = Vec::new();
+        for t in 90..samples.len() - 1 {
+            for foot in 0..2 {
+                let (a, b) = (samples[t][foot], samples[t + 1][foot]);
+                let other = samples[t][1 - foot].y;
+                if a.y < other && b.y < samples[t + 1][1 - foot].y && a.y < 0.075 && b.y < 0.075 {
+                    moved.push(((b.z - a.z) * 60.).abs());
+                }
+            }
+        }
+        moved.sort_by(f32::total_cmp);
+        let median = moved[moved.len() / 2];
+        assert!(
+            !moved.is_empty() && median < 0.1 * speed + 0.02,
+            "{speed} m/s: a planted foot slides at {median} m/s (median of {})",
+            moved.len()
+        );
     }
 }
 
@@ -194,7 +249,7 @@ impl Game for Walker {
     }
     fn tick(w: &mut World, _: &Input, args: &Walk) {
         if args.clip.is_empty() {
-            rig::drive(&mut w.require_mut::<Animator>("hero"), "move", args.speed);
+            rig::drive(w, "hero", "move", args.speed);
         }
         animation::step(w);
         w.require_mut::<Transform>("hero").position.z += args.speed * w.dt();
