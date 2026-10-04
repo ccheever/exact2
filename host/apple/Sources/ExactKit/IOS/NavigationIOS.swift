@@ -93,6 +93,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var tabItems: [String] = []
     let tabProxy = TabDelegateProxy()
     private(set) var changing = false
+    /// While a push or pop runs: paints what each frame newly reveals.
+    private var revealLink: CADisplayLink?
     /// LLP 1075.003: each stack Exact built, by controller; what each shown
     /// bar covers of its route; the ownership changes already journaled;
     /// whether the hooks are being replayed for a cold launch's objects.
@@ -587,12 +589,39 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             interactiveSource = (source.node, source.key)
             interactiveDepth = navigationController.viewControllers.count + 1
         }
+        // The route coming into view was out of the window while it was
+        // covered, so no scroll asked for its text; paint what shows of it
+        // as the transition starts, not when the reader next scrolls.
+        transition?.animate(alongsideTransition: { [weak self] _ in self?.presenter.paintVisibleText() })
+        // That paints what shows as it starts. A swipe reveals the route a
+        // strip at a time, and painting stopped there until the swipe ended
+        // (a back swipe showed the list's top half, then its bottom half).
+        // Paint each frame's newly revealed text until the transition is over.
+        if changing { startRevealing() }
+    }
+
+    private func startRevealing() {
+        guard revealLink == nil else { return }
+        let link = CADisplayLink(target: RevealTick(self), selector: #selector(RevealTick.tick))
+        link.add(to: .main, forMode: .common)
+        revealLink = link
+    }
+
+    fileprivate func revealTick() {
+        guard changing else { stopRevealing(); return }
+        presenter.paintVisibleText()
+    }
+
+    private func stopRevealing() {
+        revealLink?.invalidate()
+        revealLink = nil
     }
 
     func navigationController(_ navigationController: UINavigationController, didShow viewController: UIViewController, animated: Bool) {
         guard navigationController === navigation,
               navigationController.topViewController === viewController else { return }
         changing = false
+        stopRevealing()
         defer {
             // Tree updates during UIKit's transition retain their latest
             // intent. Apply it once the native stack is available again.
@@ -601,6 +630,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                 sync(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil))
             }
             presenter.session?.view?.fit()
+            // What the settled route shows has pixels (the swipe may have
+            // left a band of it unpainted, or a cancelled pop the source).
+            presenter.paintVisibleText()
             presenter.flushPendingFocus()
             recordPop(navigationController)
         }
@@ -662,5 +694,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         lastTransition = "idle"
         if clearFocus { presenter.cancelPendingFocus() }
     }
+}
+/// The reveal link's target, so the link doesn't keep its host alive.
+private final class RevealTick: NSObject {
+    private weak var host: NavigationHost?
+    init(_ host: NavigationHost) { self.host = host }
+    @objc func tick() { if let host { host.revealTick() } }
 }
 #endif

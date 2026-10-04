@@ -696,18 +696,33 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             let outsideY = point.y < bounds.minY || point.y > bounds.maxY
             if outsideX && (style["overflow_x"]?.string ?? "visible") != "visible" { return nil }
             if outsideY && (style["overflow_y"]?.string ?? "visible") != "visible" { return nil }
-            for child in subviews.reversed() {
+            for child in NodeView.hitOrder(subviews) {
                 if child === (glassSlot ?? materialView), Materials.glass(materialKind) || blurHostsChildren, let contentView = materialView?.contentView {
                     // The effect's UIKit bounds check must not hide authored
                     // children in CSS visible overflow. They remain descendants
                     // of the effect, so its recognizers still see their touches.
-                    for content in contentView.subviews.reversed() where content is NodeView || content is GlassGroupView {
+                    for content in NodeView.hitOrder(contentView.subviews) where content is NodeView || content is GlassGroupView {
                         if let hit = content.hitTest(convert(point, to: content), with: event) { return hit }
                     }
                 }
                 if let hit = child.hitTest(convert(point, to: child), with: event) { return hit }
             }
-            return bounds.contains(point) ? self : nil
+            // CSS `pointer-events: none` (inherited): the box is never the
+            // target, so a touch goes to what is under it — a header's blur
+            // over a list must not stop the list scrolling. A descendant
+            // that sets `auto` again is still a target.
+            if style["pointer_events"]?.string == "none" { return nil }
+            guard bounds.contains(point) else { return nil }
+            // Interactive glass (a pressable glass box) answers a finger
+            // itself, swelling and lighting under it, only for touches that
+            // reach its effect view. Its content view is the target; the
+            // touch climbs the responder chain to this node, whose press is
+            // unchanged.
+            if event?.type == .touches, materialInteractive, Materials.glass(materialKind),
+               let contentView = materialView?.contentView {
+                return contentView
+            }
+            return self
         }
         guard let overlay else { return ordinary() }
         let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil || $0.placementHidden }
@@ -727,6 +742,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
         return self
     }
+
 
     /// The box on screen, through the placement of the placed child this
     /// node is (or is under), for assistive technology — the same box the
@@ -861,7 +877,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             activeReadingAnchor = anchor.node
             top += anchor.node.convert(anchor.node.bounds, to: sv).minY - anchor.y
         }
-        let y = prior.end ? maximum : min(maximum, max(minimum, top))
+        let y = Self.followedTop(current: sv.contentOffset.y, minimum: minimum, maximum: maximum, end: prior.end, top: top,
+                                 moving: sv.isTracking || sv.isDragging || sv.isDecelerating)
         let inactive = window == nil || presenter?.navigation.isInactiveRoute(containing: self) == true
         retainedScrollTop = !prior.end && top > maximum && (inactive || retainedScrollTop != nil) ? top : nil
         // While the reader's finger is down or the fling is running, an
@@ -888,6 +905,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // next time so that rounding cannot masquerade as a reader's scroll.
         anchoredScrollTop = sv.contentOffset.y
     }
+
 
     func applyPendingScroll() {
         defer { pendingScrollTop = nil; pendingScrollLeft = nil }
