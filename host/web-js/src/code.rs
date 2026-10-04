@@ -10,7 +10,8 @@
 //!
 //! Values: numbers, strings and bools are JavaScript's; a record or list is
 //! an array; `none` is `null` and `some(x)` is `x` (the JS target does not
-//! represent `some(none)`); unit is `null`.
+//! represent `some(none)`, and refuses a plan that makes one: nested.rs);
+//! unit is `null`.
 
 use exact_plan::{Opcode, Plan, Stdlib};
 use exact_runner::vm::{instructions, Instruction};
@@ -27,6 +28,8 @@ pub struct Scope {
     /// The JavaScript object holding the row slots in force (LLP 1017 P4c:
     /// a slot owned by an `each` lives on its row), by slot index.
     pub rows: Option<String>,
+    /// The parameters' types, when the body is an action's (nested.rs).
+    pub params: Vec<exact_plan::TypesId>,
 }
 
 /// One region frame's getters.
@@ -70,6 +73,7 @@ pub fn function(
     let ins: Vec<Instruction> = instructions(code)
         .collect::<Result<_, _>>()
         .map_err(|t| format!("malformed code: {t:?}"))?;
+    crate::nested::check(plan, &ins, &scope.params)?;
     let mut t = Translator {
         plan,
         scope,

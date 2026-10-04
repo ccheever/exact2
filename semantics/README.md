@@ -159,10 +159,10 @@ A program `exact-web-js` refuses is outside the JS target (`OUTSIDE-JS`),
 not a failure. A divergence prints `DIVERGE-JS` with whether the semantics
 agreed with the runner, and is kept under `target/difftest/failures/`
 (`*-js-*.{contract,events,rust.txt,js.txt}`); random ones are shrunk first.
-Known, unfixed: `options/nested.contract` (the runtime holds `some(v)` as
-`v`, so `some(none)` is `none`) and `routes/forged.contract` (the runtime
-neither refuses a commit that leaves the router slot invalid nor traps on a
-verb of an invalid router). The async lane runs the corpus and the explored
+The JS target refuses a plan that can make an option of an option
+(`host/web-js/src/nested.rs`: it holds `some(x)` as `x`), so
+`options/nested.contract` and `options/some-of-option.contract` are
+outside it. The async lane runs the corpus and the explored
 programs with `--js`, and a random sweep of 500 with `--js-only`.
 
 ## Verifying an app

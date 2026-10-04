@@ -176,6 +176,7 @@ struct Em<'a> {
 const HOST_FACTS: &[&str] = &["exactViewport", "exactTime", "exactPage", "exactSurface"];
 
 pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, String> {
+    crate::nested::declared(plan)?;
     let fonts = crate::faces::fonts(plan)?;
     let sites = Sites::new(plan)?;
     let mut warnings = Vec::new();
@@ -416,6 +417,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         let rows = code::touches_rows(plan, plan.code(r.body));
         let scope = Scope {
             rows: rows.then(|| "$r".to_string()),
+            params: r.params.iter().map(|p| plan.param(p).ty).collect(),
             ..action.clone()
         };
         let mut f = code::function(
