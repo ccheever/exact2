@@ -838,6 +838,54 @@ test.each([false, true])('ordinary buildBake with split directories=%s streams p
   } finally { rmSync(dir,{recursive:true,force:true}); }
 }, 180000);
 
+test('ordinary bake metadata follows intermediate directory A, B and the unset default', () => {
+  const dir=realpathSync(mkdtempSync(resolve(tmpdir(),'exact metadata directories-')));
+  const previous=process.env.CARGO_BUILD_BUILD_DIR;
+  delete process.env.CARGO_BUILD_BUILD_DIR;
+  const write=(name,bytes)=>{mkdirSync(dirname(resolve(dir,name)),{recursive:true});writeFileSync(resolve(dir,name),bytes);};
+  try {
+    const platform=process.platform==='win32'?'windows':'linux', target=bakeTarget(platform), id='com.exact.metadatadirs';
+    write('rust-toolchain.toml',readFileSync(resolve(import.meta.dir,'../rust-toolchain.toml')));
+    write('Cargo.toml',`[workspace]\nmembers=["${platform}"]\nresolver="2"\n`);
+    write(`${platform}/Cargo.toml`,`[package]\nname="metadata-${platform}"\nversion="0.1.0"\nedition="2021"\n`);
+    write('app.contract','component App\n  view\n    text "Metadata"\n');
+    write(`${platform}/build.rs`,`fn main(){
+      println!("cargo:rerun-if-changed=build.rs");
+      let out=std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
+      std::fs::write(out.join("compat.json"),r#"${JSON.stringify({target,inputs:{platform,app:id,store:{L:'0'},keys:[]}})}"#).unwrap();
+      std::fs::write(out.join("artifacts.json"),r#"{"version":1,"artifacts":[],"sources":{}}"#).unwrap();
+      std::fs::write(out.join("app.plan"),b"fixture").unwrap();
+    }`);
+    write(`${platform}/src/main.rs`,'fn main(){}');
+    const lock=spawnSync('cargo',['generate-lockfile','--offline'],{cwd:dir,encoding:'utf8'});
+    assert.equal(lock.status,0,lock.stderr);
+    const app={dir,workspace:dir,target:resolve(dir,'target'),name:'metadata',id,
+      manifest:{app:{id,name:'Metadata'},rust:false},crate:kind=>`metadata-${kind}`};
+    const sourcePaths=[];
+    for(const lane of ['a','b',null]) {
+      const input=`${platform}/${lane??'default'}.txt`, text=`input-${lane??'default'}`;
+      write(input,text);
+      write(`${platform}/src/main.rs`,`fn main(){println!("{}",include_str!("../${lane??'default'}.txt"));}`);
+      const receipt=buildBake(app,platform,target,{profile:'dev',output:resolve(dir,'bakes'),
+        env:{EXACT_UPDATE_TRUST:'development',...(lane?{CARGO_BUILD_BUILD_DIR:resolve(dir,`intermediate-${lane}`)}:{})}});
+      const executable=receipt.products.find(p=>basename(p.path)===`metadata-${platform}${process.platform==='win32'?'.exe':''}`);
+      assert.ok(executable,'completed receipt identifies the actual native executable');
+      const ran=spawnSync(executable.path,[],{encoding:'utf8'});
+      assert.equal(ran.status,0,ran.stderr); assert.equal(ran.stdout.trim(),text);
+      const paths=receipt.binary.inputs.map(f=>f.path);
+      assert.ok(paths.includes(resolve(dir,input)),'new compiler include is in the completed receipt');
+      assert.ok(sourcePaths.every(path=>!paths.includes(path)),'prior intermediate dep-info is not reused');
+      sourcePaths.push(resolve(dir,input));
+      write(input,`${text}-edited-after-bake`);
+      const named=receipt.binary.inputs.find(f=>f.path===resolve(dir,input)).name;
+      assert.ok(pendingBuildInputs(receipt).includes(named),'new included input stays freshness-tracked');
+    }
+  } finally {
+    if(previous===undefined)delete process.env.CARGO_BUILD_BUILD_DIR;else process.env.CARGO_BUILD_BUILD_DIR=previous;
+    rmSync(dir,{recursive:true,force:true});
+  }
+},180000);
+
 test('R14 external game capture refuses tracked output roots',()=>fixture(({app,root,write,run})=>{
   const external = resolve(root, 'outside/foreign');
   mkdirSync(external,{recursive:true});
