@@ -170,10 +170,10 @@ the saved local transform. `animation::socket(w, target, joint)` reads the curre
 world-space tick endpoint; displayed attachments use the interpolated local chain.
 
 Emitters form local clouds: moving the emitter moves particles already born. Add
-`emitter::WorldSpace` beside an `Emitter` and each birth batch stays where it was
-born instead (a rocket's trail is one emitter). Those birth poses are
-presentation, not saved or hashed: after a restore, batches born before it draw
-from the emitter's current pose until they die. `Shape::Box(size)` emits over an
+`emitter::WorldSpace::default()` beside an `Emitter` and each birth batch stays
+where it was born instead, at the emitter's pose and scale that tick (a rocket's
+trail is one emitter). `WorldSpace` saves those birth poses, so a restored trail
+draws where the continuous one does. `Shape::Box(size)` emits over an
 area (rain, snow).
 For sound, `w.sounds([..])` registers synthesized (`Synth`) or sampled (`Sample`)
 definitions in setup; a sample names a `.sound` asset declared in `Game::ASSETS`, and
