@@ -1370,3 +1370,32 @@ fn css_flex_factor_order_and_intrinsic_basis_refusals_are_precise() {
         );
     }
 }
+
+/// CSS `order` is a box's style row, bound or literal: a flex item moves in
+/// its row, as on the web (feed F19: it compiled as an SVG filter
+/// primitive's attribute and moved nothing).
+#[test]
+fn order_moves_a_flex_item_and_a_bound_order_moves_it_again() {
+    let src = "component A\n  state rail = true\n  action flip\n    rail = not rail\n  view\n    row testId=\"row\" width=300\n      view testId=\"main\" width=200 height=10\n      view testId=\"rail\" width=100 height=10 order=(rail ? -1 : 0)\n      view testId=\"last\" width=0 height=10 order=1\n";
+    let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let x = |r: &mut Runner<NoData>, id: &str| {
+        let root = r.roots()[0];
+        r.kernel_mut()
+            .compute_layout(root, exact_kernel::Offer::definite(400.0, 400.0))
+            .unwrap();
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0]).unwrap().frame.x
+    };
+    assert_eq!((x(&mut r, "rail"), x(&mut r, "main")), (0.0, 100.0));
+    r.act("flip", vec![]).unwrap();
+    assert_eq!((x(&mut r, "main"), x(&mut r, "rail")), (0.0, 200.0));
+    assert_eq!(x(&mut r, "last"), 300.0);
+}

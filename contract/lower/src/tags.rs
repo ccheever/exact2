@@ -776,7 +776,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "feScale" => AttrTarget::Prop(p("feScale")),
         "xChannelSelector" => AttrTarget::Prop(p("xChannelSelector")),
         "yChannelSelector" => AttrTarget::Prop(p("yChannelSelector")),
-        "order" => AttrTarget::Prop(p("order")),
+        "feOrder" => AttrTarget::Prop(p("feOrder")),
         "kernelMatrix" => AttrTarget::Prop(p("kernelMatrix")),
         "divisor" => AttrTarget::Prop(p("divisor")),
         "bias" => AttrTarget::Prop(p("bias")),
@@ -1043,6 +1043,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "overscroll-behavior-y" => styles(&[StyleId::OverscrollBehaviorY]),
         "scroll-behavior" => styles(&[StyleId::ScrollBehavior]),
         "z-index" => styles(&[StyleId::ZIndex]),
+        "order" => styles(&[StyleId::Order]),
         "transition" => styles(&[StyleId::Transition]),
         // @ref LLP 1063 — played as the node leaves; its names resolve against
         // the plan's keyframes as `animation`'s do (LLP 1055 D5).

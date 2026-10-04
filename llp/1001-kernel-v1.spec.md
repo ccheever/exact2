@@ -530,6 +530,13 @@ box was a containing block:
 - **`z-index` orders siblings.** Apple's presenters give it to the layer
   (`usedZIndex`); the Linux painter stacks siblings by the same rule (LLP
   1083 D6). CSS orders a whole stacking context.
+- **`order` lays out, and painting stays in tree order** (feed F19). A flex
+  or grid container hands the layout engine its children in order-modified
+  document order (`kernel/src/layout/order.rs`), so items are placed as CSS
+  places them. CSS also paints flex and grid items in that order; the kernel
+  paints them in tree order, so two reordered items that overlap stack as
+  their tree order says. Focus and accessibility order are tree order, as
+  on the web.
 - **`position: fixed` is not a row.** `sticky` lays out as `relative` with no
   offset; each native host moves it as its scroller scrolls (LLP 1083).
 A text field (`input`, `textarea`) lays out as the web's (2026-09-30): it keeps

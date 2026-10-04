@@ -1231,6 +1231,27 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
+        // An SVG element's own attribute (a filter primitive's `mode`, `in`,
+        // `values`…) does nothing on a box: refused by name rather than kept
+        // as a prop no host reads (feed F19: CSS `order` once landed here).
+        let svg_tag = svg::is_element(tag) || matches!(tag, "svg" | "text" | "tspan");
+        if !svg_tag && !module && svg::svg_only_prop(&a.name) {
+            return err(
+                "lower-attr-tag",
+                format!(
+                    "`{}` is an SVG element's attribute; it does nothing on `{tag}`",
+                    a.name
+                ),
+                a.span,
+            );
+        }
+        if !svg_tag && !module && a.name == "mask" {
+            return err(
+                "lower-attr-tag",
+                "`mask` masks SVG elements so far; a box takes `mask-image` (a gradient)",
+                a.span,
+            );
+        }
         // @ref LLP 1048.003 D1 — a document's metadata, and nothing else.
         let head_field = tags::HEAD_FIELDS.contains(&a.name.as_str());
         if head_field != (tag == "head") {

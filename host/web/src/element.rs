@@ -851,6 +851,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::FeDy => "dy",
             PropId::FeScale => "scale",
             PropId::FeRadius => "radius",
+            PropId::FeOrder => "order",
             PropId::LightX => "x",
             PropId::LightY => "y",
             PropId::LightZ => "z",
@@ -1109,7 +1110,7 @@ mod dataset_tests {
                     | "mode"
                     | "numOctaves"
                     | "operator"
-                    | "order"
+                    | "feOrder"
                     | "preserveAlpha"
                     | "primitiveUnits"
                     | "result"

@@ -1102,6 +1102,22 @@ fn style_changed(
         if let Some(node) = arena.taffy(slot) {
             layout.restyle(arena, slot, node);
         }
+        // CSS `order` (feed F19) is the engine's child order in a flex or
+        // grid container: an item's moves it, a container's `display`
+        // decides whether its ordered children are reordered.
+        if mask.has(crate::StyleId::Order) {
+            if let Some(p) = arena.parent(slot) {
+                sync_children(arena, layout, p);
+            }
+        }
+        if mask.has(crate::StyleId::Display)
+            && arena
+                .children(slot)
+                .iter()
+                .any(|&c| arena.style(c).order != 0)
+        {
+            sync_children(arena, layout, slot);
+        }
         // A replaced header's padding is part of its route's top cover.
         if arena.cover(slot) == Some(crate::kernel::HostCover::Whole) {
             if let Some((p, node)) = arena.parent(slot).and_then(|p| Some((p, arena.taffy(p)?))) {
