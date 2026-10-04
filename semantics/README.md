@@ -170,10 +170,7 @@ A program `exact-web-js` refuses is outside the JS target (`OUTSIDE-JS`),
 not a failure. A divergence prints `DIVERGE-JS` with whether the semantics
 agreed with the runner, and is kept under `target/difftest/failures/`
 (`*-js-*.{contract,events,rust.txt,js.txt}`); random ones are shrunk first.
-The JS target refuses a plan that can make an option of an option
-(`host/web-js/src/nested.rs`: it holds `some(x)` as `x`), so
-`options/nested.contract` and `options/some-of-option.contract` are
-outside it. The async lane runs the corpus and the explored
+The async lane runs the corpus and the explored
 programs with `--js`, and a random sweep of 500 with `--js-only`.
 
 ## Verifying an app
@@ -442,6 +439,11 @@ evaluated. Only a `text`'s text and an element's `testId` are observed, and noth
 inside a virtualized `list`: the runner builds only the rows its window lays
 out, which is layout, so both sides leave a virtualized list's descendants
 out of the observation (the list's own line stays). The
-runner's resource bounds (string length, list steps, value size) are a
-refinement the semantics doesn't model. A program that hits them traps on the
-runner and not here.
+runner's evaluation bounds (list steps, string length, value size and depth)
+are a refinement the semantics doesn't model (LLP 1090 D8): a step the runner
+refuses for one (`IterationLimit`, `StringTooLong` as a trap or an argument's
+or write's refusal, `ValueTooLarge`, `ValueTooDeep`) is `UNSUPPORTED`, outside
+the semantics, not a divergence. The web's JS target refuses the same steps
+(`host/web-js/conform.mjs`). The checker's two type refusals that bound a value
+(`type-option-option`, `type-too-deep`) are in `Contract.check` too
+(`checkBounds`, and where `infer` grows a type: `some`, `map`, the roster).

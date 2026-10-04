@@ -54,7 +54,16 @@ pub fn call(
         .map(|s| Value::str(&s))
         .ok_or(CallError::StringTooLong);
     }
-    call_value(f, args, now_ms, plan, router, format, geometry).ok_or(CallError::TypeMismatch)
+    let v = call_value(f, args, now_ms, plan, router, format, geometry)
+        .ok_or(CallError::TypeMismatch)?;
+    // An encoding is a string the expression builds, bounded like the rest
+    // (LLP 1090 D6), checked after the route segment's empty and dot refusal.
+    if matches!(f, Stdlib::EncodeURIComponent | Stdlib::EncodeRouteSegment)
+        && v.as_str().is_some_and(|s| s.len() > crate::vm::MAX_STRING)
+    {
+        return Err(CallError::StringTooLong);
+    }
+    Ok(v)
 }
 
 fn call_value(
@@ -509,6 +518,28 @@ mod tests {
             );
         }
     }
+    /// An encoding one byte past `MAX_STRING` traps, after the route
+    /// segment's own refusal of `""` (LLP 1090 D6).
+    #[test]
+    fn the_encoders_trap_one_byte_past_the_longest_string() {
+        let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
+            .finish()
+            .unwrap();
+        let encode = |f, text: &str| call(f, &[Value::str(text)], 0.0, &plan, None, None, None);
+        let max = crate::vm::MAX_STRING;
+        for f in [Stdlib::EncodeURIComponent, Stdlib::EncodeRouteSegment] {
+            // A space encodes to `%20`: three bytes.
+            let fits = "a".repeat(max - 3) + " ";
+            assert!(encode(f, &fits).is_ok_and(|v| v.as_str().map(str::len) == Some(max)));
+            let over = "a".repeat(max - 2) + " ";
+            assert_eq!(encode(f, &over), Err(CallError::StringTooLong));
+        }
+        assert_eq!(
+            encode(Stdlib::EncodeRouteSegment, ""),
+            Err(CallError::TypeMismatch)
+        );
+    }
+
     #[test]
     fn at_answers_what_javascript_answers() {
         let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)

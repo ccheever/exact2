@@ -71,7 +71,10 @@ pub(crate) fn check_component(
         ct.resources.push(sink.keep(shapes.resolve(&r.shape)));
     }
     for m in &c.mutations {
-        ct.mutations.push(sink.keep(shapes.resolve(&m.shape)));
+        let t = sink.keep(shapes.resolve(&m.shape));
+        // A mutation holds `option<T>` of its answer (LLP 1090 D2).
+        sink.keep_unit(shapes.bounded(&Ty::Option(Box::new(t.clone())), m.shape.span()));
+        ct.mutations.push(t);
         // @ref LLP 1054.000.000 D1 — what a send to this mutation refreshes.
         for (i, (name, span)) in m.refreshes.iter().enumerate() {
             if !c.resources.iter().any(|r| &r.name == name) {

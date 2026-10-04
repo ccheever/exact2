@@ -15,7 +15,8 @@ shape Item
 component App
   state query = ""
   resource items = search(query) as shape list<Item>
-  mutation outcome as shape option<Item>
+  resource found = find(query) as shape option<Item>
+  mutation outcome as shape Item
   action save
     send outcome = save(query, true)
   view
@@ -26,6 +27,7 @@ const VALID: &str = r#"
 import type { Answer, Args, Result, Source, Sources, Store, Storage } from './app.contract.d.ts';
 const sources: Sources = {
   search: ([query], store) => [{ id: query, enabled: store.get('token') !== null, scores: [1], child: null }],
+  find: () => null,
   save: async ([query, enabled], store) => {
     store.set('token', query);
     store.forget('old');
@@ -37,7 +39,7 @@ declare const store: Store;
 declare const storage: Storage;
 answer('search', ['Palo'], store, storage);
 answer('save', ['Palo', true], store, storage);
-const nullable: Result<'save'> = null;
+const nullable: Result<'find'> = null;
 // @ts-expect-error argument order is the Contract's
 const swapped: Args<'save'> = [true, 'Palo'];
 // @ts-expect-error the caller must supply every argument
