@@ -398,6 +398,7 @@ dependencies = [
  "exact-num",
  "exact-plan",
  "icu_locale",
+ "serde_json",
 ]
 
 [[package]]
@@ -950,6 +951,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "windows",
 ]
 
 [[package]]
@@ -1043,6 +1045,7 @@ dependencies = [
 name = "exact-grants"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "url",
 ]
 
@@ -1210,9 +1213,9 @@ dependencies = [
 name = "exact-windows"
 version = "0.1.0"
 dependencies = [
+ "exact-kernel",
  "exact-linux",
  "exact-runner",
- "serde_json",
  "softbuffer",
  "winit",
 ]
@@ -1777,6 +1780,7 @@ dependencies = [
  "ureq",
  "url",
  "webpki-roots",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

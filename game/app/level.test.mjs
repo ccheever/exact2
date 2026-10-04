@@ -4,6 +4,26 @@ import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {gameDefaults, gameShells} from './shells.mjs';
 
+test('external shells use the SDK toolchain and refresh stale generated pins', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-shell-toolchain-'));
+  try {
+    mkdirSync(resolve(dir, 'logic/src'), {recursive:true});
+    writeFileSync(resolve(dir, 'logic/src/lib.rs'), 'impl Game for Island { const ID: &\'static str = "island"; }');
+    const authored = '[toolchain]\nchannel = "author-owned"\n';
+    writeFileSync(resolve(dir, 'rust-toolchain.toml'), authored);
+    const game = gameDefaults(dir).game;
+    const generate = () => gameShells(dir, game, resolve(import.meta.dir, '..'));
+    const generated = resolve(dir, '.shells/rust-toolchain.toml');
+    const pin = readFileSync(resolve(import.meta.dir, '../../rust-toolchain.toml'), 'utf8');
+    generate();
+    expect(readFileSync(generated, 'utf8')).toBe(pin);
+    writeFileSync(generated, '[toolchain]\nchannel = "stale"\n');
+    generate();
+    expect(readFileSync(generated, 'utf8')).toBe(pin);
+    expect(readFileSync(resolve(dir, 'rust-toolchain.toml'), 'utf8')).toBe(authored);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
 test('a level-only game bakes its declared type without an art directory', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-level-shell-'));
   try {
