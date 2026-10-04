@@ -529,6 +529,117 @@ fn return_guidance_reaches_the_garden_from_every_edge_and_corner() {
 }
 
 #[test]
+fn an_occupied_north_row_guides_planting_after_restore() {
+    let mut game = new(7);
+    game.key_down("KeyD");
+    game.run(500.0);
+    game.key_up("KeyD");
+    game.run(100.0);
+    game.key_down("KeyW");
+    game.run(4_000.0);
+    game.key_up("KeyW");
+    game.run(100.0);
+    game.key_down("KeyS");
+    game.run(500.0);
+    game.key_up("KeyS");
+    game.run(100.0);
+    game.tap("KeyE");
+    send(&mut game, "buy carrot");
+    let guidance = game.world().published("planting");
+    assert!(
+        guidance
+            .as_ref()
+            .is_some_and(|p| p.text().starts_with("Empty plot")),
+        "an occupied edge plot must show where to plant the held seed"
+    );
+    assert!(game
+        .world()
+        .published("prompt")
+        .unwrap()
+        .text()
+        .starts_with("Carrot growing"));
+    let saved = game.save().unwrap();
+    let mut restored = new(7);
+    restored.restore(&saved).unwrap();
+    for sim in [&mut game, &mut restored] {
+        follow_empty_plot(sim);
+        assert_eq!(sim.world().published("planting").unwrap().text(), "");
+        sim.tap("KeyE");
+        sim.run(100.0);
+        assert_eq!(sim.world().resource::<Census>().plants, 2);
+        assert_eq!(sim.world().resource::<Farm>().seeds[0], 0);
+        assert_eq!(sim.world().published("planting").unwrap().text(), "");
+    }
+    assert!(game.save().unwrap() == restored.save().unwrap());
+}
+
+fn follow_empty_plot(game: &mut Sim<Garden>) {
+    for _ in 0..80 {
+        if game
+            .world()
+            .published("prompt")
+            .unwrap()
+            .text()
+            .starts_with("E: plant")
+        {
+            return;
+        }
+        let hint = game
+            .world()
+            .published("planting")
+            .unwrap()
+            .text()
+            .to_owned();
+        let key = [
+            ("north (W)", "KeyW"),
+            ("east (D)", "KeyD"),
+            ("south (S)", "KeyS"),
+            ("west (A)", "KeyA"),
+        ]
+        .into_iter()
+        .find(|(direction, _)| hint.contains(direction))
+        .unwrap_or_else(|| panic!("no empty-plot direction: {hint:?}"))
+        .1;
+        game.key_down(key);
+        game.run(500.0);
+        game.key_up(key);
+        game.run(100.0);
+    }
+    panic!("visible empty-plot directions did not reach a planting tile");
+}
+
+#[test]
+fn planting_guidance_updates_when_harvesting_or_expanding_a_full_garden() {
+    let mut game = new(7);
+    send(&mut game, "fill 36");
+    assert_eq!(
+        game.world().published("planting").unwrap().text(),
+        "Garden full · expand to add empty plots"
+    );
+    game.run(20_100.0);
+    game.tap("KeyE");
+    game.run(100.0);
+    assert_eq!(game.world().published("planting").unwrap().text(), "");
+    // The only empty tile is now the harvested carrot at the opposite corner.
+    game.world_mut().require_mut::<Transform>("player").position =
+        exact_game::Vec3::new(10.0, 0.9, -10.0);
+    game.run(1_000.0);
+    follow_empty_plot(&mut game);
+    game.tap("KeyE");
+    send(&mut game, "buy carrot");
+    assert_eq!(
+        game.world().published("planting").unwrap().text(),
+        "Garden full · expand to add empty plots"
+    );
+    garden_logic::farm::resize(game.world_mut(), 8);
+    game.run(1_000.0);
+    follow_empty_plot(&mut game);
+    game.tap("KeyE");
+    game.run(100.0);
+    assert_eq!(game.world().resource::<Census>().plants, 37);
+}
+
+#[test]
 fn plot_outline_tracks_growth_harvest_movement_and_restore() {
     let mut game = new(7);
     let color = |game: &Sim<Garden>| game.world().require::<Material>("plot-north").color;

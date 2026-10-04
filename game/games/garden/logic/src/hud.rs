@@ -15,6 +15,7 @@ pub struct Status {
     pub held: String,
     pub prompt: String,
     pub plot: String,
+    pub planting: String,
     pub weather: String,
     pub weather_left: String,
     pub restock_in: String,
@@ -222,6 +223,7 @@ pub fn publish(w: &World, prompt: String, force: bool) {
                 )
             })
             .unwrap_or_else(|| "Outside the garden".into()),
+        planting: crate::farm::planting_guidance(w),
         weather: weather.sky.name().into(),
         weather_left: if weather.sky == crate::garden::Sky::Clear {
             String::new()

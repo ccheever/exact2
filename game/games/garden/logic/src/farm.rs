@@ -464,6 +464,61 @@ pub fn command(w: &mut World, cmd: &str) {
     }
 }
 
+fn bearing(delta: Vec3) -> String {
+    let direction = if delta.x.abs() >= delta.z.abs() {
+        if delta.x > 0.0 {
+            "east (D)"
+        } else {
+            "west (A)"
+        }
+    } else if delta.z > 0.0 {
+        "south (S)"
+    } else {
+        "north (W)"
+    };
+    let metres = delta.length().round().max(1.0) as u32;
+    format!("{direction} · about {metres} m")
+}
+
+/// A held seed needs somewhere to go without hiding this tile's harvest prompt.
+/// Called only when publishing the HUD, never for every simulation tick. The
+/// bounded tile table is already authoritative; no saved navigation cache.
+pub fn planting_guidance(w: &World) -> String {
+    let Some(player) = w.global_position("player") else {
+        return String::new();
+    };
+    let Some(tile) = tile_at(w, player) else {
+        return String::new();
+    };
+    let farm = w.resource::<Farm>();
+    if farm.held.is_none() || farm.at(tile).is_none() {
+        return String::new();
+    }
+    let mut nearest = None;
+    let mut distance = f32::INFINITY;
+    for (i, plant) in farm.tiles.iter().enumerate() {
+        if plant.is_some() {
+            continue;
+        }
+        let tile = [
+            (i % farm.size as usize) as u16,
+            (i / farm.size as usize) as u16,
+        ];
+        let delta = garden::tile_center(tile) - player;
+        let d = delta.x * delta.x + delta.z * delta.z;
+        // Equal distances keep the first row-major tile, also after restore.
+        if d < distance {
+            distance = d;
+            nearest = Some((tile, Vec3::new(delta.x, 0.0, delta.z)));
+        }
+    }
+    match nearest {
+        Some(([x, z], delta)) => format!("Empty plot {}, {}: {}", x + 1, z + 1, bearing(delta)),
+        None if farm.size < MAX_SIZE => "Garden full · expand to add empty plots".into(),
+        None => "Garden full · no empty plots".into(),
+    }
+}
+
 /// The player's tile and what E would do there, or a direction back to it.
 pub fn prompt(w: &World) -> (Option<[u16; 2]>, String) {
     let Some(player) = w.global_position("player") else {
@@ -477,22 +532,7 @@ pub fn prompt(w: &World) -> (Option<[u16; 2]>, String) {
         let x = (player.x / TILE).round().clamp(0.0, last) * TILE;
         let z = -(-player.z / TILE).round().clamp(0.0, last) * TILE;
         let delta = Vec3::new(x - player.x, 0.0, z - player.z);
-        let direction = if delta.x.abs() >= delta.z.abs() {
-            if delta.x > 0.0 {
-                "east (D)"
-            } else {
-                "west (A)"
-            }
-        } else if delta.z > 0.0 {
-            "south (S)"
-        } else {
-            "north (W)"
-        };
-        let metres = delta.length().round().max(1.0) as u32;
-        return (
-            None,
-            format!("Return to garden: {direction} · about {metres} m"),
-        );
+        return (None, format!("Return to garden: {}", bearing(delta)));
     };
     let now = now_ms(w);
     let farm = w.resource::<Farm>();

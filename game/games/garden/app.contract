@@ -25,6 +25,7 @@ shape Hud
   held: string
   prompt: string
   plot: string
+  planting: string
   weather: string
   weather_left: string
   restock_in: string
@@ -172,6 +173,8 @@ component Garden
             text hud.away testId="away" position="absolute" top=240 right=12 max-width=320 padding=10 border-radius=10 background-color="#7c2d12e6" font-size=13
           column position="absolute" left=150 right=150 bottom=24 align-items="center" gap=6
             text `${hud.plot} · W north · D east · S south · A west` testId="plot" padding=6 border-radius=8 background-color="#0f172ad9" font-size=13
+            when hud.planting != ""
+              text hud.planting testId="planting" padding=6 border-radius=8 background-color="#14532dd9" font-size=14 color="#bef264"
             when hud.prompt != ""
               text hud.prompt testId="prompt" aria-live="polite" padding=10 border-radius=10 background-color="#0f172ad9" font-size=16
             when hud.last != ""

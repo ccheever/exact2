@@ -295,6 +295,26 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     await g.tap('KeyE');
     await g.run(100);
     check('the recovered player can plant', text(await session.tree(), 'census')?.startsWith('1 plants'));
+    await session.tap('buy-carrot');
+    await g.run(100);
+    const occupied = await session.tree();
+    check('an occupied edge plot points to an empty plot', text(occupied, 'planting')?.startsWith('Empty plot') && text(occupied, 'prompt')?.startsWith('Carrot growing'), text(occupied, 'planting'));
+    if (host !== 'linux') await session.screenshot(resolve(out, 'empty-direction.png'));
+    for (let step = 0; step < 20; step++) {
+      const tree = await session.tree();
+      if (text(tree, 'prompt')?.startsWith('E: plant')) break;
+      const guidance = text(tree, 'planting') ?? '';
+      const key = guidance.match(/\(([WASD])\)/)?.[1];
+      check('the empty-plot hint names a movement key', !!key, guidance);
+      if (!key) break;
+      await g.hold(`Key${key}`, 500);
+      await g.run(100);
+    }
+    const empty = await session.tree();
+    check('following the empty-plot hint reaches a planting tile', text(empty, 'prompt') === 'E: plant Carrot (1 left)' && !node(empty, 'planting'));
+    await g.tap('KeyE');
+    await g.run(100);
+    check('the guided player plants a second crop', text(await session.tree(), 'census')?.startsWith('2 plants'));
     return g.snapshot();
   };
   const returned = await returnAndPlant(lost);
@@ -334,7 +354,7 @@ async function playtest({open, out, log}) {
   let strawberryHarvests = 0;
   for (let turn = 0; turn < (fullMarket ? 96 : 48); turn++) {
     const tree = await s.tree();
-    const state = Object.fromEntries(['sheckles','prompt','plot','held','census','last','weather','restock','objective','order-detail','order-hint']
+    const state = Object.fromEntries(['sheckles','prompt','plot','planting','held','census','last','weather','restock','objective','order-detail','order-hint']
       .map(id => [id, text(tree, id) ?? '']));
     state.backpack = label(tree, 'bag-tab');
     state.shop = crops.map(id => {

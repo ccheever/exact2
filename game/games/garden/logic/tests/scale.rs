@@ -16,10 +16,16 @@ fn new(smooth: bool) -> Sim<Garden> {
     .unwrap()
 }
 
+fn tick(game: &mut Sim<Garden>) {
+    // 33.333 ms rounds below the first 30 Hz tick on the microsecond clock.
+    // Cross that boundary, and prove the timed command actually executed.
+    assert_eq!(game.run(1000.0 / 30.0 + 0.001), 1);
+}
+
 fn send(game: &mut Sim<Garden>, cmd: &str) -> f64 {
     game.post(cmd);
     let t = Instant::now();
-    game.run(1000.0 / 30.0);
+    tick(game);
     t.elapsed().as_secs_f64() * 1000.0
 }
 
@@ -50,7 +56,7 @@ fn frames(game: &mut Sim<Garden>, frames: u32) -> (f64, f64) {
 /// One seekable single-tick run: a tick plus the agent's rest observation.
 fn observed_tick(game: &mut Sim<Garden>) -> f64 {
     let t = Instant::now();
-    game.run(1000.0 / 30.0);
+    tick(game);
     t.elapsed().as_secs_f64() * 1000.0
 }
 
@@ -63,6 +69,29 @@ fn sizes() -> Vec<u32> {
         .ok()
         .map(|s| s.split(',').map(|n| n.parse().unwrap()).collect())
         .unwrap_or(vec![100, 500, 2_000, 10_000, 50_000])
+}
+
+#[test]
+#[ignore]
+fn empty_plot_guidance_at_maximum_size() {
+    let mut game = new(false);
+    garden_logic::farm::resize(game.world_mut(), garden_logic::farm::MAX_SIZE);
+    game.tap("KeyE");
+    send(&mut game, "buy carrot");
+    // One real plant and 65,535 empty tiles: the lookup examines the entire
+    // bounded tile table, without charging a forest of meshes to the hint.
+    let t = Instant::now();
+    let mut hint = String::new();
+    for _ in 0..1_000 {
+        hint = std::hint::black_box(garden_logic::farm::planting_guidance(game.world()));
+    }
+    let lookup = ms(t) / 1_000.0;
+    assert!(hint.starts_with("Empty plot"));
+    game.world_mut().resource_mut::<Farm>().held = None;
+    let idle = frames(&mut game, 600);
+    game.world_mut().resource_mut::<Farm>().held = Some(0);
+    let guided = frames(&mut game, 600);
+    println!("65,536 tiles: lookup {lookup:.4} ms; live frame mean/max without hint {:.4}/{:.4} ms, with hint {:.4}/{:.4} ms", idle.0, idle.1, guided.0, guided.1);
 }
 
 #[test]
@@ -154,12 +183,12 @@ fn backpack_republish() {
         let bag = game.world().resource::<Farm>().bag.len();
         game.tap("KeyE");
         let t = Instant::now();
-        game.run(1000.0 / 30.0);
+        tick(&mut game);
         let one = ms(t);
         let idle = frames(&mut game, 120);
         let observed = observed_tick(&mut game);
         game.world_mut().resource_mut::<Farm>().bag_dirty = true;
-        game.run(1000.0 / 30.0);
+        tick(&mut game);
         let record = game.take_published().map_or(0, |r| r.len());
         println!(
             "| {bag} | {one:.2} | {:.3} | {observed:.2} | {record} |",

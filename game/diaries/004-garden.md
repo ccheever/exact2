@@ -955,3 +955,64 @@ captures were inspected. Web's process audit passes; native's optional scan
 is unavailable while all owned carriers close. Artifacts:
 `artifacts/main-7cdf-{web,macos}/`. Rivals diary 006 records the shared checks.
 No gameplay or Jev-policy change; wall times include builds and concurrent work.
+
+## A seed has a direction to an empty plot (2026-10-04)
+
+The outside-start Jev runs recovered from the boundary but finished with only
+four orders at the 96-decision cap. At an occupied last-row plot, neither
+the plot readout nor the market's “find an empty tile” said where one was.
+This is a new feedback gap; the earlier recovery/controller batches stay closed.
+
+The HUD now shows the nearest empty plot's coordinates, cardinal direction,
+WASD key and approximate distance while a seed is held on an occupied tile.
+The existing growth/harvest prompt stays visible. Reaching an empty tile,
+leaving the garden or using the last seed removes the hint. A full garden
+says so and suggests expansion only below the size limit. The authoritative
+tile table supplies the answer; equal distances keep row-major order, and
+there is no saved navigation cache or new engine API. The lookup runs during
+HUD publication, not each simulation tick.
+
+The new north-edge regression first fails on the old code because no
+planting direction is published. It now walks using only that text, plants
+and produces identical saves after restoring while the hint is active. A
+second test frees a full garden's opposite-corner carrot, follows the hint
+there, fills it again, expands and follows the newly available space. All
+21 simulation tests and three layout tests pass; game determinism Clippy
+and formatting pass. The real-host proof extends boundary recovery with
+buying another carrot and following the empty-plot hint to a second planting,
+then repeats the whole continuation in a fresh process.
+
+Exploratory web/macOS proofs have zero failures in 91.5/33.8 s, matching
+inputs, pins, six world observations and nine saves. Both empty-direction
+captures were inspected. Web's process audit passes; native's optional scan
+is unavailable with every owned carrier closed. Artifacts: `artifacts/empty-{web,macos}/`.
+
+One fresh outside-start Jev run per host, with the same goals, choices,
+movement motor and 96-decision cap, completes all five orders in **53/54
+decisions**. Both finish with 3,094¢ and four planted crops. The only added
+observation is the new visible planting label. Web follows east at decisions
+15 and 25, then south at 40; macOS follows east at 16 and 26, then south at
+41. Both initially follow the return prompt south. They still sometimes
+buy an extra seed or equip one twice; no policy tuning follows the outcomes.
+These two exploratory text-driven runs do not establish a success rate or
+visual perception. Both process audits pass, both final captures were inspected,
+and this guidance batch is closed. Artifacts: `artifacts/jev-empty-{web,macos}/`;
+wall times including builds are 27.5/33.0 s. Model latency never advances
+game time. Decision latency p50/p95 is 349/629 ms on web and 340/533 ms
+on macOS; input/output tokens are 63,258/5,166 and 64,411/5,245. The
+completed worlds are at 569.3/569.4 game seconds.
+
+The maximum-size lookup (one real plant, 65,535 empty tiles) averages
+**0.0389 ms** across 1,000 release calls. Over 600 live frames, mean/max
+simulation cost is 0.0004/0.0172 ms without the hint and 0.0010/0.0511 ms
+with it. This isolates the tile lookup, not rendering a full garden.
+The first measurement fails its setup assertion: the existing scale helper
+advances `1000 / 30` ms, which rounds to 33,333 microseconds, short of a
+30 Hz tick. It could report a command's timing while that command was still
+queued. The helper now crosses the boundary by one microsecond and asserts
+exactly one tick executed. All four ignored scale cases pass with
+`GARDEN_SIZES=100`, including the new maximum-table case. Historical command
+timings using that helper did not guarantee a tick; no comparison to those
+old timings is claimed. Logs: `/tmp/exact2-garden-empty-{baseline,tests,scale-all}.log`.
+
+Strict acceptance and the next periodic main integration follow this checkpoint.

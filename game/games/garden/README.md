@@ -19,6 +19,10 @@ green when fruit is ready. Crops stand to one side of the tile's centre so you
 can see them beside your character. Outside the plots, the prompt gives a
 direction, WASD key and approximate distance back to the nearest plot. It
 updates as you walk and follows the garden when you expand it.
+With a seed in hand on an occupied plot, a separate hint points to the nearest
+empty plot. A full garden says so and suggests expansion when it is available.
+Growth and harvest prompts stay visible, and the direction disappears once
+you reach an empty tile or run out of seeds.
 
 - **Shop**: fourteen seeds from Common to Divine. Stock rolls every five
   minutes; rarer seeds appear less often. Buy, then hold a seed (`×N`).
