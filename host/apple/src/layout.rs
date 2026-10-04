@@ -72,6 +72,35 @@ impl<D: DataSource> Host<D> {
         self.emit_layout(batch)
     }
 
+    /// @ref LLP 1083 D3 — each sticky node's constraint, when it changed.
+    /// It follows its parent's and its scroller's boxes as well as its own,
+    /// so every sticky node is read again after a layout; there are few.
+    fn emit_sticky(&mut self, batch: &mut Batch) {
+        let kernel = self.runner.kernel();
+        let keys = kernel.sticky_nodes();
+        if keys.is_empty() && self.stickies.is_empty() {
+            return;
+        }
+        let mut now = IdMap::default();
+        for key in keys {
+            let Some(node) = kernel.node_by_key(key) else {
+                continue;
+            };
+            if let Some(c) = kernel.sticky_constraint(key) {
+                if self.stickies.get(&node.id) != Some(&c) {
+                    batch.sticky(node.id, Some(&c));
+                }
+                now.insert(node.id, c);
+            }
+        }
+        for id in self.stickies.keys() {
+            if !now.contains_key(id) && kernel.node(*id).is_some() {
+                batch.sticky(*id, None);
+            }
+        }
+        self.stickies = now;
+    }
+
     /// The parent-relative frames and scroll content sizes that changed since
     /// the presenter last heard them.
     fn emit_layout(&mut self, batch: &mut Batch) -> Result<(), String> {
@@ -142,6 +171,7 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.snap_layout(batch);
+        self.emit_sticky(batch);
         // Layout/receipt work may change the live window. Motion-only ticks and
         // stale feedback never traverse the tree to collect this metadata.
         let collections = if self.native_mode() {

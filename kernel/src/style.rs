@@ -1244,6 +1244,10 @@ impl StyleProps {
             PositionType::Static => taffy::style::Position::Static,
             PositionType::Relative => taffy::style::Position::Relative,
             PositionType::Absolute => taffy::style::Position::Absolute,
+            // @ref LLP 1083 D1 — a sticky box lays out as a relative one
+            // whose insets are not offsets: the host moves it as its
+            // scroller scrolls (`sticky.rs`).
+            PositionType::Sticky => taffy::style::Position::Relative,
         };
         let overflow_y = if !self.mask.has(StyleId::OverflowY) && node_type.scrolls_by_default() {
             taffy::style::Overflow::Scroll
@@ -1282,11 +1286,21 @@ impl StyleProps {
         s.aspect_ratio = self.aspect_ratio.preferred();
         s.aspect_ratio_content_box = self.aspect_ratio.content_box();
 
-        s.inset = taffy::geometry::Rect {
-            top: self.top.to_lpa(env),
-            right: self.right.to_lpa(env),
-            bottom: self.bottom.to_lpa(env),
-            left: self.left.to_lpa(env),
+        s.inset = if self.position_type == PositionType::Sticky {
+            let auto = taffy::style::LengthPercentageAuto::auto();
+            taffy::geometry::Rect {
+                top: auto,
+                right: auto,
+                bottom: auto,
+                left: auto,
+            }
+        } else {
+            taffy::geometry::Rect {
+                top: self.top.to_lpa(env),
+                right: self.right.to_lpa(env),
+                bottom: self.bottom.to_lpa(env),
+                left: self.left.to_lpa(env),
+            }
         };
         s.margin = taffy::geometry::Rect {
             top: self.margin_top.to_lpa(env),

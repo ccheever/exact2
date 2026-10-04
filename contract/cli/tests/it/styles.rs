@@ -177,7 +177,7 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
         ("overflow", StyleId::OverflowX, "clip"),
         ("object-fit", StyleId::ObjectFit, "stretch"),
         ("font-style", StyleId::FontStyle, "slanted"),
-        ("position", StyleId::PositionType, "sticky"),
+        ("position", StyleId::PositionType, "fixed"),
         ("border-style", StyleId::BorderStyleTop, "dashed"),
         ("align-self", StyleId::AlignSelf, "middle"),
         (
@@ -826,7 +826,9 @@ component Pin
     .unwrap_err();
     assert_eq!(error.id, "lower-attr-value");
     assert!(
-        error.message.contains("must be `relative` or `absolute`"),
+        error
+            .message
+            .contains("must be `relative`, `absolute` or `sticky`"),
         "{error:?}"
     );
     contract::compile(

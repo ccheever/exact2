@@ -48,6 +48,7 @@ final class Presenter {
     }
     var videoVisibility: VideoVisibilityHost?
     lazy var collections = CollectionHost(self)
+    lazy var stickies = StickyHost(self)
     lazy var pool = NodePool(self)
     /// Heavy leaves held mid-fling (LLP 1068 §5.1).
     lazy var leaves = HeavyLeaves(self)
@@ -785,8 +786,12 @@ final class Presenter {
             case .exit:
                 if flats.isFlat(id) { flats.promote(id) }
                 beginExit(id)
+            case .sticky:
+                if flats.isFlat(id) { flats.promote(id) }
+                stickies.apply(id, op.payload)
             case .destroy:
                 elements.destroyed(id)
+                stickies.forget(id)
                 if flats.isFlat(id) { flats.destroy(id); continue }
                 if endExit(id) { continue }
                 // A collection's retired row parks for the next of its shape.

@@ -261,6 +261,13 @@ impl Lowerer<'_> {
                 }
                 _ => true,
             };
+            if !allowed
+                && a.name == "position"
+                && matches!(&a.value, Expr::Str(s, _) if s == "sticky")
+            {
+                // @ref LLP 1083 D5 — each row is laid out in a wrapper of its own.
+                return err("lower-collection-flow", "a windowed row's root would stick only inside its own row: make a section one row, and its header `position: sticky` inside it", a.span);
+            }
             if !allowed {
                 return err("lower-collection-flow", format!("`{}` is not supported on this virtual collection flow root; absolute/overlapping rows and alternate container layouts are not windowed", a.name), a.span);
             }

@@ -130,6 +130,8 @@ pub struct Host<D: DataSource> {
     canvas_deferred: bool,
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
+    /// Each sticky node's constraint as the presenter last heard it (LLP 1083).
+    stickies: IdMap<ViewId, exact_kernel::StickyConstraint>,
     roots: Vec<ViewId>,
     /// Last published common collection snapshot; refreshed only after layout.
     collections_json: String,
@@ -398,6 +400,7 @@ impl<D: DataSource> Host<D> {
             canvas_deferred: false,
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
+            stickies: IdMap::default(),
             roots: Vec::new(),
             collections_json: "[]".into(),
             engine: {

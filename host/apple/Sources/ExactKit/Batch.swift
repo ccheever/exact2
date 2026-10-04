@@ -56,6 +56,7 @@ public struct BatchOp {
         case svg, animations // LLP 1055 D4/D7: an `svg`'s scene; a view's CSS animations
         case canvas2d // LLP 1056 D7: a 2D canvas's stamped lists
         case heightDrag = "height-drag", transformDrag = "transform-drag", retireMotion = "retire-motion", reorder, exit
+        case sticky // LLP 1083: a sticky box's constraint, or none
     }
     let op: Kind
     var nodeID: UInt32?

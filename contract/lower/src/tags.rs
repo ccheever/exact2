@@ -145,7 +145,7 @@ pub(crate) fn positioned(
         // A bound position is fine when every value it can take is positioned.
         Some(a) if !always_positioned(&a.value) => crate::err(
             "lower-attr-value",
-            "a bound `position` on a box that clips, scrolls, transforms or animates: such a box is the containing block of its absolutely positioned descendants on every host, so every value its position can take must be `relative` or `absolute`",
+            "a bound `position` on a box that clips, scrolls, transforms or animates: such a box is the containing block of its absolutely positioned descendants on every host, so every value its position can take must be `relative`, `absolute` or `sticky`",
             a.span,
         ),
         Some(_) => Ok(None),
@@ -188,13 +188,13 @@ pub(crate) fn positioned(
     }
 }
 
-/// Whether every value a `position` expression can take is `relative` or
-/// `absolute`: a literal, or a choice between such expressions. Anything a
-/// value could come from at run time (a state, a field, a call) is not.
+/// Whether every value a `position` expression can take is positioned: a
+/// `relative`, `absolute` or `sticky` literal, or a choice between such. A
+/// value from run time (a state, a field, a call) is not.
 fn always_positioned(value: &contract_syntax::Expr) -> bool {
     use contract_syntax::Expr;
     match value {
-        Expr::Str(v, _) => v == "relative" || v == "absolute",
+        Expr::Str(v, _) => v == "relative" || v == "absolute" || v == "sticky",
         Expr::Ternary(_, a, b, _) => always_positioned(a) && always_positioned(b),
         _ => false,
     }

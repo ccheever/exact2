@@ -52,6 +52,7 @@ final class Presenter {
     lazy var transformGeometry = TransformGeometryHost(self)
     var videoVisibility: VideoVisibilityHost?
     lazy var collections = CollectionHost(self)
+    lazy var stickies = StickyHost(self)
     /// Heavy leaves held while their rows are far or flying (LLP 1068 §5.1).
     lazy var leaves = HeavyLeaves(self)
     lazy var selection = TextSelection(self)
@@ -128,7 +129,7 @@ final class Presenter {
             if !pumping { queuePostSyncSlice() }
         }
         scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
-            object: viewport.contentView, queue: .main) { [weak self] _ in self?.scrolled(); self?.transformGeometry.changed(); self?.videoVisibility?.changed() }
+            object: viewport.contentView, queue: .main) { [weak self] _ in self?.stickies.scrolled(nil); self?.scrolled(); self?.transformGeometry.changed(); self?.videoVisibility?.changed() }
     }
 
     deinit {
@@ -953,8 +954,10 @@ final class Presenter {
             case .command:
                 onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [], (op.payload["source"] as? NSNumber)?.uint32Value)
             case .exit: beginExit(id)
+            case .sticky: stickies.apply(id, op.payload)
             case .destroy:
                 elements.destroyed(id)
+                stickies.forget(id)
                 if endExit(id) { continue }
                 release(id, forget: true)?.removeFromSuperview()
             case .roots:

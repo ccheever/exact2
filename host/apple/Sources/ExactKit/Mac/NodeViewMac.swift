@@ -62,7 +62,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") { syncHoverTracking() } } } // the media events the player reports; a hover handler's tracking area
     var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
     var surface: SurfaceLayer? { didSet { layerPaintCache = nil } } // its surface at a layout transition's size (`Surface.swift`)
+    /// How far its frame stands from layout's: a lifted Arrange row's
+    /// translation plus `stickyOffset` (`applyTransform`).
     var arrangeShift = CGPoint.zero
+    /// How far its scroller's scroll moves a sticky box (LLP 1083, `Sticky.swift`).
+    var stickyOffset = CGPoint.zero
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
     weak var presenter: Presenter?
@@ -580,6 +584,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     @objc func clipScrolled() {
         // A collection's knob keeps the offset the reader saw (CollectionMac.swift).
         if let sv = scroll, let drag = KnobDrag.of(sv), !drag.admits(sv.contentView, correcting: presenter?.collections.correcting == true) { return }
+        presenter?.stickies.scrolled(id)
         presenter?.collectionScrolled(id)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
@@ -663,7 +668,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
         if isSurfaceControl, bounds.contains(convert(point, from: superview)) { return self }
         func ordinary() -> NSView? {
-            let hit = super.hitTest(point)
+            let hit = raisedHit(super.hitTest(point), point)
             return hit != nil && hit === overlay ? self : hit
         }
         guard let overlay, let sup = superview else { return ordinary() }
@@ -743,7 +748,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// box and to a flex or grid item; a static box elsewhere paints in order.
     var usedZIndex: CGFloat {
         let position = style["position_type"]?.string
-        if position == "relative" || position == "absolute" { return number("z_index") }
+        if position == "relative" || position == "absolute" || position == "sticky" { return number("z_index") }
         var parent = superview
         while let view = parent, !(view is NodeView) { parent = view.superview }
         let display = (parent as? NodeView)?.style["display"]?.string

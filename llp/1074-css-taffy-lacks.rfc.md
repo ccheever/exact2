@@ -43,7 +43,7 @@ The design round for T1 had one question to settle: the reviewers showed that "d
 **Also decided:**
 - A static box's insets do nothing. Its `z-index` applies only when it is a flex or grid item, on the web by CSS and on Apple by `usedZIndex`.
 - The root is the fallback containing block. The web hosts give the root element `position: relative`.
-- `fixed` and `sticky` are not added. `fixed` inside a scroller needs the view re-parenting D1 avoids.
+- `fixed` and `sticky` are not added. `fixed` inside a scroller needs the view re-parenting D1 avoids. (`sticky` was added later: LLP 1083.)
 - Hoisting is inside Taffy, with the kernel keeping the record of which box contains which (the hybrid Astra proposed). Route B is dead.
 
 **Built, all on `lane/taffy-css`:**

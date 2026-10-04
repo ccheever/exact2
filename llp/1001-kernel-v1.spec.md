@@ -521,9 +521,10 @@ box was a containing block:
   nested-z and internal/external SVG backdrop cases on web and macOS
   (2026-09-30); the latter allows the declared display-colour-space difference.
 - **`z-index` orders siblings.** Apple's presenters give it to the layer
-  (`usedZIndex`); the Linux painter does not read it. CSS orders a whole
-  stacking context.
-- **`position: fixed` and `sticky` are not rows.**
+  (`usedZIndex`); the Linux painter stacks siblings by the same rule (LLP
+  1083 D6). CSS orders a whole stacking context.
+- **`position: fixed` is not a row.** `sticky` lays out as `relative` with no
+  offset; each native host moves it as its scroller scrolls (LLP 1083).
 A text field (`input`, `textarea`) lays out as the web's (2026-09-30): it keeps
 its own width in a block container, where a `<div>` stretches, and stretches in
 flex, under insets and at a percentage. At `field-sizing: fixed` its width is

@@ -879,6 +879,7 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
+        let offset = sticky(walk.scene, id, offset);
         if self.placed(walk, id, ts, offset, clip_rect) {
             return;
         }
@@ -1234,14 +1235,29 @@ impl Painter {
             .into_iter()
             .filter(|id| Some(*id) != lift && !native)
             .collect();
-        children.sort_by(
-            |a, b| match (self.placements.get(a), self.placements.get(b)) {
-                (Some(a), Some(b)) => a.depth().total_cmp(&b.depth()),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                _ => std::cmp::Ordering::Equal,
-            },
-        );
+        // @ref LLP 1083 D6 — siblings paint by their used `z-index`, as
+        // Apple's layers stack by it (`usedZIndex`): a positioned box's, or
+        // a flex or grid item's; tree order among equals.
+        let grid = matches!(node.style.display, Display::Flex | Display::Grid);
+        let z = |id: &ViewId| {
+            walk.scene.kernel.node(*id).map_or(0, |n| {
+                let positioned = n.style.position_type != exact_kernel::PositionType::Static;
+                if positioned || grid {
+                    n.style.z_index
+                } else {
+                    0
+                }
+            })
+        };
+        children.sort_by(|a, b| {
+            z(a).cmp(&z(b))
+                .then_with(|| match (self.placements.get(a), self.placements.get(b)) {
+                    (Some(a), Some(b)) => a.depth().total_cmp(&b.depth()),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    _ => std::cmp::Ordering::Equal,
+                })
+        });
         for child in children {
             self.node(walk, child, ts, child_offset, child_rect);
         }
@@ -1252,6 +1268,35 @@ impl Painter {
             self.backend.pop_clip();
         }
     }
+}
+
+/// @ref LLP 1083 D4 — a sticky box moves by its constraint's offset at its
+/// scroller's scroll: the scroller's own, the page's for a root that does
+/// not scroll itself, none for a box that only clips. Painted there, it is
+/// hit there too.
+fn sticky(scene: &Scene<'_>, id: ViewId, offset: (f32, f32)) -> (f32, f32) {
+    let kernel = scene.kernel;
+    let Some(node) = kernel
+        .node(id)
+        .filter(|n| n.style.position_type == exact_kernel::PositionType::Sticky)
+    else {
+        return offset;
+    };
+    let Some(c) = kernel.sticky_constraint(node.key) else {
+        return offset;
+    };
+    let Some(scroller) = kernel.node(c.scroller) else {
+        return offset;
+    };
+    let scroll = if effective_overflow(&scroller) != (Overflow::Visible, Overflow::Visible) {
+        scene.scroll.get(&c.scroller).copied().unwrap_or((0.0, 0.0))
+    } else if scroller.parent.is_none() {
+        scene.page
+    } else {
+        (0.0, 0.0)
+    };
+    let (dx, dy) = c.offset(scroll);
+    (offset.0 - dx, offset.1 - dy)
 }
 
 /// Where a picture goes under CSS `object-fit`, centred in the content box:

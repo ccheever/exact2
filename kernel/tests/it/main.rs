@@ -8,6 +8,7 @@ mod browser_flex;
 mod browser_position;
 mod browser_ratio;
 mod browser_replaced;
+mod browser_sticky;
 mod canvas;
 mod content_region;
 mod cover;

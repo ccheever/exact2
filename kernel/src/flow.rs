@@ -106,8 +106,9 @@ fn orders(arena: &NodeArena, slot: u32) -> bool {
 fn in_flow(arena: &NodeArena, slot: u32) -> bool {
     let s = arena.style(slot);
     let offset = |d: Dimension| d == Dimension::Auto || own_length(d, arena.env());
-    // A static box's insets do nothing; a relative one's must not depend on the context's height.
-    s.position_type == PositionType::Static
+    // A static or sticky box's insets do not move its layout; a relative one's
+    // must not depend on the context's height.
+    matches!(s.position_type, PositionType::Static | PositionType::Sticky)
         || (s.position_type == PositionType::Relative && offset(s.top) && offset(s.bottom))
 }
 

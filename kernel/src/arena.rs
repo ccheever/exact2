@@ -51,6 +51,8 @@ pub struct NodeArena {
     pub(crate) exclusion_slots: SlotSet,
     /// Slots whose style writes a row in `rem`/`em` (LLP 1069.000 D3).
     pub(crate) relative_slots: SlotSet,
+    /// Slots that are `position: sticky` (LLP 1083 D3).
+    pub(crate) sticky_slots: SlotSet,
     /// The timeline-bearing nodes and what each follower's name resolves
     /// to (LLP 1057.003 D4), kept by the linked lookup after each commit.
     pub(crate) timelines: crate::timeline::Registry,
@@ -105,6 +107,7 @@ impl Clone for NodeArena {
             flow: self.flow.clone(),
             exclusion_slots: self.exclusion_slots.clone(),
             relative_slots: self.relative_slots.clone(),
+            sticky_slots: self.sticky_slots.clone(),
             timelines: self.timelines.clone(),
             root_font_size_next: self.root_font_size_next,
             contents: self.contents.clone(),
@@ -166,6 +169,7 @@ impl NodeArena {
         self.flow.clear();
         self.exclusion_slots.clear();
         self.relative_slots.clear();
+        self.sticky_slots.clear();
         self.timelines = Default::default();
         for slot in 0..self.live.len() {
             self.live[slot] = false;
@@ -733,6 +737,7 @@ impl NodeArena {
     pub(crate) fn free_slot(&mut self, slot: u32) {
         self.exclusion_slots.remove(slot);
         self.relative_slots.remove(slot);
+        self.sticky_slots.remove(slot);
         self.layout_dirty.remove(slot);
         self.flow.remove(&slot);
         let s = slot as usize;
@@ -829,6 +834,11 @@ impl NodeArena {
             self.relative_slots.remove(slot);
         } else {
             self.relative_slots.insert(slot);
+        }
+        if style.position_type == crate::PositionType::Sticky {
+            self.sticky_slots.insert(slot);
+        } else {
+            self.sticky_slots.remove(slot);
         }
         self.styles[slot as usize] = self.shared.intern(style);
     }

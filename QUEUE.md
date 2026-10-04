@@ -575,7 +575,7 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 
 ## Declared gaps, by system (each spec's "Not in v1")
 
-- **Kernel / layout** (LLP 1001, 1010): `position: fixed` and `sticky`; `text_align: start`;
+- **Kernel / layout** (LLP 1001, 1010): `position: fixed`; `text_align: start`;
   presentation transforms in scrollable overflow; `overscroll-behavior`; scroll
   snapping beyond the admitted horizontal subset; Linux scroll events.
 - **Motion** (LLP 1003 §9): layout transitions (gated on an incremental-relayout

@@ -62,7 +62,7 @@ pub use error::{
 };
 pub use generated::*;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
-pub use kernel::{HostCover, Kernel, NodeRef, PresentedHeight};
+pub use kernel::{HostCover, Kernel, NodeRef, PresentedHeight, StickyConstraint};
 pub use layout::LayoutReceipt;
 pub use motion::{motion_node, MotionSync};
 pub use node::NodeFacts;

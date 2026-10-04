@@ -582,7 +582,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let post = Presenter.signposts.beginInterval("scrolled")
         defer { Presenter.signposts.endInterval("scrolled", post) }
-        presenter?.collections.changed(id, user: true)
+        presenter?.stickies.scrolled(id); presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
         presenter?.reaimFixedGradients()
@@ -770,7 +770,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// box and to a flex or grid item; a static box elsewhere paints in order.
     var usedZIndex: CGFloat {
         let position = style["position_type"]?.string
-        if position == "relative" || position == "absolute" { return number("z_index") }
+        if position == "relative" || position == "absolute" || position == "sticky" { return number("z_index") }
         var parent = superview
         while let view = parent, !(view is NodeView) { parent = view.superview }
         let display = (parent as? NodeView)?.style["display"]?.string

@@ -55,6 +55,7 @@ pub(crate) fn css_rows(css: &str) -> Rows {
             "justify-content" => &[JustifyContent],
             "align-self" => &[AlignSelf],
             "flex-grow" => &[FlexGrow],
+            "flex-shrink" => &[FlexShrink],
             "overflow" => &[OverflowX, OverflowY],
             "padding" => &[PaddingTop, PaddingRight, PaddingBottom, PaddingLeft],
             "padding-left" => &[PaddingLeft],

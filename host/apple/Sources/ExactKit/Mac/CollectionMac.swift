@@ -9,6 +9,7 @@ import AppKit
 /// than carrying the background into view (LLP 1050.000 D5).
 final class FlippedView: NSView {
     override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { raisedHit(super.hitTest(point), point) }
     /// What the mounted rows cover, in this view's coordinates; nil: anything.
     var preparedLimit: (() -> NSRect?)?
     /// AppKit's last request, kept so rows built later can widen the answer.

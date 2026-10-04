@@ -485,6 +485,39 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"sticky","id":…,"scroller":…,"natural":[…],"limit":[…],
+    /// "port":[…],"insets":[…]}` — a sticky box's constraint (LLP 1083 D3),
+    /// or `{"op":"sticky","id":…}` when it is no longer sticky.
+    pub fn sticky(&mut self, id: u32, constraint: Option<&exact_kernel::StickyConstraint>) {
+        let mut s = format!("{{\"op\":\"sticky\",\"id\":{id}");
+        if let Some(c) = constraint {
+            let _ = write!(s, ",\"scroller\":{}", c.scroller);
+            for (name, rect) in [("natural", c.natural), ("limit", c.limit), ("port", c.port)] {
+                let _ = write!(s, ",\"{name}\":[");
+                for (i, v) in rect.into_iter().enumerate() {
+                    if i > 0 {
+                        s.push(',');
+                    }
+                    crate::style::push_num(&mut s, v);
+                }
+                s.push(']');
+            }
+            s.push_str(",\"insets\":[");
+            for (i, v) in c.insets.into_iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                match v {
+                    Some(v) => crate::style::push_num(&mut s, v),
+                    None => s.push_str("null"),
+                }
+            }
+            s.push(']');
+        }
+        s.push('}');
+        self.ops.push(s);
+    }
+
     /// `{"op":"content","id":…,"w":…,"h":…}` — natural scrollable extent;
     /// the platform presenter applies its client-size minimum.
     pub fn content(&mut self, id: u32, w: f32, h: f32) {

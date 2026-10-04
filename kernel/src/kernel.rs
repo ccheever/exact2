@@ -29,10 +29,12 @@ mod cover;
 mod document;
 mod geometry;
 mod intrinsic;
+mod sticky;
 mod trim;
 
 pub use cover::HostCover;
 pub(crate) use cover::{children_changed as cover_children_changed, header_inset};
+pub use sticky::StickyConstraint;
 
 /// How many receipts the kernel retains for late readers.
 pub const RECEIPT_RING: usize = 64;

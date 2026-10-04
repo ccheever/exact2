@@ -1373,7 +1373,8 @@
       "values": [
         "relative",
         "absolute",
-        "static"
+        "static",
+        "sticky"
       ],
       "default": "static"
     },

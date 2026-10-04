@@ -117,7 +117,8 @@ extension NodeView {
         // Outermost, a layout transition's offset; its size is the surface's
         // alone (`Surface.swift`, LLP 1063).
         let o = transformOriginPoint, d = CGPoint(x: o.x - bounds.midX, y: o.y - bounds.midY), s = scale * pressFactor
-        let outer = CGAffineTransform(translationX: layoutOffset.x, y: layoutOffset.y - keyboardLift).concatenating(contextTransform)
+        // A sticky box's scroll offset moves it there too (LLP 1083).
+        let outer = CGAffineTransform(translationX: layoutOffset.x + stickyOffset.x, y: layoutOffset.y - keyboardLift + stickyOffset.y).concatenating(contextTransform)
         if let space = spaceTransform(origin: d, scale: s) {
             // A 3D rotation or a z translation (LLP 1077 D8): the layer's own
             // transform, the view's affine one left at identity.
@@ -140,8 +141,10 @@ extension NodeView {
     #else
     func applyTransform() {
         // A lifted Arrange row moves by its frame: AppKit paints and culls a
-        // view where its frame is, never where its layer was moved.
-        let shift = presenter?.reorder?.lifts(id) == true ? translate : .zero
+        // view where its frame is, never where its layer was moved. So does
+        // a sticky box by its scroll offset (LLP 1083).
+        let lift = presenter?.reorder?.lifts(id) == true ? translate : .zero
+        let shift = CGPoint(x: lift.x + stickyOffset.x, y: lift.y + stickyOffset.y)
         if shift != arrangeShift {
             // Recorded first: moving the frame can lay the view out again,
             // which comes back here (now from `layout()`).
@@ -152,12 +155,12 @@ extension NodeView {
         // The layer turns about its own origin: move `transform-origin`
         // there, turn, move it back. A press folds into the scale.
         let o = transformOriginPoint, s = scale * pressFactor
-        if let space = spaceTransform(origin: o, scale: s, shift: shift) {
+        if let space = spaceTransform(origin: o, scale: s, shift: lift) {
             // A 3D rotation or a z translation (LLP 1077 D8).
             layer?.transform = CATransform3DConcat(space, CATransform3DMakeTranslation(layoutOffset.x, layoutOffset.y, 0))
             return
         }
-        var t = CGAffineTransform(translationX: translate.x - shift.x, y: translate.y - shift.y)
+        var t = CGAffineTransform(translationX: translate.x - lift.x, y: translate.y - lift.y)
         t = t.translatedBy(x: o.x, y: o.y).rotated(by: rotate * .pi / 180).scaledBy(x: s, y: s).translatedBy(x: -o.x, y: -o.y)
         // Outermost, a layout transition's offset; its size is the surface's
         // alone (`Surface.swift`, LLP 1063).
