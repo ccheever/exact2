@@ -10,6 +10,7 @@ construct (`contract/lower/src/expr.rs`, `stmts.rs`).
 import Contract.Syntax
 import Contract.Value
 import Contract.Route
+import Contract.Format
 
 namespace Contract
 
@@ -58,6 +59,53 @@ def fieldIndex (env : Env) (s field : String) : Option Nat :=
   (env.shape s).bind fun sh => sh.fields.findIdx? (·.name == field)
 
 end Env
+
+/-- A format entry on evaluated arguments. A style the compiler would have
+refused is refused as unsupported. -/
+def formatting (f : String) (args : List Value) : Result Value :=
+  match f, args with
+  | "formatTime", [.num e, .num o, .str "short"] => .ok (.str (Format.formatTime e o))
+  | "formatDate", [.num e, .num o, .str "medium"] => .ok (.str (Format.formatDate e o false))
+  | "formatDate", [.num e, .num o, .str "month-year"] => .ok (.str (Format.formatDate e o true))
+  | "formatNumber", [.num n, .str "compact"] => .ok (.str (Format.compact n))
+  | f, _ => .error (.unsupported s!"roster entry `{f}` of arguments it does not take")
+
+/-- The name/value pairs of a `t` call: one list (the VM's) or the
+arguments themselves (the embedding's); a value that is not a string
+fills nothing. -/
+def pairStrs (rest : List Value) : List (Option String) :=
+  let pairs := match rest with
+    | [.list ps] => ps
+    | ps => ps
+  pairs.map fun | .str s => Option.some s | _ => Option.none
+
+/-- `t(locale, key, pairs)`: the VM's call has the name/value pairs as one
+list, the embedding's (`contract lean`) as the arguments after the key. A
+key no table has traps. -/
+def text (tables : Format.Tables) (args : List Value) : Result Value :=
+  match args with
+  | .str loc :: .str key :: rest =>
+    match Format.text tables loc key (pairStrs rest) with
+    | .some s => .ok (.str s)
+    | .none => .error (.refused s!"no table has the text `{key}`")
+  | _ => .error (.unsupported "`t` of arguments it does not take")
+
+theorem formatting_str {f args v} (h : formatting f args = .ok v) : ∃ s, v = .str s := by
+  unfold formatting at h; split at h <;> simp at h <;> exact ⟨_, h.symm⟩
+
+theorem text_str {tables args v} (h : text tables args = .ok v) : ∃ s, v = .str s := by
+  unfold text at h; split at h
+  · split at h <;> simp at h; exact ⟨_, h.symm⟩
+  · simp at h
+
+theorem formatting_err {f args e} (h : formatting f args = .error e) : ∃ w, e = .unsupported w := by
+  unfold formatting at h; split at h <;> simp at h; exact ⟨_, h.symm⟩
+
+theorem text_err {tables args e} (h : text tables args = .error e) :
+    (∃ w, e = .refused w) ∨ ∃ w, e = .unsupported w := by
+  unfold text at h; split at h
+  · split at h <;> simp at h; exact .inl ⟨_, h.symm⟩
+  · simp at h; exact .inr ⟨_, h.symm⟩
 
 /-- A roster entry applied to evaluated arguments. `map` and `filter` are
 not here: their callback is evaluated by `eval`. -/
@@ -116,6 +164,11 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
         | v@(.str _) | v@(.num _) | v@(.bool _) => v.display
         | _ => .error (.type "join of an item that is not a string, number or bool")
       .ok (.str (sep.intercalate parts))
+  -- Formatting and localized text (`Contract.Format`).
+  | "formatTime", vs => formatting "formatTime" vs
+  | "formatDate", vs => formatting "formatDate" vs
+  | "formatNumber", vs => formatting "formatNumber" vs
+  | "t", vs => text env.prog.strings vs
   | "length", _ | "isEmpty", _ | "floor", _ | "max", _ | "min", _ | "first", _ | "at", _
   | "includes", _ | "startsWith", _ | "endsWith", _ | "trim", _ | "join", _
   | "encodeURIComponent", _ => .error (.type s!"`{f}` of arguments it does not take")

@@ -1,0 +1,31 @@
+// A `then` that sends into another mutation arms that one's `then`, which
+// runs next in the same advance; a tap between the answers re-arms.
+shape Ack
+  ok: bool
+
+component App
+  state n = 0
+  state log = ""
+  mutation first as shape Ack then again
+  mutation second as shape Ack then done
+  action start
+    n = n + 1
+    send first = ping(n)
+  action again
+    log = log + "a"
+    send second = pong(n)
+  action done
+    log = log + "d"
+  view
+    column
+      text log testId="log"
+      button "start" press=start testId="start"
+
+test "chain"
+  tap "start"
+  clock +1
+  expect state log == "ad"
+  tap "start"
+  tap "start"
+  clock +0
+  expect state log == "adad"

@@ -5,6 +5,9 @@ use super::action::Writes;
 use super::ty::Ty;
 use super::{ActionSig, Env, Gen, Mutation};
 
+/// Where a mutation's `then` goes once the actions are known.
+const THEN: &str = "{THEN}";
+
 /// The root's declarations, written before the children are chosen.
 pub(crate) struct Root {
     decls: String,
@@ -77,8 +80,9 @@ impl Gen<'_> {
         if self.rng.chance(1, 3) {
             let t = self.base_ty();
             let name = "m0".to_string();
+            // `then` is filled in once the actions are known.
             decls.push_str(&format!(
-                "  mutation {name} as shape {}\n",
+                "  mutation {name} as shape {}{THEN}\n",
                 self.ty_name(&t)
             ));
             let args = (0..self.rng.range(0, 2))
@@ -90,6 +94,11 @@ impl Gen<'_> {
                 args,
             });
             env.vars.push((name, Ty::opt(t)));
+        }
+
+        if self.routes {
+            let reads = self.nav_derives(&mut decls);
+            env.vars.extend(reads);
         }
 
         // A derive is typed before the writes that type a state starting
@@ -129,6 +138,24 @@ impl Gen<'_> {
             });
         }
 
+        // A mutation's `then`: an action without parameters, run as its
+        // own commit at the next clock advance after an answer lands. It
+        // never sends (else every advance would re-arm it until the fire
+        // limit).
+        let idle: Vec<usize> = (0..self.actions.len())
+            .filter(|&k| self.actions[k].params.is_empty())
+            .collect();
+        self.then = None;
+        let then = if !self.mutations.is_empty() && !idle.is_empty() && self.rng.chance(1, 2) {
+            let k = *self.rng.pick(&idle);
+            self.then = Some(k);
+            self.targets.clock = true;
+            format!(" then {}", self.actions[k].name)
+        } else {
+            String::new()
+        };
+        let decls = decls.replace(THEN, &then);
+
         Root {
             decls,
             states,
@@ -149,11 +176,12 @@ impl Gen<'_> {
             let v = self.leaf(&root.resources, t, false);
             first[k].push(format!("{slot} = {v}"));
         }
-        let writes = Writes {
-            slots: &root.states,
-            send: true,
-        };
         for (k, a) in self.actions.clone().iter().enumerate() {
+            let writes = Writes {
+                slots: &root.states,
+                send: self.then != Some(k),
+                nav: self.routes,
+            };
             let mut env = root.env.clone();
             env.vars.extend(a.params.iter().cloned());
             let ps: Vec<String> = a
@@ -181,7 +209,10 @@ impl Gen<'_> {
                     continue;
                 }
                 let a = self.rng.pick(&idle).clone();
-                let line = if self.rng.chance(2, 3) {
+                let line = if self.rng.chance(1, 5) {
+                    // Virtual frames: every 1000/60 ms of an advance.
+                    format!("every(frame, {a})")
+                } else if self.rng.chance(2, 3) {
                     let ms = self.rng.pick(&[16, 100, 250, 1000]);
                     format!("every({ms}, {a})")
                 } else {

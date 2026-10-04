@@ -66,6 +66,10 @@ theorem stdlib_ty {env : Env} {sh f vs ts v} (h : stdlib env f vs = .ok v) (hts 
     VTy sh v (rosterTy f ts) := by
   unfold stdlib at h
   split at h <;> simp only [rosterTy] <;> (try simp at h) <;> (try subst h) <;> (try simp [VTy])
+  all_goals first
+    | (obtain ⟨s, rfl⟩ := formatting_str h; simp [VTy])
+    | (obtain ⟨s, rfl⟩ := text_str h; simp [VTy])
+    | skip
   case h_6 =>
     obtain ⟨s, rfl⟩ := map_str_ok h; simp [VTy]
   case h_10 _ _ xs =>

@@ -72,11 +72,11 @@ fn prepare(case: &Case, i: usize) -> Result<Prepared, Verdict> {
     let plan = compile(case).map_err(Verdict::Refused)?;
     let (flat, comp) = match &case.path {
         Some(p) => (
-            contract::lean::lean_path(p, &format!("p{i}")),
+            contract::lean::lean_path_plain(p, &format!("p{i}")),
             contract::lean::lean_components_path(p, &format!("c{i}")),
         ),
         None => (
-            contract::lean::lean(&case.source, &format!("p{i}")),
+            contract::lean::lean_plain(&case.source, &format!("p{i}")),
             contract::lean::lean_components(&case.source, &format!("c{i}")),
         ),
     };

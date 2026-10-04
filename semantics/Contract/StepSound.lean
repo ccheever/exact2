@@ -80,14 +80,14 @@ resource settled, unless nothing can run (no element, no timer: the
 configuration of a refused boot). -/
 structure ConfigOK (p : Program) (c : Config) : Prop where
   slots : SlotsOK p c.slots
-  present : (SlotsPresent p c.slots ∧ Complete p c.settled) ∨ (c.view = [] ∧ c.timers = [])
+  present : (SlotsPresent p c.slots ∧ Complete p c.settled) ∨ (c.view = [] ∧ c.timers = [] ∧ c.armed = [])
   settled : SettledOK p c.settled
   store : StoreOK p c.store
   view : ViewOK p c.view
   timers : TimersOK p c.timers
 
 theorem ConfigOK.empty {p : Program} : ConfigOK p Config.empty :=
-  ⟨SlotsOK.nil, .inr ⟨rfl, rfl⟩, SettledOK.empty, StoreOK.nil, ViewOK.nil, fun _ h => nomatch h⟩
+  ⟨SlotsOK.nil, .inr ⟨rfl, rfl, rfl⟩, SettledOK.empty, StoreOK.nil, ViewOK.nil, fun _ h => nomatch h⟩
 
 /-- The environment an action or a handler's arguments evaluate in. -/
 theorem ConfigOK.envGood {p : Program} {c : Config} (hc : ConfigOK p c) (hpres : SlotsPresent p c.slots)
@@ -136,7 +136,8 @@ theorem settleEnvOK {p : Program} (hp : WellTyped p) {slots : List (String × Va
       ∃ m ∈ p.mutations, m.name = x) → x ∈ slots.map (·.1))
     (hslots : ∀ x v, (x, v) ∈ slots → lifted p x = false → ValTy p v (slotTy p x)) :
     SettleHyps p (settleScope p) slots now := by
-  refine ⟨⟨hp.fns, hp.routeShapes⟩, fun d hd => ?_, hp.resources, fun st hst => ?_⟩
+  refine ⟨⟨hp.fns, hp.routeShapes⟩, fun d hd => ?_, fun r hr => (hp.resources r hr).imp fun _ h => h.1,
+    fun st hst => ?_⟩
   · obtain ⟨t, ht, -⟩ := hp.derives d hd; exact ⟨t, ht⟩
   have := envOKE_gen (E := Legit) (L := lifted p)
     (env := { prog := p, slots, derives := st.derives, resources := st.resources, now })
@@ -405,11 +406,36 @@ theorem ConfigOK.withNow {p : Program} {c : Config} (hc : ConfigOK p c) (t : F64
     ConfigOK p { c with now := t } :=
   ⟨hc.slots, hc.present, hc.settled, hc.store, hc.view, hc.timers⟩
 
-theorem advance_go_sound {p : Program} (hp : WellTyped p) {o due finish}
+theorem ConfigOK.withArmed {p : Program} {c : Config} (hc : ConfigOK p c)
+    (hpres : SlotsPresent p c.slots ∧ Complete p c.settled)
+    (ar : List (String × F64)) (t : F64) : ConfigOK p { c with armed := ar, now := t } :=
+  ⟨hc.slots, .inl hpres, hc.settled, hc.store, hc.view, hc.timers⟩
+
+/-- Nothing armed, no `then` due. -/
+theorem dueThen_nil {p : Program} {t : F64} : dueThen p [] t = .none := by
+  unfold dueThen
+  generalize p.mutations = ms
+  suffices ∀ (ms : List MutationDecl), ms.foldl _ Option.none = Option.none from this ms
+  intro ms
+  induction ms with
+  | nil => rfl
+  | cons m ms ih =>
+    simp only [List.foldl_cons, List.find?_nil]
+    cases m.andThen <;> exact ih
+
+/-- A mutation's `then` names an action of the program. -/
+theorem thenAction_exists {p : Program} (hp : WellTyped p) {a : String} (ha : a ∈ thenActions p) :
+    ∃ ad, p.actions.find? (·.name == a) = .some ad := by
+  obtain ⟨m, hm, hma⟩ := List.mem_filterMap.mp ha
+  obtain ⟨ad, had, -⟩ := hp.thenActions m hm a hma
+  exact ⟨ad, had⟩
+
+theorem advance_go_sound {p : Program} (hp : WellTyped p) {o due pick finish}
     (hdue : ∀ c tm i, due c = Option.some (tm, i) → tm ∈ c.timers)
+    (hpick : ∀ c m w a, pick c = Option.some (m, w, a) → a ∈ thenActions p ∧ c.armed ≠ [])
     (hfinish : ∀ c, ConfigOK p c → ConfigOK p (finish c).1 ∧ (finish c).2 = .ok) :
-    ∀ n c, ConfigOK p c → ConfigOK p (advance.go p o due finish n c).1 ∧
-      OutcomeOK (advance.go p o due finish n c).2
+    ∀ n c, ConfigOK p c → ConfigOK p (advance.go p o due pick finish n c).1 ∧
+      OutcomeOK (advance.go p o due pick finish n c).2
   | 0, c, hc => by
     rw [advance.go]
     split
@@ -420,24 +446,39 @@ theorem advance_go_sound {p : Program} (hp : WellTyped p) {o due finish}
     split
     · exact ⟨hc, Legitimate.refused _⟩
     split
+    next m w a hpk =>
+      dsimp only
+      generalize hr : runAction p o
+        { c with armed := c.armed.filter (·.1 != m), now := if c.now < w then w else c.now }
+        a [] [] = r
+      obtain ⟨c₂, out₂⟩ := r
+      -- Something is armed, so the slots are present (a refused boot's
+      -- configuration has nothing armed).
+      have hpres := hc.present.resolve_right fun ⟨_, _, ha⟩ => (hpick c m w a hpk).2 ha
+      have hc₁ := hc.withArmed hpres (c.armed.filter (·.1 != m)) (if c.now < w then w else c.now)
+      obtain ⟨hc₂, hout₂⟩ := runAction_sound hp hc₁ hpres (thenAction_exists hp (hpick c m w a hpk).1) hr
+      cases out₂ with
+      | ok => exact advance_go_sound hp hdue hpick hfinish n c₂ hc₂
+      | refused => exact ⟨hc₂, hout₂⟩
+      | poisoned => exact ⟨hc₂, hout₂⟩
+    split
     · obtain ⟨h1, h2⟩ := hfinish c hc; rw [h2]; exact ⟨h1, trivial⟩
     next tm i hd =>
     have htm := hdue c tm i hd
-    have hpres := hc.present.resolve_right fun ⟨_, ht⟩ => by simp [ht] at htm
+    have hpres := hc.present.resolve_right fun ⟨_, ht, _⟩ => by simp [ht] at htm
     obtain ⟨a, ha, hpa⟩ := hc.timers tm htm
-    have hset : ∀ x, TimersOK p (c.timers.set i { tm with next := x }) := fun x y hy => by
+    have hset : TimersOK p (c.timers.set i tm.fired) := fun y hy => by
       rcases List.mem_or_eq_of_mem_set hy with hy | rfl
       · exact hc.timers y hy
-      · exact ⟨a, ha, hpa⟩
+      · unfold Timer.fired; split <;> (try split) <;> exact ⟨a, ha, hpa⟩
     dsimp only
-    generalize (if tm.once = true then F64.posInf else tm.next + tm.interval) = x
-    generalize hr : runAction p o { c with timers := c.timers.set i { tm with next := x }, now := tm.next }
+    generalize hr : runAction p o { c with timers := c.timers.set i tm.fired, now := tm.next }
       tm.action [] [] = r
     obtain ⟨c₂, out₂⟩ := r
-    have hc₁ := hc.withTimers hpres (hset x) tm.next
+    have hc₁ := hc.withTimers hpres hset tm.next
     obtain ⟨hc₂, hout₂⟩ := runAction_sound hp hc₁ hpres ⟨a, ha⟩ hr
     cases out₂ with
-    | ok => exact advance_go_sound hp hdue hfinish n c₂ hc₂
+    | ok => exact advance_go_sound hp hdue hpick hfinish n c₂ hc₂
     | refused => exact ⟨hc₂, hout₂⟩
     | poisoned => exact ⟨hc₂, hout₂⟩
 
@@ -448,7 +489,7 @@ theorem advance_sound {p : Program} (hp : WellTyped p) {o c t c' out}
   split at h
   · simp only [Prod.mk.injEq] at h; obtain ⟨rfl, rfl⟩ := h; exact ⟨hc, trivial⟩
   obtain ⟨rfl, rfl⟩ : c' = _ ∧ out = _ := ⟨congrArg Prod.fst h.symm, congrArg Prod.snd h.symm⟩
-  refine advance_go_sound hp ?_ ?_ _ c hc
+  refine advance_go_sound hp ?_ ?_ ?_ _ c hc
   · intro c tm i hd
     rcases foldl_pick (by
         intro b x
@@ -457,6 +498,14 @@ theorem advance_sound {p : Program} (hp : WellTyped p) {o c t c' out}
         split <;> (try split) <;> (try split) <;> simp) hd with h | h
     · cases h
     · exact List.mem_zipIdx h |>.2.2 ▸ List.getElem_mem _
+  · intro c m w a hp
+    have armed : ∀ {r}, dueThen p c.armed t = .some r → c.armed ≠ [] := fun h he => by
+      rw [he, dueThen_nil] at h; cases h
+    split at hp
+    · split at hp
+      · cases hp; exact ⟨dueThen_mem ‹_›, armed ‹_›⟩
+      · cases hp
+    · exact ⟨dueThen_mem hp, armed hp⟩
   · intro c hc
     exact ⟨hc.withNow _, rfl⟩
 
@@ -536,8 +585,6 @@ theorem boot_configOK {p : Program} (hp : WellTyped p) (o : Oracle) : ConfigOK p
   split at hb
   · exact empty hb
   next timers ht =>
-  split at hb
-  · exact empty hb
   split at hb
   · exact empty hb
   next st hst =>

@@ -951,8 +951,9 @@ def expand (p : CProgram) : Except String Program := do
   let actions := root.actions ++ ctx.extraActions
   let (actions, _) ← (tailResolve p.records actions).run 0
   pure { shapes := p.shapes, fns := p.fns,
-         states := routerState ++ root.states ++ ctx.extraStates,
+         states := routerState ++ p.localeStates ++ root.states ++ ctx.extraStates,
          derives := root.derives, resources := root.resources, mutations := root.mutations,
-         actions, tasks := root.tasks, view, routes := p.routes, router := p.router }
+         actions, tasks := root.tasks, view, routes := p.routes, router := p.router,
+         strings := p.strings, locale := p.locale }
 
 end Contract.Expand
