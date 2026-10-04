@@ -233,8 +233,7 @@ export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
 // the clock moving alone. Not a write: no commit counts it as a change.
 const Now = node(null, 0);
 let Timing = false;
-// A commit takes its time first (`time`), and its readers of the clock see it only once the action's body has run
-// (`tick`): the body reads the derives and resources as they stood (the runner's pre-state).
+// A commit takes its time first (`time`); its clock readers see it once the body has run (`tick`): the body reads the pre-state.
 function time() { if (!clock.agent && !Timing && start) clock.now = Math.max(clock.now, performance.now() - start); }
 function tick() { if (Now.v !== clock.now) { Now.v = clock.now; for (const o of Now.obs) stale(o, DIRTY); } }
 // A release build never enters agent mode (LLP 1069.007 D2): its build
