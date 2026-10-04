@@ -102,6 +102,24 @@ fn rigs_validate_with_normalized_smooth_weights_and_named_sockets() {
 }
 
 #[test]
+fn locomotion_sorts_gaits_and_refuses_bad_speeds() {
+    let state = rig::locomotion("move", "idle", [(4., "run"), (1.4, "walk")]);
+    let Play::Blend(blend) = &state.play else {
+        panic!("a blend")
+    };
+    let knots: Vec<_> = blend.clips.iter().map(|c| (c.0, c.1.as_str())).collect();
+    assert_eq!(knots, [(0., "idle"), (1.4, "walk"), (4., "run")]);
+    for bad in [
+        [(0., "a"), (1., "b")],
+        [(1., "a"), (1., "b")],
+        [(f32::NAN, "a"), (1., "b")],
+    ] {
+        let refused = std::panic::catch_unwind(|| rig::locomotion("move", "idle", bad));
+        assert!(refused.is_err(), "{bad:?}");
+    }
+}
+
+#[test]
 fn drive_matches_playback_to_ground_speed_above_the_fastest_gait() {
     let mut a = Animator::new([rig::locomotion(
         "move",

@@ -709,6 +709,14 @@ fn wrap(x: f32) -> f32 {
 /// speed (m/s) each was authored at, on the parameter `speed`. Clips share a
 /// normalized phase, so feet stay in step across the blend; set it with [`drive`].
 pub fn locomotion<const N: usize>(state: &str, idle: &str, gaits: [(f32, &str); N]) -> State {
+    let mut gaits = gaits.to_vec();
+    gaits.sort_by(|a, b| a.0.total_cmp(&b.0));
+    assert!(
+        !gaits.is_empty()
+            && gaits.iter().all(|g| g.0.is_finite() && g.0 > 0.)
+            && gaits.windows(2).all(|p| p[0].0 < p[1].0),
+        "rig: locomotion gaits need distinct finite speeds above zero"
+    );
     let mut knots = vec![(0., idle)];
     knots.extend(gaits);
     let blend = Blend {
