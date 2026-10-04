@@ -1435,6 +1435,7 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
         Some(crate::kernel::HostCover::Whole) => s.display = taffy::style::Display::None,
         Some(crate::kernel::HostCover::Edges([top, right, bottom, left])) => {
             let (style, env) = (arena.style(slot), arena.env());
+            let top = top + crate::kernel::header_inset(arena, slot, top);
             s.padding = taffy::geometry::Rect {
                 top: style.padding_top.plus(env, top).to_lp(env),
                 right: style.padding_right.plus(env, right).to_lp(env),

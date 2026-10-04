@@ -23,6 +23,9 @@ final class RouteController: UIViewController {
     var barPresses: [BarPress] = []
     /// The header's search field as UIKit's search controller (§9.6).
     var search: HeaderSearch?
+    /// The title Exact drew from the heading's group, and the subtitle it
+    /// wrote; whether the root's tablist was hidden when it last looked (§9.10).
+    var titleView: HeaderTitleView?, subtitle: String?, tablistHidden: Bool?
     init(_ node: NodeView) {
         self.node = node
         super.init(nibName: nil, bundle: nil)

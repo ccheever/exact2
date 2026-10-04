@@ -230,6 +230,13 @@ tab's child that is a filled box holding one text is its tab bar item's badge
 count on Chats is the consumer. Unblocks a native tab badge with no module.
 Take: none offered; waived by Charlie's approval. No badge attribute and no
 badge on a bare tablist's bar.
+**Expanded (Charlie, 2026-10-03: "Declarative nav basics"):** a heading's
+group as a richer title (avatar, subtitle, press), the tab bar hidden for a
+route pushed while the authored tablist is, no bar for a route with no
+header, and a named scroller under an inline title's bar (LLP 1075.003
+§9.10). The Signal Clone's conversation header and photo viewer are the
+consumer. Unblocks them with no module. Take: none offered; waived by
+Charlie's approval. No new attribute, no title menu, no bar added by a route.
 
 ## Surfaces
 

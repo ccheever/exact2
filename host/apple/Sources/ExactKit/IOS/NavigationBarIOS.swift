@@ -66,6 +66,9 @@ struct HeaderShape: Equatable {
     /// The header's tablist of text tabs, if it has one: the item's title
     /// view, a segmented control (LLP 1075.003 §9.8).
     let segments: NodeView?
+    /// What the heading's group holds besides it (an avatar, a subtitle) and
+    /// whether pressing it does something: the item's title, richer (§9.10).
+    let group: HeaderTitle?
 
     /// `back` names the stack's Back control, left to UIKit's back button
     /// when there is one (`backIsUIKits`): the root of a presented stack
@@ -74,6 +77,7 @@ struct HeaderShape: Equatable {
         guard let header = route.container.subviews.lazy.compactMap({ $0 as? NodeView }).first,
               header.props["semanticTag"] == "header" else { return nil }
         var headings: [NodeView] = [], before: [Item] = [], after: [Item] = [], search: NodeView?, segments: NodeView?
+        var tap: NodeView?, items: [NodeView] = []
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews {
                 if child.isParagraph, child.props["accessibilityHeadingLevel"] != nil {
@@ -85,6 +89,9 @@ struct HeaderShape: Equatable {
                     // segments, never bar items.
                     segments = segments ?? child
                 } else if child.handlers.contains("press") || (child.isButton && child.props["popovertarget"] != nil && child.props["popovertargetaction"] != "hide") {
+                    // A pressable heading's group is the title, tapped (§9.10).
+                    if tap == nil, child.handlers.contains("press"), HeaderTitle.holdsHeading(child) { tap = child; walk(child); continue }
+                    items.append(child)
                     guard !backIsUIKits || back == nil || child.props["id"] != back else { continue }
                     if headings.isEmpty { before.append(Item(child)) } else { after.append(Item(child)) }
                 } else {
@@ -101,10 +108,11 @@ struct HeaderShape: Equatable {
         trailing = after
         self.search = search
         self.segments = segments
+        group = HeaderTitle(header: header, heading: headings[0], tap: tap, apart: items + [search, segments].compactMap { $0 })
     }
 
     static func == (a: HeaderShape, b: HeaderShape) -> Bool {
-        a.header === b.header && a.title == b.title && a.level == b.level && a.leading == b.leading && a.trailing == b.trailing && a.search === b.search && a.segments === b.segments
+        a.header === b.header && a.title == b.title && a.level == b.level && a.leading == b.leading && a.trailing == b.trailing && a.search === b.search && a.segments === b.segments && a.group == b.group
     }
 }
 
@@ -119,7 +127,13 @@ struct BadgeFace: Equatable {
     let corners: [CGSize]
     init?(_ button: NodeView) {
         let kids = button.container.subviews.compactMap { $0 as? NodeView }
-        guard kids.count == 1, let box = kids.first, box.channels("background_color") != nil else { return nil }
+        guard kids.count == 1, let box = kids.first else { return nil }
+        self.init(box: box)
+    }
+    /// The face of a filled box holding a text or a symbol (a title's
+    /// avatar, §9.10, too).
+    init?(box: NodeView) {
+        guard box.channels("background_color") != nil else { return nil }
         var text = "", symbol: String?, ink: NodeView?
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews {
@@ -171,6 +185,9 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
     weak var app: UINavigationControllerDelegate?
 
     func navigationController(_ nav: UINavigationController, willShow controller: UIViewController, animated: Bool) {
+        // The bar as the route coming into view wants it, alongside UIKit's
+        // transition: a cancelled pop calls this again for the source (§9.10).
+        host?.showBar(nav, for: controller as? RouteController, animated: animated)
         host?.navigationController(nav, willShow: controller, animated: animated)
         app?.navigationController?(nav, willShow: controller, animated: animated)
     }
@@ -317,7 +334,7 @@ extension NavigationHost {
         stack.showsBar = natives.navigationHook(nav, built: true, showsBar: stack.showsBar, label: stack.label)
         stack.hooked = true
         guard barShows(nav) != before else { return }
-        nav.setNavigationBarHidden(!barShows(nav), animated: false)
+        showBar(nav, animated: false)
         for case let c as RouteController in nav.viewControllers { c.projectedSource = nil }
         presenter.session?.log("hook navigation \(stack.label): showsBar changed after the first frame; the content moves once")
     }
@@ -333,14 +350,16 @@ extension NavigationHost {
     func prepareRoutes(_ routes: [RouteController], in nav: UINavigationController) {
         hookNavigation(nav)
         projectBack(routes, in: nav)
+        followTablist(routes)
         for (index, c) in routes.enumerated() {
             let shows = barShows(nav)
             let back = container?.props["navigationBack"]
-            let shape = shows ? HeaderShape(route: c.node, back: back, backIsUIKits: index > 0) : nil
+            // A route with no header, or a hidden one, has no bar (§9.10).
+            let shape = shows ? HeaderShape(route: c.node, back: back, backIsUIKits: index > 0).flatMap(HeaderShape.shown) : nil
             let canGoBack = index > 0 && canInvokeBack
             let scroll = contentScroll(of: c)
             let dataset = c.node.props["dataset"]
-            let source = "\(shape.map { "\($0.header.id)|\($0.title)|\($0.level)|\($0.leading.map(\.source))|\($0.trailing.map(\.source))" } ?? "-")|\(canGoBack)"
+            let source = "\(shape.map { "\($0.header.id)|\($0.title)|\($0.level)|\($0.leading.map(\.source))|\($0.trailing.map(\.source))|\($0.group?.source ?? "")" } ?? "-")|\(canGoBack)"
             // The hook runs again after anything Exact wrote to the item (the
             // Back control the route above gives it, too) and when the route
             // moves to another stack (a root whose tabs changed).
@@ -350,7 +369,7 @@ extension NavigationHost {
                 project(shape, into: c, canGoBack: canGoBack, shows: shows)
             }
             collapse(c, shape: shape, scroll: scroll)
-            if shows { searchField(shape?.search, in: c); segmentedTitle(shape?.segments, in: c) }
+            if shows { searchField(shape?.search, in: c); segmentedTitle(shape?.segments, in: c); richTitle(shape, in: c) }
             guard c.projected != signature || !c.hooked else { continue }
             c.projected = signature
             guard presenter.session?.natives.hooksConnected == true else { continue }
@@ -358,6 +377,11 @@ extension NavigationHost {
                                                  key: c.key, dataset: dataset)
             c.hooked = true
             if let scroll { c.ownedScroll = element(named: c.node.props["navigationScroll"] ?? "", in: c.node).flatMap { $0.scroll === scroll ? $0 : nil } }
+        }
+        // A route's header shown or hidden in place; a push or pop sets the
+        // bar in `willShow` instead, with UIKit's transition.
+        if nav.transitionCoordinator == nil, let top = nav.topViewController as? RouteController, routes.contains(top) {
+            showBar(nav, animated: nav.view.window != nil)
         }
     }
 
@@ -470,11 +494,13 @@ extension NavigationHost {
     /// the bar replaces. The scroller then goes under the bar, UIKit insets it
     /// and follows its offset, and CSS `scrollTop` is measured from the
     /// expanded title's inset (`scrollOrigin`), so an authored offset lands
-    /// where the browser's does while the bar's height changes.
+    /// where the browser's does while the bar's height changes. An inline
+    /// title's scroller goes under the bar the same way (§9.10), so the bar's
+    /// scroll edge appearance follows it; its inset does not change.
     private func collapse(_ c: RouteController, shape: HeaderShape?, scroll: UIScrollView?) {
         let kids = c.node.container.subviews.compactMap { $0 as? NodeView }
         let node = kids.firstIndex { $0 === shape?.header }.flatMap { kids.indices.contains($0 + 1) ? kids[$0 + 1] : nil }
-        let target = shape?.level == 1 && node?.scroll != nil && node?.scroll === scroll ? node : nil
+        let target = node?.scroll != nil && node?.scroll === scroll ? node : nil
         guard c.collapseScroll !== target else { return }
         if let old = c.collapseScroll, let sv = old.scroll {
             let top = sv.contentOffset.y + old.scrollTopInset(sv)
@@ -485,7 +511,8 @@ extension NavigationHost {
         c.collapseScroll = target
         if let sv = target?.scroll { sv.contentInsetAdjustmentBehavior = .always }
         c.setContentScrollView(target?.scroll, for: .top)
-        presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : "collapses its title with its scroller")")
+        let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
+        presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
     }
 
     private func barItem(_ i: HeaderShape.Item, _ c: RouteController) -> UIBarButtonItem {
@@ -615,7 +642,9 @@ extension NavigationHost {
                 if inset > node.scrollOrigin { node.scrollOrigin = inset }
                 if node.scrollCollapsed == 0 || inset < node.scrollCollapsed { node.scrollCollapsed = inset }
             }
-            if c.viewIfLoaded?.window != nil {
+            // While the bar is not as the route wants it (mid-transition to or
+            // from a route without one, §9.10), its last cover stands.
+            if c.viewIfLoaded?.window != nil, nav.isNavigationBarHidden != routeShowsBar(c, in: nav) {
                 let safe = c.view.safeAreaInsets, env = presenter.insets
                 let top = c.collapseScroll == nil ? max(0, safe.top - env.top) : 0
                 edges = .init(top: top, right: whole ? max(0, safe.right - env.right) : 0,
@@ -678,7 +707,7 @@ extension NavigationHost {
         for nav in allNavigations {
             guard let stack = stacks[ObjectIdentifier(nav)], stack.hooked else { continue }
             if nav.delegate !== stack.proxy { say("navigation \(stack.label)", "delegate") }
-            if nav.isNavigationBarHidden == barShows(nav) { say("navigation \(stack.label)", "navigation bar visibility") }
+            if nav.transitionCoordinator == nil, nav.isNavigationBarHidden == topShowsBar(nav) { say("navigation \(stack.label)", "navigation bar visibility") }
             if nav.viewControllers.map(ObjectIdentifier.init) != stack.written { say("navigation \(stack.label)", "viewControllers") }
             if let pop = nav.interactivePopGestureRecognizer, pop.delegate !== self { say("navigation \(stack.label)", "the pop gesture's delegate") }
             if #available(iOS 26.0, *), let pop = nav.interactiveContentPopGestureRecognizer, pop.delegate !== self {

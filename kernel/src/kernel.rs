@@ -31,6 +31,7 @@ mod geometry;
 mod intrinsic;
 mod trim;
 
+pub(crate) use cover::header_inset;
 pub use cover::HostCover;
 
 /// How many receipts the kernel retains for late readers.
@@ -722,7 +723,8 @@ impl Kernel {
         let users: Vec<u32> = self
             .arena
             .iter_live()
-            .filter(|s| uses_env(self.arena.style(*s)))
+            // A covered box too: its top cover can hold an inset (cover.rs).
+            .filter(|s| uses_env(self.arena.style(*s)) || self.arena.cover(*s).is_some())
             .collect();
         for slot in &users {
             if let (Some(node), Some(layout)) =

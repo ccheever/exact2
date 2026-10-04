@@ -1099,6 +1099,13 @@ fn style_changed(
         if let Some(node) = arena.taffy(slot) {
             layout.restyle(arena, slot, node);
         }
+        // A replaced header's padding is part of its route's top cover.
+        if arena.cover(slot) == Some(crate::kernel::HostCover::Whole) {
+            if let Some((p, node)) = arena.parent(slot).and_then(|p| Some((p, arena.taffy(p)?))) {
+                layout.restyle(arena, p, node);
+                layout.mark_dirty(node);
+            }
+        }
         receipt.layout_invalidated = true;
     }
     if mask.intersects(StyleMask::TEXT) {
