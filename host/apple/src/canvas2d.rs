@@ -34,7 +34,7 @@ impl<D: DataSource> Host<D> {
         let memory = MEMORY.load(Ordering::Relaxed);
         self.runner.set_canvas_limits(exact_runner::Limits::native(
             memory,
-            cfg!(target_os = "ios"),
+            cfg!(any(target_os = "ios", target_os = "tvos")),
         ));
     }
 

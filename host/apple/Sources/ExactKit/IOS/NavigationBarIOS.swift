@@ -4,7 +4,7 @@
 // slot Exact keeps and forwards, the authored elements a hook acts on, and
 // the development check of what Exact owns. When the hooks run is
 // NavigationIOS.swift's; the module side is ExactNativeModule.swift.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// A route whose first child is a `header` holding exactly one heading
@@ -315,7 +315,9 @@ extension NavigationHost {
         stack.proxy.host = self
         stacks[ObjectIdentifier(nav)] = stack
         nav.delegate = stack.proxy
+        #if !os(tvOS)
         nav.navigationBar.prefersLargeTitles = true
+        #endif
         if presenter.session?.natives.hooksConnected == true {
             stack.showsBar = presenter.session?.natives.navigationHook(nav, built: true, showsBar: stack.showsBar, label: stack.label) ?? stack.showsBar
             stack.hooked = true
@@ -395,9 +397,12 @@ extension NavigationHost {
         }
         guard shows else { return }
         item.title = shape?.title
+        // tvOS has no large titles or back button.
+        #if !os(tvOS)
         item.largeTitleDisplayMode = shape?.level == 1 ? .always : .never
         item.hidesBackButton = !canGoBack
         item.leftItemsSupplementBackButton = true
+        #endif
         c.barPresses = []
         item.leftBarButtonItems = shape?.leading.map { barItem($0, c) }
         item.rightBarButtonItems = shape?.trailing.reversed().map { barItem($0, c) }
@@ -444,6 +449,8 @@ extension NavigationHost {
     /// its placeholder and value are the field's; what the reader types is
     /// the field's `input` (and `focus`, `blur`), as typing in it would be.
     private func searchField(_ field: NodeView?, in c: RouteController) {
+        // tvOS navigation items carry no search controller.
+        #if !os(tvOS)
         guard let field else {
             if c.search != nil { c.navigationItem.searchController = nil; c.search = nil }
             return
@@ -464,6 +471,7 @@ extension NavigationHost {
         let value = field.props["value"] ?? ""
         if !bar.isFirstResponder, bar.text != value { bar.text = value }
         bar.accessibilityIdentifier = field.props["testId"]
+        #endif
     }
 
     /// UIKit's back button stands for each route's authored Back control,
@@ -480,12 +488,15 @@ extension NavigationHost {
             let below = routes[index - 1]
             guard below.backSource != source else { continue }
             below.backSource = source
+            // tvOS has no back button.
+            #if !os(tvOS)
             let item = below.navigationItem
             switch shape {
             case let s? where s.title.isEmpty: item.backButtonDisplayMode = .minimal; item.backButtonTitle = nil
             case let s?: item.backButtonDisplayMode = .default; item.backButtonTitle = s.title
             case nil: item.backButtonDisplayMode = .default; item.backButtonTitle = nil
             }
+            #endif
         }
     }
 
@@ -543,10 +554,12 @@ extension NavigationHost {
         }
         item.accessibilityLabel = i.label ?? (i.title.isEmpty ? nil : i.title)
         item.isEnabled = !i.disabled
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, tvOS 26.0, *) {
             if i.prominent { item.style = .prominent }
             // A drawn face is its own shape: no glass capsule around it.
+            #if !os(tvOS)
             if i.badge != nil { item.hidesSharedBackground = true }
+            #endif
         }
         return item
     }
@@ -646,7 +659,13 @@ extension NavigationHost {
             let settled = search || nav.isNavigationBarHidden != routeShowsBar(c, in: nav)
             if settled, !search, let node = c.collapseScroll, let sv = node.scroll, sv.adjustedContentInset.top > 0 {
                 let inset = sv.adjustedContentInset.top
-                if c.navigationItem.largeTitleDisplayMode != .always {
+                // tvOS has no large titles: every title is inline.
+                #if os(tvOS)
+                let inline = true
+                #else
+                let inline = c.navigationItem.largeTitleDisplayMode != .always
+                #endif
+                if inline {
                     // An inline title does not collapse: its inset is the one it has.
                     node.scrollOrigin = inset; node.scrollCollapsed = inset
                 } else if nav.transitionCoordinator == nil {
@@ -720,10 +739,12 @@ extension NavigationHost {
             if nav.delegate !== stack.proxy { say("navigation \(stack.label)", "delegate") }
             if nav.transitionCoordinator == nil, !searching(nav.topViewController as? RouteController), nav.isNavigationBarHidden == topShowsBar(nav) { say("navigation \(stack.label)", "navigation bar visibility") }
             if nav.viewControllers.map(ObjectIdentifier.init) != stack.written { say("navigation \(stack.label)", "viewControllers") }
+            #if !os(tvOS)
             if let pop = nav.interactivePopGestureRecognizer, pop.delegate !== self { say("navigation \(stack.label)", "the pop gesture's delegate") }
-            if #available(iOS 26.0, *), let pop = nav.interactiveContentPopGestureRecognizer, pop.delegate !== self {
+            if #available(iOS 26.0, tvOS 26.0, *), let pop = nav.interactiveContentPopGestureRecognizer, pop.delegate !== self {
                 say("navigation \(stack.label)", "the content pop gesture's delegate")
             }
+            #endif
         }
         for c in controllers.values where c.hooked && presenter.views[c.node.id] === c.node {
             if c.navigationController != nil, c.isViewLoaded, c.node.superview !== c.view { say("route \(c.key)", "view") }
@@ -740,7 +761,11 @@ extension NavigationHost {
     /// with the user and with layout, so no last write predicts them.
     static func ownedChanges(_ s: UIScrollView, of node: NodeView, collapsing: Bool) -> [String] {
         var out: [String] = []
+        #if os(tvOS)
+        if s.contentInset != .zero { out.append("contentInset") }
+        #else
         if s.contentInset != .zero, s.refreshControl?.isRefreshing != true { out.append("contentInset") }
+        #endif
         if s.contentInsetAdjustmentBehavior != (collapsing ? .always : .never) { out.append("contentInsetAdjustmentBehavior") }
         if s.delegate !== node { out.append("delegate") }
         let dismiss: UIScrollView.KeyboardDismissMode = switch node.props["keyboardDismissMode"] {

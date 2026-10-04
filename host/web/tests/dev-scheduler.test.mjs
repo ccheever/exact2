@@ -96,7 +96,9 @@ test('the Caltrain JS dev loop keeps its station search across an app edit', asy
   const contract=resolve(new URL('../../../apps/caltrain/app.contract',import.meta.url).pathname),original=readFileSync(contract,'utf8');
   const restoreTimes=keepTimes([contract]);
   const privateDist=mkdtempSync(join(tmpdir(),'exact-dev-carry-'));
-  const edited=original.replace('            text "Caltrain" font-size=13','            text "Caltrain reloaded" font-size=13');
+  // The brand's text, wherever the layout puts it; an edit that no longer applies fails here, not as a reload that never shows.
+  const edited=original.replace(/(\n\s*text )"Caltrain"( [^\n]*testId="brand")/,'$1"Caltrain reloaded"$2');
+  assert.notEqual(edited, original, 'the brand edit no longer applies to apps/caltrain/app.contract');
   const listener=createServer();await new Promise((ok,fail)=>{listener.once('error',fail);listener.listen(0,'127.0.0.1',ok)});const port=listener.address().port;await new Promise(ok=>listener.close(ok));
   let dev,drive,lines='';
   const waitFor=async (read,accept,ms=30000)=>{const end=Date.now()+ms;let last;while(Date.now()<end){try{last=await read();if(accept(last))return last}catch{}await new Promise(r=>setTimeout(r,20))}throw new Error(`Caltrain reload did not become observable: ${JSON.stringify(last)}\n${lines.slice(-3000)}`)};

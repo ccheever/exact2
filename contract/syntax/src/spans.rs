@@ -119,7 +119,8 @@ macro_rules! record_variants {
 }
 record_variants! {
     Step {
-        Tap { target, hover, span }, Type { target, text, span }, Key { target, key, span },
+        Tap { target, hover, span }, Drag { target, dx, dy, press, over, hold, span },
+        Size { width, height, span }, Type { target, text, span }, Key { target, key, span },
         Clock { arg, span }, Screenshot { path, span }, ExpectTree { target, present, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
     }
@@ -135,8 +136,8 @@ record_variants! {
     Node {
         Element { tag, positional, attrs, children, span, instance }, Use { name, args, children, span },
         Children { span },
-        When { cond, then, otherwise, span }, Each { tag, var, index, list, key, body, span },
-        Match { subject, some, none, span },
+        When { tag, cond, then, otherwise, span }, Each { tag, var, index, list, key, body, span },
+        Match { tag, subject, some, none, span },
     }
 }
 impl VisitSpans for TypeExpr {
@@ -172,6 +173,7 @@ impl VisitSpans for Expr {
                 visit(span);
             }
             Self::NamedArg(_, inner, span)
+            | Self::Typed(inner, _, span)
             | Self::Some(inner, span)
             | Self::Member(inner, _, span)
             | Self::Unary(_, inner, span) => {

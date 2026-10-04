@@ -63,7 +63,7 @@ private func hookSession(_ host: UnsafeMutableRawPointer?) -> ExactSession? {
 }
 
 private let hookResolve: HookResolveFn = { host, key, keyLength, id, idLength in
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     hookSession(host)?.presenter.navigation.resolve(route: hookText(key, keyLength), id: hookText(id, idLength))?.id ?? 0
     #else
     0
@@ -81,7 +81,7 @@ private let hookLog: HookLogFn = { host, bytes, length in
 private let hookDelegate: HookDelegateFn = { host, controller, object in
     guard let controller, let session = hookSession(host) else { return }
     let delegate = object.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() }
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     session.presenter.navigation.setAppDelegate(Unmanaged<AnyObject>.fromOpaque(controller).takeUnretainedValue(), delegate)
     #else
     guard Unmanaged<AnyObject>.fromOpaque(controller).takeUnretainedValue() === session.presenter.toolbar.toolbar else { return }

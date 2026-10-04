@@ -10,7 +10,7 @@
 // it (the web's chaining rule); `type` puts text through the field's own
 // `insertText`; `screenshot` draws the viewport's hierarchy to a PNG (Metal
 // layers included, so `window: true` is the same picture).
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 extension Agent {
@@ -178,7 +178,9 @@ extension Agent {
         if let top = keyboardTop, let container = keyboardContainer {
             keyboard["top"] = Agent.r2(vp.convert(CGPoint(x: 0, y: top), from: container).y - vp.contentOffset.y)
         }
+        #if !os(tvOS)
         if let view = presenter.session?.view { keyboard["guide"] = Agent.r2(view.keyboardLayoutGuide.layoutFrame.minY) }
+        #endif
         var navigation = presenter.navigation.observation()
         navigation["presentation"] = presenter.modals.presentation ?? NSNull()
         navigation["closedby"] = presenter.modals.closedby ?? NSNull()
@@ -404,6 +406,33 @@ extension Agent {
     func view(_ req: [String: Any]) -> NodeView? {
         guard let id = req["id"] as? Int else { return nil }
         return presenter.textHost(UInt32(id))
+    }
+
+    /// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
+    /// view whose middle is out of view is scrolled to the middle of each
+    /// enclosing scroll view it is outside of, innermost first, then the
+    /// page's — as the web's `scrollIntoView` does there (block centre,
+    /// inline only as far as it takes) — by `scrollRectToVisible`, unanimated,
+    /// as far as each one's range allows; their delegates tell the app, as a
+    /// finger's scroll does.
+    func reveal(_ req: [String: Any]) -> [String: Any] {
+        guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        let from = box(v)
+        var scrolled = false
+        for case let sv as UIScrollView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) where sv.isScrollEnabled {
+            let frame = v.convert(v.bounds, to: sv), port = sv.bounds, mid = CGPoint(x: frame.midX, y: frame.midY)
+            if port.contains(mid) { continue }
+            var rect = port
+            if mid.y < port.minY || mid.y >= port.maxY { rect.origin.y = mid.y - port.height / 2 }
+            if mid.x < port.minX || mid.x >= port.maxX { rect.origin.x = frame.minX; rect.size.width = frame.width }
+            sv.scrollRectToVisible(rect, animated: false)
+            scrolled = true
+        }
+        guard scrolled else { return ["revealed": Int(v.id), "scrolled": false] }
+        presenter.settlePump()
+        let to = box(v)
+        return ["revealed": Int(v.id), "scrolled": to.origin != from.origin,
+                "from": [Agent.r2(from.midX), Agent.r2(from.midY)], "to": [Agent.r2(to.midX), Agent.r2(to.midY)]]
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
@@ -694,42 +723,37 @@ extension Agent {
             }
             return ["typed": v.id, "key": key, "delivery": "recognized"]
         }
-        if let key = req["key"] as? String, ["Space", " ", "Enter"].contains(key), v.handlers.contains("press") {
-            _ = v.becomeFirstResponder()
-            if req["phase"] as? String != "up" { presenter.press(v.id) }
-            return ["typed": v.id, "key": key, "delivery": "recognized"]
+        if let key = req["key"] as? String {
+            // A key at the target as a hardware keyboard's (KeyEvents.swift):
+            // the focus's `key` handlers and its ancestors', then, unless one
+            // prevented it, its default — a press, or the editor's edit, made
+            // here since UIKit synthesizes no presses. A target that takes no
+            // focus leaves it where it is, as the web's `focus()` on one does.
+            let name = KeyCodes.device(key)?.key ?? (key == "Space" ? " " : key)
+            if let f = v.textArea { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
+            else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
+            else if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
+            let focus = v.field != nil || v.textArea != nil || v.isFirstResponder || v.handlers.contains("press") ? v : nil
+            if req["phase"] as? String != "up", !presenter.keyDown(at: focus, name), let focus {
+                if let f = focus.textArea {
+                    if name == "Enter" { f.insertText("\n") } else if name == "Backspace" { f.deleteBackward() } else if name.count == 1 { f.insertText(name) }
+                    pendingTextReveal = f as? TextArea
+                } else if let f = focus.field as? TextField {
+                    f.heard = name
+                    if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = focus.textFieldShouldReturn(f) } else if name.count == 1 { f.insertText(name) }
+                    f.heard = nil
+                } else if focus.handlers.contains("press"), name == "Enter" || name == " " { presenter.press(focus.id) }
+            }
+            return ["typed": Int(v.id), "key": key, "value": v.textArea?.text ?? v.field?.text ?? "", "delivery": "recognized"]
         }
         if let f = v.textArea {
             f.becomeFirstResponder()
-            if let key = req["key"] as? String {
-                if key == "Enter" { f.insertText("\n") }
-                else if key == "Backspace" { f.deleteBackward() }
-                else { return ["error": "unsupported textarea key \(key)"] }
-            } else {
-                f.selectAll(nil)
-                f.insertText(req["text"] as? String ?? "")
-            }
+            f.selectAll(nil)
+            f.insertText(req["text"] as? String ?? "")
             // UITextView reveals an insertion asynchronously, including
             // when UIView animations are disabled. Observe it; never seek it.
             pendingTextReveal = f as? TextArea
             return ["typed": Int(v.id), "value": f.text ?? ""]
-        }
-        if let key = req["key"] as? String {
-            // A key at the target: the field's (Enter, as its delegate would
-            // hear it) or a focused node's, by the web's name — delivered as
-            // the responder-chain rule would (UIKit synthesizes no presses).
-            if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } } else if v.canBecomeFirstResponder { if !v.isFirstResponder { _ = v.becomeFirstResponder() } } else { return ["error": "view \(v.id) takes no key"] }
-            // Enter at a field is what its delegate would hear: a submit,
-            // and a key for a `key` handler (the field's own or an ancestor's).
-            if key == "Backspace", let field = v.field {
-                field.deleteBackward()
-                return ["typed": Int(v.id), "key": key, "value": field.text ?? ""]
-            }
-            if key == "Enter", v.field != nil, v.handlers.contains("submit") { presenter.submit(v.id) }
-            var n: UIView? = v
-            while let cur = n, !((cur as? NodeView)?.handlers.contains("key") ?? false) { n = cur.superview }
-            if let node = n as? NodeView { presenter.key(node.id, key) } else if !(key == "Enter" && v.handlers.contains("submit")) { return ["error": "no key handler at view \(v.id)"] }
-            return ["typed": Int(v.id), "key": key, "value": v.field?.text ?? ""]
         }
         guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }
         let text = req["text"] as? String ?? ""

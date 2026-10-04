@@ -1,0 +1,29 @@
+// Timers and taps interleave: a tap between advances sees the timer's
+// writes; a timer refused (writing Infinity) leaves state as it was.
+component App
+  state n = 1
+  state d = 1
+  action tick
+    n = n / d
+  action zero
+    d = 0
+  action one
+    d = 2
+  task t mount
+    every(10, tick)
+  view
+    column
+      text `${n}` testId="n"
+      button "zero" press=zero testId="zero"
+      button "half" press=one testId="half"
+
+test "halving then refused"
+  tap "half"
+  clock +10
+  expect state n == 0.5
+  clock +20
+  expect state n == 0.125
+  tap "zero"
+  clock +10
+  expect state n == 0.125
+  expect state d == 0

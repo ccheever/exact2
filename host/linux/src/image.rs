@@ -450,6 +450,7 @@ impl Images {
         self.loaded.clear();
         self.generation = self.backend.generation();
     }
+    #[cfg(unix)]
     pub(crate) fn wake_fd(&self) -> std::os::fd::RawFd {
         self.backend.wake_fd()
     }

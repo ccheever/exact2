@@ -1,0 +1,32 @@
+// A resource whose arguments are a record and an option; it is asked
+// again only when they change.
+shape Query
+  text: string
+  limit: number
+
+shape Hit
+  id: string
+
+component App
+  state query = Query(text="x", limit=3)
+  state cursor = none
+  resource hits = search(query, cursor) as shape list<Hit>
+  derive ids = join(map(hits, h => h.id), ",")
+  action more
+    query = Query(query, limit=query.limit + 1)
+  action same
+    query = Query(query, limit=query.limit)
+  action page
+    cursor = some(1)
+  view
+    column
+      text ids testId="ids"
+      button "more" press=more testId="more"
+      button "same" press=same testId="same"
+      button "page" press=page testId="page"
+
+test "args"
+  tap "same"
+  tap "more"
+  tap "page"
+  tap "same"

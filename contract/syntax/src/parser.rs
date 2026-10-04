@@ -5,7 +5,7 @@
 //! in the first column, so one run reports each declaration's first error.
 
 use crate::ast::*;
-use crate::lexer::{template_expr_end, LexError, Lexer, Token, TokenKind};
+use crate::lexer::{escaped, template_expr_end, LexError, Lexer, Token, TokenKind};
 use crate::Span;
 
 mod expr;
@@ -1113,6 +1113,7 @@ impl Parser {
                     otherwise = self.required_block(span, "else", |p| p.node())?;
                 }
                 Ok(Node::When {
+                    tag: 0,
                     cond,
                     then,
                     otherwise,
@@ -1184,6 +1185,7 @@ impl Parser {
                     span,
                 })?;
                 Ok(Node::Match {
+                    tag: 0,
                     subject,
                     some,
                     none,

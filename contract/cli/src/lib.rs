@@ -12,6 +12,9 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+/// The Lean backend: a program as a term of `semantics/` (LLP-free; see
+/// `semantics/README.md`).
+pub mod lean;
 mod logic;
 mod manifest;
 mod map;
@@ -115,7 +118,7 @@ pub struct CompileError {
     /// Original token range, including its compilation-local source identity.
     pub span: Span,
     /// Resolved file path, absent only when compiling standalone source text.
-    pub file: Option<PathBuf>,
+    pub file: Option<Box<Path>>,
     /// Other authored declarations or bindings involved in this rejection.
     pub related: Box<[RelatedLocation]>,
 }
@@ -248,7 +251,7 @@ fn read_source(path: &Path) -> Result<String, CompileError> {
         id: "contract-use-unreadable".into(),
         message: e.to_string(),
         span: Span::default(),
-        file: Some(path.to_path_buf()),
+        file: Some(path.into()),
         related: Box::new([]),
     })?;
     Ok(src)
@@ -320,7 +323,7 @@ fn compile_path_output(
         id: "contract-use-unreadable".into(),
         message: format!("{}: {e}", source_root.display()),
         span: Span::default(),
-        file: Some(path.to_path_buf()),
+        file: Some(path.into()),
         related: Box::new([]),
     })?;
     let (file, sources) = sources::load(path, src, &app_root)?;
@@ -351,7 +354,7 @@ fn compile_path_output(
             id: "app-manifest".into(),
             message,
             span: Span::default(),
-            file: Some(path.to_path_buf()),
+            file: Some(path.into()),
             related: Box::new([]),
         })?;
         if !plan.app_id.is_empty() && plan.app_id != manifest.id {
@@ -363,7 +366,7 @@ fn compile_path_output(
                     plan.app_id, manifest.id
                 ),
                 span: Span::default(),
-                file: Some(path.to_path_buf()),
+                file: Some(path.into()),
                 related: Box::new([]),
             }]);
         }
@@ -412,6 +415,8 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
             }
             let line = match step {
                 Step::Tap { span, .. }
+                | Step::Drag { span, .. }
+                | Step::Size { span, .. }
                 | Step::Type { span, .. }
                 | Step::Key { span, .. }
                 | Step::Clock { span, .. }
@@ -425,6 +430,29 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     s.push_str("{\"op\":\"tap\",\"target\":");
                     q(target, &mut s);
                     s.push_str(&format!(",\"hover\":{hover}"));
+                }
+                Step::Drag {
+                    target,
+                    dx,
+                    dy,
+                    press,
+                    over,
+                    hold,
+                    ..
+                } => {
+                    s.push_str("{\"op\":\"drag\",\"target\":");
+                    q(target, &mut s);
+                    s.push_str(&format!(",\"dx\":{dx},\"dy\":{dy}"));
+                    for (name, ms) in [("press", press), ("over", over), ("hold", hold)] {
+                        if let Some(ms) = ms {
+                            s.push_str(&format!(",\"{name}\":{ms}"));
+                        }
+                    }
+                }
+                Step::Size { width, height, .. } => {
+                    s.push_str(&format!(
+                        "{{\"op\":\"size\",\"width\":{width},\"height\":{height}"
+                    ));
                 }
                 Step::Type { target, text, .. } => {
                     s.push_str("{\"op\":\"type\",\"target\":");

@@ -558,7 +558,8 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
     await session.type('field', {key:'a'});
     await session.type('press', {key:'Enter',phase:'down'});
     await session.type('press', {key:'Enter',phase:'up'});
-    await expect(session.type('press', {key:'a'})).rejects.toThrow('key: unsupported code a');
+    await session.type('press', {key:'a'}); // a key by its name, on a button too (pomodoro F5)
+    await expect(session.type('press', {key:'Hyper'})).rejects.toThrow('key: unsupported key Hyper');
     const beforeRefusals = JSON.stringify((await session.state()).slots);
     await expect(session.tap('touch', {down:true})).rejects.toThrow('firefox down unsupported:');
     await expect(session.pointer('move', {dx:20,dy:10,ms:32})).rejects.toThrow('firefox move unsupported:');
@@ -680,7 +681,7 @@ test('non-flow operation transcripts remain byte-for-byte equal to the existing 
 // Exercise the moved module through the real attach() adapter, with browser
 // scheduling under the test's control. Geometry remains a browser concern.
 function inputFixture() {
-  const listeners = new Map(), frames = new Map(), sent = [], captured = [];
+  const listeners = new Map(), windowListeners = new Map(), frames = new Map(), sent = [], captured = [];
   let serial = 0;
   const el = { dataset: {}, inert: false, disabled: false, isConnected: true,
     addEventListener(kind, fn) { const list = listeners.get(kind) ?? []; list.push(fn); listeners.set(kind, list); },
@@ -697,6 +698,9 @@ function inputFixture() {
     cancelAnimationFrame(id) { frames.delete(id); },
     wasm: { exact_dispatch: (...args) => args }, writeIn: value => value, now: () => 0,
     send: value => sent.push(value),
+    // The window's capture listeners: they hear a contact's events wherever they land.
+    addEventListener(kind, fn) { const list = windowListeners.get(kind) ?? []; list.push(fn); windowListeners.set(kind, list); },
+    removeEventListener(kind, fn) { windowListeners.set(kind, (windowListeners.get(kind) ?? []).filter(g => g !== fn)); },
   });
   const module = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
   vm.runInContext(module.replace('export function', 'function') + '\n' + declaration('attach'), f);
@@ -707,14 +711,16 @@ function inputFixture() {
       preventDefault() { this.prevented = true; }, stopPropagation() { this.stopped = true; },
       stopImmediatePropagation() { this.stopped = true; }, ...extra };
   }
-  return { f, el, buttons, frames, sent, captured,
+  return { f, el, buttons, frames, sent, captured, windowListeners,
+    // An event at this node reaches the window's capture listeners first; one outside it, only them.
+    outside(kind, extra) { const e = event(extra); for (const fn of [...windowListeners.get(kind) ?? []]) fn(e); return e; },
     load() {
       vm.runInContext(`inputHandlers = createInputHandlers({ root, views, retiredViews,
         ready: () => inputReady, inertAncestor,
         dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())),
       }); inputReady = true;`, f);
     },
-    pointer(kind, extra) { const e = event(extra); for (const fn of listeners.get(kind) ?? []) fn(e); return e; },
+    pointer(kind, extra) { const e = event(extra); for (const fn of [...windowListeners.get(kind) ?? [], ...listeners.get(kind) ?? []]) fn(e); return e; },
     key(extra) { const e = event({ key: 'k', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, ...extra }); f.keydown(e); return e; },
     tick() { const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn()); },
   };
@@ -759,6 +765,40 @@ test('pan rejects foreign and editable contacts and drops cancelled or stale que
     expect(h.frames.size).toBe(0);
     expect(h.sent).toEqual([]);
   }
+});
+
+test('a pan under a nested button hears its contact on the window until it begins, and a release anywhere ends it (kanban F6)', () => {
+  const nested = { target: { closest: s => s.startsWith('button') ? {} : null }, pointerType: 'mouse', buttons: 1 };
+  const watching = h => ['pointermove', 'pointerup', 'pointercancel'].map(k => h.windowListeners.get(k)?.length ?? 0);
+  // Released outside the node inside the slop: the contact ends, and a later
+  // buttonless move back over the node pans nothing (it did, stale, before).
+  let h = inputFixture(); h.load();
+  const down = h.pointer('pointerdown', nested);
+  expect([down.prevented, down.stopped, h.captured]).toEqual([false, false, []]); // a tap stays the button's
+  expect(watching(h)).toEqual([1, 1, 1]);
+  h.outside('pointerup', { ...nested, clientX: 2, buttons: 0 });
+  expect(watching(h)).toEqual([0, 0, 0]);
+  h.pointer('pointermove', { ...nested, clientX: 30, buttons: 0 }); h.tick();
+  expect(h.sent).toEqual([]);
+  // Dragged out past the slop and released there: the pan begins and ends once.
+  h = inputFixture(); h.load(); h.pointer('pointerdown', nested);
+  h.outside('pointermove', { ...nested, clientX: 60 });
+  h.outside('pointerup', { ...nested, clientX: 60, buttons: 0 });
+  expect(h.sent).toEqual([[7, 20, '60,0', 0]]);
+  h.pointer('pointermove', { ...nested, clientX: 90, buttons: 0 }); h.tick();
+  expect(h.sent.length).toBe(1);
+  // An up no one heard (outside the window): the next move without the button ends it.
+  h = inputFixture(); h.load(); h.pointer('pointerdown', nested);
+  h.pointer('pointermove', { ...nested, clientX: 30, buttons: 0 }); h.tick();
+  expect([h.sent, watching(h)]).toEqual([[], [0, 0, 0]]);
+  // Dragged inside: once the pan begins it captures, the window stops
+  // watching, and each later event is handled once.
+  h = inputFixture(); h.load(); h.pointer('pointerdown', nested);
+  h.pointer('pointermove', { ...nested, clientX: 10 }); h.tick();
+  expect([h.sent, h.captured, watching(h)]).toEqual([[[7, 20, '10,0', 0]], [1], [0, 0, 0]]);
+  h.pointer('pointermove', { ...nested, clientX: 15 }); h.tick();
+  h.pointer('pointerup', { ...nested, clientX: 15, buttons: 0 });
+  expect(h.sent).toEqual([[7, 20, '10,0', 0], [7, 20, '5,0', 0]]);
 });
 
 test('moved keyboard shortcuts preserve modifiers, readiness, repeat and modal gating', () => {

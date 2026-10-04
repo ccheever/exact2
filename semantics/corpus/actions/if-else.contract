@@ -1,0 +1,61 @@
+// if/else statement blocks, nested, with empty-effect branches and writes
+// in only one arm.
+component App
+  state n = 0
+  state msg = ""
+  action classify(v: number)
+    n = v
+    if v < 0
+      msg = "negative"
+    else
+      if v == 0
+        msg = "zero"
+      else
+        if v < 10
+          msg = "small"
+        else
+          msg = "large"
+  action onlyIf(v: number)
+    if v > 100
+      msg = "huge"
+  action ifNoElse
+    if n > 0
+      n = n - 1
+    msg = msg + "."
+  view
+    column
+      text `${n} ${msg}` testId="r"
+      button "neg" press=classify(-3) testId="neg"
+      button "zero" press=classify(0) testId="zero"
+      button "small" press=classify(4) testId="small"
+      button "large" press=classify(40) testId="large"
+      button "huge" press=onlyIf(500) testId="huge"
+      button "tiny" press=onlyIf(5) testId="tiny"
+      button "dec" press=ifNoElse testId="dec"
+
+test "classify"
+  tap "neg"
+  expect state msg == "negative"
+  tap "zero"
+  expect state msg == "zero"
+  tap "small"
+  expect state msg == "small"
+  tap "large"
+  expect state msg == "large"
+  expect text "r" == "40 large"
+
+test "one-armed if"
+  tap "tiny"
+  expect state msg == ""
+  tap "huge"
+  expect state msg == "huge"
+  tap "tiny"
+  expect state msg == "huge"
+
+test "statements after an if"
+  tap "small"
+  tap "dec"
+  expect text "r" == "3 small."
+  tap "zero"
+  tap "dec"
+  expect text "r" == "0 zero."

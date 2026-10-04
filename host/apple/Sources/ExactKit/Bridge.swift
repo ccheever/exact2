@@ -160,7 +160,7 @@ final class Runtime {
     private func islands(_ batch: Batch) -> Batch {
         let svg = on(busy: UInt8(0)) { exact_svg_islands(rt) }
         if svg & 1 != 0 { SvgRasterModule.prewarm() }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         if svg & 2 != 0 { SvgFilterMetal.prewarm() }
         #endif
         return batch

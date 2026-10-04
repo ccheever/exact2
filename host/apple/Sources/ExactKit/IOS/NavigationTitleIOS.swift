@@ -4,7 +4,7 @@
 // press), the bar hidden for a route with no header, and the tab bar hidden
 // for a route pushed while the authored tablist is. The web, macOS, Linux
 // and the agent paint what is authored, which is where each rule comes from.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// The heading's group in a header-shaped route: the element around the
@@ -170,6 +170,8 @@ extension NavigationHost {
         var subtitled = false
         if #available(iOS 26.0, *) { subtitled = true }
         let drawn = group.map { $0.avatar != nil || $0.tap != nil || !subtitled } ?? false
+        // tvOS's navigation item has no subtitle.
+        #if !os(tvOS)
         if #available(iOS 26.0, *) {
             let subtitle = drawn ? nil : group?.subtitle
             if subtitle != c.subtitle {
@@ -177,6 +179,7 @@ extension NavigationHost {
                 c.subtitle = subtitle
             }
         }
+        #endif
         guard drawn, let group, let shape else {
             if let old = c.titleView, item.titleView === old { item.titleView = nil }
             c.titleView = nil
@@ -203,12 +206,14 @@ extension NavigationHost {
         let hidden = list.style["display"]?.string == "none"
         for (index, c) in routes.enumerated() where index > 0 && index <= at && (index == at || c.tablistHidden == nil) && c.tablistHidden != hidden {
             c.tablistHidden = hidden
+            #if !os(tvOS)
             c.hidesBottomBarWhenPushed = hidden
+            #endif
             // On top already, with no push to read it (a route revealed by a
             // pop with a guessed flag, or the tablist changing under it): the
             // bar follows now (iOS 18).
             guard c === nav.topViewController, nav.transitionCoordinator == nil, tabBarShows, let tabs = tabController, nav.tabBarController === tabs else { continue }
-            if #available(iOS 18.0, *), tabs.isTabBarHidden != hidden { tabs.setTabBarHidden(hidden, animated: nav.view.window != nil) }
+            if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden != hidden { tabs.setTabBarHidden(hidden, animated: nav.view.window != nil) }
         }
     }
 }

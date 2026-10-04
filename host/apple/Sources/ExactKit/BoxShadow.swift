@@ -14,7 +14,7 @@
 // Gaussian's standard deviation; CSS's blur radius is twice that.
 import CoreGraphics
 import QuartzCore
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 #else
 import AppKit
@@ -194,7 +194,7 @@ extension NodeView {
     /// The casters onto the layer: the outer ones at its bottom, cast from
     /// the border box; the inset ones over the box's paint; or gone.
     func applyShadow(outline: CGPath) {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         let host: CALayer? = layer
         #else
         let host = layer
@@ -245,7 +245,7 @@ extension NodeView {
 }
 
 extension NodeView {
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     private typealias ClipBox = PlainView
     #else
     /// The shadow at the node's current size.
@@ -327,7 +327,7 @@ extension NodeView {
     func syncClipBox(_ wanted: Bool) {
         if wanted, clipBox == nil {
             let box = ClipBox(frame: bounds)
-            #if os(iOS)
+            #if os(iOS) || os(tvOS)
             box.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             #else
             box.autoresizingMask = [.width, .height]

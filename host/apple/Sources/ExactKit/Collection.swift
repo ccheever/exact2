@@ -217,7 +217,7 @@ final class CollectionHost {
     private var gestureContact: UInt64?
     private var lastVisited: UInt32 = 0
     private var refreshPins = false
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// `focusedView()` walks every node; a report asks each frame. UIKit's
     /// responder changes all reach `pinsChanged` (a node's become and
     /// resign, an input's begin and end editing), which forgets it.
@@ -337,7 +337,7 @@ final class CollectionHost {
         building = nil; retireOwed.removeAll(); fillLimits.removeAll(); fillSent.removeAll()
         budget = CollectionTurnBudget(); rescuing.removeAll()
         refreshPins = false; lastVisited = 0
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         focusFound = nil
         #endif
     }
@@ -528,7 +528,7 @@ final class CollectionHost {
         schedule()
     }
     func pinsChanged() {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         focusFound = nil
         #endif
         guard !entries.isEmpty else { return }
@@ -581,7 +581,7 @@ final class CollectionHost {
             if filling?() == true { return }
             let rescue = !rescuing.isDisjoint(with: dirty)
             guard budget.begin(rescue: rescue) else { return }
-            #if os(iOS)
+            #if os(iOS) || os(tvOS)
             let focus = focusFound ?? focusedView()
             focusFound = focus
             #else
@@ -676,7 +676,7 @@ final class CollectionHost {
             budget.nextTurn()
             if refreshPins {
                 refreshPins = false; dirty.formUnion(entries.keys)
-                #if os(iOS)
+                #if os(iOS) || os(tvOS)
                 focusFound = nil
                 #endif
             }

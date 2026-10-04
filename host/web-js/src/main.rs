@@ -120,6 +120,14 @@ fn main() -> ExitCode {
                 eprintln!("app.bind.plan: {e}");
                 return ExitCode::from(1);
             }
+            // What `app.ts` is type-checked against, as the native bake
+            // checks it (host/web-js/build.mjs; calendar F9).
+            if let Err(e) = contract::typescript(&plan).and_then(|d| {
+                std::fs::write(dir.join("app.contract.d.ts"), d).map_err(|e| e.to_string())
+            }) {
+                eprintln!("app.contract.d.ts: {e}");
+                return ExitCode::from(1);
+            }
             // A Contract compiled here is also the plan beside the pages
             // (the build's `app.plan`), so the build runs no second compile.
             if !input.ends_with(".plan") {
@@ -149,6 +157,25 @@ fn main() -> ExitCode {
                 {
                     let _ = std::fs::write(dir.join("files.flag"), "");
                 }
+            }
+            // Every portable symbol role, which symbols.js loads when a bound
+            // source names one the plan's strings don't (ledger diary F10).
+            let roles: Vec<String> = exact_kernel::generated::SYMBOL_ROLES
+                .iter()
+                .filter_map(|r| exact_kernel::generated::symbol(r).map(|s| (r, s)))
+                .map(|(r, (_, path, filled))| {
+                    format!(
+                        "{}:[{},{}]",
+                        serde_json::to_string(r).unwrap(),
+                        serde_json::to_string(path).unwrap(),
+                        filled as u8
+                    )
+                })
+                .collect();
+            let roles = format!("export default {{{}}};", roles.join(","));
+            if let Err(e) = std::fs::write(dir.join("symbol-roles.js"), roles) {
+                eprintln!("symbol-roles.js: {e}");
+                return ExitCode::from(1);
             }
             if out_files.markdown {
                 let _ = std::fs::write(dir.join("markdown.flag"), "");

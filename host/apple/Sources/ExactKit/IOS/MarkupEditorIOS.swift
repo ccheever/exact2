@@ -1,9 +1,13 @@
 // @ref LLP 1045 D5, D6 — source replacements through UIKit's own input path.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 extension NodeView {
     @discardableResult func formatMarkup(_ command: String, argument: String = "", selection override: NSRange? = nil) -> Bool {
+        #if os(tvOS)
+        // tvOS text views do not edit.
+        return false
+        #else
         guard props["markup"] == "markdown", let f = textArea as? TextArea, let editor = f.markup, f.isEditable, !disabled,
               f.markedTextRange == nil, !editor.applying else { return false }
         let selection = override ?? (f.isFirstResponder ? f.selectedRange : (editor.bookmark ?? f.selectedRange))
@@ -29,6 +33,7 @@ extension NodeView {
         else { restyleMarkup(); publishMarkupSelection() }
         f.scrollRangeToVisible(f.selectedRange)
         return true
+        #endif
     }
 
     func publishMarkupSelection(force: Bool = false) {
@@ -40,6 +45,7 @@ extension NodeView {
     }
 
     func editMarkupLink() {
+        #if !os(tvOS)
         guard props["markup"] == "markdown", let f = textArea as? TextArea, let editor = f.markup, f.isEditable, f.markedTextRange == nil,
               var controller = f.window?.rootViewController else { return }
         while let presented = controller.presentedViewController { controller = presented }
@@ -58,17 +64,20 @@ extension NodeView {
             f.becomeFirstResponder()
         })
         controller.present(alert, animated: true)
+        #endif
     }
 
     func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
         guard let f = textView as? TextArea, f.markup != nil else { return nil }
         var actions: [UIMenuElement] = []
+        #if !os(tvOS)
         if f.isEditable, f.markedTextRange == nil {
             for (title, command) in [("Bold", "bold"), ("Italic", "italic"), ("Code", "code"), ("Strikethrough", "strike")] {
                 actions.append(UIAction(title: title) { [weak self] _ in self?.formatMarkup(command) })
             }
             actions.append(UIAction(title: "Link…") { [weak self] _ in self?.editMarkupLink() })
         }
+        #endif
         if range.length > 0 { actions.append(UIAction(title: "Copy Plain Text") { [weak f] _ in f?.copyPlainText() }) }
         return UIMenu(children: suggestedActions + [UIMenu(title: "Markdown", children: actions)])
     }

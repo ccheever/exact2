@@ -131,6 +131,7 @@ fn engine_binary(engine_dir: &Path) -> Result<std::path::PathBuf, String> {
     for relative in [
         "hermesvm.framework/Versions/1/hermesvm",
         "linux-static/libhermesvm_a.a",
+        "windows-static/hermesvm_a.lib",
     ] {
         let candidate = engine_dir.join(relative);
         if candidate.is_file() {
@@ -211,6 +212,7 @@ mod tests {
             "ios/Frameworks-vanilla-nodebug",
             "ios/Frameworks-vanilla",
             "linux/Frameworks-vanilla",
+            "tools/hermes-vanilla/windows-x64",
         ] {
             let engine = root.join(dir);
             if !HermesInput::path(&engine).exists() {

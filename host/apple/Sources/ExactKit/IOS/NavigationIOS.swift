@@ -3,7 +3,7 @@
 // Only a completed pop invokes the Contract back control. The bar a stack
 // shows, what a route projects into it and when the app module's hooks run
 // are LLP 1075.003's (NavigationBarIOS.swift, NativeHooks.swift).
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 final class RouteController: UIViewController {
@@ -46,11 +46,20 @@ final class RouteController: UIViewController {
         // changes (a route loaded before its window has a trait collection
         // would otherwise keep the light colour in dark mode). A route
         // without one shows the system background, not white.
+        #if os(tvOS)
+        // tvOS has no system backgrounds; white stands in, as the viewport's.
+        view.backgroundColor = node.props["navigationPresentation"] == "modal"
+            ? .white
+            : UIColor { [weak node] traits in
+                node?.channels("background_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .white
+            }
+        #else
         view.backgroundColor = node.props["navigationPresentation"] == "modal"
             ? .secondarySystemGroupedBackground
             : UIColor { [weak node] traits in
                 node?.channels("background_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .systemBackground
             }
+        #endif
         view.addSubview(node)
     }
     func mount() {
@@ -251,8 +260,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// is loaded first, or the swipe never asks Exact.
     func watchPops(_ nav: UINavigationController) {
         nav.loadViewIfNeeded()
+        // tvOS has no interactive pop gesture.
+        #if !os(tvOS)
         nav.interactivePopGestureRecognizer?.delegate = self
-        if #available(iOS 26.0, *) { nav.interactiveContentPopGestureRecognizer?.delegate = self }
+        if #available(iOS 26.0, tvOS 26.0, *) { nav.interactiveContentPopGestureRecognizer?.delegate = self }
+        #endif
     }
 
     /// Initial containment is ready before child frames. It does not present
@@ -571,11 +583,16 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// its active route (D1), and not a pan a `swiperight` node or a canvas
     /// owns, nor more vertical than horizontal.
     func popMayBegin(_ gestureRecognizer: UIGestureRecognizer, from start: CGPoint?, in view: UIView?, velocity: CGPoint) -> Bool {
+        // tvOS has no interactive pop gesture.
+        #if os(tvOS)
+        let owner: UINavigationController? = nil
+        #else
         let owner = allNavigations.first { nav in
             if nav.interactivePopGestureRecognizer === gestureRecognizer { return true }
             if #available(iOS 26.0, *) { return nav.interactiveContentPopGestureRecognizer === gestureRecognizer }
             return false
         }
+        #endif
         if let owner, owner !== navigation { return false }
         let depth = navigation?.viewControllers.count ?? 0
         let control = backControl
@@ -732,4 +749,14 @@ private final class RevealTick: NSObject {
     init(_ host: NavigationHost) { self.host = host }
     @objc func tick() { if let host { host.revealTick() } }
 }
+#if os(tvOS)
+extension NavigationHost {
+    /// Whether the Siri Remote's Menu goes back: a route to pop and a Back control.
+    var menuGoesBack: Bool { (navigation?.viewControllers.count ?? 0) > 1 && backControl != nil }
+    func menuBack() {
+        guard menuGoesBack, !changing, let control = backControl else { return }
+        presenter.press(control.id)
+    }
+}
+#endif
 #endif

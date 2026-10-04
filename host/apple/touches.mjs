@@ -12,7 +12,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { iosTriple, phoneBridge } from './build.mjs';
+import { iosTriple } from './build.mjs';
+import { phoneBridge } from './devices.mjs';
 
 const ROOT = resolve(new URL('../..', import.meta.url).pathname);
 const RUNNER_ID = 'com.exact.touches.xctrunner';
@@ -230,8 +231,8 @@ export const DRAG_BOUNDS = { press: 10000, hold: 10000, over: 2000, total: 10000
  * one new touch that began and ended (for a drag that moves, moved by the
  * asked delta) — else an error that says what the log saw. `drag` is
  * `{dx, dy, press, over, hold, during}`, points and ms; `during` are thunks
- * run while the finger is down, each bracketed by the log: begun before the
- * first, not lifted after the last. `ask` is the app's carrier; `touches`
+ * run while the finger is down after the move, each bracketed by the log:
+ * begun before the first, not lifted after the last. `ask` is the app's carrier; `touches`
  * the runner's.
  */
 export async function realTap({ ask, touches, id, at, drag, abandon }) {
@@ -307,6 +308,8 @@ export async function realTap({ ask, touches, id, at, drag, abandon }) {
         await new Promise((r) => setTimeout(r, 50));
       }
       if (ours(await entries()).lifted) throw new Error(`${early} began; lengthen press or hold`);
+      // The ops run after the move, as the carriers' own phases run them (kanban F14): the runner presses and drags on real time.
+      await new Promise((r) => setTimeout(r, drag.press + (moves ? drag.over : 0)));
       for (const op of drag.during) during.push(await raced(op()));
       if (ours(await entries()).lifted) throw new Error(`${early} finished; lengthen press or hold`);
     } catch (error) {

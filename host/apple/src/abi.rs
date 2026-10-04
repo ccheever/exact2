@@ -84,6 +84,10 @@ pub struct Bridge<D: DataSource> {
     pub(crate) pan: crate::pan_velocity::PanVelocity,
     /// Canvas draws in a turn of their own (LLP 1072 §8.5), in each host booted.
     canvas_deferred: bool,
+    /// The display preferences last told (`set_preferences`), kept across
+    /// boots: a runner booted later lays out its first frame with them, not
+    /// with a mouse's defaults and then again.
+    preferences: exact_runner::Preferences,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -120,6 +124,7 @@ impl<D: DataSource> Bridge<D> {
             app_call: None,
             pan: crate::pan_velocity::PanVelocity::new(),
             canvas_deferred: false,
+            preferences: exact_runner::Preferences::NONE,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -466,8 +471,7 @@ impl<D: DataSource> Bridge<D> {
             plan,
             data,
             measurer,
-            width,
-            height,
+            self.boot_viewport(width, height),
             None,
             snapshot,
             secrets,
@@ -740,8 +744,7 @@ impl<D: DataSource> Bridge<D> {
             PlanBytes::Copied(&plan),
             data,
             measurer,
-            width,
-            height,
+            self.boot_viewport(width, height),
             carried.as_ref(),
             snapshot,
             secrets,
@@ -1125,19 +1128,6 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// The user's display preferences changed or became known (LLP 1061
-    /// D4; LLP 1069.000 D1): bit 0 reduced motion, bit 1 reduced
-    /// transparency, bit 2 contrast more, bit 3 contrast less, bit 4 a dark
-    /// system.
-    pub fn set_preferences(&mut self, bits: u32) -> u32 {
-        let preferences = exact_runner::Preferences::from_bits(bits);
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| h.set_preferences(preferences));
-        self.emit(out)
-    }
-
     /// The root font size in points (LLP 1069.000 D3): a relayout.
     pub fn set_root_font_size(&mut self, px: f64) -> u32 {
         let out = self
@@ -1470,6 +1460,7 @@ pub fn with_entry<D: DataSource>(
 }
 
 mod exports;
+mod preferences;
 pub(crate) mod segments;
 
 #[path = "abi/commands.rs"]

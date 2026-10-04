@@ -9,7 +9,7 @@
 // a second build that links every capability (LLP 1047 D7); --app-only skips
 // it too. ios --device selects a phone.
 // after `bun host/web/build.mjs` / `bun host/apple/build.mjs [--ios]` /
-// `cargo build --release -p caltrain-linux`.
+// `cargo build --profile host-dev -p caltrain-linux`.
 import { spawnSync } from 'node:child_process';
 import { createHash, verify } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -1066,7 +1066,9 @@ if (deckFixture) {
 // 1057.000, apparatus approved by Charlie, 2026-09-27): one contact on a
 // swipe row inside a panning surface. A horizontal drag is the inner swipe's
 // and the pan never fires; a vertical one falls to the pan; a drag that starts
-// on the row's button is neither's (rule 3's boundary); a tap presses it. The
+// on the row's button is the pan's once past the slop, never the swipe's (rule
+// 3: a press keeps a contact from a swipe, not from a pan; kanban F6); a tap
+// presses it. The
 // same numbers on every host that can hold a contact; iOS, which holds none
 // (LLP 1080.000 P3), answers `unsupported`, said so, not faked.
 {
@@ -1093,11 +1095,11 @@ if (deckFixture) {
         check(await slots() === '1/0/0', `a horizontal drag on the row: replies/panned/pressed ${await slots()}, expected the swipe alone (1/0/0)`);
         await drag('row', [200, 50], [[0, 10], [0, 20]]);
         check(await slots() === '1/30/0', `a vertical drag on the row: ${await slots()}, expected the surface's pan (1/30/0)`);
-        await drag('button', [40, 20], [[20, 0], [100, 0]]);
-        check(await slots() === '1/30/0', `a drag from the row's button: ${await slots()}, expected neither the swipe nor the pan (1/30/0)`);
+        await drag('button', [40, 20], [[0, 10], [0, 20]]);
+        check(await slots() === '1/60/0', `a drag from the row's button: ${await slots()}, expected the surface's pan and no press (1/60/0)`);
         await g.tap('button');
         await g.clock('settle');
-        check(await slots() === '1/30/1', `a tap on the button: ${await slots()}, expected its press (1/30/1)`);
+        check(await slots() === '1/60/1', `a tap on the button: ${await slots()}, expected its press (1/60/1)`);
         console.log(`${host} precedence: swipe inside pan ${await slots()} (replies/panned/pressed)`);
       }
     } catch (error) {

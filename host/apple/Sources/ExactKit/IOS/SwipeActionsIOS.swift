@@ -1,6 +1,6 @@
 // @ref LLP 1008 §9 — authored row content and action controls projected into
 // UIKit swipe cells. The kernel owns dimensions; UIKit owns the gesture.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 import UIKit.UIGestureRecognizerSubclass
 
@@ -195,7 +195,10 @@ final class SwipeActionsHost {
             // Only the outer authored scroll container scrolls vertically.
             table.isScrollEnabled = false
             table.contentInsetAdjustmentBehavior = .never
-            table.separatorStyle = .none; table.backgroundColor = .clear
+            #if !os(tvOS)
+            table.separatorStyle = .none
+            #endif
+            table.backgroundColor = .clear
             table.estimatedRowHeight = 0; table.sectionHeaderTopPadding = 0
             table.allowsSelection = false
             // The row paints itself (its own background, its corners); the
@@ -300,6 +303,8 @@ final class SwipeActionsHost {
         func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 1 }
         func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell { cell ?? UITableViewCell() }
         func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat { body.bounds.height }
+        // tvOS has no row editing or swipe actions.
+        #if !os(tvOS)
         func tableView(_ tableView: UITableView, willBeginEditingRowAt indexPath: IndexPath) {
             open = true
             for other in host.rows.values where other !== self { other.table?.setEditing(false, animated: true) }
@@ -311,6 +316,7 @@ final class SwipeActionsHost {
         }
         func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? { configuration(leading) }
         func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? { configuration(trailing) }
+        #endif
 
         private func enabled(_ target: NodeView) -> Bool {
             guard let ancestors = actionAncestors[target.id], !ancestors.isEmpty else { return false }
@@ -334,6 +340,7 @@ final class SwipeActionsHost {
                   text.style["display"]?.string != "none", !text.isHidden, text.alpha > 0 else { return nil }
             return title
         }
+        #if !os(tvOS)
         private func configuration(_ controls: [NodeView]) -> UISwipeActionsConfiguration? {
             let actions = controls.filter(enabled).map { target in
                 let destructive = target.props["destructive"] == "true"
@@ -393,6 +400,7 @@ final class SwipeActionsHost {
             configuration.performsFirstActionWithFullSwipe = controls.first.map(enabled) ?? false
             return configuration
         }
+        #endif
 
         // Observe public UIKit controls by their label/image. Never infer a
         // target from a private class name, an action's position, or testId.

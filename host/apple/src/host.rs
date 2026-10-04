@@ -252,8 +252,7 @@ impl<D: DataSource> Host<D> {
             PlanBytes::Copied(plan_bytes),
             data,
             measurer,
-            width,
-            height,
+            exact_runner::Viewport::sized(width as f64, height as f64),
             carried,
             snapshot,
             secrets,
@@ -276,8 +275,7 @@ impl<D: DataSource> Host<D> {
         plan_bytes: PlanBytes<'_>,
         data: D,
         measurer: Box<dyn TextMeasurer>,
-        width: f32,
-        height: f32,
+        viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
         secrets: Option<Platform>,
@@ -292,8 +290,7 @@ impl<D: DataSource> Host<D> {
             plan_bytes,
             data,
             measurer,
-            width,
-            height,
+            viewport,
             carried,
             snapshot,
             secrets,
@@ -312,8 +309,7 @@ impl<D: DataSource> Host<D> {
         plan_bytes: PlanBytes<'_>,
         data: D,
         measurer: Box<dyn TextMeasurer>,
-        width: f32,
-        height: f32,
+        viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
         secrets: Option<Platform>,
@@ -350,14 +346,7 @@ impl<D: DataSource> Host<D> {
             facts
         });
         let mut runner = Runner::boot_with_delivery(
-            plan,
-            data,
-            kernel,
-            carried,
-            snapshot,
-            facts,
-            exact_runner::Viewport::sized(width as f64, height as f64),
-            launch,
+            plan, data, kernel, carried, snapshot, facts, viewport, launch,
         )
         .map_err(HostError::Runner)?;
         // @ref LLP 1079 D1 — a development build measures its work.
@@ -394,7 +383,7 @@ impl<D: DataSource> Host<D> {
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
             viewless_hooks: Default::default(),
-            svg: svg::SvgState::new(cfg!(target_os = "ios")),
+            svg: svg::SvgState::new(cfg!(any(target_os = "ios", target_os = "tvos"))),
             canvas_held: IdSet::default(),
             canvas_kept: Default::default(),
             canvas_deferred: false,
@@ -405,7 +394,10 @@ impl<D: DataSource> Host<D> {
             collections_json: "[]".into(),
             engine: {
                 let mut engine = Engine::new();
-                engine.set_lowered_properties(&svg::lowered(cfg!(target_os = "ios")));
+                engine.set_lowered_properties(&svg::lowered(cfg!(any(
+                    target_os = "ios",
+                    target_os = "tvos"
+                ))));
                 engine
             },
             paint: paint::Paint::default(),
@@ -428,7 +420,7 @@ impl<D: DataSource> Host<D> {
             height_target_passes: 0,
             #[cfg(test)]
             layout_calls: 0,
-            viewport: (width, height),
+            viewport: (viewport.width as f32, viewport.height as f32),
             now_ms: 0.0,
             data_activated: false,
             secrets,
@@ -624,6 +616,18 @@ impl<D: DataSource> Host<D> {
         let mut cache = home.join("Library/Caches/exact").join(&app_id);
         if let Some(name) = scratch {
             cache = cache.join("agent").join(name);
+            // An authored test's store starts empty every run (`agent --test`).
+            if std::env::var_os("EXACT_AGENT_STORAGE_FRESH").is_some() {
+                match std::fs::remove_dir_all(&cache) {
+                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                        return Err(DataError::Unavailable(format!(
+                            "EXACT_AGENT_STORAGE_FRESH: could not empty {}: {e}",
+                            cache.display()
+                        )));
+                    }
+                    _ => {}
+                }
+            }
             data = cache.join("data");
         }
         // Sibling roots keep app:/cache grants from implicitly reaching tmp.

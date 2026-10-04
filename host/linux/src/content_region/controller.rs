@@ -5,7 +5,9 @@
 use super::{source::PaintSource, worker};
 use crate::text::{transfer::*, Shared};
 use exact_kernel::{Kernel, ParagraphStamp, RegionTextRequest};
-use std::{os::unix::io::RawFd, rc::Rc, sync::Arc};
+#[cfg(unix)]
+use std::os::unix::io::RawFd;
+use std::{rc::Rc, sync::Arc};
 
 const SOURCE_SLOTS: usize = exact_kernel::region::REGION_OFFERS;
 static SERVICE: worker::ThreadSlot<FontService> = worker::ThreadSlot::new();
@@ -113,6 +115,7 @@ impl Controller {
     pub(super) fn phase(&self) -> &Phase {
         &self.phase
     }
+    #[cfg(unix)]
     pub(super) fn fd(&self) -> RawFd {
         self.port.fd()
     }

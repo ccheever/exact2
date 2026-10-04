@@ -587,3 +587,30 @@ fn primitive(e: &str) -> bool {
         || e.parse::<f64>().is_ok()
         || e.starts_with("(-") && e[2..].trim_end_matches(')').parse::<f64>().is_ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use exact_plan::Stdlib;
+
+    /// Every roster entry an `Opcode::Call` can name has its `x_` export in
+    /// rt.js; `at`, `formatDate` and `formatNumber` compiled and then failed
+    /// the bundle for want of one (an app's diary, 2026-10-04). `map` and
+    /// `filter` are opcodes with a callback body, never a call.
+    #[test]
+    fn every_called_roster_entry_has_a_runtime_export() {
+        let rt = [include_str!("../rt.js"), include_str!("../format.js")].concat();
+        let exported = |name: &str| {
+            rt.match_indices(name).any(|(at, _)| {
+                !rt[at + name.len()..]
+                    .starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+            })
+        };
+        let missing: Vec<&str> = Stdlib::ALL
+            .iter()
+            .map(|f| f.name())
+            .filter(|name| !matches!(*name, "map" | "filter"))
+            .filter(|name| !exported(&format!("x_{name}")))
+            .collect();
+        assert!(missing.is_empty(), "rt.js lacks x_ exports for {missing:?}");
+    }
+}

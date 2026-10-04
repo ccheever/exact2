@@ -259,8 +259,29 @@ explicitly stateless modules removes OS loading from the update latency path.
 Generic executor-private state migration stays out; this is one committed
 generation with an executor change, not a second app reload or patch protocol.
 
+**Expanded (Charlie, 2026-10-03, waiver: "So maybe we just say we support all
+Apple platforms in-tree, and out-of-tree is for like Amazon's new TV operating
+system thing"; "yeah, this sounds good, let's pull it in"):** the Apple
+platforms UIKit covers are in-tree surfaces: tvOS (Doug Lowder's port,
+`host/apple/build.mjs --tvos`; the Siri Remote's focus, Select and Menu) and
+visionOS when someone ports it. Each is a variant of the iOS presenter, not a
+new one: shared Swift admits it beside `os(iOS)`, Rust cfgs beside
+`target_os = "ios"`, and its own code compiles into its own binary alone.
+Unblocks Caltrain on an Apple TV. watchOS, which has no UIKit, stays out. A
+platform with its own UI stack (Amazon's Vega OS) is a host outside this
+repository, on the plan, runner and agent seams; its RFC is owed. The take is
+waived.
+
 - **Windows.** A working Direct2D host exists in the old repo. It is real work, and it
-  doubles the native matrix. Port it after the loop is proven.
+  doubles the native matrix. **Admitted (Charlie, 2026-10-04):** "make an exact2
+  implementation for the Windows platform, including the game engine" for standalone
+  Skirmish (LLP 1015.000). Take: single-player first; multiplayer and general Windows
+  app expansion wait behind the working game. The engine remains optional.
+  **Expanded (Charlie, 2026-10-04):** "something simple and app-like that uses a
+  lot of windows native stuff" admits Windows Desk, a bounded text workspace
+  using Contract and an app-local Win32 control presenter. General Windows
+  control parity remains behind these two consumers; no additional showcase
+  or framework is admitted by this example.
 - **Android.** Same.
 
 Every surface multiplies the sweep, the presenter count, and the number of ways one
@@ -598,6 +619,10 @@ This half matters more than the feature half.
 - No migration guides.
 - Generated files are built, never committed.
 - Sparse prose. The code and the checks are the authority.
+  **Except the author guides (Charlie, 2026-10-04, LLP 1086 D9):** the guides under
+  `docs/` describe the shipped product to the people and agents building with it. A
+  change that alters what an author writes or runs updates them in the same change.
+  That is not apparatus and needs no approval; a new file there still does.
 
 ## Moving something off this list
 

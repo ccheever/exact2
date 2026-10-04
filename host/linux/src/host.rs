@@ -580,6 +580,18 @@ impl<D: DataSource> Host<D> {
         let mut cache = base("XDG_CACHE_HOME", ".cache");
         if let Some(name) = scratch {
             cache = cache.join("agent").join(name);
+            // An authored test's store starts empty every run (`agent --test`).
+            if std::env::var_os("EXACT_AGENT_STORAGE_FRESH").is_some() {
+                match std::fs::remove_dir_all(&cache) {
+                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                        return Err(DataError::Unavailable(format!(
+                            "EXACT_AGENT_STORAGE_FRESH: could not empty {}: {e}",
+                            cache.display()
+                        )));
+                    }
+                    _ => {}
+                }
+            }
             data = cache.join("data");
         }
         // Sibling roots keep app:/cache grants from implicitly reaching tmp.

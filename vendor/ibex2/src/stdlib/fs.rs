@@ -357,6 +357,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn read_and_write_need_their_own_grants() {
         let read_only = GrantSet::none().with(Grant::FsRead(PathPrefix::new("/data").unwrap()));
         let p = normalize("/data/x").unwrap();
@@ -370,6 +371,7 @@ mod tests {
     /// not be able to MOVE a file, and a write grant on the destination must
     /// not license reading a source it was never given.
     #[test]
+    #[cfg(unix)]
     fn a_two_path_operation_checks_both_paths() {
         let grants = granted("/src", "/dst");
         let source = normalize("/src/a").unwrap();
@@ -388,11 +390,21 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn prefixes_match_whole_components() {
         let grants = granted("/data", "/data");
         assert!(admit(&grants, FsOp::ReadFile, Path::new("/data/x"), None).is_ok());
         assert!(admit(&grants, FsOp::ReadFile, Path::new("/data2/x"), None).is_err());
         assert!(admit(&grants, FsOp::ReadFile, Path::new("/database/x"), None).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_windows_grant_spelling_remains_explicitly_unqualified() {
+        // @ref LLP 0068#windows-host-and-engine — engine qualification
+        // cannot accidentally broaden the unimplemented filesystem family.
+        assert!(normalize(r"C:\data\file.txt").is_err());
+        assert!(normalize(r"\\server\share\file.txt").is_err());
     }
 
     #[test]

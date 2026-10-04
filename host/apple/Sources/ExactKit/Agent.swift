@@ -15,7 +15,7 @@ import Foundation
 import CoreFoundation
 
 public final class Agent {
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     // An agent-issued edit awaits its actual editor's native caret reveal.
     weak var pendingTextReveal: TextArea?
     /// The held contact on a `pan` node, recognized (LLP 1057 §10.6).
@@ -192,6 +192,7 @@ public final class Agent {
             session.canvases.settle(now: session.now())
             Agent.reply(tagged(r))
         case "type": let r = releaseCanvasKey(req) ?? type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
+        case "reveal": Agent.reply(tagged(reveal(req))) // before a tap or a type: a target out of view, scrolled into it
         case "clock": let r = clock(req); session.tellAgentOffset(); Agent.reply(tagged(r))
         case "prefer": Agent.reply(tagged(prefer(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
@@ -293,8 +294,9 @@ public final class Agent {
 
     /// Move both clocks to one instant: the runner's (timers, each fired at
     /// its own due time) and the motion engine's (a seek). The clock lands
-    /// where the runner says (`batch.clock`): a timer's refusal stops it at
-    /// that timer's due time and is the reply's error. `settle` is a fixed
+    /// where the runner says (`batch.clock`), never behind where it stood
+    /// (LLP 1080.000 §12): a timer's refusal stops it there and is the
+    /// reply's error; the timer-fire limit is progress. `settle` is a fixed
     /// point: advance to when the last transition in flight ends, and if
     /// the timers crossed on the way started more, again — bounded, and
     /// `settled: false` when the bound is hit.
@@ -353,7 +355,7 @@ public final class Agent {
     /// `rows` (each at least 1), `gap` (points, 0 by default). Each refusal
     /// names its fact (LLP 1078 D10); nothing applies unless all are known.
     private func preferFold(_ fold: [String: Any]) -> String? {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         // The hinge interaction reports after the view attaches, a turn or two
         // after boot; a drive's first `prefer` can arrive before it. Give it a
         // bounded moment on a 27.1 device so the answer is the device's.
@@ -397,6 +399,21 @@ public final class Agent {
     }
 
     func clock(_ req: [String: Any]) -> [String: Any] {
+        // @ref LLP 1080.000 §12 — platform timing, before any `clock`: the
+        // host has run on the wall's time (motion and holds included) while
+        // the runner's clock stood behind it. The clock is taken over at the
+        // wall, frozen there before anything waits, and never set behind it:
+        // a hold begun behind the motion engine's time is refused
+        // (ClockWentBackwards). The runner catches up in the next seek. A
+        // runner already ahead of the wall (no known path; the safe floor) sets the floor
+        // instead. `take` is the takeover alone: it moves nothing and
+        // reports where the clock stands.
+        if session.clock == nil, !ExactEnv.agentFreezes {
+            let runner = session.agent("{\"op\":\"tags\"}").data(using: .utf8)
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["clock"] as? Double
+            session.clock = max(session.now(), runner ?? 0)
+        }
+        if req["take"] as? Bool == true { return ["clock": session.clock ?? 0] }
         let from = session.clock ?? 0
         let settle = req["settle"] as? Bool == true
         // A request in flight (LLP 1016) is waited for first: its reply
@@ -424,11 +441,14 @@ public final class Agent {
             return out
         }
         while true {
-            let batch = advanceStepped(to: to, deadline: deadline)
-            let landed = batch.clock ?? to
+            let batch = advanceStepped(to: to, deadline: deadline, floor: from)
+            let landed = max(from, batch.clock ?? to)
             session.clock = landed
             session.apply(session.runtime.tick(now: landed))
             AnimatedRasters.shared.evaluate()
+            // A long catch-up (a takeover after minutes of uptime) can pass the
+            // runner's timer-fire limit: it is progress, so go on from there.
+            if let e = batch.error, "\(e)".contains("TimerFireLimit"), (batch.clock ?? to) < to, Date() < deadline { continue }
             if let e = batch.error { return ["error": "clock: \(e)", "clock": landed] }
             guard session.canvases.waitUntilReady() else { return ["error": "canvas creation is still in flight"] }
             session.canvases.settle(now: landed)
@@ -451,7 +471,7 @@ public final class Agent {
                 let deadline = Date(timeIntervalSinceNow: 2)
                 var wasBusy = nativeInFlight()
                 while true {
-                    #if !os(iOS)
+                    #if !(os(iOS) || os(tvOS))
                     if !wasBusy { break }
                     #endif
                     RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
@@ -483,7 +503,8 @@ public final class Agent {
     /// timer that sends, and its reply is waited for. Past the deadline, or
     /// 4096 stops, the rest is one advance. Each batch is applied; the last
     /// one is returned.
-    func advanceStepped(to: Double, deadline: Date) -> Batch {
+    /// `floor`: the host's clock is never set behind it while the runner catches up (LLP 1080.000 §12).
+    func advanceStepped(to: Double, deadline: Date, floor: Double = -.infinity) -> Batch {
         var steps = 0
         // The agent's clock is a seek: frame tasks fire virtual frames (LLP 1073 D3).
         session.runtime.presentFrames(false)
@@ -492,7 +513,7 @@ public final class Agent {
             let held = waited && steps < 4096
             let batch = session.runtime.advance(now: to, untilRequest: held)
             session.apply(batch)
-            session.clock = batch.clock ?? to
+            session.clock = max(floor, batch.clock ?? to)
             // A stop at `to` may leave a timer due there: only a plain advance ends.
             if batch.error != nil || !held { return batch }
             steps += 1
@@ -536,7 +557,7 @@ public final class Agent {
         // A Canvas 2D image being decoded is a reply still to come (LLP 1056 D9).
         // A held device request is not I/O in flight (LLP 1069.007 D3).
         let inFlight = (o["pending"] as? [[String: Any]])?.filter { $0["device"] == nil }.count ?? 0
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         // A filtered SVG picture being drawn off the main thread (LLP 1055.000 D14).
         let pictures = SvgFilterLive.inFlight
         #else

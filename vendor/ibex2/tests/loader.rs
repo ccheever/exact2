@@ -139,8 +139,9 @@ fn no_capability_is_reachable_from_the_global_object() {
     p.file("index.js", "");
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     let baseline: std::collections::BTreeSet<String> = rt.global_names().into_iter().collect();
-    assert!(rt.install_stdlib());
-    rt.install_bindings().expect("bindings");
+    let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+    rt.install_runtime(ibex2::bindings::Groups::DEFAULT, &context)
+        .expect("bindings");
     rt.set_loader(Root::Declared(p.0.clone()), ModuleGrants::none())
         .expect("loader");
 
@@ -149,15 +150,36 @@ fn no_capability_is_reachable_from_the_global_object() {
         .into_iter()
         .filter(|n| !baseline.contains(n))
         .collect();
-    let allowed: std::collections::BTreeSet<String> = ibex2::loader::ALLOWED_GLOBALS
-        .iter()
-        .map(|s| s.to_string())
-        .filter(|n| !baseline.contains(n))
-        .collect();
+    let allowed: std::collections::BTreeSet<String> =
+        ibex2::loader::allowed_globals(rt.installed_groups().expect("groups were installed"))
+            .into_iter()
+            .map(|s| s.to_string())
+            .filter(|n| !baseline.contains(n))
+            .collect();
     assert_eq!(
         added, allowed,
         "left: on globalThis; right: ALLOWED_GLOBALS (R1)"
     );
+}
+
+#[test]
+fn empty_groups_do_not_project_fetch_or_environment_into_modules() {
+    let p = Project::new("empty-groups");
+    p.file(
+        "index.js",
+        "globalThis.emptyGroupTypes = [typeof fetch, typeof process].join(',');",
+    );
+    let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
+    let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+    rt.install_runtime(ibex2::bindings::Groups::empty(), &context)
+        .expect("empty grouped runtime");
+    rt.set_loader(
+        Root::Declared(p.0.clone()),
+        ModuleGrants::parse("[*]\nnet.fetch https://example.com\nenv.read PATH\n").unwrap(),
+    )
+    .expect("loader");
+    rt.run_entry("./index.js").expect("entry");
+    assert_eq!(rt.eval("emptyGroupTypes").unwrap(), "undefined,undefined");
 }
 
 /// LLP 0067 R2: a module's `fetch` is its own, so one cannot use another's.
@@ -823,8 +845,9 @@ fn a_manifest_built_for_another_engine_is_refused_under_precompiled() {
     manifest.write(&cache).unwrap();
 
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-    assert!(rt.install_stdlib());
-    rt.install_bindings().expect("bindings");
+    let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+    rt.install_runtime(ibex2::bindings::Groups::DEFAULT, &context)
+        .expect("bindings");
     let err = rt
         .set_loader_with(
             Root::Declared(p.0.clone()),

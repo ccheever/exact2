@@ -61,6 +61,7 @@ fn ready(p: &mut Presenter<Empty>) {
     while !p.host.content_region().unwrap().receipt().unwrap().current {
         assert!(Instant::now() < end, "font/publication watchdog");
         assert!(p.host.content_region().unwrap().refusal().is_none());
+        #[cfg(unix)]
         assert!(p.content_region_fd().is_some());
         // Test-only wait. Production watches the fd alongside physical input.
         std::thread::sleep(Duration::from_millis(1));
@@ -293,6 +294,7 @@ fn held_old_source_latest_demand_and_destroy_retire_without_publishing_stale_pix
         p.host.content_region().unwrap().refusal().is_some(),
         "destroyed registration must explicitly retire"
     );
+    #[cfg(unix)]
     assert!(p.content_region_fd().is_none());
     assert_eq!(
         p.host.content_region().unwrap().work_counts().0,
@@ -398,6 +400,7 @@ fn exact_scale_prepared_index_refuses_changed_dpr_before_stale_adoption_or_repla
             &first.data()[y * 500 * 4..][..500 * 4]
         );
     }
+    #[cfg(unix)]
     assert!(p.content_region_fd().is_none());
     let old = p.host.content_region().unwrap().text_snapshot(key).unwrap();
     assert_eq!(old.request.stamp(), &stamp);

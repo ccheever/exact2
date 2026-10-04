@@ -163,6 +163,7 @@ fn engine_dir() -> PathBuf {
     match std::env::var("IBEX2_VANILLA_HERMES_DIR") {
         Ok(path) => PathBuf::from(path),
         Err(_) if cfg!(target_vendor = "apple") => repo_root().join("ios/Frameworks-vanilla"),
+        Err(_) if cfg!(windows) => repo_root().join("tools/hermes-vanilla/windows-x64"),
         Err(_) => repo_root().join("linux/Frameworks-vanilla"),
     }
 }
@@ -433,10 +434,10 @@ fn run(
     // ours: the baseline R5 subtracts. Everything else must be in
     // ALLOWED_GLOBALS by name — no prefix, no "looks like an intrinsic".
     let baseline: std::collections::BTreeSet<String> = rt.global_names().into_iter().collect();
-    if !rt.install_stdlib() {
-        return Err("could not install the standard library".into());
-    }
-    rt.install_bindings().map_err(|e| e.to_string())?;
+    let groups = ibex2::bindings::Groups::DEFAULT;
+    let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+    rt.install_runtime(groups, &context)
+        .map_err(|e| e.to_string())?;
     let compiler = if compile || precompiled_only {
         match compiler_for_run(&root, precompiled_only) {
             Ok(compiler) => Some(compiler),
@@ -463,7 +464,8 @@ fn run(
         .global_names()
         .into_iter()
         .filter(|name| {
-            !baseline.contains(name) && !ibex2::loader::ALLOWED_GLOBALS.contains(&name.as_str())
+            !baseline.contains(name)
+                && !ibex2::loader::allowed_globals(groups).contains(&name.as_str())
         })
         .collect();
     if !unexpected.is_empty() {

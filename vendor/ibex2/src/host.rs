@@ -136,6 +136,7 @@ impl Default for Host {
 
 /// What a consumer holds: `fetch`, `fs`, `secrets`, `kv`, and `process.env`,
 /// as a module has them, over one grant set.
+#[derive(Clone)]
 pub struct Bindings {
     pub fetch: Fetch,
     pub fs: Fs,
@@ -144,6 +145,32 @@ pub struct Bindings {
     pub kv: Kv,
     pub env: Env,
     pub websocket: WebSocket,
+}
+
+impl Bindings {
+    pub(crate) fn grants(&self) -> Arc<GrantSet> {
+        Arc::clone(&self.fetch.grants)
+    }
+
+    pub(crate) fn app_directories(&self) -> Option<Arc<crate::stdlib::app_fs::AppDirectories>> {
+        self.fs.directories.clone()
+    }
+
+    pub(crate) fn sqlite_provider(&self) -> Option<Arc<dyn crate::stdlib::sqlite::Provider>> {
+        self.sqlite.provider.clone()
+    }
+
+    pub(crate) fn with_runtime_configuration(
+        &self,
+        directories: Option<Arc<crate::stdlib::app_fs::AppDirectories>>,
+        provider: Option<Arc<dyn crate::stdlib::sqlite::Provider>>,
+    ) -> Self {
+        let mut snapshot = self.clone();
+        snapshot.fs.directories = directories.clone();
+        snapshot.sqlite.directories = directories;
+        snapshot.sqlite.provider = provider;
+        snapshot
+    }
 }
 
 /// A listening WebSocket, carrying its grant (`net.websocket <origin>`,
@@ -300,6 +327,10 @@ pub struct Fetch {
 }
 
 impl Fetch {
+    pub(crate) fn transport(&self) -> &dyn Transport {
+        self.transport.as_ref()
+    }
+
     pub fn stream(
         &self,
         request: Request,

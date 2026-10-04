@@ -1,4 +1,4 @@
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// @ref LLP 1057 §10.6 — the iOS carrier's one held contact (LLP 1035.003 D1),
@@ -17,8 +17,9 @@ struct AgentPan {
 
 extension Agent {
     /// The `pan` node a contact on `view` would reach: from it up, stopping at
-    /// rule 3's boundary (a field, a text area, or a press node that is not
-    /// the pan node itself), as `MouseLayoutPan.down` walks. Where another
+    /// rule 3's boundary (a field or a text area; a press node between is
+    /// passed, as a pan takes a drag that starts on a button), as
+    /// `MouseLayoutPan.down` walks. Where another
     /// drag could take the contact first — a descendant's (rule 3) or a drag
     /// binding on the pan node (rule 4) — only UIKit's arbitration can say,
     /// so there is no recognized pan to deliver (nil).
@@ -30,7 +31,7 @@ extension Agent {
                     let bound = node.reorderPan != nil || node.transformRecognizer != nil || node.heightRecognizer != nil
                     return SwipeInput.allows(node) && !bound ? node : nil
                 }
-                if node.field != nil || node.textArea != nil || node.handlers.contains("press") { return nil }
+                if node.field != nil || node.textArea != nil { return nil }
                 if !node.dragRecognizers.isEmpty || node.handlers.contains("swiperight") { return nil }
             }
             at = current.superview

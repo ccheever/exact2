@@ -50,15 +50,13 @@ pub fn inline(file: &File) -> Result<Vec<Node>, SyntaxError> {
 
 /// The root as the plan sees it (LLP 1017 P4c): its view inlined, plus the
 /// `state`s and `action`s of every stateful child use, renamed apart with
-/// the use's number — a root slot for a use outside any `each`, a row slot
-/// (owned by the innermost enclosing `each`, named by its tag) inside one;
+/// the use's number, each owned by the instance it belongs to ([`Owner`]);
 /// a child's `derive` is an expression substituted at each read.
 pub struct Expanded {
     /// The root, with the children's declarations appended.
     pub root: Component,
-    /// For each of `root.states`, the tag of the `each` that owns it, or
-    /// `None` for a root slot.
-    pub owners: Vec<Option<u32>>,
+    /// For each of `root.states`, what owns it.
+    pub owners: Vec<Owner>,
     /// Every component instantiation, in the order the inliner expanded
     /// them; entry 0 is the root (LLP 1035.005 D3). Empty unless source
     /// provenance was requested with `expand_mapped`. An element's
@@ -69,6 +67,30 @@ pub struct Expanded {
     pub state_instances: Vec<u32>,
     /// For each of `root.actions`, the same.
     pub action_instances: Vec<u32>,
+}
+
+/// What owns a slot of the expanded root, and so when its initializer runs.
+/// A child's state lives exactly as long as its instance: it is created,
+/// its initializer evaluated in the use site's scope, when the instance is
+/// (after settlement, so it may read derives, resources, a `match` binding
+/// or a row's item), and dropped with it. It runs once per instance; a
+/// later change to what it read does not run it again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Owner {
+    /// The root's own `state`: initialized at boot, before settlement.
+    Root,
+    /// A child used outside every region: a root slot, initialized when
+    /// the root instance first renders, after boot settlement.
+    Instance,
+    /// A child used inside a region: arm `arm` of the region tagged `tag`
+    /// (an `each` row is arm 0; a `when`'s then/else and a `match`'s
+    /// some/none are arms 0 and 1) owns it, one value per arm instance.
+    Arm {
+        /// The innermost enclosing region's tag.
+        tag: u32,
+        /// Which of its arms.
+        arm: u8,
+    },
 }
 
 /// One component instantiation the inliner expanded (LLP 1035.005 D3):
@@ -126,6 +148,38 @@ fn record_constructors(file: &File) -> BTreeSet<String> {
         .collect()
 }
 
+/// Whether `e` holds a `none` or a `[]` outside an [`Expr::Typed`]: a leaf
+/// whose element type only a declaration can say.
+fn untyped_leaf(e: &Expr) -> bool {
+    use crate::ast::TemplatePart;
+    match e {
+        Expr::None(_) | Expr::EmptyList(_) => true,
+        Expr::Typed(..)
+        | Expr::Number(..)
+        | Expr::Str(..)
+        | Expr::Bool(..)
+        | Expr::Ident(..)
+        | Expr::Arrow { .. } => false,
+        Expr::Template(parts, _) => parts
+            .iter()
+            .any(|p| matches!(p, TemplatePart::Expr(x) if untyped_leaf(x))),
+        Expr::Some(x, _)
+        | Expr::Member(x, _, _)
+        | Expr::NamedArg(_, x, _)
+        | Expr::Unary(_, x, _) => untyped_leaf(x),
+        Expr::Call(_, args, _) => args.iter().any(untyped_leaf),
+        Expr::Binary(_, a, b, _) => untyped_leaf(a) || untyped_leaf(b),
+        Expr::Ternary(a, b, c, _) => untyped_leaf(a) || untyped_leaf(b) || untyped_leaf(c),
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => untyped_leaf(subject) || untyped_leaf(some) || untyped_leaf(none),
+        Expr::Let { value, body, .. } => untyped_leaf(value) || untyped_leaf(body),
+    }
+}
+
 /// The stand-in for a value a refused use could not supply.
 fn absent(span: crate::Span) -> Expr {
     Expr::Ident("?".into(), span)
@@ -171,7 +225,7 @@ fn expand_with_sites(file: &File, capture_sites: bool) -> (Expanded, Vec<SyntaxE
         depth: 0,
         provides: Vec::new(),
         fill: None,
-        each_stack: Vec::new(),
+        arms: Vec::new(),
         next_tag: 1,
         extra_states: Vec::new(),
         extra_actions: Vec::new(),
@@ -196,7 +250,7 @@ fn expand_with_sites(file: &File, capture_sites: bool) -> (Expanded, Vec<SyntaxE
     }
     let view = inline_nodes(&source.view, &mut subst, &mut ctx).unwrap_or_default();
     root.view = view;
-    let mut owners = vec![None; root.states.len()];
+    let mut owners = vec![Owner::Root; root.states.len()];
     let mut state_instances = if capture_sites {
         vec![0; root.states.len()]
     } else {
@@ -244,13 +298,13 @@ struct Ctx<'a> {
     /// The nodes that fill `children` here: `Some` inside a `slot`
     /// component's view (possibly empty), `None` elsewhere.
     fill: Option<Vec<Node>>,
-    /// The tags of the `each`es enclosing the current site, outermost first.
-    each_stack: Vec<u32>,
-    /// The next `each` tag.
+    /// The region arms enclosing the current site, outermost first.
+    arms: Vec<Owner>,
+    /// The next region tag.
     next_tag: u32,
     /// The children's `state`s lifted into the root, with their owners and
     /// the instance that declared them.
-    extra_states: Vec<(Binding, Option<u32>, u32)>,
+    extra_states: Vec<(Binding, Owner, u32)>,
     /// The children's `action`s lifted into the root, with their instance.
     extra_actions: Vec<(Action, u32)>,
     /// The instantiation whose view is being inlined: 0 at the root.
@@ -263,6 +317,22 @@ struct Ctx<'a> {
 }
 
 impl Ctx<'_> {
+    /// A fresh region tag.
+    fn tag(&mut self) -> u32 {
+        let tag = self.next_tag;
+        self.next_tag += 1;
+        tag
+    }
+
+    /// Inline under arm `arm` of the region tagged `tag`: what a child used
+    /// there declares, that arm's instance owns.
+    fn in_arm<T>(&mut self, tag: u32, arm: u8, f: impl FnOnce(&mut Self) -> T) -> T {
+        self.arms.push(Owner::Arm { tag, arm });
+        let out = f(self);
+        self.arms.pop();
+        out
+    }
+
     fn refuse(&mut self, id: &'static str, message: impl Into<String>, span: crate::Span) {
         self.errors.push(SyntaxError {
             id,
@@ -312,7 +382,17 @@ fn inline_nodes(
                         continue;
                     };
                     // The argument is an expression in the parent's scope: substitute the parent's own substitutions first.
-                    child_subst.insert(p.name.clone(), subst_expr(&a.value, subst));
+                    let value = subst_expr(&a.value, subst);
+                    // A `none` or `[]` in it is typed by the prop's declaration,
+                    // not left `?` for the child's reads to trip on.
+                    let value = match &p.ty {
+                        Some(ty) if untyped_leaf(&value) => {
+                            let span = value.span();
+                            Expr::Typed(Box::new(value), ty.clone(), span)
+                        }
+                        _ => value,
+                    };
+                    child_subst.insert(p.name.clone(), value);
                 }
                 for p in &c.injects {
                     let Some((_, e)) = ctx.provides.iter().rev().find(|(n, _)| n == &p.name) else {
@@ -348,7 +428,7 @@ fn inline_nodes(
                 // root — a derive as an expression substituted at each read.
                 *ctx.counter += 1;
                 let n = *ctx.counter;
-                let owner = ctx.each_stack.last().copied();
+                let owner = ctx.arms.last().copied().unwrap_or(Owner::Instance);
                 let instance = if ctx.capture_sites {
                     let instance = ctx.instances.len() as u32;
                     ctx.instances.push(Instance {
@@ -606,12 +686,19 @@ fn inline_nodes(
                 then,
                 otherwise,
                 span,
-            } => out.push(Node::When {
-                cond: subst_expr(cond, subst),
-                then: inline_nodes(then, subst, ctx)?,
-                otherwise: inline_nodes(otherwise, subst, ctx)?,
-                span: *span,
-            }),
+                ..
+            } => {
+                let tag = ctx.tag();
+                let then = ctx.in_arm(tag, 0, |ctx| inline_nodes(then, subst, ctx));
+                let otherwise = ctx.in_arm(tag, 1, |ctx| inline_nodes(otherwise, subst, ctx));
+                out.push(Node::When {
+                    tag,
+                    cond: subst_expr(cond, subst),
+                    then: then?,
+                    otherwise: otherwise?,
+                    span: *span,
+                })
+            }
             Node::Each {
                 var,
                 index,
@@ -621,11 +708,8 @@ fn inline_nodes(
                 span,
                 ..
             } => {
-                let tag = ctx.next_tag;
-                ctx.next_tag += 1;
-                ctx.each_stack.push(tag);
-                let body = inline_nodes(body, subst, ctx);
-                ctx.each_stack.pop();
+                let tag = ctx.tag();
+                let body = ctx.in_arm(tag, 0, |ctx| inline_nodes(body, subst, ctx));
                 out.push(Node::Each {
                     tag,
                     var: var.clone(),
@@ -641,12 +725,19 @@ fn inline_nodes(
                 some,
                 none,
                 span,
-            } => out.push(Node::Match {
-                subject: subst_expr(subject, subst),
-                some: (some.0.clone(), inline_nodes(&some.1, subst, ctx)?),
-                none: inline_nodes(none, subst, ctx)?,
-                span: *span,
-            }),
+                ..
+            } => {
+                let tag = ctx.tag();
+                let body = ctx.in_arm(tag, 0, |ctx| inline_nodes(&some.1, subst, ctx));
+                let none = ctx.in_arm(tag, 1, |ctx| inline_nodes(none, subst, ctx));
+                out.push(Node::Match {
+                    tag,
+                    subject: subst_expr(subject, subst),
+                    some: (some.0.clone(), body?),
+                    none: none?,
+                    span: *span,
+                })
+            }
         }
     }
     Ok(out)
@@ -701,11 +792,13 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
             },
             Node::Children { span } => Node::Children { span: *span },
             Node::When {
+                tag,
                 cond,
                 then,
                 otherwise,
                 span,
             } => Node::When {
+                tag: *tag,
                 cond: renamed_locals(cond, map),
                 then: rename_nodes(then, map, n),
                 otherwise: rename_nodes(otherwise, map, n),
@@ -739,6 +832,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 }
             }
             Node::Match {
+                tag,
                 subject,
                 some,
                 none,
@@ -748,6 +842,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 let fresh = lifted(&some.0, n);
                 inner.insert(some.0.clone(), fresh.clone());
                 Node::Match {
+                    tag: *tag,
                     subject: renamed_locals(subject, map),
                     some: (fresh, rename_nodes(&some.1, &inner, n)),
                     none: rename_nodes(none, map, n),

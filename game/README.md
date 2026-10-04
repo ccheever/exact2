@@ -14,10 +14,29 @@ needs it. An app whose other screens draw too can give the world a module of its
 (`gpu.modules` in `app.json`, LLP 1009 D6), loaded only when the world's canvas mounts.
 Removing the app's game module removes the engine from its bundle.
 The root build, test and boot checks stay independent of the engine workspace.
+
+On Windows, build the generated native shell from the exact2 root in PowerShell:
+
+```powershell
+$env:EXACT_APP_DIR = 'C:\path\to\my-game'
+bun host/windows/build.mjs my-game
+```
+
+The resulting `my-game/dist-windows` directory contains the standalone executable,
+game DLL and assets. Keep these files together; the executable resolves assets
+relative to itself and needs no web server. `--release` selects the release profile,
+and `--run` opens the game. The initial Windows host uses GPU canvas readback and
+CPU UI composition, and reports mean and p50/p95 frame costs when its window closes.
+It supports store level 0; native update-store delivery is refused. Use
+`bun my-game/proof.mjs windows` for the native gameplay and pixel proof.
+For a bounded development window measurement, set `EXACT_AGENT_WINDOW_FRAMES`
+to 1–10,000 and optionally `EXACT_AGENT_WINDOW_TAP` to one authored test ID to tap
+after first pixel. Production bakes ignore these agent variables.
+
 Asset names have no fixed per-surface count limit. Web loading still bounds
 concurrent requests and decoded asset bytes; a queued request's timeout begins
 when its fetch starts.
-Weird Castle is the external consumer, with a full-screen Beacons demo in its own
+Weird Castle was the first external consumer, with a full-screen Beacons demo in its own
 engine module; its title sky never loads the engine.
 
 The integration source is Black's `lane/game` at `126daba5` plus its working-tree
@@ -449,7 +468,7 @@ dependency writes `logic/Cargo.toml` (`package.workspace = "../.shells"`, SDK cr
 crates alone need no lock of the game's own. When the SDK's dependencies change,
 `bun game/app/shells.mjs --update-lock` refreshes the SDK lock, and
 `bun app/shells.mjs --test` refuses a stale one. The game workspace also carries
-the core’s vendored patches and `apple-dev` profile; the existing SDK test checks
+the core’s vendored patches and `host-dev` profile; the existing SDK test checks
 those against the root workspace. Web builds retain the game’s non-contracting
 floating-point flag alongside the core’s path-remapping flags.
 

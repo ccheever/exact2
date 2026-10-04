@@ -331,7 +331,8 @@ fn mutations_require_a_global_option_slot_of_their_result_type() {
     let none = b.constant(&Value::NONE);
     let slot = b.slot("result", optional_number, none);
     let unit = b.constant(&Value::Unit);
-    let (owner, _) = b.region(RegionKind::Each, None, None, 0, unit, unit, 1);
+    let (_, arms) = b.region(RegionKind::Each, None, None, 0, unit, unit, 1);
+    let owner = arms[0];
     b.mutation("save", slot, number);
     let valid = b.finish().unwrap();
 

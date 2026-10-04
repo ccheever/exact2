@@ -1,4 +1,4 @@
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 import QuartzCore
 
@@ -6,7 +6,9 @@ extension NodeView {
     func updateHeightDragGesture() {
         if presenter?.heightBindings[id]?.target != nil, heightRecognizer == nil {
             let pan = UIPanGestureRecognizer(target: self, action: #selector(heightDragging(_:)))
+            #if !os(tvOS)
             pan.maximumNumberOfTouches = 1
+            #endif
             pan.delegate = self
             addGestureRecognizer(pan)
             heightRecognizer = pan

@@ -903,3 +903,113 @@ fn the_agents_canvas_taps_are_a_finger_and_its_hover_a_mouse() {
     );
     done(p, path);
 }
+
+#[test]
+fn agent_contextmenu_delivers_a_secondary_mouse_click_and_refuses_controls() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let reply: Value = serde_json::from_str(&crate::agent::answer(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{raw},"contextmenu":true}}"#),
+    ))
+    .unwrap();
+    assert_eq!(reply["delivery"], "presenter", "{reply}");
+    let (canvas, count, up) = last_input(&p);
+    let down: Value = unsafe {
+        let abi = &p.surfaces.abis[""];
+        serde_json::from_str(
+            std::ffi::CStr::from_ptr(abi
+                .symbol::<unsafe extern "C" fn() -> *const std::ffi::c_char>(
+                    b"test_previous_input",
+                )())
+            .to_str()
+            .unwrap(),
+        )
+        .unwrap()
+    };
+    assert_eq!(canvas, 3);
+    assert_eq!(count, 3, "move, right down, right up");
+    for (event, phase, buttons) in [(&down, "down", 2), (&up, "up", 0)] {
+        assert_eq!(event["id"], 1);
+        assert_eq!(event["kind"], "mouse");
+        assert_eq!(event["phase"], phase);
+        assert_eq!(event["buttons"], buttons);
+        assert_eq!(
+            (event["x"].as_f64(), event["y"].as_f64()),
+            (Some(50.), Some(50.))
+        );
+    }
+    assert!(p.contact_position().is_none());
+    for name in ["a-jump", "editor"] {
+        let id = find(&p, name);
+        let refusal: Value = serde_json::from_str(&crate::agent::answer(
+            &mut p,
+            &format!(r#"{{"op":"tap","id":{id},"contextmenu":true}}"#),
+        ))
+        .unwrap();
+        assert!(refusal["error"].as_str().unwrap().contains("contextmenu"));
+        assert_eq!(last_input(&p).1, count, "refused without canvas input");
+    }
+    let (x, y, w, h) = p.rect_of(raw).unwrap();
+    assert!(p.pointer_down(x + w / 2., y + h / 2., 1.).unwrap());
+    let count = last_input(&p).1;
+    assert!(p
+        .contextmenu(raw, None)
+        .unwrap_err()
+        .contains("held contact"));
+    assert_eq!(last_input(&p).1, count);
+    p.pointer_lost(2.).unwrap();
+    done(p, path);
+}
+
+#[test]
+fn agent_contextmenu_uses_the_requested_point_and_refuses_invalid_points_without_input() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let (x, y, _, _) = p.rect_of(raw).unwrap();
+    let reply: Value = serde_json::from_str(&crate::agent::answer(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{raw},"contextmenu":true,"at":[25,75]}}"#),
+    ))
+    .unwrap();
+    assert_eq!(
+        (reply["at"][0].as_f64(), reply["at"][1].as_f64()),
+        (Some(f64::from(x + 25.)), Some(f64::from(y + 75.))),
+        "{reply}"
+    );
+    let (_, count, up) = last_input(&p);
+    assert_eq!(count, 3);
+    assert_eq!((up["x"].as_f64(), up["y"].as_f64()), (Some(25.), Some(75.)));
+    assert_eq!(up["buttons"], 0);
+    // The first point is covered by the HUD button; others are outside the
+    // target or not an exact finite pair. Refusal must not leak a mouse event.
+    for at in [
+        "[25,15]",
+        "[-1,75]",
+        "[100,75]",
+        "[25,100]",
+        "null",
+        "[]",
+        "[25]",
+        "[25,75,0]",
+        r#"["25",75]"#,
+        "[1e100,75]",
+    ] {
+        let reply: Value = serde_json::from_str(&crate::agent::answer(
+            &mut p,
+            &format!(r#"{{"op":"tap","id":{raw},"contextmenu":true,"at":{at}}}"#),
+        ))
+        .unwrap();
+        assert!(reply.get("error").is_some(), "accepted {at}: {reply}");
+        assert_eq!(last_input(&p).1, count, "{at} delivered input");
+    }
+    assert!(p.contextmenu(raw, Some((f32::NAN, 75.))).is_err());
+    assert!(p.contextmenu(raw, Some((25., f32::INFINITY))).is_err());
+    p.resize(100., y + 60.);
+    assert!(p
+        .contextmenu(raw, Some((25., 75.)))
+        .unwrap_err()
+        .contains("viewport"));
+    assert_eq!(last_input(&p).1, count);
+    done(p, path);
+}

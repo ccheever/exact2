@@ -1,0 +1,89 @@
+// The six verbs over one stack: push mints a visit (none for the URL on
+// top), replace keeps the id, back pops (a root stays), open rebuilds the
+// declared chain keeping ids at the same URL, and a location no route
+// matches is refused (the router value is unchanged).
+routes nav
+  tab home "/"
+    post "/post/:post"
+      comments "/post/:post/comments"
+  person "/people/:person"
+
+component App
+  derive current = top(nav)
+  derive count = depth(nav)
+  derive urls = map(stack(nav), (e) => e.url)
+  action push(url: string)
+    nav = push(nav, url)
+  action replace(url: string)
+    nav = replace(nav, url)
+  action open(url: string)
+    nav = open(nav, url)
+  action back
+    nav = back(nav)
+  action go(url: string)
+    nav = go(nav, url)
+  view
+    column
+      text current.url testId="url"
+      text current.name testId="name"
+      text `${count}` testId="depth"
+      text `${current.id}` testId="id"
+      each e in stack(nav) key=e.id
+        text `${e.id} ${e.name} ${e.url} ${e.params.post}/${e.params.person}` testId=`row-${e.id}`
+      button "x" press=push("/post/1") testId="push-post"
+      button "x" press=push("/people/ada") testId="push-person"
+      button "x" press=push("/nowhere/at/all") testId="push-unknown"
+      button "x" press=replace("/post/2") testId="replace-post"
+      button "x" press=replace("/people/bob") testId="replace-person"
+      button "x" press=open("/post/7/comments") testId="open-comments"
+      button "x" press=open("/post/7") testId="open-post"
+      button "x" press=open("/zzz") testId="open-unknown"
+      button "x" press=back testId="back"
+      button "x" press=go("/") testId="go-home"
+      button "x" press=go("/post/1") testId="go-post"
+
+test "push, same-top push, back"
+  tap "push-post"
+  expect text "url" == "/post/1"
+  tap "push-post"
+  expect text "depth" == "2"
+  tap "push-person"
+  tap "back"
+  tap "back"
+  expect text "url" == "/"
+  tap "back"
+  expect text "depth" == "1"
+
+test "replace keeps the id; at the root only the root route"
+  tap "replace-post"
+  expect text "url" == "/"
+  tap "push-post"
+  tap "replace-person"
+  expect text "name" == "person"
+  tap "replace-post"
+  tap "back"
+  tap "replace-post"
+
+test "open builds the chain and keeps ids at the same URL"
+  tap "open-comments"
+  expect text "depth" == "3"
+  tap "open-post"
+  expect text "depth" == "2"
+  tap "open-comments"
+  tap "push-person"
+  tap "open-comments"
+
+test "unknown locations are refused"
+  tap "push-unknown"
+  tap "open-unknown"
+  tap "push-post"
+  tap "push-unknown"
+
+test "go stays, pops to an occurrence, or pushes"
+  tap "go-post"
+  tap "push-person"
+  tap "go-post"
+  expect text "depth" == "2"
+  tap "go-home"
+  expect text "depth" == "1"
+  tap "go-home"

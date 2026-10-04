@@ -156,7 +156,10 @@ fn uses_are_dot_relative_contained_and_relative_to_the_using_file() {
     ] {
         std::fs::write(
             &entry,
-            format!("use Outside from \"{path}\"\ncomponent App\n  view\n    Outside()\n"),
+            format!(
+                "use Outside from {}\ncomponent App\n  view\n    Outside()\n",
+                serde_json::to_string(&path).unwrap()
+            ),
         )
         .unwrap();
         let error = contract::compile_path(&entry).unwrap_err();

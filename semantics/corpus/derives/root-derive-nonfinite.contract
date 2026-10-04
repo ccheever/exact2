@@ -1,0 +1,16 @@
+// The root counterpart of components/child-derive-nonfinite: a root derive
+// that would become Infinity refuses the commit.
+component App
+  state n = 1
+  derive inv = 1 / n
+  action zero
+    n = 0
+  view
+    column
+      text `${inv}` testId="show"
+      button "zero" press=zero testId="zero"
+
+test "root derive refuses"
+  tap "zero"
+  expect state n == 1
+  expect text "show" == "1"

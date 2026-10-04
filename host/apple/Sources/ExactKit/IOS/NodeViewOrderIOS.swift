@@ -1,7 +1,7 @@
 // Two of NodeView's pure decisions, kept apart so each is tested without a
 // view: the order a touch tries siblings in, and where a following scroll
 // view's offset goes after a batch.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 extension NodeView {

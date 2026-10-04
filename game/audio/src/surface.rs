@@ -1,19 +1,46 @@
-#[cfg(all(not(test), any(target_os = "macos", target_os = "ios")))]
+#[cfg(all(
+    not(test),
+    any(target_os = "macos", target_os = "ios", target_os = "tvos")
+))]
 use crate::AppleOutput as Device;
 #[cfg(all(not(test), target_arch = "wasm32"))]
 use crate::WebOutput as Device;
-#[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+#[cfg(any(
+    test,
+    target_arch = "wasm32",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos"
+))]
 use crate::{Listener, Output, Player, Transport};
 use exact_game::World;
 
 /// Lazy audio owner for the renderer's dependency-free presentation hook.
 /// Default construction and every seekable/headless frame open no device.
 pub struct SurfacePlayer {
-    #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+    #[cfg(any(
+        test,
+        target_arch = "wasm32",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos"
+    ))]
     device: Option<Player<Device>>,
-    #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+    #[cfg(any(
+        test,
+        target_arch = "wasm32",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos"
+    ))]
     retry_frames: u32,
-    #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+    #[cfg(any(
+        test,
+        target_arch = "wasm32",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos"
+    ))]
     warned: bool,
     seekable: bool,
     suspended: bool,
@@ -23,11 +50,29 @@ pub struct SurfacePlayer {
 impl Default for SurfacePlayer {
     fn default() -> Self {
         Self {
-            #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+            #[cfg(any(
+                test,
+                target_arch = "wasm32",
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "tvos"
+            ))]
             device: None,
-            #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+            #[cfg(any(
+                test,
+                target_arch = "wasm32",
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "tvos"
+            ))]
             retry_frames: 0,
-            #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+            #[cfg(any(
+                test,
+                target_arch = "wasm32",
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "tvos"
+            ))]
             warned: false,
             seekable: true,
             suspended: false,
@@ -41,7 +86,13 @@ impl SurfacePlayer {
     pub fn clock(&mut self, seekable: bool) {
         self.seekable = seekable;
         if seekable {
-            #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+            #[cfg(any(
+                test,
+                target_arch = "wasm32",
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "tvos"
+            ))]
             {
                 self.device = None;
             }
@@ -57,7 +108,13 @@ impl SurfacePlayer {
         if suspended {
             self.unlocked = false;
         }
-        #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+        #[cfg(any(
+            test,
+            target_arch = "wasm32",
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos"
+        ))]
         if let Some(player) = &mut self.device {
             let result = if suspended {
                 player.output.suspend()
@@ -76,7 +133,13 @@ impl SurfacePlayer {
         Ok(())
     }
 
-    #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+    #[cfg(any(
+        test,
+        target_arch = "wasm32",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos"
+    ))]
     fn ensure_device(&mut self) {
         if self.seekable || self.suspended || self.device.is_some() || self.retry_frames != 0 {
             return;
@@ -96,7 +159,13 @@ impl SurfacePlayer {
 
     pub fn sync(&mut self, world: &World, generation: u64, playing: bool, seekable: bool) {
         self.clock(seekable);
-        #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+        #[cfg(any(
+            test,
+            target_arch = "wasm32",
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos"
+        ))]
         {
             if !seekable && !self.suspended {
                 self.retry_frames = self.retry_frames.saturating_sub(1);
@@ -121,7 +190,13 @@ impl SurfacePlayer {
         let _ = (world, generation, playing, self.unlocked, self.epoch);
     }
     pub fn unlock(&mut self) {
-        #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+        #[cfg(any(
+            test,
+            target_arch = "wasm32",
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos"
+        ))]
         {
             if self.seekable || self.suspended {
                 return;
@@ -157,7 +232,13 @@ mod tests {
         assert_eq!(test_device::ATTEMPTS.get(), 0);
         assert_eq!(test_device::SUSPENDS.get(), 0);
         assert_eq!(test_device::RESUMES.get(), 0);
-        #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+        #[cfg(any(
+            test,
+            target_arch = "wasm32",
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos"
+        ))]
         assert!(surface.device.is_none() && surface.retry_frames == 0);
     }
 }

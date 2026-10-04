@@ -6,7 +6,7 @@
 // and opacity come from presentation values, about the center. Everything
 // a node reaches beyond itself — the text engine, the canvases, the web
 // views — it reaches through its presenter's session (LLP 1031 D1).
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import ImageIO
 import UIKit
 
@@ -49,6 +49,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             updateMaterial()
             updateRefresh()
             if handlers.contains("scroll") { needScroll() }
+            #if !os(tvOS)
             if handlers.contains("hover"), hoverRecognizer == nil {
                 let g = UIHoverGestureRecognizer(target: self, action: #selector(hovering(_:)))
                 // Hover observes pointer movement; it must never hold or cancel
@@ -59,6 +60,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                 addGestureRecognizer(g)
                 hoverRecognizer = g
             }
+            #endif
             video?.update() // the media events the player reports
         }
     }
@@ -74,7 +76,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func updateSwipeGesture() {
         if handlers.contains("swiperight"), swipeRecognizer == nil {
             let gesture = UIPanGestureRecognizer(target: self, action: #selector(swiping(_:)))
+            #if !os(tvOS)
             gesture.maximumNumberOfTouches = 1
+            #endif
             gesture.delegate = self
             addGestureRecognizer(gesture)
             swipeRecognizer = gesture
@@ -124,7 +128,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             let delta = translation - swipeOrigin
             guard hold.move(delta) else { hold.cancel(); swipeHold = nil; return }
             let armed = hold.mapping.value(delta) >= Gesture.knee
+            #if os(tvOS)
+            swipeArmed = armed
+            #else
             if armed != swipeArmed { swipeFeedback.selectionChanged(); swipeArmed = armed }
+            #endif
         case .ended, .cancelled, .failed:
             let hold = swipeHold; swipeHold = nil; swipeArmed = false
             hold?.finish(displacement: translation - swipeOrigin,
@@ -134,7 +142,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if CanvasInput.owns(touch.view) { return false }
-        if stopsAtPress(gestureRecognizer), pressBoundary(touch) { return false } // LLP 1057.001 rule 3
+        if stopsAtPress(gestureRecognizer), pressBoundary(touch, presses: gestureRecognizer !== layoutPanRecognizer) { return false } // LLP 1057.001 rule 3
         // A nested editor owns its selection gestures, including read-only
         // text. A containing bubble's reply/Tapback recognizers must yield.
         var hit = touch.view
@@ -280,23 +288,42 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func showFocusRing(_ shown: Bool) {
         guard shown else { focusRing?.removeFromSuperlayer(); focusRing = nil; return }
         let ring = focusRing ?? CAShapeLayer()
+        #if os(tvOS)
+        // Across a room the ring stands clear of the content: outside the box, padded and rounded.
+        ring.path = UIBezierPath(roundedRect: bounds.insetBy(dx: -10, dy: -5), cornerRadius: 12).cgPath
+        #else
         ring.path = roundedPath(in: bounds.insetBy(dx: 1.5, dy: 1.5), inset: 1.5).cgPath
+        #endif
         ring.fillColor = nil
+        #if os(tvOS)
+        // tvOS tints white; the ring must read across a room.
+        ring.strokeColor = UIColor.systemBlue.cgColor
+        ring.lineWidth = 4
+        #else
         ring.strokeColor = tintColor.cgColor
         ring.lineWidth = 3
+        #endif
         if ring.superlayer !== layer { layer.addSublayer(ring) }
         focusRing = ring
     }
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        #if os(tvOS)
+        if remoteSelect(presses, down: true) { return }
+        #endif
         let presses=pressedControls(presses,down:true)
         if presses.isEmpty {return}
         if inputCanvas?.canvasInput?.presses(presses, down: true, source: self) == true { return }
-        if !disabled, handlers.contains("press"), let key = presses.first?.key,
-           ["Enter", " "].contains(NodeView.keyName(key)) { presenter?.press(id); return }
-        guard !disabled, handlers.contains("key"), let key = presses.first?.key else { return super.pressesBegan(presses, with: event) }
-        presenter?.key(id, NodeView.keyName(key))
+        // The focus's `key` handlers and its ancestors' (KeyEvents.swift); an
+        // ancestor UIKit passes the presses up to dispatches none again.
+        let name = presses.first?.key.map(NodeView.keyName)
+        if !disabled, isFirstResponder, let name, presenter?.keyDown(at: self, name) == true { return }
+        if !disabled, handlers.contains("press"), let name, ["Enter", " "].contains(name) { presenter?.press(id); return }
+        super.pressesBegan(presses, with: event)
     }
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        #if os(tvOS)
+        if remoteSelect(presses, down: false) { return }
+        #endif
         let presses=pressedControls(presses,down:false)
         if presses.isEmpty {return}
         if inputCanvas?.canvasInput?.presses(presses, down: false, source: self) != true { super.pressesEnded(presses, with: event) }
@@ -306,36 +333,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if presses.isEmpty {return}
         if inputCanvas?.canvasInput?.presses(presses, down: false, source: self) != true { super.pressesCancelled(presses, with: event) }
     }
-    /// The web's key names for UIKit's.
-    static func keyName(_ key: UIKey) -> String {
-        switch key.keyCode {
-        case .keyboardReturnOrEnter, .keypadEnter: return "Enter"
-        case .keyboardEscape: return "Escape"
-        case .keyboardTab: return "Tab"
-        case .keyboardDeleteOrBackspace: return "Backspace"
-        case .keyboardDeleteForward: return "Delete"
-        case .keyboardUpArrow: return "ArrowUp"
-        case .keyboardDownArrow: return "ArrowDown"
-        case .keyboardLeftArrow: return "ArrowLeft"
-        case .keyboardRightArrow: return "ArrowRight"
-        default: return key.charactersIgnoringModifiers
-        }
-    }
     /// A pointer over the node (an iPad's trackpad or mouse; a phone has
     /// none): `hover` in and out.
     override var accessibilityElements: [Any]? {
         get { textAccessibilityChildren() ?? super.accessibilityElements }
         set { super.accessibilityElements = newValue }
-    }
-    @objc func hovering(_ g: UIHoverGestureRecognizer) {
-        if g.state == .ended || g.state == .cancelled { presenter?.hoverInline(nil) }
-        else if let run = inlineTarget(at: g.location(in: self), handler: "hover") { presenter?.hoverInline(run.id); return }
-        else { presenter?.hoverInline(nil) }
-        switch g.state {
-        case .began: presenter?.hover(self, true)
-        case .ended, .cancelled, .failed: presenter?.hover(self, false)
-        default: break
-        }
     }
     /// A text field's Enter as a key (its characters are its `input`, the
     /// Enter commits its `change`); the editing goes on, as on the web.
@@ -353,11 +355,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         guard !disabled else { return false }
+        // The software keyboard's Return is a key the handlers hear first (a
+        // hardware one's they heard in `pressesBegan`); prevented, it neither
+        // commits nor submits.
+        if (textField as? TextField)?.heard != "Enter", presenter?.keyDown(at: self, "Enter") == true { return false }
         presenter?.commitEdit(id, textField.text ?? "", change: handlers.contains("change"))
-        // Enter in an input with a `submit` handler is the web's implicit
-        // submission; a `key` handler hears it as Enter as well.
+        // Enter in an input with a `submit` handler is the web's implicit submission.
         if handlers.contains("submit") { presenter?.submit(id) }
-        if handlers.contains("key") { presenter?.key(id, "Enter") }
         return false
     }
 
@@ -978,7 +982,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func applyMaterialRadius() {
         guard let materialView else { return }
         let radius = BorderPaint.clip(materialView.layer, in: bounds, radii: cornerSizes(in: bounds))
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, tvOS 26.0, *) {
             materialView.cornerConfiguration = .corners(radius: .fixed(Double(radius)))
         } else {
             materialView.layer.cornerRadius = radius
@@ -1052,7 +1056,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             accessibilityTraits.insert(.button)
             if props["accessibilitySelected"] == "true" { accessibilityTraits.insert(.selected) } else { accessibilityTraits.remove(.selected) }
             setAccessibilityToggle(pressedState)
-            if #available(iOS 18, *) {
+            if #available(iOS 18, tvOS 18, *) {
                 accessibilityExpandedStatus = props["accessibilityExpanded"].map { $0 == "true" ? .expanded : .collapsed } ?? .unsupported
             }
         }
@@ -1214,28 +1218,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// The node's overflow scrolls, and its scroll view is still waiting.
     var scrollDormant: Bool {
         scroll == nil && ((style["overflow_x"]?.string) == "scroll" || (style["overflow_y"]?.string) == "scroll")
-    }
-    /// A `refresh` handler on a scroll container is UIKit's pull-to-refresh:
-    /// the control fires the event; the app's `refreshing` going false ends it.
-    func updateRefresh() {
-        guard let sv = scroll else { return }
-        if handlers.contains("refresh") {
-            if sv.refreshControl == nil {
-                let control = UIRefreshControl()
-                control.addTarget(self, action: #selector(pulledToRefresh), for: .valueChanged)
-                sv.refreshControl = control
-            }
-            if props["refreshing"] != "true", let control = sv.refreshControl, control.isRefreshing {
-                control.endRefreshing()
-            }
-        } else if sv.refreshControl != nil {
-            sv.refreshControl = nil
-        }
-    }
-    @objc func pulledToRefresh() {
-        presenter?.refresh(id)
-        // An app that starts nothing leaves `refreshing` false: end promptly.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self, token = incarnation] in if self?.incarnation == token { self?.updateRefresh() } }
     }
 
     func needScroll() {

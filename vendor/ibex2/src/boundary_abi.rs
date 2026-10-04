@@ -14,6 +14,7 @@ use std::ffi::{c_char, c_int, c_uchar};
 
 use crate::boundary::{HostArg, HostError, HostValue};
 use crate::grant::GrantSet;
+use crate::host_opcodes;
 use crate::stdlib::{base64, console, crypto, text, url};
 
 pub const TAG_UNDEFINED: i32 = 0;
@@ -107,93 +108,113 @@ impl AbiValue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum Op {
-    ConsoleLog = 1,
-    ConsoleInfo = 2,
-    ConsoleDebug = 3,
-    ConsoleWarn = 4,
-    ConsoleError = 5,
-    Btoa = 10,
-    Atob = 11,
-    TextEncode = 20,
-    TextDecode = 21,
-    TextEncodeInto = 22,
-    UrlParse = 30,
-    UrlSearchParamsGet = 31,
-    UrlSet = 32,
-    UrlSearchParamsGetAll = 33,
-    UrlSearchParamsHas = 34,
-    UrlSearchParamsSet = 35,
-    UrlSearchParamsAppend = 36,
-    UrlSearchParamsDelete = 37,
-    UrlSearchParamsSort = 38,
-    UrlSearchParamsEntries = 39,
-    UrlSearchParamsNormalize = 29,
-    HeadersNew = 40,
-    HeadersAppend = 41,
-    HeadersSet = 42,
-    HeadersGet = 43,
-    HeadersHas = 44,
-    HeadersDelete = 45,
-    HeadersCount = 46,
-    HeadersNameAt = 47,
-    HeadersValueAt = 48,
-    HeadersValidName = 49,
-    HeadersValidValue = 50,
-    HeadersFree = 51,
-    TimerSet = 60,
-    TimerSetRepeating = 61,
-    TimerClear = 62,
-    PerformanceNow = 63,
-    CryptoRandomUuid = 70,
-    CryptoGetRandomValues = 71,
-    FetchControl = 72,
-    SqliteResult = 80,
+    ConsoleLog = host_opcodes::inline::CONSOLE_LOG,
+    ConsoleInfo = host_opcodes::inline::CONSOLE_INFO,
+    ConsoleDebug = host_opcodes::inline::CONSOLE_DEBUG,
+    ConsoleWarn = host_opcodes::inline::CONSOLE_WARN,
+    ConsoleError = host_opcodes::inline::CONSOLE_ERROR,
+    Btoa = host_opcodes::inline::BTOA,
+    Atob = host_opcodes::inline::ATOB,
+    TextEncode = host_opcodes::inline::TEXT_ENCODE,
+    TextDecode = host_opcodes::inline::TEXT_DECODE,
+    TextEncodeInto = host_opcodes::inline::TEXT_ENCODE_INTO,
+    UrlParse = host_opcodes::inline::URL_PARSE,
+    UrlSearchParamsGet = host_opcodes::inline::URL_SEARCH_PARAMS_GET,
+    UrlSet = host_opcodes::inline::URL_SET,
+    UrlSearchParamsGetAll = host_opcodes::inline::URL_SEARCH_PARAMS_GET_ALL,
+    UrlSearchParamsHas = host_opcodes::inline::URL_SEARCH_PARAMS_HAS,
+    UrlSearchParamsSet = host_opcodes::inline::URL_SEARCH_PARAMS_SET,
+    UrlSearchParamsAppend = host_opcodes::inline::URL_SEARCH_PARAMS_APPEND,
+    UrlSearchParamsDelete = host_opcodes::inline::URL_SEARCH_PARAMS_DELETE,
+    UrlSearchParamsSort = host_opcodes::inline::URL_SEARCH_PARAMS_SORT,
+    UrlSearchParamsEntries = host_opcodes::inline::URL_SEARCH_PARAMS_ENTRIES,
+    UrlSearchParamsNormalize = host_opcodes::inline::URL_SEARCH_PARAMS_NORMALIZE,
+    HeadersNew = host_opcodes::inline::HEADERS_NEW,
+    HeadersAppend = host_opcodes::inline::HEADERS_APPEND,
+    HeadersSet = host_opcodes::inline::HEADERS_SET,
+    HeadersGet = host_opcodes::inline::HEADERS_GET,
+    HeadersHas = host_opcodes::inline::HEADERS_HAS,
+    HeadersDelete = host_opcodes::inline::HEADERS_DELETE,
+    HeadersCount = host_opcodes::inline::HEADERS_COUNT,
+    HeadersNameAt = host_opcodes::inline::HEADERS_NAME_AT,
+    HeadersValueAt = host_opcodes::inline::HEADERS_VALUE_AT,
+    HeadersValidName = host_opcodes::inline::HEADERS_VALID_NAME,
+    HeadersValidValue = host_opcodes::inline::HEADERS_VALID_VALUE,
+    HeadersFree = host_opcodes::inline::HEADERS_FREE,
+    TimerSet = host_opcodes::inline::TIMER_SET,
+    TimerSetRepeating = host_opcodes::inline::TIMER_SET_REPEATING,
+    TimerClear = host_opcodes::inline::TIMER_CLEAR,
+    PerformanceNow = host_opcodes::inline::PERFORMANCE_NOW,
+    CryptoRandomUuid = host_opcodes::inline::CRYPTO_RANDOM_UUID,
+    CryptoGetRandomValues = host_opcodes::inline::CRYPTO_GET_RANDOM_VALUES,
+    FetchControl = host_opcodes::inline::FETCH_CONTROL,
+    SqliteResult = host_opcodes::inline::SQLITE_RESULT,
+    SubtleDigest = host_opcodes::subtle::DIGEST,
+    SubtleImportKey = host_opcodes::subtle::IMPORT_KEY,
+    SubtleExportKey = host_opcodes::subtle::EXPORT_KEY,
+    SubtleGenerateKey = host_opcodes::subtle::GENERATE_KEY,
+    SubtleSign = host_opcodes::subtle::SIGN,
+    SubtleVerify = host_opcodes::subtle::VERIFY,
+    SubtleEncrypt = host_opcodes::subtle::ENCRYPT,
+    SubtleDecrypt = host_opcodes::subtle::DECRYPT,
+    SubtleDeriveBits = host_opcodes::subtle::DERIVE_BITS,
+    SubtleDeriveKey = host_opcodes::subtle::DERIVE_KEY,
 }
 
 impl Op {
     fn from_u32(value: u32) -> Option<Self> {
         Some(match value {
-            1 => Op::ConsoleLog,
-            2 => Op::ConsoleInfo,
-            3 => Op::ConsoleDebug,
-            4 => Op::ConsoleWarn,
-            5 => Op::ConsoleError,
-            10 => Op::Btoa,
-            11 => Op::Atob,
-            20 => Op::TextEncode,
-            21 => Op::TextDecode,
-            22 => Op::TextEncodeInto,
-            29 => Op::UrlSearchParamsNormalize,
-            30 => Op::UrlParse,
-            31 => Op::UrlSearchParamsGet,
-            32 => Op::UrlSet,
-            33 => Op::UrlSearchParamsGetAll,
-            34 => Op::UrlSearchParamsHas,
-            35 => Op::UrlSearchParamsSet,
-            36 => Op::UrlSearchParamsAppend,
-            37 => Op::UrlSearchParamsDelete,
-            38 => Op::UrlSearchParamsSort,
-            39 => Op::UrlSearchParamsEntries,
-            40 => Op::HeadersNew,
-            41 => Op::HeadersAppend,
-            42 => Op::HeadersSet,
-            43 => Op::HeadersGet,
-            44 => Op::HeadersHas,
-            45 => Op::HeadersDelete,
-            46 => Op::HeadersCount,
-            47 => Op::HeadersNameAt,
-            48 => Op::HeadersValueAt,
-            49 => Op::HeadersValidName,
-            50 => Op::HeadersValidValue,
-            51 => Op::HeadersFree,
-            60 => Op::TimerSet,
-            61 => Op::TimerSetRepeating,
-            62 => Op::TimerClear,
-            63 => Op::PerformanceNow,
-            70 => Op::CryptoRandomUuid,
-            71 => Op::CryptoGetRandomValues,
-            72 => Op::FetchControl,
-            80 => Op::SqliteResult,
+            host_opcodes::inline::CONSOLE_LOG => Op::ConsoleLog,
+            host_opcodes::inline::CONSOLE_INFO => Op::ConsoleInfo,
+            host_opcodes::inline::CONSOLE_DEBUG => Op::ConsoleDebug,
+            host_opcodes::inline::CONSOLE_WARN => Op::ConsoleWarn,
+            host_opcodes::inline::CONSOLE_ERROR => Op::ConsoleError,
+            host_opcodes::inline::BTOA => Op::Btoa,
+            host_opcodes::inline::ATOB => Op::Atob,
+            host_opcodes::inline::TEXT_ENCODE => Op::TextEncode,
+            host_opcodes::inline::TEXT_DECODE => Op::TextDecode,
+            host_opcodes::inline::TEXT_ENCODE_INTO => Op::TextEncodeInto,
+            host_opcodes::inline::URL_SEARCH_PARAMS_NORMALIZE => Op::UrlSearchParamsNormalize,
+            host_opcodes::inline::URL_PARSE => Op::UrlParse,
+            host_opcodes::inline::URL_SEARCH_PARAMS_GET => Op::UrlSearchParamsGet,
+            host_opcodes::inline::URL_SET => Op::UrlSet,
+            host_opcodes::inline::URL_SEARCH_PARAMS_GET_ALL => Op::UrlSearchParamsGetAll,
+            host_opcodes::inline::URL_SEARCH_PARAMS_HAS => Op::UrlSearchParamsHas,
+            host_opcodes::inline::URL_SEARCH_PARAMS_SET => Op::UrlSearchParamsSet,
+            host_opcodes::inline::URL_SEARCH_PARAMS_APPEND => Op::UrlSearchParamsAppend,
+            host_opcodes::inline::URL_SEARCH_PARAMS_DELETE => Op::UrlSearchParamsDelete,
+            host_opcodes::inline::URL_SEARCH_PARAMS_SORT => Op::UrlSearchParamsSort,
+            host_opcodes::inline::URL_SEARCH_PARAMS_ENTRIES => Op::UrlSearchParamsEntries,
+            host_opcodes::inline::HEADERS_NEW => Op::HeadersNew,
+            host_opcodes::inline::HEADERS_APPEND => Op::HeadersAppend,
+            host_opcodes::inline::HEADERS_SET => Op::HeadersSet,
+            host_opcodes::inline::HEADERS_GET => Op::HeadersGet,
+            host_opcodes::inline::HEADERS_HAS => Op::HeadersHas,
+            host_opcodes::inline::HEADERS_DELETE => Op::HeadersDelete,
+            host_opcodes::inline::HEADERS_COUNT => Op::HeadersCount,
+            host_opcodes::inline::HEADERS_NAME_AT => Op::HeadersNameAt,
+            host_opcodes::inline::HEADERS_VALUE_AT => Op::HeadersValueAt,
+            host_opcodes::inline::HEADERS_VALID_NAME => Op::HeadersValidName,
+            host_opcodes::inline::HEADERS_VALID_VALUE => Op::HeadersValidValue,
+            host_opcodes::inline::HEADERS_FREE => Op::HeadersFree,
+            host_opcodes::inline::TIMER_SET => Op::TimerSet,
+            host_opcodes::inline::TIMER_SET_REPEATING => Op::TimerSetRepeating,
+            host_opcodes::inline::TIMER_CLEAR => Op::TimerClear,
+            host_opcodes::inline::PERFORMANCE_NOW => Op::PerformanceNow,
+            host_opcodes::inline::CRYPTO_RANDOM_UUID => Op::CryptoRandomUuid,
+            host_opcodes::inline::CRYPTO_GET_RANDOM_VALUES => Op::CryptoGetRandomValues,
+            host_opcodes::inline::FETCH_CONTROL => Op::FetchControl,
+            host_opcodes::inline::SQLITE_RESULT => Op::SqliteResult,
+            host_opcodes::subtle::DIGEST => Op::SubtleDigest,
+            host_opcodes::subtle::IMPORT_KEY => Op::SubtleImportKey,
+            host_opcodes::subtle::EXPORT_KEY => Op::SubtleExportKey,
+            host_opcodes::subtle::GENERATE_KEY => Op::SubtleGenerateKey,
+            host_opcodes::subtle::SIGN => Op::SubtleSign,
+            host_opcodes::subtle::VERIFY => Op::SubtleVerify,
+            host_opcodes::subtle::ENCRYPT => Op::SubtleEncrypt,
+            host_opcodes::subtle::DECRYPT => Op::SubtleDecrypt,
+            host_opcodes::subtle::DERIVE_BITS => Op::SubtleDeriveBits,
+            host_opcodes::subtle::DERIVE_KEY => Op::SubtleDeriveKey,
             _ => return None,
         })
     }
@@ -255,7 +276,10 @@ fn dispatch(
     args: &[HostArg],
     state: Option<&crate::task::RuntimeState>,
 ) -> Result<HostValue, HostError> {
-    if let Some(result) = crate::stdlib::headers_ops::dispatch(op as u32, args, state) {
+    if let Some(result) = crate::stdlib::subtle_abi::dispatch(op as u32, args, state) {
+        return result;
+    }
+    if let Some(result) = crate::bindings::headers_ops::dispatch(op as u32, args, state) {
         return result;
     }
     if let Some(level) = op.console_level() {
@@ -414,6 +438,16 @@ fn dispatch(
         Op::TextEncodeInto | Op::CryptoGetRandomValues => {
             unreachable!("handled in ibex2_host_call, which owns the mutable span")
         }
+        Op::SubtleDigest
+        | Op::SubtleImportKey
+        | Op::SubtleExportKey
+        | Op::SubtleGenerateKey
+        | Op::SubtleSign
+        | Op::SubtleVerify
+        | Op::SubtleEncrypt
+        | Op::SubtleDecrypt
+        | Op::SubtleDeriveBits
+        | Op::SubtleDeriveKey => unreachable!("handled by subtle_abi above"),
         _ => unreachable!("console ops returned above"),
     }
 }
@@ -776,6 +810,9 @@ pub unsafe extern "C" fn ibex2_async_begin(
     let Some(state) = crate::task::clone_queue(state) else {
         return 1;
     };
+    if state.is_shutdown() {
+        return 1;
+    }
     let raw = if argv.is_null() || argc == 0 {
         &[][..]
     } else {
@@ -809,7 +846,9 @@ pub unsafe extern "C" fn ibex2_async_begin(
     state.task_started();
     let work = move || {
         let result = run_async(op, &owned, &state, &grants);
-        state.queue.complete(task_id, result);
+        if !state.is_shutdown() {
+            state.queue.complete(task_id, result);
+        }
         state.task_finished();
     };
     if op == AsyncOp::ReadBody {
@@ -826,61 +865,61 @@ pub unsafe extern "C" fn ibex2_async_begin(
 enum AsyncOp {
     /// Echo the first argument back after leaving the thread. Exists so the
     /// ordering contract can be tested without a network in the way.
-    Echo = 100,
+    Echo = host_opcodes::async_ops::ECHO,
     /// `fetch`. Resolves with a response handle, never with a serialized body.
-    Fetch = 101,
-    ReadBody = 102,
+    Fetch = host_opcodes::async_ops::FETCH,
+    ReadBody = host_opcodes::async_ops::READ_BODY,
     /// `fs`, one op per method. Delegating and capability-bearing, so it leaves
     /// the JavaScript thread like fetch does — LLP 0059.000 §3.11 has no
     /// synchronous variants on purpose.
-    FsReadFile = 110,
-    FsWriteFile = 111,
-    FsAppendFile = 112,
-    FsReadDir = 113,
-    FsMkdir = 114,
-    FsRemove = 115,
-    FsStat = 116,
-    FsRename = 117,
-    FsCopyFile = 118,
-    FsRealpath = 119,
-    FsAtomicWriteFile = 120,
-    SqliteOpen = 150,
-    SqlitePrepare = 151,
-    SqliteExecute = 152,
-    SqliteQuery = 153,
-    SqliteStatementExecute = 154,
-    SqliteStatementQuery = 155,
-    SqliteTransaction = 156,
-    SqliteClose = 157,
-    SqliteStatementClose = 158,
+    FsReadFile = host_opcodes::async_ops::FS_READ_FILE,
+    FsWriteFile = host_opcodes::async_ops::FS_WRITE_FILE,
+    FsAppendFile = host_opcodes::async_ops::FS_APPEND_FILE,
+    FsReadDir = host_opcodes::async_ops::FS_READ_DIR,
+    FsMkdir = host_opcodes::async_ops::FS_MKDIR,
+    FsRemove = host_opcodes::async_ops::FS_REMOVE,
+    FsStat = host_opcodes::async_ops::FS_STAT,
+    FsRename = host_opcodes::async_ops::FS_RENAME,
+    FsCopyFile = host_opcodes::async_ops::FS_COPY_FILE,
+    FsRealpath = host_opcodes::async_ops::FS_REALPATH,
+    FsAtomicWriteFile = host_opcodes::async_ops::FS_ATOMIC_WRITE_FILE,
+    SqliteOpen = host_opcodes::sqlite_async::OPEN,
+    SqlitePrepare = host_opcodes::sqlite_async::PREPARE,
+    SqliteExecute = host_opcodes::sqlite_async::EXECUTE,
+    SqliteQuery = host_opcodes::sqlite_async::QUERY,
+    SqliteStatementExecute = host_opcodes::sqlite_async::STATEMENT_EXECUTE,
+    SqliteStatementQuery = host_opcodes::sqlite_async::STATEMENT_QUERY,
+    SqliteTransaction = host_opcodes::sqlite_async::TRANSACTION,
+    SqliteClose = host_opcodes::sqlite_async::CLOSE,
+    SqliteStatementClose = host_opcodes::sqlite_async::STATEMENT_CLOSE,
 }
 
 impl AsyncOp {
     fn from_u32(value: u32) -> Option<Self> {
         match value {
-            100 => Some(AsyncOp::Echo),
-            101 => Some(AsyncOp::Fetch),
-            102 => Some(AsyncOp::ReadBody),
-            110 => Some(AsyncOp::FsReadFile),
-            111 => Some(AsyncOp::FsWriteFile),
-            112 => Some(AsyncOp::FsAppendFile),
-            113 => Some(AsyncOp::FsReadDir),
-            114 => Some(AsyncOp::FsMkdir),
-            115 => Some(AsyncOp::FsRemove),
-            116 => Some(AsyncOp::FsStat),
-            117 => Some(AsyncOp::FsRename),
-            118 => Some(AsyncOp::FsCopyFile),
-            119 => Some(AsyncOp::FsRealpath),
-            120 => Some(AsyncOp::FsAtomicWriteFile),
-            150 => Some(AsyncOp::SqliteOpen),
-            151 => Some(AsyncOp::SqlitePrepare),
-            152 => Some(AsyncOp::SqliteExecute),
-            153 => Some(AsyncOp::SqliteQuery),
-            154 => Some(AsyncOp::SqliteStatementExecute),
-            155 => Some(AsyncOp::SqliteStatementQuery),
-            156 => Some(AsyncOp::SqliteTransaction),
-            157 => Some(AsyncOp::SqliteClose),
-            158 => Some(AsyncOp::SqliteStatementClose),
+            host_opcodes::async_ops::ECHO => Some(AsyncOp::Echo),
+            host_opcodes::async_ops::FETCH => Some(AsyncOp::Fetch),
+            host_opcodes::async_ops::READ_BODY => Some(AsyncOp::ReadBody),
+            host_opcodes::async_ops::FS_READ_FILE => Some(AsyncOp::FsReadFile),
+            host_opcodes::async_ops::FS_WRITE_FILE => Some(AsyncOp::FsWriteFile),
+            host_opcodes::async_ops::FS_APPEND_FILE => Some(AsyncOp::FsAppendFile),
+            host_opcodes::async_ops::FS_READ_DIR => Some(AsyncOp::FsReadDir),
+            host_opcodes::async_ops::FS_MKDIR => Some(AsyncOp::FsMkdir),
+            host_opcodes::async_ops::FS_REMOVE => Some(AsyncOp::FsRemove),
+            host_opcodes::async_ops::FS_STAT => Some(AsyncOp::FsStat),
+            host_opcodes::async_ops::FS_RENAME => Some(AsyncOp::FsRename),
+            host_opcodes::async_ops::FS_COPY_FILE => Some(AsyncOp::FsCopyFile),
+            host_opcodes::async_ops::FS_REALPATH => Some(AsyncOp::FsRealpath),
+            host_opcodes::async_ops::FS_ATOMIC_WRITE_FILE => Some(AsyncOp::FsAtomicWriteFile),
+            host_opcodes::sqlite_async::OPEN => Some(AsyncOp::SqliteOpen),
+            host_opcodes::sqlite_async::PREPARE => Some(AsyncOp::SqlitePrepare),
+            host_opcodes::sqlite_async::EXECUTE => Some(AsyncOp::SqliteExecute),
+            host_opcodes::sqlite_async::QUERY => Some(AsyncOp::SqliteQuery),
+            host_opcodes::sqlite_async::STATEMENT_EXECUTE => Some(AsyncOp::SqliteStatementExecute),
+            host_opcodes::sqlite_async::STATEMENT_QUERY => Some(AsyncOp::SqliteStatementQuery),
+            host_opcodes::sqlite_async::TRANSACTION => Some(AsyncOp::SqliteTransaction),
+            host_opcodes::sqlite_async::CLOSE => Some(AsyncOp::SqliteClose),
+            host_opcodes::sqlite_async::STATEMENT_CLOSE => Some(AsyncOp::SqliteStatementClose),
 
             _ => None,
         }
@@ -901,7 +940,9 @@ fn run_async(
     state: &crate::task::RuntimeState,
     grants: &GrantSet,
 ) -> Result<HostValue, HostError> {
-    if (150..=158).contains(&(op as u32)) {
+    if (host_opcodes::sqlite_async::OPEN..=host_opcodes::sqlite_async::STATEMENT_CLOSE)
+        .contains(&(op as u32))
+    {
         return crate::sqlite_abi::run(op as u32, args, state, grants);
     }
     if let Some(fs_op) = fs_op_for(op) {
@@ -1392,6 +1433,7 @@ mod fetch_header_tests {
     use super::*;
     use crate::stdlib::fetch::{Headers, Request, Transport};
     use crate::task::RuntimeState;
+    use std::collections::BTreeMap;
 
     struct NoRequests;
     impl Transport for NoRequests {
@@ -1402,6 +1444,85 @@ mod fetch_header_tests {
         ) -> Result<crate::stdlib::fetch::StreamingResponse, HostError> {
             panic!("invalid headers reached the transport");
         }
+    }
+
+    #[test]
+    fn every_external_host_opcode_has_one_dispatcher() {
+        let mut claims: BTreeMap<u32, Vec<&host_opcodes::Assignment>> = BTreeMap::new();
+        for assignment in host_opcodes::ALL {
+            claims.entry(assignment.op).or_default().push(assignment);
+            match assignment.owner {
+                host_opcodes::Owner::Inline => assert_eq!(
+                    Op::from_u32(assignment.op).map(|op| op as u32),
+                    Some(assignment.op),
+                    "{} is missing from the inline dispatcher",
+                    assignment.name
+                ),
+                host_opcodes::Owner::Async => assert_eq!(
+                    AsyncOp::from_u32(assignment.op).map(|op| op as u32),
+                    Some(assignment.op),
+                    "{} is missing from the async dispatcher",
+                    assignment.name
+                ),
+                host_opcodes::Owner::IntlNumber
+                | host_opcodes::Owner::IntlCase
+                | host_opcodes::Owner::IntlDateTime => {
+                    assert!(Op::from_u32(assignment.op).is_none());
+                    assert!(AsyncOp::from_u32(assignment.op).is_none());
+                }
+            }
+        }
+        let collisions: Vec<_> = claims
+            .into_iter()
+            .filter(|(_, assignments)| assignments.len() > 1)
+            .map(|(op, assignments)| {
+                (
+                    op,
+                    assignments
+                        .into_iter()
+                        .map(|assignment| assignment.name)
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect();
+        assert!(
+            collisions.is_empty(),
+            "host opcode collisions: {collisions:?}"
+        );
+
+        // This is the JavaScript entry path the Rust-only collision check used
+        // to miss. Parsing is intentionally strict: replacing a numeric literal
+        // or changing a binding requires changing the declarative registry too.
+        let mut cpp = Vec::new();
+        for line in include_str!("engine/ibex2_jsi.cc").lines() {
+            let line = line.trim();
+            let Some(call) = line
+                .strip_prefix("set_group_binding(")
+                .and_then(|line| line.strip_suffix(");"))
+            else {
+                continue;
+            };
+            let fields: Vec<_> = call.split(',').map(str::trim).collect();
+            assert_eq!(
+                fields.len(),
+                5,
+                "unparseable set_group_binding call: {line}"
+            );
+            cpp.push(host_opcodes::JsiBinding {
+                target: fields[1],
+                name: fields[2].trim_matches('"'),
+                op: fields[3]
+                    .parse()
+                    .unwrap_or_else(|_| panic!("non-numeric set_group_binding opcode: {line}")),
+            });
+        }
+        cpp.sort();
+        let mut registry = host_opcodes::JSI_SYNC_BINDINGS.to_vec();
+        registry.sort();
+        assert_eq!(
+            cpp, registry,
+            "grouped JSI bindings differ from the opcode registry"
+        );
     }
 
     #[test]

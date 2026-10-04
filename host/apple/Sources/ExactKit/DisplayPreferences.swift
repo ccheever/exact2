@@ -72,11 +72,21 @@ enum DisplayPreferences {
     #endif
     /// The ABI's form (`exact_set_preferences`): bit 0 reduced motion, bit 1
     /// reduced transparency, bit 2 contrast more, bit 3 contrast less (both:
-    /// custom), bit 4 a dark system.
+    /// custom), bit 4 a dark system, bit 5 pointer `coarse`, bit 6 pointer
+    /// `none`, bit 7 hover `none` (zero: a mouse, `fine` and `hover`).
     static func bits(systemDark: Bool) -> UInt32 {
         let contrastBits: UInt32 = switch contrast { case "more": 4; case "less": 8; case "custom": 12; default: 0 }
-        return (reducedMotion ? 1 : 0) | (reducedTransparency ? 2 : 0) | contrastBits | (systemDark ? 16 : 0)
+        return (reducedMotion ? 1 : 0) | (reducedTransparency ? 2 : 0) | contrastBits | (systemDark ? 16 : 0) | inputBits
     }
+    /// CSS's `pointer` and `hover` for the primary input: a Siri Remote
+    /// points at nothing, a finger is coarse, and neither hovers.
+    #if os(tvOS)
+    static let inputBits: UInt32 = 64 | 128
+    #elseif os(iOS)
+    static let inputBits: UInt32 = 32 | 128
+    #else
+    static let inputBits: UInt32 = 0
+    #endif
 
     /// Calls `changed` on the main queue when any setting changes; the
     /// caller holds the tokens and removes them.

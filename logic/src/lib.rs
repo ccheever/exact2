@@ -40,7 +40,10 @@ pub const MAX_MODULE: usize = 32 << 20;
 
 trait Executor {
     fn call(&mut self, bytes: &[u8]) -> Result<Vec<u8>, String>;
-    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
+    #[cfg(all(
+        not(target_arch = "wasm32"),
+        not(any(target_os = "ios", target_os = "tvos"))
+    ))]
     fn stateless(&self) -> bool {
         false
     }

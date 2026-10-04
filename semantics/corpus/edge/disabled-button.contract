@@ -1,0 +1,24 @@
+// A press dispatched to a disabled button. The runner's dispatch (which
+// the differential host calls directly) runs the action: `disabled` is a
+// presentation prop to it, and a real host is what declines to deliver the
+// press. The semantics does not evaluate presentation either. Pinned here
+// as observed; on the web a disabled button fires no click.
+component App
+  state n = 0
+  state off = true
+  action inc
+    n = n + 1
+  action toggle
+    off = not off
+  view
+    column
+      button "inc" press=inc disabled=off testId="inc"
+      button "toggle" press=toggle testId="toggle"
+      text `${n}` testId="n"
+
+test "disabled press is delivered by dispatch"
+  tap "inc"
+  expect state n == 1
+  tap "toggle"
+  tap "inc"
+  expect state n == 2

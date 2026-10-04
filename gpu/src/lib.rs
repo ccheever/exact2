@@ -378,7 +378,7 @@ struct Instance {
     /// The next texture, acquired off the presenter's thread (`acquire`).
     #[cfg(not(target_arch = "wasm32"))]
     acquire: acquire::Acquire,
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     layer: Option<usize>,
     outstanding: BTreeSet<String>,
     answered: BTreeSet<String>,
@@ -617,7 +617,7 @@ impl Module {
         let id = self.next;
         let mut surface = factory();
         surface.clock(self.seekable);
-        if let (Some(_), Some(gpu)) = (&presentation, &self.gpu) {
+        if let Some(gpu) = &self.gpu {
             surface.device_ready(gpu.device.features());
         }
         let (presentation, config) = presentation.map_or((None, None), |(target, config)| {
@@ -633,7 +633,7 @@ impl Module {
                 config,
                 #[cfg(not(target_arch = "wasm32"))]
                 acquire: Default::default(),
-                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
                 layer: None,
                 outstanding: BTreeSet::new(),
                 answered: BTreeSet::new(),
@@ -957,7 +957,7 @@ impl Module {
     /// # Safety
     /// `raw` is a live `MTLTexture` of that size and format, valid until
     /// the canvas is destroyed or another texture replaces it.
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     pub unsafe fn texture_from_metal(
         &mut self,
         id: u32,

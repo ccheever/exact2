@@ -1,0 +1,46 @@
+// when inside match inside when; regions toggled by several slots.
+component App
+  state a = false
+  state sel = none
+  state n = 0
+  action flipA
+    a = not a
+  action pick
+    sel = some(n)
+  action inc
+    n = n + 1
+  action clear
+    sel = none
+  view
+    column
+      when a
+        match sel
+          case some(v)
+            when v > 1
+              text `big ${v}` testId="big"
+            else
+              text `small ${v}` testId="small"
+          case none
+            text "a, nothing" testId="nothing"
+      else
+        text "not a" testId="nota"
+      button "a" press=flipA testId="a"
+      button "pick" press=pick testId="pick"
+      button "inc" press=inc testId="inc"
+      button "clear" press=clear testId="clear"
+
+test "regions"
+  expect tree has "nota"
+  tap "a"
+  expect tree has "nothing"
+  tap "pick"
+  expect text "small" == "small 0"
+  tap "inc"
+  tap "inc"
+  tap "pick"
+  expect text "big" == "big 2"
+  tap "a"
+  expect tree missing "big"
+  tap "a"
+  tap "clear"
+  expect tree has "nothing"

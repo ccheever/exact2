@@ -177,6 +177,36 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertFalse(p.groupedLists.projects(row))
     }
 
+    /// The symbol's tint is the sheet's (D7), the author's over its own: the
+    /// shown symbol the model named, each side of a light-dark() pair for its
+    /// appearance, and a row whose tint changes is configured again.
+    func testASymbolTakesItsAuthoredTintForEachAppearance() throws {
+        let p = presenter { self.model() }
+        let before = try XCTUnwrap(try cell(p, 10).contentConfiguration as? UIListContentConfiguration)
+        XCTAssertNil(before.imageProperties.tintColor, "no tint authored: UIKit's")
+        // A hidden image first, then the symbol (the model's), the title, then the chevron.
+        p.apply(wireBatch([
+            ["op": "create", "id": 30, "kind": "image", "props": ["imageSource": "symbol:sf/xmark"], "style": ["display": "none", "tint_color": [255, 0, 0, 255]]],
+            ["op": "create", "id": 31, "kind": "image", "props": ["imageSource": "symbol:sf/person.circle"],
+             "style": ["tint_color": [[0, 0, 0, 255], [255, 255, 255, 255]]]],
+            ["op": "create", "id": 33, "kind": "text", "props": ["text": "Profile"], "style": [:]],
+            ["op": "create", "id": 32, "kind": "image", "props": ["imageSource": "symbol:forward-chevron"], "style": [:]],
+            ["op": "children", "id": 10, "ids": [30, 31, 33, 32]],
+        ]))
+        func rgb(_ style: UIUserInterfaceStyle) throws -> [CGFloat] {
+            let tint = try XCTUnwrap((try cell(p, 10).contentConfiguration as? UIListContentConfiguration)?.imageProperties.tintColor)
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            tint.resolvedColor(with: UITraitCollection(userInterfaceStyle: style)).getRed(&r, green: &g, blue: &b, alpha: &a)
+            return [r, g, b, a]
+        }
+        XCTAssertEqual(try rgb(.light), [0, 0, 0, 1], "the shown symbol's light side, not the hidden image's red")
+        XCTAssertEqual(try rgb(.dark), [1, 1, 1, 1], "and its dark side, with no batch")
+        // A style-only change to the symbol's tint configures the row again.
+        p.apply(wireBatch([["op": "style", "id": 31, "style": ["tint_color": [[0, 0, 255, 255], [255, 0, 0, 255]]]]]))
+        XCTAssertEqual(try rgb(.light), [0, 0, 1, 1])
+        XCTAssertEqual(try rgb(.dark), [1, 0, 0, 1])
+    }
+
     func testCustomRowsGoBackInTheirOrder() throws {
         let p = presenter {
             var m = self.model(custom: true)

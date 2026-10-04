@@ -362,6 +362,25 @@ fn an_elements_attributes_continue_on_deeper_lines_that_begin_with_name_equals()
     assert_eq!(tag, "text");
     assert_eq!(attrs[0].name, "font-size");
 
+    // Continued lines may sit deeper than the children that follow them.
+    let file = parse("component A\n  view\n    main\n        display=\"flex\" gap=8\n        padding=4\n      text \"a\"\n        font-size=12\n      text \"b\"\n    text \"after\"\n").unwrap();
+    let Node::Element {
+        attrs, children, ..
+    } = &file.components[0].view[0]
+    else {
+        panic!()
+    };
+    assert_eq!(
+        attrs.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
+        ["display", "gap", "padding"]
+    );
+    assert_eq!(children.len(), 2);
+    assert_eq!(file.components[0].view.len(), 2);
+    // A deeper block that is not attributes still has to dedent to a level.
+    let e =
+        parse("component A\n  view\n    main\n        text \"a\"\n      text \"b\"\n").unwrap_err();
+    assert_eq!(e.id, "syntax-bad-dedent");
+
     // At the element's own depth (or shallower) `name=` is refused.
     let e = parse("component A\n  view\n    column gap=8\n      text \"a\"\n    width=40\n")
         .unwrap_err();
@@ -463,4 +482,43 @@ fn let_starts_a_statement_only_before_a_name_and_records_build_with_named_argume
     assert_eq!(e.id, "syntax-expected-name", "{e:?}");
     let e = parse("component A\n  action go\n    let a 1\n  view\n    text \"a\"\n").unwrap_err();
     assert_eq!(e.id, "syntax-expected", "{e:?}");
+}
+
+#[test]
+fn template_text_decodes_the_escapes_a_string_does_and_escaped_interpolation_is_literal() {
+    fn parts(template: &str) -> Vec<TemplatePart> {
+        let src = format!("component A\n  state x = 1\n  view\n    text {template}\n");
+        let file = parse(&src).unwrap();
+        let Node::Element { positional, .. } = &file.components[0].view[0] else {
+            panic!()
+        };
+        let Expr::Template(parts, _) = &positional[0] else {
+            panic!("{:?}", positional[0])
+        };
+        parts.clone()
+    }
+    fn text(template: &str) -> String {
+        match parts(template).as_slice() {
+            [TemplatePart::Text(t)] => t.clone(),
+            other => panic!("{template}: {other:?}"),
+        }
+    }
+    assert_eq!(text(r"`a\${x}`"), "a${x}");
+    assert_eq!(text(r"`a\tb\nc`"), "a\tb\nc");
+    assert_eq!(text(r#"`\`\\\"\$`"#), "`\\\"$");
+    // `\\` before `${` is an escaped backslash; the interpolation still runs.
+    let p = parts(r"`a\\${x}\`b`");
+    assert!(
+        matches!(&p[0], TemplatePart::Text(t) if t == "a\\"),
+        "{p:?}"
+    );
+    assert!(
+        matches!(&p[1], TemplatePart::Expr(Expr::Ident(n, _)) if n == "x"),
+        "{p:?}"
+    );
+    assert!(matches!(&p[2], TemplatePart::Text(t) if t == "`b"), "{p:?}");
+    // The same escape table as a string, and the same refusal past it.
+    let e = parse("component A\n  view\n    text `ok \\q`\n").unwrap_err();
+    assert_eq!(e.id, "syntax-bad-escape", "{e:?}");
+    assert_eq!((e.span.line, e.span.col), (3, 14), "{e:?}");
 }

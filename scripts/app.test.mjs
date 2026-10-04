@@ -1,13 +1,27 @@
 import { test } from 'bun:test';
 // These cases run cargo (the filesystem tool, bakes, locks). A shell whose PATH
 // omits rustup's bin directory still finds it there; without cargo, say so.
-const cargoBin = `${process.env.CARGO_HOME ?? `${process.env.HOME}/.cargo`}/bin`;
-if (!(process.env.PATH ?? '').split(':').includes(cargoBin)) process.env.PATH = `${process.env.PATH ?? ''}:${cargoBin}`;
+const cargoBin = resolve(process.env.CARGO_HOME ?? resolve(homedir(), '.cargo'), 'bin');
+if (!(process.env.PATH ?? '').split(delimiter).includes(cargoBin)) process.env.PATH = `${process.env.PATH ?? ''}${delimiter}${cargoBin}`;
 if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these tests need cargo: put it on PATH or in ${cargoBin}`);
 // The fixtures name their apps; a caller's EXACT_APP_DIR would redirect every one.
 delete process.env.EXACT_APP_DIR;
 import assert from 'node:assert/strict';
 import { classifyArtifacts } from './app.mjs';
+import { chromium } from './agent-launch.mjs';
+
+test('Windows browser discovery accepts an installed Chrome and explicit executable paths with spaces', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact browser paths-'));
+  try {
+    const chrome = resolve(dir, 'Google/Chrome/Application/chrome.exe');
+    mkdirSync(dirname(chrome), {recursive:true});
+    writeFileSync(chrome, '');
+    chmodSync(chrome, 0o755);
+    assert.equal(chromium({ProgramFiles:dir}, 'win32').executable, chrome);
+    assert.equal(chromium({CHROME:chrome}, 'win32').unavailable, null);
+    assert.ok(chromium({CHROME:resolve(dir, 'missing.exe')}, 'win32').unavailable);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
 
 test('runner-owned sources never warn that native app code is retained', () => {
   for (const name of ['exactSurface', 'exactViewport', 'exactDelivery', 'appData']) {
@@ -69,11 +83,11 @@ test.skipIf(!process.env.EXACT_ASSET_BAKE_TEST)('creating optional asset roots r
 
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
+import { basename, delimiter, dirname, resolve, sep } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
 import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
 import { hermesIos } from './app.mjs';
-import { HERMES_IOS_ARCHIVES, provisionHermesIos, iosAssets, infoPlist, macInfoPlist, macReleaseEntitlements, useXcode, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
+import { HERMES_IOS_ARCHIVES, provisionHermesIos, iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, macReleaseEntitlements, useXcode, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
 
 // Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
@@ -174,7 +188,7 @@ async function fixture(body) {
     const { resolveApp: localResolveApp, cargoReproducibilityFlags: flags } = await import(resolve(root,'scripts/app.mjs'));
     const {prepareGame} = await import(resolve(root,'game/app/shells.mjs'));
     write('rust-toolchain.toml', readFileSync(resolve(import.meta.dir,'../rust-toolchain.toml')));
-    const deps = ['exact-game','exact-game-render','exact-game-app','exact-game-bake','exact-runner','exact-web','exact-web-capabilities','exact-apple','exact-linux','wasm-bindgen','wasm-bindgen-futures','web-sys'];
+    const deps = ['exact-game','exact-game-render','exact-game-app','exact-game-bake','exact-runner','exact-web','exact-web-capabilities','exact-apple','exact-linux','exact-windows','wasm-bindgen','wasm-bindgen-futures','web-sys'];
     write('Cargo.toml', '[workspace]\nmembers=["stub"]\nresolver="2"\n'); pkg('stub','root-stub');
     write('game/Cargo.toml', '[workspace]\nmembers=["deps/*","ordinary/*"]\nexclude=["games"]\nresolver="2"\n[workspace.package]\nversion="0.1.0"\nedition="2021"\nlicense="MIT"\n[workspace.dependencies]\n' + deps.map(n=>`${n}={path="deps/${n}"}`).join('\n'));
     for (const dep of deps) pkg(`game/deps/${dep}`, dep);
@@ -228,7 +242,7 @@ test('copied app identities keep separate Cargo graphs and generated hosts', () 
   for (const kind of ['gpu','web','apple','linux']) {
     const pkg = second.cargoPackage(kind);
     assert.equal(pkg.name, `copy-${kind}`);
-    assert.ok(pkg.manifest_path.startsWith(copy + '/.shells/'));
+    assert.ok(pkg.manifest_path.startsWith(resolve(copy, '.shells') + sep));
   }
   process.env.EXACT_APP_DIR = dir;
   const reopened = app();
@@ -421,7 +435,7 @@ test('applying autofocus props cannot trigger browser focus during a batch', asy
   assert.equal(el.exactAutofocus, false);
 });
 
-test.each(['rlib', 'staticlib', 'executable'].flatMap(kind => [null, 'intermediate', 'output/intermediate', '.'].map(split => [kind, split])))('copied %s roots with build directory %s require unique compiler dep-info', async (kind, split) => {
+test.each(['rlib', 'staticlib', 'executable', 'windows-executable'].flatMap(kind => [null, 'intermediate', 'output/intermediate', '.'].map(split => [kind, split])))('copied %s roots with build directory %s require unique compiler dep-info', async (kind, split) => {
   const { unitDepInfo } = await import('./app.mjs');
   const root = mkdtempSync(resolve(tmpdir(), 'exact-unit-dep-'));
   try {
@@ -429,16 +443,17 @@ test.each(['rlib', 'staticlib', 'executable'].flatMap(kind => [null, 'intermedia
     const dir = resolve(metadata.target_directory, 'release'), deps = resolve(metadata.build_directory, 'release/deps'), src = resolve(root, 'src/main.rs');
     mkdirSync(dir, {recursive:true});
     mkdirSync(deps, {recursive:true});
-    const executable = kind === 'executable', target = executable ? 'game-native' : 'game_apple';
+    const executable = kind.endsWith('executable'), target = executable ? 'game-native' : 'game_apple';
+    const suffix = kind === 'windows-executable' ? '.exe' : '';
     const extension = kind === 'staticlib' ? '.a' : '.rlib';
-    const artifact = resolve(dir, executable ? target : `lib${target}${extension}`);
+    const artifact = resolve(dir, executable ? target + suffix : `lib${target}${extension}`);
     writeFileSync(artifact, 'selected unit');
     const message = {filenames:[artifact],
       executable:executable ? artifact : null, target:{name:target, src_path:src}};
     writeFileSync(resolve(dir, `${target}.d`), `${artifact}: ${src}\n`);
     const unit = (hash, bytes, source = src) => {
       const name = `${target.replaceAll('-', '_')}-${hash}`, dep = resolve(deps, `${name}.d`);
-      writeFileSync(resolve(deps, executable ? name : `lib${name}${extension}`), bytes);
+      writeFileSync(resolve(deps, executable ? name + suffix : `lib${name}${extension}`), bytes);
       writeFileSync(dep, `${dep}: ${source}\n\n# env-dep:EXACT_UPDATE_TRUST=development\n`);
       return dep;
     };
@@ -767,7 +782,7 @@ test.each([false, true])('ordinary buildBake with split directories=%s streams p
     assert.ok(existsSync(resolve(dir,'progress-received')));
     assert.equal((built.stderr.match(/warning: unused variable/g)??[]).length,1,built.stderr);
     const receipt = JSON.parse(built.stdout);
-    assert.ok(receipt.products.some(p=>p.path.endsWith('/plain-linux')));
+    assert.ok(receipt.products.some(p=>basename(p.path) === `plain-linux${process.platform === 'win32' ? '.exe' : ''}`));
     assert.ok(existsSync(resolve(dir,'Cargo.lock')));
     const receiptPath=resolve(dir,'bakes',`linux-${target}.build.json`), before=readFileSync(receiptPath,'utf8');
     write('linux/src/main.rs','fn main() { let broken: u32 = "wrong type"; }');
@@ -927,6 +942,8 @@ test('a build env keeps the pinned toolchain and the checked Bun ahead of ambien
     const env = developmentBuildEnv();
     assert.equal(env.RUSTUP_TOOLCHAIN, undefined);
     assert.equal(env.PATH.split(delimiter)[0], dirname(process.execPath));
+    assert.ok(Bun.which('cargo', {PATH:env.PATH}), 'the build inherits Cargo after spreading Windows Path');
+    assert.equal(Object.keys(env).filter(key => key.toLowerCase() === 'path').length, 1);
     assert.equal(env.EXACT_UPDATE_TRUST, process.env.EXACT_UPDATE_TRUST ?? 'development');
   } finally { if (previous === undefined) delete process.env.RUSTUP_TOOLCHAIN; else process.env.RUSTUP_TOOLCHAIN = previous; }
 });
@@ -1066,6 +1083,13 @@ test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 
   const plain = macInfoPlist(app({}));
   assert.match(plain, /<key>ExactLaunchMode<\/key><string>navigate-existing<\/string>/);
   assert.doesNotMatch(plain, /CFBundleDocumentTypes/);
+  // The common document and image types each name their system type (ledger
+  // diary F9: CSV); only Markdown, which iOS does not declare, is imported.
+  const common = { 'text/plain': 'public.plain-text', 'application/json': 'public.json', 'text/csv': 'public.comma-separated-values-text', 'text/tab-separated-values': 'public.tab-separated-values-text', 'text/markdown': 'net.daringfireball.markdown', 'text/html': 'public.html', 'application/pdf': 'com.adobe.pdf', 'image/png': 'public.png', 'image/jpeg': 'public.jpeg', 'image/gif': 'com.compuserve.gif', 'image/webp': 'org.webmproject.webp', 'image/svg+xml': 'public.svg-image', 'application/zip': 'public.zip-archive' };
+  const every = app({ file_handlers: [{ action: '/', accept: Object.fromEntries(Object.keys(common).map(m => [m, []])) }] });
+  assert.deepEqual(documentTypes(every)[0].LSItemContentTypes, Object.values(common));
+  assert.deepEqual(importedTypes(every).map(t => t.UTTypeIdentifier), ['net.daringfireball.markdown']);
+  assert.throws(() => documentTypes(app({ file_handlers: [{ action: '/', accept: { 'text/x-unknown': ['.x'] } }] })), /text\/x-unknown, which names no Apple type this host maps \(it maps .*text\/csv/);
 });
 
 test('an Apple app records the SDK it is built with unless its manifest keeps the design before 26', async () => {

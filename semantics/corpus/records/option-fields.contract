@@ -1,0 +1,47 @@
+// Records holding options and lists; options of records.
+shape Item
+  id: string
+  note: option<string>
+  tags: list<string>
+
+fn itemId(i: Item): string = i.id
+fn noteText(i: Item): string = match i.note { case some(n) => n, case none => "(none)" }
+
+component App
+  state it = Item(id="a", note=none, tags=[])
+  state held = none
+  derive text1 = noteText(it)
+  derive tagCount = length(it.tags)
+  derive heldId = match held { case some(h) => itemId(h), case none => "-" }
+  action annotate(n: string)
+    it = Item(it, note=some(n))
+  action unnote
+    it = Item(it, note=none)
+  action hold
+    held = some(it)
+  action release
+    held = none
+  view
+    column
+      text text1 testId="note"
+      text `${tagCount}` testId="tags"
+      text heldId testId="held"
+      button "a" press=annotate("hi") testId="annotate"
+      button "u" press=unnote testId="unnote"
+      button "h" press=hold testId="hold"
+      button "r" press=release testId="release"
+
+test "options in records"
+  expect text "note" == "(none)"
+  expect text "tags" == "0"
+  tap "annotate"
+  expect text "note" == "hi"
+  tap "unnote"
+  expect text "note" == "(none)"
+
+test "option of record"
+  expect text "held" == "-"
+  tap "hold"
+  expect text "held" == "a"
+  tap "release"
+  expect state held == none

@@ -10,7 +10,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cargoReproducibilityFlags, developmentBuildEnv, readBuilds, resolveApp, rustPolicy } from './app.mjs';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const rustCard = (file, bytes) => ({ file, bytes: bytes.length, sha256: hash(bytes) });
 function run(app, command, args, env) {

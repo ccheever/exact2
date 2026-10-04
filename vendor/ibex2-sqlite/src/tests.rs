@@ -189,3 +189,39 @@ fn journal_symlinks_cannot_overwrite_other_files() {
     assert!(db.execute("INSERT INTO items VALUES (1)", &[]).is_err());
     assert_eq!(std::fs::read(&outside).unwrap(), b"untouched");
 }
+
+#[cfg(windows)]
+#[test]
+fn reparse_database_parents_and_sidecars_are_refused_before_open() {
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("secret"), b"private").unwrap();
+    for (index, suffix) in ["", "-journal", "-wal", "-shm"].iter().enumerate() {
+        let link = root.path().join(format!("db{index}{suffix}"));
+        let output = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", "New-Item -ItemType Junction -Path $env:IBEX_SQLITE_TEST_LINK -Value $env:IBEX_SQLITE_TEST_TARGET -ErrorAction Stop | Out-Null"])
+            .env("IBEX_SQLITE_TEST_LINK", &link)
+            .env("IBEX_SQLITE_TEST_TARGET", outside.path())
+            .output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(SqliteProvider
+            .open(Location {
+                path: root.path().join(format!("db{index}"))
+            })
+            .is_err());
+    }
+    assert!(SqliteProvider
+        .open(Location {
+            path: root.path().join("db0/nested.db")
+        })
+        .is_err());
+    assert_eq!(
+        std::fs::read(outside.path().join("secret")).unwrap(),
+        b"private"
+    );
+    assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 1);
+}

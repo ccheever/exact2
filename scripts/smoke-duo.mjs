@@ -21,7 +21,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { appleArtifacts, simulator, simulators } from '../host/apple/build.mjs';
+import { appleArtifacts } from '../host/apple/build.mjs';
+import { simulator, simulators } from '../host/apple/devices.mjs';
 import { resolveApp } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);

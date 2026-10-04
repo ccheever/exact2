@@ -391,7 +391,7 @@ public final class ExactSession {
     var timerDue: Double?
     /// The view presenting this session, while one is mounted (D1).
     weak var view: ExactView?
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     private var systemDark = false
     #endif
     /// This session's agent, once a carrier asked for it (`Agent.swift`).
@@ -434,7 +434,7 @@ public final class ExactSession {
     /// macOS follows once physical scrolling there is measured (stage 5).
     /// Read when a session wires itself; tests set it to drive the
     /// asynchronous path on macOS.
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     nonisolated(unsafe) static var asyncFills = !ExactEnv.agentMode && ExactEnv.environment["EXACT_FILL_SYNC"] != "1"
     #else
     nonisolated(unsafe) static var asyncFills = false
@@ -528,7 +528,7 @@ public final class ExactSession {
         rasters.trimCold()
         text.dropColdShaped()
         if let m = text.measurer { Owner.shared.post { m.dropColdShaped() } }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         presenter.textRasters.dropKept()
         #endif
         DispatchQueue.global(qos: .utility).async { malloc_zone_pressure_relief(nil, 0) }
@@ -687,6 +687,8 @@ public final class ExactSession {
         presenter.onIntrinsic = { [unowned self] sizes in whenIdle { [unowned self] in apply(runtime.intrinsics(sizes)) } }
         #if os(iOS)
         presenter.groupedList = { [unowned self] id in runtime.groupedList(id) }
+        #endif
+        #if os(iOS) || os(tvOS)
         // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout
         // as an intrinsic size does; the hooks replay once the module connects.
         presenter.onCovers = { [unowned self] covers in whenIdle { [unowned self] in apply(runtime.covers(covers)) } }
@@ -731,6 +733,7 @@ public final class ExactSession {
     @discardableResult
     public func boot(size: CGSize) -> Batch {
         let t = CACurrentMediaTime()
+        primePreferences()
         if let bytes = app.lastPlan {
             // A selected launch can crash in runner/font/asset preparation.
             // Record the attempt first; an integrity refusal clears it below.
@@ -755,6 +758,7 @@ public final class ExactSession {
     @discardableResult
     public func boot(plan bytes: Data, size: CGSize) -> Batch {
         let t = CACurrentMediaTime()
+        primePreferences()
         let cp = text.checkpoint()
         let batch = runtime.bootPlan(bytes, width: size.width, height: size.height)
         if batch.error == nil { updateToken = 0; app.invalidateDevGeneration() }
@@ -953,7 +957,11 @@ public final class ExactSession {
                         fputs("exact: copyText requires one string\n", stderr)
                         continue
                     }
-                    #if canImport(UIKit)
+                    #if os(tvOS)
+                    // tvOS has no pasteboard.
+                    fputs("exact: copyText: no pasteboard\n", stderr)
+                    _ = text
+                    #elseif canImport(UIKit)
                     UIPasteboard.general.string = text
                     #else
                     NSPasteboard.general.clearContents()
@@ -961,6 +969,12 @@ public final class ExactSession {
                         fputs("exact: copyText failed\n", stderr)
                     }
                     #endif
+                    continue
+                }
+                if name == "reload" {
+                    // The dev menu's Reload, from the app; a build without the dev menu refuses it.
+                    guard DevMenu.enabled else { fputs("exact: reload: no dev menu in this build\n", stderr); continue }
+                    app.deliver { DevMenu.reload() }
                     continue
                 }
                 if name == "haptic" {
@@ -1122,7 +1136,17 @@ public final class ExactSession {
     /// frame on screen already reads the user's preferences.
     func tellPreferences() {
         guard booted, state != .destroyed else { return }
-        #if os(iOS)
+        apply(runtime.setPreferences(preferenceBits()))
+    }
+    /// Before a first boot the runtime keeps them, so the first frame is laid
+    /// out with the device's preferences rather than a mouse's and then again
+    /// (`pointer: none` on tvOS sets a different layout).
+    private func primePreferences() {
+        guard !booted, state != .destroyed else { return }
+        _ = runtime.setPreferences(preferenceBits())
+    }
+    private func preferenceBits() -> UInt32 {
+        #if os(iOS) || os(tvOS)
         // The scene owns system appearance; a window's app override does not.
         if let scene = view?.window?.windowScene {
             systemDark = scene.traitCollection.userInterfaceStyle == .dark
@@ -1131,7 +1155,7 @@ public final class ExactSession {
         #else
         let dark = DisplayPreferences.systemDark
         #endif
-        apply(runtime.setPreferences(DisplayPreferences.bits(systemDark: dark)))
+        return DisplayPreferences.bits(systemDark: dark)
     }
     /// @ref LLP 1069.000 D2 — told after every boot and on each change; a
     /// change while iOS suspends the process lands with the foreground
@@ -1231,7 +1255,7 @@ public final class ExactSession {
     }
     /// The scene became active (iOS): the canvases follow.
     public func becameActive() { frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) }
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// A hardware keyboard's Tab (or Shift-Tab) when no node of this session
     /// holds the focus: an app's last responder forwards it here, as macOS's
     /// window starts its key-view loop at the view.

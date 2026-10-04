@@ -4,7 +4,8 @@ use super::{
     arms, disagree, err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
 use contract_syntax::{
-    one_spelling_edit, Attr, Binding, Component, Expr, File, Node, Span, TemplatePart, TypeExpr,
+    one_spelling_edit, Attr, Binding, Component, Expr, File, Node, Owner, Span, TemplatePart,
+    TypeExpr,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -85,7 +86,8 @@ fn calls_in(e: &Expr, indices: &BTreeMap<&str, usize>, out: &mut Vec<usize>) {
         Expr::Some(x, _)
         | Expr::Unary(_, x, _)
         | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _) => calls_in(x, indices, out),
+        | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _) => calls_in(x, indices, out),
         Expr::Binary(_, a, b, _) => {
             calls_in(a, indices, out);
             calls_in(b, indices, out);
@@ -389,12 +391,12 @@ fn visit_shape(
     Ok(())
 }
 
-/// The lexical scope at each expanded `each` tag.
+/// The lexical scope at each expanded region arm, by tag and arm.
 fn owner_scopes(
     c: &Component,
     ct: &ComponentTypes,
     types: &Types,
-) -> Result<BTreeMap<u32, Scope>, TypeError> {
+) -> Result<BTreeMap<(u32, u8), Scope>, TypeError> {
     let mut scopes = BTreeMap::new();
     collect_owner_scopes(
         &c.view,
@@ -405,16 +407,22 @@ fn owner_scopes(
     Ok(scopes)
 }
 
-/// Infer lifted row-slot initializers in the region frames that own them.
+/// Infer each lifted child state's initializer where its instance is
+/// created: in its use site's scope, after derives and resources have
+/// types, so it may read them, a row's item, a `match` binding, and every
+/// earlier state (LLP 1017 P4c).
 pub(super) fn infer_owned_state_initializers(
     c: &Component,
     ct: &mut ComponentTypes,
     types: &Types,
-    owners: Option<&[Option<u32>]>,
+    owners: Option<&[Owner]>,
 ) -> Result<(), TypeError> {
     let Some(owners) = owners else {
         return Ok(());
     };
+    if owners.iter().all(|o| *o == Owner::Root) {
+        return Ok(());
+    }
     let scopes = owner_scopes(c, ct, types)?;
     let mut names: Vec<(String, Ref, Ty)> = c
         .props
@@ -426,24 +434,49 @@ pub(super) fn infer_owned_state_initializers(
         let i = c.props.len() + j;
         names.push((p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()));
     }
+    // What settled before any instance renders: derives and resources.
+    let mut settled = Vec::new();
+    for (i, d) in c.derives.iter().enumerate() {
+        settled.push((d.name.clone(), Ref::Derive(i as u32), ct.derives[i].clone()));
+    }
+    for (i, r) in c.resources.iter().enumerate() {
+        settled.push((
+            r.name.clone(),
+            Ref::Resource(i as u32),
+            ct.resources[i].clone(),
+        ));
+    }
+    for (i, m) in c.mutations.iter().enumerate() {
+        let t = Ty::Option(Box::new(ct.mutations[i].clone()));
+        settled.push((m.name.clone(), Ref::Mutation(i as u32), t));
+    }
     for (i, state) in c.states.iter().enumerate() {
-        if let Some(tag) = owners.get(i).copied().flatten() {
-            let Some(owner_scope) = scopes.get(&tag) else {
-                return err(
-                    "type-row-slot",
-                    format!("row state `{}` has no owning `each`", state.name),
-                    state.span,
-                );
-            };
+        let regions = match owners.get(i).copied().unwrap_or(Owner::Root) {
+            Owner::Root => None,
+            Owner::Instance => Some(Vec::new()),
+            Owner::Arm { tag, arm } => {
+                let Some(owner_scope) = scopes.get(&(tag, arm)) else {
+                    return err(
+                        "type-row-slot",
+                        format!("child state `{}` has no owning region", state.name),
+                        state.span,
+                    );
+                };
+                Some(
+                    owner_scope
+                        .frames
+                        .iter()
+                        .filter(|frame| frame.region)
+                        .cloned()
+                        .collect(),
+                )
+            }
+        };
+        if let Some(regions) = regions {
             let mut scope = Scope::default();
-            scope.frames_reset(&names);
-            scope.frames.extend(
-                owner_scope
-                    .frames
-                    .iter()
-                    .filter(|frame| frame.region)
-                    .cloned(),
-            );
+            scope.push(settled.clone());
+            scope.push(names.clone());
+            scope.frames.extend(regions);
             ct.slots[i] = infer(&state.expr, &scope, &types.shapes)?;
         }
         names.push((state.name.clone(), Ref::Slot(i as u32), ct.slots[i].clone()));
@@ -455,7 +488,7 @@ fn collect_owner_scopes(
     nodes: &[Node],
     scope: &Scope,
     shapes: &Shapes,
-    scopes: &mut BTreeMap<u32, Scope>,
+    scopes: &mut BTreeMap<(u32, u8), Scope>,
 ) -> Result<(), TypeError> {
     for node in nodes {
         match node {
@@ -464,8 +497,13 @@ fn collect_owner_scopes(
             }
             Node::Children { .. } => {}
             Node::When {
-                then, otherwise, ..
+                tag,
+                then,
+                otherwise,
+                ..
             } => {
+                scopes.insert((*tag, 0), scope.clone());
+                scopes.insert((*tag, 1), scope.clone());
                 collect_owner_scopes(then, scope, shapes, scopes)?;
                 collect_owner_scopes(otherwise, scope, shapes, scopes)?;
             }
@@ -487,10 +525,11 @@ fn collect_owner_scopes(
                 };
                 let mut inner = scope.clone();
                 inner.push_each(var, index.as_deref(), *item);
-                scopes.insert(*tag, inner.clone());
+                scopes.insert((*tag, 0), inner.clone());
                 collect_owner_scopes(body, &inner, shapes, scopes)?;
             }
             Node::Match {
+                tag,
                 subject,
                 some,
                 none,
@@ -506,9 +545,11 @@ fn collect_owner_scopes(
                 };
                 let mut inner = scope.clone();
                 inner.push_region(Some((some.0.clone(), Ref::Bound(0), *item)));
+                scopes.insert((*tag, 0), inner.clone());
                 collect_owner_scopes(&some.1, &inner, shapes, scopes)?;
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
+                scopes.insert((*tag, 1), none_scope.clone());
                 collect_owner_scopes(none, &none_scope, shapes, scopes)?;
             }
         }
@@ -705,6 +746,9 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     // @ref LLP 1077 D14 — `haptic("success" | "warning" | "error" | …)`.
     "haptic",
     "openURL",
+    // `reload()`: the development host boots the app again, as its dev
+    // menu's Reload does; a host without a dev menu refuses it.
+    "reload",
     "selectText",
     "setScheme",
     // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
@@ -721,6 +765,9 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     // The inverse of a canvas's `message=`: `postMessage(text, "world")` queues
     // text into the surface of that name, delivered in order, never coalesced.
     "postMessage",
+    // `event.preventDefault()` for the `key` event that ran the action: the
+    // host skips the key's default action (docs/contract-grammar.md#events).
+    "preventDefault",
 ];
 
 /// The three pickers' positional arguments (LLP 1069.010 D2): an element
@@ -945,6 +992,13 @@ pub(super) fn check_command(
             ),
         };
         return err("type-unknown-command", message, span);
+    }
+    if name == "preventDefault" && !args.is_empty() {
+        return err(
+            "type-prevent-default",
+            "`preventDefault()` takes no arguments: it prevents the default action of the key event that ran this action",
+            span,
+        );
     }
     if name == "share" {
         return share_args(args, scope, shapes, span);

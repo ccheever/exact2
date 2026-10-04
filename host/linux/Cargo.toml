@@ -59,7 +59,13 @@ wgpu = { version = "29", default-features = false, features = ["wgsl", "metal", 
 drm = "0.15"
 evdev = "0.13"
 
+[target.'cfg(windows)'.dependencies]
+chrono = "0.4"
+chrono-tz = "0.10"
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+
 [dev-dependencies]
+cc = "1"
 caltrain = { path = "../../apps/caltrain" }
 caltrain-data = { path = "../../apps/caltrain/data" }
 contract = { path = "../../contract/cli" }

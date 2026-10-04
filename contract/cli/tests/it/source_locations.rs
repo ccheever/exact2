@@ -1,9 +1,8 @@
 //! Original file/range diagnostics across imports and compiler passes.
 
-use std::{
-    path::{Path, PathBuf},
-    process::Command,
-};
+#[cfg(unix)]
+use std::path::Path;
+use std::{path::PathBuf, process::Command};
 
 struct App(PathBuf);
 impl App {

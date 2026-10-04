@@ -5,7 +5,7 @@
 // CAMetalLayer, inputs bound as they arrive, frames rendered while a
 // surface is dirty or wants more, from the same display link motion uses.
 // The AppKit presenter's `Canvases` (host/apple/macos/…/Gpu.swift) on UIKit.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import QuartzCore
 import UIKit
 
@@ -110,6 +110,18 @@ enum MetalLayerPool {
     static func drain() { spare.removeAll() }
 }
 
+
+/// Whether a canvas's overlay composites itself, or shows only through the
+/// canvas's surface.
+private func composite(_ overlay: UIView, _ shown: Bool) {
+    #if os(tvOS)
+    // tvOS never focuses a view at alpha 0: the overlay stays opaque, behind the canvas's picture.
+    overlay.alpha = 1
+    overlay.layer.zPosition = shown ? 0 : -1
+    #else
+    overlay.alpha = shown ? 1 : 0
+    #endif
+}
 /// Every canvas on one session's page and its surface in the module — the
 /// module itself loaded once per process (LLP 1031 D12).
 final class Canvases {
@@ -417,7 +429,7 @@ final class Canvases {
         guard !overlay.subviews.isEmpty || e.uploaded else { return }
         let scale = captureScale(of: metal)
         if e.each {
-            if captureEach(m, e, overlay: overlay, scale: scale) { e.uploaded = true; captures += 1; overlay.alpha = 1; e.view.paintedThisTurn = true; DispatchQueue.main.async { e.view.paintedThisTurn = false } }
+            if captureEach(m, e, overlay: overlay, scale: scale) { e.uploaded = true; captures += 1; composite(overlay, true); e.view.paintedThisTurn = true; DispatchQueue.main.async { e.view.paintedThisTurn = false } }
             return
         }
         let t0 = CACurrentMediaTime()
@@ -448,7 +460,7 @@ final class Canvases {
         // Painted through the surface from here on: the overlay stays laid
         // out — hit-testable, in the accessibility hierarchy — and is no
         // longer composited itself (D5: pixels may distort, boxes may not).
-        overlay.alpha = 0
+        composite(overlay, false)
         e.view.paintedThisTurn = true
         DispatchQueue.main.async { e.view.paintedThisTurn = false }
         if ExactEnv.agentMode {
@@ -468,7 +480,7 @@ final class Canvases {
                     child.placement = nil; child.placementHidden = false; child.alpha = 1
                 }
                 overlay.accessibilityElements = nil
-                overlay.alpha = e.through ? 0 : 1
+                composite(overlay, !e.through)
             }
         }
     }

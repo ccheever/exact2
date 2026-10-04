@@ -175,9 +175,9 @@ impl<D: DataSource> Presenter<D> {
         self.key_down(&name, now_ms);
     }
 
-    /// A key down at the focused node, by the web's name (`e.key`). The
-    /// nearest `key` handler at or above it hears it first, as a keydown
-    /// bubbles; then its default action: Enter or Space presses a button and
+    /// A key down at the focused node, by the web's name (`e.key`). Every
+    /// `key` handler at or above it hears it first, as a keydown bubbles;
+    /// then, unless one called `preventDefault()`, its default action: Enter or Space presses a button and
     /// Enter a link; Enter submits a single-line input (its `submit`) or
     /// breaks a textarea's line; Backspace deletes; a character is typed —
     /// each an edit the runner hears as one `change`.
@@ -194,11 +194,12 @@ impl<D: DataSource> Presenter<D> {
         {
             return;
         }
-        if let Some(e) = self.key_event(name, now_ms) {
+        let (error, prevented) = self.key_event(name, now_ms);
+        if let Some(e) = error {
             eprintln!("exact: {e}");
         }
-        // The handler may have moved the focus or removed the node.
-        if self.focus != Some(id) {
+        // A handler may have prevented the default, moved the focus or removed the node.
+        if prevented || self.focus != Some(id) {
             return;
         }
         let Some(node) = self.host.kernel().node(id) else {

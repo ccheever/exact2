@@ -9,7 +9,7 @@
 // bubbles; the leaf was never an accessibility element. Anything else a node
 // comes to need (a prop, a handler, a paint row, a child, motion other than
 // opacity) promotes it: it gets its `NodeView` at the same place.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// No implicit animations on a flat leaf's layer.

@@ -1,6 +1,6 @@
 // @ref LLP 1008 §9 — UIKit owns modal presentation and its keyboard guide.
 // The session's viewport moves into that container; layout remains the kernel's.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 private final class ModalController: UIViewController, UIGestureRecognizerDelegate {
@@ -16,11 +16,17 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         self.host = host
         self.routeID = routeID
         super.init(nibName: nil, bundle: nil)
+        #if os(tvOS)
+        // tvOS has no sheets; every modal covers the screen.
+        modalPresentationStyle = .overFullScreen
+        #else
         modalPresentationStyle = fullscreen ? .overFullScreen : .pageSheet
         if !fullscreen { updateDetent(detent) }
+        #endif
     }
     private var detentValue: String?
     func updateDetent(_ value: String?) {
+        #if !os(tvOS)
         guard modalPresentationStyle == .pageSheet,
               let sheet = sheetPresentationController,
               detentValue != value || sheet.detents.isEmpty else { return }
@@ -46,6 +52,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         }
         if viewIfLoaded?.window != nil { sheet.animateChanges(configure) }
         else { configure() }
+        #endif
     }
     required init?(coder: NSCoder) { nil }
     private var backdropTap: UITapGestureRecognizer?
@@ -67,6 +74,10 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     @objc private func tappedBackdrop() { host?.dismissByBackdrop(routeID) }
     override func loadView() {
         view = UIView()
+        #if os(tvOS)
+        // tvOS has neither grouped backgrounds nor a keyboard layout guide.
+        view.backgroundColor = .white
+        #else
         view.backgroundColor = .secondarySystemGroupedBackground
         let probe = UIView()
         probe.isHidden = true
@@ -79,6 +90,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
             probe.widthAnchor.constraint(equalToConstant: 0),
             probe.heightAnchor.constraint(equalToConstant: 0),
         ])
+        #endif
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
@@ -266,7 +278,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         home.addSubview(background.view)
         background.view.frame = frame
         let controller = layer.controller
-        if #available(iOS 18.0, *), layer.kind == "fullscreen", route.props["navigationSource"] != nil {
+        if #available(iOS 18.0, tvOS 18.0, *), layer.kind == "fullscreen", route.props["navigationSource"] != nil {
             let options = UIViewController.Transition.ZoomOptions()
             options.interactiveDismissShouldBegin = { [weak self, weak route] context in
                 guard let self, let route, context.willBegin else { return false }

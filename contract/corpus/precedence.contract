@@ -1,5 +1,6 @@
 // LLP 1057.001 §1: one contact, candidates innermost first. The row's swipe is
-// inside the surface's pan; the button inside the row keeps its own contact.
+// inside the surface's pan; the button inside the row keeps a contact from the
+// swipe, and from the pan until it passes the slop.
 component App
   state replies = 0
   state panned = 0

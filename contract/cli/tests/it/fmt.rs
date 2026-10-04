@@ -55,7 +55,12 @@ fn shape(src: &str) -> String {
 fn every_corpus_file_and_app_round_trips_through_the_printer() {
     let mut report = Vec::new();
     for path in sources().iter() {
-        let name = path.strip_prefix(repo()).unwrap().display().to_string();
+        let name = path
+            .strip_prefix(repo())
+            .unwrap()
+            .display()
+            .to_string()
+            .replace('\\', "/");
         let src = std::fs::read_to_string(path).unwrap();
         let formatted = format(&src).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_eq!(shape(&src), shape(&formatted), "{name}: the tree changed");

@@ -320,10 +320,31 @@ impl Parser {
     pub(super) fn template(&mut self, raw: &str, span: Span) -> R<Expr> {
         let (mut parts, mut deepest) = (Vec::new(), 0);
         let mut text = String::new();
-        let mut rest = raw;
-        while let Some(i) = rest.find("${") {
-            text.push_str(&rest[..i]);
-            let after = &rest[i + 2..];
+        let mut pos = 0;
+        // Text decodes the escapes a `"…"` string does; `\${` is literal text.
+        while let Some(c) = raw[pos..].chars().next() {
+            if c == '\\' {
+                let next = raw[pos + 1..].chars().next();
+                let Some(decoded) = next.and_then(escaped) else {
+                    return Err(SyntaxError {
+                        id: "syntax-bad-escape",
+                        message: "unknown escape".into(),
+                        span: Span {
+                            source_id: span.source_id,
+                            ..Span::point(span.line, span.col + 1 + pos as u32)
+                        },
+                    });
+                };
+                text.push(decoded);
+                pos += 1 + next.map_or(0, char::len_utf8);
+                continue;
+            }
+            if !raw[pos..].starts_with("${") {
+                text.push(c);
+                pos += c.len_utf8();
+                continue;
+            }
+            let after = &raw[pos + 2..];
             let end = template_expr_end(after).ok_or(SyntaxError {
                 id: "syntax-unterminated-template-expr",
                 message: "`${` never closes".into(),
@@ -365,9 +386,8 @@ impl Parser {
             self.names.names.extend(sub.names.names);
             self.names.sources.extend(sub.names.sources);
             parts.push(TemplatePart::Expr(e));
-            rest = &after[end + 1..];
+            pos += 2 + end + 1;
         }
-        text.push_str(rest);
         if !text.is_empty() {
             parts.push(TemplatePart::Text(text));
         }

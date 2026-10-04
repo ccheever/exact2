@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl, viewBox, foldBits, foldEnv, onFold, preferFold, fold } from "./navigation.js";
+import { grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule; // the file picker (LLP 1069.002) and documents (LLP 1069.010), loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
@@ -30,7 +30,7 @@ function syncMedia(el, set = {}, clear = []) {
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
 const messageViews = new Set(), messageFrames = new Set(); // the latter: iframes whose node handles `message`
-let messageListening = false;
+let messageListening = false, keyEvent = null; // keyEvent: the keydown a `key` handler is running for, which its `preventDefault()` command prevents
 let wasm = null, memory = null, inputReady = false, inputHandlers;
 // Native modules (LLP 1024 D3): a module node is its custom element, empty until the adapter and the app's module load after first paint (the browser's paint entry; two frames and a beat where it records none).
 let nativePaint = null;
@@ -588,13 +588,13 @@ function attach(el, id, handlers) {
     } else if (kind === "blur") {
       on("blur", () => send(wasm.exact_dispatch(id, 5, 0, now())));
     } else if (kind === "key") {
-      // keydown, the key's name as the web spells it (`e.key`).
-      on("keydown", (e) => { const n = writeIn(e.key); send(wasm.exact_dispatch(id, 6, n, now())); });
+      // keydown, the key's name as the web spells it (`e.key`); it bubbles to every ancestor's handler.
+      on("keydown", (e) => { const outer = keyEvent; keyEvent = e; try { const n = writeIn(e.key); send(wasm.exact_dispatch(id, 6, n, now())); } finally { keyEvent = outer; } });
     }
     if (kind === "submit" && el.tagName !== "TEXTAREA" && !el.exactMarkup) {
       // The web's implicit submission: Enter in a text input submits — here
-      // to the node's `submit` handler, no form needed (and no reload).
-      on("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); send(wasm.exact_dispatch(id, 7, 0, now())); } });
+      // to the node's `submit` handler, no form needed (and no reload). It is Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it.
+      on("keydown", (e) => { if (e.key === "Enter" && !e.isComposing && !e.exactSubmit) { e.exactSubmit = true; addEventListener("keydown", w => { if (w === e && !e.defaultPrevented) { e.preventDefault(); send(wasm.exact_dispatch(id, 7, 0, now())); } }, { once: true }); } });
     }
   }
 }
@@ -775,6 +775,7 @@ function apply(batch) {
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; } else if (op.name === "haptic") navigator.vibrate?.(op.args?.[0] === "selection" ? 5 : 12); // LLP 1077 D14
         else if (op.name === "focus" || op.name === "selectText" || op.name === "blur") focusCommands.push({ name: op.name, args: op.args });
+        else if (op.name === "preventDefault") keyEvent?.preventDefault();
         else if (op.name === "postMessage") { // the inverse of `message=`: text into the named surface, every one in order
           const text = String(op.args?.[0] ?? ""), name = String(op.args?.[1] ?? ""), at = now();
           if (globalThis.exact.gpu) globalThis.exact.gpu.post(name, text, at);
@@ -1155,9 +1156,8 @@ function agentReply(request) {
       case "focus": {
         const el = views.get(request.id);
         if (!el) return { error: `no view ${request.id}` };
-        if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el.exactMarkup)) return { error: `view ${request.id} is not an input` };
-        el.focus();
-        if (request.select !== false) el.select();
+        el.focus(); // any element, as the JS target's agent: a key at a grid is its keydown (docs/contract-grammar.md#keys)
+        if (request.select !== false) el.select?.();
         return { ok: true };
       }
       case "tap": {
@@ -1175,14 +1175,13 @@ function agentReply(request) {
           const batch = globalThis.exact.navigate(request.text ?? "");
           return { typed: request.id, delivery: "recognized", handled: true, ...(batch.error ? { error: batch.error } : {}) };
         }
-        return valuedControl(frame) && request.key == null ? typeControl(frame, request) : frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false }; // a control's value (LLP 1069.001 D9)
+        return typedControl(frame) && request.key == null ? typeControl(frame, request) : frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false }; // a control's value (LLP 1069.001 D9)
       }
       case "clock": // then the offset at the new virtual date, in case it crossed a DST change (LLP 1069.007 D2)
         return clock(request).then((r) => { if (!r.error && wasm.exact_set_time) applyBatch(JSON.parse(readOut(wasm.exact_set_time(...reportTime(agentClock))))); return tagged(r); });
-      case "tree":
-        return tree(request);
-      case "tags":
-        return ask(request);
+      case "tree": return tree(request);
+      case "tags": return ask(request);
+      case "reveal": return tagged(reveal(views.get(request.id), request.id)); // before a tap or a type (navigation.js)
       case "axStamp": // @ref LLP 1080.002 D4 — each live view's id where CDP's DOM snapshot reads it, and the document's nonce
         for (const [id, el] of views) if (el.isConnected && el.getAttribute("data-agent-view") !== String(id)) el.setAttribute("data-agent-view", id);
         return tagged({ nonce: performance.timeOrigin });
@@ -1246,7 +1245,7 @@ async function clock(request) {
     if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock };
     if (gpuInPlay()) { const pending = await settleGpu(); if (pending.length) return gpuPendingReply(request, pending); }
     world = globalThis.exact.gpu?.clock?.(settle) ?? {};
-    if (!settle) { if (imageHold) await (await imageHold).ready(); return reply(); }
+    if (!settle) { if (imageHold) await (await imageHold).ready(); const n = waiting().length; return n ? { ...reply(), inflight: n } : reply(); } // what a jump leaves in flight on real time, which the driver names (calendar F10)
     collections.settle(); // every list built and measured where it shows (LLP 1070 G3)
     if (waiting().length) { if (rounds >= 15) return reply(false, true); continue; }
     const next = Math.max(settleCandidate(), world.settleAt ?? agentClock);
@@ -1493,7 +1492,6 @@ async function main() {
 }
 ready = main();
 ready.catch((e) => { console.error(e); root.dataset.error = String(e); });
-
 // @ref LLP 1038 D7/D8/D11 — the mirror observes the handler's synchronous commit.
 function navigate(location) { return globalThis.exact.navigate(location); }
 navigation.connect(root, navigate, log);

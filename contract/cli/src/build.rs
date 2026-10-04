@@ -46,7 +46,7 @@ fn error(id: &str, message: String, file: Option<&str>) -> contract::CompileErro
         id: id.into(),
         message,
         span: contract_syntax::Span::default(),
-        file: file.map(Into::into),
+        file: file.map(|file| Path::new(file).into()),
         related: Box::new([]),
     }
 }

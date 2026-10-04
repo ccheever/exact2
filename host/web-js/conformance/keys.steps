@@ -1,0 +1,12 @@
+# Printable and named keys at a field reach its handler and the page's; `x`
+# is prevented and not typed; Enter submits only past the page's handler.
+# The grid's arrows and Space scroll nothing.
+key field 7
+key field x
+key field Backspace
+key field Enter
+key field 7
+key field Enter
+key grid ArrowDown
+key grid ArrowDown
+key grid Space

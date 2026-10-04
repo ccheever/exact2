@@ -390,11 +390,15 @@ export function staticFile(dist, pathname) {
     catch { return null; }
   }
   try {
+    const inside = path => {
+      const child = relative(root, path);
+      return child !== '' && child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child);
+    };
     const path = resolve(root, '.' + route);
-    if (!path.startsWith(root + '/')) return null;
+    if (!inside(path)) return null;
     const real = realpathSync(path);
     // Reject both a symlink file and a file reached through a symlink dir.
-    if (real !== path || !real.startsWith(root + '/') || !statSync(real).isFile()) return null;
+    if (real !== path || !inside(real) || !statSync(real).isFile()) return null;
     return { path: real, route };
   } catch { return null; }
 }

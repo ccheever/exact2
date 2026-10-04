@@ -24,6 +24,12 @@ fn median(mut values: Vec<f64>) -> f64 {
     values[values.len() / 2]
 }
 
+fn install_runtime(rt: &mut Hermes) {
+    let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+    rt.install_runtime(ibex2::bindings::Groups::DEFAULT, &context)
+        .expect("bindings");
+}
+
 // --- the floor -------------------------------------------------------------
 
 struct Floor {
@@ -44,11 +50,9 @@ fn floor() -> Floor {
     let t = Instant::now();
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     let create = ms(t.elapsed());
+    let stdlib = 0.0;
     let t = Instant::now();
-    assert!(rt.install_stdlib());
-    let stdlib = ms(t.elapsed());
-    let t = Instant::now();
-    rt.install_bindings().expect("bindings");
+    install_runtime(&mut rt);
     let bindings = ms(t.elapsed());
     let t = Instant::now();
     rt.harden().expect("harden");
@@ -177,8 +181,7 @@ fn build_bytecode(graph: &Graph, count: usize, compiler: &ibex2::bytecode::Compi
 /// module — and everything it requires — having evaluated.
 fn load(root: &Path, compiler: Option<ibex2::bytecode::Compiler>, precompiled: bool) -> f64 {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-    assert!(rt.install_stdlib());
-    rt.install_bindings().expect("bindings");
+    install_runtime(&mut rt);
     rt.set_loader_with(
         Root::Declared(root.to_path_buf()),
         ModuleGrants::none(),
@@ -216,8 +219,7 @@ fn load_stats(
 /// A synchronous host call, through its public binding, in nanoseconds.
 fn sync_host_call_ns() -> f64 {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-    assert!(rt.install_stdlib());
-    rt.install_bindings().expect("bindings");
+    install_runtime(&mut rt);
     rt.eval("for (let i = 0; i < 1000; i++) performance.now();")
         .expect("warm");
     let n = 200_000u32;
@@ -257,8 +259,7 @@ fn async_fs_roundtrip_us() -> f64 {
     let mut samples = Vec::new();
     for _ in 0..3 {
         let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-        assert!(rt.install_stdlib());
-        rt.install_bindings().expect("bindings");
+        install_runtime(&mut rt);
         rt.set_loader(
             Root::Declared(dir.clone()),
             ModuleGrants::parse(&manifest).expect("manifest"),
@@ -387,7 +388,7 @@ fn main() {
                 (0..5)
                     .map(|_| {
                         let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-                        assert!(rt.install_stdlib());
+                        install_runtime(&mut rt);
                         let t = Instant::now();
                         for bytes in &artifacts {
                             rt.eval_bytes(bytes).expect("eval");

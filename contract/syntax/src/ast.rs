@@ -147,6 +147,34 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `tap "testId" drag dx dy [press ms] [over ms] [hold ms]`: one whole
+    /// drag from the node's middle, the driver's `tap … drag` (kanban F18).
+    Drag {
+        /// The node, by `testId`.
+        target: String,
+        /// Points across.
+        dx: f64,
+        /// Points down.
+        dy: f64,
+        /// Milliseconds held before the move.
+        press: Option<f64>,
+        /// Milliseconds the move takes.
+        over: Option<f64>,
+        /// Milliseconds held after the move.
+        hold: Option<f64>,
+        /// Where.
+        span: Span,
+    },
+    /// `size 1200x800`: the viewport the test's session opens at, its first
+    /// step (the driver's `--size`; kanban F18, paint F5).
+    Size {
+        /// Points across.
+        width: f64,
+        /// Points down.
+        height: f64,
+        /// Where.
+        span: Span,
+    },
     /// `type "testId" "text"`.
     Type {
         /// The field, by `testId`.
@@ -188,7 +216,9 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `expect text "testId" == "value"`: the node's `text` prop.
+    /// `expect text "testId" == "value"`: the node's text — its `text` prop,
+    /// else its descendants' text in order (the web's `textContent`), else a
+    /// field's value.
     ExpectText {
         /// The node, by `testId`.
         target: String,
@@ -643,8 +673,11 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `when cond … else …`.
+    /// `when cond … else …`. `tag` is the inliner's, as on `Each`: its
+    /// arms own the state of the children used in them; 0 as parsed.
     When {
+        /// The inliner's tag.
+        tag: u32,
         /// Condition.
         cond: Expr,
         /// Then-branch.
@@ -656,8 +689,9 @@ pub enum Node {
     },
     /// `each x in list key=expr`, or `each x, i in list key=expr` binding
     /// the item's position too (LLP 1062 D8). `tag` is the inliner's: unique
-    /// per `each` in the expanded root, so a row slot can name the `each`
-    /// that owns it before regions exist (LLP 1017 P4c); 0 as parsed.
+    /// per region (`each`, `when`, `match`) in the expanded root, so a
+    /// lifted slot can name the region that owns it before regions exist
+    /// (LLP 1017 P4c); 0 as parsed.
     Each {
         /// The inliner's tag.
         tag: u32,
@@ -674,8 +708,11 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `match subject` with `case some(x)` and `case none` arms.
+    /// `match subject` with `case some(x)` and `case none` arms; `tag` as
+    /// on `When`.
     Match {
+        /// The inliner's tag.
+        tag: u32,
         /// The subject.
         subject: Expr,
         /// The bound name and body of `case some(x)`.
@@ -918,6 +955,11 @@ pub enum Expr {
         /// Where.
         span: Span,
     },
+    /// `value` as the declared type it fills. Compiler-only: no surface
+    /// syntax spells it. Expansion wraps a use's argument that holds a
+    /// `none` or a `[]` in the prop's declared type, so `C(o=none)` for
+    /// `o: option<number>` is an `option<number>` wherever the child reads it.
+    Typed(Box<Expr>, TypeExpr, Span),
 }
 
 /// One part of a template string.
@@ -949,7 +991,8 @@ impl Expr {
             | Expr::Ternary(_, _, _, s)
             | Expr::Match { span: s, .. }
             | Expr::Arrow { span: s, .. }
-            | Expr::Let { span: s, .. } => *s,
+            | Expr::Let { span: s, .. }
+            | Expr::Typed(_, _, s) => *s,
         }
     }
 }

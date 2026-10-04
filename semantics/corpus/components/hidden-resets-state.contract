@@ -1,0 +1,31 @@
+// A child's state lives as long as its instance: the `when` arm owns it,
+// so hiding the child and showing it again starts it fresh, as a removed
+// and re-added row does.
+component App
+  state open = true
+  action toggle
+    open = not open
+  view
+    column
+      button "toggle" press=toggle testId="toggle"
+      when open
+        Counter()
+
+component Counter
+  state n = 0
+  action inc
+    n = n + 1
+  view
+    button "inc" press=inc testId="inc"
+      text `${n}` testId="n"
+
+test "hide and show resets the count"
+  tap "inc"
+  tap "inc"
+  tap "toggle"
+  expect tree missing "n"
+  tap "inc"
+  tap "toggle"
+  expect text "n" == "0"
+  tap "inc"
+  expect text "n" == "1"

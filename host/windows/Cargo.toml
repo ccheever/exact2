@@ -1,0 +1,15 @@
+[package]
+name = "exact-windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Native Windows window over Exact's shared Contract and GPU presenter"
+publish = false
+
+[dependencies]
+exact-linux = { path = "../linux" }
+exact-runner = { path = "../../runner" }
+
+[target.'cfg(windows)'.dependencies]
+winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
+softbuffer = { version = "0.4", default-features = false }

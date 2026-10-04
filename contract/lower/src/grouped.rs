@@ -131,11 +131,13 @@ pub(crate) fn unsheet(children: &[Node]) -> Option<Vec<Node>> {
                 instance: *instance,
             },
             Node::When {
+                tag,
                 cond,
                 then,
                 otherwise,
                 span,
             } => Node::When {
+                tag: *tag,
                 cond: cond.clone(),
                 then: then.iter().map(strip).collect(),
                 otherwise: otherwise.iter().map(strip).collect(),
@@ -233,11 +235,13 @@ fn over(
     Ok(match node {
         Node::Element { .. } => f(node)?,
         Node::When {
+            tag,
             cond,
             then,
             otherwise,
             span,
         } => Node::When {
+            tag: *tag,
             cond: cond.clone(),
             then: all(then, f)?,
             otherwise: all(otherwise, f)?,
@@ -261,11 +265,13 @@ fn over(
             span: *span,
         },
         Node::Match {
+            tag,
             subject,
             some,
             none,
             span,
         } => Node::Match {
+            tag: *tag,
             subject: subject.clone(),
             some: (some.0.clone(), all(&some.1, f)?),
             none: all(none, f)?,
@@ -678,6 +684,7 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         tint,
     } = at;
     if let Node::When {
+        tag,
         cond,
         then,
         otherwise,
@@ -695,6 +702,7 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
             (a, b) => Count::Known(a.low().min(b.low())),
         };
         return Node::When {
+            tag: *tag,
             cond: cond.clone(),
             then,
             otherwise,
@@ -702,6 +710,7 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         };
     }
     if let Node::Match {
+        tag,
         subject,
         some,
         none,
@@ -721,6 +730,7 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         let none: Vec<Node> = none.iter().map(|c| part(c, at, texts)).collect();
         *texts = Count::Known(after_some.low().min(texts.low()));
         return Node::Match {
+            tag: *tag,
             subject: subject.clone(),
             some: (some.0.clone(), arm),
             none,
@@ -887,6 +897,7 @@ fn subtitle(node: &Node) -> Node {
     fn line(c: &Node, texts: &mut Count) -> Node {
         match c {
             Node::When {
+                tag,
                 cond,
                 then,
                 otherwise,
@@ -903,6 +914,7 @@ fn subtitle(node: &Node) -> Node {
                     (a, b) => Count::Known(a.low().min(b.low())),
                 };
                 Node::When {
+                    tag: *tag,
                     cond: cond.clone(),
                     then,
                     otherwise,

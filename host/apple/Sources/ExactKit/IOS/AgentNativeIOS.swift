@@ -8,7 +8,7 @@
 // controller's view — what is not a node is counted `opaque`, and any node
 // found there is still matched. The walks are the presenter's, so a test
 // drives them with frames of its own; the agent gathers their inputs.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 extension Agent {
@@ -126,8 +126,16 @@ extension Presenter {
         // covered owner. Its interior is UIKit's; nodes in it are matched.
         if sub.next is UIViewController { return ("controller", nil) }
         if let scroll = parent as? UIScrollView {
+            #if !os(tvOS)
             if sub === scroll.refreshControl { return ("refresh", owner?.id) }
+            #endif
             if String(describing: Swift.type(of: sub)) == "_UIScrollViewScrollIndicator" { return ("indicator", owner?.id) }
+            // iOS 26's scroll edge effect (LLP 1077 D16): UIKit hangs each
+            // edge's effect in a passthrough container on the scroll view,
+            // the root viewport's included under `viewport-fit="cover"`.
+            let kinds = sub.subviews.map { String(describing: Swift.type(of: $0)) }
+            if String(describing: Swift.type(of: sub)) == "_UITouchPassthroughView",
+               kinds.contains(where: { $0 == "ScrollEdgeEffectView" || $0 == "BackdropView" }) { return ("edge-effect", owner?.id) }
         }
         return nil
     }

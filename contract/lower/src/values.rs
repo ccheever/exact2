@@ -164,17 +164,50 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
 }
 
 /// The rows CSS's `border-color` shorthand sets: top, right, bottom, left.
-pub(crate) const BORDER_COLORS: [StyleId; 4] = [
-    StyleId::BorderColorTop,
-    StyleId::BorderColorRight,
-    StyleId::BorderColorBottom,
-    StyleId::BorderColorLeft,
+/// CSS's one-to-four-value box shorthands, rows in top, right, bottom, left order.
+const FOUR_SIDED: [[StyleId; 4]; 6] = [
+    [
+        StyleId::PaddingTop,
+        StyleId::PaddingRight,
+        StyleId::PaddingBottom,
+        StyleId::PaddingLeft,
+    ],
+    [
+        StyleId::MarginTop,
+        StyleId::MarginRight,
+        StyleId::MarginBottom,
+        StyleId::MarginLeft,
+    ],
+    [
+        StyleId::BorderWidthTop,
+        StyleId::BorderWidthRight,
+        StyleId::BorderWidthBottom,
+        StyleId::BorderWidthLeft,
+    ],
+    [
+        StyleId::BorderStyleTop,
+        StyleId::BorderStyleRight,
+        StyleId::BorderStyleBottom,
+        StyleId::BorderStyleLeft,
+    ],
+    [
+        StyleId::BorderColorTop,
+        StyleId::BorderColorRight,
+        StyleId::BorderColorBottom,
+        StyleId::BorderColorLeft,
+    ],
+    [StyleId::Top, StyleId::Right, StyleId::Bottom, StyleId::Left],
 ];
 
-/// A `border-color` value's one to four colours, split where CSS splits
-/// them: at white space outside parentheses, so `light-dark(#fff, #000)` is
-/// one colour.
-fn border_color_values(text: &str) -> Vec<&str> {
+/// Whether these rows are one of CSS's `<value>{1,4}` box shorthands.
+pub(crate) fn four_sided(rows: &[StyleId]) -> bool {
+    FOUR_SIDED.iter().any(|sides| rows == sides)
+}
+
+/// A box shorthand's one to four values, split where CSS splits them: at
+/// white space outside parentheses, so `light-dark(#fff, #000)` and
+/// `calc(50% - 4px)` are one value.
+fn side_values(text: &str) -> Vec<&str> {
     let (mut values, mut depth, mut start) = (Vec::new(), 0usize, None);
     for (i, c) in text.char_indices() {
         match c {
@@ -196,35 +229,36 @@ fn border_color_values(text: &str) -> Vec<&str> {
     values
 }
 
-/// CSS's `border-color: <color>{1,4}` as four longhand expressions (top,
-/// right, bottom, left): every literal the value can produce — a string, or
-/// an arm of a conditional — is split into its sides, and a computed leaf is
-/// one colour for all four. `None` when no literal names more than one
-/// colour, so the shorthand stays one binding for four rows.
-pub(crate) fn border_color_sides(value: &Expr) -> Result<Option<[Expr; 4]>, LowerError> {
-    fn widest(e: &Expr) -> Result<usize, LowerError> {
+/// A box shorthand (`padding: <length>{1,4}`, `border-color: <color>{1,4}`,
+/// …) as four longhand expressions (top, right, bottom, left): every literal
+/// the value can produce — a string, or an arm of a conditional — is split
+/// into its sides, and a computed leaf is one value for all four. `None` when
+/// no literal names more than one value, so the shorthand stays one binding
+/// for four rows.
+pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<[Expr; 4]>, LowerError> {
+    fn widest(name: &str, e: &Expr) -> Result<usize, LowerError> {
         Ok(match e {
             Expr::Str(s, span) => {
-                let n = border_color_values(s).len();
+                let n = side_values(s).len();
                 if n > 4 {
                     return err(
                         "lower-attr-value",
-                        format!("`border-color` takes one to four colours (top, right, bottom, left); \"{s}\" has {n}"),
+                        format!("`{name}` takes one to four values (top, right, bottom, left); \"{s}\" has {n}"),
                         *span,
                     );
                 }
                 n
             }
-            Expr::Ternary(_, yes, no, _) => widest(yes)?.max(widest(no)?),
-            Expr::Match { some, none, .. } => widest(some)?.max(widest(none)?),
-            Expr::Let { body, .. } => widest(body)?,
+            Expr::Ternary(_, yes, no, _) => widest(name, yes)?.max(widest(name, no)?),
+            Expr::Match { some, none, .. } => widest(name, some)?.max(widest(name, none)?),
+            Expr::Let { body, .. } => widest(name, body)?,
             _ => 1,
         })
     }
     fn side(e: &Expr, i: usize) -> Expr {
         match e {
             Expr::Str(s, span) => {
-                let v = border_color_values(s);
+                let v = side_values(s);
                 // CSS: top; right = top; bottom = top; left = right.
                 let pick = match (v.len(), i) {
                     (0, _) => return e.clone(),
@@ -233,7 +267,13 @@ pub(crate) fn border_color_sides(value: &Expr) -> Result<Option<[Expr; 4]>, Lowe
                     (3, 3) => 1,
                     (_, i) => i,
                 };
-                Expr::Str(v[pick].to_string(), *span)
+                // A length in pixels is the number it would be on its own
+                // (`border-width` takes only numbers).
+                let piece = v[pick];
+                match piece.strip_suffix("px").unwrap_or(piece).parse::<f64>() {
+                    Ok(n) if n.is_finite() => Expr::Number(n, *span),
+                    _ => Expr::Str(piece.to_string(), *span),
+                }
             }
             Expr::Ternary(c, yes, no, span) => Expr::Ternary(
                 c.clone(),
@@ -268,7 +308,7 @@ pub(crate) fn border_color_sides(value: &Expr) -> Result<Option<[Expr; 4]>, Lowe
             other => other.clone(),
         }
     }
-    if widest(value)? < 2 {
+    if widest(name, value)? < 2 {
         return Ok(None);
     }
     Ok(Some([0, 1, 2, 3].map(|i| side(value, i))))
@@ -344,9 +384,9 @@ pub(crate) fn check_style_value(
     ty: &Ty,
     fonts: &[FontUse],
 ) -> Result<(), LowerError> {
-    if rows == BORDER_COLORS {
-        if let Some(sides) = border_color_sides(&a.value)? {
-            for (row, value) in BORDER_COLORS.iter().zip(sides) {
+    if four_sided(rows) {
+        if let Some(sides) = sides(&a.name, &a.value)? {
+            for (row, value) in rows.iter().zip(sides) {
                 let side = Attr { value, ..a.clone() };
                 check_style_value(&side, std::slice::from_ref(row), ty, fonts)?;
             }
@@ -569,8 +609,19 @@ pub(crate) fn check_style_value(
     Ok(())
 }
 
+/// HTML's enumerated attributes whose IDL attributes are bools, as the words
+/// a bool is written: `spellcheck`'s `true`/`false`, `autocorrect`'s
+/// `on`/`off`.
+pub(crate) fn bool_words(prop: PropId) -> Option<(&'static str, &'static str)> {
+    match prop {
+        PropId::Spellcheck => Some(("true", "false")),
+        PropId::Autocorrect => Some(("on", "off")),
+        _ => None,
+    }
+}
+
 /// A prop attribute's value by the prop's type: text for most, a bool for
-/// `disabled`, a whole number for `aria-level`.
+/// `disabled`, a whole number for `aria-level`, either for [`bool_words`].
 pub(crate) fn check_prop_value(
     name: &str,
     value: &Expr,
@@ -645,6 +696,9 @@ pub(crate) fn check_prop_value(
         if matches!(ty, Ty::Bool) {
             return Ok(());
         }
+    }
+    if bool_words(prop).is_some() && matches!(ty, Ty::Bool) {
+        return Ok(());
     }
     let ok = matches!(
         (want, ty),

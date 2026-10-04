@@ -122,7 +122,14 @@ extension Picker {
     }
 }
 
-#if canImport(UIKit)
+#if os(tvOS)
+extension Picker {
+    func presentDocument(_ name: String, view: UInt32, multiple _: Bool, suggestedName _: String) {
+        // tvOS has no document picker.
+        session.log("\(name): refused: no document picker"); documentCancelled(view, name)
+    }
+}
+#elseif canImport(UIKit)
 extension Picker {
     func presentDocument(_ name: String, view: UInt32, multiple: Bool, suggestedName: String) {
         guard var controller = session.presenter.root.window?.rootViewController else {

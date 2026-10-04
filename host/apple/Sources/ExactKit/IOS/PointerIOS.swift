@@ -68,4 +68,16 @@ extension NodeView {
         }
     }
 }
+#elseif os(tvOS)
+import UIKit
+
+// tvOS touches no node: the Siri Remote moves focus (`RemoteTVOS.swift`), so
+// nothing goes down on a node and no observer is installed.
+final class PointerRecognizer: UIGestureRecognizer {
+    var idle: Bool { true }
+}
+
+extension NodeView {
+    func syncPointerRecognizer() {}
+}
 #endif

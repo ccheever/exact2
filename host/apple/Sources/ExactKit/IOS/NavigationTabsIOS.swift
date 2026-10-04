@@ -8,7 +8,7 @@
 // reselect-pops-to-root stay the router's (LLP 1038 D4, D12). Under the
 // agent the authored tablist paints and the bar stays hidden. Which tabs a
 // root has is NavigationTabs.swift's.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// The tab delegate Exact keeps: a tab the bar would select presses its
@@ -185,7 +185,7 @@ extension NavigationHost {
     }
 
     private func hideTabBar(_ container: UITabBarController) {
-        if #available(iOS 18.0, *) { container.setTabBarHidden(true, animated: false) } else { container.tabBar.isHidden = true }
+        if #available(iOS 18.0, tvOS 18.0, *) { container.setTabBarHidden(true, animated: false) } else { container.tabBar.isHidden = true }
     }
 
     /// Before installing: a root that gains, loses or changes its tabs gets
