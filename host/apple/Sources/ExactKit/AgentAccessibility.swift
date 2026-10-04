@@ -90,6 +90,7 @@ extension Presenter {
         let modalRoot: AnyObject?
         var modal: [String: Any] = ["present": false]
         var modalView: AnyObject?
+        var modalDepth = -1
         var limits: [[String: Any]] = []
         var remaining: Int { budget - visited }
     }
@@ -194,9 +195,11 @@ extension Presenter {
         if !exclusion.isEmpty && !w.excluded { return }
         let o = obj as! NSObject
         var here = parent
-        // The innermost modal is the active boundary (LLP 1080.003 D2).
-        if Self.isModal(obj), exclusion.isEmpty, w.modalView.map({ m in (obj as? UIView).map { v in (m as? UIView).map(v.isDescendant(of:)) ?? false } ?? false }) ?? true {
+        // The deepest modal is the active boundary, the later of equals, as
+        // the presenter's `syncModal` chooses (LLP 1080.003 D2).
+        if Self.isModal(obj), exclusion.isEmpty, depth >= w.modalDepth {
             w.modalView = obj
+            w.modalDepth = depth
             let i = emit(obj, role: "group", parent: parent, exclusion: exclusion, into: &w)
             let owned = i.map { !(w.elements[$0]["id"] is NSNull) } ?? false
             w.modal = ["present": true, "by": "accessibilityViewIsModal", "element": i as Any, "id": i.flatMap { w.elements[$0]["id"] } ?? NSNull()]

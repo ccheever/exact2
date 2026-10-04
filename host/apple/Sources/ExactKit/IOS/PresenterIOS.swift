@@ -16,7 +16,9 @@ final class Presenter {
     var autofocusProcessed: Set<ObjectIdentifier> = []
     /// The `aria-modal` view VoiceOver was last moved into, and the views
     /// made modal, which a cleared prop drops from the index (`syncModal`).
-    var announcedModal: UInt32?
+    var announcedModal: (id: UInt32, incarnation: UInt64)?
+    /// The `.screenChanged` post, replaceable in tests.
+    static var postScreenChanged: (Any?) -> Void = { UIAccessibility.post(notification: .screenChanged, argument: $0) }
     let modalViews = NSHashTable<NodeView>.weakObjects()
     /// The session this presenter shows (LLP 1031 D1).
     weak var session: ExactSession?

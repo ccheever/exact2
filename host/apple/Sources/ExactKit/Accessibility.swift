@@ -180,16 +180,25 @@ extension Presenter {
             let order = a.superview?.subviews ?? []
             return (order.firstIndex(of: a) ?? 0) > (order.firstIndex(of: b) ?? 0)
         }
+        // A leaving view (hidden from accessibility as its exit starts) covers nothing.
         func painted(_ view: UIView) -> Bool {
-            !view.isHidden && view.alpha > 0 && (view as? NodeView)?.style["display"]?.string != "none"
+            !view.isHidden && view.alpha > 0 && !view.accessibilityElementsHidden && (view as? NodeView)?.style["display"]?.string != "none"
+        }
+        // A cover is content: a node, or a controller's view (a sheet's
+        // stack), not the host's own helper layers.
+        func covered(_ view: UIView) -> Bool {
+            view.superview?.subviews.contains { $0 !== view && ($0 is NodeView || $0.next is UIViewController) && painted($0)
+                && inFront($0, of: view) && $0.frame.intersects(view.frame) } == true
         }
         func exposed(_ view: NodeView) -> Bool {
             guard view.props["accessibilityModal"] == "true", view.accessibilityVisible else { return false }
+            // Hidden, undisplayed or painted over, it or any ancestor (a sheet's stack beside a root overlay).
+            var below = true // covers are judged inside the session's viewport
             for at in ancestors(view) {
-                if at.accessibilityElementsHidden || (at as? NodeView)?.style["display"]?.string == "none" { return false }
+                if at === viewport { below = false }
+                if at.accessibilityElementsHidden || (at as? NodeView)?.style["display"]?.string == "none" || (below && covered(at)) { return false }
             }
-            let covers = view.superview?.subviews.contains { $0 !== view && painted($0) && inFront($0, of: view) && $0.frame.intersects(view.frame) }
-            return covers != true
+            return true
         }
         // Shallowest first: a winner's siblings, and every branch they hold, are hidden.
         var winners: [NodeView] = []
@@ -208,13 +217,11 @@ extension Presenter {
         for view in winners { modalViews.add(view) }
         guard !navigation.inTransition, !modals.inTransition else { return }
         let innermost = winners.max { (ancestors($0).count, $0.id) < (ancestors($1).count, $1.id) }
-        guard innermost?.id != announcedModal else { return }
-        announcedModal = innermost?.id
-        // VoiceOver focuses an element: the modal's first, or the screen's choice.
-        func first(_ view: UIView) -> UIView? {
-            view.isAccessibilityElement && !view.isHidden ? view : view.subviews.lazy.compactMap(first).first
-        }
-        UIAccessibility.post(notification: .screenChanged, argument: innermost.flatMap(first))
+        let key = innermost.map { (id: $0.id, incarnation: $0.incarnation) }
+        guard key?.id != announcedModal?.id || key?.incarnation != announcedModal?.incarnation else { return }
+        announcedModal = key
+        // nil: VoiceOver picks the first element it can reach, inside the modal while there is one.
+        Self.postScreenChanged(nil)
     }
     #endif
 }

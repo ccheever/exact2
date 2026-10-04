@@ -132,11 +132,11 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         XCTAssertEqual((p.axElements(roots: [p.viewport])["modal"] as? [String: Any])?["id"] as? UInt32, 4)
         XCTAssertNil(named(), "a sibling of the aria-modal view is hidden")
         XCTAssertNotNil(element(p.axElements(roots: [p.viewport]), "inside"))
-        XCTAssertEqual(p.announcedModal, 4)
+        XCTAssertEqual(p.announcedModal?.id, 4)
         p.apply(wireBatch([["op": "props", "id": 4, "set": ["accessibilityModal": "false"]]]))
         XCTAssertFalse(box.accessibilityViewIsModal)
         XCTAssertNotNil(named())
-        XCTAssertNil(p.announcedModal, "VoiceOver goes back to the screen")
+        XCTAssertNil(p.announcedModal?.id, "VoiceOver goes back to the screen")
         // Shown and hidden by `display`, with the prop left true.
         p.apply(wireBatch([["op": "props", "id": 4, "set": ["accessibilityModal": "true"]]]))
         p.apply(wireBatch([["op": "style", "id": 4, "style": ["display": "none"]]]))
@@ -148,20 +148,20 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         p.apply(wireBatch([
             ["op": "create", "id": 6, "kind": "view", "props": ["testId": "front", "accessibilityModal": "true"]],
             ["op": "children", "id": 1, "ids": [2, 3, 4, 6]],
-            ["op": "frame", "id": 6, "x": 0.0, "y": 200.0, "w": 400.0, "h": 100.0],
+            ["op": "frame", "id": 6, "x": 0.0, "y": 50.0, "w": 400.0, "h": 200.0],
         ]))
         let front = try XCTUnwrap(p.views[6])
         XCTAssertTrue(front.accessibilityViewIsModal)
         XCTAssertFalse(box.accessibilityViewIsModal)
-        XCTAssertEqual(p.announcedModal, 6)
+        XCTAssertEqual(p.announcedModal?.id, 6)
         // A leaving modal hides nothing while it exits.
         p.apply(wireBatch([["op": "exit", "id": 6]]))
         XCTAssertFalse(front.accessibilityViewIsModal)
-        XCTAssertTrue(box.accessibilityViewIsModal, "the one left is modal again")
+        XCTAssertTrue(box.accessibilityViewIsModal, "the one left is modal again, though the leaver still covers it")
         p.apply(wireBatch([["op": "props", "id": 4, "clear": ["accessibilityModal"]]]))
         XCTAssertFalse(box.accessibilityViewIsModal, "a cleared prop is not modal")
         XCTAssertNotNil(named())
-        XCTAssertNil(p.announcedModal)
+        XCTAssertNil(p.announcedModal?.id)
     }
 
     /// A modal inside a branch another modal hides is not modal; an
@@ -181,26 +181,55 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         ]))
         let a = try XCTUnwrap(p.views[4]), b = try XCTUnwrap(p.views[7]), c = try XCTUnwrap(p.views[8])
         XCTAssertEqual([a.accessibilityViewIsModal, b.accessibilityViewIsModal, c.accessibilityViewIsModal], [false, true, false])
-        XCTAssertEqual(p.announcedModal, 7, "C is inside the branch B hides")
+        XCTAssertEqual(p.announcedModal?.id, 7, "C is inside the branch B hides")
         // Destroying B makes A modal, and C inside it the innermost.
         p.apply(wireBatch([["op": "destroy", "id": 7], ["op": "children", "id": 1, "ids": [2, 3, 4]]]))
         XCTAssertEqual([a.accessibilityViewIsModal, c.accessibilityViewIsModal], [true, true])
-        XCTAssertEqual(p.announcedModal, 8)
+        XCTAssertEqual(p.announcedModal?.id, 8)
         // An accessibility-hidden ancestor hides both.
         p.apply(wireBatch([["op": "props", "id": 1, "set": ["accessibilityElementsHidden": "true"]]]))
         XCTAssertEqual([a.accessibilityViewIsModal, c.accessibilityViewIsModal], [false, false])
-        XCTAssertNil(p.announcedModal)
+        XCTAssertNil(p.announcedModal?.id)
         p.apply(wireBatch([["op": "props", "id": 1, "clear": ["accessibilityElementsHidden"]]]))
-        XCTAssertEqual(p.announcedModal, 8)
+        XCTAssertEqual(p.announcedModal?.id, 8)
         // A visible sibling painted over A (as a sheet's stack is) ends its modality.
-        let sheet = UIView(frame: a.frame)
+        let sheetController = UIViewController()
+        let sheet: UIView = sheetController.view
+        sheet.frame = a.frame
         a.superview?.addSubview(sheet)
         p.syncModal()
-        XCTAssertFalse(a.accessibilityViewIsModal)
+        XCTAssertEqual([a.accessibilityViewIsModal, c.accessibilityViewIsModal], [false, false], "C is under the covered A")
+        XCTAssertNil(p.announcedModal?.id)
         sheet.removeFromSuperview()
-        // Destroying the only modals moves VoiceOver back.
-        p.apply(wireBatch([["op": "destroy", "id": 4], ["op": "children", "id": 1, "ids": [2, 3]]]))
+        p.syncModal()
+        XCTAssertEqual([a.accessibilityViewIsModal, c.accessibilityViewIsModal], [true, true])
+        XCTAssertEqual(p.announcedModal?.id, 8)
+    }
+
+    /// The post itself: once per change of the innermost modal, never for an
+    /// unchanged batch, and once when the only modal is destroyed with no
+    /// reference left to it (LLP 1080.003 D2).
+    func testAriaModalPostsOncePerChangeAndOnDestroy() throws {
+        var posts = 0
+        let post = Presenter.postScreenChanged
+        Presenter.postScreenChanged = { _ in posts += 1 }
+        defer { Presenter.postScreenChanged = post }
+        let p = try fixture()
+        posts = 0
+        p.apply(wireBatch([
+            ["op": "create", "id": 9, "kind": "view", "props": ["testId": "dialog", "accessibilityModal": "true"]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4, 9]],
+            ["op": "frame", "id": 9, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+        ]))
+        XCTAssertEqual(posts, 1, "VoiceOver moves into the dialog")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityLabel": "Pause"]]]))
+        p.syncModal()
+        XCTAssertEqual(posts, 1, "an unchanged modal is not announced again")
+        weak var dialog = p.views[9]
+        p.apply(wireBatch([["op": "destroy", "id": 9], ["op": "children", "id": 1, "ids": [2, 3, 4]]]))
+        XCTAssertEqual(posts, 2, "and back out when it is destroyed")
         XCTAssertNil(p.announcedModal)
+        _ = dialog
     }
 
     func testATargetScopesTheReplyAndTheWireRefusesWhatD1Refuses() throws {
