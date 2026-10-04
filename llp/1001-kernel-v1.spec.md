@@ -528,6 +528,14 @@ box was a containing block:
   This includes context-preview structural recipients (side/trailing siblings,
   repeated flow roots and the source scroll content), and Runner-generated
   row wrappers in a list with `reorderdrop` (LLP 1074 D1).
+- **`frame(id)` answers the untransformed layout box** (LLP 1094 D11,
+  keeping LLP 1051.000 D1's box). `getBoundingClientRect` includes every
+  transform above the box. A presented transform lives in each host's motion
+  engine, or in CSS, which the runner cannot read while an action runs;
+  including it on the web alone would break parity; and a decision asks
+  where layout put a box. `elementFromPoint(x, y)` tests the same boxes
+  (LLP 1094 D10). A hand-built drag adds the pan delta it stored, and
+  `PointerEvent`'s `clientX`/`clientY` give the pointer in the same space.
 - **The kernel paints in tree order.** A page paints its positioned boxes and
   stacking contexts after its in-flow boxes, so a web host makes a static box
   that follows one of those in tree order `isolation: isolate`

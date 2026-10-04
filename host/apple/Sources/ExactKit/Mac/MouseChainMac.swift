@@ -182,8 +182,10 @@ extension NodeView {
         }
         if lifted { buttons = 0 }
         let pressure = lifted || buttons == 0 ? 0 : pen ? Double(e?.pressure ?? 0) : 0.5
+        let client = e.flatMap { presenter?.client($0.locationInWindow) } ?? .zero
         return PointerSample(x: Double(point.x - box.minX), y: Double(point.y - box.minY), buttons: buttons,
-                             pressure: pressure, type: pen ? "pen" : "mouse", id: pen ? 2 : 1, held: KeyCodes.held(e?.modifierFlags ?? []))
+                             pressure: pressure, type: pen ? "pen" : "mouse", id: pen ? 2 : 1,
+                             clientX: Double(client.x), clientY: Double(client.y), held: KeyCodes.held(e?.modifierFlags ?? []))
     }
     func dispatchDblclick(_ node: NodeView?) {
         guard let node, let presenter = node.presenter, presenter.views[node.id] === node, !node.disabled else { return }
@@ -191,6 +193,12 @@ extension NodeView {
     }
 }
 extension Presenter {
+    /// A window point from the viewport's top-left, the page scroll applied:
+    /// DOM's `clientX`/`clientY`, `frame()`'s space (LLP 1094 D11).
+    func client(_ windowPoint: NSPoint) -> NSPoint {
+        let clip = viewport.contentView, p = clip.convert(windowPoint, from: nil)
+        return NSPoint(x: p.x - clip.bounds.minX, y: p.y - clip.bounds.minY)
+    }
     /// Keep each node's latest free move and send them at the next display
     /// frame: a pointer crossing two `pointermove` nodes in one frame leaves
     /// each its own last move.

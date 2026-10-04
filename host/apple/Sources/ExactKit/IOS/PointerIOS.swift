@@ -8,6 +8,15 @@
 #if os(iOS)
 import UIKit
 
+extension Presenter {
+    /// A window point from the viewport's top-left, the page scroll applied:
+    /// DOM's `clientX`/`clientY`, `frame()`'s space (LLP 1094 D11).
+    func client(_ windowPoint: CGPoint) -> CGPoint {
+        let p = viewport.convert(windowPoint, from: nil)
+        return CGPoint(x: p.x - viewport.bounds.minX, y: p.y - viewport.bounds.minY)
+    }
+}
+
 final class PointerRecognizer: UIGestureRecognizer {
     weak var node: NodeView?
     private var touch: UITouch?
@@ -34,13 +43,15 @@ final class PointerRecognizer: UIGestureRecognizer {
     /// pencil's or a 3D Touch's force over its maximum where UIKit measures
     /// one, else DOM's 0.5 while down.
     private func sample(_ t: UITouch, lifted: Bool = false) -> PointerSample {
-        guard let node else { return PointerSample(x: 0, y: 0, buttons: 0, pressure: 0, type: "touch", id: touchId) }
+        guard let node else { return PointerSample(x: 0, y: 0, buttons: 0, pressure: 0, type: "touch", id: touchId, clientX: 0, clientY: 0) }
         let point = t.location(in: node), box = node.contentBox()
+        let client = node.presenter?.client(t.location(in: nil)) ?? .zero
         let type = t.type == .pencil ? "pen" : t.type == .indirectPointer ? "mouse" : "touch"
         let pressure = lifted ? 0 : t.maximumPossibleForce > 0 ? Double(t.force / t.maximumPossibleForce) : 0.5
         // The keys a hardware keyboard holds, an iPad's ⇧ or ⌘ (gallery F20).
         return PointerSample(x: Double(point.x - box.minX), y: Double(point.y - box.minY), buttons: lifted ? 0 : 1,
-                             pressure: pressure, type: type, id: type == "mouse" ? 1 : touchId, held: KeyCodes.held(modifierFlags))
+                             pressure: pressure, type: type, id: type == "mouse" ? 1 : touchId,
+                             clientX: Double(client.x), clientY: Double(client.y), held: KeyCodes.held(modifierFlags))
     }
     /// Whether an enabled pointer node between the touched view and this
     /// one takes the touch: the innermost does, as on the web and macOS.

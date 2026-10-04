@@ -453,6 +453,8 @@ impl Event {
                     pressure: 0.0,
                     pointer_type: "mouse".into(),
                     pointer_id: 1.0,
+                    client_x: 0.0,
+                    client_y: 0.0,
                     held: KeyModifiers::default(),
                 }
                 .value(),

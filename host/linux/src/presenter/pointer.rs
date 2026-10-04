@@ -36,13 +36,14 @@ impl<D: DataSource> Presenter<D> {
         None
     }
 
-    /// The record of a viewport point as `view` sees it, from its content box.
+    /// The record of a viewport point as `view` sees it, from its content
+    /// box, and the viewport point itself (`clientX`, LLP 1094 D11).
     fn pointer_record(&mut self, view: ViewId, x: f32, y: f32, down: bool) -> Option<PointerEvent> {
         let (ox, oy, _, _) = self.rect_of(view)?;
         let (left, top, _, _) =
             exact_kernel::svg::scene::content_box(&self.host.kernel().node(view)?);
         let mut record = PointerEvent::parse(&format!(
-            "{},{},{},{},mouse,1",
+            "{},{},{},{},mouse,1,{x},{y}",
             x - ox - left,
             y - oy - top,
             u8::from(down),

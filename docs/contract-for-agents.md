@@ -641,7 +641,8 @@ they do not admit arbitrary frame callbacks or a second app-state graph.
 
 For drawing and pointer-tracking, `pointerdown`, `pointermove` and `pointerup`
 hand an action that takes it a `PointerEvent` (`offsetX`/`offsetY` from the
-node's content box, `buttons`, `pressure`, `pointerType`, `pointerId`), on any
+node's content box, `buttons`, `pressure`, `pointerType`, `pointerId`, and
+`clientX`/`clientY` from the viewport, `frame()`'s space), on any
 node, a canvas included; set `touch-action="none"` on a drawing surface. Any
 button goes down (`buttons` 2 is a right-click's), and a `contextmenu` action may
 take the same record, where the click was. `wheel` hands a `WheelEvent` (deltas,

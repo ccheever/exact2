@@ -71,8 +71,9 @@ pub(super) fn declare(shapes: &mut Shapes) {
     );
     // DOM's `PointerEvent`, the subset every host measures, in the order
     // `exact_runner::PointerEvent` writes it: the point from the node's
-    // content box, the buttons' bits, the pressure, the device, its id, and
-    // the modifiers held (a `MouseEvent`'s).
+    // content box, the buttons' bits, the pressure, the device, its id, the
+    // point from the viewport (`frame()`'s space, LLP 1094 D11), and the
+    // modifiers held (a `MouseEvent`'s).
     shapes.map.insert(
         "PointerEvent".into(),
         vec![
@@ -82,6 +83,8 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("pressure".into(), Ty::Number),
             ("pointerType".into(), Ty::String),
             ("pointerId".into(), Ty::Number),
+            ("clientX".into(), Ty::Number),
+            ("clientY".into(), Ty::Number),
             ("shiftKey".into(), Ty::Bool),
             ("ctrlKey".into(), Ty::Bool),
             ("altKey".into(), Ty::Bool),
