@@ -1408,6 +1408,16 @@ impl<'a> Lowerer<'a> {
                 *surface = Some(self.b.surface(name, &codes));
             }
             tags::AttrTarget::Handler(event) => {
+                // HTML submits implicitly from a single-line input, never a
+                // textarea, whose Enter breaks the line: one behaviour on
+                // every host (kanban F21, chat F2 in the x2apps diaries).
+                if event == "submit" && tag == "textarea" {
+                    return err(
+                        "lower-handler-tag",
+                        "a `textarea` has no `submit`: its Enter breaks the line, as HTML's does; for Enter to send, take the key's event (`key=compose` with `action compose(k: string, e: KeyboardEvent)`) and, when `k == \"Enter\" and not e.shiftKey`, send and call `preventDefault()`",
+                        a.span,
+                    );
+                }
                 let (name, args): (&str, &[Expr]) = match &a.value {
                     Expr::Ident(n, _) => (n, &[]),
                     Expr::Call(n, args, _) => (n, args),
@@ -1440,7 +1450,7 @@ impl<'a> Lowerer<'a> {
                             args.len(),
                             match event {
                                 "hover" => " plus whether the pointer is over",
-                                "key" => " plus the key's name",
+                                "key" => " plus the key's name, and optionally its `KeyboardEvent`",
                                 "change" | "input" => " plus the new value",
                                 "message" => " plus the message",
                                 "scroll" => " plus scrollLeft and scrollTop",

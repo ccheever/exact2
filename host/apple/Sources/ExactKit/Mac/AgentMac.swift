@@ -645,6 +645,11 @@ extension Agent {
                 case "Control": modifiers.insert(.control); case "Alt": modifiers.insert(.option)
                 default: return ["error": "unknown key modifier \(modifier)"] }
             }
+            // A modifier alone is held as it goes down, as the web's keydown
+            // for Shift says `shiftKey`; AppKit has it as a flags change, not
+            // a key for a responder (chat F8).
+            let lone = device.map { KeyCodes.modifier($0.code) } == true
+            if lone { modifiers.insert(["Shift": .shift, "Control": .control, "Alt": .option, "Meta": .command][key] ?? []) }
             // NSWindow delivery bypasses the local event monitor. Share its
             // pressed-control route before making any responder change.
             let phase = req["phase"] as? String
@@ -707,7 +712,7 @@ extension Agent {
                 case "ArrowRight": return ("\u{F703}", 124)
                 default:
                     let code = device.flatMap { device in KeyCodes.mac.first(where: { $0.value == device.code })?.key }
-                    return (key, UInt16(code ?? 0))
+                    return (lone ? "" : key, UInt16(code ?? 0))
                 }
             }()
             let t = ProcessInfo.processInfo.systemUptime
@@ -740,8 +745,8 @@ extension Agent {
             if phase != "up", modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {
                 return ["typed": Int(v.id), "key": chord]
             }
-            if phase != "up" { win.sendEvent(down) }
-            if phase != "down" { win.sendEvent(up) }
+            if phase != "up", !lone { win.sendEvent(down) }
+            if phase != "down", !lone { win.sendEvent(up) }
             if phase == "down", let token = req["releaseKey"] as? String {
                 keyReleases[token] = { [weak v] in
                     v?.keyUp(with: up)

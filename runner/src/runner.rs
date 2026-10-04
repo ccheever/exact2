@@ -16,7 +16,9 @@ pub use pointer::PointerEvent;
 mod reorder;
 mod reorder_codec;
 mod root_font;
-pub use event::{ActionBinding, ActionBindingError, ActionBindingRefusal, ControlValue, Event};
+pub use event::{
+    ActionBinding, ActionBindingError, ActionBindingRefusal, ControlValue, Event, KeyModifiers,
+};
 mod canvas2d;
 pub use canvas2d::{
     engine as canvas_engine, CanvasEngine, CanvasList, DrawReply, DrawRequest, Drawn, Geometry,

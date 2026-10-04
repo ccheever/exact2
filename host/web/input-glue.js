@@ -1,4 +1,9 @@
 // Input-only glue: loaded after the baked first pixel, independently of data readiness.
+/** An element whose `press` the keyboard reaches only through its tabindex:
+ * not one the browser activates itself (the wasm host's handler list, or the
+ * JS target's `data-exact-on`). */
+const pressesByKey = el => !el.matches("button, a[href], input, select, textarea, summary")
+  && (el.exactHandlers ?? el.dataset.exactOn?.split(" "))?.includes("press") === true;
 const shortcutKeys = new Set(["Enter", "Tab", "Escape", "Backspace", "Delete", "Insert", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
 export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false }) {
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
@@ -53,6 +58,18 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       return;
     }
   }, true);
+  // A pressable that is not a button or a link (`tabindex="0"`, written
+  // where its handlers are) activates as one, as it does natively: Enter, or
+  // Space unless it is a link, after the key's handlers, unless one
+  // prevented it — the bubble phase at the document is after them all (chat F14).
+  document.addEventListener("keydown", (event) => {
+    const el = event.target;
+    if (event.defaultPrevented || event.isComposing || event.repeat || event.metaKey || event.ctrlKey || event.altKey || !ready()) return;
+    if (typeof el?.matches !== "function" || !root.contains(el) || !pressesByKey(el)) return;
+    if (event.key !== "Enter" && !(event.key === " " && el.getAttribute("role") !== "link")) return;
+    event.preventDefault();
+    el.click();
+  });
   // @ref LLP 1061 D3 — press feedback by UIKit's rule, not `:active`'s: the
   // innermost node with a `press` handler takes the press (its pressable
   // ancestors, which `:active` would also match, do not), and shows it only

@@ -105,6 +105,9 @@ pub struct Presenter<D: DataSource> {
     /// The text field typed into since it took the focus: its `change`
     /// fires on blur or Enter, HTML's commit (LLP 1069.001 D4).
     pub(crate) edited: Option<ViewId>,
+    /// The modifier keys held, each side a bit (Shift, Control, Alt, Meta,
+    /// left then right): a `key` event's flags (`KeyboardEvent.shiftKey`…).
+    pub(crate) held: u8,
     /// Unbound checkboxes' own states, as a browser keeps an uncontrolled
     /// control's (LLP 1069.001 D4); a bound one draws its `checked`.
     pub(crate) controls: BTreeMap<ViewId, bool>,
@@ -403,6 +406,7 @@ impl<D: DataSource> Presenter<D> {
             hosts: 0,
             focus: None,
             edited: None,
+            held: 0,
             controls: BTreeMap::new(),
             menu: None,
             autofocus_processed: Default::default(),

@@ -1309,6 +1309,12 @@
       "name": "maxlength",
       "kind": "int",
       "_comment": "HTML maximum user-entered UTF-16 length; absent or negative, unlimited. Programmatic value changes are not truncated."
+    },
+    {
+      "id": 228,
+      "name": "target",
+      "kind": "str",
+      "_comment": "HTML's link `target`, `_blank` or `_self`: where the web opens a link's URL. Unset, a link to an absolute URL opens in a new browsing context, as the native hosts open it in the system browser (x2apps chat F11, hn-reader F3); natively a path navigates in the app and any other URL leaves it, whatever the target."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

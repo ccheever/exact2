@@ -26,6 +26,10 @@ extension NodeView {
     /// Its `aria-label`, unless empty (accname: an empty label names nothing).
     var authoredLabel: String? { props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } }
     var accessibleName: String { authoredLabel ?? accessibleText }
+    /// A button to assistive technology: a `button`, or a box whose ARIA
+    /// role is `button` or `link`, as the web's tree has a `div` with one
+    /// (chat F14: a message bubble with `role="button"` was no button natively).
+    var actsAsButton: Bool { kind == "button" || kind == "view" && ["button", "link"].contains(props["accessibilityRole"] ?? "") }
     /// ARIA `aria-pressed` on a button: its toggle state, `true`, `false` or
     /// `mixed`; nil when it is no toggle (absent, another word, another role).
     var pressedState: String? {
@@ -117,7 +121,7 @@ extension Presenter {
         }
         for node in nodes {
             // A native button's control is its accessibility element (LLP 1069.011 D4).
-            if (node.kind == "button" || node.props["accessibilityRole"] == "button") && !node.isNativeButton {
+            if (node.actsAsButton || node.props["accessibilityRole"] == "button") && !node.isNativeButton {
                 #if os(macOS)
                 node.setAccessibilityLabel(node.accessibleName)
                 #else

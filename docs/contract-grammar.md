@@ -394,6 +394,15 @@ Chrome's `inline-block` `<button>` that centres its content (declared in
 [LLP 1001](../llp/1001-kernel-v1.spec.md)): write `align-items="center"
 justify-content="center"` to centre it, and `flex-direction="row"` for a row.
 
+A link (`link href`, a text run's `href`, a Markdown link) to a path in the
+app navigates in it; one to an absolute URL (`https://…`, `//…`) leaves the
+app: natively it opens in the system browser, and on the web in a new
+browsing context (`target="_blank" rel="external noopener"`), so the app is
+still there when the reader comes back. On the web, `target="_self"` keeps
+such a link in the page (it replaces the app) and `target="_blank"` opens a
+path in a new one; natively `target` changes nothing, an app having no
+other tab. `mailto:` and `tel:` links go to their handlers everywhere.
+
 `button appearance="auto"` selects a native control; the literal switch is
 resolved after class merging. Default/`none` keeps the authored pressable.
 Native face content, styles, transitions/keyframes, and enclosing contexts have
@@ -412,7 +421,8 @@ working fixture, not inferred from JavaScript's Event interface.
 
 | Payload appended to captured arguments | Handler names |
 | --- | --- |
-| One string | `change`, `input` (text field, textarea, `select`), `key`, `message`, `error` |
+| One string | `change`, `input` (text field, textarea, `select`), `message`, `error` |
+| A string, then optionally a `KeyboardEvent` | `key`: the key's name; an action taking one more parameter also hears the [modifiers](#keys) |
 | One boolean | `hover`; `change`, `input` on a checkbox or `switch` |
 | One number | `timeupdate`, `durationchange`; `change`, `input` on `type="range"` |
 | One `list<Picked>` | `change`, `input` on `type="file"` |
@@ -475,18 +485,28 @@ canvas surface=ink(points) pointerdown=begin pointermove=stroke touch-action="no
 hardware keyboard, Linux):
 
 - **Where.** The key goes to the focused element: a field or textarea being
-  edited, a `button`, or any element with a `focus`, `blur` or `key` handler
-  (such an element takes the focus, as `tabindex="0"` gives it). It then bubbles: the
+  edited, a `button`, or any element with a `press`, `focus`, `blur` or `key`
+  handler (such an element takes the focus, as `tabindex="0"` gives it, and
+  is in the Tab order). It then bubbles: the
   focused element's handler hears it first, then every ancestor's, innermost
   first. With nothing focused, only `aria-keyshortcuts` buttons hear keys.
 - **What.** The payload is `KeyboardEvent.key`: the character typed, Shift's
   included (`"a"`, `"A"`, `"7"`, `" "`, `"/"`), or the key's name (`"Enter"`,
   `"Escape"`, `"Tab"`, `"Backspace"`, `"Delete"`, `"ArrowUp"`…, `"Home"`,
-  `"End"`, `"PageUp"`, `"PageDown"`, `"F1"`…). Every key is heard, printable
-  ones in a field included. Keys an input method is composing are its own.
+  `"End"`, `"PageUp"`, `"PageDown"`, `"F1"`…, `"Shift"`). Every key is heard,
+  printable ones in a field included. Keys an input method is composing are
+  its own.
+- **Modifiers.** An action that takes one more parameter, typed
+  `KeyboardEvent`, hears the event too: the record `{ key: string, shiftKey:
+  bool, ctrlKey: bool, altKey: bool, metaKey: bool }`, the DOM's fields
+  (`altKey` is Option and `metaKey` Command on a Mac). A key typed with
+  Control or Meta held is a shortcut: it types nothing.
 - **Then the default.** After the handlers, the key does what it would have:
   a character is typed into the focused field, Backspace deletes, Enter
-  submits an input (`submit`) or presses a button, Space presses a button,
+  submits an input (`submit`), breaks a textarea's line (a textarea has no
+  `submit`, as in HTML) or presses a button, Space presses a button (Enter
+  and Space press any element with a `press` handler as they do a button,
+  Enter alone a `role="link"`; give it `role="button"` to be announced as one),
   Tab moves the focus, arrows move the caret; on the web arrows, Space and
   the page keys also scroll the page or the focus's scroller (a native
   scroller does not scroll by key, so there is nothing there to prevent).
@@ -501,6 +521,21 @@ action move(k: string)
     cursor = cursor + 1
     preventDefault()
 ```
+
+Enter sends and Shift+Enter breaks the line, as a chat composer does (on a
+phone the software keyboard's Return is Enter, so it sends there too):
+
+```contract
+action compose(k: string, e: KeyboardEvent)
+  if k == "Enter" and not e.shiftKey
+    send(draft)
+    preventDefault()
+```
+
+`textarea value=draft input=write key=compose`. A shortcut reads the modifier
+the platform's users press: `(e.metaKey or e.ctrlKey) and k == "s"` saves on a
+Mac and elsewhere. The driver presses chords in Playwright's spelling (`type
+"composer" key "Shift+Enter"`, `key "Meta+s"`).
 
 - **Shortcuts.** An `aria-keyshortcuts` button hears its chord before any
   `key` handler, and takes the key (no `key` handler hears it). The web and

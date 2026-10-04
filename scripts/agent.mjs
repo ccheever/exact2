@@ -395,11 +395,10 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         else if (kind === 'key') {
           const f = await ask({ op: 'focus', id, select: false });
           if (f.error) throw new Error(f.error);
-          const key = opts.key === 'Space' ? ' ' : opts.key;
-          const code = { ' ': 'Space', Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', Backspace: 'Backspace', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight' }[key] ?? (key.length === 1 ? `Key${key.toUpperCase()}` : key);
-          const vk = { ' ': 32, Enter: 13, Escape: 27, Tab: 9, Backspace: 8, ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39 }[key] ?? (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0);
-          await call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: vk, ...(key.length === 1 ? { text: key } : {}) });
-          await call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk });
+          // A chord's modifiers ride on the key; Enter types a newline in a textarea.
+          const { key, code, vk, modifiers, text } = cdpKey(opts.key);
+          await call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: vk, modifiers, ...(text ? { text } : {}) });
+          await call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk, modifiers });
         }
         else if (kind === 'press' && await evaluate(`(() => { const hit = document.elementFromPoint(${x}, ${y}), host = hit?.closest('[data-gpu-input]'); return !!host && (hit === host || hit.localName === 'canvas'); })()`)) {
           // A tap on a world's canvas is a finger, as a held contact is here and
@@ -1213,13 +1212,17 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   return s;
 }
 // ---------------------------------------------------------------- the CLI
-/** Browser-owned key release carries device identity, never a canvas lookup. */
-export async function browserKey({id, opts, evaluate, ask, call, frame}) {
-  if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
-  const isWorld = await evaluate(`exact.gpu?.wantsInput(${id}) ?? false`);
-  const f = isWorld ? await ask({ op: 'focus', id, world: true }) : await evaluate(`(() => { const el = exact.views.get(${id}); el?.focus(); return {ok:document.activeElement === el}; })()`);
-  if (f.error || !f.ok) throw new Error(f.error ?? `view ${id} could not take focus`);
-  let code = opts.key, key, vk;
+/**
+ * A driver's key as CDP's key event: a `key` name (`Enter`, `a`, `Space`),
+ * a code (`KeyA`, `Digit7`), or either after any of `Shift+`, `Control+`,
+ * `Alt+`, `Meta+` — Playwright's chord syntax (`Shift+Enter`, `Meta+s`,
+ * `+`). `text` is what the key types: nothing with Control or Meta held, a
+ * shortcut's (chat F3, kanban F27 in the x2apps diaries).
+ */
+export function cdpKey(chord) {
+  const held = new Set();
+  let code = chord, key, vk;
+  for (let m; (m = /^(Shift|Control|Alt|Meta)\+(.+)$/.exec(code)); code = m[2]) held.add(m[1]);
   if (/^Key[A-Z]$/.test(code)) { key = code.slice(3).toLowerCase(); vk = code.charCodeAt(3); }
   else if (/^Digit[0-9]$/.test(code)) { key = code.slice(5); vk = code.charCodeAt(5); }
   else if (/^F(?:[1-9]|1[0-9]|2[0-4])$/.test(code)) { key = code; vk = 111 + Number(code.slice(1)); }
@@ -1228,20 +1231,33 @@ export async function browserKey({id, opts, evaluate, ask, call, frame}) {
   else if (/^[a-zA-Z0-9]$/.test(code)) { key = code; vk = code.toUpperCase().charCodeAt(0); code = /\d/.test(code) ? `Digit${code}` : `Key${code.toUpperCase()}`; }
   else if (code.length === 1 && code !== ' ') { key = code; vk = 0; code = { '-': 'Minus', '=': 'Equal', '[': 'BracketLeft', ']': 'BracketRight', '\\': 'Backslash', ';': 'Semicolon', "'": 'Quote', '`': 'Backquote', ',': 'Comma', '.': 'Period', '/': 'Slash' }[code] ?? ''; }
   else {
-    const special = { ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], ArrowLeft: ['ArrowLeft', 37], ArrowRight: ['ArrowRight', 39], Space: [' ', 32], ' ': [' ', 32], Enter: ['Enter', 13], Escape: ['Escape', 27], Tab: ['Tab', 9], Backspace: ['Backspace', 8], Delete: ['Delete', 46], Home: ['Home', 36], End: ['End', 35], PageUp: ['PageUp', 33], PageDown: ['PageDown', 34], Shift: ['Shift', 16], ShiftLeft: ['Shift', 16], ShiftRight: ['Shift', 16], ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`F${i + 1}`, [`F${i + 1}`, 112 + i]])) }[code];
+    const special = { ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], ArrowLeft: ['ArrowLeft', 37], ArrowRight: ['ArrowRight', 39], Space: [' ', 32], ' ': [' ', 32], Enter: ['Enter', 13], Escape: ['Escape', 27], Tab: ['Tab', 9], Backspace: ['Backspace', 8], Delete: ['Delete', 46], Home: ['Home', 36], End: ['End', 35], PageUp: ['PageUp', 33], PageDown: ['PageDown', 34], Shift: ['Shift', 16], ShiftLeft: ['Shift', 16], ShiftRight: ['Shift', 16], Control: ['Control', 17], Alt: ['Alt', 18], Meta: ['Meta', 91], ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`F${i + 1}`, [`F${i + 1}`, 112 + i]])) }[code];
     if (!special) throw new Error(`key: unsupported key ${code}`);
     [key, vk] = special;
-    if (code === 'Shift') code = 'ShiftLeft';
+    if (['Shift', 'Control', 'Alt', 'Meta'].includes(code)) { held.add(code); code += 'Left'; }
     if (code === ' ') code = 'Space';
   }
+  if (held.has('Shift') && /^[a-z]$/.test(key)) key = key.toUpperCase();
+  const modifiers = (held.has('Alt') ? 1 : 0) | (held.has('Control') ? 2 : 0) | (held.has('Meta') ? 4 : 0) | (held.has('Shift') ? 8 : 0);
+  const text = held.has('Control') || held.has('Meta') ? undefined : key === 'Enter' ? '\r' : key.length === 1 ? key : undefined;
+  return { code, key, vk, modifiers, text };
+}
+
+/** Browser-owned key release carries device identity, never a canvas lookup. */
+export async function browserKey({id, opts, evaluate, ask, call, frame}) {
+  if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
+  const isWorld = await evaluate(`exact.gpu?.wantsInput(${id}) ?? false`);
+  const f = isWorld ? await ask({ op: 'focus', id, world: true }) : await evaluate(`(() => { const el = exact.views.get(${id}); el?.focus(); return {ok:document.activeElement === el}; })()`);
+  if (f.error || !f.ok) throw new Error(f.error ?? `view ${id} could not take focus`);
+  const { code, key, vk, modifiers, text } = cdpKey(opts.key);
   const reply = phase => ({ typed: id, key: opts.key, ...(phase != null ? { phase } : {}), delivery: 'platform' });
   const release = async () => {
-    await call('Input.dispatchKeyEvent', { type: 'keyUp', code, key, windowsVirtualKeyCode: vk });
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', code, key, windowsVirtualKeyCode: vk, modifiers });
     await frame();
     return reply('up');
   };
   try {
-    for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) await call('Input.dispatchKeyEvent', { type: phase === 'down' ? 'keyDown' : 'keyUp', code, key, windowsVirtualKeyCode: vk, ...(phase === 'down' && key === 'Enter' ? {text:'\r'} : {}) });
+    for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) await call('Input.dispatchKeyEvent', { type: phase === 'down' ? 'keyDown' : 'keyUp', code, key, windowsVirtualKeyCode: vk, modifiers, ...(phase === 'down' && text === '\r' ? { text } : {}) });
     await frame();
   } catch (error) { if (opts.phase === 'down') error.release = release; throw error; }
   return { ...reply(opts.phase), ...(opts.phase === 'down' ? { release } : {}) };

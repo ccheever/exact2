@@ -316,7 +316,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // The focus's `key` handlers and its ancestors' (KeyEvents.swift); an
         // ancestor UIKit passes the presses up to dispatches none again.
         let name = presses.first?.key.map(NodeView.keyName)
-        if !disabled, isFirstResponder, let name, presenter?.keyDown(at: self, name) == true { return }
+        let held = presses.first?.key.map { KeyCodes.held($0.modifierFlags) } ?? ""
+        if !disabled, isFirstResponder, let name, presenter?.keyDown(at: self, name, held: held) == true { return }
         if !disabled, handlers.contains("press"), let name, ["Enter", " "].contains(name) { presenter?.press(id); return }
         super.pressesBegan(presses, with: event)
     }
@@ -1052,9 +1053,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         accessibilityIdentifier = props["testId"]
         accessibilityLabel = props["accessibilityLabel"]
         updateTextAccessibility()
-        if kind == "button" {
+        if actsAsButton {
             isAccessibilityElement = true
-            accessibilityTraits.insert(.button)
+            accessibilityTraits.insert(kind == "view" && props["accessibilityRole"] == "link" ? .link : .button)
             if props["accessibilitySelected"] == "true" { accessibilityTraits.insert(.selected) } else { accessibilityTraits.remove(.selected) }
             setAccessibilityToggle(pressedState)
             if #available(iOS 18, tvOS 18, *) {

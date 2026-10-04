@@ -670,14 +670,15 @@ textarea value=body input=editBody
 `input` and `change` carry the control's new value as the final action argument:
 a string for a text field, textarea or `select`, a boolean for a checkbox or
 switch, a number for `type="range"`, and a `list<Picked>` for a file input.
-`hover` carries a boolean; `key` carries a key name. Captured arguments precede
+`hover` carries a boolean; `key` carries a key name, and to an action that
+takes one more parameter its `KeyboardEvent` (the modifiers). Captured arguments precede
 the payload: `input=edit(item.id)` calls the bound action with the id followed
 by the new text. This syntax is binding, not immediate evaluation.
 
 Use explicit types when they make the interface clear; omitted action parameter
-types can be inferred from event sites. There is no event object and no inline
-`() => …` handler; a `key` action claims its key with the host command
-`preventDefault()` ([keys](contract-grammar.md#keys)).
+types can be inferred from event sites. There is no inline `() => …` handler;
+a `key` action claims its key with the host command `preventDefault()`
+([keys](contract-grammar.md#keys)).
 
 The complete event inventory and payload groups are in the
 [event reference](contract-grammar.md#events). HTML controls include `select` and

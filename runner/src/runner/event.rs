@@ -201,8 +201,10 @@ pub enum Event {
     /// The view lost the focus.
     Blur,
     /// A key went down while the view had the focus: the key's name as the
-    /// web spells it (`"Enter"`, `"ArrowDown"`, `"a"`).
-    Key(String),
+    /// web spells it (`"Enter"`, `"ArrowDown"`, `"a"`), and the modifiers
+    /// held (`KeyboardEvent`'s flags). A host writes both as a chord,
+    /// [`Event::key`].
+    Key(String, KeyModifiers),
     /// Enter in an input with a `submit` handler — the web's implicit
     /// submission (HTML forms §4.10.21.2), without a form.
     Submit,
@@ -279,7 +281,51 @@ pub enum Event {
     },
 }
 
+/// The modifier keys held as a key went down: `KeyboardEvent`'s
+/// `shiftKey`, `ctrlKey`, `altKey` and `metaKey` (chat F2, kanban F27 in the
+/// x2apps diaries: Shift+Enter and ⌘S were not expressible).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct KeyModifiers {
+    /// Shift.
+    pub shift: bool,
+    /// Control.
+    pub ctrl: bool,
+    /// Alt, Option on a Mac.
+    pub alt: bool,
+    /// Meta: Command on a Mac, the Windows key elsewhere.
+    pub meta: bool,
+}
+
+impl KeyModifiers {
+    /// A key as a host writes it, split: the modifiers named before it with
+    /// any of `Shift+`, `Control+`, `Alt+` and `Meta+`, and the key's name —
+    /// the chord syntax of `aria-keyshortcuts` and Playwright
+    /// (`"Shift+Enter"`, `"Meta+s"`, `"+"`, `"Shift++"`). A bare name holds
+    /// no modifier.
+    pub fn split(chord: &str) -> (Self, &str) {
+        let mut held = Self::default();
+        let mut rest = chord;
+        while let Some((name, key)) = rest.split_once('+').filter(|(_, key)| !key.is_empty()) {
+            *match name {
+                "Shift" => &mut held.shift,
+                "Control" => &mut held.ctrl,
+                "Alt" => &mut held.alt,
+                "Meta" => &mut held.meta,
+                _ => break,
+            } = true;
+            rest = key;
+        }
+        (held, rest)
+    }
+}
+
 impl Event {
+    /// A key from its chord ([`KeyModifiers::split`]).
+    pub fn key(chord: &str) -> Self {
+        let (held, key) = KeyModifiers::split(chord);
+        Self::Key(key.into(), held)
+    }
+
     /// Decode host kind 21: formats, mixed (0/1), unavailable, then the link
     /// remainder, separated by newlines. Token lists never contain newlines;
     /// a target may, so the final remainder is kept verbatim.
@@ -772,7 +818,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Hover(false) => "hover out",
                 Event::Focus => "focus",
                 Event::Blur => "blur",
-                Event::Key(_) => "key",
+                Event::Key(..) => "key",
                 Event::Submit => "submit",
                 Event::Load => "load",
                 Event::Message(_) => "message",
@@ -857,7 +903,7 @@ impl<D: DataSource> Runner<D> {
             Event::Hover(over) => (EventKind::Hover, Some(Value::Bool(*over)), "hover"),
             Event::Focus => (EventKind::Focus, None, "focus"),
             Event::Blur => (EventKind::Blur, None, "blur"),
-            Event::Key(key) => (EventKind::Key, Some(Value::str(key)), "key"),
+            Event::Key(key, _) => (EventKind::Key, Some(Value::str(key)), "key"),
             Event::Submit => (EventKind::Submit, None, "submit"),
             Event::Load => (EventKind::Load, None, "load"),
             Event::Message(message) => (EventKind::Message, Some(Value::str(message)), "message"),
@@ -930,6 +976,20 @@ impl<D: DataSource> Runner<D> {
             }
             Event::HeightRelease { height, velocity } => {
                 args.extend([Value::Number(height), Value::Number(velocity)]);
+            }
+            // An action that takes one more parameter hears the whole
+            // `KeyboardEvent` too, in its declared field order
+            // (`contract/types/src/selection.rs`).
+            Event::Key(key, held)
+                if self.plan.action(handler.action).params.len == handler.args.len + 2 =>
+            {
+                args.push(Value::record(vec![
+                    Value::str(&key),
+                    Value::Bool(held.shift),
+                    Value::Bool(held.ctrl),
+                    Value::Bool(held.alt),
+                    Value::Bool(held.meta),
+                ]));
             }
             Event::TransformGeometry {
                 box_width,

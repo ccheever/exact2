@@ -578,6 +578,7 @@ export function P(e, name, f) {
     else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e) e.blur(); /* HTML focus fixup, now (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; }
     else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) paintFacts(e); } }
     else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) paintFacts(e); }
+    if (e.localName === "a" && (name === "target" || name === "href" && (!e.hasAttribute("target") || e.rel === "external noopener"))) { const out = name === "href" && v != null && /^\s*(https?:)?\/\//i.test(v), t = name === "target" ? v : out ? "_blank" : null; if (t) e.setAttribute("target", t); else e.removeAttribute("target"); if (t === "_blank") e.rel = out ? "external noopener" : "noopener"; else e.removeAttribute("rel"); } // a link to an absolute URL leaves the app in a new browsing context unless its `target` is authored (element.rs `leaves_app`, `props_of`; chat F11)
   });
 }
 /** A `markup="markdown"` text (LLP 1045 D3): its source as pieces, built
@@ -773,14 +774,14 @@ export function on(e, kind, f) {
   if (e.exactNative) { l("exact-native", ev => { if (ev.detail.kind === kind) f(...(ev.detail.value == null ? [] : [ev.detail.value])); }); if (kind === "message") return; }
   switch (kind) {
     // A link with a press is the app's navigation: the browser's is prevented.
-    case "press": return l("click", ev => { const a = ev.target.closest?.("a[href]"); if (a && a !== e && e.contains(a)) return; ev.stopPropagation(); if (e.localName === "a" && !(ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button)) ev.preventDefault(); f(); });
+    case "press": if (!e.matches("button, a[href], input, select, textarea, summary")) input(); /* the input piece presses it by key (input-glue.js `pressesByKey`) */ return l("click", ev => { const a = ev.target.closest?.("a[href]"); if (a && a !== e && e.contains(a)) return; ev.stopPropagation(); if (e.localName === "a" && !(ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button)) ev.preventDefault(); f(); });
     // A checkbox's value is whether it is checked; the platform flips the
     // box at once, and an action that refuses snaps it back (glue.js). A
     // host's change carries its own text (files.js: a picker's lines, which
     // an input's value would flatten). A range's is a number (the events table).
     case "change": case "input": return l(kind, ev => { if (ev instanceof CustomEvent) return f(ev.detail); if (e.type !== "checkbox") return f(e.type === "range" ? Number(e.value) : e.value); f(e.checked); if (e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked; });
     case "hover": l("pointerenter", () => f(true)); return l("pointerleave", () => f(false));
-    case "key": return l("keydown", ev => { const outer = KeyEvent; KeyEvent = ev; try { f(ev.key); } finally { KeyEvent = outer; } }); // it bubbles to every ancestor's handler
+    case "key": return l("keydown", ev => { const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }); // it bubbles to every ancestor's handler; an action taking one more parameter hears the KeyboardEvent record too (contract/types selection.rs's order)
     case "submit": return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing && !ev.$submit) { ev.$submit = true; addEventListener("keydown", w => { if (w === ev && !ev.defaultPrevented) { ev.preventDefault(); f(); } }, { once: true }); } }); // Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it
     // Only from the origin of the src the app committed (glue.js
     // `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is
