@@ -1,5 +1,8 @@
-// LLP 1035.004.000: opaque names, empty slots and source replacement.
+// LLP 1035.004.000: opaque names, empty slots and source replacement; a
+// portable role no string of the plan names, built at runtime as data names
+// one (ledger diary F10).
 component Symbols
+  state part = "cal"
   state source = "symbol:sf/airpodsmax"
   state selected = "home"
   state count = 0
@@ -38,6 +41,7 @@ component Symbols
         image source width=40 testId="width-only" tint-color="#0066cc"
         image source width=40 height=24 testId="fixed" tint-color="#0066cc"
         image "symbol:sf/" testId="empty-literal"
+        image `symbol:${part}endar` width=24 height=24 testId="computed" tint-color="#0066cc"
       button aria-label="Count" press=press testId="count-button"
         image source width=24 height=24 testId="button-icon" tint-color="#0066cc"
       text `Count ${count}` testId="count"
