@@ -142,6 +142,14 @@ hyphens, so write `a - b` for subtraction between identifiers. Units are quoted
 are deeper than the element and begin with `name=`. Parentheses permit multiline
 calls and expressions without creating an indentation block.
 
+Only sixteen words are refused as names, and only where a name is bound (a
+state, prop, parameter, `let`, `each` item, shape name, …): `when`, `if`, `else`,
+`each`, `in`, `match`, `case`, `as`, `fn`, `and`, `or`, `not`, `true`, `false`,
+`none`, `some`. Every other keyword (`key`, `state`, `from`, `refresh`, `view`, …)
+is an ordinary name there, so `action searchKey(key: string)` and `action refresh`
+compile. Shape fields, named arguments and members take any word
+([grammar](contract-grammar.md#lexical-rules)).
+
 ## Values, expressions, and functions
 
 - Types are `number`, `string`, `bool`, declared shapes, `option<T>`, `list<T>`,
@@ -149,6 +157,10 @@ calls and expressions without creating an indentation block.
 - `none` and `[]` need an inferable element type. A state initialized by either
   usually gets that information from later assignments; a typed argument or
   the other conditional/match arm can also supply it.
+- A state's initializer runs before any resource answers and before any derive:
+  it reads props, injects and the states declared above it, nothing else
+  (`type-initializer-scope`). Derive a value from a resource instead, or keep
+  per-row state in a component used inside `each`.
 - `Shape(field=value, …)` constructs every field exactly once.
   `Shape(base, field=value, …)` copies a base of the same shape and replaces fields.
   The one positional base comes first. Compiler-owned shapes are not constructible.
@@ -270,7 +282,9 @@ ask. The default web JS target keeps no persisted resource answers
 ([LLP 1027.005](../llp/1027.005-resource-identity-and-request-context.rfc.md)).
 
 The current request owns its answer; older replies cannot overwrite a newer
-request. Assigning a mutation forgets its in-flight reply. `refreshes` re-reads
+request. Assigning a mutation forgets its in-flight reply, so an action that
+sends one mutation twice on one path is refused (`analyze-send-twice`): send one
+combined request, or use a mutation per request. `refreshes` re-reads
 its resources when the mutation is sent (an answer the source gives at once shows
 immediately) and forces them again when the reply lands. `then` is parameterless,
 runs once at the host's next clock advance as a new commit, reads the latest
@@ -410,7 +424,11 @@ SVG uses SVG names. `foreignObject` compiles and renders on the web; native host
 refuse it at run time, so position a box over the `svg` there. Canvas 2D calls
 live in a data module, and GPU/game surfaces in their optional module. A
 hyphenated native tag must be listed in `app.json`'s `modules` (the bake refuses
-others) and implemented by the module; its attributes pass through unchecked. Do not
+others) and implemented by the module; its unknown attributes pass through
+unchecked as the module's props. A known attribute binds to the module's box, which
+takes layout, box and paint rows, handlers, `testId`, `id`, `role`, ARIA, `disabled`
+and `inert`; any other known name (`color`, `value`, `command`, `href`) is refused,
+so give the module prop another name. Do not
 turn a missing widget or canvas operation into invented Contract syntax.
 
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
@@ -511,7 +529,10 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | Read a slot after writing it to get the new value | Compute `let next` before the assignments |
 | Dynamic navigation template | `path("route", args…)` |
 | Unconditional per-frame app work | CSS/presentation motion where possible; bounded root frame task where needed |
-| Add a function because it exists in JavaScript | Check the roster or put the operation in the data module |
+| Add a function because it exists in JavaScript | Check the roster or put the operation in the data module; `len`, `split`, `push(xs, x)` and their kind are refused naming what to write |
+| `background-color: "#fff"` in a `style` | `background-color="#fff"` |
+| `change=flip(t.id)` on a checkbox, `action flip(id: string)` | The event appends its payload: `action flip(id: string, checked: bool)` (the refusal spells it) |
+| Two `send`s to one mutation in one action | One combined request, or a mutation per request |
 
 What compiles and then misbehaves (an image tile at its intrinsic size, native bars
 the agent does not show, a back gesture refused) is in

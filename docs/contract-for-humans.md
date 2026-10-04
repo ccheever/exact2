@@ -237,8 +237,9 @@ action search(value: string)
 
 Root components may own states, derives, actions, resources, mutations, and
 tasks. Child components may own states, derives, and actions; root-only work
-must be passed down as values or actions. State initializers can depend on
-earlier states; do not build cycles. Derives can be declared in dependency order
+must be passed down as values or actions. State initializers read props,
+injects and earlier states only: they run before any resource answers or
+derive is computed. Derives can be declared in dependency order
 or another order, but their dependency graph must be acyclic.
 
 An action's state reads observe the state at its start. Its writes land together.
@@ -928,8 +929,9 @@ editing run on the web and Apple hosts; Linux shows `markup="markdown"` text as
 raw source and has no `iframe` or `video`.
 
 A hyphenated tag can address the app's native module: the bake checks the tag
-against `app.json`'s `modules` list, and its attributes pass to the module
-unchecked. Merely inventing a tag does not create a widget. Native
+against `app.json`'s `modules` list, and its unknown attributes pass to the
+module unchecked; a known attribute styles or labels the module's box, and one
+the box has no use for is refused. Merely inventing a tag does not create a widget. Native
 modules and GPU capabilities are separate optional artifacts; they do not add
 features to every core build. Use [Photo Editor](../apps/photo-editor/app.contract)
 as a concrete native-module example.
