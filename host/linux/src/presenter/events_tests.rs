@@ -288,3 +288,38 @@ fn the_pointer_events_carry_their_record_from_the_content_box() {
         "a held pointer is the pad's wherever it goes"
     );
 }
+
+/// LLP 1051.000 D1 (changed 2026-10-04; the kanban diary's F4): `frame()`
+/// reads the box where the viewer sees it, the scroller's offset applied.
+#[test]
+fn frame_reads_a_box_with_the_scroll_above_it_applied() {
+    const PANE: &str = r#"component App
+  state y = -1
+  action read
+    y = frame("card").y
+  view
+    column width=400 height=400
+      button "Read" press=read testId="read" height=40
+      scroll testId="pane" height=200
+        box height=300
+        box id="card" height=50
+      text `${y}` testId="log" height=20
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(PANE).unwrap().encode(),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.boxes();
+    p.tap(id(&p, "read")).unwrap();
+    assert_eq!(log(&p), "340");
+    p.wheel(id(&p, "pane"), 0., 120.).unwrap();
+    p.boxes();
+    p.tap(id(&p, "read")).unwrap();
+    assert_eq!(log(&p), "220", "the pane's 120 px of scrolling");
+}
