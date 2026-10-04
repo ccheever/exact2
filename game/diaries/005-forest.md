@@ -745,3 +745,15 @@ Garden agrees on its four snapshots and six saves. Rivals takes 55.6/36.3 s
 including rebuilds, agrees on six snapshots and six saves, and its two inspected
 drill captures retain the same readable overlay and controls. Both web audits
 pass; the native optional audits time out while every owned process closes.
+## Main visibility and presentation integration (2026-10-04)
+
+Garden's plot-visibility batch merges main through `8e003c707` as `60e9fde3c`.
+Forest's complete proofs pass on web in 151.0 s and macOS in 149.4 s,
+including rebuilds beside the other games and shared checks. Inputs, pins,
+all seven world observations and twelve saves match across hosts. The axe
+recovery screenshots were inspected on both and retain the same forest and
+readable recovery countdown. Artifacts: `artifacts/main-8e-{web,macos}/`.
+Web's descendant audit passes; macOS's optional scan times out while every
+recorded carrier closes. No new Jev run or policy change in this integration.
+Garden diary 004 records the merge conflicts, the refreshed game lockfiles,
+the passing root/engine/surface checks, and the unavailable Lean oracle.

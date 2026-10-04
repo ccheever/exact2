@@ -748,3 +748,17 @@ by the kernel, instead of relying on the view to interpret a style's z-index.
 With that fixture corrected, all 38 selected native capture, surface-control
 and transform tests pass; the pixel assertions are unchanged. Forest diary 005
 records the root gates and the independent gameplay changes in this batch.
+
+## Visibility and presentation integration (2026-10-04)
+
+Merge `60e9fde3c`, during Garden's plot-visibility work, updates main through
+`8e003c707`. Rivals' complete proofs pass on web in 101.4 s and macOS in 45.6 s,
+including builds beside the other games and shared checks. Both descendant
+audits pass. Source inputs, all pins, six world observations and six saved files
+agree across hosts. Both new `drill.png` captures were inspected: the result
+overlay, controls and scene retain their matching appearance. Artifacts:
+`artifacts/main-8e-{web,macos}/`. No new Jev duel or policy change here.
+
+Garden diary 004 records the integration conflicts, the three games' refreshed
+grants dependency locks, passing root/engine/surface verification, the corrected
+generated-type fixture, and the advisory semantics check blocked by missing Lean.

@@ -741,3 +741,35 @@ All five root gates pass: 2,316 enabled tests across 81 binaries, nine ignored;
 Garden's Clippy and formatting checks also pass. The core's deprecated
 `fetch_update` warnings occur only with the newer pinned web nightly, not the
 stable gate toolchain. No engine code or Jev policy changes in this feature.
+
+### Second main update during this batch
+
+Main advanced 31 more commits while the plot collector ran. After accepting
+its baseline, merge `60e9fde3c` brings in `8e003c707`: inherited game visibility,
+authored presentation hooks, native shader packaging, Windows grants, shared
+Calendar, and the JS-target differential fixes. Conflicts retain our generated
+Windows formatting, silent-surface regression and game freshness exclusions
+alongside main's presentation hooks and platform-local module tracking.
+All three game lockfiles needed the new `exact-grants -> serde_json` edge;
+the existing `--update-lock` command captures it.
+
+Garden's complete proof still passes with unchanged pins on web (137.3 s) and
+macOS (58.7 s), with equal inputs, four world observations and six saves.
+Both new market screenshots were inspected and retain the crop spacing and
+outline. Artifacts: `artifacts/main-8e-{web,macos}/`. Both optional descendant
+scans time out, with every recorded carrier closed. Builds and verification
+ran beside the other games and checks, so these are integration wall times,
+not isolated performance comparisons.
+
+All five merged root gates pass: 2,327 enabled Rust tests across 82 binaries,
+nine ignored. Engine/renderer tests pass 630 with 17 ignored; Linux surface
+tests pass 56, including the retained silent-message regression and new shader
+tests. The app-tool suite passes 80 initially, with two optional skips and one
+new fixture expecting the old generated type spelling. Updating that fixture
+to check both `type App = game_logic::Island` and the bake's `App` argument
+makes all five tests in its file pass; no generated behavior changes.
+
+The advisory semantics command's default merge-base check finds no changes
+after a merge. Retrying with `--base 38631aab2` correctly selects this update,
+but cannot run the oracle: this Mac has no Lean `lake` executable. That check
+is unavailable, not passed; the five gates above do not depend on it.
