@@ -200,7 +200,8 @@ function drain() {
     if (e.$jump) e.$jump(name, at);
     else if (e[name] !== at) { if (Booting) e.$bootScroll = true; if (clock.agent && e.style.scrollBehavior === "smooth") e.scrollTo({ [name === "scrollTop" ? "top" : "left"]: at, behavior: "instant" }); else e[name] = at; }
   }
-  Scrolls.clear(); for (const e of Selects) if (!e.isConnected) Selects.delete(e); else { const o = [...e.options].map(o => o.value).join("\0"); if (e.$set || e.$options !== o) { e.$set = false; e.$options = o; if (e.value !== e.$value) e.value = e.$value; } }
+  // Options compare as nodes and values: a branch that replaces them with equal values still resets the pick.
+  Scrolls.clear(); for (const e of Selects) if (!e.isConnected) Selects.delete(e); else { const o = [...e.options], v = o.map(x => x.value); if (e.$set || o.length !== e.$options?.length || o.some((x, i) => x !== e.$options[i] || v[i] !== e.$values[i])) { e.$set = false; e.$options = o; e.$values = v; if (e.value !== e.$value) e.value = e.$value; } }
 }
 /** An action: each call is one commit. */
 export function act(fn) { return (...a) => commit(() => fn(...a), "action"); }

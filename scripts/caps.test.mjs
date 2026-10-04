@@ -21,6 +21,7 @@ import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMa
 import { assertWebDistApp, jsonLines } from './agent.mjs';
 import { verifyBakeFiles, pendingBuildInputs } from './app.mjs';
 import { newerThan, notBuildInput } from './agent-launch.mjs';
+import { testStoreLock } from './agent-test.mjs';
 import { copyAppleStaticTrees } from '../host/apple/build.mjs';
 import { developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/devices.mjs';
 import { classify, publishRoot, webRelease } from './deploy.mjs';
@@ -628,6 +629,17 @@ for (const [name, html, files, expectCode, expect] of [
   result('the staleness walk skips what an agent leaves in an app, never what a build reads',
     JSON.stringify(inside)===want&&JSON.stringify(outside)===want.replace('"modules/web/index.js",','"modules/web/index.js","scratch/out.bin",'),JSON.stringify({inside,outside}));
   rmSync(dir,{recursive:true,force:true});
+}
+{
+  // Two runs racing over a dead owner's lock (one named `mac`, one `macos`) never both hold it.
+  const dir=mkdtempSync(join(tmpdir(),'exact-test-lock-')),lock=join(dir,'exact-test-stores-com.x-macos');
+  mkdirSync(lock); writeFileSync(join(lock,'owner'),'999999 dead');
+  let held=0,most=0,order=[];
+  const run=async(host,name)=>{const release=await testStoreLock('com.x',host,dir);held++;most=Math.max(most,held);order.push(name);await new Promise(r=>setTimeout(r,300));held--;release();};
+  await Promise.all([run('mac','a'),run('macos','b'),run('macos','c')]);
+  const leftover=existsSync(lock);
+  rmSync(dir,{recursive:true,force:true});
+  result('authored-test store lock: one holder at a time across host aliases and a dead owner',most===1&&order.length===3&&!leftover,JSON.stringify({most,order,leftover}));
 }
 // A matching hand-written exact.json is not build identity. The agent must
 // consume the complete private marker verifier before it drives a dist.

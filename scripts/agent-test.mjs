@@ -2,7 +2,7 @@
 // turns a file's `test` blocks into steps, and this drives them through the
 // session the operations use (`agent.mjs`'s `open`). `agent.mjs` re-exports it.
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { open } from './agent.mjs';
@@ -17,17 +17,33 @@ export function textOf(nodes, node) {
 }
 
 /** One authored-test run at a time for an app on a native host: its `<storage>.t<n>` stores are reused, and
- * a second run's launch would empty a store the first is using. A lock directory holding its owner's pid; one
- * whose owner is gone (after a second's grace for a lock not yet signed) is taken over. */
-async function testStoreLock(appId, host) {
-  const lock = resolve(tmpdir(), `exact-test-stores-${appId}-${host}`), pid = resolve(lock, 'pid');
-  for (let waited = 0; ; waited += 200) {
-    try { mkdirSync(lock); writeFileSync(pid, String(process.pid)); return () => rmSync(lock, { recursive: true, force: true }); }
-    catch (e) { if (e.code !== 'EEXIST') throw e; }
-    let owner = 0; try { owner = Number(readFileSync(pid, 'utf8')); } catch {}
-    let alive = false; if (owner > 0) try { process.kill(owner, 0); alive = true; } catch (e) { alive = e.code === 'EPERM'; }
-    if (!alive && (owner > 0 || waited >= 1000)) { rmSync(lock, { recursive: true, force: true }); continue; }
-    if (waited === 0) console.error(`waiting for another authored-test run of ${appId} on ${host} (${lock})`);
+ * a second run's launch would empty a store the first is using. The lock is a directory holding its owner's
+ * `<pid> <token>`; release removes it only while it is still ours. A dead owner's lock (or one never signed,
+ * after a second) is taken over under a second directory, the recovery's own mutex, and only once the lock
+ * is still the same directory with the same dead owner — so two waiters cannot both take it over. */
+export async function testStoreLock(appId, host, dir = tmpdir()) {
+  const lock = resolve(dir, `exact-test-stores-${appId}-${host === 'mac' ? 'macos' : host}`), owner = resolve(lock, 'owner');
+  const token = `${process.pid} ${Math.random().toString(36).slice(2)}`, recovery = `${lock}.recovery`;
+  const read = () => { try { return { ino: statSync(lock).ino, who: readFileSync(owner, 'utf8') }; } catch (e) { return e.code === 'ENOENT' && existsSync(lock) ? { ino: statSync(lock).ino, who: '' } : null; } };
+  const dead = who => { const pid = Number(who.split(' ')[0]); if (!(pid > 0)) return true; try { process.kill(pid, 0); return false; } catch (e) { return e.code !== 'EPERM'; } };
+  for (let waited = 0, seen = null; ; waited += 200) {
+    try {
+      mkdirSync(lock); writeFileSync(owner, token);
+      return () => { try { if (readFileSync(owner, 'utf8') === token) rmSync(lock, { recursive: true, force: true }); } catch {} };
+    } catch (e) { if (e.code !== 'EEXIST') throw e; }
+    const now = read();
+    if (now && dead(now.who) && (now.who || (seen?.ino === now.ino && waited >= 1000))) {
+      // A recovery left behind by a waiter that died mid-way goes after ten seconds.
+      try { if (Date.now() - statSync(recovery).mtimeMs > 10_000) rmSync(recovery, { recursive: true, force: true }); } catch {}
+      try {
+        mkdirSync(recovery);
+        try { const again = read(); if (again && again.ino === now.ino && again.who === now.who) rmSync(lock, { recursive: true, force: true }); }
+        finally { rmSync(recovery, { recursive: true, force: true }); }
+        continue;
+      } catch (e) { if (e.code !== 'EEXIST') throw e; }
+    }
+    if (!seen) console.error(`waiting for another authored-test run of ${appId} on ${host} (${lock})`);
+    seen = now ?? seen;
     await new Promise(done => setTimeout(done, 200));
   }
 }
