@@ -50,11 +50,16 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
   const tests = JSON.parse(c.stdout);
   const results = [];
-  const base = host === 'web' || device ? null : storeBase(resolveApp(app).id, host), tag = `r${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+  // Where the host keeps its stores, as it will see its environment (a drive's env overrides the driver's).
+  const launched = { ...process.env, ...(env ?? {}) };
+  const base = host === 'web' || device ? null : storeBase(resolveApp(app).id, host, launched, launched.HOME || homedir());
+  // A run's own names where the driver can remove them; a simulator's (one drive at a time: a launch ends the
+  // last) reuse one store a test, emptied at launch, so they cannot pile up in its app container.
+  const tag = base ? `.r${process.pid}-${Math.random().toString(36).slice(2, 8)}` : '';
   sweepTestStores(base, storage);
   for (const [n, t] of tests.entries()) {
     const failures = [];
-    const store = host === 'web' ? storage : `${storage}.${tag}.t${n}`, fresh = host === 'web' ? env : { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
+    const store = host === 'web' ? storage : `${storage}${tag}.t${n}`, fresh = host === 'web' ? env : { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
     const own = t.steps[0]?.op === 'size' ? [t.steps[0].width, t.steps[0].height] : size;
     const s = await open({ host, browser, plan, size: own, env: fresh, app, webDist, device, phone, url, seed, locale, timeZone, epoch, storage: store });
     // The clock stands still between steps: what an input started (a reply,
