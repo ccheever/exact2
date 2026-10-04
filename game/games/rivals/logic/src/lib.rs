@@ -71,6 +71,9 @@ pub struct Hud {
     pub killed_by: String,
     pub marker: String,
     pub hurt: bool,
+    pub heading: String,
+    pub incoming: String,
+    pub incoming_angle: f32,
     pub over: bool,
     pub winner: String,
     pub you_won: bool,
@@ -553,6 +556,11 @@ pub fn publish(w: &World, args: &Options, viewport: Vec2) {
     };
     let drill = args.range.then(|| w.resource::<training::Drill>().clone());
     let drill_done = args.range && now >= training::DURATION;
+    let incoming = r
+        .incoming
+        .as_ref()
+        .filter(|hit| hit.until > now && me.alive && !r.over(now) && !drill_done)
+        .map(|hit| hit.bearing(w.require::<Transform>("player").position, me.yaw));
     let hud = Hud {
         hp: me.hp.max(0.0).round() as u32,
         weapon: me.weapon.name().into(),
@@ -601,6 +609,9 @@ pub fn publish(w: &World, args: &Options, viewport: Vec2) {
             String::new()
         },
         hurt: now < r.hurt_until,
+        heading: round::heading(me.yaw),
+        incoming: incoming.map_or_else(String::new, |(_, name)| format!("Hit from {name}")),
+        incoming_angle: incoming.map_or(0.0, |(angle, _)| angle),
         over: r.over(now),
         winner: r.winner.clone(),
         you_won: r.winner == "player",

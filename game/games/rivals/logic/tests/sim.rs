@@ -193,6 +193,96 @@ fn opponent_labels_hide_dead_offscreen_and_occluded_heads() {
 }
 
 #[test]
+fn incoming_hit_keeps_its_origin_turns_with_the_player_and_expires_after_restore() {
+    use exact_game::{Transform, Vec2, Vec3};
+    use rivals_logic::weapons::{damage, Weapon};
+    let mut sim = range();
+    sim.run(500.0);
+    let player = sim.world().named("player").unwrap();
+    let origin = sim.world().require::<Transform>(player).position + Vec3::X * 10.0;
+    let hit = damage(sim.world(), 2, player, 5.0, false, Weapon::Rifle, origin).unwrap();
+    rivals_logic::round::score(sim.world_mut(), vec![hit]);
+    sim.run(10.0);
+    assert_eq!(
+        sim.world().published("incoming").unwrap().as_str(),
+        Some("Hit from right")
+    );
+    assert_eq!(
+        sim.world().published("incoming_angle").unwrap().as_number(),
+        Some(90.0)
+    );
+    // The enemy moving does not move the warning; it describes the hit received.
+    let bot = sim.world().named("bot-1").unwrap();
+    sim.world_mut()
+        .teleport(bot, Transform::at(-12.0, 0.92, 12.0));
+    let saved = sim.save().unwrap();
+    let mut back = range();
+    back.restore_bound(&saved).unwrap();
+    for s in [&mut sim, &mut back] {
+        s.hold("ArrowRight", std::f64::consts::FRAC_PI_2 / 2.4 * 1000.0);
+        assert_eq!(
+            s.world().published("heading").unwrap().as_str(),
+            Some("E · 90°")
+        );
+        assert_eq!(
+            s.world().published("incoming").unwrap().as_str(),
+            Some("Hit from front")
+        );
+        assert_eq!(round(s).incoming.unwrap().origin, origin);
+        s.world_mut().require_mut::<Fighter>(player).alive = false;
+        rivals_logic::publish(
+            s.world(),
+            &Options {
+                range: true,
+                bots: 3,
+                ..Options::default()
+            },
+            Vec2::new(1280.0, 720.0),
+        );
+        assert_eq!(s.world().published("incoming").unwrap().as_str(), Some(""));
+        s.world_mut().require_mut::<Fighter>(player).alive = true;
+        s.run(2100.0);
+        assert_eq!(s.world().published("incoming").unwrap().as_str(), Some(""));
+        assert!(round(s).incoming.is_none());
+    }
+    assert_eq!(sim.save().unwrap(), back.save().unwrap());
+}
+
+#[test]
+fn incoming_direction_covers_every_quadrant_and_rocket_blasts_use_the_blast_origin() {
+    use exact_game::{Transform, Vec3};
+    use rivals_logic::round::{heading, Incoming};
+    for (point, name, angle) in [
+        (Vec3::NEG_Z, "front", 0.0_f32),
+        (Vec3::new(1.0, 0.0, -1.0), "front-right", 45.0),
+        (Vec3::X, "right", 90.0),
+        (Vec3::new(1.0, 0.0, 1.0), "back-right", 135.0),
+        (Vec3::Z, "back", 180.0),
+        (Vec3::new(-1.0, 0.0, 1.0), "back-left", -135.0),
+        (Vec3::NEG_X, "left", -90.0),
+        (Vec3::new(-1.0, 0.0, -1.0), "front-left", -45.0),
+    ] {
+        let result = Incoming {
+            origin: point,
+            until: 2.0,
+        }
+        .bearing(Vec3::ZERO, 0.0);
+        assert_eq!(result.1, name);
+        assert!((result.0 - angle).abs() < 0.01 || (angle == 180.0 && result.0 == -180.0));
+    }
+    assert_eq!(heading(std::f32::consts::FRAC_PI_2), "W · 270°");
+    assert_eq!(heading(std::f32::consts::PI), "S · 180°");
+    let mut sim = range();
+    sim.run(500.0);
+    let origin = sim.world().require::<Transform>("player").position + Vec3::X;
+    let hits = rivals_logic::weapons::explode(sim.world_mut(), 2, origin, None);
+    let hit = hits.iter().find(|h| h.victim == 1).unwrap();
+    assert_eq!(hit.origin, origin);
+    rivals_logic::round::score(sim.world_mut(), hits);
+    assert_eq!(round(&sim).incoming.unwrap().origin, origin);
+}
+
+#[test]
 fn mouse_look_turns_by_sensitivity_from_the_first_move() {
     let mut sim = range();
     sim.run(100.0);

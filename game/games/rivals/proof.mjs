@@ -84,7 +84,14 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await d.tap('play');
   const duel = d.world('world');
   await duel.key_down('KeyF');
-  await duel.run(9000);
+  let elapsed = 0, incoming;
+  while (elapsed < 9000 && !incoming) {
+    await duel.run(100); elapsed += 100;
+    incoming = text(await d.tree(), 'incoming-direction');
+  }
+  check('a received hit shows its direction and a compass heading', incoming?.startsWith('Hit from ') && !!node(await d.tree(), 'incoming-arrow') && text(await d.tree(), 'heading')?.startsWith('Facing '), incoming);
+  if (host !== 'linux' && incoming) await d.screenshot(resolve(out, 'incoming.png'));
+  await duel.run(9000 - elapsed);
   const me = await duel.get('player', 'Fighter'), bot = await duel.get('bot-1', 'Fighter');
   check('the bot fights back', me.hp < 100 || me.deaths > 0, me);
   const where = await duel.local_position('bot-1');
@@ -164,8 +171,9 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
 });
 
 // An authored keyboard motor aims from rendered nameplate positions. Jev
-// chooses targets and tactics from the visible HUD; neither reads enemy world
-// positions or writes the simulation. This measures decisions, not human aim.
+// chooses targets and tactics from the visible HUD and its own movement result;
+// neither reads enemy world positions or writes the simulation. This measures
+// decisions, not visual perception or human aim.
 async function playtest({open, out, say}) {
   const duel = process.argv.includes('--duel');
   const mode = duel ? 'duel' : 'drill';
@@ -176,6 +184,9 @@ async function playtest({open, out, say}) {
   const transcript = resolve(out, `jev-${mode}-decisions.jsonl`);
   writeFileSync(transcript, '');
   const recent = [];
+  const blocked = new Map();
+  const moves = ['forward','back','left','right','jump_forward'];
+  let blindTurn = 0;
   const visible = async () => {
     const [tree, layout] = await Promise.all([s.tree(), s.layout()]);
     const canvas = layout.nodes.find(n => n.testId === 'world');
@@ -200,10 +211,10 @@ async function playtest({open, out, say}) {
     }
     return true;
   };
-  for (let turn = 0; turn < (duel ? 64 : 96); turn++) {
+  for (let turn = 0; turn < (duel ? 128 : 96); turn++) {
     const {tree, contacts} = await visible();
     if (node(tree, 'drill-done') || node(tree, 'round-over')) break;
-    const state = Object.fromEntries(['hp','ammo','weapon-name','you-kills','rival-kills','drill-clock','drill-score','drill-target']
+    const state = Object.fromEntries(['hp','ammo','weapon-name','you-kills','rival-kills','drill-clock','drill-score','drill-target','heading','incoming-direction']
       .map(id => [id, text(tree,id) ?? '']));
     const choices = {wait:'Wait half a second for a respawn, reload, or target to appear'};
     if (!node(tree, 'dead')) {
@@ -212,17 +223,25 @@ async function playtest({open, out, say}) {
       if (duel) Object.assign(choices, {
         forward:'Advance for half a second', left:'Strafe left for half a second',
         right:'Strafe right for half a second', back:'Retreat for half a second',
+        jump_forward:'Jump and advance for half a second to clear low cover',
         scan:'Turn right about 35 degrees to search for an opponent',
+        scan_left:'Turn left about 35 degrees to search for an opponent',
+        turn_back:'Turn around 180 degrees to face an attack from behind',
         rifle:'Switch to the assault rifle for precise medium-range fire',
         rocket:'Switch to rockets for splash damage around cover',
       });
+      // Two observed blocked attempts remove that motor command until the
+      // player changes position or heading. A full blind turn likewise asks
+      // for a new vantage point. Jev chooses among the remaining actions.
+      for (const [action, failures] of blocked) if (failures >= 2) delete choices[action];
+      if (contacts.length) blindTurn = 0;
+      if (blindTurn >= 360) for (const action of ['scan','scan_left','turn_back']) delete choices[action];
     }
-    const decision = await decide({state:{...state, contacts, recent}, choices, transcript,
-      goal:duel ? 'Win the duel while staying alive. Shoot visible opponents, reload when ammunition is low, and move or turn to find opponents when none are visible. The motor aims only at visible nameplates; it cannot see through cover. Avoid unnecessary weapon switching.'
+    const decision = await decide({state:{...state, contacts, recent, ...(duel ? {blockedActions:[...blocked].filter(([,n])=>n>=2).map(([name])=>name), blindTurnDegrees:Math.round(blindTurn)} : {})}, choices, transcript,
+      goal:duel ? 'Win the duel while staying alive. Shoot visible opponents, reload when ammunition is low, and use the incoming-hit direction to turn toward attacks. The compass shows where you face. Recent movedMeters is your actual movement: a movement command under 0.3 metres hit an obstacle. Jump or strafe around it; do not repeat blocked steps. If repeated scanning finds nobody, move to a new position instead of spinning in place. The motor aims only at visible nameplates; it cannot see through cover. Avoid unnecessary weapon switching.'
         : 'Score as highly as possible in the thirty-second drill. Shoot the green TARGET named in the HUD, avoiding other dummies to preserve your combo. Reload when needed and wait if the requested dummy is respawning. The motor aims at your chosen nameplate.'});
     say(`JEV ${mode} ${turn+1}: ${decision.choice} · ${state['drill-score'] || `${state['you-kills']}–${state['rival-kills']} · ${state.hp} HP`}`);
-    recent.push({action:decision.choice, ammo:state.ammo, score:state['drill-score'], hp:state.hp});
-    if (recent.length > 4) recent.shift();
+    const before = duel ? await game.local_position('player') : null;
     if (decision.choice.startsWith('shoot_')) {
       for (let shot = 0; shot < 3; shot++) {
         if (!await aim(decision.choice.slice(6))) break;
@@ -231,12 +250,25 @@ async function playtest({open, out, say}) {
       }
     } else if (decision.choice === 'reload') { await game.tap('KeyR'); await game.run(2300); }
     else if (decision.choice === 'wait') await game.run(500);
+    else if (decision.choice === 'jump_forward') { await game.tap('Space'); await game.hold('KeyW', 500); }
     else if (['rifle','rocket'].includes(decision.choice)) { await game.tap(decision.choice === 'rifle' ? 'Digit1' : 'Digit2'); await game.run(300); }
-    else await game.hold({forward:'KeyW',left:'KeyA',right:'KeyD',back:'KeyS',scan:'ArrowRight'}[decision.choice], decision.choice === 'scan' ? 250 : 500);
+    else await game.hold({forward:'KeyW',left:'KeyA',right:'KeyD',back:'KeyS',scan:'ArrowRight',scan_left:'ArrowLeft',turn_back:'ArrowRight'}[decision.choice], decision.choice === 'turn_back' ? Math.PI / 2.4 * 1000 : decision.choice.startsWith('scan') ? 250 : 500);
+    const after = duel ? await game.local_position('player') : null;
+    const moved = duel ? Math.round(Math.hypot(after[0]-before[0],after[2]-before[2])*100)/100 : 0;
+    if (duel) {
+      const turning = decision.choice.startsWith('scan') || decision.choice === 'turn_back';
+      if (moved >= 0.3 || turning) blocked.clear();
+      if (moves.includes(decision.choice) && moved < 0.3) blocked.set(decision.choice,(blocked.get(decision.choice)??0)+1);
+      if (moved >= 1 || contacts.length) blindTurn = 0;
+      else if (turning) blindTurn += decision.choice === 'turn_back' ? 180 : 2.4 * 0.25 * 180 / Math.PI;
+    }
+    recent.push({action:decision.choice, ammo:state.ammo, score:state['drill-score'], hp:state.hp, heading:state.heading, visible:contacts.length,
+      ...(duel ? {movedMeters:moved} : {})});
+    if (recent.length > 4) recent.shift();
     if (turn === 9) await s.screenshot(resolve(out, `jev-${mode}-playing.png`));
   }
   const tree = await s.tree();
-  const result = {mode, score:text(tree,'drill-score'), done:!!node(tree,'drill-done'), hp:text(tree,'hp'),
+  const result = {mode, score:text(tree,'drill-score'), done:!!node(tree,'drill-done') || !!node(tree,'round-over'), hp:text(tree,'hp'),
     playerKills:text(tree,'you-kills'), rivalKills:text(tree,'rival-kills'), world:await game.snapshot()};
   say(`JEV outcome: ${JSON.stringify({...result,world:undefined})}`);
   writeFileSync(resolve(out, `jev-${mode}-outcome.json`), JSON.stringify(result,null,2));

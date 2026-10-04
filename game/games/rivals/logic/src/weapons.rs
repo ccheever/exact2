@@ -77,6 +77,8 @@ pub struct Damage {
     pub head: bool,
     pub weapon: Weapon,
     pub killed: bool,
+    /// Where this shot, swing or explosion came from when it hit.
+    pub origin: Vec3,
 }
 
 /// Fighter slot behind a ray or overlap hit, if the entity is a fighter.
@@ -125,6 +127,7 @@ pub fn damage(
     amount: f32,
     head: bool,
     weapon: Weapon,
+    origin: Vec3,
 ) -> Option<Damage> {
     let mut f = w.get_mut::<Fighter>(victim)?;
     if !f.alive || amount <= 0.0 {
@@ -150,6 +153,7 @@ pub fn damage(
         head,
         weapon,
         killed,
+        origin,
     })
 }
 
@@ -215,7 +219,7 @@ pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> 
                 let centre = w.require::<Transform>(victim).position;
                 let head = point.y - centre.y >= HEAD_FROM;
                 let amount = RIFLE_BODY * if head { HEAD_MULTIPLIER } else { 1.0 };
-                out.extend(damage(w, slot, victim, amount, head, Weapon::Rifle));
+                out.extend(damage(w, slot, victim, amount, head, Weapon::Rifle, origin));
             }
             {
                 let mut f = w.require_mut::<Fighter>(e);
@@ -263,7 +267,15 @@ pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> 
                 let victim_yaw = w.require::<Fighter>(victim).yaw;
                 let behind = fighter::forward(victim_yaw).dot(fighter::forward(yaw)) > 0.5;
                 let amount = if behind { BACKSTAB } else { KNIFE_DAMAGE };
-                out.extend(damage(w, slot, victim, amount, false, Weapon::Knife));
+                out.extend(damage(
+                    w,
+                    slot,
+                    victim,
+                    amount,
+                    false,
+                    Weapon::Knife,
+                    origin,
+                ));
             }
         }
     }
@@ -380,7 +392,7 @@ pub fn explode(w: &mut World, owner: u32, at: Vec3, direct: Option<Entity>) -> V
                 c.velocity.y = c.velocity.y.max(kick.y.max(0.0) * 0.6 + 2.5 * falloff);
             }
         }
-        out.extend(damage(w, owner, victim, amount, false, Weapon::Rocket));
+        out.extend(damage(w, owner, victim, amount, false, Weapon::Rocket, at));
     }
     w.spawn((
         Transform::at(at.x, at.y, at.z).with_scale(0.4),

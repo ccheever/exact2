@@ -23,6 +23,11 @@ the next one: each correct elimination earns 100 points times your combo (up to
 to their own lanes after two seconds. **Try again** starts a fresh drill. Visible
 opponents show their name and health; cover hides their labels.
 
+A compass reports the direction you face. After taking damage, a red arrow and
+`Hit from …` label point toward that shot or explosion for two seconds. Turning
+changes the relative direction; the marker remembers the hit's origin rather
+than tracking an attacker behind cover.
+
 | | |
 |---|---|
 | Look | mouse (a click captures it; Esc releases), or the arrow keys |
@@ -68,8 +73,12 @@ fixed rates for the tick-rate experiments.
 With `AI_GATEWAY_API_KEY` in the environment, run
 `bun game/games/rivals/proof.mjs web --playtest` (or `macos`). Add `--duel` for a
 moving opponent. Jev chooses targets and tactics from the visible HUD. An authored
-keyboard motor aims from rendered nameplate positions; neither reads enemy world
-positions. Transcripts and screenshots land under `artifacts/<host>/`. These are
+keyboard motor aims from rendered nameplate positions. The controller also reads
+the player's own movement distance to recognize blocked steps: after two failures
+it removes that move until position or heading changes, and after a full blind
+turn it requires a new vantage point. Jev chooses from the remaining actions;
+neither reads enemy world positions. Transcripts and screenshots land under
+`artifacts/<host>/`. These are
 exploratory decision tests, not deterministic proofs or measurements of human aim.
 
 ![A free-for-all in progress](artifacts/web/game.png)

@@ -40,6 +40,9 @@ shape Hud
   killed_by: string
   marker: string
   hurt: bool
+  heading: string
+  incoming: string
+  incoming_angle: number
   over: bool
   winner: string
   you_won: bool
@@ -103,6 +106,11 @@ component Rivals
                   column width=(c.hp * 0.64) height=3 background-color=(c.target ? "#bef264" : "#ff8a8a")
           when hud.hurt
             column testId="hurt" position="absolute" inset=0 pointer-events="none" border-width=10 border-color="#e5484d88"
+          when hud.incoming != ""
+            column testId="incoming-arrow" position="absolute" top="50%" left="50%" width=180 height=180 margin-left=-90 margin-top=-90 rotate=hud.incoming_angle pointer-events="none"
+              text "▲" position="absolute" top=0 left=78 width=24 line-height=1 font-size=24 color="#ff6b6b" text-align="center"
+            text hud.incoming testId="incoming-direction" position="absolute" top=140 left="50%" width=280 margin-left=-146 padding=6 border-radius=6 background-color="#10141be6" text-align="center" color="#ff8a8a" font-weight=800 pointer-events="none"
+          text `Facing ${hud.heading}` testId="heading" position="absolute" top=106 left="50%" width=220 margin-left=-116 padding=6 border-radius=6 background-color="#10141be6" text-align="center" font-size=13 color="#f5f7fa" font-weight=700 pointer-events="none"
           column position="absolute" top="50%" left="50%" width=40 height=40 margin-left=-20 margin-top=-20 align-items="center" justify-content="center" pointer-events="none"
             text (hud.marker == "" ? "+" : "×") testId="crosshair" line-height=1 font-size=(hud.marker == "" ? 26 : 34) font-weight=700 color=(hud.marker == "kill" ? "#ff4d4f" : hud.marker == "head" ? "#ffd33d" : hud.marker == "body" ? "#ffffff" : "#ffffffcc")
           column testId="marks" position="absolute" top="50%" left="50%" margin-left=28 margin-top=-64 gap=2 pointer-events="none"

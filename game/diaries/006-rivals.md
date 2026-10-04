@@ -487,3 +487,62 @@ a moving checkout does not invalidate a replay in progress.
 The final Linux/web collector passed normal, Save and FreshGame runs and native
 release again with all four pins unchanged; macOS matches the accepted input
 digest and pins. The warm `bun game/prove.mjs rivals` also passes.
+
+## Combat feedback and closed-loop decisions — 2026-10-04
+
+Main was refreshed through `2e49129cb` before this pass. The previous duel's 55
+blind scans suggested two separate needs: useful game feedback, and action results
+that tell the controller whether its movement happened.
+
+The game now shows a compass and a two-second incoming-damage direction, both an
+arrow around the crosshair and readable text. A hit stores its actual origin:
+rifle and knife use the firing/swinging point; rockets use the explosion. The
+marker turns with the player but never follows an enemy behind cover. Tests cover
+all eight directions, an attacker moving afterward, a rocket blast, hiding while
+dead, expiry and byte-identical continuation after save/restore. All 23 enabled
+game tests pass. One test compile round needed an explicit `f32` on its expected
+angle. No new engine operation was needed: ordinary saved data, `publish_record`
+and Contract rotation express the feature. The full engine tests also pass after
+main's input-origin changes.
+
+The first new screenshot exposed poor compass contrast against a dark wall. Both
+compass and damage text now have a dark backing panel and light text.
+
+Three controller trials, with the same seeded duel:
+
+| Trial | Decisions | Result | What it did |
+|---|---:|---|---|
+| A: heading, incoming damage, turn-left/back choices | 64 | 0–1, unfinished | 58 forward commands, walking into cover; 1 scan and 1 shoot |
+| B: own movement distance and a jump option | 64 | 1–2, unfinished | 28 forward commands, then 20 jump-forward commands; still repeated blocked actions |
+| C: remove twice-blocked moves until pose changes; move after a full blind turn | 86 | 1–5, round complete | 51 forward, 12 scans, 2 strafes, 5 shoot, 1 turn-back, 15 respawn waits |
+| C on macOS, separate Jev decisions | 86 | 0–5, round complete | 57 forward, 7 scans, 3 strafes, 3 shoot, 1 turn-back, 15 waits |
+
+Trial B adds proprioception: the controller reads only the player's own position
+before and after an action and reports horizontal `movedMeters`. It still gets no
+enemy world positions. Trial C is an explicit authored motor policy, not a hidden
+model improvement: blocked choices disappear from Jev's available actions after
+two observed failures. The full-turn rule prevents indefinite stationary search.
+The budget grew from 64 to 128 decisions to allow a whole round; both final runs
+ended naturally at 86. The final outcome now recognizes a duel's round-over screen
+as `done`, as it already recognized drill completion.
+
+Gateway latency (median / p95): A **301 / 533 ms**, B **316 / 906 ms**, C web
+**356 / 645 ms**, C macOS **368 / 898 ms**. C used 85,719 / 7,455 input/output tokens
+on web and 85,693 / 7,457 on macOS. These are paused-clock decisions; model wall
+time does not give the bot extra simulation time. Different Jev choices are not a
+cross-host determinism test.
+
+The limit remains combat control. The motor turns with the keyboard at 2.4 rad/s,
+so a large aim correction can consume the bot's entire time-to-kill before firing.
+This controller is a poor stand-in for a person's mouse flick. Three trials are
+enough for this tuning loop: it does not establish a capable arena player. The
+next useful measurement is action-to-shot simulation time and a real mouse-driven
+motor, separately from tactical changes. Do not lower bot difficulty just to get a
+green win rate.
+
+The regular Chrome runs again left GoogleUpdater descendants after browser exit,
+failing cleanup independently of their gameplay results. The existing `CHROME`
+override selected the already-installed Chrome for Testing **153.0.8010.12** for
+C; its descendant audit passed, as did the native run's. No cleanup assertion was
+removed and no process-name kill was used. Artifacts are under
+`artifacts/jev-direction-web-{a,b,c}/` and `artifacts/jev-direction-macos/`.

@@ -115,6 +115,12 @@ guide's rules don't make obvious.
 
 ## Driving and testing
 
+- **A headless game proof reports surviving GoogleUpdater processes after Chrome closes.**
+  The regular macOS Chrome launched updater descendants despite its isolated
+  profile and disabled background/component updates. Use the existing `CHROME`
+  override to select an installed Chrome for Testing executable; the Rivals
+  duel then passed the same descendant cleanup check. Do not remove that check
+  to accept the leak. (Rivals diary 006, 2026-10-04.)
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
   `scripts/agent.mjs` for dates that read as intended and stay reproducible.

@@ -11,6 +11,42 @@ pub const RESPAWN: f32 = 2.0;
 pub const OVER: f32 = 4.0;
 const FEED_LIFE: f32 = 6.0;
 const MARK_LIFE: f32 = 0.7;
+const INCOMING_LIFE: f32 = 2.0;
+
+/// The last hit's origin, not the attacker's current position.
+#[derive(Clone, Debug, Default, Data)]
+pub struct Incoming {
+    pub origin: Vec3,
+    pub until: f32,
+}
+
+impl Incoming {
+    /// Clockwise degrees from the player's view and a readable eight-way name.
+    pub fn bearing(&self, position: Vec3, yaw: f32) -> (f32, &'static str) {
+        let to = self.origin - position;
+        let forward = fighter::forward(yaw);
+        let right = Vec3::new(-forward.z, 0.0, forward.x);
+        let angle = exact_game::math::atan2(to.dot(right), to.dot(forward));
+        let sector = (angle / std::f32::consts::FRAC_PI_4).round() as i32;
+        let name = [
+            "front",
+            "front-right",
+            "right",
+            "back-right",
+            "back",
+            "back-left",
+            "left",
+            "front-left",
+        ][sector.rem_euclid(8) as usize];
+        (angle.to_degrees().round(), name)
+    }
+}
+
+pub fn heading(yaw: f32) -> String {
+    let degrees = ((-yaw.to_degrees() / 5.0).round() as i32 * 5).rem_euclid(360);
+    let name = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][((degrees + 22) / 45 % 8) as usize];
+    format!("{name} · {degrees}°")
+}
 
 #[derive(Clone, Debug, Default, Data)]
 pub struct Feed {
@@ -45,6 +81,7 @@ pub struct Round {
     pub marker_head: bool,
     pub marker_kill: bool,
     pub hurt_until: f32,
+    pub incoming: Option<Incoming>,
     pub killed_by: String,
     /// Every landed hit this round, for tests and the agent.
     pub log: Vec<Damage>,
@@ -131,6 +168,10 @@ pub fn score(w: &mut World, hits: Vec<Damage>) {
         }
         if hit.victim == 1 {
             r.hurt_until = now + 0.3;
+            r.incoming = Some(Incoming {
+                origin: hit.origin,
+                until: now + INCOMING_LIFE,
+            });
             if hit.killed {
                 r.killed_by = if hit.attacker == 1 {
                     "yourself".into()
@@ -144,6 +185,9 @@ pub fn score(w: &mut World, hits: Vec<Damage>) {
     let mut r = w.resource_mut::<Round>();
     r.feed.retain(|f| f.until > now);
     r.marks.retain(|m| m.until > now);
+    if r.incoming.as_ref().is_some_and(|hit| hit.until <= now) {
+        r.incoming = None;
+    }
 }
 
 /// Respawn the dead whose timer ran out, at the safest spawn.
