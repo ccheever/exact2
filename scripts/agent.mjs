@@ -1259,7 +1259,10 @@ export function typeArguments(args) {
  * operations use. One session per file; a failed expect names the test, the
  * line, and what was seen. Returns `{ passed, failed, results }`.
  */
-export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch } = {}) {
+/** Authored tests (LLP 1017 P7). Each test is a session of its own from the first frame, with app storage
+ * of its own: a fresh scratch store, named `<storage>-<run>-<n>` where a store outlives its drive (native),
+ * so an app that keeps its data in storage loads, and no test sees another's or an earlier run's writes. */
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, storage = 'test' } = {}) {
   const root = resolve(new URL('..', import.meta.url).pathname);
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
@@ -1267,9 +1270,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   const tests = JSON.parse(c.stdout);
   const results = [];
   // Every test starts from the first frame: a session of its own.
-  for (const t of tests) {
+  const run = `${process.pid.toString(36)}${Date.now().toString(36)}`;
+  for (const [n, t] of tests.entries()) {
     const failures = [];
-    const s = await open({ host, browser, plan, size, env, app, webDist, device, phone, url, seed, locale, timeZone, epoch });
+    const store = host === 'web' ? storage : `${storage}-${run}-${n}`;
+    const s = await open({ host, browser, plan, size, env, app, webDist, device, phone, url, seed, locale, timeZone, epoch, storage: store });
     try {
       for (const st of t.steps) {
         const at = `${t.name}: line ${st.line}`;
@@ -1324,7 +1329,7 @@ async function main(argv) {
   const browser = flags.browser ?? (host === 'web' ? process.env.EXACT_WEB_BROWSER : undefined);
   if (host && flags.test) {
     if (flags.touch && flags.touch !== 'agent') throw new Error('--test runs its own sessions, without real touches: --touch platform is not supported with --test (LLP 1080.000)');
-    const r = await runTests({ host, browser, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
+    const r = await runTests({ host, browser, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, storage: flags.storage });
     for (const t of r.results) {
       console.log(`test "${t.name}": ${t.failures.length ? 'FAIL' : 'ok'}`);
       for (const f of t.failures) console.error('  ' + f);
