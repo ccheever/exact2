@@ -1067,7 +1067,7 @@ fn overflow(v: Overflow) -> taffy::style::Overflow {
     match v {
         Overflow::Visible => taffy::style::Overflow::Visible,
         Overflow::Hidden => taffy::style::Overflow::Hidden,
-        Overflow::Scroll => taffy::style::Overflow::Scroll,
+        Overflow::Scroll | Overflow::Auto => taffy::style::Overflow::Scroll,
     }
 }
 
@@ -1255,8 +1255,7 @@ impl StyleProps {
             overflow(self.overflow_y)
         };
         // CSS Overflow §3: when one axis is not `visible`, a `visible` other
-        // axis computes to `auto`. The schema has no `auto`; `scroll` is its
-        // stand-in (Taffy's sizing is the same). Symmetric, either axis.
+        // axis computes to `auto`, mapped to Taffy's `Scroll` for sizing.
         let mut overflow_x = overflow(self.overflow_x);
         let mut overflow_y = overflow_y;
         use taffy::style::Overflow as O;

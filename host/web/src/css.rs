@@ -216,8 +216,8 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     // cannot replace a modern flex/grid/hidden box or a scroller.
                     // Keep those authored semantics; unsupported clamp is named.
                     if style.display != Display::Block
-                        || style.overflow_x == Overflow::Scroll
-                        || style.overflow_y == Overflow::Scroll
+                        || matches!(style.overflow_x, Overflow::Scroll | Overflow::Auto)
+                        || matches!(style.overflow_y, Overflow::Scroll | Overflow::Auto)
                     {
                         skipped.push(Skipped {
                             row: id,

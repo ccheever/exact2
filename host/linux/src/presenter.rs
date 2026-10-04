@@ -1182,7 +1182,9 @@ impl<D: DataSource> Presenter<D> {
                 )
             });
             let (ox, oy) = bounds.axes;
-            if ox == Overflow::Scroll || oy == Overflow::Scroll {
+            if matches!(ox, Overflow::Scroll | Overflow::Auto)
+                || matches!(oy, Overflow::Scroll | Overflow::Auto)
+            {
                 let max = bounds.max;
                 let off = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
                 let takes = |scrolls: bool, d: f32, off: f32, max: f32| {
@@ -1191,8 +1193,18 @@ impl<D: DataSource> Presenter<D> {
                         && max > 0.0
                         && ((d > 0.0 && off < max) || (d < 0.0 && off > 0.0))
                 };
-                let take_x = takes(ox == Overflow::Scroll, dx, off.0, max.0);
-                let take_y = takes(oy == Overflow::Scroll, dy, off.1, max.1);
+                let take_x = takes(
+                    matches!(ox, Overflow::Scroll | Overflow::Auto),
+                    dx,
+                    off.0,
+                    max.0,
+                );
+                let take_y = takes(
+                    matches!(oy, Overflow::Scroll | Overflow::Auto),
+                    dy,
+                    off.1,
+                    max.1,
+                );
                 if take_x || take_y {
                     let nx = if take_x {
                         (off.0 + dx).clamp(0.0, max.0)

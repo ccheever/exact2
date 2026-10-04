@@ -493,7 +493,7 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     let y = if s.mask.has(StyleId::OverflowY) {
         s.overflow_y
     } else if node.node_type.scrolls_by_default() {
-        Overflow::Scroll
+        Overflow::Auto
     } else {
         Overflow::Visible
     };
@@ -504,11 +504,11 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     };
     let mut y = y;
     // Symmetric, as the kernel computes: a `visible` axis beside a
-    // non-visible one is scrollable (CSS's `auto`; the schema has no `auto`).
+    // non-visible one computes to `auto` (CSS Overflow §3).
     if x == Overflow::Visible && y != Overflow::Visible {
-        x = Overflow::Scroll;
+        x = Overflow::Auto;
     } else if y == Overflow::Visible && x != Overflow::Visible {
-        y = Overflow::Scroll;
+        y = Overflow::Auto;
     }
     (x, y)
 }
@@ -759,6 +759,7 @@ pub fn style_json_presented(
         Overflow::Visible => "visible",
         Overflow::Hidden => "hidden",
         Overflow::Scroll => "scroll",
+        Overflow::Auto => "auto",
     };
     if x != Overflow::Visible || y != Overflow::Visible {
         let head = format!(

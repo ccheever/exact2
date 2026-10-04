@@ -1143,3 +1143,17 @@ fn corner_radii_refuse_negative_nonfinite_lengths_percentages_and_auto() {
         assert!(contract::compile(&source).is_err(), "{value}");
     }
 }
+
+#[test]
+fn overflow_auto_is_a_scroll_container_on_either_axis() {
+    let r = boot("component App\n  view\n    column\n      box overflow=\"auto\" testId=\"both\"\n      box overflow-x=\"auto\" testId=\"x\"\n      box overflow-y=\"auto\" testId=\"y\"\n");
+    use exact_kernel::Overflow;
+    assert_eq!(style_of(&r, "both").overflow_x, Overflow::Auto);
+    assert_eq!(style_of(&r, "both").overflow_y, Overflow::Auto);
+    for name in ["both", "x", "y"] {
+        assert!(matches!(
+            style_of(&r, name).overflow_x,
+            Overflow::Auto | Overflow::Visible
+        ));
+    }
+}

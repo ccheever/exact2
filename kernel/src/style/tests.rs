@@ -584,3 +584,18 @@ fn segment_lengths_round_trip_the_wire() {
     let mut r = Reader::new(&[8, 0, 0, 0, 0, 16, 0]);
     assert!(r.dimension(StyleId::Width, true).is_err());
 }
+
+#[test]
+fn overflow_auto_has_scroll_sizing_and_zero_automatic_minimum() {
+    let mut s = StyleProps::default();
+    s.set_dynamic(StyleId::OverflowX, &StyleValue::Text("auto".into()))
+        .unwrap();
+    let t = s.to_taffy(NodeType::View, &Env::default());
+    assert_eq!(
+        (t.overflow.x, t.overflow.y),
+        (
+            taffy::style::Overflow::Scroll,
+            taffy::style::Overflow::Scroll
+        )
+    );
+}

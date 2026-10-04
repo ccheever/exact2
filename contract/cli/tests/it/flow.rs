@@ -17,7 +17,6 @@ fn auto_values_follow_each_rows_codec_and_vocabulary() {
     // @ref LLP 1017.000 P1a — enum keywords use the kernel's vocabulary.
     for (property, reason) in [
         ("display", "one of \"block\", \"flex\", \"grid\", \"none\""),
-        ("overflow", "one of \"visible\", \"hidden\", \"scroll\""),
         ("font-size", "number"),
         ("opacity", "number"),
     ] {
@@ -30,7 +29,7 @@ fn auto_values_follow_each_rows_codec_and_vocabulary() {
         );
     }
     contract::compile(&source(
-        "width=\"auto\" height=\"auto\" caret-color=\"auto\" wrap-flow=\"auto\" touch-action=\"auto\"",
+        "overflow=\"auto\" width=\"auto\" height=\"auto\" caret-color=\"auto\" wrap-flow=\"auto\" touch-action=\"auto\"",
     ))
     .unwrap();
 }

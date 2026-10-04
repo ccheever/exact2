@@ -522,3 +522,7 @@ For learning, continue with the [human guide](contract-for-humans.md). For exact
 syntax and vocabulary, use the [grammar reference](contract-grammar.md). For a
 new feature, start from the corresponding compiler fixture rather than memory
 of JavaScript, React Native, or the predecessor's Contract language.
+
+CSS overflow accepts `visible`, `hidden`, `scroll`, and `auto`. `auto` clips and
+permits scrolling, with indicators shown only when content overflows. A visible
+axis beside hidden/scroll/auto computes to auto, as on the web.

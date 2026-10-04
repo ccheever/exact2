@@ -133,6 +133,8 @@ impl Em<'_> {
                 if display.is_some_and(|d| d != "block")
                     || parts.css.contains("overflow-x:scroll")
                     || parts.css.contains("overflow-y:scroll")
+                    || parts.css.contains("overflow-x:auto")
+                    || parts.css.contains("overflow-y:auto")
                 {
                     self.warnings.push(format!(
                         "node {i}: style row line_clamp skipped: legacy line-clamp requires a non-scrolling block"
