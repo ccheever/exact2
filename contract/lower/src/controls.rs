@@ -488,6 +488,7 @@ const NATIVE_ROWS: &[StyleId] = &[
     StyleId::Opacity,
     StyleId::Visibility,
     StyleId::Translate,
+    StyleId::TranslatePercent,
     StyleId::TranslateZ,
     StyleId::Scale,
     StyleId::Rotate,

@@ -652,10 +652,12 @@ handles of the types `file_handlers` declares. See
 
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
 `Geometry`. Handle `unavailable` and `provisional`. `frame` reads the last layout's border box
-where the viewer sees it, as `getBoundingClientRect` does: in the viewport, with every
-scroll offset above it (the page's too) applied, but untransformed, so a drop target
-needs no scroll bookkeeping; `measure` reads an auto-height hypothetical layout at
-the same origin.
+where the viewer sees it, as `getBoundingClientRect` does: in the viewport, through
+every `translate`, `rotate` and `scale` on it and above it (the bounding box of a
+turned box), with every scroll offset above it (the page's too) applied, so a drop
+target needs no scroll bookkeeping and a dragged card is where it shows. Natively a
+transform in flight counts at its end value; the web reads it mid-flight. `measure`
+reads an auto-height hypothetical layout at the same origin.
 Neither is a computed style binding to run every render.
 
 SVG uses SVG names. `foreignObject` compiles and renders on the web; native hosts
@@ -884,6 +886,12 @@ border radii) accept `vw`, `vh`, `vmin`, `vmax`, and `svw/svh/lvw/lvh/dvw/dvh`.
 On native, all viewport variants follow the window; on web, CSS resolves
 small/large/dynamic viewports. Scalar lengths such as font size and gap do
 not yet accept viewport units.
+
+`translate` takes one or two lengths, each in px or a percentage of the box's own
+border box, as CSS's does: `left="50%" top="50%" translate="-50% -50%"` on an
+absolute box centres it, a percentage follows the box's size, and transitions and
+keyframes interpolate the two parts as CSS does a `calc()`. `calc()` itself is
+refused.
 
 Transitions animate translate/scale/rotate/opacity, box paint (color,
 background-color, border colors, tint-color, box-shadow), SVG paint/geometry

@@ -176,10 +176,21 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                 num_into(&mut out, *n as f32);
                 out.push_str("deg;");
             }
-            (StyleId::Translate, RowValue::Vec2(v)) if style.translate_z != 0.0 => {
+            // A percentage is of the box's own border box, which the browser
+            // resolves (chess diary #4); an axis with both is a `calc()`.
+            (StyleId::Translate, RowValue::Vec2(v))
+                if style.translate_z != 0.0
+                    || style.translate_percent.x != 0.0
+                    || style.translate_percent.y != 0.0 =>
+            {
                 out.push_str("translate:");
-                for n in [v.x, v.y, style.translate_z] {
-                    num_into(&mut out, n);
+                let pct = style.translate_percent;
+                for (px, pct) in [(v.x, pct.x), (v.y, pct.y)] {
+                    translate_axis(&mut out, px, pct);
+                    out.push(' ');
+                }
+                if style.translate_z != 0.0 {
+                    num_into(&mut out, style.translate_z);
                     out.push_str("px ");
                 }
                 out.pop();
@@ -278,7 +289,7 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             }
             // Written with `rotate` and `translate` (LLP 1077 D8), never alone:
             // nothing of their own to write, and nothing skipped (kanban F30).
-            (StyleId::RotateAxis | StyleId::TranslateZ, _) => {}
+            (StyleId::RotateAxis | StyleId::TranslateZ | StyleId::TranslatePercent, _) => {}
             _ if lowered(id, &value) => {
                 property(&mut out, id);
                 out.push(':');
@@ -460,6 +471,27 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
 
 /// The row's CSS property, appended: its name with `-` for `_`, but for the
 /// few spelled here.
+/// One `translate` axis: a length, a percentage, or `calc()` of both.
+pub(crate) fn translate_axis(out: &mut String, px: f32, pct: f32) {
+    match (px, pct) {
+        (_, 0.0) => {
+            num_into(out, px);
+            out.push_str("px");
+        }
+        (0.0, _) => {
+            num_into(out, pct);
+            out.push('%');
+        }
+        _ => {
+            out.push_str("calc(");
+            num_into(out, px);
+            out.push_str("px + ");
+            num_into(out, pct);
+            out.push_str("%)");
+        }
+    }
+}
+
 fn property(out: &mut String, id: StyleId) {
     // Every node's every row asks: each name is spelled once per process.
     static NAMES: [std::sync::OnceLock<String>; 256] = [const { std::sync::OnceLock::new() }; 256];
@@ -1115,6 +1147,17 @@ mod declaration_tests {
         );
         assert!(text.contains("rotate:y 30deg;"), "{text}");
         assert!(text.contains("translate:1px 2px 3px;"), "{text}");
+        // Chess diary #4: a percentage is the browser's to resolve.
+        let text = css(
+            &[
+                (StyleId::Translate, t("-50% 4px")),
+                (StyleId::TranslatePercent, t("-50% 4px")),
+                (StyleId::TranslateZ, t("-50% 4px")),
+            ],
+            &[],
+        );
+        assert!(text.contains("translate:-50% 4px;"), "{text}");
+        assert_eq!(text.matches("translate").count(), 1, "{text}");
         assert!(text.contains("perspective:800px;"), "{text}");
         assert_eq!(text.matches("rotate").count(), 1, "{text}");
     }

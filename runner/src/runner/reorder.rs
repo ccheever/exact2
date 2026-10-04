@@ -59,7 +59,10 @@ impl<D: DataSource> Runner<D> {
             if at.style.rotate != 0.0
                 || at.style.scale != 1.0
                 || (at.key != binding.wrapper
-                    && (at.style.translate.x != 0.0 || at.style.translate.y != 0.0))
+                    && (at.style.translate.x != 0.0
+                        || at.style.translate.y != 0.0
+                        || at.style.translate_percent.x != 0.0
+                        || at.style.translate_percent.y != 0.0))
             {
                 return None;
             }

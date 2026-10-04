@@ -229,12 +229,13 @@ impl Property {
         )
     }
 
-    /// How many components the value carries: two for `translate`, three
-    /// for `box-shadow`'s geometry, four for a colour and for `layout`'s box,
-    /// else one.
+    /// How many components the value carries: four for `translate` (its x
+    /// and y lengths, then its x and y percentages of the box, which CSS
+    /// interpolates componentwise as a `calc()`), three for `box-shadow`'s
+    /// geometry, four for a colour and for `layout`'s box, else one.
     pub fn components(self) -> usize {
         match self {
-            Property::Translate => 2,
+            Property::Translate => 4,
             Property::BoxShadow => 3,
             Property::Layout => 4,
             p if p.is_color() => 4,
@@ -272,10 +273,11 @@ pub struct Value {
     pub x: f64,
     /// Second component (`translate`'s y; premultiplied green).
     pub y: f64,
-    /// Third component (a shadow's blur; premultiplied blue; a layout box's
-    /// width).
+    /// Third component (`translate`'s x percentage; a shadow's blur;
+    /// premultiplied blue; a layout box's width).
     pub z: f64,
-    /// Fourth component (a colour's alpha; a layout box's height).
+    /// Fourth component (`translate`'s y percentage; a colour's alpha; a
+    /// layout box's height).
     pub w: f64,
 }
 

@@ -472,11 +472,15 @@ impl Resolver<'_, '_> {
     /// The element's transform, or `None` when every part is the identity.
     fn transform(&self, node: &NodeRef<'_>, style: &StyleProps, vp: Viewport) -> Option<Transform> {
         let key = node.key;
-        let translate = self
-            .value(key, Property::Translate)
-            .map_or((style.translate.x, style.translate.y), |v| {
-                (v.x as f32, v.y as f32)
-            });
+        // Lengths, then percentages of the reference box (CSS Transforms 1
+        // §4, as `transform-origin`'s; chess diary #4).
+        let (translate, percent) = self.value(key, Property::Translate).map_or(
+            (
+                (style.translate.x, style.translate.y),
+                (style.translate_percent.x, style.translate_percent.y),
+            ),
+            |v| ((v.x as f32, v.y as f32), (v.z as f32, v.w as f32)),
+        );
         let rotate = self
             .value(key, Property::Rotate)
             .map_or(style.rotate, |v| v.x as f32);
@@ -488,6 +492,7 @@ impl Resolver<'_, '_> {
         // identity: a host that plays the animation itself needs somewhere
         // to play it (Apple's transform pair, LLP 1055.001).
         if translate == (0.0, 0.0)
+            && percent == (0.0, 0.0)
             && rotate == 0.0
             && scale == 1.0
             && tf::is_identity(matrix)
@@ -517,6 +522,10 @@ impl Resolver<'_, '_> {
                 (x - half, y - half, w + 2.0 * half, h + 2.0 * half)
             }
         };
+        let translate = (
+            translate.0 + percent.0 / 100.0 * reference.2,
+            translate.1 + percent.1 / 100.0 * reference.3,
+        );
         Some(Transform {
             origin: origin.point(reference),
             translate,

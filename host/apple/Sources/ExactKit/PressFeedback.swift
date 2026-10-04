@@ -96,6 +96,13 @@ extension NodeView {
         PressClock.shared.run(self)
     }
 
+    /// The used `translate`: its lengths, and its percentages of the border
+    /// box resolved against the box as it stands now, as CSS resolves them,
+    /// so a box that changes size stays where `-50% -50%` puts it.
+    var translate: CGPoint {
+        CGPoint(x: translatePx.x + translatePercent.x / 100 * bounds.width, y: translatePx.y + translatePercent.y / 100 * bounds.height)
+    }
+
     /// `transform-origin` in the box's own coordinates (LLP 1061 D6): each
     /// axis points or `{"pct": n}` of the border box; the centre when unset.
     var transformOriginPoint: CGPoint {

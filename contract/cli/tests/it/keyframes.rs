@@ -498,3 +498,67 @@ fn a_bare_hex_color_is_its_quoted_string_and_another_hash_says_why() {
         );
     }
 }
+
+/// Chess diary #4: `translate` takes percentages of the box's own border
+/// box, as CSS does — in an attribute, bound to state, and in a keyframe —
+/// and the engine's `translate` carries them beside the lengths (x, y, then
+/// percentages), interpolated componentwise as CSS interpolates `calc()`.
+#[test]
+fn translate_takes_percentages_of_the_box_everywhere_it_takes_lengths() {
+    let source = "keyframes slide\n  from translate=\"-50% 0\"\n  to translate=\"10px 25%\"\ncomponent App\n  state wide = false\n  action widen\n    wide = true\n  view\n    column\n      box testId=\"centred\" position=\"absolute\" left=\"50%\" top=\"50%\" width=120 height=40 translate=\"-50% -50%\"\n      box testId=\"bound\" width=80 height=10 translate=wide ? \"12px -100%\" : \"0\"\n      box testId=\"slides\" width=10 height=10 animation=\"slide 1s\"\n      button testId=\"widen\" press=widen\n        text \"w\"\n";
+    let mut r = booted(source);
+    let rows = |r: &Runner<NoData>, id: &str| {
+        let k = r.kernel();
+        let s = k.node_by_key(k.find_by_test_id(id)[0]).unwrap().style;
+        (
+            (s.translate.x, s.translate.y),
+            (s.translate_percent.x, s.translate_percent.y),
+            exact_kernel::motion::targets(s)[0].1,
+        )
+    };
+    assert_eq!(
+        rows(&r, "centred"),
+        (
+            (0.0, 0.0),
+            (-50.0, -50.0),
+            Value::four(0.0, 0.0, -50.0, -50.0)
+        )
+    );
+    assert_eq!(rows(&r, "bound").1, (0.0, 0.0));
+    let k = r.kernel();
+    let widen = k.node_by_key(k.find_by_test_id("widen")[0]).unwrap().id;
+    r.dispatch(widen, Event::Press).unwrap();
+    assert_eq!(
+        rows(&r, "bound"),
+        (
+            (12.0, 0.0),
+            (0.0, -100.0),
+            Value::four(12.0, 0.0, 0.0, -100.0)
+        )
+    );
+    let (_, row) = animation(&r, "slides");
+    let frames: Vec<_> = row.0[0].keyframes.0.iter().map(|f| f.values[0]).collect();
+    assert_eq!(
+        frames,
+        [
+            (Property::Translate, Value::four(0.0, 0.0, -50.0, 0.0)),
+            (Property::Translate, Value::four(10.0, 0.0, 0.0, 25.0)),
+        ]
+    );
+    // CSS text for the web's keyframe rules: the browser resolves them.
+    assert_eq!(
+        exact_motion::animation::value_css(Property::Translate, frames[1].1),
+        "10px 25%"
+    );
+    assert_eq!(
+        exact_motion::animation::value_css(Property::Translate, Value::four(-4.0, 0.0, -50.0, 0.0)),
+        "calc(-4px + -50%) 0px"
+    );
+    for refused in ["-50%%", "calc(10px + 5%)", "50% 50% 10%"] {
+        let error = contract::compile(&format!(
+            "component App\n  view\n    box translate=\"{refused}\"\n"
+        ))
+        .unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{refused}: {error:?}");
+    }
+}

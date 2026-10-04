@@ -122,8 +122,10 @@ pixel snapping, patterned borders and compound shorthand values remain unverifie
 or unsupported; these checks do not establish all CSS border painting.
 
 **Motion rows (2026-08-28, LLP 1002/1003).** The animatable rows carry CSS's
-individual transform property names — `translate` (vec2), `scale`, `rotate`
-(degrees) — beside `opacity`, and a `transition` row (codec `transitions`, bit 82)
+individual transform property names — `translate` (vec2, with its percentages
+of the border box in `translate_percent`, 2026-10-04: the engine's `translate`
+value is the four, lengths then percentages, and a presenter resolves them
+against the box it paints), `scale`, `rotate` (degrees) — beside `opacity`, and a `transition` row (codec `transitions`, bit 82)
 carries CSS `transition` declarations. The row's type is `exact_motion::Transitions`;
 the kernel owns its bytes (`wire/codec.rs`) and depends on `exact-motion` for the
 type, which is the only dependency edge between the two crates. `Kernel::motion_sync`

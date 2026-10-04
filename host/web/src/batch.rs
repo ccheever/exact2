@@ -345,14 +345,15 @@ impl Batch {
 
     /// `{"op":"animate","id":…,"property":…,"delay":ms,"duration":ms,"values":[…]}`
     /// — a spring's frames, evenly spaced; `translate` values are `[x,y]`
-    /// pairs, the rest numbers. No values means stop playing the property.
+    /// pairs, `[x,y,px,py]` with percentages of the box (chess diary #4),
+    /// the rest numbers. No values means stop playing the property.
     pub fn animate(
         &mut self,
         id: u32,
         property: &str,
         delay_ms: f64,
         duration_ms: f64,
-        values: &[(f64, f64)],
+        values: &[[f64; 4]],
         pair: bool,
     ) {
         self.animate_op(None, id, property, (delay_ms, duration_ms), values, pair);
@@ -368,7 +369,7 @@ impl Batch {
         id: u32,
         property: &str,
         (delay_ms, duration_ms): (f64, f64),
-        values: &[(f64, f64)],
+        values: &[[f64; 4]],
     ) {
         let pair = property == "translate";
         self.animate_op(
@@ -387,7 +388,7 @@ impl Batch {
         id: u32,
         property: &str,
         (delay_ms, duration_ms): (f64, f64),
-        values: &[(f64, f64)],
+        values: &[[f64; 4]],
         pair: bool,
     ) {
         let mut s = text!("{{\"op\":\"animate\",\"id\":{},\"property\":", id);
@@ -402,12 +403,14 @@ impl Batch {
             delay_ms,
             duration_ms
         );
-        for (i, (x, y)) in values.iter().enumerate() {
+        for (i, [x, y, px, py]) in values.iter().enumerate() {
             if i > 0 {
                 s.push(',');
             }
             let (x, y) = (Shortest(*x), Shortest(*y));
-            if pair {
+            if pair && (*px != 0.0 || *py != 0.0) {
+                push_text!(&mut s, "[{},{},{},{}]", x, y, Shortest(*px), Shortest(*py));
+            } else if pair {
                 push_text!(&mut s, "[{},{}]", x, y);
             } else {
                 x.push_to(&mut s);

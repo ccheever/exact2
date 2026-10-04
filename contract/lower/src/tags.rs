@@ -918,9 +918,14 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1063 — how the laid-out box moves when layout moves it.
         "layout-transition" => styles(&[StyleId::LayoutTransition]),
         "interpolate-size" => styles(&[StyleId::InterpolateSize]),
-        // @ref LLP 1077 D8 — one value to two rows: x and y, and z; the
+        // @ref LLP 1077 D8 — one value to two rows: x and y (their lengths,
+        // and their percentages of the box, chess diary #4), and z; the
         // angle, and its axis.
-        "translate" => styles(&[StyleId::Translate, StyleId::TranslateZ]),
+        "translate" => styles(&[
+            StyleId::Translate,
+            StyleId::TranslatePercent,
+            StyleId::TranslateZ,
+        ]),
         "scale" => styles(&[StyleId::Scale]),
         "rotate" => styles(&[StyleId::Rotate, StyleId::RotateAxis]),
         "perspective" => styles(&[StyleId::Perspective]),

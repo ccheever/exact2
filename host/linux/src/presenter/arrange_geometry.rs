@@ -46,7 +46,7 @@ impl<D: DataSource> Presenter<D> {
                     .into_iter()
                     .any(|prop| self.host.engine().is_active(motion_node(child.key), prop))
                 || (child.key != b.wrapper
-                    && (p.translate != (0., 0.)
+                    && ((p.translate != (0., 0.) || p.translate_percent != (0., 0.))
                         || self
                             .host
                             .engine()
@@ -70,7 +70,7 @@ impl<D: DataSource> Presenter<D> {
         while let Some(id) = at {
             let node = kernel.node(id)?;
             let p = self.host.presented(id);
-            if p.translate != (0., 0.)
+            if (p.translate != (0., 0.) || p.translate_percent != (0., 0.))
                 || p.scale != 1.
                 || p.rotate != 0.
                 || [Property::Translate, Property::Scale, Property::Rotate]
