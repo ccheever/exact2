@@ -105,10 +105,20 @@ impl Cursor {
         }
         self.dimensions = Some(dimensions);
     }
-    fn correction(&mut self, snapshot: &CollectionSnapshot) -> Option<f64> {
+    /// `resized_from`: the sequence a port resize in this same pass moved on
+    /// from. The resize is not the reader moving, so a correction planned at
+    /// it still lands (feed F14: posts put above the reader as a
+    /// pull-to-refresh zone closes; a sent message's end-follow as the
+    /// composer shrinks back), as on Apple.
+    fn correction(
+        &mut self,
+        snapshot: &CollectionSnapshot,
+        resized_from: Option<u64>,
+    ) -> Option<f64> {
         let correction = snapshot.correction?;
         if self.sequence == u64::MAX
-            || correction.scroll_sequence != self.sequence
+            || (correction.scroll_sequence != self.sequence
+                && Some(correction.scroll_sequence) != resized_from)
             || self
                 .corrected
                 .is_some_and(|revision| revision >= snapshot.revision)
@@ -702,7 +712,9 @@ impl<D: DataSource> Presenter<D> {
             let Some(g) = geometry(self.host.kernel(), snapshot, self.viewport.0 as f64) else {
                 continue;
             };
+            let planned = cursor.sequence;
             cursor.geometry((g.width, g.height, g.cross, g.origin));
+            let resized_from = (cursor.sequence != planned).then_some(planned);
             // Match the browser's post-layout scrollTop (scrollLeft on a
             // horizontal list) prop write. Consume each changed request once;
             // an unchanged binding never owns the reader's offset. Advance the
@@ -738,7 +750,9 @@ impl<D: DataSource> Presenter<D> {
                     self.dirty = true;
                 }
             }
-            if let Some(main) = cursor.correction(snapshot) {
+            // An authored request this pass is a jump: nothing planned before it lands.
+            let resized_from = resized_from.filter(|_| cursor.sequence == planned + 1);
+            if let Some(main) = cursor.correction(snapshot, resized_from) {
                 cursor.model_main(
                     key,
                     axis,
@@ -860,21 +874,21 @@ mod tests {
             sequence: 2,
             ..Cursor::default()
         };
-        assert_eq!(cursor.correction(&s), Some(200.));
-        assert_eq!(cursor.correction(&s), None);
+        assert_eq!(cursor.correction(&s, None), Some(200.));
+        assert_eq!(cursor.correction(&s, None), None);
         let mut cursor = Cursor {
             sequence: 2,
             ..Cursor::default()
         };
         cursor.advance();
-        assert_eq!(cursor.correction(&s), None);
+        assert_eq!(cursor.correction(&s, None), None);
         let mut cursor = Cursor {
             sequence: 2,
             ..Cursor::default()
         };
         cursor.geometry((200., 300., 180., 10.));
         cursor.geometry((190., 300., 170., 10.));
-        assert_eq!(cursor.correction(&s), None);
+        assert_eq!(cursor.correction(&s, None), None);
         let mut cursor = Cursor {
             sequence: 2,
             ..Cursor::default()
@@ -882,7 +896,7 @@ mod tests {
         cursor.geometry((200., 300., 180., 10.));
         cursor.geometry((200., 300., 180., 20.));
         assert_eq!(
-            cursor.correction(&s),
+            cursor.correction(&s, None),
             None,
             "origin changes also invalidate old corrections"
         );
@@ -890,9 +904,18 @@ mod tests {
             sequence: u64::MAX,
             ..Cursor::default()
         };
+        // A resize in the pass that brings the correction (feed F14) is
+        // not the reader: the correction planned before it lands.
+        let mut cursor = Cursor {
+            sequence: 2,
+            ..Cursor::default()
+        };
+        cursor.geometry((200., 300., 180., 10.));
+        cursor.geometry((200., 348., 180., 10.));
+        assert_eq!(cursor.correction(&s, Some(2)), Some(200.));
         let mut overflow = s;
         overflow.correction.as_mut().unwrap().scroll_sequence = u64::MAX;
-        assert_eq!(cursor.correction(&overflow), None);
+        assert_eq!(cursor.correction(&overflow, None), None);
     }
 
     #[test]
