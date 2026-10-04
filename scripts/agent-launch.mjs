@@ -1,5 +1,5 @@
 // Session setup shared by the agent CLI and its programmatic driver.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
@@ -7,6 +7,12 @@ import { fileURLToPath } from 'node:url';
 import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+/** Preserve the original operation failure and any owned cleanup handle. */
+export function retainCleanupError(error, failure) {
+  error.message += `; cleanup: ${failure.message}`;
+  error.cleanupError = failure;
+}
 
 /** Only the caller's throwaway browser profile. Bun 1.4.2 on Windows ignores
  * rmSync's maxRetries: a real sharing lock fails in <1 ms. Yield between bounded
@@ -21,34 +27,64 @@ export async function removeBrowserProfile(profile) {
   }
 }
 
-/** Existing Windows shutdown sequence, with evidence retained on refusal. The
- * helper result never establishes browser exit; only the owned child does.
- * `terminate` is the process boundary used by the owned-live refusal fixture. */
+/** The helper never establishes browser exit; both recorded children must exit.
+ * `terminate` is the owned helper-spawn boundary used by the refusal fixtures. */
 export async function closeWindowsBrowser(child, cdp, exited, profile, terminate = pid =>
-  spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {encoding:'utf8', windowsHide:true, timeout:2000, maxBuffer:1 << 20})) {
+  spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {windowsHide:true, stdio:['ignore','pipe','pipe']})) {
   const start = performance.now(), elapsed = () => Math.round(performance.now() - start);
-  const detail = {}, wait = async () => {
+  const detail = {}, wait = async promise => {
     let timer;
-    try { await Promise.race([exited, new Promise(resolve => { timer = setTimeout(resolve, 2000); })]); }
+    try { return await Promise.race([promise.then(() => true), new Promise(resolve => { timer = setTimeout(() => resolve(false), 2000); })]); }
     finally { clearTimeout(timer); }
   };
   const bounded = value => value == null ? null : String(value).slice(-2048);
+  const didExit = process => process.exitCode !== null || process.signalCode !== null;
   try { await cdp.send('Browser.close', {}, undefined, 2000); detail.cdp = {outcome:'reply', ms:elapsed()}; }
   catch (error) { detail.cdp = {error:bounded(error.message), ms:elapsed()}; }
-  await wait();
+  await wait(exited);
   detail.graceMs = elapsed();
-  if (child.exitCode === null && child.signalCode === null) {
+  let helper, helperExit = Promise.resolve();
+  if (!didExit(child)) {
     const began = performance.now();
+    const info = detail.taskkill = {pid:null, status:null, signal:null, error:null, stdout:'', stderr:'', deadline:false};
     try {
-      const result = terminate(child.pid);
-      detail.taskkill = {ms:Math.round(performance.now() - began), status:result.status, signal:result.signal,
-        error:bounded(result.error?.message), stdout:bounded(result.stdout), stderr:bounded(result.stderr)};
-    } catch (error) { detail.taskkill = {ms:Math.round(performance.now() - began), error:bounded(error.message)}; }
+      helper = terminate(child.pid);
+      info.pid = helper.pid ?? null;
+      for (const name of ['stdout','stderr']) {
+        helper[name]?.setEncoding('utf8');
+        helper[name]?.on('data', data => { info[name] = bounded(info[name] + data); });
+        helper[name]?.on('error', error => { info[`${name}Error`] = bounded(error.message); });
+      }
+      helperExit = new Promise(resolve => {
+        helper.once('exit', () => { info.ms = Math.round(performance.now() - began); resolve(); });
+        helper.on('error', error => {
+          info.error = bounded(error.message);
+          // Failed spawn owns no process. An error on a launched child is not exit.
+          if (!helper.pid) resolve();
+        });
+      });
+      if (!await wait(helperExit)) {
+        info.deadline = true;
+        try { info.killSent = helper.kill('SIGKILL'); }
+        catch (error) { info.killError = bounded(error.message); }
+      }
+    } catch (error) { info.error = bounded(error.message); }
+    info.waitMs = Math.round(performance.now() - began);
   }
-  await wait();
-  if (child.exitCode === null && child.signalCode === null) {
+  // Reap the helper and observe Chrome concurrently within the existing final
+  // wait. Neither helper success nor closed output pipes certify either exit.
+  await wait(Promise.all([exited, helperExit]));
+  const helperLive = helper?.pid && !didExit(helper);
+  if (helper) {
+    Object.assign(detail.taskkill, {status:helper.exitCode, signal:helper.signalCode});
+    helper.stdout?.destroy(); helper.stderr?.destroy();
+  }
+  if (!didExit(child) || helperLive) {
     Object.assign(detail, {totalMs:elapsed(), exitCode:child.exitCode, signalCode:child.signalCode});
-    throw new Error(`Chrome ${child.pid} did not exit; owned profile retained at ${profile}; shutdown ${JSON.stringify(detail)}`);
+    const reason = !didExit(child) ? `Chrome ${child.pid} did not exit` : `Chrome termination helper ${helper.pid} did not exit`;
+    const error = new Error(`${reason}; owned profile retained at ${profile}; shutdown ${JSON.stringify(detail)}`);
+    if (helperLive) error.ownedHelper = helper;
+    throw error;
   }
 }
 

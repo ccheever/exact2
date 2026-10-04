@@ -18,7 +18,7 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, chromium, closeWindowsBrowser, removeBrowserProfile, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
+import { Cdp, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -500,7 +500,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       close,
     };
   } catch (e) {
-    try { await close(); } catch (failure) { e.message += `; cleanup: ${failure.message}`; }
+    try { await close(); } catch (failure) { retainCleanupError(e, failure); }
     throw e;
   }
 }

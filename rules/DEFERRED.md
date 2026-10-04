@@ -138,6 +138,20 @@ Linux skips Thai word breaking (Charlie, 2026-09-28): with no segmenter
 there, flowed Thai, Lao, Khmer and Myanmar text breaks only at spaces; no
 ICU4X dictionaries. Web and Apple take their platforms' words (LLP 1043.000 §8).
 
+**Expanded (orchestrator for Charlie, 2026-10-05, LLP 1093 §8: "admission via
+your offered trade"):** CSS multi-column (`columns`, `column-count`,
+`column-width`, `column-gap: normal`, `column-fill`, solid `column-rule`) and
+the break rules that only mean something inside it (`widows`, `orphans`,
+`break-before`/`-after`/`-inside` without page or region values). Native hosts
+fragment through the kernel's cut, and the web is the browser's own multicol,
+held to Chrome. The reader app's diary is the consumer: pagination and a
+two-page spread from one flow. Unblocks book pagination without a polled
+height or a duplicated chapter. Take: LLP 1043.000 stage 5
+(`shape-outside: <image>`, the dancer's traced silhouette) moves behind
+LLP 1093 stage 2. Still out: `column-span`, regions, paged media and `@page`,
+`box-decoration-break: clone`, and slicing decorated, fixed-height, flex-row
+and grid boxes (LLP 1093 §5).
+
 **Expanded (Charlie, 2026-09-21: "design and build a markdown editor that works
 across all Exact platforms"):** WYSIWYG Markdown editing and one-node Markdown
 reading (LLP 1045), Interview first. Unblocks rich posts that stay plain text

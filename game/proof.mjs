@@ -52,6 +52,14 @@ export async function decide({state, choices, goal, transcript,
   return result;
 }
 
+/** Some runtime-created stacks omit the informative Error message. */
+export function formatProofError(error) {
+  const message = String(error), stack = error?.stack;
+  return typeof stack === 'string' && stack.length
+    ? stack.includes(message) ? stack : `${message}\n${stack}`
+    : message;
+}
+
 // Offline diagnostics over existing state reads (LLP 1012; LLP 1046.001 D2/D5).
 // These are inspection captures, not EXSIM saves or a second simulation codec.
 export async function captureWorld(session, name = 'world') {
@@ -680,7 +688,7 @@ export async function proof(meta, script) {
         for (const section of ['ticks','saves']) for (const key of Object.keys(previousPins[section] ?? {}))
           check(`pin ${key} observed; if intentionally removed, update the proof and pins.json together`, key in pins[section]);
     }
-  } catch (error) { check('proof interrupted',false,error.stack ?? String(error)); }
+  } catch (error) { check('proof interrupted',false,formatProofError(error)); }
   finally {
     await closeSessions(monitor, sample, sessions, check);
     if (reusableWeb) await reusableWeb.close();
