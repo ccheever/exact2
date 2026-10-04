@@ -1446,6 +1446,9 @@ impl<'a> Lowerer<'a> {
                                 "scroll" => " plus scrollLeft and scrollTop",
                                 "heightrelease" => " plus height and velocity",
                                 "panrelease" => " plus vx and vy",
+                                "pointerdown" | "pointerup" | "pointermove" => {
+                                    " and may take a PointerEvent"
+                                }
                                 "transformgeometry" => " plus four geometry numbers",
                                 "transformrelease" => " plus six transform release numbers",
                                 _ => "",

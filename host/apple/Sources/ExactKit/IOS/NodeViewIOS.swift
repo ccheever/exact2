@@ -586,6 +586,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let post = Presenter.signposts.beginInterval("scrolled")
         defer { Presenter.signposts.endInterval("scrolled", post) }
+        presenter?.onScrolled?(id, Double(scrollView.contentOffset.x), Double(scrollView.contentOffset.y))
         presenter?.stickies.scrolled(id); presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()

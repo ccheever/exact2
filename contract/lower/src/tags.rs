@@ -560,6 +560,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "dblclick" => AttrTarget::Handler("dblclick"),
         "pointerdown" => AttrTarget::Handler("pointerdown"), // LLP 1005 §Events, DOM's own
         "pointerup" => AttrTarget::Handler("pointerup"),
+        "pointermove" => AttrTarget::Handler("pointermove"), // LLP 1056 §3 stage 3
         "reachstart" => AttrTarget::Handler("reachstart"),
         "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),
@@ -575,8 +576,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "reorderFor" => AttrTarget::Prop(p("reorderFor")),
         "transformDragFor" => AttrTarget::Prop(p("transformDragFor")),
         "heightDragFor" => AttrTarget::Prop(p("heightDragFor")),
-        // the canvas's surface (LLP 1009 D3)
-        "surface" => AttrTarget::Surface,
+        "surface" => AttrTarget::Surface, // the canvas's surface (LLP 1009 D3)
         // props (HTML and ARIA attribute names; `testId` is Exact's)
         "poster" => AttrTarget::Prop(p("poster")),
         "autoplay" => AttrTarget::Prop(p("autoplay")),

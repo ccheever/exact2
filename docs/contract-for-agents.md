@@ -327,7 +327,9 @@ or a growing `flex`, and takes `estimated-item-height`. A horizontal one needs a
 literal `display="flex"` and a literal positive `height`, takes
 `estimated-item-width`, and refuses wrapping, reversed or right-to-left flow, a
 nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
-`reorderdrop`. Lists nest one level deep; an inner vertical list needs a literal
+`reorderdrop`. `reorderdrop` belongs only on a vertical `list virtualized=true`
+(each row's handle names it with `reorderFor`); the compiler refuses it on any
+other element, where no host could drag. Lists nest one level deep; an inner vertical list needs a literal
 `height` or `max-height`. Do not revive the removed legacy `item-height`
 windowing mechanism.
 
@@ -401,9 +403,18 @@ function), `exit-animation`, `layout-transition`, and presentation timelines hav
 specific documented behavior;
 they do not admit arbitrary frame callbacks or a second app-state graph.
 
+For drawing and pointer-tracking, `pointerdown`, `pointermove` and `pointerup`
+hand an action that takes it a `PointerEvent` (`offsetX`/`offsetY` from the
+node's content box, `buttons`, `pressure`, `pointerType`, `pointerId`), on any
+node, a canvas included; set `touch-action="none"` on a drawing surface. See
+[Pointer](contract-grammar.md#pointer).
+
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
-`Geometry`. Handle `unavailable` and `provisional`. `frame` reads the last layout's untransformed
-border box in root space; `measure` reads an auto-height hypothetical layout.
+`Geometry`. Handle `unavailable` and `provisional`. `frame` reads the last layout's border box
+where the viewer sees it, as `getBoundingClientRect` does: in the viewport, with every
+scroll offset above it (the page's too) applied, but untransformed, so a drop target
+needs no scroll bookkeeping; `measure` reads an auto-height hypothetical layout at
+the same origin.
 Neither is a computed style binding to run every render.
 
 SVG uses SVG names. `foreignObject` compiles and renders on the web; native hosts

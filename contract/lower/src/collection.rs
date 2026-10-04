@@ -29,6 +29,19 @@ impl Lowerer<'_> {
         children: &[Node],
         span: Span,
     ) -> Result<(), LowerError> {
+        // Reorder is a collection's (LLP 1010 §6, LLP 1043.000): every host
+        // drags only a virtualized list's measured rows, so anywhere else
+        // `reorderdrop` would never fire, on any host (the weather diary's
+        // F1 met it as the web build's refusal).
+        let virtualized = tag == "list"
+            && attrs
+                .iter()
+                .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)));
+        if let Some(reorder) = attrs.iter().find(|a| a.name == "reorderdrop") {
+            if !virtualized {
+                return err("lower-reorder-collection", format!("`reorderdrop` reorders a virtualized list's rows, and every host drags only those: write `list virtualized=true` with one `each`, and give each row a handle with `reorderFor` naming the list's `id`; on {} it would never fire", if tag == "list" { "a list that is not virtualized".to_string() } else { format!("`{tag}`") }), reorder.span);
+            }
+        }
         let Some(opt) = attrs.iter().find(|a| a.name == "virtualized") else {
             return Ok(());
         };

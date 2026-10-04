@@ -334,7 +334,7 @@ Signatures are authored forms; localization's internal lowered signature differs
 | `params(router, parameterName)` | `list<string>` |
 | `searchParam(entry, name)` | String |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders |
-| `frame(id)` | `Geometry`, actions only; last layout in root space |
+| `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it: in the viewport, every scroll offset applied, transforms not |
 | `measure("id")` | `Geometry`, actions only; literal id, height-auto measurement |
 
 The router functions (`open` through `searchParam`) and `encodeRouteSegment`
@@ -406,7 +406,7 @@ expression grammar. Platform looks and stand-ins are documented in
 ## Events
 
 An event binding is an action reference or partially applied action. Captured
-arguments precede the event payload. The table contains all 40 handler names.
+arguments precede the event payload. The table contains all 43 handler names.
 Numeric multi-argument payload ordering should be copied from the feature's
 working fixture, not inferred from JavaScript's Event interface.
 
@@ -418,10 +418,11 @@ working fixture, not inferred from JavaScript's Event interface.
 | One `list<Picked>` | `change`, `input` on `type="file"` |
 | One `MarkdownSelection` | `select` |
 | Two numbers | `scroll`, `pan`, `panrelease`, `heightrelease` |
-| A string, then an `option<string>` | `reorderdrop`: the dragged row's key, then the key it lands before (`none` at the end) |
+| A string, then an `option<string>` | `reorderdrop`, on a vertical `list virtualized=true` only: the dragged row's key, then the key it lands before (`none` at the end) |
 | Four numbers | `transformgeometry` |
 | Six numbers | `transformrelease` |
 | Special: zero or one location string, no captured args | `navigate` |
+| Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove` |
 | None | `press`, `cancel`, `focus`, `blur`, `submit`, `load`, `contextmenu`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
 `scroll` appends left then top offsets; `panrelease` appends x/y release velocity;
@@ -436,6 +437,37 @@ available payload types; tags and hosts constrain where events make sense.
 also carry `navigationKey` and `navigationBack`. Transform geometry/release
 bindings are required as a pair. See
 [`handler_arity`](../contract/analyze/src/lib.rs) and the corresponding corpus/tests.
+
+### Pointer
+
+`pointerdown`, `pointerup` and `pointermove` are DOM's, on every host. The
+innermost enabled node under a touch or the primary button that hears any of
+them holds the pointer: its `pointerdown` fires before any gesture decides,
+its `pointermove`s follow the pointer wherever it goes while held, and its
+`pointerup` comes when the pointer lifts or is cancelled (a cancel is an up),
+before the click's `press`. A free pointer (a mouse or a pen hovering, no
+button down) moving over a node is that node's `pointermove` too, the
+innermost hearing it; a touch has none. Moves go out at most once a frame,
+the latest. None of them takes anything from `press`, `pan` or scrolling, so
+a drawing surface sets `touch-action="none"`, as on the web, or a touch
+that scrolls is cancelled.
+
+An action that takes one more parameter than the binding captures gets a
+`PointerEvent` (DOM's names, [LLP 1056](../llp/1056-canvas-2d.rfc.md) §8.6):
+
+| Field | Meaning |
+| --- | --- |
+| `offsetX`, `offsetY` | The point from the node's content box, CSS px (DOM measures from the target's padding edge; a canvas draws in its content box) |
+| `buttons` | DOM's bits: 1 primary, a touch or a pen in contact; 2 secondary; 4 auxiliary; 0 on `pointerup` and a hover |
+| `pressure` | 0 to 1: a pen's or a pressed touch's force where the platform measures one, else 0.5 while down and 0 while not |
+| `pointerType` | `mouse`, `pen` or `touch` |
+| `pointerId` | 1 for the mouse; a touch or pen has its own while down |
+
+```text
+action stroke(e: PointerEvent)
+  points = `${points} ${e.offsetX},${e.offsetY}`
+canvas surface=ink(points) pointerdown=begin pointermove=stroke touch-action="none"
+```
 
 ### Keys
 

@@ -11,6 +11,8 @@ mod commit;
 mod control;
 mod event;
 mod host_kinds;
+mod pointer;
+pub use pointer::PointerEvent;
 mod reorder;
 mod reorder_codec;
 mod root_font;
@@ -312,6 +314,8 @@ pub struct Runner<D: DataSource> {
     commands: Vec<Command>,
     /// `scrollIntoView` commands an action stated, run after its update.
     into_view: Vec<crate::instance::collection::IntoView>,
+    /// Where the host last showed each scroller (`frame`, LLP 1051.000 D1).
+    scrolled: crate::geometry::Scrolled,
     /// Refused requests, for `state` (LLP 1070.000 §2.2).
     into_view_refused: std::collections::VecDeque<String>,
     surfaces: Vec<SurfaceUpdate>,
@@ -762,6 +766,7 @@ impl<D: DataSource> Runner<D> {
             batch: 0,
             commands: Vec::new(),
             into_view: Vec::new(),
+            scrolled: Default::default(),
             into_view_refused: Default::default(),
             surfaces: Vec::new(),
             canvases: links.canvas.map(|engine| engine()),
@@ -1028,6 +1033,13 @@ impl<D: DataSource> Runner<D> {
     /// The kernel, for layout and export.
     pub fn kernel(&self) -> &Kernel {
         &self.kernel
+    }
+
+    /// A scroll container the host presents now stands at `(left, top)` CSS
+    /// px, or the page does (`None`): what `frame` and `measure` subtract
+    /// from the kernel's scroll-free box natively. Noted, never dispatched.
+    pub fn scrolled(&mut self, view: Option<ViewId>, left: f64, top: f64) {
+        self.scrolled.note(&self.kernel, view, left, top);
     }
 
     /// The kernel, mutably (a host lays out through it).

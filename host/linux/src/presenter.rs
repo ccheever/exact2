@@ -42,6 +42,7 @@ mod display_frame;
 mod events;
 mod pan_release;
 mod picker;
+mod pointer;
 #[cfg(test)]
 mod save_tests;
 mod svg_hit;
@@ -113,6 +114,8 @@ pub struct Presenter<D: DataSource> {
     pointer: Option<(f32, f32)>,
     /// The nodes with a `hover` handler under the pointer, innermost first.
     hovered: Vec<ViewId>,
+    /// The node holding the pointer's `pointerdown` until it lifts.
+    pointer_held: Option<exact_kernel::NodeKey>,
     pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
@@ -405,6 +408,7 @@ impl<D: DataSource> Presenter<D> {
             autofocus_processed: Default::default(),
             pointer: None,
             hovered: Vec::new(),
+            pointer_held: None,
             control_contact: None,
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
@@ -932,7 +936,19 @@ impl<D: DataSource> Presenter<D> {
         let page = self.page;
         self.page.0 = self.page.0.clamp(0.0, (doc.0 - viewport.0).max(0.0));
         self.page.1 = self.page.1.clamp(0.0, (doc.1 - viewport.1).max(0.0));
+        self.publish_scroll();
         changed || self.page != page
+    }
+
+    /// Tell the runner where every scroller and the page stand, for
+    /// `frame()` (LLP 1051.000 D1): after a clamp, and wherever a scroll
+    /// moves geometry (`refresh_transform_geometry`).
+    pub(crate) fn publish_scroll(&mut self) {
+        let runner = self.host.runner_mut();
+        runner.scrolled(None, f64::from(self.page.0), f64::from(self.page.1));
+        for (id, (left, top)) in &self.scroll {
+            runner.scrolled(Some(*id), f64::from(*left), f64::from(*top));
+        }
     }
 
     /// Every node's painted box, in paint order (a fresh frame when stale).

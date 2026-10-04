@@ -59,7 +59,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     var style: NodeStyle = [:]
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
-    var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") { syncHoverTracking() } } } // the media events the player reports; a hover handler's tracking area
+    var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() } } } // the media events the player reports; a hover handler's tracking area
     var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
     var surface: SurfaceLayer? { didSet { layerPaintCache = nil } } // its surface at a layout transition's size (`Surface.swift`)
     /// How far its frame stands from layout's: a lifted Arrange row's
@@ -297,7 +297,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let cursor = CSSCursor.value(style["cursor"]?.string ?? "auto") { addCursorRect(bounds, cursor: cursor) }
     }
     func syncHoverTracking() {
-        let wants = handlers.contains("hover") || inlineText.contains(where: { $0.handlers.contains("hover") })
+        let wants = handlers.contains("hover") || handlers.contains("pointermove") || inlineText.contains(where: { $0.handlers.contains("hover") })
         if wants, tracking == nil {
             let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
             addTrackingArea(t)
@@ -310,6 +310,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     override func mouseMoved(with event: NSEvent) {
         guard !inert else { return }
+        pointerHovered(event)
         if canvasInput?.pointer(event, phase: "move") == true { return }
         let run = inlineTarget(at: local(event.locationInWindow), handler: "hover")
         presenter?.hoverInline(run?.id)
@@ -558,6 +559,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     @objc func clipScrolled() {
         // A collection's knob keeps the offset the reader saw (CollectionMac.swift).
         if let sv = scroll, let drag = KnobDrag.of(sv), !drag.admits(sv.contentView, correcting: presenter?.collections.correcting == true) { return }
+        if let o = scroll?.contentView.bounds.origin { presenter?.onScrolled?(id, Double(o.x), Double(o.y)) }
         presenter?.stickies.scrolled(id)
         presenter?.collectionScrolled(id)
         presenter?.transformGeometry.changed()
@@ -1303,7 +1305,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     override func mouseDown(with event: NSEvent) {
         guard !inert else { return }
-        pointerPressed()
+        pointerPressed(event)
         if isSurfaceControl { _ = control("down", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "down") == true { return }
         presenter?.leaves.pressed(self) // a held leaf's box was clicked: made now (LLP 1068 §5.1)
@@ -1344,6 +1346,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return false
     }
     override func mouseDragged(with event: NSEvent) {
+        pointerDragged(event)
         guard !inert else { return }
         if isSurfaceControl || ownsSurfaceControl { _ = control("move", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "move") == true { return }
@@ -1360,7 +1363,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.contextmenu(id)
     }
     override func mouseUp(with event: NSEvent) {
-        pointerReleased()
+        pointerReleased(event)
         guard !inert else { return }
         if isSurfaceControl || ownsSurfaceControl { _ = control("up", point: local(event.locationInWindow), timestamp: event.timestamp); finishPointerPress(); return }
         if canvasInput?.pointer(event, phase: "up") == true { return }

@@ -339,7 +339,7 @@ fn unknown_types_list_named_choices_at_the_original_import() {
         .unwrap();
     let expected = contract::compile_path(&root).unwrap_err();
     assert_eq!(expected.id, "type-unknown");
-    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `Contact`, `Geometry`, `MarkdownSelection`, `Picked`, `Wrapper`, `Zulu`");
+    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `Contact`, `Geometry`, `MarkdownSelection`, `Picked`, `PointerEvent`, `Wrapper`, `Zulu`");
     let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
     same_error(&errors[0], &expected);
     assert_eq!(errors[0]["file"], model.to_str().unwrap());
@@ -361,13 +361,13 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     for prefix in ["", "shape string\n", "shape Later\n  value: number\n"] {
         let root = app.write("app.contract", &format!("{prefix}{body}"));
         let error = contract::compile_path(&root).unwrap_err();
-        // `MarkdownSelection` and `Picked` are the `select` and file
-        // `change` payloads every file can name, and `Geometry` what
-        // `frame` and `measure` answer.
+        // `MarkdownSelection`, `Picked` and `PointerEvent` are the
+        // `select`, file `change` and pointer payloads every file can name,
+        // and `Geometry` what `frame` and `measure` answer.
         let extra = if prefix.contains("Later") {
-            ", `Geometry`, `Later`, `MarkdownSelection`, `Picked`"
+            ", `Geometry`, `Later`, `MarkdownSelection`, `Picked`, `PointerEvent`"
         } else {
-            ", `Geometry`, `MarkdownSelection`, `Picked`"
+            ", `Geometry`, `MarkdownSelection`, `Picked`, `PointerEvent`"
         };
         assert_eq!(error.id, "type-unknown");
         assert_eq!(
@@ -378,7 +378,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     let root = app.write("app.contract", &format!("routes nav\n  home \"/\"\n{body}"));
     let error = contract::compile_path(&root).unwrap_err();
     assert_eq!(error.id, "type-unknown");
-    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `Entry`, `Geometry`, `MarkdownSelection`, `Params`, `Picked`, `Router`, `Tab`"));
+    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `Entry`, `Geometry`, `MarkdownSelection`, `Params`, `Picked`, `PointerEvent`, `Router`, `Tab`"));
     // Field resolution has already seen later declarations, even when it fails
     // while resolving the first shape's fields.
     let root = app.write("app.contract", "shape First\n  value: Ltaer\nshape Later\n  value: string\ncomponent App\n  view\n    text \"hello\"\n");
@@ -386,7 +386,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     assert_eq!(error.id, "type-unknown");
     assert!(error
         .message
-        .ends_with("`First`, `Geometry`, `Later`, `MarkdownSelection`, `Picked`"));
+        .ends_with("`First`, `Geometry`, `Later`, `MarkdownSelection`, `Picked`, `PointerEvent`"));
 }
 
 #[test]

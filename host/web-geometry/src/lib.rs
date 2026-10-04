@@ -10,7 +10,7 @@
 #![deny(missing_docs)]
 
 use exact_kernel::{Kernel, ViewId};
-use exact_runner::geometry::{GeometryAnswer, GeometryLinks};
+use exact_runner::geometry::{GeometryAnswer, GeometryLinks, Scrolled};
 
 /// The page's answers, for [`exact_runner::RunnerLinks::geometry`].
 pub static PAGE: GeometryLinks = GeometryLinks::new(page_frame, page_measure);
@@ -23,11 +23,11 @@ const MEASURE: u32 = 1;
 const ANSWERED: u32 = 1;
 const PROVISIONAL: u32 = 2;
 
-fn page_frame(_: &Kernel, view: ViewId) -> GeometryAnswer {
+fn page_frame(_: &Kernel, _: &Scrolled, view: ViewId) -> GeometryAnswer {
     read(FRAME, view)
 }
 
-fn page_measure(_: &mut Kernel, view: ViewId) -> GeometryAnswer {
+fn page_measure(_: &mut Kernel, _: &Scrolled, view: ViewId) -> GeometryAnswer {
     read(MEASURE, view)
 }
 
