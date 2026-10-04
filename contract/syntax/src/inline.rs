@@ -10,11 +10,14 @@
 //! context — no runtime lookup, a missing provider a refusal; LLP
 //! 1035.005.000 D9), and a `slot` component's
 //! `children` node is replaced by the nodes indented under its use, inlined
-//! in the *use site's* scope.
+//! in the *use site's* scope — afresh at each `children` node, under the
+//! region arms around it, so each place a fill renders is its own instance
+//! with its own state (owned by the arm around that `children`).
 
 use crate::ast::{Action, Attr, Binding, Component, Expr, File, Node, Param, TypeExpr};
 use crate::parser::SyntaxError;
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
 mod derives;
 mod subst;
@@ -313,9 +316,9 @@ struct Ctx<'a> {
     /// Provided bindings in force, outermost component first, each already
     /// substituted into the scope of the component that provides it.
     provides: Vec<(String, Expr)>,
-    /// The nodes that fill `children` here: `Some` inside a `slot`
-    /// component's view (possibly empty), `None` elsewhere.
-    fill: Option<Vec<Node>>,
+    /// What fills `children` here: `Some` inside a `slot` component's view
+    /// (possibly empty), `None` elsewhere.
+    fill: Option<Rc<Fill>>,
     /// The region arms enclosing the current site, outermost first.
     arms: Vec<Owner>,
     /// The next region tag.
@@ -336,6 +339,20 @@ struct Ctx<'a> {
     errors: Vec<SyntaxError>,
 }
 
+/// A `slot` component's fill: the nodes indented under its use, with what
+/// they are inlined against there — the use site's substitution, providers,
+/// own fill and instance. It is inlined at each `children` node it reaches,
+/// under the region arms around that node, so a fill shown twice, or once
+/// per row, is a separate instance each time, and a stateful child in it is
+/// owned by the arm around `children`, not the arm around the use.
+struct Fill {
+    nodes: Vec<Node>,
+    subst: BTreeMap<String, Expr>,
+    provides: Vec<(String, Expr)>,
+    outer: Option<Rc<Fill>>,
+    instance: u32,
+}
+
 impl Ctx<'_> {
     /// A fresh region tag.
     fn tag(&mut self) -> u32 {
@@ -354,6 +371,10 @@ impl Ctx<'_> {
     }
 
     fn refuse(&mut self, id: &'static str, message: impl Into<String>, span: crate::Span) {
+        // A fill inlined at two `children` nodes meets its errors twice.
+        if self.errors.iter().any(|e| e.id == id && e.span == span) {
+            return;
+        }
         self.errors.push(SyntaxError {
             id,
             message: message.into(),
@@ -652,12 +673,17 @@ fn inline_nodes(
                         children[0].span(),
                     );
                 }
-                // The fill is the use site's: inlined here, in this scope.
-                let fill = if c.slot {
-                    Some(inline_nodes(children, subst, ctx)?)
-                } else {
-                    None
-                };
+                // The fill is the use site's: inlined in this scope, at each
+                // `children` node of the child's view that renders it.
+                let fill = c.slot.then(|| {
+                    Rc::new(Fill {
+                        nodes: children.clone(),
+                        subst: subst.map().clone(),
+                        provides: ctx.provides.clone(),
+                        outer: ctx.fill.clone(),
+                        instance: ctx.instance,
+                    })
+                });
                 // Rename only the view: declarations were lifted above.
                 let renamed = rename_nodes(&c.view, &BTreeMap::new(), n);
                 let outer_fill = std::mem::replace(&mut ctx.fill, fill);
@@ -677,8 +703,20 @@ fn inline_nodes(
                 ctx.instance = outer_instance;
                 out.extend(body?);
             }
-            Node::Children { span } => match &ctx.fill {
-                Some(fill) => out.extend(fill.iter().cloned()),
+            Node::Children { span } => match ctx.fill.clone() {
+                Some(fill) => {
+                    // The use site's scope, providers, fill and instance;
+                    // the region arms (and depth) are this node's.
+                    let provides = std::mem::replace(&mut ctx.provides, fill.provides.clone());
+                    let outer_fill = std::mem::replace(&mut ctx.fill, fill.outer.clone());
+                    let outer_instance = std::mem::replace(&mut ctx.instance, fill.instance);
+                    let mut site = Subst::new(&fill.subst, ctx.records);
+                    let nodes = inline_nodes(&fill.nodes, &mut site, ctx);
+                    ctx.provides = provides;
+                    ctx.fill = outer_fill;
+                    ctx.instance = outer_instance;
+                    out.extend(nodes?);
+                }
                 None => ctx.refuse(
                     "syntax-children-without-slot",
                     "`children` belongs in a component that declares `slot`",

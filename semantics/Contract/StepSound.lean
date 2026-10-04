@@ -100,13 +100,13 @@ theorem ConfigOK.envGood {p : Program} {c : Config} (hc : ConfigOK p c) (hpres :
 
 theorem agree_of_conforms {p : Program} (hp : WellTyped p) :
     ∀ {params : List (String × Ty)} {args : List Value}, params.length = args.length →
-      (params.zip args).all (fun ((_, t), v) => conforms p v t) = true →
+      (params.zip args).all (fun (q, v) => argOk p q v) = true →
       (∀ q ∈ params, q.2.complete = true) → Agree p ((params.map (·.1)).zip args) params
   | [], [], _, _, _ => .nil
   | (x, t) :: params, v :: args, hl, hc, hcomp => by
     simp only [List.zip_cons_cons, List.all_cons, Bool.and_eq_true] at hc
     simp only [List.map_cons, List.zip_cons_cons]
-    exact .cons (conforms_valTy hp.shapes v hc.1 (hcomp (x, t) (by simp)))
+    exact .cons (argOk_valTy hp.shapes hc.1 (hcomp (x, t) (by simp)))
       (agree_of_conforms hp (by simpa using hl) hc.2 fun q hq => hcomp q (by simp [hq]))
   | [], _ :: _, hl, _, _ | _ :: _, [], hl, _, _ => by simp at hl
 
@@ -382,8 +382,8 @@ theorem curried_conform {p : Program} :
     ∀ {params : List (String × Ty)} {vs : List Value} {ts : List Ty} (payload : List Value),
       ValTyL p vs ts → Ty.lePrefix ts (params.map (·.2)) = true → Value.FiniteAll vs →
       vs.length ≤ params.length ∧
-      ((params.zip (vs ++ payload)).all (fun ((_, t), v) => conforms p v t) =
-        ((params.drop vs.length).zip payload).all (fun ((_, t), v) => conforms p v t))
+      ((params.zip (vs ++ payload)).all (fun (q, v) => argOk p q v) =
+        ((params.drop vs.length).zip payload).all (fun (q, v) => argOk p q v))
   | params, [], [], payload, _, _, _ => by simp
   | (x, u) :: params, v :: vs, t :: ts, payload, hv, hle, hf => by
     simp only [ValTyL] at hv
@@ -391,7 +391,12 @@ theorem curried_conform {p : Program} :
     obtain ⟨hl, he⟩ := curried_conform (params := params) payload hv.2 hle.2 hf.2
     refine ⟨by simpa using hl, ?_⟩
     simp only [List.cons_append, List.zip_cons_cons, List.all_cons, List.length_cons, List.drop_succ_cons]
-    rw [conforms_of_valTy v (hv.1.mono hle.1) hf.1, he, Bool.true_and]
+    have hok : argOk p (x, u) v = true := by
+      simp only [argOk]
+      by_cases hx : hiddenParam x = true
+      · simp only [hx, ↓reduceIte]; exact typed_of_valTy v (hv.1.mono hle.1)
+      · simp only [hx, Bool.false_eq_true, ↓reduceIte]; exact conforms_of_valTy v (hv.1.mono hle.1) hf.1
+    rw [hok, he, Bool.true_and]
   | [], _ :: _, _ :: _, _, _, hle, _ => by simp [Ty.lePrefix] at hle
   | _, [], _ :: _, _, hv, _, _ | _, _ :: _, [], _, hv, _, _ => by simp [ValTyL] at hv
 

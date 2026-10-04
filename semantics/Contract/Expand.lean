@@ -12,7 +12,7 @@ component-level semantics (`Contract.CompSem`).
   * `resolvedDerives`: a child's derives resolved through one another,
     a dependency read twice on every path bound once by a `let` (derives.rs).
   * `inlineNodes`: uses inlined, props substituted, injects filled from
-    the nearest `provide`, fills put at `children`, a child's states and
+    the nearest `provide`, a fill inlined at each `children`, a child's states and
     actions lifted into the root as `name#n` with their owners, props
     captured as hidden action parameters `@capture:n:i` (inline.rs).
   * `tailResolve`: a tail call replaced by the named action's statements
@@ -259,6 +259,14 @@ inductive Owner where
   | arm (tag arm : Nat)
   deriving Inhabited, BEq
 
+/-- A `slot` component's fill (inline.rs `Fill`): the nodes under its use,
+with the use site's substitution, providers and own fill. It is inlined at
+each `children` node it reaches, under that node's region arms. -/
+inductive Fill where
+  | mk (nodes : List CNode) (s : Subst) (provides : List (String × Expr)) (outer : Option Fill)
+
+instance : Inhabited Fill := ⟨.mk [] { map := [] } [] .none⟩
+
 structure Ctx where
   counter : Nat := 0
   nextTag : Nat := 1
@@ -266,7 +274,7 @@ structure Ctx where
   /-- Provided bindings in force, outermost first. -/
   provides : List (String × Expr) := []
   /-- The fill in force: inside a `slot` component's view. -/
-  fill : Option (List Node) := .none
+  fill : Option Fill := .none
   /-- The region arms around the site, innermost first. -/
   arms : List Owner := []
   extraStates : List StateDecl := []
@@ -860,7 +868,13 @@ def inlineNode (p : CProgram) : Nat → Subst → CNode → ExM (List Node)
       pure [Node.matchN tag (substExpr s subj) x a b]
     | .children _ => do
       match (← get).fill with
-      | .some fill => pure fill
+      | .some (.mk nodes site provides outer) =>
+        -- The use site's scope, providers and fill; this node's arms.
+        let here ← get
+        set { here with provides, fill := outer }
+        let out ← inlineNodes p fuel site nodes
+        modify fun ctx => { ctx with provides := here.provides, fill := here.fill }
+        pure out
       | .none => refuse "`children` belongs in a component that declares `slot`"
     | .use _ name args fill => do
       if (← get).depth > 32 then refuse s!"component `{name}` nests too deeply (a cycle?)"
@@ -927,9 +941,9 @@ def inlineNode (p : CProgram) : Nat → Subst → CNode → ExM (List Node)
           [{ name := nameOf a.name, params := captures.map (·.1) ++ a.params, body }] }
       if !fill.isEmpty && !c.slot then
         refuse s!"`{name}` declares no `slot`, so nothing can be indented under it"
-      let fill' ← if c.slot then do pure (Option.some (← inlineNodes p fuel s fill)) else pure Option.none
       let renamed := renameNodes n [] c.view
       let outer ← get
+      let fill' := if c.slot then Option.some (Fill.mk fill s outer.provides outer.fill) else Option.none
       let provided : List (String × Expr) := c.provides.map fun (x, e) => (x, substExpr cs e)
       set { outer with fill := fill', depth := outer.depth + 1, provides := outer.provides ++ provided }
       let body ← inlineNodes p fuel cs renamed

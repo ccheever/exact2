@@ -103,6 +103,42 @@ def conformsFields (p : Program) : List Value → List Field → Bool
   | _, _ => true
 end
 
+mutual
+/-- Whether a value has a type, its numbers any (infinities and NaN
+included): `conforms` without finiteness. -/
+def typed (p : Program) : Value → Ty → Bool
+  | _, .unknown => true
+  | .num _, .number => true
+  | .bool _, .bool => true
+  | .str _, .string => true
+  | .unit, .unit => true
+  | .none, .option _ => true
+  | .some v, .option t => typed p v t
+  | .list xs, .list t => typedAll p xs t
+  | .record s' vs, .record s =>
+    match p.shapes.find? (·.name == s) with
+    | .some sh => s' == s && vs.length == sh.fields.length && typedFields p vs sh.fields
+    | .none => false
+  | _, _ => false
+def typedAll (p : Program) : List Value → Ty → Bool
+  | [], _ => true
+  | v :: vs, t => typed p v t && typedAll p vs t
+def typedFields (p : Program) : List Value → List Field → Bool
+  | v :: vs, f :: fs => typed p v f.ty && typedFields p vs fs
+  | _, _ => true
+end
+
+/-- A hidden parameter: one the expansion adds to a child's lifted action
+for a prop or inject it captures (`@capture:…`; `@` begins no authored
+name). Its argument is the compiler's, not the host's. -/
+def hiddenParam (x : String) : Bool := x.startsWith "@"
+
+/-- An action's argument check: an authored parameter's argument crosses
+the boundary (`conforms`, its numbers finite); a hidden parameter's has
+its type, its numbers any, as the prop it captures would be read in place. -/
+def argOk (p : Program) : String × Ty → Value → Bool
+  | (x, t), v => if hiddenParam x then typed p v t else conforms p v t
+
 /-- A root slot's declared type: a state's, or `option<T>` for a mutation
 `T` (what a write to it is checked against). -/
 def slotTy (p : Program) (x : String) : Ty :=
@@ -497,7 +533,7 @@ def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : Li
   | .none => refuse (.unbound name)
   | .some a =>
     if a.params.length != args.length then refuse (.refused "arity") else
-    if !((a.params.zip args).all fun ((_, t), v) => conforms p v t) then
+    if !((a.params.zip args).all fun (q, v) => argOk p q v) then
       refuse (.refused "an argument of the wrong type") else
     let env : Env := { prog := p, slots := c.slots, derives := c.settled.derives,
                        resources := c.settled.resources, rows := rowSlots c.store rows, now := c.now }
