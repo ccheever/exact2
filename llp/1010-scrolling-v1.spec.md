@@ -831,9 +831,11 @@ the screen it opened, a feed under a thread) is hidden and inert, so its edge
 waits, armed, and is journaled once (`reachend view N waits: …`); when the route
 shows, the runner asks the host for a report, which offers it. Nothing is asked
 for a screen the reader has not seen (`Runner::held_edges`, list.js `Held`;
-`covered.contract`). And rows that all fit their scrollport keep no anchor, as a
+`covered.contract`). And a lone row that fits its scrollport keeps no anchor, as a
 page that cannot scroll keeps none: a first page landing before a feed's lone
 "loading" row shows from the start rather than scrolled to keep that row in place
+(several fitting rows keep the first, so history prepended to a short transcript
+leaves the reader where they were)
 (`capture_anchor`, list.js `anchor`; `pagefoot.contract`).
 
 ### 6.6 Paired runner evidence, 2026-09-16

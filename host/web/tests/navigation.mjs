@@ -388,6 +388,12 @@ try {
     assert.deepEqual(back.calls.filter(c => c.name === 'go').map(c => c.args[0]), [-1], 'the traversal is accepted where it landed: no restoring go');
     assert.equal(back.logs.lines.filter(l => l.includes('refused')).length, 0);
   });
+  await run('Back from a closedby="none" sheet with no control is refused', async () => {
+    const n = await fresh(); await tap('push-modal'); await record('sheet prelude', '/prompts/new', n + 1, 2, 0);
+    await historyTap(-1); await until(`location.pathname==='/prompts/new'`);
+    const refused = await record('undismissable sheet', '/prompts/new', n + 1, 2, 0, 'is closedby="none"');
+    assert.equal(refused.navigatePresses, 0, 'no navigate dispatch');
+  });
   await run('a link whose handler pops the stack says so', async () => {
     const n = await fresh(); await tap('push-post'); await record('link-pop prelude', '/post/42', n + 1, 2, 0);
     await tap('link-home'); await until(`location.pathname==='/'`);

@@ -87,12 +87,17 @@ fn sweep(js: bool) {
         // A screen with no Back control: browser Back still goes back.
         .replace(
             "          button id=\"back\" disabled=(!backEnabled) press=back testId=`back-${e.id}` padding=8\n            text \"Back\"\n",
-            "          when e.name != \"notifications\"\n            button id=\"back\" disabled=(!backEnabled) press=back testId=`back-${e.id}` padding=8\n              text \"Back\"\n          button press=push(\"/notifications\") testId=`push-notifications-${e.id}` padding=8\n            text \"Push notifications\"\n",
+            "          when e.name != \"notifications\" and e.name != \"ask\"\n            button id=\"back\" disabled=(!backEnabled) press=back testId=`back-${e.id}` padding=8\n              text \"Back\"\n          button press=push(\"/notifications\") testId=`push-notifications-${e.id}` padding=8\n            text \"Push notifications\"\n",
         )
         .replace(
             "          when e.name == \"home\"",
             "          button press=replaceBack testId=`replace-back-${e.id}`\n            text \"Rewrite Back\"\n          button press=refuseBack testId=`refuse-${e.id}`\n            text \"Refuse Back\"\n          button press=replace(\"/post/43\") testId=`replace-${e.id}`\n            text \"Replace\"\n          button press=go(\"/\") testId=`go-home-${e.id}`\n            text \"Go home\"\n          when e.name == \"home\"",
        )
+        // A sheet that may not be dismissed, with no Back control either.
+        .replace(
+            "navigationPresentation=(e.name == \"ask\" ? \"modal\" : \"\")",
+            "navigationPresentation=(e.name == \"ask\" ? \"modal\" : \"\") closedby=(e.name == \"ask\" ? \"none\" : \"any\")",
+        )
         // One testId on every screen: a covered one repeats the shown one's.
         .replace(
             "          button press=push(\"/post/42\") testId=`push-post-${e.id}`",

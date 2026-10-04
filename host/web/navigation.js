@@ -49,12 +49,12 @@ function pressBack(nav) {
 // A covered route stays mounted (D6), so its testIds are in the document
 // beside the shown route's, and a query by `[data-testid]` finds the covered
 // copy first, where a web page would hold only the shown screen. Said once
-// per covered route, looked for in a selection's first projections (its
-// data lands in them), never on every scroll's.
+// per covered route, looked for in the projections of a selection's first
+// three seconds (its data lands in them), never on every later scroll's.
 function repeats(nav, routes, key, log) {
-  const seen = looking.get(nav);
-  if (seen?.key === key && seen.left-- <= 0) return;
-  if (seen?.key !== key) looking.set(nav, { key, left: 16 });
+  const seen = looking.get(nav), now = performance.now();
+  if (seen?.key === key && now - seen.since > 3000) return;
+  if (seen?.key !== key) looking.set(nav, { key, since: now });
   const shown = routes.find(r => r.getAttribute("navigationKey") === key);
   const covered = routes.filter(r => r !== shown && !repeated.has(r));
   if (!shown || !covered.length) return;
@@ -63,7 +63,7 @@ function repeats(nav, routes, key, log) {
     const copies = [route, ...route.querySelectorAll("[data-testid]")].filter(e => ids.has(e.dataset.testid));
     if (!copies.length) continue;
     repeated.add(route);
-    log(`navigation: route ${route.getAttribute("navigationKey")} is covered and kept mounted (hidden, inert) for Back, and ${copies.length} of its testIds repeat the shown route's (e.g. "${copies[0].dataset.testid}"): a query by [data-testid] finds the covered copy first; scope it to the shown route ([data-testid="…"]:not([inert] *)) or use the agent's tree, which prefers the shown copy`);
+    log(`navigation: route ${route.getAttribute("navigationKey")} is covered and kept mounted (hidden, inert) for Back, and ${copies.length} of its testIds repeat the shown route's (e.g. "${copies[0].dataset.testid}"): a query by [data-testid] finds the covered copy first; scope it to the shown route ([data-testid="…"]:not([inert], [inert] *)) or use the agent's tree, which prefers the shown copy`);
   }
 }
 
@@ -116,7 +116,9 @@ function popped({ j, state, url }) {
   // does: the root's `navigate` with the entry's URL, as any other traversal.
   const beneath = owned && j === cursor - 1 && selected > 0
     && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
-  const back = beneath && !!backControl(nav);
+  // A modal that may not be dismissed (closedby="none") refuses with or without a control.
+  const closed = ["modal", "fullscreen"].includes(selectedRoute(nav)?.getAttribute("navigationPresentation")) && selectedRoute(nav).getAttribute("closedby") === "none";
+  const back = beneath && (!!backControl(nav) || closed);
   let why = null;
   pop = {};
   try {

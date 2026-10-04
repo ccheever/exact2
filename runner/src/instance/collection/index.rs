@@ -449,10 +449,12 @@ impl SizeIndex {
         // logical pixel/point on every host, independent of extent (including
         // small resident windows); never follow a reader beyond that tolerance.
         let tolerance = 0.5;
-        // Rows that all fit keep no position, as a page that cannot scroll:
-        // rows arriving before them (a feed's first page before its
+        // A lone row that fits keeps no position, as a page that cannot
+        // scroll: rows arriving before it (a feed's first page before its
         // "loading" row) show from the start, not scrolled to that row.
-        let row = if self.max_offset(viewport) <= tolerance {
+        // Several fitting rows keep the first, so history prepended to a
+        // short transcript leaves the reader where they were.
+        let row = if self.len() <= 1 && self.max_offset(viewport) <= tolerance {
             None
         } else {
             self.tree.find(offset, false)

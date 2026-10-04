@@ -126,8 +126,8 @@ class SizeIndex {
   }
   anchor(offset, port, follow) {
     offset = this.clamp(offset, port);
-    // Rows that all fit keep no position, as a page that cannot scroll: rows arriving before them show from the start (index.rs).
-    const row = this.maxOffset(port) <= 0.5 ? null : find(this.t, offset, false);
+    // A lone row that fits keeps no position, as a page that cannot scroll: rows arriving before it show from the start (index.rs).
+    const row = this.len <= 1 && this.maxOffset(port) <= 0.5 ? null : find(this.t, offset, false);
     return { order: this.order, row, within: row === null ? 0 : Math.max(0, offset - this.prefix(row)), follows: follow && port > 0 && this.maxOffset(port) - offset <= 0.5 };
   }
   anchorAt(key, within) { const i = this.pos.get(key); return i === undefined ? null : { order: this.order, row: i, within, follows: false }; }

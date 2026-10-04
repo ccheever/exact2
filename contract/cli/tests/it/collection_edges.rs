@@ -788,3 +788,20 @@ fn a_first_page_before_a_lone_trailing_row_shows_from_the_start() {
     assert_eq!(offset, 0., "no correction off the start");
     assert_eq!(r.collections()[0].rows[0].index, 0, "the first row shows");
 }
+
+// Several rows that fit keep the first: history prepended to a short
+// transcript leaves the reader on the rows they were reading.
+#[test]
+fn rows_prepended_to_several_fitting_rows_keep_the_first_in_place() {
+    let mut r = boot(SOURCE);
+    r.act("change", vec![Value::Number(30.), Value::Number(3.)])
+        .unwrap();
+    measure(&mut r, 0., 32.);
+    r.act("change", vec![Value::Number(0.), Value::Number(33.)])
+        .unwrap();
+    let offset = r.collections()[0]
+        .correction
+        .as_ref()
+        .map_or(0., |c| c.offset);
+    assert!(offset > 0., "the reader stays on row 30: {offset}");
+}
