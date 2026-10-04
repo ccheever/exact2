@@ -91,6 +91,36 @@ final class ClipMacTests: XCTestCase {
         XCTAssertTrue(at(100, 140) === p.views[4], "a clipped popup is not hit beyond the clip")
     }
 
+    /// `pointer-events` is inherited: a box under a `none` parent carries the
+    /// parent's `none` (the Apple host's computed row) and passes the click
+    /// through wherever it paints, out in the parent's visible overflow too
+    /// (feed's toast translated over the tab bar, x2apps repro
+    /// pointer-events-inherit-translate); one that sets `auto` again is hit.
+    func testAnInheritedPointerEventsNoneInVisibleOverflowLetsTheClickThrough() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": [:]],
+            ["op": "create", "id": 2, "kind": "button", "handlers": ["press"], "style": ["position_type": "absolute"]],
+            ["op": "create", "id": 3, "kind": "view", "style": ["position_type": "absolute", "pointer_events": "none"]],
+            ["op": "create", "id": 4, "kind": "view", "style": ["pointer_events": "none"]],
+            ["op": "children", "id": 3, "ids": [4]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "frame", "id": 2, "x": 20.0, "y": 220.0, "w": 200.0, "h": 40.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 300.0, "w": 300.0, "h": 60.0],
+            // Painted 80 above the row's box, over the button.
+            ["op": "frame", "id": 4, "x": 0.0, "y": -80.0, "w": 300.0, "h": 60.0],
+        ]))
+        let root = try XCTUnwrap(p.views[1]), toast = try XCTUnwrap(p.views[4])
+        let at = { (x: CGFloat, y: CGFloat) in root.hitTest(root.superview!.convert(NSPoint(x: x, y: y), from: root)) }
+        XCTAssertTrue(at(100, 240) === p.views[2], "through the inheriting toast to the button")
+        toast.applyStyle(["pointer_events": "auto"])
+        XCTAssertTrue(at(100, 240) === toast, "a toast that sets auto again takes the click")
+    }
+
     /// A native module's view inside a `pointer-events: none` box takes no
     /// click: the button around it does (paint F9), as on the web.
     func testAPointerEventsNoneBoxsPlatformViewLetsTheClickThrough() throws {

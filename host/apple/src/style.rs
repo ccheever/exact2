@@ -700,9 +700,14 @@ pub fn style_json_presented(
     ) {
         StyleMask::INHERITED
     } else {
+        // `pointer-events` is inherited too: a box under a `none` parent
+        // passes the pointer through wherever it paints, translated out of
+        // its parent's box included (feed's toast, x2apps repro
+        // pointer-events-inherit-translate).
         StyleMask::of(StyleId::TextColor)
             .union(StyleMask::of(StyleId::Direction))
             .union(StyleMask::of(StyleId::Cursor))
+            .union(StyleMask::of(StyleId::PointerEvents))
     };
     let mut computed = node.computed_style(rows);
     computed.mask.set(StyleId::TextColor);

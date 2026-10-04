@@ -603,3 +603,47 @@ fn text_transform_crosses_as_the_measured_string_and_box_shadow_as_its_rows() {
     }
     assert!(!changed.contains("\"value\":\"TYPED\""), "{changed}");
 }
+
+/// `pointer-events` is inherited (CSS): a box under a `none` parent says
+/// `none` too, so a host that hits it outside its parent's box (a toast
+/// translated over the tab bar) lets the pointer through, as the web does
+/// (x2apps feed repro pointer-events-inherit-translate). A child that sets
+/// `auto` again keeps it; a parent's change re-sends the child.
+#[test]
+fn pointer_events_none_reaches_a_box_that_inherits_it() {
+    let plan = contract::compile(
+        r##"component Toast
+  state through = true
+  action toggle
+    through = not through
+  view
+    column
+      button press=toggle testId="toggle"
+        text "Toggle"
+      row pointer-events=(through ? "none" : "auto") testId="row"
+        box testId="toast" width=300 height=60 translate="0px -80px"
+        box testId="again" width=10 height=10 pointer-events="auto"
+"##,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let (toast, again) = (view(&host, "toast"), view(&host, "again"));
+    assert!(
+        op(&first, toast).contains("\"pointer_events\":\"none\""),
+        "{}",
+        op(&first, toast)
+    );
+    assert!(op(&first, again).contains("\"pointer_events\":\"auto\""));
+    let changed = host.dispatch_at(view(&host, "toggle"), Event::Press, 0.0);
+    assert!(
+        op(&changed, toast).contains("\"pointer_events\":\"auto\""),
+        "{changed}"
+    );
+}

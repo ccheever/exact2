@@ -57,6 +57,27 @@ final class HitOrderIOSTests: XCTestCase {
         XCTAssertTrue(hit(p, CGPoint(x: 100, y: 60)) === list, "through the backdrop to the list")
     }
 
+    /// `pointer-events` is inherited: a box carrying its parent's `none`
+    /// passes the touch through where it paints outside the parent's box
+    /// (x2apps repro pointer-events-inherit-translate); `auto` again is hit.
+    func testAnInheritedPointerEventsNoneInVisibleOverflowLetsTheTouchThrough() throws {
+        let p = presenter(raised: 0)
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "style": ["position_type": "absolute", "pointer_events": "none"]],
+            ["op": "create", "id": 5, "kind": "view", "style": ["pointer_events": "none"]],
+            ["op": "children", "id": 4, "ids": [5]],
+            ["op": "children", "id": 1, "ids": [3, 2, 4]],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 300.0, "w": 400.0, "h": 60.0],
+            // Painted 300 above the row's box, over the raised button.
+            ["op": "frame", "id": 5, "x": 300.0, "y": -300.0, "w": 100.0, "h": 60.0],
+        ]))
+        window.layoutIfNeeded()
+        let menu = try XCTUnwrap(p.views[2]), toast = try XCTUnwrap(p.views[5])
+        XCTAssertTrue(hit(p, CGPoint(x: 360, y: 20)) === menu, "through the inheriting toast to the button")
+        toast.applyStyle(["pointer_events": "auto"])
+        XCTAssertTrue(hit(p, CGPoint(x: 360, y: 20)) === toast, "a toast that sets auto again takes the touch")
+    }
+
     /// A native module's view inside a `pointer-events: none` box is not a
     /// target either: the touch reaches the button around it (paint F9).
     func testAPointerEventsNoneBoxsPlatformViewLetsTheTouchThrough() throws {
