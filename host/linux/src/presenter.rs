@@ -584,6 +584,13 @@ impl<D: DataSource> Presenter<D> {
             return Err(HostError::Layout(error));
         }
         self.restore_time(&mut host)?;
+        let shaders = self
+            .surfaces
+            .prepare_shaders(&self.compat, &self.assets)
+            .map_err(HostError::Asset)?;
+        self.surfaces
+            .commit_shaders(shaders)
+            .map_err(HostError::Asset)?;
         self.host = host;
         self.replaced();
         if self.display.new_session() {

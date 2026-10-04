@@ -948,7 +948,8 @@ test('declared shader packs merge, reject duplicates and links, and preserve a r
   try {
     mkdirSync(resolve(dir,'gpu/shaders'),{recursive:true}); mkdirSync(resolve(dir,'pack'));
     writeFileSync(resolve(dir,'gpu/shaders/a.wgsl'),'a'); writeFileSync(resolve(dir,'pack/b.wgsl'),'b');
-    copyShaders(app,target); assert.deepEqual([...shaderFiles(app).keys()].sort(),['a.wgsl','b.wgsl']);
+    copyShaders(app,target); writeFileSync(resolve(target,'stale.wgsl'),'old');
+    copyShaders(app,target,{replace:true}); assert.ok(!existsSync(resolve(target,'stale.wgsl'))); assert.deepEqual([...shaderFiles(app).keys()].sort(),['a.wgsl','b.wgsl']);
     writeFileSync(resolve(dir,'shared.wgsl'),'shared');
     app.manifest.gpu.shaderPreludes={b:['shared.wgsl']};
     assert.equal(shaderFiles(app).get('b.wgsl').toString(),'shared\nb');
@@ -963,7 +964,9 @@ test('declared shader packs merge, reject duplicates and links, and preserve a r
     const changed=applyShaderTreeChange(app,target);
     assert.ok(changed.files.some(f=>f.name==='b.wgsl'&&f.removed));
     assert.equal(readFileSync(resolve(target,'a.wgsl'),'utf8'),'a');
-    symlinkSync(resolve(dir,'gpu/shaders/a.wgsl'),resolve(dir,'pack/b.wgsl'));
+    // Windows directory junctions are unprivileged reparse points; file
+    // symlinks require Developer Mode or an elevated process. Both must refuse.
+    symlinkSync(resolve(dir,process.platform==='win32'?'gpu/shaders':'gpu/shaders/a.wgsl'),resolve(dir,'pack/b.wgsl'),process.platform==='win32'?'junction':'file');
     assert.throws(()=>shaderFiles(app));
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });

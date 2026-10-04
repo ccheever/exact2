@@ -3,7 +3,7 @@
 import { copyFileSync, cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { bakeTarget, buildBake, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
+import { bakeTarget, buildBake, copyShaders, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 
 if (process.platform !== 'win32') throw new Error('build the Windows host on Windows with the MSVC Rust target');
 const args = process.argv.slice(2);
@@ -25,6 +25,7 @@ for (const name of ['assets','deck']) {
   const source = resolve(app.dir, name);
   if (existsSync(source)) cpSync(source, resolve(output, name), {recursive:true});
 }
+copyShaders(app, resolve(output, 'shaders'), {replace:true});
 writeFileSync(resolve(output, 'compat.json'), JSON.stringify(build.compat, null, 2) + '\n');
 console.log(`Windows game: ${executable}`);
 if (args.includes('--run')) {
