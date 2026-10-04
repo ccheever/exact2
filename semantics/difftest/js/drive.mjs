@@ -108,7 +108,7 @@ async function build(compiler, dir, file) {
   for (const f of ['app.js', 'names.js']) rmSync(resolve(dir, f), { force: true });
   const c = spawnSync(compiler, ['js', file, '-o', dir], { encoding: 'utf8' });
   if (c.status !== 0) return { outside: (c.stderr || c.stdout || `exit ${c.status}`).trim() };
-  const r = await Bun.build({ entrypoints: [resolve(dir, 'entry.js')], format: 'iife', target: 'browser' });
+  const r = await Bun.build({ entrypoints: [resolve(dir, 'entry.js')], format: 'iife', target: 'browser', define: { 'import.meta.url': '"http://difftest.invalid/app.js"' } });
   if (!r.success) throw new Error(r.logs.map(String).join('\n'));
   return { code: await r.outputs[0].text() };
 }
@@ -120,7 +120,9 @@ async function drive(code, c, hostSources) {
     document, location: { pathname: '/', search: '', href: 'http://difftest.invalid/', origin: 'http://difftest.invalid' },
     history: { replaceState() {}, pushState() {}, go() {}, state: null }, localStorage: { length: 0, key() {}, getItem() { return null; }, setItem() {}, removeItem() {} },
     addEventListener() {}, removeEventListener() {}, navigator: {},
-    setTimeout, clearTimeout, queueMicrotask, performance, console, URL, URLSearchParams, TextEncoder, TextDecoder,
+    matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
+    getComputedStyle: () => ({ getPropertyValue: () => '' }),
+    setTimeout, clearTimeout, queueMicrotask, performance, console: quiet, fetch: () => Promise.reject(new Error('no network in a drive')), URL, URLSearchParams, TextEncoder, TextDecoder,
     Event: class {}, CustomEvent: class {}, __exactRender: true,
   });
   ctx.globalThis = ctx; ctx.self = ctx; ctx.window = ctx;
@@ -137,7 +139,13 @@ async function drive(code, c, hostSources) {
     const k = source + key(args);
     return answers.has(k) ? { v: decode(answers.get(k)) } : unanswered(source, args);
   };
-  data.reserved = Object.fromEntries(hostSources.map(s => [s, (source, args, name) => name in c.facts ? decode(c.facts[name]) : unanswered(source, args)]));
+  // The host's facts (viewport, page, time…) as the runner answered them at
+  // boot: the module's own readers of the page (facts.js) assign in vain.
+  data.reserved = {};
+  for (const s of hostSources) {
+    const f = (source, args, name) => name in c.facts ? decode(c.facts[name]) : unanswered(source, args);
+    Object.defineProperty(data.reserved, s, { get: () => f, set() {}, enumerable: true });
+  }
   // Every command, in order: the runtime's own and any it does not carry.
   let commands = [];
   const record = name => (...args) => { commands.push(`command ${name}${args.map(a => ' ' + untyped(a)).join('')}`); };
@@ -166,6 +174,8 @@ async function drive(code, c, hostSources) {
   const find = id => { let hit = null; walk(root, e => { if (!hit && e.getAttribute('data-testid') === id) hit = e; }, false); return hit; };
   const observe = () => {
     names.forEach((group, g) => group.forEach((name, i) => {
+      // The locale slot (`#locale`) is no root slot the runner shows.
+      if (name.startsWith('#')) return;
       let v;
       try { v = state[g][i](); } catch (e) { notes.push(`# js: ${['slot', 'derive', 'resource'][g]} ${name}: ${e.message}`); return; }
       out.push(`${['slot', 'derive', 'resource'][g]} ${name} ${typed(v, types[g][i])}`);
@@ -176,7 +186,10 @@ async function drive(code, c, hostSources) {
       if (id == null) return;
       // A text, or an option (its label is its text, as agent.js reads it).
       const svgText = (e.localName === 'text' || e.localName === 'tspan') && !e.childElementCount;
-      const text = e.hasAttribute('data-exact-text') || e.localName === 'option' || svgText ? quote(e.$source ?? e.textContent) : '-';
+      // A paragraph of inline runs has no text of its own: its runs carry it (agent.js `record`, `run`).
+      const run = e.parentElement?.hasAttribute('data-exact-text') && e.parentElement.getAttribute('markup') !== 'markdown';
+      const text = (e.hasAttribute('data-exact-text') || e.localName === 'option' || svgText || run) && (e.$source != null || !e.childElementCount)
+        ? quote(e.$source ?? e.textContent) : '-';
       out.push(`view ${quote(id)} ${text}`);
     }, true);
   };
@@ -214,6 +227,10 @@ async function drive(code, c, hostSources) {
   return [...out, ...notes];
 }
 
+// A loaded piece the drive does not carry (the Markdown wasm, a fetch)
+// fails after its case: never the process.
+process.on('unhandledRejection', () => {});
+const quiet = process.env.DIFFTEST_JS_DEBUG ? console : { ...console, error() {}, warn() {} };
 const batch = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 runtime(batch.work);
 for (const c of batch.cases) {

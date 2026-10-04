@@ -53,7 +53,10 @@ class Style {
   set cssText(t) { this.map.clear(); for (const d of t.split(';')) { const i = d.indexOf(':'); if (i > 0) this.map.set(d.slice(0, i).trim(), d.slice(i + 1).trim()); } }
 }
 class Element extends Node {
-  constructor(tag, fonts) { super(1); this.fonts = fonts; this.localName = tag; this.attrs = new Map(); this.style = new Style(); this.dataset = new Proxy({}, { set: (_, k, v) => (this.setAttribute('data-' + k.replace(/[A-Z]/g, c => '-' + c.toLowerCase()), v), true) }); }
+  constructor(tag, fonts) { super(1); this.fonts = fonts; this.localName = tag; this.attrs = new Map(); this.style = new Style(); const data = k => 'data-' + k.replace(/[A-Z]/g, c => '-' + c.toLowerCase());
+    // Read as written: rt.js reads `dataset.exactOn` and the like back.
+    this.dataset = new Proxy({}, { set: (_, k, v) => (this.setAttribute(data(k), v), true), get: (_, k) => typeof k === 'string' ? this.getAttribute(data(k)) ?? undefined : undefined,
+      has: (_, k) => typeof k === 'string' && this.hasAttribute(data(k)), deleteProperty: (_, k) => (this.removeAttribute(data(k)), true) }); }
   get id() { return this.getAttribute("id") ?? ""; }
   get attributes() { return [...this.attrs].map(([name, value]) => ({ name, value })); }
   getAttributeNames() { return [...this.attrs.keys()]; }
@@ -77,6 +80,8 @@ class Element extends Node {
   get checked() { return this.hasAttribute('checked'); }
   set muted(v) {} pause() {} play() { return Promise.resolve(); }
   set className(v) { this.setAttribute('class', v); }
+  // Read only (symbols.js `tinted`): the class attribute's names.
+  get classList() { const names = (this.getAttribute('class') ?? '').split(/\s+/).filter(Boolean); return Object.assign(names, { contains: c => names.includes(c) }); }
   set href(v) { this.setAttribute('href', v); }
   html(inheritedFont = 16) {
     // Symbol images need a real natural size before adoption. Contract's
@@ -110,7 +115,7 @@ export function createDocument(shell = '') {
   const head = new Element('head'); const body = new Element('body');
   doc.append(head, body); body.append(root);
   Object.assign(doc, {
-    title: '', head, body, documentElement: body,
+    title: '', head, body, documentElement: body, styleSheets: [], // symbols.js reads a tint from the stylesheets: a render has none
     createElement: t => new Element(t, fonts), createElementNS: (_, t) => new Element(t, fonts),
     createTextNode: t => new Text(t), createComment: () => new Comment(), createDocumentFragment: () => new Fragment(),
     getElementById: id => (id === 'exact-root' ? root : null),
