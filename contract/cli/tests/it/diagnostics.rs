@@ -1335,3 +1335,100 @@ fn scroll_payload_arity_is_a_diagnostic() {
         }
     }
 }
+
+/// LLP 1085 D4, D7.1, D7.4: refusals that name the fix, each asserted whole.
+#[test]
+fn refusals_from_the_app_diaries_name_the_fix() {
+    let refused = |src: &str| {
+        let e = contract::compile(src).unwrap_err();
+        (e.id, e.message)
+    };
+    let says = |src: &str, id: &str, message: &str| {
+        assert_eq!(refused(src), (id.to_string(), message.to_string()), "{src}");
+    };
+    // D4 (kanban F5): an initializer's scope is said, not guessed at.
+    let reads = "a state's initializer runs before any resource answers, and reads only props, injects and earlier states";
+    says(
+        "shape Col\n  id: string\nshape Board\n  cols: list<Col>\ncomponent App\n  resource board = loadBoard() as shape Board\n  resource boardX = loadBoard() as shape Board\n  state scrolls = map(board.cols, c => c.id)\n  view\n    text \"a\"\n",
+        "type-initializer-scope",
+        &format!("`board` is a resource; {reads}. Derive it from `board`, or keep per-row state in a component used inside `each … in board.cols`"),
+    );
+    says(
+        "component App\n  derive two = 2\n  state n = two\n  view\n    text \"a\"\n",
+        "type-initializer-scope",
+        &format!("`two` is a derive; {reads}. Make `n` a derive too, or start it from a value and write it in an action"),
+    );
+    says(
+        "component App\n  state a = b\n  state b = 1\n  view\n    text \"a\"\n",
+        "type-initializer-scope",
+        &format!("`b` is declared after `a`; {reads}: declare `b` above `a`"),
+    );
+    // A row's state is held to the same scope in its component.
+    says(
+        "component App\n  view\n    Row(n=1)\ncomponent Row\n  props\n    n: number\n  derive twice = n * 2\n  state x = twice\n  view\n    text \"a\"\n",
+        "type-initializer-scope",
+        &format!("`twice` is a derive; {reads}. Make `x` a derive too, or start it from a value and write it in an action"),
+    );
+    // D7.1 (pomodoro F1): the declaration that fits, payload named and typed.
+    says(
+        "shape Task\n  id: string\n  done: bool\ncomponent App\n  resource tasks = loadTasks() as shape list<Task>\n  action flipTask(id: string)\n    refresh tasks\n  view\n    column\n      each t in tasks key=t.id\n        input type=\"checkbox\" checked=t.done change=flipTask(t.id)\n",
+        "analyze-handler-arity",
+        "`change=flipTask(t.id)` calls `flipTask` with `t.id` and then the checkbox's new `checked` (bool); declare `action flipTask(id: string, checked: bool)`",
+    );
+    says(
+        "component App\n  state q = \"\"\n  action setQ\n    q = \"\"\n  view\n    input value=q input=setQ\n",
+        "analyze-handler-arity",
+        "`input=setQ` calls `setQ` with the field's new `value` (string); declare `action setQ(value: string)`",
+    );
+    says(
+        "component App\n  state n = 0\n  action save(id: string, extra: number)\n    n = 1\n  view\n    button \"s\" press=save(\"a\")\n",
+        "analyze-handler-arity",
+        "`press=save(\"a\")` calls `save` with `\"a\"` and nothing more; declare `action save(id: string)`",
+    );
+    // D7.4 (ledger F3, hn-reader F2): the web's spellings, rewritten.
+    says(
+        "style Card\n  background-color: \"#fff\"\ncomponent App\n  view\n    text \"a\" class=Card\n",
+        "syntax-expected-attr",
+        "`background-color:` is CSS's declaration; a line of `style Card` is `attr=literal`: write `background-color=\"#fff\"`",
+    );
+    says(
+        "component App\n  state s = \"ab\"\n  view\n    text toString(len(s))\n",
+        "type-refused-idiom",
+        "write `length(x)`: Contract spells the web's `.length`, of text or of a list, as a roster function",
+    );
+    let idiom = |call: &str| {
+        refused(&format!("component App\n  state s = \"a\"\n  state xs = []\n  action go\n    xs = {call}\n  view\n    text s\n"))
+    };
+    for (call, says) in [
+        (
+            "push(xs, s)",
+            "building a list in a view waits on LLP 1085 §9",
+        ),
+        (
+            "concat(xs, xs)",
+            "building a list in a view waits on LLP 1085 §9",
+        ),
+        (
+            "slice(xs, 1)",
+            "building a list in a view waits on LLP 1085 §9",
+        ),
+        ("split(s, \",\")", "split the text there"),
+        (
+            "replace(s, \"a\", \"b\")",
+            "write `replaceAll(s, find, with)`",
+        ),
+        ("indexOf(s, \"a\")", "`includes(s, t)`"),
+        ("substring(s, 1)", "cut the text in the data module"),
+        ("padStart(s, 2, \"0\")", "LLP 1085 D2 defers it"),
+        ("toUpperCase(s)", "`text-transform=\"uppercase\"`"),
+        ("parseInt(s)", "Contract does not parse numbers from text"),
+        ("Number(s)", "Contract does not parse numbers from text"),
+    ] {
+        let (id, message) = idiom(call);
+        assert_eq!(id, "type-refused-idiom", "{call}: {message}");
+        assert!(message.contains(says), "{call}: {message}");
+    }
+    let e = contract::compile("component App\n  view\n    text toString(length([1, 2]))\n")
+        .unwrap_err();
+    assert!(e.message.contains("LLP 1085 §9's follow-up"), "{e}");
+}

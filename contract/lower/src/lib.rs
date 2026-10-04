@@ -914,6 +914,7 @@ impl<'a> Lowerer<'a> {
                     }
                     if let Err(e) = self.attr(
                         tag,
+                        contract_syntax::input_control(tag, attrs),
                         a,
                         scope,
                         locals,
@@ -1173,6 +1174,7 @@ impl<'a> Lowerer<'a> {
     fn attr(
         &mut self,
         tag: &str,
+        control: Option<&str>,
         a: &Attr,
         scope: &Scope,
         locals: u16,
@@ -1412,23 +1414,18 @@ impl<'a> Lowerer<'a> {
                 let valid = contract_analyze::handler_arity(event, args.len())
                     .is_some_and(|range| range.contains(&params));
                 if !valid {
+                    let params: Vec<(String, Ty)> = (self.root.actions[ai].params.iter())
+                        .map(|p| p.name.clone())
+                        .zip(self.types.components[0].actions[ai].iter().cloned())
+                        .collect();
+                    let arg_types: Vec<Option<Ty>> = args
+                        .iter()
+                        .map(|a| contract_types::infer(a, scope, &self.types.shapes).ok())
+                        .collect();
                     return err(
                         "lower-handler-arity",
-                        format!(
-                            "`{name}` takes {params} parameter(s); `{event}=` supplies {}{}",
-                            args.len(),
-                            match event {
-                                "hover" => " plus whether the pointer is over",
-                                "key" => " plus the key's name",
-                                "change" | "input" => " plus the new value",
-                                "message" => " plus the message",
-                                "scroll" => " plus scrollLeft and scrollTop",
-                                "heightrelease" => " plus height and velocity",
-                                "panrelease" => " plus vx and vy",
-                                "transformgeometry" => " plus four geometry numbers",
-                                "transformrelease" => " plus six transform release numbers",
-                                _ => "",
-                            }
+                        contract_analyze::handler_arity_message(
+                            event, control, name, args, &params, &arg_types,
                         ),
                         a.span,
                     );

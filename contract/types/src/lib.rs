@@ -819,6 +819,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             } else if let Some(f) = Stdlib::from_name(name).filter(|f| lists::is_list_op(*f)) {
                 return lists::infer_call(f, args, *span, scope, shapes);
             } else if let Some(f) = Stdlib::from_name(name) {
+                routes::not_the_router(f, args, scope, shapes, *span)?;
                 routes::require_table(f, shapes, *span)?;
                 geometry::check_call(f, args, scope, *span)?;
                 if args.len() != f.arity() {

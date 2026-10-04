@@ -563,6 +563,10 @@ fn a_module_tag_keeps_its_props_and_refuses_a_rows_name() {
         ("placeholder=\"x\"", "a form control's prop"),
         ("autofocus=true", "a form control's prop"),
         ("color=\"#fff\"", "a text row"),
+        // LLP 1085 D7.2: an allow-list — paint F7's `command` set a host
+        // command the module never saw.
+        ("command=\"zoom\"", "another element's attribute"),
+        ("href=\"/x\"", "another element's attribute"),
     ] {
         let src =
             format!("component A\n  view\n    ghostty-terminal testId=\"term\" width=320 {attr}\n");
@@ -596,6 +600,27 @@ fn a_module_tag_keeps_its_props_and_refuses_a_rows_name() {
         Some(r#"{"cwd":"/tmp","mode":"x","scheme":"dark"}"#)
     );
     assert_eq!(node.style.width, Dimension::Points(320.0));
+    // `disabled` and `inert` are the box's (the module's interaction
+    // suppression reads them, LLP 1085 D7.2), never a module prop.
+    let src = "component A\n  view\n    ghostty-terminal testId=\"term\" mode=\"x\" disabled=true inert=true\n";
+    let r = Runner::boot(
+        contract::compile(src).unwrap_or_else(|e| panic!("{e}")),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let node = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("term")[0])
+        .unwrap();
+    assert_eq!(node.props.bool(PropId::Disabled), Some(true));
+    assert_eq!(node.props.bool(PropId::Inert), Some(true));
+    assert_eq!(
+        node.props.str(PropId::NativeViewProps),
+        Some(r#"{"mode":"x"}"#)
+    );
     // The check is by name over the tag's own attributes, not by position
     // in the expanded list: a class's `animation` composed with an own
     // longhand rewrites that list, and the own `font-size` is still refused.

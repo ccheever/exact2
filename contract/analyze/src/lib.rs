@@ -13,9 +13,12 @@
 #![deny(missing_docs)]
 
 mod arity;
+mod payload;
+
+pub use payload::handler_arity_message;
 
 use contract_syntax::{Component, Expr, File, Node, Span};
-use contract_types::{Checked, Ref, Scope, Ty};
+use contract_types::{Checked, Ref, Scope, Shapes, Ty};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Another authored location needed to understand a rejection.
@@ -201,7 +204,12 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
         let scope = types.component_scope(scoped, ct);
         errors.extend(check_tasks(c).err());
         errors.extend(check_mutation_then(c).err());
-        errors.extend(check_view(&c.view, &scope, file).err());
+        let view = View {
+            file,
+            actions: scoped,
+            shapes: &types.shapes,
+        };
+        errors.extend(check_view(&c.view, &scope, &view).err());
     }
     errors.extend(check_controls(&expanded.root.view, false).err());
     errors.extend(arity::check(file, types, &expanded.root).err());
@@ -363,19 +371,32 @@ pub fn handler_arity(attr: &str, given: usize) -> Option<std::ops::RangeInclusiv
     Some(given + payload..=given + payload)
 }
 
-fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeError> {
+/// What the view check reads besides the scope: the file's components, the
+/// component whose actions the scope's `Ref::Action`s index, and the shapes.
+struct View<'a> {
+    file: &'a File,
+    actions: &'a Component,
+    shapes: &'a Shapes,
+}
+
+fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), AnalyzeError> {
+    let file = view.file;
     for n in nodes {
         match n {
             Node::Children { .. } => {}
             Node::Element {
-                attrs, children, ..
+                tag,
+                attrs,
+                children,
+                ..
             } => {
+                let control = contract_syntax::input_control(tag, attrs);
                 for a in attrs {
                     if HANDLERS.contains(&a.name.as_str()) {
-                        check_handler(&a.name, &a.value, scope, a.span)?;
+                        check_handler(&a.name, &a.value, scope, a.span, control, view)?;
                     }
                 }
-                check_view(children, scope, file)?;
+                check_view(children, scope, view)?;
             }
             Node::Use {
                 name,
@@ -383,7 +404,7 @@ fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeE
                 children,
                 span,
             } => {
-                check_view(children, scope, file)?;
+                check_view(children, scope, view)?;
                 if !file.components.iter().any(|x| &x.name == name) {
                     return err(
                         "analyze-unknown-component",
@@ -405,8 +426,8 @@ fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeE
             Node::When {
                 then, otherwise, ..
             } => {
-                check_view(then, scope, file)?;
-                check_view(otherwise, scope, file)?;
+                check_view(then, scope, view)?;
+                check_view(otherwise, scope, view)?;
             }
             Node::Each {
                 var,
@@ -415,32 +436,39 @@ fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeE
                 body,
                 ..
             } => {
-                let t = contract_types::infer(list, scope, &Default::default()).ok();
+                let t = contract_types::infer(list, scope, view.shapes).ok();
                 let item = match t {
                     Some(Ty::List(item)) => *item,
                     _ => Ty::Unknown,
                 };
                 let mut inner = scope.clone();
                 inner.push_each(var, index.as_deref(), item);
-                check_view(body, &inner, file)?;
+                check_view(body, &inner, view)?;
             }
             Node::Match { some, none, .. } => {
                 let mut inner = scope.clone();
                 inner.push_region(Some((some.0.clone(), Ref::Bound(0), Ty::Unknown)));
-                check_view(&some.1, &inner, file)?;
+                check_view(&some.1, &inner, view)?;
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
-                check_view(none, &none_scope, file)?;
+                check_view(none, &none_scope, view)?;
             }
         }
     }
     Ok(())
 }
 
-fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<(), AnalyzeError> {
-    let (name, given) = match value {
-        Expr::Ident(n, _) => (n.as_str(), 0usize),
-        Expr::Call(n, args, _) => (n.as_str(), args.len()),
+fn check_handler(
+    attr: &str,
+    value: &Expr,
+    scope: &Scope,
+    span: Span,
+    control: Option<&str>,
+    view: &View<'_>,
+) -> Result<(), AnalyzeError> {
+    let (name, args) = match value {
+        Expr::Ident(n, _) => (n.as_str(), &[][..]),
+        Expr::Call(n, args, _) => (n.as_str(), args.as_slice()),
         _ => {
             return err(
                 "analyze-handler-shape",
@@ -470,28 +498,28 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
             span,
         );
     }
+    let given = args.len();
     // A prop of bare `action` type has unknown arity; only a real action is checked.
-    if matches!(r, Ref::Action(_)) {
+    if let Ref::Action(index) = r {
         let valid = handler_arity(attr, given).is_some_and(|range| range.contains(&params.len()));
         if !valid {
+            let declared = view.actions.actions.get(index as usize);
+            let params: Vec<(String, Ty)> = declared
+                .map(|a| {
+                    a.params
+                        .iter()
+                        .map(|p| p.name.clone())
+                        .zip(params.iter().cloned())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let arg_types: Vec<Option<Ty>> = args
+                .iter()
+                .map(|a| contract_types::infer(a, scope, view.shapes).ok())
+                .collect();
             return err(
                 "analyze-handler-arity",
-                format!(
-                    "`{name}` takes {} parameter(s); `{attr}=` supplies {given}{}",
-                    params.len(),
-                    match handler_payload(attr) {
-                        Some("bool") => " plus whether the pointer is over",
-                        Some(_) if attr == "key" => " plus the key's name",
-                        Some(_) if attr == "message" => " plus the message",
-                        Some(_) => " plus the new value",
-                        None if attr == "scroll" => " plus scrollLeft and scrollTop",
-                        None if attr == "heightrelease" => " plus height and velocity",
-                        None if attr == "panrelease" => " plus vx and vy",
-                        None if attr == "transformgeometry" => " plus four geometry numbers",
-                        None if attr == "transformrelease" => " plus six transform release numbers",
-                        None => "",
-                    }
-                ),
+                handler_arity_message(attr, control, name, args, &params, &arg_types),
                 span,
             );
         }

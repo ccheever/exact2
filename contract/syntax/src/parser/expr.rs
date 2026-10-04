@@ -171,7 +171,7 @@ impl Parser {
                     return self.err(
                         "syntax-expected",
                         format!(
-                            "expected `]`, found {}; `[]` is the empty list, and Contract has no list literal with items: a list comes from a source, a shape field, or `map`/`filter`",
+                            "expected `]`, found {}; `[]` is the empty list, and Contract has no list literal with items yet (LLP 1085 §9's follow-up): a list comes from the data module, a shape field, or `map`/`filter`",
                             describe(self.peek_kind())
                         ),
                     );
