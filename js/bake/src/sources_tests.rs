@@ -69,9 +69,17 @@ fn captures_fonts_and_complete_static_trees_without_following_links() {
         std::os::unix::fs::symlink("AGENTS.md", app.0.join("CLAUDE.md")).unwrap();
         let unchanged = sources(&app.0).unwrap();
         assert!(!unchanged.contains_key(std::path::Path::new("CLAUDE.md")));
-        std::os::unix::fs::symlink(app.0.join("fonts"), app.0.join("more")).unwrap();
-        assert!(sources(&app.0).unwrap_err().contains("source links"));
-        std::fs::remove_file(app.0.join("more")).unwrap();
+        // Anything else is refused: a directory, a script no capture lists
+        // (the web bundler would follow it), a document inside an asset tree.
+        for (target, link) in [
+            ("fonts", "more"),
+            ("private.bin", "helper.js"),
+            ("AGENTS.md", "assets/notes.md"),
+        ] {
+            std::os::unix::fs::symlink(app.0.join(target), app.0.join(link)).unwrap();
+            assert!(sources(&app.0).unwrap_err().contains("source links"), "{link}");
+            std::fs::remove_file(app.0.join(link)).unwrap();
+        }
         std::os::unix::fs::symlink(app.0.join("private.bin"), app.0.join("assets/link.bin"))
             .unwrap();
         assert!(sources(&app.0).unwrap_err().contains("source links"));

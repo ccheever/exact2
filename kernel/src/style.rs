@@ -22,7 +22,6 @@ pub(crate) mod effects;
 pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
 mod grid;
-mod named;
 pub use grid::link as link_grid;
 pub use grid::{
     GridFitContent, GridLine, GridPlacement, GridRepeat, GridRepeatCount, GridTrack,
@@ -746,7 +745,7 @@ impl Color {
         if text.eq_ignore_ascii_case("transparent") {
             return Some(Color::rgba(0, 0, 0, 0));
         }
-        let named = || named::named(text).map(|[r, g, b]| Color::rgba(r, g, b, 255));
+        let named = || exact_motion::named::named(text).map(|[r, g, b]| Color::rgba(r, g, b, 255));
         Color::parse_hex(text).or_else(|| Color::parse_rgb(text)).or_else(named)
     }
 

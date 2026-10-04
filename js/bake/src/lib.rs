@@ -577,11 +577,15 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             ) || ["assets", "deck", "gpu/shaders"]
                 .iter()
                 .any(|tree| relative.starts_with(tree));
-            // A link the capture would read (a source, or a directory that may
-            // hold one) is refused; one it never reads (CLAUDE.md → AGENTS.md)
-            // is no input, and is skipped.
+            // Links are refused, except a document link outside the captured
+            // trees (CLAUDE.md → AGENTS.md): no build reads one. The web
+            // build's capture keeps the same rule (host/web-js/build.mjs).
             if kind.is_symlink() {
-                if captured || path.is_dir() {
+                let document = matches!(
+                    path.extension().and_then(|s| s.to_str()),
+                    Some("md" | "txt")
+                );
+                if captured || !document || path.is_dir() {
                     return Err(format!("source links are not captured: {}", path.display()));
                 }
                 continue;

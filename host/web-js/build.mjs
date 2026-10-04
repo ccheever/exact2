@@ -15,7 +15,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, normalize, resolve } from 'node:path';
+import { dirname, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'rolldown/utils';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants } from './module.mjs';
@@ -159,8 +159,13 @@ async function typecheck() {
       const name = entry.name, path = resolve(from, name);
       if (['.git', 'node_modules', 'target', 'dist'].includes(name) || name.startsWith('.exact-js-bake-') || (top && name === 'app.contract.d.ts')) continue;
       if (top && mounts.some(([mount]) => mount === name)) continue;
-      // A link the capture would read is refused; one it never reads (CLAUDE.md → AGENTS.md) is skipped.
-      if (entry.isSymbolicLink()) { if (/\.(ts|json)$/.test(name) || statSync(path, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`source links are not captured: ${path}`); continue; }
+      // Links are refused, except a document link outside the static trees
+      // (CLAUDE.md → AGENTS.md), as js/bake's capture: no build reads one.
+      if (entry.isSymbolicLink()) {
+        const document = /\.(md|txt)$/.test(name) && !/^(assets|deck|shaders|gpu)$/.test(relative(appDir, from).split(/[\\/]/)[0]);
+        if (!document || statSync(path, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`source links are not captured: ${path}`);
+        continue;
+      }
       if (entry.isDirectory()) { if (realpathSync(path) !== output) capture(path, resolve(to, name), false); }
       else if (/\.(ts|json)$/.test(name)) { mkdirSync(to, { recursive: true }); cpSync(path, resolve(to, name)); }
     }
