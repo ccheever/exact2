@@ -712,6 +712,12 @@ commands. Use `tree` to find targets, `state` for data and delivery, `layout` fo
 geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: per
 plan site, evaluations, unchanged results, instances created and retired), and
 screenshots for rendered output. Logs name refused operations and data errors.
+Under the driver's clock no frame is presented, so `perf frames` measures a
+live window instead: `perf frames live 3000` lets the page's clock follow the
+wall for 3 s and reports the frames it presented (p50/p95/p99, late frames)
+and each game world's frame, tick, feed and encode times, on the web's wasm
+target (a game's). The world ticks on the wall in that window, so a hash
+taken after it is not a seeked run's.
 For a game canvas, JavaScript `s.tap("world", {mouse:true, at:[x,y]})` sends one
 primary mouse click on web, Windows, and Linux. `{contextmenu:true, at:[x,y]}`
 sends a right-click. Coordinates are relative to the target's top-left; omit
