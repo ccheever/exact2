@@ -1,20 +1,21 @@
 {
   "ticks": {
     "0": "0x5e2768542a522677",
-    "4500": "0x8c9c3ee2aec1515c"
+    "4500": "0x41676955ecbb5d88"
   },
   "saves": {
-    "night": "8715d9771a1c217d8583ea25f95d7229b15471a7e1bdc413e617564878fa8ad7",
-    "rescue": "126183525109ba84dae6e322ea65d07bbfda2733a64e3323767127f344eb78cf",
+    "chopping": "5a79c206dfa91c22471bd1bd8a1207b4354814be8fa47b15f36a3cc417b44c2d",
+    "night": "16b56b8dbcdb08ac010c7cf782cfb9eefc6614449ac7d23ea176e05f543f9c3f",
+    "rescue": "9f36964af9511d91b13ddd75edc5a01dded805935ee7f85cea34c88495ae01eb",
     "supplies": "37cb7e657901c786935e0a9c3dbb73868ad7ce37b999712dbdd3e44a5a308dbd"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "32a86f926a32995abb1ac9a46d207de2ba1b5e41a657a3968aca94d5073fb77e",
+  "inputs": "2deb4fbdb531002d72cdee776ce70fd87641291b55de9ec821d5b9c797e3db14",
   "game": "forest",
   "generated": "bun game/prove.mjs forest --repin --hosts 'linux,web'",
-  "at": "bd629642dad15c3963da796aebe12dd6b43f0b81",
-  "reason": "Saved supply and camp compasses, frozen death score, new supply continuation, and main 843dd48d6"
+  "at": "53d2d6fb97b69b7163ca9428df28604b559694e2",
+  "reason": "Visible axe progress and recovery, held swings and a mid-swing continuation"
 }

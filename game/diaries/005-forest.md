@@ -725,3 +725,23 @@ input and transform tests then pass. No capture implementation change was needed
 Root build, 2,316 enabled tests across 81 binaries (nine ignored), Clippy,
 formatting and boot pass. The shared app-tool suite passes 73 tests with two
 optional integration skips. Cross-host acceptance follows this checkpoint.
+
+### Accepted verification
+
+The strict collector `artifacts/prove/run-mm6oin` accepts feature commit
+`53d2d6fb9` after Linux and web agree in normal, Save and FreshGame modes,
+plus native release. All seven runs have zero failures and successful
+descendant audits. Linux's three modes take 1.7/14.9/10.4 s; web takes
+101.0/110.1/118.6 s including mode builds. The release comparison takes 81.2 s
+including its rebuild. A subsequent ordinary Linux proof passes against the
+accepted pins. The independent macOS proof takes
+96.7 s, including its optional descendant scan timing out; every owned carrier
+closes. It matches source inputs, all pins, seven world snapshots and twelve
+save files. Both hosts' recovery screenshots were inspected. The new chopping
+continuation digest is `5a79c206…`; the existing supply save stays unchanged.
+
+The main integration sweep also passes Garden and Rivals on web and macOS.
+Garden agrees on its four snapshots and six saves. Rivals takes 55.6/36.3 s
+including rebuilds, agrees on six snapshots and six saves, and its two inspected
+drill captures retain the same readable overlay and controls. Both web audits
+pass; the native optional audits time out while every owned process closes.

@@ -631,3 +631,11 @@ longer market continuation, whose digest is now `c7804a76…`.
 Root verification: all five gates pass, with 2,315 enabled Rust tests across
 81 binaries and nine ignored tests. Garden's Clippy/format checks pass; the
 shared app-tool suite has 73 passes and two optional integration skips.
+
+### Main's paint-rank merge
+
+The later Forest axe batch merges main through `85bd9ba9b` as `6250a2856`.
+Garden's unchanged complete proofs pass on web in 88.9 s and macOS in 42.0 s,
+including rebuilds. Their source inputs, tick/save pins, four world snapshots
+and six saves agree. Web's descendant audit passes; macOS's optional scan times
+out while every owned carrier closes. Artifacts: `artifacts/main-paint-{web,macos}/`.

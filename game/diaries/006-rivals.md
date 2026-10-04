@@ -731,3 +731,20 @@ invocation sets `DEVELOPER_DIR` to Xcode and `EXACT_LIB_DIR` to the built archiv
 actual directory. These were invocation errors; the normal app builder already
 selects Xcode and its captured archive. Root's five checks pass on the merge,
 including 2,313 enabled tests with nine ignored.
+
+## Paint-rank integration recheck (2026-10-04)
+
+Main through `85bd9ba9b` is merged as `6250a2856` during Forest's axe work.
+The complete Rivals proofs pass on web in 55.6 s and macOS in 36.3 s, including
+rebuilds. Source inputs, tick/save pins, all six world snapshots and six saves
+agree. Both `drill.png` captures were viewed: the result overlay and controls
+retain their matching appearance. Artifacts: `artifacts/main-paint-{web,macos}/`.
+Web's process audit passes; macOS reports the optional descendant scan
+unavailable while every owned carrier closes. No Rivals policy change or new
+Jev duel is claimed by this integration sweep.
+
+An older native capture test needed the explicit sibling-rank message now sent
+by the kernel, instead of relying on the view to interpret a style's z-index.
+With that fixture corrected, all 38 selected native capture, surface-control
+and transform tests pass; the pixel assertions are unchanged. Forest diary 005
+records the root gates and the independent gameplay changes in this batch.
