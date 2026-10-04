@@ -482,8 +482,8 @@ function followScroll(el, enabled) {
 }
 
 // A `markup="markdown"` text node's pieces, as the wasm emitted them
-// (`[text, scale, weight, flags, href]`; flags italic 1, mono 2, strike 4, link 8,
-// quiet 16), built into spans with textContent — never HTML. Lives here because it
+// (`[text, scale, weight, flags, href, indent]`; flags italic 1, mono 2, strike 4,
+// link 8, quiet 16, hanging marker 32), built into spans with textContent — never HTML. Lives here because it
 // must run at boot and glue.js is at its line cap. LLP 1045 D3/D4.
 //
 // One scheme allowlist for every URL the page can navigate to: a link's
@@ -503,24 +503,47 @@ export function refuseURL(el, name, value) {
   console.warn(`exact: refused ${name} ${JSON.stringify(String(value).slice(0, 80))}: only http, https, mailto and tel navigate`);
   if (name === "src") el.setAttribute(name, "about:blank"); else el.removeAttribute(name);
 }
+// A list item's paragraph (indent > 0, LLP 1045 D4) is a block with the
+// item's indent as `padding-left`; its marker (flags 32) is a 40 px box
+// pulled into the gutter by the block's negative `text-indent`, the marker's
+// end at the indent (`flex-end`, overflowing leftwards as the browser's
+// outside marker does): `<ul>`/`<ol>`'s layout, the one native hosts copy
+// with a head indent. 40 is exact-markdown's `LIST_INDENT`.
 export function renderMarkup(el, json) {
   let pieces;
   try { pieces = JSON.parse(json); } catch { pieces = []; }
   el.replaceChildren();
-  for (const [text, scale, weight, flags, href] of pieces) {
+  let box = el, start = true;
+  const paragraph = indent => {
+    if (start) { start = false; box = el; if (indent > 0) { box = document.createElement("span"); box.style.display = "block"; box.style.paddingLeft = `${indent}px`; el.appendChild(box); } }
+    return box;
+  };
+  for (const [text, scale, weight, flags, href, indent = 0] of pieces) {
     const destination = flags & 8 && href ? navigableURL(href) : null;
-    const span = document.createElement(destination ? "a" : "span");
+    const make = () => {
+      const span = document.createElement(destination ? "a" : "span");
+      if (scale !== 1) span.style.fontSize = `${scale}em`;
+      if (weight) span.style.fontWeight = weight;
+      if (flags & 1) span.style.fontStyle = "italic";
+      if (flags & 2) span.style.fontFamily = "ui-monospace, monospace";
+      if (flags & 4) span.style.textDecoration = "line-through";
+      if (flags & 16) span.style.opacity = "0.62";
+      if (destination) span.href = destination;
+      if (destination && /^(https?:)?\/\//i.test(href.trim())) { span.target = "_blank"; span.rel = "external noopener"; } // it leaves the app, as natively (element.rs `leaves_app`)
+      return paragraph(indent).appendChild(span);
+    };
+    if (flags & 32) {
+      const marker = make();
+      marker.style.cssText += "display:inline-flex;justify-content:flex-end;width:40px;white-space:pre;text-indent:0";
+      marker.textContent = text; box.style.textIndent = "-40px";
+      continue;
+    }
     // Newlines are `<br>`s: the node's own white-space row still applies to the rest.
-    text.split("\n").forEach((line, i) => { if (i) span.appendChild(document.createElement("br")); if (line) span.appendChild(document.createTextNode(line)); });
-    if (scale !== 1) span.style.fontSize = `${scale}em`;
-    if (weight) span.style.fontWeight = weight;
-    if (flags & 1) span.style.fontStyle = "italic";
-    if (flags & 2) span.style.fontFamily = "ui-monospace, monospace";
-    if (flags & 4) span.style.textDecoration = "line-through";
-    if (flags & 16) span.style.opacity = "0.62";
-    if (destination) span.href = destination;
-    if (destination && /^(https?:)?\/\//i.test(href.trim())) { span.target = "_blank"; span.rel = "external noopener"; } // it leaves the app, as natively (element.rs `leaves_app`)
-    el.appendChild(span);
+    let span = null;
+    text.split("\n").forEach((line, i) => {
+      if (i) { (span ??= make()).appendChild(document.createElement("br")); start = true; span = null; }
+      if (line) (span ??= make()).appendChild(document.createTextNode(line));
+    });
   }
 }
 
