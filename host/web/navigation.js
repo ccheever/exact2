@@ -720,6 +720,26 @@ export function reportPlace() {
   return pagePlace();
 }
 
+// An iframe guest's origin as authored when its `src` or `sandbox` was
+// committed (an opaque sandbox posts as "null"), which a `message` from it must match.
+const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
+export function commitGuestOrigin(el) {
+  const sandbox = new Set((el.getAttribute("sandbox") ?? "").split(/\s+/).filter(Boolean));
+  const opaque = el.hasAttribute("sandbox") && !sandbox.has("allow-same-origin");
+  let origin = null;
+  if (!opaque) {
+    const src = el.getAttribute("src");
+    try { origin = !src || src === "about:blank" ? location.origin : new URL(src, document.baseURI).origin; }
+    catch { origin = null; }
+    if (origin === "null") origin = null;
+  }
+  iframeOrigins.set(el, { origin, opaque });
+}
+export function guestMessageAuthorized(el, eventOrigin) {
+  const committed = iframeOrigins.get(el);
+  if (!committed) return false;
+  return committed.opaque ? eventOrigin === "null" : eventOrigin === committed.origin;
+}
 // A same-origin guest joins `tree` as a compact, bounded outline. Access to
 // a sandboxed or cross-origin document is simply absent (@ref LLP 1020 D4).
 export function guestOutline(frame) {
