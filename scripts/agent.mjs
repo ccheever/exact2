@@ -336,7 +336,10 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         const r = id == null ? null : (await ask({ op: 'layout' })).nodes.find((n) => n.id === id);
         if (id != null && (!r || (r.w === 0 && r.h === 0))) throw new Error(`view ${id} has no box on screen`);
         const point = ['contextmenu', 'mouse'].includes(kind) ? opts.at : null;
-        const x = r ? r.x + (point?.[0] ?? r.w / 2) : contact?.x, y = r ? r.y + (point?.[1] ?? r.h / 2) : contact?.y;
+        // The middle of the box, unless the target is not there: then the middle of the first of its client rects that is —
+        // a wrapped inline run's line, where its box's middle falls between two lines, in the paragraph's half-leading (reader).
+        const line = r && !point && ['press', 'contextmenu', 'dblclick', 'hover'].includes(kind) ? await evaluate(`(() => { const el = exact.views.get(${id}), on = (x, y) => { const h = document.elementFromPoint(x, y); return !!h && (el === h || el.contains(h)); }, b = el?.getBoundingClientRect(); if (!el || on(b.x + b.width / 2, b.y + b.height / 2)) return null; for (const c of el.getClientRects()) if (c.width && c.height && on(c.x + c.width / 2, c.y + c.height / 2)) return [c.x + c.width / 2, c.y + c.height / 2]; return null; })()`) : null;
+        const x = line ? line[0] : r ? r.x + (point?.[0] ?? r.w / 2) : contact?.x, y = line ? line[1] : r ? r.y + (point?.[1] ?? r.h / 2) : contact?.y;
         if (kind === 'press' || kind === 'key' || kind === 'type') {
           const request = kind === 'press'
             ? { op: 'tap', id, selector: opts.selector, x: opts.x, y: opts.y }
@@ -349,7 +352,9 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
           }
         }
         if (id != null && ['press', 'contextmenu', 'dblclick', 'mouse'].includes(kind)) {
-          const why = await evaluate(`(() => { const el = exact.views.get(${id}), hit = document.elementFromPoint(${x}, ${y}); return !el ? null : !hit ? 'its middle is outside the viewport; scroll it into view first' : el === hit || el.contains(hit) || hit.contains(el) ? null : (hit.dataset?.view ? 'node #' + hit.dataset.view : hit.tagName.toLowerCase()) + ' covers its middle'; })()`);
+          // An ancestor under the point takes the press itself, never the target's handlers: a miss, unless the target passes its
+          // presses through (`pointer-events: none`), as a person's would be (reader: a tap between a run's lines reported success).
+          const why = await evaluate(`(() => { const el = exact.views.get(${id}), hit = document.elementFromPoint(${x}, ${y}), name = hit && (hit.dataset?.view ? 'node #' + hit.dataset.view : hit.tagName.toLowerCase()); return !el ? null : !hit ? 'its middle is outside the viewport; scroll it into view first' : el === hit || el.contains(hit) || hit.contains(el) && getComputedStyle(el).pointerEvents === 'none' ? null : hit.contains(el) ? name + ', which holds it, is under the point and would take the press: no box the target draws is there' : name + ' covers its middle'; })()`);
           if (why) throw new Error(`tap #${id} at (${x}, ${y}): ${why}`);
         }
         if (kind === 'mouse' && !await evaluate(`exact.views.get(${id})?.localName === 'canvas' || !!exact.views.get(${id})?.querySelector('canvas')`)) throw new Error('mouse requires a canvas target');
@@ -459,7 +464,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
           // agent's clock stands still): record what the press reached and refuse a tap that missed.
           // Judged at the press itself: the tap's own action may replace the node right after.
           // A fresh listener each tap, removed in `finally`, so a failed dispatch leaves none behind.
-          const arm = `(() => { if (window.__exactPress) removeEventListener('pointerdown', window.__exactPress, true); window.__exactPressed = null; window.__exactPress = (e) => { if (window.__exactPressed) return; const el = exact.views.get(${id}), hit = e.target; window.__exactPressed = !el ? 'nothing: the target was gone at the press' : el === hit || el.contains(hit) || hit.contains(el) ? 'ok' : hit.closest?.('[data-testid]') ? '\"' + hit.closest('[data-testid]').dataset.testid + '\"' : hit.closest?.('[data-view]') ? 'node #' + hit.closest('[data-view]').dataset.view : hit.localName; }; addEventListener('pointerdown', window.__exactPress, true); })()`;
+          const arm = `(() => { if (window.__exactPress) removeEventListener('pointerdown', window.__exactPress, true); window.__exactPressed = null; window.__exactPress = (e) => { if (window.__exactPressed) return; const el = exact.views.get(${id}), hit = e.target; window.__exactPressed = !el ? 'nothing: the target was gone at the press' : el === hit || el.contains(hit) || hit.contains(el) && getComputedStyle(el).pointerEvents === 'none' ? 'ok' : hit.closest?.('[data-testid]') ? '\"' + hit.closest('[data-testid]').dataset.testid + '\"' : hit.closest?.('[data-view]') ? 'node #' + hit.closest('[data-view]').dataset.view : hit.localName; }; addEventListener('pointerdown', window.__exactPress, true); })()`;
           const disarm = `(() => { removeEventListener('pointerdown', window.__exactPress, true); window.__exactPress = null; const r = window.__exactPressed; window.__exactPressed = null; return r; })()`;
           if (id != null) await evaluate(arm);
           let reached = 'ok';

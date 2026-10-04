@@ -638,6 +638,10 @@ from a mouse's; use the intended physical input when comparing game saves.
 
 `tap` and `type` scroll a target whose middle is out of view into it first (its
 nearest scroll containers, then the page) and say so in the reply's `scrolled`.
+A tap aims at the target's middle, or, where the target is not there (a wrapped
+inline run, whose middle can fall between its lines), at the middle of the first
+of its lines that is; a tap whose point lands on something else fails, an
+ancestor that would take the press itself included.
 `type` on a control sets it as a person choosing would, with `input` then
 `change`: a `select` takes an option's value or its label, a date, time or
 `datetime-local` input its HTML value (`2026-10-09`, `14:00`,
