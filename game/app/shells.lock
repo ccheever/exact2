@@ -1057,6 +1057,7 @@ dependencies = [
  "cssparser",
  "exact-motion",
  "exact-num",
+ "exact-svg-filter",
  "exact-textflow",
  "serde",
  "serde_json",
@@ -1153,10 +1154,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-svg-filter"
+version = "0.1.0"
+
+[[package]]
 name = "exact-svg-raster"
 version = "0.1.0"
 dependencies = [
- "exact-kernel",
+ "exact-svg-filter",
 ]
 
 [[package]]
