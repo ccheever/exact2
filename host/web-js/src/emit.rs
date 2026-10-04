@@ -926,16 +926,12 @@ impl Em<'_> {
         } else {
             parts.tag.as_str()
         };
-        if element == "img" {
-            let bound = row.bindings.iter().map(|b| plan.binding(b)).any(|b| {
-                b.kind == BindingKind::Prop
-                    && b.id == PropId::ImageSource as u16
-                    && style::literal(plan, plan.code(b.expr)).is_none()
-            });
-            if bound || parts.props.contains_key("data-symbol-path") {
-                self.symbols.0 = true;
-                self.symbols.1 |= bound;
-            }
+        if let Some(bound) = (element == "img")
+            .then(|| self.image_piece(i, &parts))
+            .flatten()
+        {
+            self.symbols.0 = true;
+            self.symbols.1 |= bound;
         }
         let (mut attrs, content, extra) = rows::attributes(element, &parts.props);
         let mut css = parts.css.clone();

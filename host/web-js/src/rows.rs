@@ -11,6 +11,27 @@ use exact_web::host::template::Parts;
 use std::fmt::Write as _;
 
 impl Em<'_> {
+    /// Whether image `i` needs symbols.js — it draws a symbol, its source is
+    /// bound, or its source is an `app:/` file, which symbols.js resolves
+    /// (`data-app-src`, LLP 1069.002 D7) — and whether its source is bound.
+    pub(super) fn image_piece(&self, i: u32, parts: &Parts) -> Option<bool> {
+        let plan = self.plan;
+        let bound = plan.nodes[i as usize]
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+            .any(|b| {
+                b.kind == BindingKind::Prop
+                    && b.id == PropId::ImageSource as u16
+                    && style::literal(plan, plan.code(b.expr)).is_none()
+            });
+        let app = parts
+            .props
+            .get("src")
+            .is_some_and(|s| s.starts_with("app:/"));
+        (bound || app || parts.props.contains_key("data-symbol-path")).then_some(bound)
+    }
+
     /// A bound paint fact for the CSS sibling-order rule. The expression is
     /// pure; the same effect scope as its style owns this attribute.
     pub(super) fn paint_binding(&mut self, kind: NodeType, b: &BindingsRow, e: &str, f: &str) {
@@ -485,6 +506,11 @@ pub(super) fn attributes(
                 } else {
                     attrs.push(("data-autofocus".into(), "false".into()));
                 }
+            }
+            // The app's own file (LLP 1069.002 D7): symbols.js shows it
+            // through an object URL; the browser has no `app:` scheme.
+            "src" if element == "img" && value.starts_with("app:/") => {
+                attrs.push(("data-app-src".into(), value.clone()));
             }
             "src" if element == "img" && value.starts_with("symbol:") => {
                 attrs.push((
