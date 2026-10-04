@@ -1031,9 +1031,9 @@ impl<D: exact_runner::DataSource> super::Host<D> {
     }
 
     /// Refresh isolation in newly computed or server-cached CSS. An authored
-    /// isolation row keeps its value; all other writes come from the kernel.
+    /// `isolate` keeps its value; required isolation overrides authored `auto`.
     pub(super) fn paint_css(&self, node: &NodeRef<'_>, css: String) -> String {
-        if node.style.mask.has(StyleId::Isolation) {
+        if node.style.mask.has(StyleId::Isolation) && !self.layers.isolated(node.id) {
             return css;
         }
         let css = css

@@ -242,7 +242,7 @@ fn dirty_lists_follow_layout_policy_and_text_flow_structure() {
 }
 
 #[test]
-fn authored_isolation_keeps_its_value() {
+fn authored_isolation_auto_yields_to_required_isolation() {
     // Isolation is a kernel row, currently authored only on SVG in
     // Contract. Exercise the live host directly with a literal plan.
     let mut plan = fixture_plan("", "2>1>isolation:auto & 3>2>position:absolute;z-index:1 & 4>1>isolation:isolate & 5>1>isolation:auto & 6>1>opacity:0.5");
@@ -257,8 +257,8 @@ fn authored_isolation_keeps_its_value() {
     assert!(css[&root].contains("isolation:isolate;"));
     for id in [children[0], children[2]] {
         let value = &css[&id];
-        assert!(value.contains("isolation:auto;"), "{id}: {value}");
-        assert!(!value.contains("isolation:isolate;"), "{id}: {value}");
+        assert!(!value.contains("isolation:auto;"), "{id}: {value}");
+        assert!(value.contains("isolation:isolate;"), "{id}: {value}");
     }
     assert!(css[&children[1]].contains("isolation:isolate;"));
     assert!(!css[&children[3]].contains("isolation:"));
