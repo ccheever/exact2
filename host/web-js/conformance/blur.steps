@@ -2,8 +2,10 @@
 tap field
 key field a
 key field Enter
-# `blur("elsewhere")` names a node that does not hold the focus: nothing moves.
+# `blur("field")` names a node that does not hold the focus: nothing moves.
 tap second
 key second Enter
+# `blur("second")` names the node that holds it: the focus drops.
+key second Escape
 tap field
 key field Enter

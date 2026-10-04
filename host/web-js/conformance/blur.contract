@@ -21,11 +21,13 @@ component Blur
       preventDefault()
   action other(k: string)
     if k == "Enter"
-      blur("elsewhere")
+      blur("field")
       preventDefault()
+    if k == "Escape"
+      blur("second")
   view
     column testId="root" gap=8 padding=8
       input value=text input=typed key=commit focus=focusIn blur=focusOut testId="field" padding=8
-      input key=other testId="second" padding=8
+      input id="second" key=other testId="second" padding=8
       text (focused ? "focused" : "not focused") testId="state"
       text log testId="log"
