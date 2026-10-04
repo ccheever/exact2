@@ -178,6 +178,8 @@ typedef struct ExactMarkupPiece {
     uint8_t italic, mono, strike;
     uint8_t role;                       /* 0 ink, 1 code, 2 link, 3 marker, 4 quote */
     const uint8_t *href; size_t href_len; /* a link's target; null when none */
+    float indent;                       /* CSS px: the head indent of the paragraph it is in (a list item's) */
+    uint8_t hang;                       /* 1: a list marker, hung before the indent, its end at it */
 } ExactMarkupPiece;
 /* Writes the pieces and their count, valid until exact_markup_free(handle). Zero on invalid UTF-8. */
 uint64_t exact_markup_pieces(const uint8_t *utf8, size_t len, const ExactMarkupPiece **out, size_t *count);

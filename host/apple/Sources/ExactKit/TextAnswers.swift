@@ -52,6 +52,9 @@ enum TextAnswerKey {
             }
             fields(single(r.size), Int32(truncatingIfNeeded: r.weight), Int32(truncatingIfNeeded: r.family), r.italic,
                    r.lineHeight.map(single), single(r.letterSpacing), Int32(truncatingIfNeeded: r.numeric), &out)
+            // A list item's lines start at its indent (LLP 1045 D4): only an
+            // expanded Markdown spec has one, never a request's plain runs.
+            if r.indent != 0 || r.hang { out.append(r.hang ? 2 : 1); put(single(r.indent).bitPattern, &out) }
         }
         out.append(spec.strut == nil ? 0 : 1)
         if let s = spec.strut {
