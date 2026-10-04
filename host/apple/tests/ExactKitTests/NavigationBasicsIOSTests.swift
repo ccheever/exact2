@@ -111,6 +111,16 @@ final class NavigationBasicsIOSTests: XCTestCase {
         until("the subtitle left") { view.subtitle.isHidden }
         XCTAssertNil(view.accessibilityValue)
         XCTAssertTrue(item.titleView === view)
+        // A subtitle that is a line of symbols and texts draws them inline.
+        try tapNode(session, "toggle-muted")
+        until("the glyph line") { view.accessibilityValue == "Muted  1w" }
+        let line = try XCTUnwrap(view.subtitle.attributedText)
+        var attachments = 0
+        line.enumerateAttribute(.attachment, in: NSRange(location: 0, length: line.length)) { value, _, _ in if value != nil { attachments += 1 } }
+        XCTAssertEqual(attachments, 2, "bell.slash and timer, inline")
+        XCTAssertTrue(line.string.contains("Muted") && line.string.contains("1w"))
+        try tapNode(session, "toggle-muted")
+        until("back to the text subtitle") { view.accessibilityValue == "Online" || view.subtitle.isHidden }
         // A title view a hook sets stays: Exact draws only its own.
         let hooks = UILabel()
         item.titleView = hooks

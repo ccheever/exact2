@@ -16,6 +16,11 @@ struct HeaderTitle: Equatable {
     let id: UInt32, testId: String?
     let avatar: BadgeFace?
     let subtitle: String
+    /// The subtitle as a line of symbols and texts, in order, when it is one
+    /// (a box of symbol images and texts after the heading): Signal's "🔕 Muted
+    /// ⏱ 1w". Empty for a plain text subtitle.
+    let glyphs: [Glyph]
+    struct Glyph: Equatable { let symbol: String?; let text: String }
     /// The element a tap on the title presses.
     let tap: UInt32?
 
@@ -27,12 +32,31 @@ struct HeaderTitle: Equatable {
             at = view.superview
         }
         guard let group = tap ?? chain.last(where: { a in !apart.contains { $0.isDescendant(of: a) } }) else { return nil }
-        var avatar: BadgeFace?, subtitle = "", passed = false
+        var avatar: BadgeFace?, subtitle = "", glyphs: [Glyph] = [], passed = false
+        func shown(_ node: NodeView) -> [NodeView] {
+            node.container.subviews.compactMap { $0 as? NodeView }.filter { $0.style["display"]?.string != "none" }
+        }
+        /// A box of symbol images and texts only, one of each at least: a glyph line.
+        func line(_ node: NodeView) -> [Glyph]? {
+            guard !node.isParagraph else { return nil }
+            var out: [Glyph] = []
+            for child in shown(node) {
+                if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty { out.append(Glyph(symbol: name, text: "")) }
+                else if child.isParagraph, !child.accessibleText.isEmpty { out.append(Glyph(symbol: nil, text: child.accessibleText)) }
+                else { return nil }
+            }
+            return out.contains { $0.symbol != nil } && out.contains { $0.symbol == nil } ? out : nil
+        }
         func walk(_ node: NodeView) {
-            for case let child as NodeView in node.container.subviews where child.style["display"]?.string != "none" {
+            for child in shown(node) {
                 if child === heading { passed = true; continue }
                 if !passed, avatar == nil, !heading.isDescendant(of: child), let face = BadgeFace(box: child, authored: true) { avatar = face; continue }
                 if passed, subtitle.isEmpty, child.isParagraph, !child.accessibleText.isEmpty { subtitle = child.accessibleText; continue }
+                if passed, subtitle.isEmpty, let pieces = line(child) {
+                    glyphs = pieces
+                    subtitle = pieces.compactMap { $0.symbol == nil ? $0.text : nil }.joined(separator: "  ")
+                    continue
+                }
                 walk(child)
             }
         }
@@ -43,11 +67,12 @@ struct HeaderTitle: Equatable {
         testId = group.props["testId"]
         self.avatar = avatar
         self.subtitle = subtitle
+        self.glyphs = glyphs
         self.tap = tap?.id
     }
 
     /// Everything the title is drawn from.
-    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(tap ?? 0)" }
+    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }):\(tap ?? 0)" }
     static func == (a: HeaderTitle, b: HeaderTitle) -> Bool { a.source == b.source }
 
     static func holdsHeading(_ node: NodeView) -> Bool {
@@ -114,6 +139,26 @@ final class HeaderTitleView: UIControl {
     }
     override var isHighlighted: Bool { didSet { stack.alpha = isHighlighted ? 0.5 : 1 } }
 
+    /// The subtitle as drawn: its glyph line's symbols inline at the text's
+    /// size and colour, an item two spaces from the next, or its text.
+    static func line(_ group: HeaderTitle, font: UIFont, colour: UIColor) -> NSAttributedString {
+        guard !group.glyphs.isEmpty else { return NSAttributedString(string: group.subtitle) }
+        let out = NSMutableAttributedString()
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: colour]
+        for (i, glyph) in group.glyphs.enumerated() {
+            if let name = glyph.symbol {
+                if i > 0, group.glyphs[i - 1].symbol == nil { out.append(NSAttributedString(string: "  ", attributes: attributes)) }
+                guard let image = UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(font: font, scale: .small)) else { continue }
+                out.append(NSAttributedString(attachment: NSTextAttachment(image: image.withTintColor(colour, renderingMode: .alwaysOriginal))))
+                out.append(NSAttributedString(string: "\u{2009}", attributes: attributes))
+            } else {
+                if i > 0, group.glyphs[i - 1].symbol == nil { out.append(NSAttributedString(string: "  ", attributes: attributes)) }
+                out.append(NSAttributedString(string: glyph.text, attributes: attributes))
+            }
+        }
+        return out
+    }
+
     func update(_ group: HeaderTitle, title text: String) {
         tap = group.tap
         avatar.image = group.avatar?.image
@@ -121,7 +166,7 @@ final class HeaderTitleView: UIControl {
         avatarWidth.constant = group.avatar?.size ?? 0
         avatarHeight.constant = group.avatar?.size ?? 0
         title.text = text
-        subtitle.text = group.subtitle
+        subtitle.attributedText = Self.line(group, font: subtitle.font, colour: subtitle.textColor)
         subtitle.isHidden = group.subtitle.isEmpty
         texts.alignment = group.avatar == nil ? .center : .leading
         isEnabled = group.tap != nil
@@ -177,7 +222,7 @@ extension NavigationHost {
         let group = shape?.segments == nil ? shape?.group : nil
         var subtitled = false
         if #available(iOS 26.0, *) { subtitled = true }
-        let drawn = group.map { $0.avatar != nil || $0.tap != nil || !subtitled } ?? false
+        let drawn = group.map { $0.avatar != nil || $0.tap != nil || !$0.glyphs.isEmpty || !subtitled } ?? false
         // tvOS's navigation item has no subtitle.
         #if !os(tvOS)
         if #available(iOS 26.0, *) {

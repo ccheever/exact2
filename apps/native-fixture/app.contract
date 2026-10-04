@@ -205,6 +205,10 @@ component NativeFixture
     titlePresses = titlePresses + 1
   action toggleSubtitle
     subtitle = subtitle == "" ? "Online" : ""
+  // A subtitle as a line of symbols and texts (§9.10).
+  state muted = false
+  action toggleMuted
+    muted = not muted
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#111111" font-family="system-ui"
       column testId="panels" flex=1 min-height=0 position="relative"
@@ -246,8 +250,14 @@ component NativeFixture
                           text "CD" font-size=13 color="#166534"
                         column
                           text "Chat" aria-level=2 testId="title-chat" font-weight=700 font-size=17
-                          when subtitle != ""
+                          when subtitle != "" and not muted
                             text subtitle testId="subtitle-chat" font-size=12 color="#6b7280"
+                          when muted
+                            row gap=3 align-items="center" testId="subtitle-glyphs"
+                              image "symbol:sf/bell.slash" width=12 height=12 object-fit="contain"
+                              text "Muted" font-size=12 color="#6b7280"
+                              image "symbol:sf/timer" width=12 height=12 object-fit="contain"
+                              text "1w" font-size=12 color="#6b7280"
                     when e.name != "chat"
                       text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : "Second") aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
                     button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
@@ -378,6 +388,8 @@ component NativeFixture
                         text "Photo"
                       button press=toggleSubtitle testId="toggle-subtitle" padding=6 background-color="#e5e7eb"
                         text "Subtitle"
+                      button press=toggleMuted testId="toggle-muted" padding=6 background-color="#e5e7eb"
+                        text "Muted"
                       text ("title presses " + toString(titlePresses)) testId="title-presses"
                       column testId="tall-chat" height=1600 background-color="#f0fdf4"
                 when e.name == "photo"
