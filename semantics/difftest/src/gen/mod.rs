@@ -3,8 +3,9 @@
 //! [`case`] writes one well-typed program from a seed: shapes, `fn`s,
 //! states with literal initializers, resources and a mutation over any
 //! source name (the harness's data source answers every one from the
-//! declared shape), derives, actions with `let`, `if`, `match`, `send` and
-//! repeated writes, timer tasks, child components with their own state, and
+//! declared shape), derives, actions with `let`, `if`, `match`, `send`,
+//! repeated writes and calls of the root's earlier actions (LLP 1089),
+//! timer tasks, child components with their own state, and
 //! a view that shows every slot in a `text` with a `testId`. The script taps
 //! buttons (and ids that are missing or inert), types into inputs and
 //! advances the clock.
@@ -53,9 +54,27 @@ impl Default for Size {
 /// The case for a seed: a program and its script. The same seed and size
 /// give the same case.
 pub fn case(seed: u64, size: &Size) -> Case {
-    let mut g = Gen::new(seed, size);
-    let source = g.program();
-    let events = g.events();
+    let written = |calls: bool| {
+        let mut g = Gen::new(seed, size);
+        g.calls = calls;
+        let source = g.program();
+        (source, g.events(), g.called)
+    };
+    let (mut source, mut events, called) = written(true);
+    // A call among statements that the compiler refuses (a read another
+    // frame made stale, LLP 1089 D3, or a second send through calls, D6) is
+    // written again with calls only in bodies that only call, so the sweep
+    // keeps its size.
+    if called
+        && contract::compile(&source).is_err_and(|e| {
+            matches!(
+                e.id.as_ref(),
+                "analyze-call-stale-read" | "analyze-send-twice"
+            )
+        })
+    {
+        (source, events, _) = written(false);
+    }
     Case {
         name: format!("gen-{seed}"),
         source,
@@ -145,6 +164,13 @@ pub(crate) struct Gen<'s> {
     pub(crate) targets: Targets,
     /// Child uses so far.
     pub(crate) uses: u64,
+    /// How many of `actions`, from the first, the body being written may
+    /// call: the root's earlier ones, none in a child.
+    pub(crate) callable: usize,
+    /// Whether a call may stand among other statements, and whether one
+    /// was written.
+    pub(crate) calls: bool,
+    pub(crate) called: bool,
     next: usize,
 }
 
@@ -164,6 +190,9 @@ impl<'s> Gen<'s> {
             children: Vec::new(),
             targets: Targets::default(),
             uses: 0,
+            callable: 0,
+            calls: true,
+            called: false,
             next: 0,
         }
     }

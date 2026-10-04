@@ -373,8 +373,9 @@ ask. The default web JS target keeps no persisted resource answers
 
 The current request owns its answer; older replies cannot overwrite a newer
 request. Assigning a mutation forgets its in-flight reply, so an action that
-sends one mutation twice on one path is refused (`analyze-send-twice`): send one
-combined request, or use a mutation per request. `refreshes` re-reads
+sends one mutation twice on one path is refused (`analyze-send-twice`), counting
+the sends of the actions it calls: send one combined request, or use a mutation
+per request. `refreshes` re-reads
 its resources when the mutation is sent (an answer the source gives at once shows
 immediately) and forces them again when the reply lands. `then` is parameterless,
 runs once at the host's next clock advance as a new commit (under the driver, an

@@ -1,6 +1,10 @@
 //! Action bodies: assignments (the same slot written twice, slots read
 //! after a write, which still sees the starting value), `let`, `if`/`else`,
-//! `match` on an option, and `send`.
+//! `match` on an option, `send`, and calls of the root's earlier actions
+//! (LLP 1089 D9: action *i* calls actions *j < i*, so no call cycles):
+//! anywhere among the statements, and in bodies that only call
+//! ([`Gen::dispatch`]). A program whose statement calls the compiler
+//! refuses is written again with only the latter ([`super::case`]).
 
 use super::ty::Ty;
 use super::{Env, Gen};
@@ -64,6 +68,11 @@ impl Gen<'_> {
             } else {
                 0
             },
+            if self.calls && self.callable > 0 {
+                2
+            } else {
+                0
+            },
         ];
         match self.rng.weighted(&weights) {
             0 => {
@@ -103,6 +112,7 @@ impl Gen<'_> {
                 let n = self.rng.range(1, 2);
                 self.block(env.clone(), w, depth - 1, indent + 4, n, out);
             }
+            5 => self.call_action(env, &pad, out),
             _ => {
                 let m = self.rng.pick(&self.mutations).clone();
                 let args: Vec<String> = m.args.iter().map(|t| self.expr(env, t, 1, true)).collect();
@@ -114,6 +124,48 @@ impl Gen<'_> {
                 ));
             }
         }
+    }
+
+    /// A call of one of the root's earlier actions, its arguments typed by
+    /// its parameters.
+    fn call_action(&mut self, env: &Env, pad: &str, out: &mut String) {
+        let j = self.rng.below(self.callable as u64) as usize;
+        let callee = self.actions[j].clone();
+        let args: Vec<String> = callee
+            .params
+            .iter()
+            .map(|(_, t)| self.expr(env, t, 1, true))
+            .collect();
+        out.push_str(&format!("{pad}{}({})\n", callee.name, args.join(", ")));
+        self.called = true;
+    }
+
+    /// A body that only calls: `let`s, then one call, or one in each arm of
+    /// an `if`. It writes nothing of its own, so no read in it or its
+    /// callee is made stale by another frame (LLP 1089 D3), whatever the
+    /// callees read.
+    pub(crate) fn dispatch(&mut self, env: &Env, indent: usize) -> String {
+        let mut out = String::new();
+        let pad = " ".repeat(indent);
+        let mut env = env.clone();
+        for _ in 0..self.rng.range(0, 1) {
+            let t = self.pick_ty(&env);
+            let name = self.fresh("l");
+            let e = self.expr(&env, &t, 1, false);
+            out.push_str(&format!("{pad}let {name} = {e}\n"));
+            env.vars.push((name, t));
+        }
+        if self.rng.chance(1, 2) {
+            self.call_action(&env, &pad, &mut out);
+        } else {
+            let c = self.expr(&env, &Ty::Bool, 1, false);
+            out.push_str(&format!("{pad}if {c}\n"));
+            let inner = " ".repeat(indent + 2);
+            self.call_action(&env, &inner, &mut out);
+            out.push_str(&format!("{pad}else\n"));
+            self.call_action(&env, &inner, &mut out);
+        }
+        out
     }
 
     /// `slot = …`. A value holding a string is bound first and reset to a

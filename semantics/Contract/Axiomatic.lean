@@ -44,6 +44,16 @@ def assignPre (t : String) (e : Expr) (Q : Assn) : Assn := fun env ls fx =>
     (isRootState env.prog t = false → isRowState env.prog t = true → (lookup t env.rows).isSome →
       Q env ls (fx.rowWrite t v))
 
+/-- What a call needs of its continuation (LLP 1089 D9): for the
+arguments' values in the pre-state and every outcome of the callee's body
+run from the effects so far, in a scope of its parameters alone. The
+callee reads the same `env`: a call sees the state the action started
+with, never the caller's pending writes. -/
+def callPre (a : String) (args : List Expr) (Q : Assn) : Assn := fun env ls fx =>
+  ∀ vs ad fx₁, ListR env false ls args vs → env.prog.actions.find? (·.name == a) = .some ad →
+    ad.params.length = vs.length →
+    ExecR env ((ad.params.map (·.1)).zip vs).reverse ad.body fx fx₁ → Q env ls fx₁
+
 /-- The proof system. -/
 inductive Derives : Assn → List Stmt → Assn → Prop
   | nil : Derives P [] P
@@ -58,6 +68,8 @@ inductive Derives : Assn → List Stmt → Assn → Prop
   | send : Derives (fun env ls fx => ∀ vs, ListR env false ls args vs → Q env ls (fx.send t src vs))
       [.send t src args] Q
   | refresh : Derives (fun env ls fx => Q env ls (fx.refresh t)) [.refresh t] Q
+  /-- A call: its continuation holds after every outcome of the callee. -/
+  | call : Derives (callPre a args Q) [.call a args] Q
   | ifS : Derives (fun env ls fx => P env ls fx ∧ EvalR env false ls c (.bool true)) thn Q →
       Derives (fun env ls fx => P env ls fx ∧ EvalR env false ls c (.bool false)) els Q →
       Derives P [.ifS c thn els] Q
@@ -95,6 +107,7 @@ theorem ExecR.append {env ls} :
     | ifFalse hc hb hx => obtain ⟨f, h₁, h₂⟩ := ih hx; exact ⟨f, .ifFalse hc hb h₁, h₂⟩
     | matchSome hc hb hx => obtain ⟨f, h₁, h₂⟩ := ih hx; exact ⟨f, .matchSome hc hb h₁, h₂⟩
     | matchNone hc hb hx => obtain ⟨f, h₁, h₂⟩ := ih hx; exact ⟨f, .matchNone hc hb h₁, h₂⟩
+    | call ha hd hl hb hx => obtain ⟨f, h₁, h₂⟩ := ih hx; exact ⟨f, .call ha hd hl hb h₁, h₂⟩
 
 theorem ExecR.append_intro {env ls} :
     ∀ {ss₁ ss₂ fx fx₁ fx'}, NoLet ss₁ → ExecR env ls ss₁ fx fx₁ → ExecR env ls ss₂ fx₁ fx' →
@@ -113,6 +126,7 @@ theorem ExecR.append_intro {env ls} :
     | ifFalse hc hb hx => exact .ifFalse hc hb (ih hx)
     | matchSome hc hb hx => exact .matchSome hc hb (ih hx)
     | matchNone hc hb hx => exact .matchNone hc hb (ih hx)
+    | call ha hd hl hb hx => exact .call ha hd hl hb (ih hx)
 
 theorem Derives.sound {P ss Q} (h : Derives P ss Q) : Triple P ss Q := by
   induction h with
@@ -138,6 +152,10 @@ theorem Derives.sound {P ss Q} (h : Derives P ss Q) : Triple P ss Q := by
     intro env ls fx fx' hp hx
     cases hx with
     | refresh hn => cases hn; exact hp
+  | call =>
+    intro env ls fx fx' hp hx
+    cases hx with
+    | call ha hd hl hb hn => cases hn; exact hp _ _ _ ha hd hl hb
   | ifS _ _ iht ihe =>
     intro env ls fx fx' hp hx
     cases hx with
@@ -182,6 +200,7 @@ def wp : List Stmt → Assn → Assn
   | .matchS s x sm nn :: rest, Q => fun env ls fx =>
     (∀ v, EvalR env false ls s (.some v) → wp sm (wp rest Q).outer env ((x, v) :: ls) fx) ∧
     (EvalR env false ls s .none → wp nn (wp rest Q) env ls fx)
+  | .call a args :: rest, Q => callPre a args (wp rest Q)
 
 theorem wp_nil {Q} : wp [] Q = Q := by rw [wp]
 theorem wp_letS {x e rest Q} : wp (.letS x e :: rest) Q = fun env ls fx =>
@@ -199,6 +218,7 @@ theorem wp_ifS {c thn els rest Q} : wp (.ifS c thn els :: rest) Q = fun env ls f
 theorem wp_matchS {s x sm nn rest Q} : wp (.matchS s x sm nn :: rest) Q = fun env ls fx =>
     (∀ v, EvalR env false ls s (.some v) → wp sm (wp rest Q).outer env ((x, v) :: ls) fx) ∧
     (EvalR env false ls s .none → wp nn (wp rest Q) env ls fx) := by rw [wp]
+theorem wp_call {a args rest Q} : wp (.call a args :: rest) Q = callPre a args (wp rest Q) := by rw [wp]
 
 /-- `wp` is a precondition. -/
 theorem wp_sound {env ls ss fx fx'} (h : ExecR env ls ss fx fx') :
@@ -215,6 +235,17 @@ theorem wp_sound {env ls ss fx fx'} (h : ExecR env ls ss fx fx') :
   | ifFalse hc _ _ ih₁ ih₂ => intro Q hw; rw [wp_ifS] at hw; exact ih₂ (ih₁ (hw.2 hc))
   | matchSome hc _ _ ih₁ ih₂ => intro Q hw; rw [wp_matchS] at hw; exact ih₂ (ih₁ (hw.1 _ hc))
   | matchNone hc _ _ ih₁ ih₂ => intro Q hw; rw [wp_matchS] at hw; exact ih₂ (ih₁ (hw.2 hc))
+  | call ha hd hl hb _ _ ih₂ => intro Q hw; rw [wp_call] at hw; exact ih₂ (hw _ _ _ ha hd hl hb)
+
+/-- A call's precondition from the callee's own `wp`: what every callee
+body guarantees, from the caller's arguments, of the rest of the caller's
+block. -/
+theorem callPre_of_wp {a args Q env ls fx}
+    (h : ∀ vs ad, ListR env false ls args vs → env.prog.actions.find? (·.name == a) = .some ad →
+      ad.params.length = vs.length →
+      wp ad.body (fun _ _ fx₁ => Q env ls fx₁) env ((ad.params.map (·.1)).zip vs).reverse fx) :
+    callPre a args Q env ls fx :=
+  fun _ _ _ ha hd hl hb => wp_sound hb (h _ _ ha hd hl)
 
 theorem wp_triple (ss : List Stmt) (Q : Assn) : Triple (wp ss Q) ss Q :=
   fun _ _ _ _ hw hx => wp_sound hx hw
@@ -244,6 +275,9 @@ theorem wp_weakest : ∀ (ss : List Stmt) {Q : Assn} {env ls fx},
     rw [wp_matchS]
     exact ⟨fun _ hc => wp_weakest sm fun _ hb => wp_weakest rest fun _ hx => h _ (.matchSome hc hb hx),
       fun hc => wp_weakest nn fun _ hb => wp_weakest rest fun _ hx => h _ (.matchNone hc hb hx)⟩
+  | .call a args :: rest, _, _, _, _, h => by
+    rw [wp_call]
+    exact fun _ _ _ ha hd hl hb => wp_weakest rest fun _ hx => h _ (.call ha hd hl hb hx)
 
 /-- A triple holds exactly when its precondition implies `wp`. -/
 theorem triple_iff_wp {P ss Q} : Triple P ss Q ↔ ∀ env ls fx, P env ls fx → wp ss Q env ls fx :=
@@ -277,6 +311,7 @@ theorem Derives.wp : ∀ (ss : List Stmt) (Q : Assn), Derives (wp ss Q) ss Q
       (.matchS (fun _ _ _ _ hw hc => hw.1 _ hc) (Derives.wp sm _)
         (.conseq (fun _ _ _ h => h.1.2 h.2) (Derives.wp nn _) (fun _ _ _ h => h)))
       (Derives.wp rest Q)
+  | .call a args :: rest, Q => by rw [wp_call]; exact .cons trivial .call (Derives.wp rest Q)
 
 /-- The proof system is complete relative to the assertion language:
 every true triple is derivable. -/
@@ -314,7 +349,8 @@ theorem ExecR.extends {env ls ss fx fx'} (h : ExecR env ls ss fx fx') : fx.Exten
       first | exact ⟨_, rfl⟩
             | exact ⟨[], by simp [Effects.write, Effects.rowWrite, Effects.command, Effects.send,
                 Effects.refresh]⟩
-  | ifTrue _ _ _ ih₁ ih₂ | ifFalse _ _ _ ih₁ ih₂ | matchSome _ _ _ ih₁ ih₂ | matchNone _ _ _ ih₁ ih₂ =>
+  | ifTrue _ _ _ ih₁ ih₂ | ifFalse _ _ _ ih₁ ih₂ | matchSome _ _ _ ih₁ ih₂ | matchNone _ _ _ ih₁ ih₂
+  | call _ _ _ _ _ ih₁ ih₂ =>
     exact ih₁.trans ih₂
 
 /-- Reads see the pre-state: after `x = e₁`, `y = x` writes the value `x`

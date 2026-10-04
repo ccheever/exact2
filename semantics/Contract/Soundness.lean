@@ -930,7 +930,21 @@ theorem isSlot_cases {p : Program} {x : String} (h : isSlot p x = true) :
     | some o => exact .inr ⟨s, hs, rfl, by simp [ho]⟩
   · exact .inl (.inr ⟨m, hm, rfl⟩)
 
-theorem exec_sound_aux {p : Program} (hfn : ProgOK p) {G : Scope} : ∀ n {env Γ ls ss fx},
+/-- Values pairwise at most types are as many as the types. -/
+theorem ValTyL.length_le {p : Program} : ∀ {vs : List Value} {ts us : List Ty},
+    ValTyL p vs ts → Ty.leAll ts us = true → vs.length = us.length
+  | [], [], [], _, _ => rfl
+  | _ :: vs, _ :: ts, _ :: us, hv, hl => by
+    simp only [ValTyL] at hv
+    simp only [Ty.leAll, Bool.and_eq_true] at hl
+    simp [ValTyL.length_le hv.2 hl.2]
+  | [], _ :: _, _, hv, _ | _ :: _, [], _, hv, _ => by simp [ValTyL] at hv
+  | [], [], _ :: _, _, hl | _ :: _, _ :: _, [], _, hl => by simp [Ty.leAll] at hl
+
+/-- `hacts`: every action's body is typed under its parameters, which a
+call (LLP 1089 D9) runs. -/
+theorem exec_sound_aux {p : Program} (hfn : ProgOK p) {G : Scope}
+    (hacts : ∀ a ∈ p.actions, StmtsTy p G a.params.reverse a.body) : ∀ n {env Γ ls ss fx},
     EnvOK p G env → LocalsOK p Γ ls → StmtsTy p G Γ ss → FxOK p fx →
     GoodR (FxOK p) (exec n env ls ss fx)
   | 0, _, _, _, _, _, _, _, _, _ => by simp [exec, GoodR, outOfFuel, Legit]
@@ -945,7 +959,7 @@ theorem exec_sound_aux {p : Program} (hfn : ProgOK p) {G : Scope} : ∀ n {env �
         obtain ⟨t, he, hr⟩ := hs
         simp only [exec]
         exact GoodR.bind (eval_sound_ty hfn henv hl he) fun v hv =>
-          exec_sound_aux hfn n henv (hl.cons hv) hr hfx
+          exec_sound_aux hfn hacts n henv (hl.cons hv) hr hfx
       | assign x e =>
         simp only [StmtsTy] at hs
         obtain ⟨hslot, ⟨t, he, hle⟩, hr⟩ := hs
@@ -955,7 +969,7 @@ theorem exec_sound_aux {p : Program} (hfn : ProgOK p) {G : Scope} : ∀ n {env �
         rw [hp]
         split
         · next hroot =>
-          refine GoodR.bind (P := fun fx' => FxOK p fx') ?_ fun fx' h' => exec_sound_aux hfn n henv hl hr h'
+          refine GoodR.bind (P := fun fx' => FxOK p fx') ?_ fun fx' h' => exec_sound_aux hfn hacts n henv hl hr h'
           refine ⟨fun w hw => ?_, hfx.2⟩
           simp only [List.mem_append, List.mem_singleton] at hw
           rcases hw with (hw | rfl) | hw
@@ -965,7 +979,7 @@ theorem exec_sound_aux {p : Program} (hfn : ProgOK p) {G : Scope} : ∀ n {env �
         · next hroot =>
           split
           · split
-            · refine GoodR.bind (P := fun fx' => FxOK p fx') ?_ fun fx' h' => exec_sound_aux hfn n henv hl hr h'
+            · refine GoodR.bind (P := fun fx' => FxOK p fx') ?_ fun fx' h' => exec_sound_aux hfn hacts n henv hl hr h'
               refine ⟨fun w hw => ?_, hfx.2⟩
               simp only [List.mem_append, List.mem_singleton] at hw
               rcases hw with hw | hw | rfl
@@ -982,13 +996,13 @@ theorem exec_sound_aux {p : Program} (hfn : ProgOK p) {G : Scope} : ∀ n {env �
         obtain ⟨⟨ts, hargs⟩, hr⟩ := hs
         simp only [exec]
         exact GoodR.bind (evalList_sound_ty hfn henv hl hargs) fun vs _ =>
-          exec_sound_aux hfn n henv hl hr ⟨hfx.1, hfx.2⟩
+          exec_sound_aux hfn hacts n henv hl hr ⟨hfx.1, hfx.2⟩
       | send x src args =>
         simp only [StmtsTy] at hs
         obtain ⟨hm, ⟨ts, hargs⟩, hr⟩ := hs
         simp only [exec]
         refine GoodR.bind (evalList_sound_ty hfn henv hl hargs) fun vs _ =>
-          exec_sound_aux hfn n henv hl hr ⟨hfx.1, fun s hs' => ?_⟩
+          exec_sound_aux hfn hacts n henv hl hr ⟨hfx.1, fun s hs' => ?_⟩
         simp only [List.mem_append, List.mem_singleton] at hs'
         rcases hs' with hs' | rfl
         · exact hfx.2 s hs'
@@ -997,7 +1011,7 @@ theorem exec_sound_aux {p : Program} (hfn : ProgOK p) {G : Scope} : ∀ n {env �
         simp only [StmtsTy] at hs
         obtain ⟨_, hr⟩ := hs
         simp only [exec]
-        exact exec_sound_aux hfn n henv hl hr ⟨hfx.1, hfx.2⟩
+        exact exec_sound_aux hfn hacts n henv hl hr ⟨hfx.1, hfx.2⟩
       | ifS c thn els =>
         simp only [StmtsTy] at hs
         obtain ⟨⟨t, hc, hle⟩, hthn, hels, hr⟩ := hs
@@ -1005,25 +1019,40 @@ theorem exec_sound_aux {p : Program} (hfn : ProgOK p) {G : Scope} : ∀ n {env �
         refine GoodR.bind (eval_sound_ty hfn henv hl hc) fun v hv => ?_
         obtain ⟨b, rfl⟩ := (hv.mono hle).bool_inv
         cases b
-        · exact GoodR.bind (exec_sound_aux hfn n henv hl hels hfx) fun fx' h' => exec_sound_aux hfn n henv hl hr h'
-        · exact GoodR.bind (exec_sound_aux hfn n henv hl hthn hfx) fun fx' h' => exec_sound_aux hfn n henv hl hr h'
+        · exact GoodR.bind (exec_sound_aux hfn hacts n henv hl hels hfx) fun fx' h' => exec_sound_aux hfn hacts n henv hl hr h'
+        · exact GoodR.bind (exec_sound_aux hfn hacts n henv hl hthn hfx) fun fx' h' => exec_sound_aux hfn hacts n henv hl hr h'
       | matchS subj x sm nn =>
         simp only [StmtsTy] at hs
         obtain ⟨⟨a, hsub, hsm⟩, hnn, hr⟩ := hs
         simp only [exec]
         refine GoodR.bind (eval_sound_ty hfn henv hl hsub) fun v hv => ?_
         rcases hv.option_inv with rfl | ⟨w, rfl, hw⟩
-        · exact GoodR.bind (exec_sound_aux hfn n henv hl hnn hfx) fun fx' h' => exec_sound_aux hfn n henv hl hr h'
-        · exact GoodR.bind (exec_sound_aux hfn n henv (hl.cons hw) hsm hfx) fun fx' h' =>
-            exec_sound_aux hfn n henv hl hr h'
+        · exact GoodR.bind (exec_sound_aux hfn hacts n henv hl hnn hfx) fun fx' h' => exec_sound_aux hfn hacts n henv hl hr h'
+        · exact GoodR.bind (exec_sound_aux hfn hacts n henv (hl.cons hw) hsm hfx) fun fx' h' =>
+            exec_sound_aux hfn hacts n henv hl hr h'
+      | call a args =>
+        simp only [StmtsTy] at hs
+        obtain ⟨⟨ad, had, ts, hargs, hle⟩, hr⟩ := hs
+        simp only [exec]
+        refine GoodR.bind (evalList_sound_ty hfn henv hl hargs) fun vs hvs => ?_
+        have hlen : ad.params.length = vs.length := by
+          have := ValTyL.length_le hvs hle; simp at this; omega
+        rw [hp, had]
+        dsimp only
+        rw [ite_eq_right_of_eq_false _ _ (by simp [hlen])]
+        have hloc : LocalsOK p ad.params.reverse ((ad.params.map (·.1)).zip vs).reverse :=
+          (Agree.reverse (Agree.params hvs hle)).localsOK
+        exact GoodR.bind (exec_sound_aux hfn hacts n henv hloc (hacts ad (List.mem_of_find?_eq_some had)) hfx)
+          fun fx' h' => exec_sound_aux hfn hacts n henv hl hr h'
 
 /-- **Statement soundness.** A well-typed block run where its names and
 locals hold values of their types asks only for writes of values of the
 target slots' types (root and row writes alike) and sends to mutations, or
 fails legitimately: never a type error, never an unbound name. -/
 theorem exec_sound_ty {p : Program} (hfn : ProgOK p) {n G env Γ ls ss}
+    (hacts : ∀ a ∈ p.actions, StmtsTy p G a.params.reverse a.body)
     (henv : EnvOK p G env) (hl : LocalsOK p Γ ls) (h : StmtsTy p G Γ ss) :
     GoodR (FxOK p) (exec n env ls ss {}) :=
-  exec_sound_aux hfn n henv hl h FxOK.empty
+  exec_sound_aux hfn hacts n henv hl h FxOK.empty
 
 end Contract

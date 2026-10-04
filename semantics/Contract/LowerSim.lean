@@ -102,11 +102,11 @@ theorem Agree.bind {env inFn ls venv L sc ps x i item} (h : Agree env inFn ls ve
     simpa [bindParams, bindScope, Nat.add_comm] using h2
 
 /-- A `fn`'s parameters, bound from the locals after `L`. -/
-theorem Agree.fn {env venv} : ∀ {ps : List String} {vs : List Value} {ts : List STy} {L : List Value}
+theorem Agree.fn {env venv inFn} : ∀ {ps : List String} {vs : List Value} {ts : List STy} {L : List Value}
     {accLs : Locals} {accSc : Scope},
-    Agree env true accLs venv L accSc → VTys env.prog.shapes vs ts →
+    Agree env inFn accLs venv L accSc → VTys env.prog.shapes vs ts →
     ps.length = vs.length →
-    Agree env true (List.reverseAux (ps.zip vs) accLs) venv (L ++ vs)
+    Agree env inFn (List.reverseAux (ps.zip vs) accLs) venv (L ++ vs)
       (List.reverseAux (fnEntries ps L.length ts) accSc)
   | [], [], _, L, _, _, h, _, _ => by simpa [List.reverseAux, fnEntries] using h
   | [], _ :: _, _, _, _, _, _, _, hl => by simp at hl
@@ -119,7 +119,7 @@ theorem Agree.fn {env venv} : ∀ {ps : List String} {vs : List Value} {ts : Lis
 
 theorem fnScope_agree {env venv ps vs ts L} (hts : VTys env.prog.shapes vs ts) (hl : ps.length = vs.length) :
     Agree env true (ps.zip vs).reverse venv (L ++ vs) (fnScope ps L.length ts) := by
-  have := Agree.fn (env := env) (venv := venv) (ps := ps) (accLs := []) (accSc := []) (L := L)
+  have := Agree.fn (env := env) (venv := venv) (inFn := true) (ps := ps) (accLs := []) (accSc := []) (L := L)
     Agree.nil hts hl
   exact this
 

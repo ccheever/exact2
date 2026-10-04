@@ -166,8 +166,14 @@ impl Gen<'_> {
             } else {
                 out.push_str(&format!("  action {}({})\n", a.name, ps.join(", ")));
             }
-            out.push_str(&self.body(&env, &writes, &first[k], 4));
+            self.callable = k;
+            if k > 0 && first[k].is_empty() && self.rng.chance(1, 3) {
+                out.push_str(&self.dispatch(&env, 4));
+            } else {
+                out.push_str(&self.body(&env, &writes, &first[k], 4));
+            }
         }
+        self.callable = 0;
 
         let idle: Vec<String> = self
             .actions

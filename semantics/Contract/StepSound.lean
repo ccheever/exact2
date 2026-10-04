@@ -168,7 +168,7 @@ theorem runAction_sound {p : Program} (hp : WellTyped p) {o c name args rows c' 
   have hloc : LocalsOK p a.params.reverse ((a.params.map (·.1)).zip args).reverse :=
     (Agree.reverse (agree_of_conforms hp (by simpa using hlen) (by simpa using hconf)
       (hp.params a ham))).localsOK
-  have hexec := exec_sound_ty (n := fuel) hfn ((hc.envGood hpres rows).envOK hp) hloc (hp.actions a ham)
+  have hexec := exec_sound_ty (n := fuel) hfn hp.actions ((hc.envGood hpres rows).envOK hp) hloc (hp.actions a ham)
   split at h
   · next e he => rw [he] at hexec; exact keep h hexec
   next fx hx =>
@@ -203,7 +203,7 @@ theorem runAction_sound {p : Program} (hp : WellTyped p) {o c name args rows c' 
   · exact keep h trivial
   -- The slots after the commit, as `runAction_slotsOK` computes them.
   have hok : SlotsOK p (applyWrites c.slots (answered ++ fx.writes)) := by
-    have hsends := (exec_sound hx).sends (hp.slotTyped.sends a ham) (by simp)
+    have hsends := (exec_sound hx).sends (hp.slotTyped.sends a ham) (by simp) rfl hp.slotTyped.sends
     refine hc.slots.applyWrites fun w hw' => ?_
     simp only [List.mem_append] at hw'
     rcases hw' with hw' | hw'

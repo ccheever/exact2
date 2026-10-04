@@ -417,20 +417,7 @@ impl Emitter<'_> {
     }
 
     fn stmts(&self, body: &[Stmt]) -> Result<String, CompileError> {
-        // A call (LLP 1089) is its expanded body, in place: every name in it
-        // renamed apart, so the statements after it read what they read
-        // without it.
-        fn spliced<'b>(body: &'b [Stmt], out: &mut Vec<&'b Stmt>) {
-            for s in body {
-                match s {
-                    Stmt::Call { body, .. } => spliced(body, out),
-                    other => out.push(other),
-                }
-            }
-        }
-        let mut run = Vec::new();
-        spliced(body, &mut run);
-        list(&run, |s| self.stmt(s))
+        list(body, |s| self.stmt(s))
     }
 
     fn stmt(&self, s: &Stmt) -> Result<String, CompileError> {
@@ -466,7 +453,15 @@ impl Emitter<'_> {
                 list(args, |a| self.expr(a))?
             ),
             Stmt::Refresh { target, .. } => format!("(.refresh {})", string(target)),
-            Stmt::Call { .. } => unreachable!("spliced by `stmts`"),
+            // A call by its callee's name and whole argument list (LLP 1089
+            // D9), never the body the Rust compiler expanded: the semantics
+            // gives the call its own meaning, so difftest checks the
+            // expansion against it.
+            Stmt::Call { action, args, .. } => format!(
+                "(.call {} {})",
+                string(action),
+                list(args, |a| self.expr(a))?
+            ),
             Stmt::If {
                 cond,
                 then,

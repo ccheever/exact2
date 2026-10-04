@@ -1,0 +1,9 @@
+# A call and a chain in one commit: `both` calls `add`, then `note`.
+tap both
+tap both
+# A prop call before the row's own write, then a same-component call.
+tap row-a
+tap row-b
+tap row-a
+# A callee's refusal rolls back its caller's write too.
+tap broken

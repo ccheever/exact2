@@ -81,6 +81,13 @@ inductive Stmt where
   | refresh (target : String)
   | ifS (c : Expr) (thn els : List Stmt)
   | matchS (subject : Expr) (x : String) (some none : List Stmt)
+  /-- A call of the program's action `action` (LLP 1089 D9). `args` is
+  its whole parameter list: a lifted callee's capture parameters, the
+  arguments curried where it was passed, then the call's own. The callee
+  runs in the caller's commit, reading the state the action started with;
+  its meaning is given here, not by the compiler's expansion, so the
+  differential tests check that expansion. -/
+  | call (action : String) (args : List Expr)
   deriving Repr, Inhabited
 
 /-- A view node. `props` are an element's attributes that are values;

@@ -1,12 +1,12 @@
 # LLP 1089: Action composition
 
 **Type:** RFC
-**Status:** Accepted (r3, by the orchestrator under Charlie's delegation after three rounds; Grok 4.7 only — Codex budget exhausted). Each round was Grok 4.7 (xhigh). r1 had two scopes, semantics (`llp/reviews/1089-r1.grok-a.md`) and implementation (`llp/reviews/1089-r1.grok-b.md`); r2 had a delta review (`llp/reviews/1089-r2.grok.md`). All three were READY WITH CHANGES. r3 is the final edit, with no further round, and resolves every finding of r2. The `rules/DEFERRED.md` waiver is recorded by the orchestrator under Charlie's 2026-10-04 delegation ("make decisions without me"). Stage 1 is built as of 2026-10-04 (§9, "As built").
+**Status:** Accepted (r3, by the orchestrator under Charlie's delegation after three rounds; Grok 4.7 only — Codex budget exhausted). Each round was Grok 4.7 (xhigh). r1 had two scopes, semantics (`llp/reviews/1089-r1.grok-a.md`) and implementation (`llp/reviews/1089-r1.grok-b.md`); r2 had a delta review (`llp/reviews/1089-r2.grok.md`). All three were READY WITH CHANGES. r3 is the final edit, with no further round, and resolves every finding of r2. The `rules/DEFERRED.md` waiver is recorded by the orchestrator under Charlie's 2026-10-04 delegation ("make decisions without me"). Stages 1 and 2 are built as of 2026-10-04 (§9, "As built"), the lowering proof included.
 **Systems:** Contract compiler (`contract/{syntax,types,analyze,lower}`, `contract/cli/src/{lean.rs,symbols.rs}`), Lean semantics and difftest (`semantics/`), the JS target's conformance (`host/web-js/conformance`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
 **Revised:** 2026-10-04 (r2, r3)
-**Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stage 1 built 2026-10-04 (planned 2026-10-05) and stage 2 on 2026-10-05 (§5)
+**Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stages 1 and 2 built 2026-10-04 (planned 2026-10-05; §5)
 **Amends:** LLP 1017 §11 (the tail call becomes one case of a call); LLP 1006 §2 (statements); `rules/DEFERRED.md` **Actions**
 **Related:** LLP 1017 P4c and §11; LLP 1035.005.000 D1 (effects inferred) and D2 (`let`); LLP 1088 D8 (one send per path); LLP 1016 D5; diaries `~/projects/x2apps/{spreadsheet,files,mail}/DIARY.md`. Research only: LLP 0082 §Actions ("actions may call actions"), LLP 0481 §4.1 (effects compose through calls and callback values; call cycles are rejected from the call graph).
 
@@ -625,3 +625,46 @@ files' largest is `listKey` at 74, total 372; mail's is `recipientKey` at
 `scripts/agent.mjs`, plus one that clicks another cell mid-edit (16 of 16).
 Files' `arrive(path)`, the rest of spreadsheet's copies and the macOS drive
 are the apps' own changes, outside this repo.
+
+**Stage 2, 2026-10-04.** D9 as decided, with the lowering theorem for calls
+too, so nothing is restricted to call-free bodies and no `QUEUE.md` line is
+owed for it.
+
+- **Semantics.** `Stmt.call (action) (args)`. `exec` evaluates the
+  arguments in the caller's scope, then runs the callee's body with only
+  its parameters bound, against the same `env` (starting slots and rows),
+  threading the same `Effects`; a refusal refuses the action. `exec` is
+  already fuel-indexed, and fuel bounds the nesting, so no separate depth
+  was added: a cycle, which the compiler refuses, runs out of fuel.
+- **Proofs.** `Big.lean` (`ExecR.call`; sound, complete, deterministic);
+  `Axiomatic.lean` (`Derives.call`, `wp` and `callPre` for a call;
+  `runAction_reads_prestate` and `runAction_last_write` unchanged);
+  `Types.lean`/`TypeCheck.lean` (a call is typed when its action exists and
+  each argument's type is at most its parameter's; `check_sound`);
+  `Soundness.lean` (`exec_sound_ty` takes every action's body typed under
+  its parameters, which `WellTyped` gives); `StepSound`, `TypeInvariant`;
+  `Invariant.lean`, whose `Stmt.noAssigns`/`noSends` answer `false` for a
+  call. `Lower.lean` compiles a call as the Rust compiler does (each
+  argument bound as the next local, the body in a scope of those locals and
+  the component's names, every local dropped at its end), and
+  `compileAction_correct` covers it, taking `GlobalsAgree` (the component's
+  names agree with no locals bound). No `sorry`, `native_decide` or new
+  axiom; `lake build` builds every proof, the app proofs included.
+- **Emitter and difftest.** `contract lean` emits `.call action args`.
+  `semantics/corpus/actions/calls/` holds the seven cases §D9 lists. The
+  generator writes calls from action *i* to *j < i*, among the statements
+  and in bodies that only call; a program whose statement calls the
+  compiler refuses (D3, D6) is written again with only the latter. Of 500
+  programs (`random --seed 7`), 177 call.
+- **Results.** `corpus`: 242 of 246 agree, 0 diverge (two refusals and two
+  outside the semantics, as on the base). `random --count 500`: 484 agree,
+  0 diverge, 16 refused. `types --count 200`: 698 of 702 agree, the other 4
+  outside the embedding, as on the base. `lowering --count 500`: 44,265 runs
+  agree, 4,394 bodies identical to `Contract.Lower`, 0 differ.
+  `lowering-corpus` on the calls: 35 bodies identical. `corpus --js`: 239
+  agree, 0 diverge; `random --js-only --count 500`: 468 agree, 0 diverge.
+  `host/web-js/conformance/calls.contract`: 12 of 12 steps equal, wasm
+  against the JS target.
+- **Not regenerated.** The `Apps/` embeddings were already stale on the
+  base (new event shapes); none calls an action, and the emitter writes
+  them the same on base and stage 2.

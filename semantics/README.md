@@ -5,7 +5,7 @@ tested against it, differentially and at random.
 
 | | |
 |---|---|
-| `Contract/Syntax.lean` | The abstract syntax: a deep embedding of the expanded root component (every used component's declarations lifted into it), the file's shapes and `fn`s. |
+| `Contract/Syntax.lean` | The abstract syntax: a deep embedding of the expanded root component (every used component's declarations lifted into it), the file's shapes and `fn`s. A statement may call an action (`Stmt.call`, LLP 1089 D9): by name, with its whole argument list, never the body the Rust compiler expanded. |
 | `Contract/Binary64.lean` | Numbers: IEEE-754 binary64 as its bits (`F64`), every operation the exact result rounded once to nearest, ties to even, over `Nat`/`Int` — computable in the kernel. |
 | `Contract/Binary64Facts.lean` | That model proved: correct rounding, overflow, monotonicity, exactness (below). |
 | `Contract/Number.lean` | `max`/`min` with the runner's NaN and signed-zero rules, and JavaScript's `Number#toString` over exact rationals. |
@@ -201,7 +201,9 @@ source as it is.
    is unfolded by `wp` (`BodyKeeps.of_wp`); `simp` with the `EvalR` rules
    (`EvalR.str_iff`, `EvalR.var_local`, …) turns it into a statement about
    values. A body that never touches the slot is dismissed by `decide`
-   (`Stmt.noAssigns`, `BodyKeeps.untouched`). A fact about one action is
+   (`Stmt.noAssigns`, `BodyKeeps.untouched`); a body that calls an action
+   is not, since `Stmt.noAssigns` and `Stmt.noSends` answer `false` for a
+   call rather than look into its callee. A fact about one action is
    `runAction_commit` (the body's `ExecR` outcome, the slots after it)
    plus `wp_sound` and `applyWrites_last`. Numbers are `F64`s whose
    arithmetic is defined over `Nat` and `Int`, so a numeric fact is
@@ -271,13 +273,16 @@ as `contract/lower` does through `Scope` and emits its instruction choices:
 `match` through `JumpIfNone`/`Unwrap`/`BindLocal`, templates through
 `toString` and `Concat` (one `Str` when every part is literal), records with
 a base bound as a local, a `fn` expanded inline with its arguments as
-locals, `map`/`filter` with the callback inline after the opcode, and blocks
-whose `let`s are dropped where the block ends. It carries static types of
-its own (`STy`), proved sound, and refuses where it cannot know (`+` of an
-operand not known to be a number or a string, a member of one not known to
-be a record, such as a router read) or where the semantics differs (a tail
-call's `@check:`; `path(…)`, which the Rust compiler expands into a template
-and the semantics evaluates by name).
+locals, `map`/`filter` with the callback inline after the opcode, blocks
+whose `let`s are dropped where the block ends, and a call of an action as
+the Rust compiler expands it (LLP 1089 D8): each argument bound as the next
+local, the callee's body in a scope of those locals and the component's
+names alone, every local dropped at its end, no call opcode. It carries
+static types of its own (`STy`), proved sound, and refuses where it cannot
+know (`+` of an operand not known to be a number or a string, a member of
+one not known to be a record, such as a router read) or where the semantics
+differs (`path(…)`, which the Rust compiler expands into a template and the
+semantics evaluates by name).
 
 **The theorems** (`Contract.LowerStmt`). In a machine state that
 corresponds to the semantics' environment (`Ctx`: every name the scope
@@ -286,7 +291,9 @@ nothing in flight; the same clock and route table) — `compileBody_correct`: th
 code of a derive, slot initializer or resource argument returns `v` exactly
 when `eval` answers `v`, and returns at all exactly when `eval` has a value;
 `compileAction_correct`: with `writes` admitting the body's writes
-(`Writes`), an action's code returns exactly the effects `exec` records,
+(`Writes`), and the component's names agreeing with no locals bound
+(`GlobalsAgree`, which a callee's fresh scope needs), an action's code
+returns exactly the effects `exec` records, calls included,
 names resolved as the plan did (`lowerFx`), and returns at all exactly when
 `exec` has an outcome. Both rest on `allOk`/`blockOk`, one induction on the
 compiler's fuel proving, for every construct, that its code takes the VM
@@ -332,7 +339,9 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
   finiteness: `1 / 0` is a value inside an evaluation.
 - `exec_sound_ty`: a well-typed action body run the same way asks only for
   writes of values of the target slots' types (root and row writes), sends
-  to mutations, or fails legitimately.
+  to mutations, or fails legitimately. With calls (LLP 1089 D9) it takes
+  every action's body typed under its parameters, which `WellTyped`
+  gives: a callee runs as the action it is.
 - `check_sound`: `check p = true → WellTyped p`. Beyond types, both ask
   what the Rust analyzer asks of a task (`analyze-unknown-action`,
   `analyze-handler-arity`): it names an action of no parameters, else a
