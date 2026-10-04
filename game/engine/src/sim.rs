@@ -170,6 +170,8 @@ pub struct Sim<G: Game> {
     // tick takes it. Skipped samples are counted for the proof's report.
     paranoid_owed: bool,
     paranoid_skipped: u64,
+    // An edit through world_mut since the last present: the next advance presents.
+    present_owed: bool,
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
@@ -621,6 +623,7 @@ impl<G: Game> Sim<G> {
             paranoid: Self::reconstruction(Paranoid::environment()),
             paranoid_owed: false,
             paranoid_skipped: 0,
+            present_owed: false,
             game: PhantomData,
         })
     }
@@ -708,6 +711,10 @@ impl<G: Game> Sim<G> {
         self.args = args;
         if changed {
             self.invalidate();
+            // Drawn state follows the arguments it reads at once, paused or not.
+            if !self.setup_pending {
+                Self::present(&mut self.world, &self.args);
+            }
         }
         if G::paused(&self.args) {
             self.flush_paused(self.last_us.unwrap_or(0));
@@ -1026,6 +1033,9 @@ impl<G: Game> Sim<G> {
         if self.setup_pending {
             return 0;
         }
+        if std::mem::take(&mut self.present_owed) {
+            Self::present(&mut self.world, &self.args);
+        }
         if self.backwards(now_ms) {
             return 0;
         }
@@ -1309,6 +1319,7 @@ impl<G: Game> Sim<G> {
     /// Edit simulation state, for setup tools and tests.
     pub fn world_mut(&mut self) -> &mut World {
         self.invalidate();
+        self.present_owed = true;
         &mut self.world
     }
     /// Take the current public record once after a change, rebuild or load.

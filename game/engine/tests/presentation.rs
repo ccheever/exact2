@@ -322,3 +322,41 @@ fn a_present_that_fails_on_a_restored_world_refuses_the_restore() {
         "the refused restore changed nothing"
     );
 }
+
+#[test]
+fn drawn_state_follows_live_arguments_and_edits_without_a_tick() {
+    #[derive(Default, Args)]
+    struct Look {
+        #[live]
+        glow: f64,
+    }
+    struct Glows;
+    impl Game for Glows {
+        const ID: &'static str = "glows";
+        type Args = Look;
+        fn setup(w: &mut World, _: &Look) {
+            w.spawn_named("crate", (Transform::default(), Crate { hp: 3 }));
+        }
+        fn tick(_: &mut World, _: &Input, _: &Look) {}
+        fn paused(_: &Look) -> bool {
+            true
+        }
+        fn present(w: &mut World, look: &Look) {
+            let e = w.named("crate").unwrap();
+            let hp = w.require::<Crate>(e).hp;
+            w.insert(
+                e,
+                Bob {
+                    height: hp as f32,
+                    flash: look.glow as f32,
+                },
+            );
+        }
+    }
+    let mut s = Sim::<Glows>::new(Look::default()).unwrap();
+    s.bind(&[Value::Number(0.5)], None).unwrap();
+    assert_eq!(s.world().require::<Bob>("crate").flash, 0.5);
+    s.world_mut().require_mut::<Crate>("crate").hp = 7;
+    s.run(0.);
+    assert_eq!(s.world().require::<Bob>("crate").height, 7.);
+}
