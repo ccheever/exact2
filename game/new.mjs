@@ -284,7 +284,7 @@ Commands, from this directory:
 | \`bun exact.mjs contract types app.contract -o app.contract.d.ts\` | the types \`app.ts\` imports; rerun after changing a source's signature |
 | \`bun exact.mjs contract build app.contract --json\` | compile; \`[]\` or every diagnostic with its range |
 | \`bun exact.mjs contract vocab [name]\` | the tags, attributes and CSS properties Contract accepts |
-| \`bun exact.mjs web\` | the web dev loop, at http://127.0.0.1:8765/ |
+| \`bun exact.mjs web\` | the web dev loop, at the URL it prints (8765 unless another loop holds it) |
 | \`bun exact.mjs test web\` | build the web app if needed, then run \`app.test.contract\` (also \`macos\`, \`ios\`) |
 | \`bun exact.mjs agent web tree "tap <id>" "screenshot out.png"\` | drive the app as a person would |
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |

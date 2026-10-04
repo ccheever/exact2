@@ -113,6 +113,10 @@ bun exact.mjs agent web --size 390x844 "screenshot phone.png"   # a phone-sized 
 
 The web carrier opens at 420×900; `--size <w>x<h>` (before the operations) opens
 another viewport, and a test's first step `size <w>x<h>` does the same for that test.
+A drive's storage lasts only as long as the drive: `--storage <name>` keeps a native
+host's scratch store between drives, but on the web each drive is a fresh browser
+profile, and no operation reloads the page. Survival across a reload is not yet
+something a drive or an authored test can show on the web.
 
 Inside the exact2 checkout, for Caltrain:
 

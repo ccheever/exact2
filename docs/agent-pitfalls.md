@@ -143,6 +143,15 @@ guide's rules don't make obvious.
   bench, LLP 1087, t4-kanban: about 15 minutes, 2026-10-04.) **Candidate
   diagnostic:** the compiler could warn on a `pan` without `touch-action`.
 
+- **A native build stops at the bake with a source's storage error.** `exact.mjs ios`
+  (or `mac`) panics in `apple/build.rs`: `bake …: Data { resource: "tasks", error:
+  Unavailable("storage is unavailable during bake") }`, while the web build asks the
+  source again at launch, as [the human guide](contract-for-humans.md#writing-the-data-module)
+  says. Cause: the native bake treats a source that throws at bake as a failure. Fix: in
+  the source, catch the storage error whose `code` is `'bake'` and answer a default (or
+  give the resource an `else` placeholder), as [the reference](reference.md) shows.
+  (Authoring bench, LLP 1087, t2-todo on iOS, 2026-10-04.)
+
 ## Driving and testing
 
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
