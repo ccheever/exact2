@@ -708,12 +708,15 @@ export function timeReporter(params, platform = globalThis) {
     return [epoch, (Date.UTC(at.year, at.month - 1, at.day, at.hour, at.minute, at.second) - Math.floor((epoch + elapsed) / 1000) * 1000) / 60000];
   };
 }
+// The drive's facts are the launch URL's: a route the app pushed before the
+// first ask has no `?agent&…` (storage-environment.js `launchHref`).
+const launched = () => new URL(globalThis.performance?.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams;
 let pageTime;
-export const reportTime = (elapsed) => (pageTime ??= timeReporter(new URL(location.href).searchParams))(elapsed);
+export const reportTime = (elapsed) => (pageTime ??= timeReporter(launched()))(elapsed);
 
 let pagePlace;
 export function reportPlace() {
-  pagePlace ??= placeReporter(new URL(location.href).searchParams);
+  pagePlace ??= placeReporter(launched());
   return pagePlace();
 }
 

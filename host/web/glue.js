@@ -6,6 +6,8 @@ import { grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet,
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule; // the file picker (LLP 1069.002) and documents (LLP 1069.010), loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
+// An `app:/` source (D7): the app's own file, as the picker glue's object URL once it resolves; the old picture stays meanwhile, as for any `src`. A `data:` source past its bound shows nothing, as on every host (LLP 1011 §2; exact_raster::MAX_DATA_URL_BYTES).
+const DATA_LIMIT = 1024 * 1024; function appSource(el, name, value) { const p = picker().then(m => m.appURL(value)).then(url => { if (el[`exactApp-${name}`] === value && el.getAttribute(name) !== url) url ? el.setAttribute(name, url) : el.removeAttribute(name); }); track(p.catch(() => {})); return el.getAttribute(name) ?? ""; }
 const documentsGlue = () => documentsModule ??= loadAfterPaint('./documents-glue.js', 'documents').then(d => d.install({ dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, log, openFile: (value) => { const id = [...views].find(([, el]) => el.dataset?.testid === "open-file")?.[0]; if (id == null) return false; send(wasm.exact_dispatch(id, 1, writeIn(value), now())); return true; } }));
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -456,7 +458,7 @@ function applyProps(el, set, clear) {
     } else if (name === "disabled" || name === "readonly" || (el instanceof HTMLVideoElement && ["autoplay","controls","loop","muted","playsinline","disablepictureinpicture","disableremoteplayback"].includes(name))) {
       if (value === "true") { el.setAttribute(name, ""); if (name === "disabled" && el === document.activeElement) el.blur(); } else el.removeAttribute(name); // a focused node that is disabled loses the focus now, not at the browser's next frame (HTML focus fixup)
     } else {
-      const v = (name === "src" || name === "poster") && value.startsWith("app:/") ? globalThis.exact.pickedURL?.(value) ?? "" : (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
+      const app = (name === "src" || name === "poster") && (el[`exactApp-${name}`] = value.startsWith("app:/") ? value : null), v = app ? appSource(el, name, value) : name === "src" && value.startsWith("data:") && value.length > DATA_LIMIT ? (log(`image refused: a data: source is over ${DATA_LIMIT} bytes`), "") : (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
       if (el instanceof HTMLIFrameElement && name === "src" && !same) iframeLoading.set(el, true);
       if (navigates(el, name) && !navigableURL(value)) refuseURL(el, name, value); else if (!same) el.setAttribute(name, v);
     }

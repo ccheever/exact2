@@ -149,7 +149,7 @@ function storageOf(grants) {
   if (!['fs-read', 'fs-write', 'sqlite-open'].some(kind => hasGrant(grants, kind))) return undefined;
   let fs, sqlite;
   const key = () => import('./storage-environment.js').then(({ storageKey, agentStorageRefusal }) => {
-    const k = source.appId ? storageKey(source.appId, location.href) : null;
+    const k = source.appId ? storageKey(source.appId) : null;
     if (k == null) throw Object.assign(new Error(agentStorageRefusal), { kind: 'Unavailable', code: 'agent' });
     return k;
   });
@@ -178,7 +178,7 @@ export function install(data, mixed = false, modules = null) {
   if (modules && typeof requestAnimationFrame === 'function') pageModule().catch(e => journal.push(`t=${clock.now} native: ${e.message}`));
   let keys = null, asking = '';
   const kept = () => keys ??= import('./storage-environment.js').then(({ keyStore, storageKey }) =>
-    keyStore(typeof location === 'object' && source.appId ? storageKey(source.appId, location.href) : null, globalThis.indexedDB));
+    keyStore(typeof location === 'object' && source.appId ? storageKey(source.appId) : null, globalThis.indexedDB));
   __AUTH_INSTALL__
   // A module's `kept(source, args, value)` is given the answers its page was
   // rendered with, once, before it is first asked: they are its own answers,

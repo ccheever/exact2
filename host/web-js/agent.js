@@ -29,7 +29,7 @@ export function install(exact) {
   const record = (el, depth) => {
     const props = {};
     if (el.dataset.testid) props.testId = el.dataset.testid;
-    if (el.tagName === 'IMG') props.imageSource = el.dataset.symbolSource ?? el.getAttribute('src') ?? '';
+    if (el.tagName === 'IMG') props.imageSource = el.dataset.symbolSource ?? el.dataset.appSrc ?? el.getAttribute('src') ?? '';
     if (el.hasAttribute('aria-label')) props.accessibilityLabel = el.getAttribute('aria-label');
     else if (el.tagName === 'IMG' && el.getAttribute('alt')) props.accessibilityLabel = el.getAttribute('alt');
     // A paragraph of runs has no text of its own: its runs carry it.

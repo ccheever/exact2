@@ -1049,6 +1049,12 @@ test("a drive's storage is only a scratch store it names, apart from the app's o
   expect(storageKey('com.example.app', 'http://127.0.0.1:1/?storage=x')).toBe('com.example.app'); // only a drive's is scratch
   for (const name of ['', '.', '..', 'a/b', '%2e%2e']) expect(() => storageKey('com.example.app', `http://127.0.0.1:1/?agent=1&storage=${name}`)).toThrow('storage: one name');
   for (const host of ['web', 'linux']) await expect(open({ host, storage: '../x' })).rejects.toThrow('--storage: one name');
+  // The page's launch URL names the store, not where the app's router has
+  // since moved `location` (recipes F9: a pick after a navigation went to
+  // another store than the data module's).
+  const entries = performance.getEntriesByType;
+  performance.getEntriesByType = type => type === 'navigation' ? [{ name: 'http://127.0.0.1:1/?agent=1&storage=s1' }] : [];
+  try { expect(storageKey('com.example.app')).toBe('com.example.app/agent/s1'); } finally { performance.getEntriesByType = entries; }
 });
 
 // @ref LLP 1080.002 D7–D9 — the findings, parity and transcript over hand-written replies.

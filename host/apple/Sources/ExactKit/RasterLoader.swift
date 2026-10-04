@@ -71,7 +71,7 @@ private final class RasterBackend: @unchecked Sendable {
 
     func acquire(_ name: String, resolver: AssetResolver) -> RasterSource? {
         lock.lock(); defer { lock.unlock() }
-        guard !stopped, name.utf8.count <= 4096 else { return nil }
+        guard !stopped, name.utf8.count <= (name.hasPrefix("data:") ? RasterInput.dataLimit : 4096) else { return nil }
         pruneLocked()
         let key = RasterSourceKey(name: name, resolver: ObjectIdentifier(resolver))
         if let id = byName[key], let source = sources[id]?.value, source.resolver === resolver,
@@ -339,6 +339,9 @@ final class RasterLoader {
         }
     }
     @discardableResult func load(_ view: NodeView, source: String, resolver: AssetResolver) -> Bool {
+        if source.hasPrefix("data:"), source.utf8.count > RasterInput.dataLimit {
+            view.presenter?.session?.log("image refused: a data: source is over \(RasterInput.dataLimit) bytes (LLP 1011 §2)"); return false
+        }
         guard !destroyed, (interests[view.id] != nil || interests.count < 1024), let record = backend.acquire(source, resolver: resolver) else {
             view.presenter?.session?.log("image deferred: raster metadata/subscriber/source limit"); return false
         }

@@ -781,6 +781,7 @@ public final class ExactSession {
             if booted { presenter.reset() }
             booted = true
             text.commitFonts()
+            AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
         }
         apply(batch)
         if batch.error == nil { tellTime() }
@@ -861,6 +862,7 @@ public final class ExactSession {
         app.lifecycle?.generationStarted(app, token: updateToken)
         autofocusHeld = restart
         sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
+        AppFiles.learn(runtime)
         apply(batch)
         tellTime()
         view?.rebooted()
@@ -1067,6 +1069,7 @@ public final class ExactSession {
                 }
                 return
             }
+            AppFiles.learn(runtime) // the roots storage configured
             apply(batch)
             if batch.error == nil {
                 presenter.collections.dataReady()
