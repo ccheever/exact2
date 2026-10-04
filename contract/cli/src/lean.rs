@@ -55,9 +55,17 @@ pub fn lean_path(path: &Path, name: &str) -> Result<String, CompileError> {
 fn emit_file(file: &File, name: &str) -> Result<String, CompileError> {
     let checked = contract_types::check_all(file, false, contract_lower::tags::style, None)
         .map_err(|mut all| CompileError::from(all.swap_remove(0)))?;
+    emit_checked(&checked, name)
+}
+
+/// Emit a checked expansion as `def <name> : Contract.Program`. The
+/// differential type test (`difftest types`) also calls this with an
+/// expansion the checker refused, typed by the program it was mutated
+/// from, to give the Lean checker the mutant to judge.
+pub fn emit_checked(checked: &Checked, name: &str) -> Result<String, CompileError> {
     let mut e = Emitter {
         out: String::new(),
-        checked: &checked,
+        checked,
     };
     e.program(name)?;
     Ok(e.out)

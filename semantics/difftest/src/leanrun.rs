@@ -91,10 +91,32 @@ pub fn module(cases: &[LeanCase]) -> String {
 /// Run `cases` in one Lean process; each case's observation lines, in
 /// order. `dir` keeps the generated module for a failure's reproduction.
 pub fn run(cases: &[LeanCase], dir: &Path, tag: &str) -> Result<Vec<Vec<String>>, String> {
+    let text = run_module(&module(cases), dir, tag)?;
+    let mut results: Vec<Vec<String>> = Vec::new();
+    for line in text {
+        if line.starts_with("#case ") {
+            results.push(Vec::new());
+        } else if let Some(last) = results.last_mut() {
+            last.push(line);
+        }
+    }
+    if results.len() != cases.len() {
+        return Err(format!(
+            "{tag}: expected {} cases, got {}",
+            cases.len(),
+            results.len()
+        ));
+    }
+    Ok(results)
+}
+
+/// Run a generated module's `main` in one Lean process; its output lines.
+/// `dir` keeps the module for a failure's reproduction.
+pub fn run_module(module: &str, dir: &Path, tag: &str) -> Result<Vec<String>, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     // One module per process and batch: runs side by side never share one.
     let file = dir.join(format!("{tag}-{}.lean", std::process::id()));
-    std::fs::write(&file, module(cases)).map_err(|e| format!("{}: {e}", file.display()))?;
+    std::fs::write(&file, module).map_err(|e| format!("{}: {e}", file.display()))?;
     let out = Command::new(lake())
         .args(["env", "lean", "--run"])
         .arg(&file)
@@ -109,24 +131,10 @@ pub fn run(cases: &[LeanCase], dir: &Path, tag: &str) -> Result<Vec<Vec<String>>
             String::from_utf8_lossy(&out.stderr)
         ));
     }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let mut results: Vec<Vec<String>> = Vec::new();
-    for line in text.lines() {
-        if line.starts_with("#case ") {
-            results.push(Vec::new());
-        } else if let Some(last) = results.last_mut() {
-            last.push(line.to_string());
-        }
-    }
-    if results.len() != cases.len() {
-        return Err(format!(
-            "{}: expected {} cases, got {}",
-            file.display(),
-            cases.len(),
-            results.len()
-        ));
-    }
-    Ok(results)
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::to_string)
+        .collect())
 }
 
 /// Print `Number.jsToString` of each double (by its bits) in one Lean

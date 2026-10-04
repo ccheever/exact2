@@ -19,6 +19,11 @@ tested against it, differentially and at random.
 | `Contract/Lower.lean` | A compiler from the semantics' expressions and statements to VM code, mirroring `contract/lower` (`expr.rs`, `stmts.rs`) instruction for instruction. |
 | `Contract/VmFacts.lean`, `Lower{Types,Sim,Spec,Proof,Lists,Calls,Correct,Stmt}.lean` | Its correctness proof (below). |
 | `Contract/LowerCheck.lean` | The Lean half of `difftest lowering`. |
+| `Contract/ValTy.lean` | Types as sets of values (`ValTy`, `conforms` without finiteness), the order and join the checker's `?` induces (`Ty.le`, `Ty.unify`), and that `conforms` at a complete type gives `ValTy`. |
+| `Contract/Types.lean` | The type system: typing judgments for expressions, statements, views and programs (`HasTy`, `StmtsTy`, `NodesTy`, `WellTyped`), mirroring the Rust checker (contract/types). |
+| `Contract/TypeCheck.lean` | The checker as a program (`check`), proved sound for the judgments. |
+| `Contract/Soundness.lean` | Type soundness of expressions and statements against `eval` and `exec`. |
+| `Contract/TypeInvariant.lean` | The slot invariant over every reachable configuration. |
 | `difftest/` | The differential tester (Rust crate `contract-difftest`). |
 | `corpus/` | Scripted programs: `test` blocks whose steps both sides run. |
 | `Apps/` | Real apps' embeddings (generated, checked current by `difftest apps`) and, under `Apps/Proofs/`, invariants proved of them. |
@@ -46,7 +51,21 @@ makes a call the runner didn't, that is a divergence.
 cargo run -p contract-difftest -- corpus                    # every test block in corpus/
 cargo run -p contract-difftest -- random --seed 7 --count 500
 cargo run -p contract-difftest -- apps                      # app embeddings are current
+cargo run -p contract-difftest -- types --seed 1 --count 200
 ```
+
+`types` runs the Lean checker (`Contract.check`) against the Rust one: every
+corpus program and `count` generated ones, all accepted by the compiler,
+must be accepted; each also yields a mutant (a literal of another type, a
+field the shape lacks, an argument dropped, added or retyped, `==` across
+types, a condition that is not a bool), judged by the Rust checker, which
+the Lean checker must judge the same. A mutant the compiler refuses cannot
+pass `contract lean`, so its expansion is emitted with the types of the
+program it came from (`contract::lean::emit_checked`). Mutants touch only
+what the semantics evaluates (a view's presentation attributes are left
+alone). A refusal for what the embedding does not carry (a prop's or an
+inject's declared type, a source's one signature) is counted as `OUTSIDE`,
+not a disagreement. A disagreement is kept under `target/difftest/types/`.
 
 A divergence is kept under `target/difftest/failures/` (the program, the
 events, both observations); random failures have their scripts shrunk first.
@@ -190,6 +209,47 @@ The Lean toolchain is pinned in `lean-toolchain`. To install it:
 `curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y`.
 Build and check every proof with `lake build`. The library has no
 dependencies.
+
+## What is proven
+
+All without `sorry` or axioms beyond Lean's own (`propext`,
+`Classical.choice`, `Quot.sound`).
+
+- `eval_sound_ty` (preservation and progress): if `HasTy p G Γ e τ`, the
+  `fn`s are well typed, the component names `G` reads hold values of their
+  types or fail legitimately in `env` (`EnvOK`) and the locals match `Γ`
+  (`LocalsOK`), then `eval n env false ls e` is a value `v` with
+  `ValTy p v τ`, or an error that is `pending`, `unsupported` or `refused`
+  — never a type error, never an unbound name. `ValTy` has no finiteness:
+  `1 / 0` is a value inside an evaluation.
+- `exec_sound_ty`: a well-typed action body run the same way asks only for
+  writes of values of the target slots' types (root and row writes), sends
+  to mutations, or fails legitimately.
+- `check_sound`: `check p = true → WellTyped p`.
+- `reachable_slotsOK` and `reachable_valTy`: in every configuration a
+  well-typed program reaches (boot, then any events), each root slot is a
+  state or mutation holding a value of its declared type. Most of this is
+  the runtime's checks (`conforms` at boot and at every commit, which also
+  makes numbers finite: that is the runtime's refusal, not typing); typing
+  supplies that names are distinct and that a `send` targets a mutation, so
+  every check is made at the slot's own type.
+- `conforms_valTy`: what the runtime check admits at a complete type is a
+  value of that type.
+
+Left out: that settled derives and resources keep their types across steps
+(settlement checks `conforms`, but the invariant is not carried through
+`settle`'s loops), so `EnvOK` for an action's environment is a hypothesis
+of `exec_sound_ty`, not a theorem about reachable configurations; rendering
+(a view's soundness is typed by `NodesTy` but not proved); boot settlement
+reads late slots that still hold `()`. The judgments accept a `?` operand
+where the Rust checker defers it (no value has type `?`), check only what
+the semantics evaluates of a view (a `text`'s text, `testId`, handlers,
+regions), type a command's arguments without its host signature, and check
+the expanded root, so a component nothing uses is not checked. Rust refuses
+more: `let` shadowing, host command signatures, presentation attributes,
+placeholders, routes and `t(...)` (a program with routes is refused by
+`check`: its `Router` slot is embedded with the initializer `none`, and
+`path(...)` is not a roster entry here).
 
 ## What the semantics leaves out
 

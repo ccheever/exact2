@@ -21,3 +21,8 @@ import Contract.LowerLists
 import Contract.LowerCalls
 import Contract.LowerCorrect
 import Contract.LowerStmt
+import Contract.ValTy
+import Contract.Types
+import Contract.Soundness
+import Contract.TypeCheck
+import Contract.TypeInvariant
