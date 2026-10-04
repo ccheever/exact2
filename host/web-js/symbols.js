@@ -25,17 +25,28 @@ export function symbols(table) {
   if (typeof document === "undefined") return;
   document.head.append(Object.assign(document.createElement("style"), { textContent: STYLE }));
   PropHooks.src = (e, v) => {
+    // A source that is no longer a symbol drops the symbol's rendering first,
+    // so neither `refresh` nor the role table's late load paints it back over
+    // what the new source shows (an `app:/` file lands asynchronously).
+    if (!v?.startsWith("symbol:")) unsymbol(e);
     if (e.localName === "img" && v?.startsWith("app:/")) { appSource(e, v); return true; }
     if (e.localName === "img" && e.$app) { e.$app = null; e.removeAttribute("data-app-src"); }
     // A `data:` source past its bound shows nothing, as on every host (LLP 1011 §2; exact_raster::MAX_DATA_URL_BYTES).
     if (e.localName === "img" && v?.startsWith("data:") && v.length > DATA_LIMIT) { journal.push(`t=${clock.now} image refused: a data: source is over ${DATA_LIMIT} bytes`); e.removeAttribute("src"); return true; }
-    if (e.localName !== "img" || !v?.startsWith("symbol:")) { e.removeAttribute("data-symbol-path"); e.removeAttribute("data-symbol-fill"); e.removeAttribute("data-symbol-source"); e.symbolKey = null; template(e, v); return false; }
+    if (e.localName !== "img" || !v?.startsWith("symbol:")) { template(e, v); return false; }
     template(e, null);
     if (!Table[v.slice(7)] && !All && !v.startsWith("symbol:sf/")) everyRole();
     e.setAttribute("data-symbol-source", v); draw(e, v.slice(7)); e.alt = "";
     return true;
   };
   After.push(refresh);
+}
+function unsymbol(e) {
+  if (!e.hasAttribute?.("data-symbol-source") && !e.hasAttribute?.("data-symbol-path")) return;
+  for (const a of ["data-symbol-path", "data-symbol-fill", "data-symbol-source"]) e.removeAttribute(a);
+  e.style.removeProperty("--exact-symbol-mask"); e.style.removeProperty("--exact-symbol-fit");
+  if (e.getAttribute("src") === e.symbolPlaceholder) e.removeAttribute("src");
+  e.symbolKey = e.symbolMask = e.symbolPlaceholder = e.symbolRefusal = null;
 }
 // An `app:/` source (LLP 1069.002 D7): the app's own file — a picked one, or
 // one its data module kept in `app:/data` — shown as an object URL by the web
