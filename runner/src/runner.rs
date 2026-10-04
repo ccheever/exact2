@@ -12,7 +12,7 @@ mod control;
 mod event;
 mod host_kinds;
 mod pointer;
-pub use pointer::PointerEvent;
+pub use pointer::{DropEvent, PointerEvent, WheelEvent};
 mod reorder;
 mod reorder_codec;
 mod root_font;

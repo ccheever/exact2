@@ -480,7 +480,7 @@ expression grammar. Platform looks and stand-ins are documented in
 ## Events
 
 An event binding is an action reference or partially applied action. Captured
-arguments precede the event payload. The table contains all 46 handler names.
+arguments precede the event payload. The table contains all 49 handler names.
 Numeric multi-argument payload ordering should be copied from the feature's
 working fixture, not inferred from JavaScript's Event interface.
 
@@ -498,10 +498,12 @@ working fixture, not inferred from JavaScript's Event interface.
 | Four numbers | `transformgeometry` |
 | Six numbers | `transformrelease` |
 | Special: zero or one location string, no captured args | `navigate` |
-| Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove` |
+| Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove`, `contextmenu` (UI Events makes it one: where the secondary click or long press was; a keyboard's menu key gives the origin) |
+| Zero or one `WheelEvent` (the action takes it or leaves it) | `wheel` |
+| Zero or one `DragEvent` (the action takes it or leaves it) | `drop` |
 | Zero or one `ClipboardEvent` (the action takes it or leaves it) | `copy`, `cut`, `paste` ([clipboard](#clipboard)) |
 | Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation) |
-| None | `cancel`, `focus`, `blur`, `submit`, `load`, `contextmenu`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
+| None | `beforeunload`, `cancel`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
 An `audio` is HTML's: `video`'s props and events without `poster`, `playsinline`
 or `playbackVisibilityThreshold`; no box unless `controls` (then Chrome's 300×54,
@@ -545,8 +547,8 @@ bindings are required as a pair. See
 ### Pointer
 
 `pointerdown`, `pointerup` and `pointermove` are DOM's, on every host. The
-innermost enabled node under a touch or the primary button that hears any of
-them holds the pointer: its `pointerdown` fires before any gesture decides,
+innermost enabled node under a touch or a button (any: `buttons` says which, 2
+for a right-click) that hears any of them holds the pointer: its `pointerdown` fires before any gesture decides,
 its `pointermove`s follow the pointer wherever it goes while held, and its
 `pointerup` comes when the pointer lifts or is cancelled (a cancel is an up),
 before the click's `press`. A free pointer (a mouse or a pen hovering, no
@@ -573,6 +575,50 @@ action stroke(e: PointerEvent)
   points = `${points} ${e.offsetX},${e.offsetY}`
 canvas surface=ink(points) pointerdown=begin pointermove=stroke touch-action="none"
 ```
+
+A `contextmenu` (a right-click, a long press) offers the same record: on a Mac
+and in a browser on one it comes on the button's down, after its `pointerdown`.
+
+`wheel` is DOM's: a wheel's turn or a trackpad's scroll over the node, heard by
+every node from it up that declares it, innermost first. Its `WheelEvent` is
+`offsetX`, `offsetY`, `deltaX`, `deltaY` (CSS px; positive scrolls down and
+right), `deltaMode` (0 pixels) and the four modifiers. A trackpad's pinch is a
+wheel with `ctrlKey` and `deltaY` of -100 × its magnification, as browsers
+deliver one. An action that calls `preventDefault()` keeps the scroll from
+happening (web, macOS, Linux; iOS has none):
+
+```text
+action wheeled(e: WheelEvent)
+  if e.ctrlKey or e.metaKey
+    zoom = zoom * (1 - e.deltaY / 100)
+    preventDefault()
+scroll wheel=wheeled …
+```
+
+`drop` is DOM's `drop` of files dragged in from outside the app (Finder, the
+desktop) onto the innermost node that declares it: its `DragEvent` is
+`offsetX`, `offsetY`, `files` (a `list<string>` of `doc:` handles minted as a
+picker's are, [LLP 1069.010](../llp/1069.010-the-mac-as-a-document-platform.rfc.md)
+D1, readable under `fs.read doc:/`) and the modifiers. Only files of the types
+the manifest's `file_handlers` declares are taken; another is refused into the
+journal. Web (a browser without `getAsFileSystemHandle` hands a read-only copy)
+and macOS; iOS and Linux have none. The driver's `tap <target> drop <path…>`
+drags files in.
+
+`beforeunload` is DOM's: the window is about to close or the app to quit
+(macOS: its close button, File ▸ Close Window, ⌘Q; the web: leaving the page).
+Every element that declares it hears it; an action that calls `preventDefault()`
+keeps the window open. The browser then asks "Leave site?" itself; a Mac app asks
+its own question, and calls the host command `close()` once it is answered,
+which closes the window without asking again (on the web, `window.close()`, which
+a browser honours only for a window a script opened). iOS and Linux close no
+window. `head edited=…` marks the document as unsaved: on macOS the dot in the
+window's close button, beside the proxy icon of the file the window opened;
+other hosts show nothing (a declared deviation: the web has no unsaved mark).
+
+HTML's global `title` attribute, on any element but `head` (whose `title` is the
+document's), is advisory text: the browser's tooltip on the web, `toolTip` on
+macOS; touch hosts show none.
 
 ### Clipboard
 
@@ -675,8 +721,8 @@ The current command name inventory is:
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `focus`, `format`,
 `openURL`, `selectText`, `setScheme`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`,
-`haptic`, `postMessage`, `reload`, `preventDefault` and `stopPropagation`
-([keys](#keys)).
+`haptic`, `postMessage`, `reload`, `close` ([pointer](#pointer): a window's
+`beforeunload`), `preventDefault` and `stopPropagation` ([keys](#keys)).
 
 These appear only as action statements. They are not ordinary value-returning
 functions. Some have dedicated compiler checks while others also rely on host
@@ -700,8 +746,9 @@ argument validation. Use the working implementation when selecting arguments:
 
 The web (its JS target) and the Apple hosts carry every command. The
 headless Linux host has no browser, clipboard, text selection, editor or dev
-menu: its `openURL`, `copyText`, `selectText`, `format` and `reload` are
-journaled as unsupported there, and `haptic` does nothing. On the web,
+menu: its `openURL`, `copyText`, `selectText`, `format`, `reload` and `close`
+are journaled as unsupported there, and `haptic` does nothing. iOS closes no
+window either: its `close` is journaled as unsupported. On the web,
 `reload()` is the page's own reload, and `deliveryCheck` and
 `deliveryActivate` find nothing (a web build has no update store; the page is
 the newest root).

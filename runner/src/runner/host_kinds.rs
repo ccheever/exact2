@@ -5,10 +5,11 @@
 use super::Event;
 
 impl Event {
-    /// Decode ABI kind 13 (scroll), 19 (media), 20 (pan), 21 (select), 28
-    /// (panrelease, LLP 1057 §10.6), 29 to 31 (the pointer's down, up and
-    /// move) or 32 to 34 (the clipboard's copy, cut and paste) from its
-    /// UTF-8 payload.
+    /// Decode ABI kind 10 (contextmenu, its point when it has one), 13
+    /// (scroll), 19 (media), 20 (pan), 21 (select), 28 (panrelease, LLP
+    /// 1057 §10.6), 29 to 31 (the pointer's down, up and move), 32 to 34
+    /// (the clipboard's copy, cut and paste), 35 (beforeunload), 36 (wheel)
+    /// or 37 (drop) from its UTF-8 payload.
     pub fn of_host_kind(kind: u32, payload: &str) -> Result<Event, &'static str> {
         match kind {
             13 => Event::scroll_payload(payload).ok_or("invalid scroll coordinates"),
@@ -21,6 +22,15 @@ impl Event {
             29..=31 => Event::pointer_payload(kind, payload).ok_or("invalid pointer event"),
             // The clipboard's copy, cut and paste, with its plain text.
             32..=34 => Event::clipboard_payload(kind, payload).ok_or("invalid clipboard event"),
+            10 => Event::contextmenu_payload(payload).ok_or("invalid contextmenu event"),
+            // Studio diary R17, R3, R19: DOM's beforeunload, wheel and drop.
+            35 => Ok(Event::Beforeunload),
+            36 => super::WheelEvent::parse(payload)
+                .map(Event::Wheel)
+                .ok_or("invalid wheel event"),
+            37 => super::DropEvent::parse(payload)
+                .map(Event::Drop)
+                .ok_or("invalid drop event"),
             _ => Err("unknown event kind"),
         }
     }

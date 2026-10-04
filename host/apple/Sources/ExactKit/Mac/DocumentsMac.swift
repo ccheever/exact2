@@ -32,12 +32,42 @@ public enum ExactDocuments {
     /// Whether this app declares that it opens anything at all.
     public static var declared: Bool { !types.isEmpty }
 
-    /// Every `LSItemContentTypes` entry across the declared document types.
-    static var types: [UTType] {
+    /// Every `LSItemContentTypes` entry across the declared document types,
+    /// and the type this Mac gives each declared extension (`Picker`).
+    static var types: [UTType] { Picker.documentTypes }
+
+    /// The adapter that owns the windows hears of a document chosen in a
+    /// session (a picker's open or save): the window shows it.
+    nonisolated(unsafe) public static var shown: ((ExactSession, URL) -> Void)?
+
+    /// Files the person chose in the app's own picker (studio diary R18):
+    /// each joins Open Recent — a save's once it is written, since AppKit
+    /// lists only files that exist — and the window shows the last.
+    static func chosen(_ urls: [URL], in session: ExactSession) {
+        for url in urls { noteWhenWritten(url) }
+        if let url = urls.last { shown?(session, url) }
+    }
+
+    /// AppKit drops a recent file that does not exist yet, which a save's
+    /// is until the app writes it: it is noted once it does, looked for a
+    /// few times a second for two minutes.
+    static func noteWhenWritten(_ url: URL, tries: Int = 480) {
+        if FileManager.default.fileExists(atPath: url.path) { NSDocumentController.shared.noteNewRecentDocumentURL(url); return }
+        guard tries > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { noteWhenWritten(url, tries: tries - 1) }
+    }
+
+    /// Whether a file at `url` is of a type the app declares: its type
+    /// conforms to one, or its extension is one a declaration names — what
+    /// a dropped file must be (studio diary R19), as the pickers offer only
+    /// these (LLP 1069.010 D2). An extension another app's type owns on this
+    /// Mac (`.board`, Freeform's) still counts when the manifest names it.
+    public static func accepts(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
         let declarations = ExactEnv.appMetadata["CFBundleDocumentTypes"] as? [[String: Any]] ?? []
-        return declarations
-            .flatMap { $0["LSItemContentTypes"] as? [String] ?? [] }
-            .compactMap { UTType($0) }
+        if !ext.isEmpty, declarations.contains(where: { ($0["CFBundleTypeExtensions"] as? [String] ?? []).contains { $0.lowercased() == ext } }) { return true }
+        let type = (try? url.resourceValues(forKeys: [.contentTypeKey]).contentType) ?? UTType(filenameExtension: ext)
+        return type.map { t in types.contains { t.conforms(to: $0) } } ?? false
     }
 
     /// The paths in `arguments` that name something on disk, made absolute

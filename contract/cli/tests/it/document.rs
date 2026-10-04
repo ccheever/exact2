@@ -58,6 +58,7 @@ fn the_innermost_active_head_wins_field_by_field() {
             canonical: some("/"),
             robots: some("index"),
             status: None,
+            edited: false,
         }
     );
     // The home route is still in the stack, covered: its head is inactive.
@@ -70,6 +71,7 @@ fn the_innermost_active_head_wins_field_by_field() {
             canonical: some("/post/7"),
             robots: some("index"),
             status: None,
+            edited: false,
         }
     );
     // The not-found view declares its status; its robots wins over the site's.
@@ -92,6 +94,27 @@ fn the_innermost_active_head_wins_field_by_field() {
     .unwrap()
     .head();
     assert_eq!(failed.status, Some(503));
+    // A document with unsaved changes marks its window (LLP 1069.010 D6):
+    // the innermost active head's `edited`, which a deeper `false` clears.
+    let edited = |src: &str| {
+        let plan = contract::compile(src).unwrap();
+        Runner::boot(plan, Posts, Kernel::with_monospace(), Default::default(), "/")
+            .unwrap()
+            .head()
+            .edited
+    };
+    assert!(edited("component A\n  view\n    column\n      head title=\"plan\" edited=true\n"));
+    assert!(!edited(
+        "component A\n  view\n    column\n      head edited=true\n      column\n        head edited=false\n"
+    ));
+    assert!(!edited("component A\n  view\n    column\n      head title=\"plan\"\n"));
+    // Any other element's `title` is HTML's global attribute, its tooltip
+    // (studio diary R24), never the document's.
+    let tip = contract::compile("component A\n  view\n    column\n      button title=\"Zoom In\" testId=\"z\" width=20 height=20\n").unwrap();
+    let r = Runner::boot(tip, Posts, Kernel::with_monospace(), Default::default(), "/").unwrap();
+    let z = r.kernel().node_by_key(r.kernel().find_by_test_id("z")[0]).unwrap();
+    assert_eq!(z.props.str(PropId::Title), Some("Zoom In"));
+    assert_eq!(r.head().title, None);
 }
 
 #[test]
@@ -127,6 +150,7 @@ fn heads_take_no_space_and_the_agent_reports_the_active_one() {
             "canonical": "/post/7",
             "robots": "index",
             "status": null,
+            "edited": false,
         })
     );
 }
@@ -150,14 +174,14 @@ fn a_page_with_no_head_has_none() {
 fn head_fields_belong_to_head_and_head_takes_only_them() {
     for (src, id, says) in [
         (
-            "component A\n  view\n    column title=\"x\"\n      text \"a\"\n",
+            "component A\n  view\n    column description=\"x\"\n      text \"a\"\n",
             "lower-attr-tag",
-            "`title` belongs to `head`, not `column`",
+            "`description` belongs to `head`, not `column`",
         ),
         (
             "component A\n  view\n    column\n      head title=\"x\" testId=\"h\"\n",
             "lower-attr-tag",
-            "`head` takes only title, description, image, canonical, robots, status; `testId` is not one",
+            "`head` takes only title, description, image, canonical, robots, status, edited; `testId` is not one",
         ),
         (
             "component A\n  view\n    column\n      head title=\"x\" width=10\n",

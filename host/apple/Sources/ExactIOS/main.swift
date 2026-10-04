@@ -56,6 +56,8 @@ final class Adapter: ExactSessionDelegate {
                 return
             }
             UIApplication.shared.open(url)
+        // A scene is the system's to close; an app cannot (studio diary R17).
+        case "close": session.log("close: unsupported: iOS closes a scene, an app does not")
         default: FileHandle.standardError.write(Data("exact: unknown command \(name)\n".utf8))
         }
     }

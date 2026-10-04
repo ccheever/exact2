@@ -770,12 +770,17 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     // The inverse of a canvas's `message=`: `postMessage(text, "world")` queues
     // text into the surface of that name, delivered in order, never coalesced.
     "postMessage",
-    // `event.preventDefault()` for the `key` event that ran the action: the
-    // host skips the key's default action (docs/contract-grammar.md#events).
+    // `event.preventDefault()` for the `key` or `wheel` event that ran the
+    // action: the host skips its default action, the key's or the scroll;
+    // for `beforeunload`, the window stays open (docs/contract-grammar.md#events).
     "preventDefault",
     // `event.stopPropagation()` for the same event: no ancestor's `key`
     // handler hears it, and its default still happens (files diary F8).
     "stopPropagation",
+    // `window.close()` (studio diary R17): the window closes without asking
+    // its `beforeunload` again — what an app calls once its own "Save
+    // changes?" is answered.
+    "close",
 ];
 
 /// The three pickers' positional arguments (LLP 1069.010 D2): an element
@@ -1043,7 +1048,14 @@ pub(super) fn check_command(
     if name == "preventDefault" && !args.is_empty() {
         return err(
             "type-prevent-default",
-            "`preventDefault()` takes no arguments: it prevents the default action of the key event that ran this action",
+            "`preventDefault()` takes no arguments: it prevents the default action of the event that ran this action (a key's, a wheel's scroll, a `beforeunload`'s close)",
+            span,
+        );
+    }
+    if name == "close" && !args.is_empty() {
+        return err(
+            "type-close",
+            "`close()` takes no arguments: it closes the window this session shows, without asking its `beforeunload` again",
             span,
         );
     }

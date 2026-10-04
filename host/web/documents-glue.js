@@ -198,6 +198,14 @@ globalThis.exact.documents = {
       host.dispatch(view, 1, found.map(mint).join('\n'));
     };
     return {
+      /** Files dropped on the page (studio diary R19): each handle the
+       * browser gave, else its File, read-only; of a declared type. */
+      async dropped(handles, files) {
+        const declared = (await types()).flatMap((t) => Object.entries(t.accept ?? {}));
+        const fits = (f) => declared.some(([mime, exts]) => f.type === mime || [exts].flat().some((x) => f.name.toLowerCase().endsWith(String(x).toLowerCase())));
+        return files.map((file, i) => [handles[i]?.kind === 'file' ? handles[i] : { kind: 'file', name: file.name, async getFile() { return file; }, async queryPermission() { return 'granted'; } }, file])
+          .filter(([, file]) => fits(file)).map(([handle]) => mint(handle));
+      },
       /** A picker command's ruling `r`: call the browser's picker (the
        * press's activation is still live), then report what was chosen. */
       async show(r, name) {

@@ -46,7 +46,7 @@ pub enum Capability {
     /// `share(…)` (LLP 1069.003): a plan whose code runs the command.
     Share,
     /// `saveFile` and the three file pickers (LLP 1069.010): a plan whose
-    /// code runs one.
+    /// code runs one, or that hears a `drop` of files (studio diary R19).
     Documents,
     /// `input type="file"` and `showPicker` (LLP 1069.002): a plan with a
     /// file input, or whose code runs the command.
@@ -310,6 +310,8 @@ pub fn uses(plan: &Plan) -> Uses {
             | EventKind::Reorderdrop => {
                 uses = uses.with(Capability::Motion).with(Capability::Drag);
             }
+            // Dropped files become `doc:` handles (studio diary R19).
+            EventKind::Drop => uses = uses.with(Capability::Documents),
             _ => {}
         }
     }

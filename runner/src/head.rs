@@ -32,6 +32,9 @@ pub struct Head {
     /// a not-found view, 503 for a view of failed data. Native hosts ignore
     /// it.
     pub status: Option<u16>,
+    /// The document has unsaved changes (`head edited`, LLP 1069.010 D6):
+    /// a Mac window's edited mark. A declared deviation; the web has none.
+    pub edited: bool,
 }
 
 impl Head {
@@ -104,6 +107,7 @@ pub(crate) fn head_of<'a>(
 ) -> Head {
     let mut best: [Option<(usize, &str)>; 5] = [None; 5];
     let mut status: Option<(usize, u16)> = None;
+    let mut edited: Option<(usize, bool)> = None;
     let mut stack: Vec<(ViewId, usize)> = roots.into_iter().rev().map(|root| (root, 0)).collect();
     while let Some((id, depth)) = stack.pop() {
         let Some(at) = node(id) else {
@@ -116,6 +120,11 @@ pub(crate) fn head_of<'a>(
                     if slot.is_none_or(|(at, _)| depth >= at) {
                         *slot = Some((depth, value));
                     }
+                }
+            }
+            if let Some(&PropValue::Bool(on)) = props.get(PropId::HeadEdited) {
+                if edited.is_none_or(|(at, _)| depth >= at) {
+                    edited = Some((depth, on));
                 }
             }
             if let Some(&PropValue::Int(code)) = props.get(PropId::HeadStatus) {
@@ -141,6 +150,7 @@ pub(crate) fn head_of<'a>(
         canonical,
         robots,
         status: status.map(|(_, code)| code),
+        edited: edited.is_some_and(|(_, on)| on),
     }
 }
 

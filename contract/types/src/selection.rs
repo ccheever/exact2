@@ -13,7 +13,11 @@ use super::{Shapes, Ty};
 /// JS target passes it as a trailing argument a shorter action ignores.
 pub fn event_record(attr: &str) -> Option<&'static str> {
     match attr {
-        "pointerdown" | "pointerup" | "pointermove" => Some("PointerEvent"),
+        // A `contextmenu` is DOM's `PointerEvent` too (UI Events): where the
+        // secondary click was (studio diary R22).
+        "pointerdown" | "pointerup" | "pointermove" | "contextmenu" => Some("PointerEvent"),
+        "wheel" => Some("WheelEvent"),
+        "drop" => Some("DragEvent"),
         "key" => Some("KeyboardEvent"),
         "scroll" => Some("ScrollEvent"),
         "press" => Some("MouseEvent"),
@@ -81,6 +85,34 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("altKey".into(), Ty::Bool),
             ("metaKey".into(), Ty::Bool),
         ],
+    );
+    // DOM's `WheelEvent` (studio diary R3), in the order
+    // `exact_runner::WheelEvent` writes it: the point from the node's content
+    // box, the deltas, `deltaMode` (0 pixels, 1 lines, 2 pages) and the
+    // modifiers; a trackpad's pinch is a wheel with `ctrlKey`, as browsers
+    // deliver one.
+    let modifiers = ["shiftKey", "ctrlKey", "altKey", "metaKey"].map(|f| (f.into(), Ty::Bool));
+    shapes.map.insert(
+        "WheelEvent".into(),
+        ["offsetX", "offsetY", "deltaX", "deltaY", "deltaMode"]
+            .map(|f| (f.into(), Ty::Number))
+            .into_iter()
+            .chain(modifiers.clone())
+            .collect(),
+    );
+    // DOM's `DragEvent` at a `drop` of files (studio diary R19), its
+    // `dataTransfer.files` as the `doc:` handles the host minted for them
+    // (LLP 1069.010 D1, as a picker's), in `exact_runner::DropEvent`'s order.
+    shapes.map.insert(
+        "DragEvent".into(),
+        [
+            ("offsetX".into(), Ty::Number),
+            ("offsetY".into(), Ty::Number),
+            ("files".into(), Ty::List(Box::new(Ty::String))),
+        ]
+        .into_iter()
+        .chain(modifiers)
+        .collect(),
     );
     // What a `scroll` handler's action hears after the offsets when it takes
     // one more parameter, in the order `exact_runner::ScrollEvent` writes it:

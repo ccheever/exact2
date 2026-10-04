@@ -11,6 +11,7 @@
 // (agent.js). Bundled only for a plan with a file input or one of the
 // commands.
 import { journal, clock, nextTicket, inflight, Hosts, OnHooks, viewId, Views, data } from './rt.js';
+import { record } from './pointer.js';
 import { reportPlace } from './navigation.js';
 import { appGrantSet, coversPath } from './admission.js';
 
@@ -177,6 +178,26 @@ const docs = () => Docs ??= import(new URL('./documents-glue.js', import.meta.ur
     else el.dispatchEvent(new CustomEvent('change', { detail: payload }));
   },
 }));
+// Files dropped from outside (DOM's `drop`, studio diary R19): Chromium's
+// handles, asked for while the event lasts (`getAsFileSystemHandle`), else
+// each File read-only; of the types `file_handlers` declares, minted as a
+// picker's choice is, and heard with the `DragEvent` record. A `dragover`
+// that carries files is accepted, or the browser would open them itself.
+OnHooks.drop = (e, f) => {
+  e.addEventListener('dragover', ev => { if (ev.dataTransfer?.types?.includes('Files') && !e.closest('[inert]')) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; } });
+  e.addEventListener('drop', ev => {
+    const dt = ev.dataTransfer;
+    if (!dt?.files?.length || e.closest('[inert]')) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const [offsetX, offsetY] = record(e, ev), held = [ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey];
+    const handles = [...dt.items].filter(i => i.kind === 'file').map(i => i.getAsFileSystemHandle?.().catch(() => null) ?? null), files = [...dt.files];
+    counted(docs().then(async m => {
+      const found = await m.dropped(await Promise.all(handles), files);
+      if (!found.length) return say('drop: refused: no file of a type this app declares');
+      f([offsetX, offsetY, found, ...held]);
+    }));
+  });
+};
 const PICKERS = { showOpenFilePicker: ['open-file', 'showOpenFilePicker takes (id) or (id, multiple)'], showDirectoryPicker: ['open-directory', 'showDirectoryPicker takes (id)'], showSaveFilePicker: ['save-file', 'showSaveFilePicker takes (id, suggestedName)'] };
 for (const [name, [capability, usage]] of Object.entries(PICKERS)) Hosts[name] = (...args) => {
   const refuse = (why, el) => { say(`${name}: refused: ${why}`); if (el) el.dispatchEvent(new Event('cancel')); };

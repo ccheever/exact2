@@ -896,14 +896,16 @@ impl<D: DataSource> Bridge<D> {
             7 => Event::Submit,
             8 => Event::Load,
             9 => Event::Message(payload),
-            10 => Event::Contextmenu,
             11 => Event::Dblclick,
             12 => Event::Swiperight,
             // The platform's pull-to-refresh control fired.
             22 => Event::Refresh,
-            // Scroll, media, pan, selection and pan release (LLP 1057 §10.6),
-            // and the pointer's down, up and move (LLP 1005 §Events, 1056 §3).
-            13 | 19 | 20 | 21 | 28..=34 => match Event::of_host_kind(kind, &payload) {
+            // A context menu (its point when it has one), scroll, media, pan,
+            // selection and pan release (LLP 1057 §10.6), the pointer's down,
+            // up and move with its record (LLP 1005 §3; LLP 1056 §3 stage 3),
+            // the clipboard's three, and beforeunload, wheel and drop
+            // (`Event::of_host_kind`).
+            10 | 13 | 19 | 20 | 21 | 28..=37 => match Event::of_host_kind(kind, &payload) {
                 Ok(event) => event,
                 Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
             },

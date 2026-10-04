@@ -509,9 +509,9 @@ impl<D: DataSource> Presenter<D> {
                 name @ ("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
                     self.document_picker(name, &c.args)
                 }
-                // No clipboard, text selection, browser, editor or dev menu
-                // here: known, and named so.
-                name @ ("copyText" | "selectText" | "openURL" | "format" | "reload") => {
+                // No clipboard, text selection, browser, editor, dev menu or
+                // window to close here: known, and named so.
+                name @ ("copyText" | "selectText" | "openURL" | "format" | "reload" | "close") => {
                     eprintln!("exact: {name} unsupported on the headless/DRM host")
                 }
                 other => eprintln!("exact: unknown command {other}"),
@@ -1206,7 +1206,7 @@ impl<D: DataSource> Presenter<D> {
         {
             return;
         }
-        if self.surface_wheel(x, y, dx, dy, self.pointer_now()) {
+        if self.surface_wheel(x, y, dx, dy, self.pointer_now()) || self.wheel_event(x, y, dx, dy) {
             return;
         }
         // A UI wheel can take over a UI gesture, but does not release a game's

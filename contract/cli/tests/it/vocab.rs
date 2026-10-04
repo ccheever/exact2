@@ -82,7 +82,7 @@ fn contextual_attributes_are_refused_elsewhere() {
         ("view", "src=\"https://example.com\""),
         ("view", "document=true"),
         ("input", "text-transform=\"uppercase\""),
-        ("view", "title=\"x\""),
+        ("view", "robots=\"x\""),
     ] {
         let source = format!("component App\n  view\n    {tag} {attr}\n");
         let error = contract::compile(&source).unwrap_err();

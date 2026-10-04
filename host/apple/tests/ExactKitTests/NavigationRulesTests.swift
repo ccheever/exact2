@@ -630,6 +630,11 @@ final class MacToolbarTests: XCTestCase {
         XCTAssertEqual(w.title, "Another question")
         p.headTitle(nil)
         XCTAssertEqual(w.title, "Original")
+        // `head edited` (LLP 1069.010 D6): the window's edited mark.
+        p.headEdited(true)
+        XCTAssertTrue(w.isDocumentEdited)
+        p.headEdited(false)
+        XCTAssertFalse(w.isDocumentEdited)
     }
 
     func testRequiresBothExplicitDeclarationAndWindowOwnerAttachment() {

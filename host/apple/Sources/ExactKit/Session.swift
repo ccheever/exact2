@@ -910,7 +910,12 @@ public final class ExactSession {
         if canvasOwed { askCanvasDraw() }
         for op in batch.ops where op.op == .router { routerOp = op.payload }
         // @ref LLP 1048.003 D1 — the head's title, for the app that owns the chrome.
-        for op in batch.ops where op.op == .title { presenter.headTitle(op.payload["title"] as? String) }
+        for op in batch.ops where op.op == .title {
+            presenter.headTitle(op.payload["title"] as? String)
+            #if os(macOS)
+            presenter.headEdited(op.payload["edited"] as? Bool ?? false)
+            #endif
+        }
         #if os(macOS)
         regions.prepare(batch)
         #endif

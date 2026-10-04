@@ -910,7 +910,8 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         quote(name, &mut s);
     }
     s.push_str("],\"head\":{");
-    for (i, (name, value)) in runner.head().fields().into_iter().enumerate() {
+    let head = runner.head();
+    for (i, (name, value)) in head.fields().into_iter().enumerate() {
         if i > 0 {
             s.push(',');
         }
@@ -921,12 +922,13 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
             None => s.push_str("null"),
         }
     }
-    match runner.head().status {
+    match head.status {
         Some(code) => {
             let _ = write!(s, ",\"status\":{code}");
         }
         None => s.push_str(",\"status\":null"),
     }
+    let _ = write!(s, ",\"edited\":{}", head.edited);
     s.push_str("},\"delivery\":");
     delivery(runner, &mut s);
     s.push_str(",\"logic\":");

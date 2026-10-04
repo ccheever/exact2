@@ -87,7 +87,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
     }
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
-    var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() } } } // the media events the player reports; a hover handler's tracking area
+    var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() }; if handlers.contains("drop") != oldValue.contains("drop") { syncDropTypes() } } } // the media events the player reports; a hover handler's tracking area; a drop handler's dragged types
     var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
     var surface: SurfaceLayer? { didSet { layerPaintCache = nil } } // its surface at a layout transition's size (`Surface.swift`)
     /// How far its frame stands from layout's: a lifted Arrange row's
@@ -1418,9 +1418,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         else { super.mouseDragged(with: event) }
     }
     override func rightMouseUp(with event: NSEvent) {
-        if canvasInput?.pointer(event, phase: "up") == true { return }
-        guard !disabled, handlers.contains("contextmenu") else { return super.rightMouseUp(with: event) }
-        presenter?.contextmenu(id)
+        pointerReleased(event)
+        if canvasInput?.pointer(event, phase: "up") != true { super.rightMouseUp(with: event) }
     }
     override func mouseUp(with event: NSEvent) {
         pointerReleased(event)
@@ -1456,7 +1455,12 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
     }
     override func rightMouseDown(with event: NSEvent) {
-        if canvasInput?.pointer(event, phase: "down") != true { super.rightMouseDown(with: event) }
+        // DOM's order on a Mac: the secondary button's `pointerdown`, then
+        // the `contextmenu` at its point, on the button's down (studio diary R22).
+        pointerPressed(event)
+        if canvasInput?.pointer(event, phase: "down") == true { return }
+        guard !disabled, handlers.contains("contextmenu") else { return super.rightMouseDown(with: event) }
+        presenter?.mouseEvent(id, 10, pointerSample(event).line)
     }
     override func rightMouseDragged(with event: NSEvent) {
         if canvasInput?.pointer(event, phase: "move") != true { super.rightMouseDragged(with: event) }
@@ -1471,10 +1475,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if canvasInput?.pointer(event, phase: "up") != true { super.otherMouseUp(with: event) }
     }
     override func scrollWheel(with event: NSEvent) {
-        if canvasInput?.wheel(event) != true, presenter?.mouseTransformDrag.scroll(self, event: event) != true { super.scrollWheel(with: event) }
+        if canvasInput?.wheel(event) != true, presenter?.mouseTransformDrag.scroll(self, event: event) != true, !wheel(event) { super.scrollWheel(with: event) }
     }
     override func magnify(with event: NSEvent) {
-        if presenter?.mouseTransformDrag.magnify(self, event: event) != true { super.magnify(with: event) }
+        if presenter?.mouseTransformDrag.magnify(self, event: event) != true, !wheel(event) { super.magnify(with: event) }
     }
 }
 #endif

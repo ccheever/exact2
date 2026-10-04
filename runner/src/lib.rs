@@ -92,7 +92,7 @@ pub use runner::{
     CanvasList, Carried, Checkpoint, Command, ControlValue, DataError, DataSource, DeviceLinks,
     DrawReply, DrawRequest, Drawn, Event, FormatLink, Geometry, GeometryLink, Hold, HoldAnswer,
     InFlight, Interrupt, KeyModifiers, Limits, ListTextPosition, Native, NativeCall, NativeHandler,
-    Picked, PickerLinks, PickerRequest, PointerEvent, RouterChange, RouterLink, Routing, Runner,
+    DropEvent, Picked, PickerLinks, PickerRequest, PointerEvent, WheelEvent, RouterChange, RouterLink, Routing, Runner,
     RunnerError, RunnerLinks, ScrollEvent, StreamCount, SurfaceAnswer, Target, Timed, JOURNAL_RING,
     MAX_CLOCK_MS, PICKED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };

@@ -540,6 +540,12 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "pointerdown" => AttrTarget::Handler("pointerdown"), // LLP 1005 §Events, DOM's own
         "pointerup" => AttrTarget::Handler("pointerup"),
         "pointermove" => AttrTarget::Handler("pointermove"), // LLP 1056 §3 stage 3
+        // DOM's `beforeunload` (studio diary R17): the window is closing or
+        // the app quitting; an action that calls `preventDefault()` keeps it.
+        "beforeunload" => AttrTarget::Handler("beforeunload"),
+        // DOM's `wheel` (studio diary R3) and `drop` of files (R19).
+        "wheel" => AttrTarget::Handler("wheel"),
+        "drop" => AttrTarget::Handler("drop"),
         "copy" => AttrTarget::Handler("copy"),
         "cut" => AttrTarget::Handler("cut"),
         "paste" => AttrTarget::Handler("paste"),
@@ -603,6 +609,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "canonical" => AttrTarget::Prop(p("headCanonical")),
         "robots" => AttrTarget::Prop(p("headRobots")),
         "status" => AttrTarget::Prop(p("headStatus")),
+        "edited" => AttrTarget::Prop(p("headEdited")),
         // `scroll document=(expr)`: the page's scroller when it holds (LLP 1048.003 D4); bare is `=true`.
         "document" => AttrTarget::Prop(p("scrollDocument")),
         "virtualized" => AttrTarget::Prop(p("virtualized")),
@@ -1219,6 +1226,8 @@ pub const HEAD_FIELDS: &[&str] = &[
     "canonical",
     "robots",
     "status",
+    // LLP 1069.010 D6: the document has unsaved changes (a declared deviation).
+    "edited",
 ];
 /// Suggest one unambiguous single-edit spelling from the existing attribute
 /// lookup. No second vocabulary is maintained, and this never admits an alias.

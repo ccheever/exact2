@@ -218,6 +218,19 @@ pub enum Event {
     Message(String),
     /// The platform requested a context menu (secondary click or long press).
     Contextmenu,
+    /// A context menu asked for at a point: the secondary click's
+    /// `PointerEvent` (studio diary R22); dispatched as `Contextmenu`.
+    ContextmenuAt(super::PointerEvent),
+    /// The window is about to close or the app to quit (DOM's
+    /// `beforeunload`, studio diary R17): an action that calls
+    /// `preventDefault()` keeps it open.
+    Beforeunload,
+    /// A wheel's turn or a trackpad's scroll over the view (DOM's `wheel`);
+    /// a pinch arrives as one with Control held, as on the web.
+    Wheel(super::WheelEvent),
+    /// Files dropped on the view from outside the app (DOM's `drop`), each
+    /// a `doc:` handle the host minted (LLP 1069.010 D1).
+    Drop(super::DropEvent),
     /// A double click, or the platform’s double tap.
     Dblclick,
     /// A touch or primary button went down on the view (DOM's
@@ -401,9 +414,10 @@ impl Event {
     /// The DOM record this event offers its action as an optional last
     /// parameter, its fields in the compiler's order
     /// (`contract_types::event_record`, `contract/types/src/selection.rs`):
-    /// `key`'s `KeyboardEvent`, `press`'s `MouseEvent`, the pointer's
-    /// `PointerEvent`, `scroll`'s `ScrollEvent` and the clipboard's
-    /// `ClipboardEvent`.
+    /// `key`'s `KeyboardEvent`, `press`'s `MouseEvent`, the pointer's and
+    /// `contextmenu`'s `PointerEvent`, `scroll`'s `ScrollEvent`, the
+    /// clipboard's `ClipboardEvent`, `wheel`'s `WheelEvent` and `drop`'s
+    /// `DragEvent`.
     pub fn record(&self) -> Option<Value> {
         match self {
             Event::Key(key, held) => Some(Value::record(vec![
@@ -413,7 +427,26 @@ impl Event {
                 Value::Bool(held.alt),
                 Value::Bool(held.meta),
             ])),
-            Event::Pointerdown(p) | Event::Pointerup(p) | Event::Pointermove(p) => Some(p.value()),
+            Event::Pointerdown(p)
+            | Event::Pointerup(p)
+            | Event::Pointermove(p)
+            | Event::ContextmenuAt(p) => Some(p.value()),
+            // A menu asked for with no point (a keyboard's menu key): the
+            // record DOM gives one, at the node's origin, no button held.
+            Event::Contextmenu => Some(
+                super::PointerEvent {
+                    offset_x: 0.0,
+                    offset_y: 0.0,
+                    buttons: 0.0,
+                    pressure: 0.0,
+                    pointer_type: "mouse".into(),
+                    pointer_id: 1.0,
+                    held: KeyModifiers::default(),
+                }
+                .value(),
+            ),
+            Event::Wheel(w) => Some(w.value()),
+            Event::Drop(d) => Some(d.value()),
             Event::Scroll(s) => Some(Value::record(
                 [
                     s.left,
@@ -949,7 +982,10 @@ impl<D: DataSource> Runner<D> {
                 Event::Submit => "submit",
                 Event::Load => "load",
                 Event::Message(_) => "message",
-                Event::Contextmenu => "contextmenu",
+                Event::Contextmenu | Event::ContextmenuAt(_) => "contextmenu",
+                Event::Beforeunload => "beforeunload",
+                Event::Wheel(_) => "wheel",
+                Event::Drop(_) => "drop",
                 Event::Dblclick => "dblclick",
                 Event::Pointerdown(_) => "pointerdown",
                 Event::Pointerup(_) => "pointerup",
@@ -1034,7 +1070,12 @@ impl<D: DataSource> Runner<D> {
             Event::Submit => (EventKind::Submit, None, "submit"),
             Event::Load => (EventKind::Load, None, "load"),
             Event::Message(message) => (EventKind::Message, Some(Value::str(message)), "message"),
-            Event::Contextmenu => (EventKind::Contextmenu, None, "contextmenu"),
+            Event::Contextmenu | Event::ContextmenuAt(_) => {
+                (EventKind::Contextmenu, None, "contextmenu")
+            }
+            Event::Beforeunload => (EventKind::Beforeunload, None, "beforeunload"),
+            Event::Wheel(_) => (EventKind::Wheel, None, "wheel"),
+            Event::Drop(_) => (EventKind::Drop, None, "drop"),
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
             Event::Pointerdown(_) => (EventKind::Pointerdown, None, "pointerdown"),
             Event::Pointerup(_) => (EventKind::Pointerup, None, "pointerup"),

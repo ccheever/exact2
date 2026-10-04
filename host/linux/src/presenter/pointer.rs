@@ -5,6 +5,7 @@
 //! pointer's moves go to the innermost such node under it. Each carries the
 //! `PointerEvent` record from the node's content box. Linux's pointer is a
 //! mouse (evdev, VNC, the agent): id 1, DOM's 0.5 of pressure while down.
+//! A wheel over a node is DOM's `wheel` first (studio diary R3).
 use super::*;
 use exact_runner::PointerEvent;
 
@@ -109,5 +110,42 @@ impl<D: DataSource> Presenter<D> {
         let (x, y) = at.or(self.contact_position()).or(self.pointer)?;
         let record = self.pointer_record(view, x, y, false)?;
         self.pointer_dispatch(view, EventKind::Pointerup, Event::Pointerup(record), now_ms)
+    }
+
+    /// DOM's `wheel` at a viewport point (studio diary R3): every enabled
+    /// node from the hit up that hears it, innermost first, as it bubbles,
+    /// each with its `WheelEvent` (pixels, the web's sign). True when one
+    /// called `preventDefault()`: the caller does not scroll.
+    pub(crate) fn wheel_event(&mut self, x: f32, y: f32, dx: f32, dy: f32) -> bool {
+        let mut path = Vec::new();
+        let mut at = self.hit(x, y);
+        while let Some(hit) = at.and_then(|hit| self.pointer_node(hit, &[EventKind::Wheel])) {
+            path.push(hit);
+            at = self.display.parent(self.host.kernel(), hit);
+        }
+        let mut prevented = false;
+        for view in path {
+            let Some(point) = self.pointer_record(view, x, y, false) else {
+                continue;
+            };
+            let wheel = exact_runner::WheelEvent {
+                offset_x: point.offset_x,
+                offset_y: point.offset_y,
+                delta_x: f64::from(dx),
+                delta_y: f64::from(dy),
+                delta_mode: 0.0,
+                held: point.held,
+            };
+            let now = self.pointer_now();
+            if let Some(error) =
+                self.pointer_dispatch(view, EventKind::Wheel, Event::Wheel(wheel), now)
+            {
+                self.host.log(error);
+            }
+            let queued = self.commands.len();
+            self.commands.retain(|c| c.name != "preventDefault");
+            prevented |= self.commands.len() != queued;
+        }
+        prevented
     }
 }
