@@ -9,7 +9,7 @@
 // a second build that links every capability (LLP 1047 D7); --app-only skips
 // it too. ios --device selects a phone.
 // after `bun host/web/build.mjs` / `bun host/apple/build.mjs [--ios]` /
-// `cargo build --release -p caltrain-linux`.
+// `cargo build --profile host-dev -p caltrain-linux`.
 import { spawnSync } from 'node:child_process';
 import { createHash, verify } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';

@@ -93,7 +93,9 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   50"` films motion on it as a contact sheet, `.apng` to play). The driver refuses a
   build older than its sources and names the rebuild (LLP 1012.001.000). `bun scripts/smoke.mjs
   <web|macos|ios|linux|host>` is the whole app driven that way. The Linux host
-  (`cargo build --release -p caltrain-linux`) runs headless anywhere, macOS included.
+  (`cargo build --profile host-dev -p caltrain-linux`: a development build, as
+  `build.mjs` makes for Apple; `--release` is the one that ships) runs headless
+  anywhere, macOS included.
 - Delivery (LLP 1030.000): `bun scripts/deploy.mjs <app> [--origin <dir>]` prints the
   classifier's table (a dry run); `--yes` publishes the web root and signed bundles per stream through
   `scripts/origin.mjs`; `keygen <id>` makes a signing key (the private half never enters

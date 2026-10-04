@@ -488,7 +488,7 @@ dependency writes `logic/Cargo.toml` (`package.workspace = "../.shells"`, SDK cr
 crates alone need no lock of the game's own. When the SDK's dependencies change,
 `bun game/app/shells.mjs --update-lock` refreshes the SDK lock, and
 `bun app/shells.mjs --test` refuses a stale one. The game workspace also carries
-the core’s vendored patches and `apple-dev` profile; the existing SDK test checks
+the core’s vendored patches and `host-dev` profile; the existing SDK test checks
 those against the root workspace. Web builds retain the game’s non-contracting
 floating-point flag alongside the core’s path-remapping flags.
 

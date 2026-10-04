@@ -401,7 +401,7 @@ function main(argv) {
   if (verb === 'new') return console.log(createApp(name, { update: rest.includes('--update') }));
   if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }
   if (!name) { console.error(`exact ${verb}: name an app (exact list)`); process.exit(2); }
-  if (process.platform !== 'darwin') { console.error(`exact ${verb} is macOS's; on Linux build the app's own executable (cargo build --release -p ${name}-linux)`); process.exit(2); }
+  if (process.platform !== 'darwin') { console.error(`exact ${verb} is macOS's; on Linux build the app's own executable (cargo build --profile host-dev -p ${name}-linux to drive it, --release to ship it)`); process.exit(2); }
   const app = resolveApp(name);
   if (verb === 'run') return run(app, rest);
   // `--release` on `install` is the same path, since that is what it is for.
