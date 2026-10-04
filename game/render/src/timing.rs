@@ -1,7 +1,7 @@
 use exact_gpu::wgpu;
 
 /// Number of optional GPU timestamp pairs reserved for a frame.
-pub const GPU_PASS_COUNT: u32 = 29;
+pub const GPU_PASS_COUNT: u32 = 30;
 /// Timestamp slots: inactive passes leave their pair untouched.
 pub const GPU_PASS_NAMES: [&str; GPU_PASS_COUNT as usize] = [
     "shadow 0",
@@ -29,10 +29,11 @@ pub const GPU_PASS_NAMES: [&str; GPU_PASS_COUNT as usize] = [
     "opaque depth resolve",
     "final depth resolve",
     "cull",
-    "ssao",
+    "ssao occlusion",
     "local shadows",
     "environment prefilter",
     "translucent + particles (inside forward)",
+    "ssao upsample",
 ];
 /// Timestamp pair of the frustum-culling compute pass.
 pub(crate) const CULL: u32 = 24;
@@ -40,6 +41,7 @@ pub(crate) const SSAO: u32 = 25;
 pub(crate) const LOCAL_SHADOWS: u32 = 26;
 pub(crate) const ENVIRONMENT: u32 = 27;
 pub(crate) const TRANSLUCENT: u32 = 28;
+pub(crate) const SSAO_APPLY: u32 = 29;
 
 /// One pair spanning several passes: the first begins it, the last ends it.
 pub(crate) fn span(

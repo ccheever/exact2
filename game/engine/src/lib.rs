@@ -36,7 +36,7 @@ pub use args::{Args, ArgumentKind};
 pub use asset::pose::Pose;
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
 pub use emitter::Emitter;
-pub use environment::{AmbientOcclusion, Bloom, Environment, EnvironmentMap, Fog};
+pub use environment::{AmbientOcclusion, AoQuality, Bloom, Environment, EnvironmentMap, Fog};
 pub use exact_game_derive::{Args, Component, Data, Resource};
 pub use exact_motion::spring::SpringConfig;
 pub use exact_plan::Value;

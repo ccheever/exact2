@@ -418,12 +418,20 @@ fn particles_stretch_along_their_motion_and_flip_through_an_atlas() {
     assert!(late[1] > 150 && late[0] < 40, "frame 1 green: {late:?}");
 }
 
+#[derive(Default, Args)]
+struct TimedArgs {
+    quality: u32,
+}
 struct Timed;
 impl Game for Timed {
     const ID: &'static str = "look-timed";
-    type Args = ();
-    fn setup(w: &mut World, _: &()) {
-        w.insert_resource(AmbientOcclusion::default());
+    type Args = TimedArgs;
+    fn setup(w: &mut World, args: &TimedArgs) {
+        w.insert_resource(AmbientOcclusion {
+            quality: [AoQuality::Medium, AoQuality::Low, AoQuality::High]
+                [args.quality as usize % 3],
+            ..Default::default()
+        });
         w.spawn((
             Transform::at(0., 3., 6.).looking_at(Vec3::ZERO, Vec3::Y),
             Camera::default(),
@@ -441,7 +449,7 @@ impl Game for Timed {
         ));
         w.spawn((Transform::at(0., 1., 0.), Emitter::sparks()));
     }
-    fn tick(w: &mut World, _: &Input, _: &()) {
+    fn tick(w: &mut World, _: &Input, _: &TimedArgs) {
         emitter::step(w);
     }
 }
@@ -473,7 +481,8 @@ fn every_pass_reports_gpu_time() {
         "forward + sky",
         "shadow 0",
         "local shadows",
-        "ssao",
+        "ssao occlusion",
+        "ssao upsample",
         "bloom",
         "tonemap",
         "cull",
@@ -484,4 +493,75 @@ fn every_pass_reports_gpu_time() {
         let ring = &gpu_ms[at..at + gpu_ms[at..].find('}').unwrap()];
         assert!(!ring.contains("\"count\":0"), "{pass} untimed: {ring}");
     }
+}
+
+/// SSAO's GPU time at 1920 x 1080: `cargo test --release -p exact-game-render
+/// --test look ssao_cost_at_1080p -- --ignored --nocapture`.
+#[test]
+#[ignore = "GPU timing measurement; GPU host"]
+fn ssao_cost_at_1080p() {
+    let Some(gpu) = gpu() else { return };
+    // Per-pass timestamps overlap on tiled GPUs, so measure what SSAO adds to a
+    // whole GPU-completed 1080p frame: the median frame with it on minus off.
+    let median = |quality: u32| {
+        let mut s = WorldSurface::<Timed>::default();
+        s.bind(&[Value::Number(f64::from(quality))], None).unwrap();
+        let mut f = Frame {
+            width: 1920.,
+            height: 1080.,
+            ..frame()
+        };
+        let format = exact_gpu::wgpu::TextureFormat::Rgba8Unorm;
+        let target = gpu
+            .device
+            .create_texture(&exact_gpu::wgpu::TextureDescriptor {
+                label: None,
+                size: exact_gpu::wgpu::Extent3d {
+                    width: 1920,
+                    height: 1080,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: exact_gpu::wgpu::TextureDimension::D2,
+                format,
+                usage: exact_gpu::wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            })
+            .create_view(&Default::default());
+        let mut ms = Vec::new();
+        for i in 0..80 {
+            f.now_ms += 16.;
+            let start = std::time::Instant::now();
+            let mut encoder = gpu.device.create_command_encoder(&Default::default());
+            s.render(&f, &gpu.device, &gpu.queue, &mut encoder, &target, format);
+            gpu.queue.submit([encoder.finish()]);
+            s.submitted();
+            gpu.device
+                .poll(exact_gpu::wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            if i >= 20 {
+                ms.push(start.elapsed().as_secs_f64() * 1000.);
+            }
+        }
+        ms.sort_by(f64::total_cmp);
+        ms[ms.len() / 2]
+    };
+    let mut best = [f64::MAX; 4];
+    for round in 0..5 {
+        let frame = [3, 1, 0, 2].map(median);
+        eprintln!(
+            "SSAO 1080p round {round}: frame off {:.3}, low {:.3}, medium {:.3}, high {:.3} ms",
+            frame[0], frame[1], frame[2], frame[3]
+        );
+        for (b, v) in best.iter_mut().zip(frame) {
+            *b = b.min(v);
+        }
+    }
+    eprintln!(
+        "SSAO 1080p added (best medians): low {:.3} medium {:.3} high {:.3} ms",
+        best[1] - best[0],
+        best[2] - best[0],
+        best[3] - best[0]
+    );
 }

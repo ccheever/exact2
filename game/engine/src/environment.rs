@@ -80,12 +80,37 @@ pub struct AmbientOcclusion {
     pub radius: f32,
     /// Darkening at full coverage: 1 turns a fully covered pixel black.
     pub intensity: f32,
+    /// Cost against detail; `Medium` by default.
+    pub quality: AoQuality,
 }
 impl Default for AmbientOcclusion {
     fn default() -> Self {
         Self {
             radius: 0.5,
             intensity: 1.0,
+            quality: AoQuality::Medium,
+        }
+    }
+}
+/// How `AmbientOcclusion` trades GPU time for detail. Every level upsamples
+/// with a depth-aware blur, so edges stay crisp at half resolution.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]
+pub enum AoQuality {
+    /// Half resolution, 8 samples a pixel.
+    Low,
+    /// Half resolution, 12 samples a pixel.
+    #[default]
+    Medium,
+    /// Full resolution, 16 samples a pixel.
+    High,
+}
+impl AoQuality {
+    /// The occlusion texture's downscale and its samples a pixel.
+    pub fn plan(self) -> (u32, u32) {
+        match self {
+            Self::Low => (2, 8),
+            Self::Medium => (2, 12),
+            Self::High => (1, 16),
         }
     }
 }

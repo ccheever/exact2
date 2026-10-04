@@ -142,10 +142,11 @@ saved types.
   sampler, local maps), with a one-texel placeholder for an absent map.
 - Screen-space ambient occlusion is off by default; inserting the engine's
   `AmbientOcclusion { radius, intensity }` resource (or setting
-  `FrameInput::ambient_occlusion`) turns it on. It retains the forward depth, takes
-  16 hemisphere samples per pixel within `radius` metres around a normal rebuilt
-  from depth, blurs 4×4 and multiplies the resolved HDR colour before post and
-  bloom. It darkens all light at a crease, not only ambient, and translucent
+  `FrameInput::ambient_occlusion`) turns it on. It retains the forward depth and
+  takes hemisphere samples within `radius` metres around a normal rebuilt from
+  depth, at `quality`: `Low` half resolution and 8 samples, `Medium` (default) half
+  resolution and 12, `High` full resolution and 16. A depth-aware 3×3 upsample
+  (edges do not bleed) multiplies the resolved HDR colour before post and bloom. It darkens all light at a crease, not only ambient, and translucent
   surfaces over a crease take its darkening. Off, no texture or pass exists.
 - Bloom defaults to threshold 1, intensity 0.16, radius 1.5: one-sided knee, 13-tap
   downsampling and additive tent upsampling. Up to six RGBA16F levels, stopping

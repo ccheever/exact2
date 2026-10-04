@@ -198,12 +198,18 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             self.encode_surface(encoder, &mut state, frame, hooks, &view)?;
         }
         if let Some(settings) = frame.ambient_occlusion {
-            if self.ssao.as_ref().is_none_or(|s| !s.fits(&self.targets)) {
-                self.ssao = Some(crate::ssao::Ssao::new(&self.device, &self.targets));
+            let (scale, _) = settings.quality.plan();
+            if self
+                .ssao
+                .as_ref()
+                .is_none_or(|s| !s.fits(&self.targets, scale))
+            {
+                self.ssao = Some(crate::ssao::Ssao::new(&self.device, &self.targets, scale));
                 self.texture_creations += 1;
             }
             if frame.timestamps.is_some() {
                 self.mark(timing::SSAO);
+                self.mark(timing::SSAO_APPLY);
             }
             self.ssao.as_ref().unwrap().encode(
                 &self.queue,
