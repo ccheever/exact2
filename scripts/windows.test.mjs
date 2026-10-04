@@ -1,17 +1,42 @@
 import {test, expect} from 'bun:test';
 import assert from 'node:assert/strict';
-import {spawnSync} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {closeFilesystemReader, filesystem, filesystemErrorCode} from './filesystem.mjs';
-import {packagedBuildChanges} from './agent-launch.mjs';
+import {packagedBuildChanges, removeBrowserProfile} from './agent-launch.mjs';
 import {browserKey, open} from './agent.mjs';
 import {runCaps} from './caps.mjs';
 import {binaryenArchive, binaryenVersion} from './exact.mjs';
 import {listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
 import {gameShells} from '../game/app/shells.mjs';
+
+test.skipIf(process.platform !== 'win32')('owned browser profile cleanup retries a real sharing lock and refuses a persistent one', async () => {
+  const root=mkdtempSync(resolve(tmpdir(),'exact-browser-cleanup-'));
+  const script=resolve(root,'hold.ps1');
+  writeFileSync(script, `param([string]$Path, [int]$Delay)
+$held=[System.IO.File]::Open($Path,[System.IO.FileMode]::Open,[System.IO.FileAccess]::ReadWrite,[System.IO.FileShare]::None)
+Write-Output READY
+Start-Sleep -Milliseconds $Delay
+$held.Dispose()
+`);
+  try {
+    for (const delay of [800, 2200]) {
+      const profile=resolve(root, String(delay)); mkdirSync(profile);
+      const file=resolve(profile,'held'); writeFileSync(file,'owned');
+      const child=spawn('powershell.exe',['-NoProfile','-File',script,file,String(delay)],{windowsHide:true,stdio:['ignore','pipe','pipe']});
+      const exited=new Promise((ok,fail)=>{child.once('error',fail);child.once('exit',code=>code===0?ok():fail(new Error(`holder exited ${code}`)));});
+      await new Promise((ok,fail)=>{child.stdout.on('data',data=>{if(String(data).includes('READY'))ok();});child.once('error',fail);});
+      try {
+        if (delay === 800) { await removeBrowserProfile(profile); expect(existsSync(profile)).toBe(false); }
+        else { await assert.rejects(removeBrowserProfile(profile),{code:'EBUSY'}); expect(existsSync(file)).toBe(true); }
+      } finally { await exited; }
+      if (delay === 2200) expect(readFileSync(file,'utf8')).toBe('owned');
+    }
+  } finally { rmSync(root,{recursive:true,force:true}); }
+}, 10000);
 
 test('browser contextmenu reaches an off-center point and refuses invalid or covered points', async () => {
   const server = Bun.serve({port:0, fetch() { return new Response(`

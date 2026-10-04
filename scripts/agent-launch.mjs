@@ -1,12 +1,25 @@
 // Session setup shared by the agent CLI and its programmatic driver.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bakeOutput, linuxBinary, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+/** Only the caller's throwaway browser profile. Bun 1.4.2 on Windows ignores
+ * rmSync's maxRetries: a real sharing lock fails in <1 ms. Yield between bounded
+ * attempts so browser shutdown can finish; a persistent lock still fails. */
+export async function removeBrowserProfile(profile) {
+  for (let attempt = 0; ; attempt++) {
+    try { rmSync(profile, {recursive:true, force:true}); return; }
+    catch (error) {
+      if (attempt === 5 || !['EBUSY','ENOTEMPTY','EPERM'].includes(error.code)) throw error;
+      await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
+    }
+  }
+}
 
 /** One browser lookup for the agent and its tests: an explicit override,
  * otherwise the platform's ordinary Chromium installation. A bare CHROME
