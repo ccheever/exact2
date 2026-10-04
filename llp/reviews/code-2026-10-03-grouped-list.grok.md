@@ -255,3 +255,81 @@ The sheet styles "Gone" as the title (`flex-grow: 1`) and "Stay" as the value (s
 A two-text column followed by a text field or an ordinary button gets the 15 pt subtitle padding. The kernel marks that row custom, and iOS carries the views, so both hosts show the padding. Narrow the strip to a real accessory (symbol, switch, checkbox, or the info button) if that padding should stay the author's.
 
 Verdict: DO NOT LAND
+
+
+## Round 3 (the last), 2026-10-03
+
+- **Method:** grok as before, `--cwd` a detached worktree at `79bc59572`; brief sha256 `c122581fb838da00d43c1993e71b6e883fcdc98ed7f0686675718601c5a0557a`. Blind to astra's round 3. stdout, unedited; the first sentences are progress narration.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** fixed in `57df99052` unless noted:
+  1. *`display="none"` beyond a direct text.* Fixed: the inset (inside a `when` arm too), the leading position, the line count and the line walk all skip it. Tested with both shapes.
+  2. *A `when` hiding a subtitle's first line.* Fixed (as astra #4). Tested in both states.
+  3. *A class-made native button row.* Fixed (as astra #2). The snippet compiles, and the kernel reads the row as custom.
+  4. *A class's `display: none`.* Declared (LLP 1082 §4). A class is applied when the part is lowered, after the row's parts are counted.
+
+---
+
+I'll review the LLP 1082 change from the merge-base through HEAD, starting with the RFC and the commits since round 2, then check each declared fix against the current code.The branch is five commits past `origin/main`. I'll read the RFC and both round-2 reviews, then check the `b8664e6bf` fixes against the code.Round 2's dispositions are recorded. Next I’ll read the sheet, the kernel reader, and the iOS host and check each claimed fix.Round 3 is a landing check of the round-2 fixes and anything still wrong in the whole change. I'll verify the remaining contract/kernel disagreements against the source and a throwaway compile before writing findings.The round-2 host fixes match the code. I'm compiling a class-styled native button inside a grouped list to confirm whether that path is still refused.Round 3 of LLP 1082, through `79bc59572`. The round-2 fixes in `b8664e6bf` match the source: conditional text styling, subtitle stacks with a second line under `when`, leading `match`, the wheel, the switch reconfigure, inert, the keyboard check, and custom rows on the ordinary tap path. The §4 limits that were declared (first-section gap, `match` counting the fewer texts, `scrollTop` on the hidden scroll, no cell highlight on a custom row) match the code. `cargo test -p contract --test it grouped_list` passed, 13 tests. The Swift suite was not run.
+
+Three sheet holes are still open. None of them are on the fixture’s common path.
+
+1. **Should-fix — A literal `display="none"` is skipped only on a direct `text`.** `contract/lower/src/grouped.rs:509` (`inset`), `:661` (leading-image arm), `:777` (`lines`), `:828` (`subtitle`). `hidden` is consulted only at `:688`. The kernel skips every `display: none` child before it reads a symbol or a column (`kernel/src/grouped.rs:152` and `:212`).
+
+   A hidden leading symbol still takes the icon inset:
+
+   ```
+   button
+     image "symbol:bell" display="none"
+     text "Notifications"
+   ```
+
+   `inset` sees a non-accessory symbol as the first child, so the row gets `margin-left: 56`. The image is not shown, so the web title starts in an empty icon slot. The kernel has no symbol, and iOS draws the title at the 16 pt inset. The same inset is used when that image is the first child of a `when` arm.
+
+   A hidden text inside the subtitle column is still counted:
+
+   ```
+   button
+     column
+       text "Gone" display="none"
+       text "Privacy"
+       text "Screen lock"
+   ```
+
+   `lines` counts three texts, `text_stack` is false, and the column gets no 15 pt padding. The kernel drops `Gone`, reads two texts, and sets `subtitle`. iOS uses `.subtitleCell()`. With only `Gone` and `Stay`, the stack is accepted and `Stay` is styled as the 15 pt secondary line, while the kernel’s title is `Stay`.
+
+   Skip a literal `display="none"` child before the icon test, the leading-image styles, the line count, and the title/subtitle walk, and take the inset from the next shown child so a hidden image in front of a real symbol still leaves that symbol in the icon slot. Extend `a_subtitle_shown_by_a_condition_and_a_hidden_text` with both shapes.
+
+2. **Should-fix — A `when` that can hide the first line of a subtitle column styles the following text as the second line in both states.** `contract/lower/src/grouped.rs:820`.
+
+   `text_stack` accepts this (`:787`: low 1, high 2):
+
+   ```
+   button
+     column
+       when extra
+         text "Privacy"
+       text "Screen lock"
+   ```
+
+   `*first = *first && after` becomes false if either arm wrote a text, so `Screen lock` is 15 pt secondary even when `extra` is false. In that state the kernel’s only line is the title `Screen lock`, and iOS draws it as the subtitle cell’s primary title. With `extra` true the two hosts agree. The shape the RFC names — title outside, second line inside the `when` — is styled correctly and is what `a_subtitle_shown_by_a_condition_and_a_hidden_text` locks.
+
+   Give the following text a choice on that condition, the way a text after a `when` already chooses `flex-grow` and color (`:714`): title metrics in the empty arm, 15 pt secondary in the arm that wrote a line. Assert both states.
+
+3. **Should-fix — A native button whose `appearance="auto"` comes from a class is given the full sheet and then refused.** `contract/lower/src/grouped.rs:463`. `native_button` reads the class (`contract/lower/src/controls.rs:382`); `row` looks only at the element’s own attributes, and `sections` runs on the syntax children before those children are lowered (`contract/lower/src/lib.rs:734`).
+
+   ```
+   style Platform
+     appearance="auto"
+   list appearance="auto"
+     section
+       button class=Platform press=go
+         text "Save"
+   ```
+
+   `row` emits `flex-direction`, borders, padding, `font-size`, and `color`. After class expansion the button is native, and `check_native_button` rejects the sheet (`controls.rs:634`). Compiling that file failed with `lower-button-style-attr` on `flex-direction`. LLP 1069 already treats this class as a native button (`the_switch_is_a_literal_after_classes`). A button that writes `appearance="auto"` on itself gets only `margin-left: 16` and `min-height: 52`, and that path is tested.
+
+   Choose the sheet from the effective appearance, including class rows, and keep the two-row sheet for that button. The snippet above should compile, and the kernel should report the row custom.
+
+4. **Nit — `hidden` does not see a class.** `contract/lower/src/grouped.rs:730`. A `style Gone` of `display none` is a style row, so it is known when the file compiles, but it is applied only when that text is lowered, after the sheet has counted it. `text class=Gone "Gone"` followed by `text "Stay"` still styles `Gone` as the title and `Stay` as the value. The kernel’s title is `Stay`. Resolve a class’s literal `display` before counting, or this split survives the fix in finding 1.
+
+Verdict: LAND WITH FIXES

@@ -106,3 +106,40 @@ The switch target/state, class precedence, hidden-row filtering, label validatio
 Validation: caps passed. Cargo tests could not start because the sandbox denied build-directory creation. No files were changed; no servers or simulators were started.
 
 Verdict: DO NOT LAND
+
+
+## Round 3 (the last), 2026-10-03
+
+- **Method:** `codex exec` as before, `-C` a detached worktree at `79bc59572`; brief sha256 `c122581fb838da00d43c1993e71b6e883fcdc98ed7f0686675718601c5a0557a` (check round 2's fixes and declarations, then the whole once more; only what matters for landing). Blind to grok's round 3.
+- **Verdict:** DO NOT LAND.
+- **Disposition:** all six fixed in `57df99052` (rebased; `b8664e6bf` is `b266ae6d3` after the rebase onto `8098e9d42`), each with a test. The author lands after this round, as the rules cap review at three rounds.
+  1. *A carried custom row's inertness.* Fixed. A row's inertness is recorded from its authored ancestors when it is carried. The cell's interaction and accessibility, and the row's press, use that record. Tested with an inert section.
+  2. *A class-made native button row.* Fixed. After class expansion the lowering finds the effective `appearance`, keeps only the rows a native button takes, and strips the sheet from its face (`grouped::native_rows`, `grouped::unsheet`). Tested: it compiles.
+  3. *A wheel on a custom row its cell's reuse took off screen.* Fixed. `scroller(for:)` walks up from the node to a row a list's model names, custom rows included, and the wheel is handled before the on-screen guard. Tested.
+  4. *A conditional first subtitle line.* Fixed. The column's lines are counted as a row's texts are, so the next line's size and colour are choices on the condition. A hidden text is not counted. Tested in both states.
+  5. *Any `input` as an accessory.* Fixed. Only `input type="checkbox"`, the kernel's toggle, counts. Tested with a text field.
+  6. *A hidden leading symbol.* Fixed. The inset, the leading position and the stack all skip a literal `display="none"` part. Tested.
+
+---
+
+1. **Must-fix — Carried custom rows lose their section’s `inert` state.** [GroupedListIOS.swift:306](/tmp/rv-grouped3/host/apple/Sources/ExactKit/IOS/GroupedListIOS.swift:306)  
+   `mount()` calls `carry()` before `interact()`. Carrying removes the section from the row’s UIKit ancestry, which `NodeView.inert` walks. A custom button inside `section inert=true` therefore becomes interactive and accessible again; its ordinary activation path also misses that ancestor. Preserve effective authored inertness across reparenting, including nested controls. Extend the inert test to custom rows and section-state changes.
+
+2. **Must-fix — Native-button rows still fail when appearance comes from a class.** [grouped.rs:463](/tmp/rv-grouped3/contract/lower/src/grouped.rs:463)  
+   The native-button exception examines unexpanded attributes. With `style Native` containing `appearance="auto"`, a `button class=Native` receives the ordinary sheet. Subsequent class expansion makes it native, and native-button validation rejects generated `flex-direction`, padding, and border styles. Resolve effective appearance after classes before choosing the sheet. Test the class-based form alongside the existing explicit-attribute test.
+
+3. **Should-fix — Cell reuse breaks wheel routing for custom rows.** [GroupedListIOS.swift:330](/tmp/rv-grouped3/host/apple/Sources/ExactKit/IOS/GroupedListIOS.swift:330), [AgentIOS.swift:478](/tmp/rv-grouped3/host/apple/Sources/ExactKit/IOS/AgentIOS.swift:478)  
+   When a custom row’s cell is reused, its NodeView is detached until the next batch restores it. A wheel targeting that row then fails the `v.window` guard. Moreover, `scroller(for:)` excludes custom rows from model lookup and cannot find a detached row through ancestry. Resolve grouped wheel ownership before requiring a window, using model/carry bookkeeping. Add an actual scroll-and-reuse test; the current wheel test uses a standard row.
+
+4. **Should-fix — A conditional first subtitle line permanently demotes the following title.** [grouped.rs:820](/tmp/rv-grouped3/contract/lower/src/grouped.rs:820)  
+   For a column containing `when show → text "New"` followed by `text "Notifications"`, `*first = *first && after` styles “Notifications” as a subtitle in both states. When `show=false`, the kernel correctly makes it the title, but the sheet renders it at 15 points in secondary colour. A hidden first text has the same problem. Track the visible text position conditionally and test both states and hidden text inside subtitle columns.
+
+5. **Should-fix — The subtitle predicate still accepts every input as an accessory.** [grouped.rs:755](/tmp/rv-grouped3/contract/lower/src/grouped.rs:755)  
+   `"input" => true` remains despite the round 2 disposition. A two-text column beside `input type="text"` or a range input receives subtitle padding and typography, although the kernel recognizes only checkbox/switch accessories and makes this row custom. Restrict the predicate to the same control kinds as the kernel. Add text-field and range counterexamples.
+
+6. **Should-fix — Hidden leading symbols still reserve the symbol inset.** [grouped.rs:509](/tmp/rv-grouped3/contract/lower/src/grouped.rs:509)  
+   A row beginning with `image "symbol:person" display="none"` followed by its title receives the 56-point inset. The kernel excludes the hidden image and UIKit displays a title-only cell with the ordinary inset. Skip statically hidden parts when determining the leading symbol, consistently with text counting. Test the resulting title position.
+
+Caps passed. Cargo tests could not start because the sandbox denied build-directory creation. No files were changed; no servers or simulators were started.
+
+Verdict: DO NOT LAND
