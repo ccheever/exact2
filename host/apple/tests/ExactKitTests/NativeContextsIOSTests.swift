@@ -171,6 +171,7 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true, "it opens")
         let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
         XCTAssertEqual(alert.actions.map(\.title), ["Delete", "Cancel"])
+        XCTAssertNil(alert.title, "a confirmation has no title row; its label is not one")
         XCTAssertEqual(alert.actions.map(\.style), [.destructive, .cancel])
         guard scene != nil else { return }
         let settled = expectation(description: "presented")
@@ -183,6 +184,163 @@ final class NativeContextsIOSTests: XCTestCase {
         pressedYet()
         wait(for: [done], timeout: 5)
         XCTAssertEqual(pressed, [3], "the action's press, once")
+    }
+
+    /// A presenter in a scene's window (a presentation completes only
+    /// there), its viewport under a controller that can present.
+    private func presenting(_ faces: @escaping (UInt32) -> ButtonFace) -> (Presenter, UIViewController, Bool) {
+        let p = Presenter()
+        p.buttonFace = faces
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 400)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        p.viewport.frame = controller.view.bounds
+        controller.view.addSubview(p.viewport)
+        return (p, controller, scene != nil)
+    }
+    private func settle(_ p: Presenter, until done: @escaping () -> Bool) {
+        let settled = expectation(description: "settled")
+        func poll() { if done() { settled.fulfill() } else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: poll) } }
+        poll()
+        wait(for: [settled], timeout: 5)
+    }
+
+    /// An "Open in…" chooser: an alertdialog popover (2) opened by 1 with a
+    /// press row per provider (3–5; 4 remembered, `disabled` lists ids
+    /// authored disabled) and a hide-only Cancel (6).
+    private func chooser(_ names: @escaping () -> [UInt32: String], disabled: Set<Int> = []) -> (Presenter, UIViewController, Bool) {
+        let (p, controller, scene) = presenting { [unowned self] id in self.face(names()[id]) }
+        let closes = ["popovertarget": "open-in", "popovertargetaction": "hide"]
+        func row(_ id: Int, _ extra: [String: String] = [:]) -> [[String: Any]] {
+            native(id, closes.merging(extra) { $1 }.merging(disabled.contains(id) ? ["disabled": "true"] : [:]) { $1 })
+        }
+        p.apply(wireBatch(
+            [["op": "create", "id": 1, "kind": "button", "handlers": [], "props": ["popovertarget": "open-in", "accessibilityLabel": "Open in Maps"], "style": ["text_color": [0, 0, 0, 255]]],
+             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 40.0]]
+                + view(2, ["id": "open-in", "popover": "auto", "accessibilityRole": "alertdialog", "accessibilityLabel": "Open location in"], h: 200)
+                + row(3) + row(4, ["accessibilityChecked": "true"]) + row(5)
+                + [["op": "create", "id": 6, "kind": "control", "handlers": [],
+                    "props": ["type": "button", "accessibilityRole": "button"].merging(closes) { $1 },
+                    "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
+                   ["op": "frame", "id": 6, "x": 0.0, "y": 160.0, "w": 80.0, "h": 40.0],
+                   ["op": "children", "id": 2, "ids": [3, 4, 5, 6]], ["op": "roots", "ids": [1, 2]]]))
+        return (p, controller, scene)
+    }
+    private static let providers: [UInt32: String] = [3: "Apple Maps", 4: "Google Maps", 5: "Waze", 6: "Cancel"]
+    /// What UIKit runs when an action is chosen: its own handler.
+    private func choose(_ action: UIAlertAction) throws {
+        typealias Handler = @convention(block) (UIAlertAction) -> Void
+        let block = try XCTUnwrap(action.value(forKey: "handler") as AnyObject?, "UIAlertAction's handler")
+        unsafeBitCast(block, to: Handler.self)(action)
+    }
+
+    /// An alertdialog with an action per choice and one cancel is a sheet
+    /// with all of them, titled by its `aria-label`; a disabled choice is
+    /// dimmed, not a reason to open nothing.
+    func testAChooserIsASheetWithAnActionPerChoice() throws {
+        let (p, controller, _) = chooser({ Self.providers }, disabled: [5])
+        defer { p.menus.reset(); window.isHidden = true }
+        XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true, "it opens")
+        let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        XCTAssertEqual(alert.title, "Open location in", "its aria-label titles it")
+        XCTAssertNil(alert.message, "no text rows, no message")
+        XCTAssertEqual(alert.actions.map(\.title), ["Apple Maps", "Google Maps", "Waze", "Cancel"])
+        XCTAssertEqual(alert.actions.map(\.style), [.default, .default, .default, .cancel])
+        XCTAssertEqual(alert.actions.map(\.isEnabled), [true, true, false, true], "Waze authored disabled")
+        XCTAssertEqual(p.menus.observation()?["actions"] as? Int, 3)
+        XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[5])), false, "a disabled choice is not chosen")
+    }
+
+    /// Each sheet action's own UIKit handler presses its own row, once; the
+    /// cancel's presses nothing. Presentation completes only in a scene.
+    func testAChoosersEachActionPressesItsOwnRow() throws {
+        for (index, expected) in [(0, [UInt32(3)]), (2, [5]), (3, [])] {
+            let (p, controller, scene) = chooser({ Self.providers })
+            defer { p.menus.reset(); window.isHidden = true }
+            try XCTSkipUnless(scene, "a presentation completes only in a scene's window")
+            var pressed: [UInt32] = []
+            p.onPress = { pressed.append($0) }
+            XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
+            settle(p) { !p.menus.inTransition }
+            let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+            try choose(alert.actions[index])
+            settle(p) { p.menus.observation() == nil }
+            // One more turn: a dispatch would have landed by now.
+            settle(p) { true }
+            XCTAssertEqual(pressed, expected, "action \(index)")
+        }
+    }
+
+    /// A row that now says something else ends the sheet: it never
+    /// dispatches under the title it was presented with.
+    func testAChooserWhoseRowChangesItsTitleCloses() throws {
+        var names = Self.providers
+        let (p, controller, _) = chooser({ names })
+        defer { p.menus.reset(); window.isHidden = true }
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
+        XCTAssertNotNil(controller.presentedViewController as? UIAlertController)
+        names[3] = "Citymapper"
+        p.menus.sync()
+        XCTAssertNil(p.menus.observation(), "the sheet is gone")
+        XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[3])), false)
+        XCTAssertEqual(pressed, [])
+    }
+
+    /// A shape the sheet cannot present, two cancels, opens nothing. (Its
+    /// logged reason needs a session; this presenter has none.)
+    func testAChooserTheSheetCannotPresentIsRefused() throws {
+        let (p, controller, _) = presenting { [unowned self] _ in self.face("Row") }
+        defer { p.menus.reset(); window.isHidden = true }
+        let closes = ["popovertarget": "c", "popovertargetaction": "hide"]
+        func cancel(_ id: Int) -> [[String: Any]] {
+            [["op": "create", "id": id, "kind": "control", "handlers": [],
+              "props": ["type": "button", "accessibilityRole": "button"].merging(closes) { $1 },
+              "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
+             ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 80.0, "h": 40.0]]
+        }
+        p.apply(wireBatch(
+            [["op": "create", "id": 1, "kind": "button", "handlers": [], "props": ["popovertarget": "c"], "style": ["text_color": [0, 0, 0, 255]]],
+             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 40.0]]
+                + view(2, ["id": "c", "popover": "auto", "accessibilityRole": "alertdialog"], h: 120)
+                + native(3, closes) + cancel(4) + cancel(5)
+                + [["op": "children", "id": 2, "ids": [3, 4, 5]], ["op": "roots", "ids": [1, 2]]]))
+        XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), false)
+        XCTAssertNil(controller.presentedViewController)
+    }
+
+    /// A menu is titled by its popover's `aria-label`; a row whose image is
+    /// an `img` shows it as its item's image, a symbol's as itself and a
+    /// bitmap fitted to the row's icon box.
+    func testAMenuIsTitledByItsLabelAndShowsARowsImg() throws {
+        let p = presenter(
+            [["op": "create", "id": 1, "kind": "button", "handlers": [], "props": ["popovertarget": "open-in"], "style": [:]],
+             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 40.0]]
+                + view(2, ["popover": "auto", "id": "open-in", "accessibilityRole": "menu", "accessibilityLabel": "Open location in"])
+                + [["op": "create", "id": 3, "kind": "button", "handlers": ["press"], "props": ["popovertarget": "open-in", "popovertargetaction": "hide"], "style": [:]],
+                   ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 200.0, "h": 40.0],
+                   ["op": "create", "id": 4, "kind": "image", "handlers": [], "props": [:], "style": [:]],
+                   ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 24.0, "h": 24.0],
+                   ["op": "children", "id": 3, "ids": [4]], ["op": "children", "id": 2, "ids": [3]], ["op": "roots", "ids": [1, 2]]],
+            faces: [3: face("Waze")])
+        let invoker = try XCTUnwrap(p.views[1])
+        let button = try XCTUnwrap(invoker.subviews.compactMap { $0 as? UIButton }.first { $0.showsMenuAsPrimaryAction })
+        XCTAssertEqual(button.menu?.title, "Open location in")
+        func row() throws -> UIAction { try XCTUnwrap(p.menus.items(of: try XCTUnwrap(p.views[2])).compactMap { $0 as? UIAction }.first) }
+        XCTAssertEqual(try row().title, "Waze")
+        XCTAssertNil(try row().image, "no image until it has loaded")
+        let img = try XCTUnwrap(p.views[4])
+        img.imageSource = "symbol:sf/car"
+        img.image = UIImage(systemName: "car")
+        XCTAssertTrue(try row().image === img.image, "a symbol img, as itself")
+        let context = try XCTUnwrap(CGContext(data: nil, width: 64, height: 32, bitsPerComponent: 8, bytesPerRow: 256,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        XCTAssertEqual(MenuHost.rowImage(try XCTUnwrap(context.makeImage())).size, CGSize(width: 24, height: 12),
+                       "a bitmap, fit in the row's icon box with its ratio kept")
     }
 }
 #endif
