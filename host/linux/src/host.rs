@@ -159,12 +159,15 @@ impl<D: DataSource> Host<D> {
         // An `app:/data` image shows from the first frame, before storage
         // is configured and whether or not anything was picked (D7).
         crate::picker::know_roots(data.app_id());
+        // A named drive's secrets, read before the runner takes the source.
+        // A carried reload keeps its memory store and does not touch the files.
+        let store_snapshot = agent_store_snapshot(data.app_id(), carried.is_some());
         let mut runner = Runner::boot_with_delivery(
             plan,
             data,
             kernel,
             carried,
-            Vec::new(),
+            store_snapshot,
             delivery.unwrap_or_default(),
             exact_runner::Viewport::sized(width as f64, height as f64),
             launch,
@@ -1084,10 +1087,14 @@ impl<D: DataSource> Host<D> {
             self.discover_height_handles();
             self.discover_transform_handles();
         }
-        // LLP 1018: a memory store here — the runner holds the values and
-        // nothing persists them until this host links a store, so the write
-        // log (secrets included) is dropped each commit, never accumulated.
-        drop(self.runner.take_store_writes());
+        // A nameless drive keeps secrets in the runner only (LLP 1018). A
+        // named `--storage` drive writes them into that scratch tree, so a
+        // reload reads them back (platformer R10). The log is taken either way.
+        let writes = self.runner.take_store_writes();
+        let app_id = self.runner.data().app_id().to_string();
+        for line in persist_agent_writes(&app_id, &writes) {
+            self.runner.log(line);
+        }
         paint |= self.project_navigation();
         self.reconcile_height_bindings();
         self.reconcile_transform_bindings();
@@ -1213,6 +1220,84 @@ impl<D: DataSource> Host<D> {
     }
 }
 
+/// The kv scope the runner's kept answers live in, beside secrets
+/// (LLP 1027 D4). The same scope Apple's store writes.
+const KEPT: &str = "exact.kept";
+
+/// What a named agent drive has kept, for the runner's boot snapshot.
+/// A carried launch and a nameless drive contribute nothing. A fresh launch
+/// empties the scratch secrets first, so leftovers do not return.
+fn agent_store_snapshot(app_id: &str, carried: bool) -> Vec<(String, String)> {
+    if carried {
+        return Vec::new();
+    }
+    crate::picker::forget_fresh_agent_secrets(app_id);
+    let Some(root) = crate::picker::agent_secret_root(app_id) else {
+        return Vec::new();
+    };
+    if std::env::var_os("EXACT_AGENT_STORAGE_FRESH").is_some() {
+        return Vec::new();
+    }
+    let secrets = ibex2::secrets::FileStore::new(root.join("secrets"));
+    let kv = ibex2::kv::FileStore::new(root.join("kv"));
+    // A leading dot is the store's temporary file, not a secret.
+    let mut names = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(root.join("secrets")) {
+        for entry in entries.flatten() {
+            let Ok(name) = entry.file_name().into_string() else {
+                continue;
+            };
+            if !name.starts_with('.') && ibex2::secrets::is_valid_name(&name) {
+                names.push(name);
+            }
+        }
+    }
+    names.sort();
+    let mut out = Vec::new();
+    for name in names {
+        if let Ok(Some(value)) = ibex2::secrets::SecretStore::get(&secrets, &name) {
+            out.push((name, value));
+        }
+    }
+    if let Ok(keys) = ibex2::kv::KvStore::keys(&kv, KEPT) {
+        for key in keys {
+            if let Ok(Some(bytes)) = ibex2::kv::KvStore::get(&kv, KEPT, &key) {
+                if let Ok(value) = String::from_utf8(bytes) {
+                    out.push((format!("{}{key}", exact_runner::Store::KEPT), value));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Write one commit's store log into the named drive's scratch tree.
+/// A nameless drive drops the log. A failed write is a journal line.
+fn persist_agent_writes(app_id: &str, writes: &[exact_runner::StoreWrite]) -> Vec<String> {
+    let Some(root) = crate::picker::agent_secret_root(app_id) else {
+        return Vec::new();
+    };
+    let secrets = ibex2::secrets::FileStore::new(root.join("secrets"));
+    let kv = ibex2::kv::FileStore::new(root.join("kv"));
+    let mut errors = Vec::new();
+    for write in writes {
+        let result = match write.name.strip_prefix(exact_runner::Store::KEPT) {
+            Some(key) => match &write.value {
+                Some(value) => ibex2::kv::KvStore::set(&kv, KEPT, key, value.as_bytes()),
+                None => ibex2::kv::KvStore::delete(&kv, KEPT, key),
+            },
+            None => match &write.value {
+                Some(value) => ibex2::secrets::SecretStore::set(&secrets, &write.name, value),
+                None => ibex2::secrets::SecretStore::forget(&secrets, &write.name),
+            },
+        };
+        if let Err(error) = result {
+            errors.push(format!("store {} failed: {error}", write.name));
+        }
+    }
+    errors
+}
+
 /// Physical memory in bytes, for the canvas budget (LLP 1056 D4): a quarter
 /// of it, as WebKit charged on iOS. Linux reports it in `/proc/meminfo`;
 /// elsewhere (the host run on a Mac) 8 GiB is assumed.
@@ -1225,4 +1310,80 @@ fn physical_memory() -> u64 {
             Some(kb * 1024)
         })
         .unwrap_or(8 << 30)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A named agent drive keeps `secret.keep` in its scratch tree, and a
+    /// fresh launch reads nothing back (platformer R10). A child, so the
+    /// environment stays off this process.
+    #[test]
+    fn named_agent_storage_keeps_a_secret_across_a_relaunch() {
+        const CHILD: &str = "EXACT_LINUX_SECRET_KEEP_TEST";
+        if std::env::var_os(CHILD).is_none() {
+            let home =
+                std::env::temp_dir().join(format!("exact-linux-secrets-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&home);
+            std::fs::create_dir_all(&home).unwrap();
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "host::tests::named_agent_storage_keeps_a_secret_across_a_relaunch",
+                ])
+                .env(CHILD, "1")
+                .env("HOME", &home)
+                .env("XDG_CACHE_HOME", &home)
+                .env("EXACT_AGENT", "1")
+                .env("EXACT_AGENT_STORAGE", "s1")
+                .env_remove("EXACT_AGENT_STORAGE_FRESH")
+                .env_remove("EXACT_STORE")
+                .output()
+                .unwrap();
+            let _ = std::fs::remove_dir_all(&home);
+            assert!(
+                output.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let app = "test.exact.keep";
+        let write = |name: &str, value: Option<&str>| exact_runner::StoreWrite {
+            name: name.into(),
+            value: value.map(str::to_string),
+        };
+        assert!(persist_agent_writes(app, &[write("platformer.best", Some("22050"))]).is_empty());
+        assert!(persist_agent_writes(app, &[write("exact.kept.score", Some("9"))]).is_empty());
+        let again = agent_store_snapshot(app, false);
+        assert!(
+            again.contains(&("platformer.best".into(), "22050".into())),
+            "{again:?}"
+        );
+        assert!(
+            again.contains(&("exact.kept.score".into(), "9".into())),
+            "{again:?}"
+        );
+        let file = crate::picker::agent_secret_root(app)
+            .unwrap()
+            .join("secrets")
+            .join("platformer.best");
+        assert!(file.is_file(), "{}", file.display());
+        // A carried reload does not wipe, even while a fresh flag is set.
+        std::env::set_var("EXACT_AGENT_STORAGE_FRESH", "1");
+        assert!(agent_store_snapshot(app, true).is_empty());
+        assert!(file.is_file(), "a carried reload leaves the scratch files");
+        assert!(
+            agent_store_snapshot(app, false).is_empty(),
+            "a fresh launch reads nothing"
+        );
+        assert!(!file.exists());
+        std::env::remove_var("EXACT_AGENT_STORAGE_FRESH");
+        assert!(persist_agent_writes(app, &[write("platformer.best", Some("22050"))]).is_empty());
+        std::env::remove_var("EXACT_AGENT_STORAGE");
+        assert!(persist_agent_writes(app, &[write("platformer.best", Some("x"))]).is_empty());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "22050");
+    }
 }

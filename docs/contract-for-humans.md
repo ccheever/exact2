@@ -789,7 +789,8 @@ bun exact.mjs agent web --storage demo "type title Dune" "tap add" "clock settle
 A scratch store is kept between drives on every host, so a second drive with the
 same `--storage demo` opens the list the first one saved: on the web, Chrome's
 profile for that name, served at one origin (Firefox and WebKit drives start
-fresh). A test's `reload` restarts the app on its store within one drive.
+fresh). A test's `reload` restarts the app on its store within one drive,
+including a Rust source's `secret.keep`.
 
 **Rust instead.** A data module can be a Rust crate rather than `app.ts`:
 `bun exact.mjs contract rust app.contract -o shapes.rs` generates the shapes as

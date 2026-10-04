@@ -121,8 +121,13 @@ dragging the window's edge would: the browser's viewport, a macOS window, the
 Linux presenter. An iOS app's viewport is the device's screen, so iOS refuses it.
 `--storage <name>` keeps a named scratch store between drives on every host (on
 the web, a kept browser profile served on one port per name); without it a web
-drive is a fresh profile, so its storage ends with the drive. To show what
-survives a restart on any host, use an authored test's `reload` step (below).
+drive is a fresh profile, so its storage ends with the drive. That store includes
+a Rust source's `secret.keep`: files in the named scratch tree on Apple and Linux,
+and the page's `localStorage` on the web (the JS host always; the wasm page when
+the drive names a store). A nameless drive keeps those secrets in memory only.
+Firefox and WebKit open a fresh browser each drive, so a name there lasts for
+the drive, including its `reload`. To show what survives a restart on any host,
+use an authored test's `reload` step (below).
 
 Inside the exact2 checkout, for Caltrain:
 
@@ -788,8 +793,8 @@ the tree shows, as typing after a prefill), or `type "id" key "Name"`
 above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
 what is in flight lands, with each answer's `then`, the clock unmoved), `resize
 800x600` (the window, mid-test), `reload`
-(the app restarts on the store it had, its state and clock starting over, so a
-test shows what persists),
+(the app restarts on the store it had, including a `secret.keep`, its state and
+clock starting over, so a test shows what persists),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text; a control's value, so a `select` reads its chosen value, not its
 options; else its descendants' — a button's label — else a field's value), and

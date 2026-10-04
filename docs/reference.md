@@ -381,7 +381,10 @@ message: `catch (e) { if (e.code === 'ENOENT') return empty; throw e; }`.
 A drive's app storage is a scratch store it names (`--storage <name>`) or none,
 kept between drives (on the web, Chrome's profile for the name and its page's
 origin; a Firefox or WebKit drive's is its own); an authored test gets a fresh
-one of its own, removed after it. The driver's `state.storage` says
+one of its own, removed after it. A Rust source's `secret.keep` rides that same
+store: files under the named tree on Apple and Linux, `localStorage` in the named
+web profile. A drive with no `--storage` keeps those secrets in memory and leaves
+nothing behind. The driver's `state.storage` says
 which (`{available: false, code: 'agent', message}` or `{available: true,
 store}`), and the web's journal says `storage refused (agent): …` the first time
 a refusal lands. A Rust module's storage request in such a drive is answered

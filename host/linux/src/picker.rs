@@ -80,6 +80,33 @@ pub(crate) fn app_dirs(app_id: &str) -> Result<Option<([PathBuf; 3], Option<Path
     )))
 }
 
+/// The scratch directory a named agent drive keeps `secret.keep` in
+/// (`<scratch>/secrets` and `<scratch>/kv`), beside `app:/data`. `None` when
+/// this drive names no scratch store, or the app has no id: secrets stay in
+/// memory and the write log is dropped. Not the app's real data directory.
+pub(crate) fn agent_secret_root(app_id: &str) -> Option<PathBuf> {
+    if std::env::var_os("EXACT_AGENT").is_none() || app_id.is_empty() {
+        return None;
+    }
+    // `roots[0]` is `<scratch>/data`. Secrets live in the scratch tree, so
+    // the fresh-launch removal of that tree deletes them too.
+    let (roots, _) = app_dirs(app_id).ok().flatten()?;
+    roots[0].parent().map(|path| path.to_path_buf())
+}
+
+/// Drop leftover secrets before a fresh launch's snapshot
+/// (`EXACT_AGENT_STORAGE_FRESH`). Called only when the launch reads the
+/// store, not on a reload that carries memory (platformer R10).
+pub(crate) fn forget_fresh_agent_secrets(app_id: &str) {
+    let Some(root) = agent_secret_root(app_id) else {
+        return;
+    };
+    if std::env::var_os("EXACT_AGENT_STORAGE_FRESH").is_some() {
+        let _ = std::fs::remove_dir_all(root.join("secrets"));
+        let _ = std::fs::remove_dir_all(root.join("kv"));
+    }
+}
+
 /// A scripted drive's scratch storage (`EXACT_AGENT_STORAGE=<name>`): a tree
 /// of its own under the cache base, so a drive can exercise storage without
 /// touching the app's real files. Absent, a drive has no storage.
