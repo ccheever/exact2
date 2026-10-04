@@ -784,6 +784,17 @@ impl Kernel {
         out
     }
 
+    /// Whether any live node has prop `id` (a [`Kernel::preorder_where`]
+    /// for it can be skipped when none does).
+    pub fn has_prop(&self, id: PropId) -> bool {
+        self.arena.has_prop(id)
+    }
+
+    /// Whether any live node is a `node_type`.
+    pub fn has_type(&self, node_type: NodeType) -> bool {
+        self.arena.has_type(node_type)
+    }
+
     /// One node by key; `None` once that allocation is gone.
     pub fn node_by_key(&self, key: NodeKey) -> Option<NodeRef<'_>> {
         let slot = self.arena.resolve(key)?;
