@@ -927,3 +927,13 @@ nine world observations and fifteen saves match `main-e097-macos` on both
 hosts. Both shelter captures were inspected. Artifacts:
 `artifacts/audit-{web,macos}/`. No gameplay or Jev-policy changes; timings
 include builds and concurrent verification.
+
+## Browser-cleanup integration during Rivals label work (2026-10-04)
+
+Merge `745a66652` brings main `152cf5b17`. Forest passes complete web/macOS
+proofs in 138.7/169.2 s. Inputs, all pins, nine worlds and fifteen saves
+agree between hosts; worlds and saves also match the accepted audit baseline.
+Only the source-input digest changes. Both descendant audits pass and both
+shelter screenshots were inspected. Artifacts: `artifacts/plates-main-{web,macos}/`.
+Rivals diary 006 records the shared passing checks. No Forest gameplay or
+Jev-policy changes; times include builds and concurrent verification.

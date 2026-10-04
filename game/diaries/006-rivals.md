@@ -1181,3 +1181,43 @@ or improved success rate. Artifacts: `artifacts/plates-motor-check-{web,macos}/`
 and `artifacts/plates-mayhem-{web,macos}/`. Wall times for the Jev runs are
 54.7/79.6 s including builds; gateway latency does not advance game time.
 This gameplay feedback batch is closed; strict save acceptance follows.
+
+Decision latency p50/p95 is 309/637 ms on web and 297/588 ms on macOS;
+input/output token totals are 81,893/6,477 and 79,961/6,795 respectively.
+
+Feature `41f4a86b2` is followed by periodic main merge `745a66652`, through
+`152cf5b17`. Main's bounded Windows shutdown and informative proof errors
+meet this branch's Jev helper and moved receipt test at two insertion sites;
+the merge keeps both implementations and all their tests. The shared proof,
+decision and Windows suite passes 119 tests (seven platform skips, 56.7 s).
+All five root checks pass in 53.6 s: build, 2,351 enabled tests across 81
+binaries (nine ignored), strict Clippy and formatting, caps and boot. The
+unchanged root Rust sources now meet the 60 s target; the queue records this
+counterexample beside the previous 65.2 s miss, without claiming a fix.
+Logs: `/tmp/exact2-plates-main-{build,test,clippy,fmt,caps,boot,tools}.log`.
+
+An independent post-merge macOS proof finishes in 61.7 s with zero failures,
+matching the pre-merge pins, ten worlds and fourteen saves; only the source
+input digest changes. Its optional descendant scan reports a genuine
+`ps timed out after 200 ms`, and all owned carriers close. The five-kill
+capture was inspected again. Artifacts: `artifacts/plates-main-macos/`.
+
+Strict collector `artifacts/prove/run-rKc52H/` accepts all seven runs with
+zero failures and successful process audits. Linux normal/Save/FreshGame
+take 21.7/15.0/15.5 s, web 110.4/101.2/83.8 s, and native release 33.9 s.
+It restores the ordinary web build in 23.2 s. Every input digest, pin, world
+observation and save matches the independent post-merge macOS run. Tick
+pins, duel continuation and drill saves remain unchanged; accepted Mayhem
+saves are `c5b5ea36…` and `491bf158…`. Collector child summaries say
+UNVERIFIED while gathering candidates; the successful collector writes the
+accepted pins after all comparisons agree.
+
+Garden and Forest also pass complete proofs on both hosts after the merge,
+with their previous world/save pins intact and all four representative
+captures inspected. Their diaries record timings and the one Garden web
+audit timeout. Verification times include builds and concurrent work, not
+isolated performance measurements.
+
+The final ordinary Linux proof passes against the accepted pins in 6.8 s
+with a successful process audit (`artifacts/plates-accepted-linux/`). Caps
+passes after staging the pins, the three diaries and the gate-timing note.

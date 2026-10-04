@@ -5,17 +5,17 @@
   },
   "saves": {
     "continuation": "82d8d11fd1ba7043b6a7944ae1ebf7c19afa202c221aa121b53f645800a38ea0",
-    "mayhem": "87bd6aeff3d8bbc9282910102366350df1b3d3188d178e9f0c54f0d2bd1968a5",
-    "mayhem-round": "22a476c07d4d51f4c6e3970acf34c271d528a60f68fa40f79d18bb2227c926b0",
+    "mayhem": "c5b5ea36ac7282110cab4d0c604e93a754e879dbe22b5f20b0293a4c5ed0ab32",
+    "mayhem-round": "491bf1588bb2cedd5222278e82ab367ec0a294d655c4aa963d1be386c88a88a0",
     "drill": "38a57adf73f984a3b773bed5603ed2b16a22f858e7e7df14d20d99cfc3a4bb04"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "b47c2354b5aa445c9158cb339b75a837c283db84473ae7212dffc2eea8a8eb39",
+  "inputs": "18e872fd79ee40bd1db446f0c0da4ab3407021eb91fe1399e77f7e363d49e8bf",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "d9a33f1c8620ac65f620c532e0dfca3cdd7feb26",
-  "reason": "Mayhem first to 25, full-round save/restart, and main a98895a22 input/build integration"
+  "at": "745a6665297e7abe5379011022ae459e1286e650",
+  "reason": "Readable anchored nameplates in crowded fights"
 }

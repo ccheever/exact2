@@ -1102,3 +1102,14 @@ pass: build, 2,351 enabled tests across 81 binaries (nine ignored), strict
 Clippy and formatting, caps and boot. This local run takes 65.2 s in total,
 including 62.5 s for tests, exceeding the 60 s target. Logs:
 `/tmp/exact2-auditmain-{build,test,clippy,fmt,caps,boot}.log`.
+
+## Browser-cleanup integration during Rivals label work (2026-10-04)
+
+Merge `745a66652` brings main `152cf5b17`. Garden passes complete web/macOS
+proofs in 121.3/31.4 s, retaining all pins, six worlds and nine saves from
+the accepted audit baseline. Only the source-input digest changes. Both
+empty-plot captures were inspected. Native's descendant audit passes;
+web's optional scan reports `ps timed out after 200 ms`, with every owned
+carrier closed. Artifacts: `artifacts/plates-main-{web,macos}/`. Rivals
+diary 006 records the passing root and tooling checks. No Garden gameplay
+or Jev-policy changes; times include builds and concurrent work.
