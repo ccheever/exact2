@@ -179,7 +179,12 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     if (planBuild) rmSync(planBuild, { recursive: true, force: true });
   };
   try {
-    const { targetInfos } = await cdp.send('Target.getTargets');
+    // A Chrome that dies at launch says why only on its stderr; the pipe just closes.
+    const { targetInfos } = await cdp.send('Target.getTargets').catch(async (error) => {
+      await waitAtMost(exited, 1000);
+      const said = hostLines.filter(l => l.startsWith('chrome: ')).slice(-6).map(l => '  ' + l).join('\n');
+      throw new Error(`Chrome did not start (${error.message}); CHROME=${chrome}\n${said || '  (it printed nothing)'}\nSet CHROME to a browser that runs here.`);
+    });
     const target = targetInfos.find((t) => t.type === 'page') ?? (await cdp.send('Target.createTarget', { url: 'about:blank' }));
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
     const heldKeys = new Map();
