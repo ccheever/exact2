@@ -910,10 +910,3 @@ and the Linux headless CPU renderer without claiming display frame timing.
 
 
 - **Apple ABI pointer-event fixture fails** (2026-10-04, A2 verification): `abi::tests::dispatch_names_every_kind_and_refuses_unknown_ones` gets `NoHandler { view: 2, event: "pointerdown" }`. Reproduced with `cargo test -p exact-apple --no-fail-fast` on both A2 and `2ab8aca10`; the eight older content-region failures noted above also persist.
-
-- **iOS CPU canvas capture ignores sibling depth** (2026-10-04, Apple review fixes):
-  `PaintCaptureIOSTests.testCanvasCapturesRanksFromTheCurrentBatch` passes on the
-  normal Metal capture path after flushing ranks without implicit animations,
-  but fails with `TEST_RUNNER_EXACT_CAPTURE=cpu`: `CALayer.render(in:)` still
-  captures the later blue sibling over the raised red one. Give the CPU fallback
-  explicit paint ordering, as the macOS capture compositor has.

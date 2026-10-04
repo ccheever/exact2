@@ -1284,6 +1284,8 @@ enum Capture {
 
     /// The CPU capture: Core Graphics rasterizes the subtree into `bitmap`.
     static func draw(_ view: UIView, scale: CGFloat, into bitmap: Bitmap) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         let h = bitmap.height
         let ctx = bitmap.context
         // UIKit's geometry — y down from the top — into a context whose y
@@ -1314,7 +1316,7 @@ enum Capture {
         hide(view)
         capturing = true
         UIGraphicsPushContext(ctx)
-        view.layer.render(in: ctx)
+        paintOrderLayer(of: view, root: view.layer).render(in: ctx)
         UIGraphicsPopContext()
         capturing = false
         for o in hidden { o.isHidden = false }
