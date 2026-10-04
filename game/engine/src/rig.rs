@@ -5,6 +5,12 @@
 //! hashes treat it like a baked one. All math is the engine's portable `libm`, so a
 //! rig and its clips are bit-identical on every host.
 //!
+//! Assumptions: the rest pose faces +Z with +Y up; limbs are chains of bones from
+//! root to tip whose rest pose hangs down in the Y–Z plane, and gait clips swing
+//! them about each joint's X axis; the first spine bone carries the legs and is
+//! lowered onto the planted feet. Bones rest unrotated, so clip rotations are
+//! relative to the bind pose (which also makes them usable as additive deltas).
+//!
 //! ```
 //! use exact_game::{rig::{self, Gait, Rig}, *};
 //! let rig = Rig::humanoid(1.8);
@@ -50,7 +56,7 @@ pub struct Bone {
 pub enum Limb {
     /// Upper, lower and foot: swings, lifts in swing, keeps the foot level.
     Leg,
-    /// Upper and lower (and hand): swings against its phase, elbow bent.
+    /// Upper and lower (and hand): furthest forward at its phase, elbow bent.
     Arm,
 }
 
@@ -149,7 +155,8 @@ impl Rig {
             .position(|b| b.name == name)
             .unwrap_or_else(|| panic!("rig: no bone `{name}`"))
     }
-    /// Add a bone from `head` to `tail` with a constant radius under `parent`.
+    /// Add a bone from `head` to `tail` under `parent` (added earlier), its skin
+    /// tapering from `radius[0]` to `radius[1]`. A rig holds at most 255 bones.
     pub fn bone(
         &mut self,
         name: &str,
@@ -163,6 +170,7 @@ impl Rig {
             self.bones.iter().all(|b| b.name != name),
             "rig: bone `{name}` twice"
         );
+        assert!(self.bones.len() < 255, "rig: at most 255 bones");
         assert!(
             head.is_finite()
                 && tail.is_finite()
@@ -470,7 +478,7 @@ impl Rig {
             let w = dir.cross(u);
             let first = (m.positions.len() / 3) as u32;
             let rings = 2 * CAP + BODY + 1;
-            for ring in 0..=rings - 1 {
+            for ring in 0..rings {
                 // s in [-1, 0] is the head cap, [0, 1] the tube, [1, 2] the tail cap.
                 let (t, out, cap) = if ring < CAP {
                     let a = (CAP - ring) as f32 / CAP as f32 * PI * 0.5;
@@ -483,8 +491,12 @@ impl Rig {
                 };
                 let radius = b.radius[0] + (b.radius[1] - b.radius[0]) * t;
                 let centre = b.head + axis * t + dir * (cap * radius);
-                let along = (axis * t + dir * (cap * radius)).dot(dir) / length.max(1e-6);
-                let (joints, weights) = self.weights(i, along);
+                // A ball (zero-length) bone moves rigidly with itself.
+                let (joints, weights) = if length > 1e-6 {
+                    self.weights(i, (axis * t + dir * (cap * radius)).dot(dir) / length)
+                } else {
+                    ([i as u16, 0, 0, 0], [1., 0., 0., 0.])
+                };
                 for k in 0..sides {
                     let (sn, cs) = math::sin_cos(k as f32 / sides as f32 * TAU);
                     let radial = u * cs + w * sn;
@@ -676,8 +688,9 @@ impl Rig {
                 Quat::from_rotation_y(twist * math::cos(TAU * t / period))
             }));
         }
-        if let Some(&chest) = self.spine.get(1) {
-            tracks.push(Self::rotation_track(chest, &times, |t| {
+        // The spine bone above the hips leans into the gait and counter-twists.
+        if let Some(&upper) = self.spine.get(1) {
+            tracks.push(Self::rotation_track(upper, &times, |t| {
                 Quat::from_rotation_x(gait.lean)
                     * Quat::from_rotation_y(-0.1 * gait.arms * math::cos(TAU * t / period))
             }));

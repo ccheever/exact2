@@ -121,6 +121,33 @@ fn rig_fields_are_reached_through_checked_builders() {
         13 * 10 * 3
     );
     assert_eq!(r.bones()[0].name, "root");
+    // A ball (zero-length) bone under another moves rigidly with itself.
+    let mut ball = Rig::new();
+    ball.bone("a", None, Vec3::ZERO, Vec3::Y, [0.1, 0.1], [1.; 4])
+        .bone("b", Some("a"), Vec3::Y, Vec3::Y, [0.2, 0.2], [1.; 4]);
+    let model = ball.model([]);
+    model.validate().unwrap();
+    let ball_weights = model.meshes[0].weights.chunks_exact(4).skip(13 * 10);
+    assert!(ball_weights.clone().count() > 0);
+    assert!(ball_weights
+        .zip(model.meshes[0].joints.chunks_exact(4).skip(130))
+        .all(|(w, j)| w == [1., 0., 0., 0.] && j[0] == 1));
+    // At most 255 bones (the node limit, with the skin's node).
+    let mut many = Rig::new();
+    for i in 0..255 {
+        many.bone(
+            &i.to_string(),
+            None,
+            Vec3::ZERO,
+            Vec3::Y,
+            [0.1, 0.1],
+            [1.; 4],
+        );
+    }
+    assert!(std::panic::catch_unwind(move || {
+        many.bone("one more", None, Vec3::ZERO, Vec3::Y, [0.1, 0.1], [1.; 4]);
+    })
+    .is_err());
 }
 
 #[test]
