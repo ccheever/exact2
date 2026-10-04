@@ -419,6 +419,7 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                 | Step::Size { span, .. }
                 | Step::Type { span, .. }
                 | Step::Key { span, .. }
+                | Step::Clipboard { span, .. }
                 | Step::Clock { span, .. }
                 | Step::Screenshot { span, .. }
                 | Step::ExpectTree { span, .. }
@@ -465,6 +466,16 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     q(target, &mut s);
                     s.push_str(",\"key\":");
                     q(key, &mut s);
+                }
+                Step::Clipboard {
+                    target, edit, text, ..
+                } => {
+                    s.push_str("{\"op\":\"clipboard\",\"target\":");
+                    q(target, &mut s);
+                    s.push_str(",\"edit\":");
+                    q(edit, &mut s);
+                    s.push_str(",\"text\":");
+                    q(text, &mut s);
                 }
                 Step::Clock { arg, .. } => {
                     s.push_str("{\"op\":\"clock\",\"arg\":");

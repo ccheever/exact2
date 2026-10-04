@@ -335,6 +335,10 @@ final class Runtime {
     func pointer(_ view: UInt32, _ kind: PointerKind, _ sample: PointerSample, now: Double) -> Batch {
         on { read(exact_dispatch(rt, view, kind.rawValue, write(sample.line), now)) }
     }
+    /// The clipboard's `copy` (32), `cut` (33) or `paste` (34) with its plain text.
+    func clipboard(_ view: UInt32, _ kind: UInt32, _ text: String, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, kind, write(text), now)) }
+    }
     func submit(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 7, 0, now)) } }
     func media(_ view: UInt32, event: String, payload: String, now: Double) -> Batch {
         return on {

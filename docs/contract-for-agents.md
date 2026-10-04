@@ -511,7 +511,8 @@ test "an action uses its computed next value"
 This test goes with the complete example above. The steps are `size 1200x800`
 (first, the viewport the test's session opens at), `tap "id" [hover]`,
 `tap "id" drag dx dy [press ms] [over ms] [hold ms]`,
-`type "id" "text"` or `type "id" key "Name"`, `clock settle|+ms|ms`,
+`type "id" "text"` or `type "id" key "Name"`, `type "id" paste "text"`,
+`type "id" copy`, `type "id" cut`, `clock settle|+ms|ms`,
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text, else its descendants' — a button's label — else a field's
 value), and `expect state name == <number|string|bool|none|[]>`. The clock

@@ -14,6 +14,7 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
     match attr {
         "pointerdown" | "pointerup" | "pointermove" => Some("PointerEvent"),
         "key" => Some("KeyboardEvent"),
+        "copy" | "cut" | "paste" => Some("ClipboardEvent"),
         _ => None,
     }
 }
@@ -41,6 +42,12 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("metaKey".into(), Ty::Bool),
         ],
     );
+    // DOM's `ClipboardEvent`, its data as plain text (`getData("text/plain")`):
+    // what a paste carries; empty on copy and cut, as the DOM's is until a
+    // listener sets it — the action writes the clipboard with `copyText`.
+    shapes
+        .map
+        .insert("ClipboardEvent".into(), vec![("text".into(), Ty::String)]);
     // DOM's `PointerEvent`, the subset every host measures, in the order
     // `exact_runner::PointerEvent` writes it: the point from the node's
     // content box, the buttons' bits, the pressure, the device, its id.

@@ -962,10 +962,14 @@ impl Em<'_> {
                 kinds.iter().map(|k| k.name()).collect::<Vec<_>>().join(" "),
             ));
         }
-        // A pressable is focusable too, as natively (chat F14; input-glue.js).
-        let on = kinds
-            .iter()
-            .any(|k| matches!(k.name(), "focus" | "blur" | "key" | "press"));
+        // A pressable is focusable too, as natively (chat F14; input-glue.js),
+        // and so is a clipboard listener: the clipboard's events go to the focus.
+        let on = kinds.iter().any(|k| {
+            matches!(
+                k.name(),
+                "focus" | "blur" | "key" | "press" | "copy" | "cut" | "paste"
+            )
+        });
         if on && !["input", "button", "select", "textarea", "a", "summary"].contains(&element) {
             attrs.push(("tabindex".into(), "0".into()));
         }
@@ -1187,6 +1191,9 @@ impl Em<'_> {
                 | EventKind::Pointerdown
                 | EventKind::Pointerup
                 | EventKind::Pointermove
+                | EventKind::Copy
+                | EventKind::Cut
+                | EventKind::Paste
                 | EventKind::Play
                 | EventKind::Playing
                 | EventKind::Pause

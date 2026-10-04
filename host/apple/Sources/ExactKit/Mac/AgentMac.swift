@@ -623,6 +623,7 @@ extension Agent {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
         if v.kind == "native", req["key"] == nil { return nativeType(v, req) }
         if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
         if req["key"] == nil, let reply = presenter.controls.type(v, req["text"] as? String ?? "") { return reply }
@@ -742,6 +743,13 @@ extension Agent {
             if v.kind == "native" { return nativeType(v, req, token: nativeToken) }
             // Accessory test windows may have a first responder before
             // NSApp has a keyWindow. Deliver to the named responder first.
+            // An Edit menu chord (⌘X, ⌘C, ⌘V) first, whether or not a window is
+            // key (the agent's need not be): its action through the responder chain,
+            // as the menu would send it (spreadsheet F14: ⌘V's paste).
+            let edits: [String: Selector] = ["x": #selector(NSText.cut(_:)), "c": #selector(NSText.copy(_:)), "v": #selector(NSText.paste(_:))]
+            if phase != "up", modifiers == .command, let action = edits[key], win.firstResponder?.tryToPerform(action, with: nil) == true {
+                return ["typed": Int(v.id), "key": chord, "delivery": "platform"]
+            }
             if phase != "up", modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {
                 return ["typed": Int(v.id), "key": chord]
             }

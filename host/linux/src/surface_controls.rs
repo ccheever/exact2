@@ -482,7 +482,14 @@ impl<D: DataSource> Presenter<D> {
                         .any(|k| {
                             matches!(
                                 k,
-                                EventKind::Focus | EventKind::Blur | EventKind::Key | EventKind::Press
+                                EventKind::Focus
+                                    | EventKind::Blur
+                                    | EventKind::Key
+                                    | EventKind::Press
+                                    // The clipboard's events go to the focus.
+                                    | EventKind::Copy
+                                    | EventKind::Cut
+                                    | EventKind::Paste
                             )
                         }))
         })

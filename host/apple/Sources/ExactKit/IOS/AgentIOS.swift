@@ -683,6 +683,7 @@ extension Agent {
     func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
         if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
         if v.isSurfaceControl, let key = req["key"] as? String, let code = KeyCodes.device(key)?.code, ["Space", "Enter", "NumpadEnter"].contains(code) {
             let phase = req["phase"] as? String

@@ -730,3 +730,44 @@ fn a_target_out_of_view_is_revealed_and_a_control_takes_a_value() {
         assert!(again.contains("\"scrolled\":false"), "{again}");
     }
 }
+
+/// Spreadsheet F6: `type <id> paste|copy|cut` delivers the clipboard's
+/// event at the target, the nearest node with a handler hearing it.
+#[test]
+fn the_clipboard_events_reach_the_nearest_handler() {
+    let plan = contract::compile("component App\n  state log = \"\"\n  action pasted(at: string, e: ClipboardEvent)\n    log = `${log}${at}:${e.text};`\n  action copied\n    log = `${log}copy;`\n  action seen\n    log = log\n  view\n    column width=300 paste=pasted(\"grid\") copy=copied testId=\"grid\"\n      box testId=\"cell\" width=50 height=20 focus=seen\n      text log testId=\"log\" height=20\n").unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let id = |p: &Presenter<NoData>, test_id: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+    };
+    let (cell, log) = (id(&p, "cell"), id(&p, "log"));
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{cell},"clipboard":"paste","text":"a\tb"}}"#),
+    );
+    assert!(reply.contains("\"clipboard\":\"paste\""), "{reply}");
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{cell},"clipboard":"copy"}}"#),
+    );
+    let k = p.host().kernel();
+    assert_eq!(
+        k.node(log).unwrap().props.str(exact_kernel::PropId::Text),
+        Some("grid:a\tb;copy;")
+    );
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{log},"clipboard":"cut"}}"#),
+    );
+    assert!(reply.contains("no cut handler"), "{reply}");
+}

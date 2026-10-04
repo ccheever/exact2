@@ -274,6 +274,10 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             let Some(id) = id() else {
                 return error("type needs an id");
             };
+            if let Some(edit) = field_str(line, "clipboard") {
+                let text = field_str(line, "text").unwrap_or_default();
+                return p.clipboard(id, &edit, &text).unwrap_or_else(|e| error(&e));
+            }
             if let Some(chord) = field_str(line, "key") {
                 // A chord's modifiers are held for its key (`Shift+Enter`,
                 // `Meta+s`), as a keyboard's are, then released.

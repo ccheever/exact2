@@ -216,5 +216,25 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertEqual(first.liveText, "Quiet")
         withExtendedLifetime(w) {}
     }
+    /// Spreadsheet F4, F14: ⌘V, ⌘C and ⌘X at a focused node are its
+    /// `paste`, `copy` and `cut` — the nearest handler's — and with none the
+    /// Edit menu's action is not this node's, so the chain goes on.
+    func testEditActionsAreClipboardEventsAtTheNearestHandler() {
+        let (p, w, grid, other) = fixture()
+        grid.handlers = ["paste", "copy"]
+        let cell = NodeView(id: 3, kind: "view", presenter: p)
+        cell.handlers = ["focus"]
+        grid.addSubview(cell); p.views[cell.id] = cell
+        var heard: [String] = []
+        p.onClipboard = { id, kind, text in heard.append("\(id):\(kind):\(text)") }
+        XCTAssertTrue(cell.acceptsFirstResponder)
+        XCTAssertTrue(cell.responds(to: #selector(NodeView.paste(_:))))
+        XCTAssertFalse(cell.responds(to: #selector(NodeView.cut(_:))), "no cut handler: the chain goes on")
+        XCTAssertFalse(other.responds(to: #selector(NodeView.paste(_:))))
+        XCTAssertTrue(cell.clipboard(#selector(NodeView.paste(_:)), text: "a\tb"))
+        XCTAssertTrue(cell.clipboard(#selector(NodeView.copy(_:))))
+        XCTAssertEqual(heard, ["1:34:a\tb", "1:32:"])
+        withExtendedLifetime(w) {}
+    }
 }
 #endif

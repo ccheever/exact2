@@ -121,7 +121,7 @@ record_variants! {
     Step {
         Tap { target, hover, span }, Drag { target, dx, dy, press, over, hold, span },
         Size { width, height, span }, Type { target, text, span }, Key { target, key, span },
-        Clock { arg, span }, Screenshot { path, span }, ExpectTree { target, present, span },
+        Clipboard { target, edit, text, span }, Clock { arg, span }, Screenshot { path, span }, ExpectTree { target, present, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
     }
 }

@@ -242,6 +242,11 @@ pub enum Event {
     PanRelease(f64, f64),
     /// A standard media event. Numeric payloads are seconds.
     Media(EventKind, String),
+    /// DOM's `copy`, `cut` or `paste` at the focused view (spreadsheet F4,
+    /// F14): the clipboard's plain text as the event carries it — what is
+    /// pasted; empty on copy and cut, whose action writes the clipboard
+    /// (`copyText`), as a DOM listener's `setData` does.
+    Clipboard(EventKind, String),
     /// An incoming location at the navigation root. @ref LLP 1038 D8/D11
     Navigate(String),
     /// An authored sheet handle released: logical height and signed pixels/second.
@@ -329,7 +334,8 @@ impl Event {
     /// The DOM record this event offers its action as an optional last
     /// parameter, its fields in the compiler's order
     /// (`contract_types::event_record`, `contract/types/src/selection.rs`):
-    /// `key`'s `KeyboardEvent` and the pointer's `PointerEvent`.
+    /// `key`'s `KeyboardEvent`, the pointer's `PointerEvent` and the
+    /// clipboard's `ClipboardEvent`.
     pub fn record(&self) -> Option<Value> {
         match self {
             Event::Key(key, held) => Some(Value::record(vec![
@@ -340,6 +346,7 @@ impl Event {
                 Value::Bool(held.meta),
             ])),
             Event::Pointerdown(p) | Event::Pointerup(p) | Event::Pointermove(p) => Some(p.value()),
+            Event::Clipboard(_, text) => Some(Value::record(vec![Value::str(text)])),
             _ => None,
         }
     }
@@ -382,6 +389,18 @@ impl Event {
             return None;
         }
         Some(Self::Media(kind, value.into()))
+    }
+
+    /// Decode ABI kind 32 (`copy`), 33 (`cut`) or 34 (`paste`): the
+    /// payload is the clipboard's plain text, verbatim.
+    pub fn clipboard_payload(kind: u32, payload: &str) -> Option<Self> {
+        let kind = match kind {
+            32 => EventKind::Copy,
+            33 => EventKind::Cut,
+            34 => EventKind::Paste,
+            _ => return None,
+        };
+        Some(Self::Clipboard(kind, payload.into()))
     }
 
     /// Decode exactly four comma-separated geometry dimensions. Hosts validate
@@ -850,7 +869,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Scroll(_, _) => "scroll",
                 Event::Pan(_, _) => "pan",
                 Event::PanRelease(_, _) => "panrelease",
-                Event::Media(kind, _) => kind.name(),
+                Event::Media(kind, _) | Event::Clipboard(kind, _) => kind.name(),
                 Event::Navigate(_) => "navigate",
                 Event::HeightRelease { .. } => "heightrelease",
                 Event::TransformGeometry { .. } => "transformgeometry",
@@ -944,6 +963,7 @@ impl<D: DataSource> Runner<D> {
                 },
                 kind.name(),
             ),
+            Event::Clipboard(kind, _) => (*kind, None, kind.name()),
             Event::Pan(_, _) => (EventKind::Pan, None, "pan"),
             Event::PanRelease(_, _) => (EventKind::Panrelease, None, "panrelease"),
             Event::HeightRelease { .. } => (EventKind::Heightrelease, None, "heightrelease"),

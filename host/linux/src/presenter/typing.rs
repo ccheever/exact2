@@ -77,6 +77,50 @@ impl<D: DataSource> Presenter<D> {
         Ok(s)
     }
 
+    /// `type <id> copy|cut|paste [text]` (spreadsheet F6): the clipboard's
+    /// event with the focus at `id`, heard by the nearest node with a
+    /// handler — itself or an ancestor — as on the web; a paste carries
+    /// `text` as the clipboard's. This host has no clipboard of its own.
+    pub fn clipboard(&mut self, id: ViewId, edit: &str, text: &str) -> Result<String, String> {
+        let kind = match edit {
+            "copy" => EventKind::Copy,
+            "cut" => EventKind::Cut,
+            "paste" => EventKind::Paste,
+            _ => return Err(format!("type: {edit} is not copy, cut or paste")),
+        };
+        if self.host.route_visibility(id).1 {
+            return Err(format!("view {id} is hidden or inert"));
+        }
+        let mut at = Some(id);
+        let target = loop {
+            let Some(node) = at.and_then(|n| self.host.kernel().node(n)) else {
+                return Err(format!("no {edit} handler at view {id} or above it"));
+            };
+            if self.host.runner().handlers_of(node.id).contains(&kind)
+                && node.props.bool(PropId::Disabled) != Some(true)
+            {
+                break node.id;
+            }
+            at = node.parent;
+        };
+        let now = self.host.now();
+        if self.focusable(id) {
+            if let Some(e) = self.set_focus(Some(id), now) {
+                return Err(e);
+            }
+        }
+        let text = if kind == EventKind::Paste { text } else { "" };
+        let error = self
+            .host
+            .dispatch_at(target, Event::Clipboard(kind, text.to_owned()), now);
+        if let Some(e) = error.or(self.after_commit()) {
+            return Err(e);
+        }
+        Ok(format!(
+            "{{\"typed\":{id},\"clipboard\":\"{edit}\",\"delivery\":\"recognized\"}}"
+        ))
+    }
+
     /// Targeted keyboard input for both the agent and device adapters.
     pub fn type_key(
         &mut self,

@@ -95,3 +95,27 @@ fn a_test_drags_and_opens_at_its_size() {
     let e = contract::tests("test \"t\"\n  size 800 600\n").unwrap_err();
     assert_eq!(e.id, "syntax-expected-step");
 }
+
+/// Spreadsheet F6: the clipboard's events are test steps, a paste carrying
+/// its text as the clipboard's.
+#[test]
+fn clipboard_steps_parse_and_print() {
+    let tests = contract::tests(
+        "test \"grid\"\n  type \"grid\" paste \"a\\tb\"\n  type \"grid\" copy\n  type \"grid\" cut\n",
+    )
+    .unwrap();
+    let steps = &tests[0].steps;
+    assert!(
+        matches!(&steps[0], Step::Clipboard { edit, text, .. } if edit == "paste" && text == "a\tb")
+    );
+    assert!(
+        matches!(&steps[1], Step::Clipboard { edit, text, .. } if edit == "copy" && text.is_empty())
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains(
+            "{\"op\":\"clipboard\",\"target\":\"grid\",\"edit\":\"cut\",\"text\":\"\",\"line\":4}"
+        ),
+        "{json}"
+    );
+}

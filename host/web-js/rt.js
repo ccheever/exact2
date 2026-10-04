@@ -796,7 +796,7 @@ export function on(e, kind, f) {
     case "durationchange": return l(kind, () => Number.isFinite(e.duration) && f(e.duration));
     case "contextmenu": case "dblclick": return l(kind, ev => { ev.preventDefault(); f(); }); case "pointerdown": case "pointerup": case "pointermove": return pointer(e, kind, f); // pointer.js (LLP 1005 §Events, 1056 §3)
     // Chrome blurs an element it is removing (still connected); a retired view's blur is dropped (glue.js).
-    case "blur": return l(kind, () => queueMicrotask(() => e.isConnected && f()));
+    case "blur": return l(kind, () => queueMicrotask(() => e.isConnected && f())); case "copy": case "cut": case "paste": return l(kind, ev => { ev.stopPropagation(); f([ev.clipboardData?.getData("text/plain") ?? ""]); }); // the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds
     default: return l(kind, () => f());
   }
 }

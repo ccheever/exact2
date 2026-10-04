@@ -433,7 +433,7 @@ expression grammar. Platform looks and stand-ins are documented in
 ## Events
 
 An event binding is an action reference or partially applied action. Captured
-arguments precede the event payload. The table contains all 43 handler names.
+arguments precede the event payload. The table contains all 46 handler names.
 Numeric multi-argument payload ordering should be copied from the feature's
 working fixture, not inferred from JavaScript's Event interface.
 
@@ -451,6 +451,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | Six numbers | `transformrelease` |
 | Special: zero or one location string, no captured args | `navigate` |
 | Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove` |
+| Zero or one `ClipboardEvent` (the action takes it or leaves it) | `copy`, `cut`, `paste` ([clipboard](#clipboard)) |
 | None | `press`, `cancel`, `focus`, `blur`, `submit`, `load`, `contextmenu`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
 `scroll` appends left then top offsets; `panrelease` appends x/y release velocity;
@@ -495,6 +496,28 @@ An action that takes one more parameter than the binding captures gets a
 action stroke(e: PointerEvent)
   points = `${points} ${e.offsetX},${e.offsetY}`
 canvas surface=ink(points) pointerdown=begin pointermove=stroke touch-action="none"
+```
+
+### Clipboard
+
+`copy`, `cut` and `paste` are DOM's, on every host: ⌘C, ⌘X and ⌘V (Control on
+Windows and Linux keyboards, the Edit menu, an iPad's hardware keyboard) with
+the focus at a node or inside it are heard by the nearest node with the
+handler, itself or an ancestor — so a node with one takes the focus, as a
+`key` node does. An action that takes one more parameter gets a
+`ClipboardEvent` whose `text` is the clipboard's plain text: what is pasted,
+and empty on `copy` and `cut`, as the DOM's is until a listener sets it — the
+action writes the clipboard with `copyText`. A field's own paste still
+inserts the text. On macOS and iOS, a text field's or textarea's editing is
+the platform's and fires none of the three (the web's fires them); the
+driver's `type <id> paste <text>` delivers a paste carrying that text, and
+`type <id> copy` and `type <id> cut` the others, without touching the
+system clipboard.
+
+```text
+action pasteAt(cell: string, e: ClipboardEvent)
+  send pasted = pasteCells(cell, e.text)
+column key=move paste=pasteAt(selected) copy=copyCells cut=cutCells
 ```
 
 ### Keys

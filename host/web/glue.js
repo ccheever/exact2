@@ -517,7 +517,7 @@ function attach(el, id, handlers) {
   }
   // element hears these.
   // A pressable takes the focus too, as natively (chat F14); input-glue.js activates it by key.
-  if (handlers.some((k) => k === "focus" || k === "blur" || k === "key" || k === "press") && !el.matches("input, button, select, textarea, a[href], summary") && !el.exactMarkup && !el.hasAttribute("tabindex")) el.tabIndex = 0;
+  if (handlers.some((k) => ["focus", "blur", "key", "press", "copy", "cut", "paste"].includes(k)) && !el.matches("input, button, select, textarea, a[href], summary") && !el.exactMarkup && !el.hasAttribute("tabindex")) el.tabIndex = 0;
   for (const kind of handlers) {
     if (kind === "press") {
       // A link inside a pressable node is the innermost activation, as a
@@ -534,6 +534,8 @@ function attach(el, id, handlers) {
       motion.attachHeightDrag(el, id, on);
     } else if (kind === "transformrelease") { motion.attachTransformDrag(el,id,on);
     } else if ((kind === "pointerdown" || kind === "pointerup" || kind === "pointermove") && !el.exactPointer) { let p; el.exactPointer = true; const own = () => p ??= inputHandlers?.pointer(el, on, (k, r) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, k, writeIn(r), now())); }); on("pointerdown", e => own()?.(e)); on("pointerover", () => own()); // @ref LLP 1005 §3, LLP 1056 §3: DOM's own pointer down/up/move (input-glue `pointer`)
+    } else if (kind === "copy" || kind === "cut" || kind === "paste") { // the clipboard's events at the focused node, the nearest handler's (spreadsheet F4); a field's own paste proceeds
+      on(kind, e => { e.stopPropagation(); send(wasm.exact_dispatch(id, 32 + ["copy", "cut", "paste"].indexOf(kind), writeIn(e.clipboardData?.getData("text/plain") ?? ""), now())); });
     } else if (kind === "contextmenu" || kind === "dblclick") {
       on(kind, (e) => {
         if (el.matches(":disabled") || inertAncestor(el)) return;

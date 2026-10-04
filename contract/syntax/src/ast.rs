@@ -193,6 +193,18 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `type "testId" copy`, `… cut`, `… paste "text"`: the clipboard's
+    /// event at the node, a paste carrying `text` as the clipboard's.
+    Clipboard {
+        /// The node, by `testId`.
+        target: String,
+        /// `copy`, `cut` or `paste`.
+        edit: String,
+        /// A paste's text; empty for copy and cut.
+        text: String,
+        /// Where.
+        span: Span,
+    },
     /// `clock settle`, `clock +ms`, `clock ms`.
     Clock {
         /// The argument as the agent takes it.

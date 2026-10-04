@@ -897,7 +897,7 @@ impl<D: DataSource> Bridge<D> {
             22 => Event::Refresh,
             // Scroll, media, pan, selection and pan release (LLP 1057 §10.6),
             // and the pointer's down, up and move (LLP 1005 §Events, 1056 §3).
-            13 | 19 | 20 | 21 | 28..=31 => match Event::of_host_kind(kind, &payload) {
+            13 | 19 | 20 | 21 | 28..=34 => match Event::of_host_kind(kind, &payload) {
                 Ok(event) => event,
                 Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
             },
