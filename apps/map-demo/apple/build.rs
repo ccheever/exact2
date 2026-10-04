@@ -6,7 +6,6 @@ use contract::DataSource;
 fn main() {
     println!("cargo:rerun-if-changed=../app.contract");
     println!("cargo:rerun-if-changed=../app.json");
-    println!("cargo:rerun-if-changed=../assets");
     println!("cargo:rerun-if-changed=../data");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=../../../Cargo.lock");

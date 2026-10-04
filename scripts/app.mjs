@@ -757,6 +757,33 @@ export function verifyBakeFiles(receipt, plan, assets) {
 // product whose inputs it describes. @ref LLP 1030 D3/D3a.
 const canonicalBuild = (v) => v === null || typeof v !== 'object' ? JSON.stringify(v) : Array.isArray(v) ? `[${v.map(canonicalBuild).join(',')}]` : `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonicalBuild(v[k])}`).join(',')}}`;
 const buildHash = (v) => createHash('sha256').update(v).digest('hex');
+/** A development receipt names four thousand inputs by SHA-256, on every build,
+ * and nearly all of them are the files they were at the last one: reading them
+ * again was 0.3 s of a 2.5 s build with nothing changed. Each hash is kept in
+ * the target directory with the size and time its file had, which is what
+ * Cargo goes by to say the unit built from it is fresh. A production receipt
+ * reads every byte. */
+function inputHashes(app, env) {
+  const kept = resolve(app.target, 'bake-input-hashes.json'), production = env.EXACT_UPDATE_TRUST === 'production';
+  let known = {}, grew = false;
+  if (!production) try { known = JSON.parse(readFileSync(kept, 'utf8')); } catch { /* none yet */ }
+  const used = {};
+  return {
+    of(path, info) {
+      const was = known[path];
+      const now = was && was[0] === info.mtimeMs && was[1] === info.size ? was : [info.mtimeMs, info.size, buildHash(readFileSync(path))];
+      if (now !== was) grew = true;
+      used[path] = now;
+      return now[2];
+    },
+    save() {
+      if (production || !grew) return;
+      // Every app of a checkout shares the file; one that has grown past any of them starts again from this build's.
+      const next = Object.keys(known).length > 40_000 ? used : { ...known, ...used };
+      writeFileSync(`${kept}.${process.pid}.tmp`, JSON.stringify(next)); renameSync(`${kept}.${process.pid}.tmp`, kept);
+    },
+  };
+}
 const under = (root, path) => {
   const child = relative(root, path);
   return child === '' || (!isAbsolute(child) && child !== '..' && !child.startsWith('..' + sep));
@@ -829,10 +856,30 @@ export function bakeTarget(platform) {
   if (result.status !== 0 || !host) throw new Error('rustc did not report its host target');
   return host;
 }
+/** Cargo's metadata for a development bake, asked once for a lock and a set of
+ * manifests (0.17 s of every build): kept in the target directory with the
+ * size and time of the lock, the toolchain file and every path crate's
+ * manifest, and asked again when one differs. A production bake asks. */
+function bakeMetadata(app, target, env) {
+  const args = ['metadata', ...cargoReproducibilityFlags(app), '--format-version', '1', '--filter-platform', target];
+  const ask = () => buildCommand('cargo', args, app, env).stdout;
+  if (env.EXACT_UPDATE_TRUST === 'production') return JSON.parse(ask());
+  const seen = (path) => { try { const info = statSync(path); return [info.mtimeMs, info.size]; } catch { return null; } };
+  const fixed = ['Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml', '.cargo/config.toml'].map(file => resolve(app.workspace, file));
+  const kept = resolve(app.target, 'bake-metadata', `${buildHash(canonicalBuild([args, app.workspace, env.CARGO_TARGET_DIR ?? null, env.RUSTUP_TOOLCHAIN ?? null, env.CARGO_HOME ?? null])).slice(0, 16)}.json`);
+  try {
+    const was = JSON.parse(readFileSync(kept, 'utf8'));
+    if (was.watched.every(([path, at]) => canonicalBuild(seen(path)) === canonicalBuild(at))) return was.metadata;
+  } catch { /* none kept, or not as it was */ }
+  const text = ask(), metadata = JSON.parse(text);
+  const watched = [...fixed, ...metadata.packages.filter(p => p.source === null).map(p => p.manifest_path)].map(path => [path, seen(path)]);
+  mkdirSync(dirname(kept), { recursive: true });
+  writeFileSync(`${kept}.${process.pid}.tmp`, JSON.stringify({ watched, metadata })); renameSync(`${kept}.${process.pid}.tmp`, kept);
+  return metadata;
+}
 function buildGraph(app, target, kind, env, gpu) {
   const prepared = app.prepare?.(true, {target, env});
-  const metadata = prepared?.workspace_root === app.workspace ? prepared
-    : JSON.parse(buildCommand('cargo', ['metadata', ...cargoReproducibilityFlags(app), '--format-version', '1', '--filter-platform', target], app, env).stdout);
+  const metadata = prepared?.workspace_root === app.workspace ? prepared : bakeMetadata(app, target, env);
   const packages = new Map(metadata.packages.map((p) => [p.id, p]));
   const nodes = new Map(metadata.resolve.nodes.map((n) => [n.id, n]));
   const root = metadata.packages.find((p) => p.name === app.crate(kind));
@@ -859,6 +906,8 @@ export function compilerPaths(text, workspace) {
   if (at < 0) throw new Error('rustc dep-info has no dependency rule');
   const paths = []; let word = '', escape = false;
   const dependencies = first.slice(at + 2);
+  // Nearly every rule has no escape in it, and a receipt reads three hundred of them, each twice.
+  if (!dependencies.includes('\\')) return dependencies.split(/\s+/).filter(Boolean).map(path => resolve(workspace, path));
   for (let index = 0; index < dependencies.length; index++) {
     const ch = dependencies[index];
     if (escape) { word += ch; escape = false; }
@@ -965,11 +1014,17 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const packages = [...graph.roles.keys()].map((id) => graph.packages.get(id));
   const locations = packages.map((p) => ({ path: dirname(p.manifest_path), name:`crate:${p.name}@${p.version}` })).sort((a,b) => b.path.length-a.path.length);
   const hermes = hermesIos(env).root;
+  // The longest root a path is under is the first of its own ancestors, itself included, that is one: what
+  // `find` over the roots longest first answers, without a path comparison per root for each of 3,700 inputs
+  // (0.2 s of every build). Of two roots at one path the first stands, as it did.
+  const rootsAt = (roots) => { const at = new Map(); for (const root of roots) if (!at.has(root.path)) at.set(root.path, root); return at; };
+  const generatedAt = rootsAt(generated), locatedAt = rootsAt(locations);
+  const rootOf = (roots, path) => { for (let at = path; ; at = dirname(at)) { const root = roots.get(at); if (root || dirname(at) === at) return root; } };
   const nameOf = (path) => {
     path = resolve(path);
-    const made = generated.find((g) => under(g.path,path));
+    const made = rootOf(generatedAt, path);
     if (made) return `generated:${made.pkg.name}:${made.role}/${relative(made.path,path)}`;
-    const pkg = locations.find((p) => under(p.path,path));
+    const pkg = rootOf(locatedAt, path);
     if (pkg) return `${pkg.name}/${relative(pkg.path,path)}`;
     if (under(hermes,path)) return `hermes-ios/${relative(hermes,path)}`; // wherever the archives live
     if (under(app.dir,path)) return `app/${relative(app.dir,path)}`;
@@ -977,7 +1032,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     if (under(graph.metadata.workspace_root,path)) return `workspace/${relative(graph.metadata.workspace_root,path)}`;
     throw new Error(`compiler input has no captured source identity: ${path}`);
   };
-  const inputs = new Map(), absent = new Map(), directories = new Map();
+  const inputs = new Map(), absent = new Map(), directories = new Map(), hashes = inputHashes(app, env);
   const add = (path, optional = false) => {
     path = resolve(path); if (replaced.has(path)) return;
     if (!existsSync(path)) { if (optional) { absent.set(nameOf(path), path); return; } throw new Error(`stale compiler dependency names missing input ${path}; rebuild that Cargo unit`); }
@@ -985,7 +1040,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     if (inputs.get(name)?.path === path) return;
     const info = statSync(path);
     if (info.isDirectory()) { const names = readdirSync(path).sort(); directories.set(name, {path,names}); for (const entry of names) add(resolve(path,entry)); }
-    else if (info.isFile()) inputs.set(name, {name,path,sha256:buildHash(readFileSync(path))});
+    else if (info.isFile()) inputs.set(name, {name,path,sha256:hashes.of(path, info)});
     else throw new Error(`unsupported compiler input ${path}`);
   };
   const normalizeEnv = ([key,value]) => [key, value == null ? null : ['OUT_DIR','CARGO_MANIFEST_DIR'].includes(key) ? nameOf(value) : buildHash(value)];
@@ -1076,7 +1131,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const configuration={target,units:orderedBuild([...new Map(units.map(u=>[canonicalBuild(u),u])).values()]),builders:orderedBuild([...new Map(builders.map(u=>[canonicalBuild(u),u])).values()]),rustc:buildCommand('rustc',['-vV'],app,env).stdout,flags:{...Object.fromEntries(['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','MACOSX_DEPLOYMENT_TARGET','IPHONEOS_DEPLOYMENT_TARGET'].map((k)=>[k,env[k]??null])),...(env.EXACT_WEB_LINK?{EXACT_WEB_LINK:env.EXACT_WEB_LINK}:{}),...(env.EXACT_WEB_SIZE?{EXACT_WEB_SIZE:env.EXACT_WEB_SIZE}:{})}};
   const files=[...inputs.values()].sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
   const fingerprint={files:files.map(({name,sha256})=>({name,sha256})),absent:[...absent.keys()].sort(),configuration,metadata};
-  const products=roots.flatMap((r)=>messages.filter((m)=>m.reason==='compiler-artifact'&&m.package_id===r.package&&m.target.name===r.name).flatMap((m)=>m.filenames)).filter((p)=>!p.endsWith('.d')).map((path)=>prepared.get(path)??path).map((path)=>({path,bytes:statSync(path).size,sha256:buildHash(readFileSync(path))}));
+  const products=roots.flatMap((r)=>messages.filter((m)=>m.reason==='compiler-artifact'&&m.package_id===r.package&&m.target.name===r.name).flatMap((m)=>m.filenames)).filter((p)=>!p.endsWith('.d')).map((path)=>prepared.get(path)??path).map((path)=>{const info=statSync(path);return {path,bytes:info.size,sha256:hashes.of(path,info)};});
+  hashes.save();
   return {version:1,...(env.EXACT_RUST_BUNDLE?{rust:resolve(rootOutput,'rust')}:{}),trust:env.EXACT_UPDATE_TRUST??'development',compat,graph:bundleGraph,binary:{sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
 }
 
