@@ -1258,6 +1258,11 @@ impl World {
                                 ))
                             })?;
                         let resource = field == "resources";
+                        if !resource && reg.presentation {
+                            return Err(DataError::new(format!(
+                                "save carries presentation component `{name}`; presentation state is rebuilt by Game::present, never loaded"
+                            )));
+                        }
                         let make = if resource {
                             r.claim(reg.resource_size).map_err(|e| e.at(&name))?;
                             reg.make_resource

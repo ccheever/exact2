@@ -239,3 +239,29 @@ fn present_cannot_change_simulation_state() {
         );
     }
 }
+
+#[test]
+fn a_save_carrying_presentation_rows_is_refused_by_name() {
+    // A save written where `Bob` was simulation state, read where it is drawn.
+    mod sim_side {
+        #[derive(Default, exact_game::Component)]
+        pub struct Bob {
+            pub height: f32,
+            pub flash: f32,
+        }
+    }
+    let mut writer = World::new(60, 1);
+    let e = writer.spawn(Transform::default());
+    writer.insert(
+        e,
+        sim_side::Bob {
+            height: 1.,
+            flash: 0.,
+        },
+    );
+    let bytes = writer.save();
+    let mut reader = World::new(60, 1);
+    reader.register::<Bob>();
+    let error = reader.load(&bytes).unwrap_err().to_string();
+    assert!(error.contains("presentation component `Bob`"), "{error}");
+}
