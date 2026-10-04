@@ -6,6 +6,7 @@ import {EventEmitter} from 'node:events';
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
+import {PassThrough} from 'node:stream';
 import {closeFilesystemReader, filesystem, filesystemErrorCode} from './filesystem.mjs';
 import {Cdp, chromium, closeWindowsBrowser, retainCleanupError, packagedBuildChanges, removeBrowserProfile} from './agent-launch.mjs';
 import {browserKey, open} from './agent.mjs';
@@ -14,6 +15,26 @@ import {runCaps} from './caps.mjs';
 import {binaryenArchive, binaryenVersion} from './exact.mjs';
 import {listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
 import {gameShells} from '../game/app/shells.mjs';
+import {formatProofError} from '../game/proof.mjs';
+
+test('proof interruption preserves a real CDP timeout message when its stack omits it', async () => {
+  const input=new PassThrough(), output=new PassThrough(), cdp=new Cdp(input,output);
+  try {
+    let failure;
+    try { await cdp.send('Runtime.evaluate',{},undefined,10); } catch(error) { failure=error; }
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.message).toBe('Runtime.evaluate did not answer within 10 ms');
+    const originalStack=failure.stack;
+    expect(formatProofError(failure)).toContain(failure.message);
+    expect(formatProofError(failure)).toContain(originalStack);
+    // Preserve the exact message-free shape seen in the failed frozen proof;
+    // an isolated timer on this Bun version does not always omit its message.
+    failure.stack='Error\n    at <anonymous> (agent-launch.mjs:361:76)';
+    expect(formatProofError(failure)).toBe(`${String(failure)}\n${failure.stack}`);
+    expect(failure.message).toBe('Runtime.evaluate did not answer within 10 ms');
+    expect(formatProofError('plain refusal')).toBe('plain refusal');
+  } finally { input.destroy(); output.destroy(); }
+});
 
 test('startup failure retains the cleanup error and its owned helper handle', () => {
   const cause=new Error('original cause'), original=new Error('original operation',{cause});
