@@ -173,6 +173,8 @@ struct HostState {
     auth_callback: Option<String>,
     /// The engine has app storage: the host configured directories.
     storage: bool,
+    /// The bake's module ([`Module::inspect`]): storage refuses as `bake`.
+    baking: bool,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
@@ -275,21 +277,25 @@ unsafe extern "C" fn host_door(
         // Storage's availability, as the prelude's refusal code (kanban
         // F28): none at bake; none for a drive that names no scratch store;
         // none where the host configured no directories.
-        5 => {
-            if let Some(store) = state.store {
+        5 => match state.store {
+            Some(store) => {
+                // A read even at bake: the build compiles no answer that tried.
                 (*store).observe_external_read();
-                Ok((!state.storage).then(|| {
-                    if state.agent.is_some() {
-                        "agent"
-                    } else {
-                        "unsupported"
-                    }
-                    .into()
-                }))
-            } else {
-                Err("bake".into())
+                if state.baking {
+                    Err("bake".into())
+                } else {
+                    Ok((!state.storage).then(|| {
+                        if state.agent.is_some() {
+                            "agent"
+                        } else {
+                            "unsupported"
+                        }
+                        .into()
+                    }))
+                }
             }
-        }
+            None => Err("bake".into()),
+        },
         6 => {
             if a == "kind" {
                 // A native executor can always link a module; no read.
@@ -411,7 +417,6 @@ impl Module {
             directories: None,
             host: Box::new(HostState {
                 auth_callback,
-                storage: false,
                 ..HostState::default()
             }),
             native_factory: None,
@@ -558,6 +563,7 @@ impl Module {
     pub fn inspect(bytecode: Vec<u8>) -> Result<Module, String> {
         // The bake's module never draws the agent's stream (LLP 1069.005 D2b).
         let mut module = Self::new(bytecode, "", "").with_agent_seed(None);
+        module.host.baking = true;
         let engine = module.load_engine()?;
         module.app_id = engine.string("appId")?;
         module.grants = engine.string("grants")?;

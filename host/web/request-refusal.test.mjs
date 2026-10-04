@@ -520,6 +520,54 @@ export function answer(name, args, store, storage) {
   }
 });
 
+// LLP 1027.000 D3 on the JS target: the app's modules get guarded bindings
+// in place of the page's clock, Math.random and timers, injected as the web
+// build injects them, and Hermes's fixture of aliases refuses with Hermes's words.
+test("the JS target refuses a data module's clock, randomness and timers as Hermes does", async () => {
+  const { transformSync } = await import('rolldown/utils');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-inputs-'));
+  const build = readFileSync(resolve(ROOT, 'host/web-js/build.mjs'), 'utf8');
+  const bound = JSON.parse(/const bound = (\[[^\]]*\]);/.exec(build)[1].replaceAll("'", '"').replace(/\s+/g, ''));
+  const guards = resolve(dir, 'ts-fetch.js');
+  cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), guards);
+  writeFileSync(resolve(dir, 'admission.js'), 'export const fetchWith = () => Promise.reject(new Error("no fetch here"));\n');
+  writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = null;\n');
+  const fixture = resolve(ROOT, 'js/tests/fixtures/inputs.ts');
+  const app = transformSync(fixture, readFileSync(fixture, 'utf8'), { inject: { ...Object.fromEntries(bound.map(name => [name, [guards, name]])),
+    ...Object.fromEntries(['globalThis', 'window', 'self'].map(name => [name, [guards, 'appGlobal']])) } });
+  expect(app.errors).toEqual([]);
+  writeFileSync(resolve(dir, 'app.js'), app.code);
+  const page = { Date: globalThis.Date, random: Math.random };
+  try {
+    await import(`${pathToFileURL(resolve(dir, 'app.js')).href}?inputs=${Date.now()}`);
+    const { answer } = globalThis.exact;
+    const forms = { now: 'Date.now()', new: 'new Date()', call: 'Date()', 'call-with-arg': 'Date()', random: 'Math.random()',
+      'alias-now': 'Date.now()', 'alias-random': 'Math.random()', 'alias-date': 'new Date()', 'prototype-constructor': 'new Date()',
+      'computed-now': 'Date.now()', 'computed-random': 'Math.random()', 'bound-now': 'Date.now()', 'bound-new': 'new Date()', reflect: 'new Date()',
+      'intl-format': 'Intl.DateTimeFormat.format()', 'intl-format-undefined': 'Intl.DateTimeFormat.format()',
+      'intl-parts': 'Intl.DateTimeFormat.formatToParts()', 'intl-parts-undefined': 'Intl.DateTimeFormat.formatToParts()',
+      'intl-format-alias': 'Intl.DateTimeFormat.format()', 'intl-format-alias-undefined': 'Intl.DateTimeFormat.format()',
+      'intl-parts-alias': 'Intl.DateTimeFormat.formatToParts()', 'intl-parts-alias-undefined': 'Intl.DateTimeFormat.formatToParts()',
+      'intl-format-getter': 'Intl.DateTimeFormat.format()', 'intl-format-computed': 'Intl.DateTimeFormat.format()',
+      'intl-parts-prototype': 'Intl.DateTimeFormat.formatToParts()', timeout: 'setTimeout()', interval: 'setInterval()',
+      'computed-timeout': 'setTimeout()', frame: 'requestAnimationFrame()', performance: 'performance.now()' };
+    for (const [form, api] of Object.entries(forms)) {
+      const atInit = answer('atInit', [form]);
+      expect(atInit.startsWith(api) && atInit.includes('as an argument'), `${form} at initialization: ${atInit}`).toBe(true);
+      expect(() => answer('ambient', [form]), form).toThrow(api);
+    }
+    // Explicit inputs keep the language's behavior.
+    expect(answer('explicit', [86_400_000, 7])).toBe('1970-01-02T00:00:00.000Z/' + ((Math.imul(7, 1664525) + 1013904223) >>> 0));
+    expect(answer('utc', [])).toBe('2024-02-29T12:34:56.789Z/12/1709210096789/true');
+    expect(answer('intl', [0])).toBe('1970/1970/1970/1970');
+    // The page's own are untouched.
+    expect([globalThis.Date, Math.random, typeof Date.now()]).toEqual([page.Date, page.random, 'number']);
+  } finally {
+    delete globalThis.exact;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('module-glue prepare accepts normalized formatting and exact-only grants', async () => {
   const set = createGrantSet(structuredClone(normalized('net.fetch https://api.example\nauth.session https://login.example')));
   const formatted = ' net.fetch https://api.example\n\n  auth.session https://login.example  ';

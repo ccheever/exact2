@@ -300,9 +300,12 @@ on the web and these on Hermes (macOS, iOS, Linux):
 
 Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
 `setInterval`), `performance.now()`, `Date.now()`, `new Date()` without a value
-and `Math.random()`: time and seeds are source arguments. Hermes and the web's
-module realm refuse the clock and `Math.random` by name; the type check cannot
-see the difference, so an app that calls them builds and fails on a device.
+and `Math.random()`: time and seeds are source arguments. Every executor
+refuses them by name, with the same message, on first use: Hermes, the web's
+module realm, and the web build, whose bundler gives the app's own modules
+guarded `Date`, `Math`, `Intl`, timers and `performance` in place of the
+page's (LLP 1027.000 D3), so an app that reads the clock fails in the web loop
+as it would on a device. The type check cannot see the difference.
 ES2024's resizable `ArrayBuffer`, shared memory and the RegExp `v` flag are not
 in Hermes, so they are not in the library.
 

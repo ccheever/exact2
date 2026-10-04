@@ -45,6 +45,20 @@
     throw new Error("Math.random() is unavailable in data sources; pass time or a random seed as an argument, or use crypto.getRandomValues");
   });
 
+  // No timers and no clock to read (LLP 1027.000): refused by name, as the
+  // web's module bindings refuse them (host/web-js/ts-fetch.js), rather than
+  // a bare "doesn't exist". Clearing what was never set is harmless.
+  function noTimers(api) {
+    return function () { throw new Error(api + " is unavailable in data sources: there are no timers; pass time as an argument"); };
+  }
+  ["setTimeout", "setInterval", "requestAnimationFrame", "requestIdleCallback"].forEach(function (name) {
+    fixed(global, name, noTimers(name + "()"));
+  });
+  ["clearTimeout", "clearInterval", "cancelAnimationFrame", "cancelIdleCallback"].forEach(function (name) {
+    fixed(global, name, function () {});
+  });
+  fixed(global, "performance", Object.freeze({ now: function () { return refuseAmbient("performance.now()"); } }));
+
   // Intl's formatting methods also default an omitted/undefined date to
   // machine time. Guard the prototype before an app can capture its bound
   // format getter or formatToParts method; explicit timestamps still use
