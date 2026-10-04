@@ -54,7 +54,7 @@ const INSET_CURRENT: Color = Color::rgba(0xee, 0xee, 0xee, 0xff);
 /// Each colour of a value shaded, a light/dark pair per appearance.
 fn shade(value: ColorValue, shadowed: bool) -> ColorValue {
     let one = |c: Color| inset_shade(c, shadowed);
-    match value.pair() {
+    match value.fallback() {
         ColorValue::Fixed(c) => ColorValue::Fixed(one(c)),
         ColorValue::LightDark(light, dark) => ColorValue::LightDark(one(light), one(dark)),
         other => other,
