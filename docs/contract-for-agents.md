@@ -556,9 +556,11 @@ This test goes with the complete example above. The steps are `size 1200x800`
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text; a control's value, so a `select` reads its chosen value, not its
 options; else its descendants' — a button's label — else a field's value), and `expect state name == <number|string|bool|none|[]>`. The clock
-stands still between steps: a reply, a mutation's `then`, a timer or a
-transition an input started lands at a `clock` step, so `clock settle` before
-the `expect` that depends on it. `type "id" key "Name"`
+stands still between steps: a reply, a mutation's `then` or a transition an
+input started lands at a `clock` step, so `clock settle` before the `expect` that
+depends on it. A timer (`after`, `every`) fires only when the clock passes its
+time: `clock settle` crosses it only if something else in flight runs that long,
+so move past it with `clock +N` (a `task … after(1, restore)` needs `clock +1`). `type "id" key "Name"`
 focuses the target if it takes the focus (else leaves the focus where it is)
 and presses the key as a keyboard would on every host: its `key` handlers,
 then its default — `"7"` types into a field, `"Enter"` submits it (a
