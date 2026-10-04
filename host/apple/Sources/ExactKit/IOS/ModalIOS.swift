@@ -348,6 +348,9 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                 guard let session = presenter.session, session.state != .destroyed else { return }
                 presenter.navigation.modalDidDismiss()
                 fit()
+                // As after a presentation: what the dismissal's transition
+                // covered measures again (a drag in the route left on top).
+                presenter.transformGeometry.changed()
             }
         }
         if layer.alreadyDismissed || layer.controller.presentingViewController == nil { completion() }
