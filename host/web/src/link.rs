@@ -56,6 +56,8 @@ pub struct Linked {
     pub auth: bool,
     /// `share(…)` (LLP 1069.003).
     pub share: bool,
+    /// `showNotification` and `closeNotification`.
+    pub notifications: bool,
     /// `saveFile` and the file pickers (LLP 1069.010).
     pub documents: bool,
     /// `input type="file"` and `showPicker` (LLP 1069.002): a file input's
@@ -116,6 +118,28 @@ pub struct AnimationsLink {
 pub type PickedPayload = fn(&str) -> Option<Vec<exact_runner::Picked>>;
 
 impl Linked {
+    /// The runner's device capabilities this names (LLP 1047 D3): each
+    /// linked one's entries, [`exact_runner::DeviceLinks::CORE`]'s none for
+    /// the rest.
+    pub const fn device_links<D: exact_runner::DataSource>(self) -> exact_runner::DeviceLinks<D> {
+        let all = exact_runner::DeviceLinks::<D>::ALL;
+        exact_runner::DeviceLinks {
+            auth: if self.auth { all.auth } else { None },
+            share: if self.share { all.share } else { None },
+            documents: if self.documents { all.documents } else { None },
+            picker: if self.picker.is_some() {
+                all.picker
+            } else {
+                None
+            },
+            notifications: if self.notifications {
+                all.notifications
+            } else {
+                None
+            },
+        }
+    }
+
     /// The core alone.
     pub const CORE: Linked = Linked {
         markup: None,
@@ -132,6 +156,7 @@ impl Linked {
         backdrop: None,
         auth: false,
         share: false,
+        notifications: false,
         documents: false,
         picker: None,
         timelines: None,
@@ -178,6 +203,9 @@ impl Linked {
         }
         if self.share {
             uses = uses.with(Capability::Share);
+        }
+        if self.notifications {
+            uses = uses.with(Capability::Notifications);
         }
         if self.documents {
             uses = uses.with(Capability::Documents);

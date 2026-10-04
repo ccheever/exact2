@@ -49,7 +49,12 @@ a `keyframes` or `font` block, and a component need at least one entry.
   Template text is verbatim: a backslash is never an escape and stays in the
   text, and `\${` still interpolates. Use an ordinary string when you need an
   escape.
-- `//` starts a line comment outside a string/template. No block comments.
+- A hex color may be written bare, as CSS writes it: `#` and 3, 4, 6 or 8 hex
+  digits (`color=#1f9d62`, a keyframe's `background-color=#1f9d6244`) is the
+  string `"#1f9d62"`, and the formatter prints it quoted. Any other `#` is
+  refused, saying so.
+- `//` starts a line comment outside a string/template. No block comments;
+  `#` is not a comment.
 - Indentation uses spaces; a tab in indentation is refused. At bracket depth zero, indentation emits
   block tokens. Inside `()`, `[]`, and `{}`, newlines and indentation continue
   the logical expression instead.
@@ -745,8 +750,8 @@ The current command name inventory is:
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `focus`, `format`,
 `openURL`, `selectText`, `setScheme`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`,
-`haptic`, `postMessage`, `reload`, `preventDefault` and `stopPropagation`
-([keys](#keys)).
+`showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`,
+`preventDefault` and `stopPropagation` ([keys](#keys)).
 
 These appear only as action statements. They are not ordinary value-returning
 functions. Some have dedicated compiler checks while others also rely on host
@@ -761,6 +766,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
 | `setScheme(...)` | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
 | `share(...)` | [share corpus](../contract/corpus/share.contract) |
+| `showNotification(title=, body=, tag=, showTrigger=)`, `closeNotification(tag)`: a local notification by the Notification API's names, now or at `showTrigger` (epoch milliseconds); a newer one with the same `tag` replaces it, and `closeNotification` takes it away, shown or waiting. Needs the grant `device.notifications <strings key>`; see [notifications](reference.md#notifications) | [notify corpus](../contract/corpus/notify.contract) |
 | `showPicker(id)`, export `saveFile(...)` | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract) |
 | `showOpenFilePicker(id[, multiple])` | [file-picker corpus](../contract/corpus/file-pickers.contract) |
 | `showDirectoryPicker(id)` | Same corpus |
@@ -771,7 +777,8 @@ argument validation. Use the working implementation when selecting arguments:
 The web (its JS target) and the Apple hosts carry every command. The
 headless Linux host has no browser, clipboard, text selection, editor or dev
 menu: its `openURL`, `copyText`, `selectText`, `format` and `reload` are
-journaled as unsupported there, and `haptic` does nothing. On the web,
+journaled as unsupported there, `haptic` does nothing, and `showNotification`
+is refused (`showNotification: refused: unavailable`). On the web,
 `reload()` is the page's own reload, and `deliveryCheck` and
 `deliveryActivate` find nothing (a web build has no update store; the page is
 the newest root).

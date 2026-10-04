@@ -95,6 +95,11 @@ pub const HOST_COMMANDS: &[&str] = &[
     // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
     "showPicker",
     "share",
+    // Local notifications by the Notification API's names (rules/DEFERRED.md,
+    // 2026-10-04): `showNotification(title=, body=, tag=, showTrigger=)` and
+    // `closeNotification(tag)`.
+    "showNotification",
+    "closeNotification",
     // @ref LLP 1069.010 D3 — export: the host copies an `app:/` file out.
     "saveFile",
     // @ref LLP 1069.010 D2 — the File System Access API's pickers.

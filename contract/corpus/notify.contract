@@ -1,0 +1,18 @@
+// `showNotification` and `closeNotification` (rules/DEFERRED.md, 2026-10-04;
+// x2apps habits F13): one now, one at a time, replaced by its tag, closed.
+component App
+  state at = 1800000000000
+  action remind
+    showNotification(title="Stretch", body="Five minutes, at your desk", tag="stretch", showTrigger=at)
+  action now
+    showNotification(title="Price alert")
+  action stop
+    closeNotification("stretch")
+  view
+    column padding=16 gap=8
+      button press=remind testId="remind"
+        text "Remind me"
+      button press=now testId="now"
+        text "Now"
+      button press=stop testId="stop"
+        text "Stop"

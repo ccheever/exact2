@@ -901,6 +901,14 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
             count.messages, count.coalesced
         );
     }
+    // Notifications posted under the agent, where none reaches the system.
+    s.push_str("],\"notifications\":[");
+    for (i, n) in runner.notifications().iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        n.summary(&mut s);
+    }
     // The store's names, never its values (LLP 1018 D5).
     s.push_str("],\"store\":[");
     for (i, name) in runner.store_names().iter().enumerate() {

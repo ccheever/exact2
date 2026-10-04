@@ -54,6 +54,7 @@ mod mutation;
 mod names;
 mod native_buttons;
 mod negative_margin;
+mod notify;
 mod pan;
 mod pan_release;
 mod picker;

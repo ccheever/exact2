@@ -184,4 +184,15 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   finally { controllers.delete(controller); }
 }
 
+// A stream on the JS target (host/web-js: rust-data.js, ts-data.js): `request`
+// over a source's request, as the wasm host runs it, so a stream is admitted,
+// read, coalesced and ended the same on both web targets (LLP 1016.000).
+export function streamed(req, grantSet, message, controller) {
+  let body = '';
+  for (const b of req.raw ?? []) body += String.fromCharCode(b);
+  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: body && btoa(body), stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
+    { grantSet, controllers: new Set(), controller, message, localAssetURL: url => new URL(url, location.href).href,
+      loadPageNative: () => Promise.reject(new Error('a stream is not a page-module request')) });
+}
+
 if (globalThis.exact) globalThis.exact.httpHelpers = { boundedHttpBody, waitForInflight, request };

@@ -264,6 +264,25 @@ fn share_is_a_plan_that_runs_the_command() {
 }
 
 #[test]
+fn notifications_are_a_plan_that_runs_show_or_close_notification() {
+    // Linked by use on the web (QUEUE.md's standing rule: the web cores' size).
+    assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Notifications));
+    for call in [
+        "showNotification(title=\"Stretch\")",
+        "closeNotification(\"stretch\")",
+    ] {
+        let notifies = used(&format!(
+            "component A\n  action go\n    {call}\n  view\n    button \"Go\" press=go\n"
+        ));
+        assert!(notifies.has(Capability::Notifications) && !notifies.has(Capability::Share));
+    }
+    assert_eq!(
+        Uses::NONE.with(Capability::Notifications).to_string(),
+        "notifications"
+    );
+}
+
+#[test]
 fn documents_are_a_plan_that_runs_save_file_or_a_file_picker() {
     // @ref LLP 1069.010 — linked by use on the web (the web core's size).
     assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Documents));

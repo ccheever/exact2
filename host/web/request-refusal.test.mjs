@@ -562,6 +562,7 @@ test('ts-data installs the native Store facade and a later gpu-glue shader uses 
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
   writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(set)});\n`);
   for (const name of ['grant-admission.js', 'navigation.js', 'gpu-glue.js', 'gpu-assets.js', 'pace.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+  cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), resolve(dir, 'ts-fetch.js'));
   writeFileSync(resolve(dir, 'gpu.js'), `export default async()=>{};export const gpu_load=async()=>{},gpu_shader_names=()=> '["shader"]',gpu_shaders_clear=()=>{},gpu_shader=()=>true,gpu_unload=()=>{},gpu_child_view=()=>{};\n`);
   const descriptors = Object.fromEntries(['fetch', 'document', 'window', 'requestAnimationFrame', 'cancelAnimationFrame', 'devicePixelRatio'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   const shaderFetches = [], browserFetch = async input => { shaderFetches.push(String(input)); return new Response('shader'); };
@@ -606,7 +607,10 @@ const answers = {
   kind: { days: 'none', note: null },
   dropped: { days: [day({ id: 'a', amount: 1, later: undefined, f() {} })], note: 'n' },
 };
+import { fetch } from './ts-fetch.js';
 export function answer(name, args, store, storage) {
+  // A socket the grants do not name: its end, mapped (LLP 1016.000).
+  if (name === 'stream') return fetch('ws://127.0.0.1:9/feed', { exactStream: e => e.type + ' ' + e.kind + ': ' + e.message });
   if (name === 'read') return storage.fs.readFile('app:/data/x').then(() => 'read', e => e.kind + ' ' + e.code + ' ' + e.message);
   return name === 'later' ? Promise.resolve(answers.spread) : answers[args[0]];
 }
@@ -616,10 +620,11 @@ export function answer(name, args, store, storage) {
     .replace("from './rt.js'", "from './rt-stub.js'"));
   writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[];export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n`);
   const ledger = '{"days":["[",{"id":"s","transactions":["[",{"id":"s","amount":"n"}]}],"note":["?","s"]}';
-  writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes={ledger:[["s"],${ledger}],later:[[],${ledger}],read:[[],"s"]};\n`);
+  writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes={ledger:[["s"],${ledger}],later:[[],${ledger}],read:[[],"s"],stream:[[],"s"]};\n`);
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
   writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(normalized('fs.read app:/data'))});\n`);
-  for (const name of ['grant-admission.js', 'navigation.js', 'storage-environment.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+  for (const name of ['grant-admission.js', 'navigation.js', 'storage-environment.js', 'http-body.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+  for (const name of ['ts-fetch.js', 'ts-stream.js']) cpSync(resolve(ROOT, 'host/web-js', name), resolve(dir, name));
   try {
     const ts = await import(`${pathToFileURL(resolve(dir, 'ts-data.js')).href}?shape=${Date.now()}`), data = { q: [] };
     ts.install(data);
@@ -636,6 +641,12 @@ export function answer(name, args, store, storage) {
     // A storage refusal's code is Hermes's (kanban F28): a drive with no scratch store.
     globalThis.location = { href: 'http://localhost/?agent' };
     expect(await data.answer('read', [], new Map()).promise).toBe('Unavailable agent storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)');
+    // A stream is the answer's, opened by the runtime, admitted as the wasm host admits it: a socket by
+    // `net.websocket` (x2apps dash diary: refused as `net.fetch`). Outside an answer it says where to start one.
+    const stream = data.answer('stream', [], new Map());
+    expect(await stream.stream(() => {}, new AbortController())).toEqual({ v: "error Refused: outside the app's grants (net.websocket)" });
+    const { fetch } = await import(pathToFileURL(resolve(dir, 'ts-fetch.js')).href);
+    await expect(fetch('wss://a.example', { exactStream: e => e })).rejects.toThrow('before the answer\'s first await');
   } finally {
     delete globalThis.location;
     rmSync(dir, { recursive: true, force: true });

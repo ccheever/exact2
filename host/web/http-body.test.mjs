@@ -165,3 +165,21 @@ test('a socket delivers text messages, coalescing a burst, then its close (LLP 1
     assert.ok(peer.gone.includes('/hold'), 'the peer saw the socket close');
   } finally { peer.close(); }
 });
+
+// The JS target's stream (`streamed`, LLP 1016.000): a source's request run
+// as the wasm host runs it, so a socket is admitted by `net.websocket` alone
+// and a `net.fetch` grant does not open one (the web module's fetch
+// refused a socket as `net.fetch`, x2apps dash diary).
+test('the JS target opens a socket under net.websocket, never net.fetch', async () => {
+  const { streamed } = await import('./http-body.js');
+  const peer = await socketPeer();
+  const text = (r) => new TextDecoder().decode(r.body);
+  try {
+    const sent = [];
+    const end = await streamed({ method: 'GET', url: `${peer.url}/three`, headers: [], maxResponseBytes: 64 }, normalized(`net.websocket ${peer.url}`), (m) => sent.push(m), new AbortController());
+    assert.deepEqual(sent[0], { event: '', id: '', data: 'a', coalesced: 0 });
+    assert.deepEqual([end.kind, text(end)], [1, 'the socket closed (1000)']);
+    const refused = await streamed({ url: `${peer.url}/three`, maxResponseBytes: 64 }, normalized(`net.fetch ${peer.url.replace('ws:', 'http:')}`), () => {}, new AbortController());
+    assert.deepEqual([refused.kind, text(refused)], [2, "outside the app's grants (net.websocket)"]);
+  } finally { peer.close(); }
+});

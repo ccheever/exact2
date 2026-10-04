@@ -385,11 +385,55 @@ behind them, to their end before the next answer starts; only its answer is
 dropped, so serializing storage through one promise chain composes with
 `refreshes` and fast-changing arguments (ledger F12, minesweeper F10).
 
+An answer that keeps coming (LLP 1016.000) is a `fetch` with `exactStream`,
+returned as the answer: `return fetch(url, { exactStream: (event) => value })`.
+The promise never settles; each message, and the end, is mapped now (the
+mapper cannot await) and commits as the resource's answer. An `http:`/`https:`
+URL is read as server-sent events under `net.fetch`; a `ws:`/`wss:` URL is a
+receive-only WebSocket under `net.websocket` alone (no frame is ever sent, so a
+feed that waits for a subscribe frame cannot be read). An event is
+`{type, data, lastEventId, coalesced}`; messages that arrive faster than they
+commit coalesce to the newest, counted in `coalesced`. The end is
+`{type: 'error', kind, message, status}`: `kind` is `Network` (the far side
+closed: `the socket closed (1000)`), `Refused` (outside the grants), `Aborted`,
+or `Response` with the status and body of a reply that was not an event stream.
+New arguments, `refresh` or the resource leaving the view close the stream;
+`state.pending` lists it until its first message, `state.streams` while it is
+open. The same holds on Hermes, the web's wasm host and the web build (the JS
+target), with one difference: on the web build the stream's `fetch` must be
+made while the answer is asked, before its first `await` (a later one is
+refused, saying so); on Hermes it may follow an `await`.
+
 This first browser implementation targets modest app stores: filesystem
 operations read the app's file records, and each SQLite mutation atomically
 saves the whole database file. Database files share the filesystem namespace,
 so closed databases can be copied or exported through `storage.fs`. SQLite integer results
 are `bigint`: convert them to a Contract-compatible value before returning.
+
+### Notifications
+
+`showNotification(title=…, body=…, tag=…, showTrigger=…)` posts a local
+notification; `closeNotification(tag)` takes one away, shown or still
+waiting. The names are the Notification API's (`showTrigger` is the
+Notification Triggers draft's member, given as the time in epoch
+milliseconds: the date now is `exactTime().epochAtZero + now()`). A newer notification
+with the same `tag` replaces the older. The app's grants must name
+`device.notifications purpose.notifications` (a strings key, LLP 1069.008;
+iOS shows its own fixed prompt text), or the command is refused. Permission
+is asked the first time; the outcome is a journal line
+(`showNotification: shown`, `scheduled`, `refused: denied`, …).
+
+| host | now | at `showTrigger` |
+| --- | --- | --- |
+| web | `new Notification(title, {body, tag})` | while the page is open: the web has no trigger that outlives the page |
+| macOS, iOS | `UNUserNotificationCenter`, shown with the app in front too | the system's, delivered with the app closed |
+| Linux | refused: `unavailable` | the same |
+
+Under the agent nothing reaches the system on any host: `state.notifications`
+lists what the app posted (`{title, body, tag, showTrigger}`, a tag replacing
+its older one, `closeNotification` removing it), so a drive reads a reminder
+without a permission prompt. Scheduling is one time per call: a daily
+reminder posts the next one when the app runs.
 
 ### Documents the person chose (`doc:`)
 

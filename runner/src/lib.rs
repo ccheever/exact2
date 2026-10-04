@@ -55,6 +55,7 @@ pub mod grants;
 pub mod head;
 pub mod held;
 pub mod instance;
+pub mod notify;
 pub mod page;
 pub mod perf;
 pub mod request;
