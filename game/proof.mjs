@@ -362,7 +362,7 @@ export function facilityReport(replies) {
 /// other games, the bench and its probes, the twins, diaries, LLPs, apps, build
 /// outputs. Source extensions, app assets, and Apple module inputs are admitted.
 /// A game's own scripts (bench.mjs, a proxy, a probe) are tools, not bake inputs:
-/// no bake reads a .mjs/.js outside its logic, data, gpu and asset folders.
+/// no bake reads a .mjs/.js outside its logic, data, gpu, presentation and asset folders.
 export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`) {
   return /^(issues|\.claude)\//.test(file)
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs|.*\.md)$/.test(file)
@@ -425,7 +425,7 @@ export function proofInputs(root, app, cachePath) {
     // Host bake depends on the declaration, not the game's implementation.
     // Shared compiler crates remain conservative inputs of both graphs.
     const own=file.startsWith(prefix) ? file.slice(prefix.length) : null;
-    const gpuOnly=own!==null ? /^(logic|gpu|art|assets|deck)\//.test(own) : /^game\/(engine|render|physics|audio|bake)\//.test(file);
+    const gpuOnly=own!==null ? /^(logic|gpu|presentation|art|assets|deck)\//.test(own) : /^game\/(engine|render|physics|audio|bake)\//.test(file);
     const hostOnly=own!==null ? /\.contract$/.test(own) : /^host\//.test(file);
     if(!hostOnly) groups.gpu.push(row);
     if(!gpuOnly) groups.host.push(row);

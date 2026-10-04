@@ -3,15 +3,16 @@
 // browser's navigation is prevented; a `_blank` target, a `download` or a
 // modified click is the browser's alone and the press does not run, as
 // `router()` and the wasm host's input-glue.js say (Astra's batch 2
-// review). rt.js runs beside stand-ins for the modules it imports.
+// review). rt.js (with the roster and router it re-exports) runs beside
+// stand-ins for the modules it imports.
 import { test, expect } from 'bun:test';
 import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-press-'));
-copyFileSync(resolve(new URL('../../web-js/rt.js', import.meta.url).pathname), resolve(dir, 'rt.js'));
-for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace'], 'shape.js': ['conforms', 'eq'], 'pointer.js': ['pointer'],
+for (const f of ['rt.js', 'roster.js', 'router.js']) copyFileSync(resolve(new URL(`../../web-js/${f}`, import.meta.url).pathname), resolve(dir, f));
+for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'animationClocks'], 'shape.js': ['conforms', 'eq', 'equal'], 'pointer.js': ['pointer'],
   'paint.js': ['paintList', 'paintFacts', 'paintFlush', 'paintOwn'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
   'svg-transform.js': ['svgTransform'], 'dataset.js': ['ds'], 'hooks.js': ['hk'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber'] }))
   writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n'));

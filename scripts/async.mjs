@@ -105,6 +105,8 @@ function checks(sha) {
     // seeds, so a divergence is attributed to the commit that made it), and
     // the compiler's bytecode on the Lean VM model against the same,
     // and the Lean type checker against the Rust one on those programs and mutants.
+    // The corpus and the explored programs also run on the web JS target (`--js`,
+    // the second implementation, against the runner), and a smaller random sweep.
     // A `sorry` fails it: a proof that is not there is not checked. Every
     // part runs whatever the one before it found.
     ['semantics', 'sh', ['-c', [
@@ -112,9 +114,10 @@ function checks(sha) {
       'out=$(cd semantics && lake build 2>&1) || failed=1; echo "$out"',
       'if echo "$out" | grep -q "declaration uses .sorry."; then echo "error: semantics: a proof uses sorry"; failed=1; fi',
       'cargo run -q -p contract-difftest -- apps || failed=1',
-      'cargo run -q -p contract-difftest -- corpus || failed=1',
-      'cargo run -q -p contract-difftest -- explore contract/corpus apps/*/app.contract || failed=1',
+      'cargo run -q -p contract-difftest -- corpus --js || failed=1',
+      'cargo run -q -p contract-difftest -- explore contract/corpus apps/*/app.contract --js || failed=1',
       'cargo run -q -p contract-difftest -- random --seed 1 --count 5000 || failed=1',
+      'cargo run -q -p contract-difftest -- random --seed 1 --count 500 --js-only || failed=1',
       'cargo run -q -p contract-difftest -- lowering-corpus || failed=1',
       'cargo run -q -p contract-difftest -- lowering --seed 1 --count 300 || failed=1',
       'cargo run -q -p contract-difftest -- numbers --count 200000 || failed=1',
@@ -147,8 +150,8 @@ function failures(name, log, status) {
   // conform --strict: a failing step by target and step (the what varies run to run).
   for (const m of log.matchAll(/^FAIL (\S+) ([^:\n]+):/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);
   for (const m of log.matchAll(/^\(fail\) (.+?) \[[\d.]+m?s\]$/gm)) found.add(`${name}: ${m[1]}`);
-  // difftest: a case that diverged, failed an expectation or was refused.
-  for (const m of log.matchAll(/^(DIVERGE|EXPECT|EMIT|SCRIPT|REFUSED) (.+?)(?: at line \d+)?:/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);
+  // difftest: a case that diverged (on the JS target too), failed an expectation or was refused.
+  for (const m of log.matchAll(/^(DIVERGE|DIVERGE-JS|ERROR-JS|EXPECT|EMIT|SCRIPT|REFUSED) (.+?)(?: at line \d+)?:/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);
   // difftest types: the two checkers disagreed on a program or a mutant.
   for (const m of log.matchAll(/^LEAN (ACCEPTS|REFUSES) (.+?) \(/gm)) found.add(`${name}: LEAN ${m[1]} ${m[2]}`);
   for (const m of log.matchAll(/^error: (\S+\.lean):\d+:\d+: (.*)$/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);

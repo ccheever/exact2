@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { Cdp } from '../../scripts/agent.mjs';
@@ -17,7 +17,7 @@ function normalized(spec) {
   const scratch = mkdtempSync(resolve(tmpdir(), 'exact-grants-'));
   const input = resolve(scratch, 'grants.txt');
   writeFileSync(input, spec);
-  const target = resolve(process.env.CARGO_TARGET_DIR || resolve(ROOT, 'target'), 'debug/exact-web-js');
+  const target = resolve(process.env.CARGO_TARGET_DIR || resolve(ROOT, 'target'), `debug/exact-web-js${process.platform === 'win32' ? '.exe' : ''}`);
   const result = existsSync(target)
     ? spawnSync(target, ['normalize-grants', input], { cwd: ROOT, encoding: 'utf8' })
     : spawnSync('cargo', ['run', '-q', '-p', 'exact-web-js', '--', 'normalize-grants', input], { cwd: ROOT, encoding: 'utf8' });
@@ -235,6 +235,42 @@ test('filesystem admission is component-based and refuses traversal', () => {
   expect(coversPath(set, 'fs.write', 'app:/data/other')).toBe(false);
 });
 
+test('quoted source scopes keep their original lines and native tuples are inert in browsers', () => {
+  const native = 'fs.read "C:\\\\Users\\\\With Space"';
+  const app = 'fs.read "app:/data/with space"';
+  const set = normalized(`${native}\n${app}`);
+  expect(grantError(set)).toBeNull();
+  expect(coversPath(set, 'fs.read', 'app:/data/with space/file')).toBe(true);
+  expect(coversPath(set, 'fs.read', 'C:/Users/With Space/file')).toBe(false);
+  expect(grantError(scopedGrantSet(set, native))).toBeNull();
+  expect(grantError(scopedGrantSet(set, 'fs.read "C:/Users/With Space"'))).toContain('source scope');
+  expect(grantError(scopedGrantSet(set, 'fs.read "app:/data/with\\u0020space"'))).toContain('source scope');
+  expect(coversPath(scopedGrantSet(set, ''), 'fs.read', 'app:/data/with space/file')).toBe(false);
+});
+
+test('sealed native tuples still require valid source grammar and exact decoded components', () => {
+  const seal = entries => {
+    const set = { version: 1, entries, error: null };
+    let hash = 0xcbf29ce484222325n;
+    for (const byte of new TextEncoder().encode(JSON.stringify(set))) {
+      hash ^= BigInt(byte); hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+    }
+    return { ...set, seal: hash.toString(16).padStart(16, '0') };
+  };
+  for (const [source, component] of [
+    ['fs.read "C:/safe" fs.write C:/', 'safe'],
+    ['fs.read "C:/safe"', 'outside'],
+    ['fs.read "C:/CON.txt"', 'CON.txt'],
+    ['fs.read "C:/bad\\u007f"', 'bad\u007f'],
+    ['fs.read "C:/bad\\uD800"', 'bad\ud800'],
+    ['fs.read C:/bad\ud800', 'bad\ud800'],
+    ['fs.read C:/bad\udc00', 'bad\udc00'],
+  ]) expect(grantError(seal([[1, source, ['fs-read', 'win:C', component], null]]))).toBe('the grant set was not validated');
+  const boundary = '💾'.repeat(127) + 'x';
+  expect(grantError(normalized(`fs.read ${JSON.stringify(`C:/${boundary}`)}`))).toBeNull();
+  expect(grantError(normalized(`fs.read ${JSON.stringify(`C:/${boundary}x`)}`))).not.toBeNull();
+});
+
 test('the production file command refuses a source outside the admitted fs.read prefix', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-files-admission-'));
   writeFileSync(resolve(dir, 'files.js'), readFileSync(resolve(ROOT, 'host/web-js/files.js'), 'utf8')
@@ -266,12 +302,14 @@ test('the web matcher consumes the Rust grammar corpus', () => {
     const set = normalized(item.spec);
     expect(!grantError(set), item.spec).toBe(item.ok);
     for (const [url, admitted] of item.fetch ?? []) expect(admitsNetwork(set, url, 'fetch'), `${item.spec}: ${url}`).toBe(admitted);
+    for (const [cap, path, admitted] of item.fs ?? []) expect(coversPath(set, cap, path), `${item.spec}: ${path}`).toBe(admitted);
+    for (const [cap, path] of item.nativeFs ?? []) expect(coversPath(set, cap, path), `${item.spec}: inert ${path}`).toBe(false);
   }
   expect(grantError(normalized('net.fetch\fhttps://api.example'))).toBeNull();
   expect(grantError(normalized('net.fetch\u2028https://api.example\n# paragraph\u2029separator'))).toBeNull();
   const portZero = normalized('net.fetch http://example.test:0');
   expect([grantError(portZero), admitsNetwork(portZero, 'http://example.test:0/x', 'fetch')]).toEqual([null, true]);
-});
+}, 15_000);
 
 test('network grants are selected by the requested operation, not ws URL spelling', async () => {
   const fetchSet = normalized('net.fetch wss://socket.example');
@@ -318,10 +356,13 @@ test('a built TypeScript source reaches fetch through the app grant binding', as
   if (!process.env.CHROME || !existsSync(process.env.CHROME)) return;
   let destinationHits = 0;
   const destination = Bun.serve({ port: 0, fetch() { destinationHits++; return new Response('raw browser fetch', { headers: { 'access-control-allow-origin': '*' } }); } });
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-build-')), dist = resolve(dir, 'dist'), profile = resolve(dir, 'chrome');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact ts fetch # ')), dist = resolve(dir, 'dist'), profile = resolve(dir, 'chrome');
   writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Grant probe', app: { id: 'test.grant-probe', name: 'Grant probe' }, host: { web: {} } }));
   writeFileSync(resolve(dir, 'app.contract'), `shape Result\n  value: string\ncomponent Probe\n  resource result = probe() as shape Result\n  view\n    text result.value testId="result"\n`);
-  writeFileSync(resolve(dir, 'app.ts'), `export const appId='test.grant-probe',grants='';export async function answer(source){if(source!=='probe')return null;try{await fetch(${JSON.stringify(destination.url.href)});return {value:'raw browser fetch'};}catch(error){return {value:error.name+':'+error.kind};}}\n`);
+  // The app dependency must be rewritten; copied host modules must retain browser
+  // globals. Rewriting both would make the generated appGlobal self-referential.
+  writeFileSync(resolve(dir, 'fetch-request.ts'), `export async function attempt(){try{await fetch(${JSON.stringify(destination.url.href)});return {value:'raw browser fetch'};}catch(error:any){return {value:error.name+':'+error.kind};}}\n`);
+  writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nimport { attempt } from './fetch-request.ts';\nexport const appId='test.grant-probe',grants='';\nconst sources: Sources = { probe: attempt };\nexport const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;\n`);
   const built = spawnSync(process.execPath, ['host/web-js/build.mjs', 'grant-probe', '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
   let page, child, cdp, exited;
   try {
@@ -329,7 +370,7 @@ test('a built TypeScript source reaches fetch through the app grant binding', as
     page = Bun.serve({ port: 0, async fetch(request) {
       const name = new URL(request.url).pathname === '/' ? 'index.html' : decodeURIComponent(new URL(request.url).pathname.slice(1));
       const file = resolve(dist, name);
-      if (!file.startsWith(dist + '/') || !existsSync(file)) return new Response('not found', { status: 404 });
+      if (!file.startsWith(dist + sep) || !existsSync(file)) return new Response('not found', { status: 404 });
       return new Response(Bun.file(file));
     } });
     child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
@@ -346,7 +387,7 @@ test('a built TypeScript source reaches fetch through the app grant binding', as
     expect(result.result.value).toBe('FetchError:Refused');
     expect(destinationHits).toBe(0);
   } finally {
-    if (child?.pid) { try { process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
+    if (child?.pid) { try { if (process.platform === 'win32') child.kill(); else process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
     page?.stop(true); destination.stop(true);
     rmSync(dir, { recursive: true, force: true });
   }
@@ -369,7 +410,7 @@ test('an app:/data image shows from the page\'s store, after a reload too', asyn
     page = Bun.serve({ port: 0, async fetch(request) {
       const name = new URL(request.url).pathname === '/' ? 'index.html' : decodeURIComponent(new URL(request.url).pathname.slice(1));
       const file = resolve(dist, name);
-      if (!file.startsWith(dist + '/') || !existsSync(file)) return new Response('not found', { status: 404 });
+      if (!file.startsWith(dist + sep) || !existsSync(file)) return new Response('not found', { status: 404 });
       return new Response(Bun.file(file));
     } });
     child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
@@ -387,7 +428,7 @@ test('an app:/data image shows from the page\'s store, after a reload too', asyn
     await call('Page.reload');
     expect(await shown()).toEqual(['found', 'blob:', 'blob:', 1]);
   } finally {
-    if (child?.pid) { try { process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
+    if (child?.pid) { try { if (process.platform === 'win32') child.kill(); else process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
     page?.stop(true);
     rmSync(dir, { recursive: true, force: true });
   }

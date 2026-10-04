@@ -934,6 +934,7 @@ dependencies = [
 name = "exact-grants"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "url",
 ]
 
@@ -1367,9 +1368,9 @@ dependencies = [
 
 [[package]]
 name = "glamx"
-version = "0.3.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28d74079318e3a077bd3d15faa90fde24fa37bb9f157f92f853e6019a15fd413"
+checksum = "9847f980afb0628849bcd6a406cdffd29eb9d53fca83e1646005901a9acd4c5c"
 dependencies = [
  "approx",
  "glam 0.33.7",

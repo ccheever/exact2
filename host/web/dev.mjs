@@ -37,7 +37,7 @@ import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/
 import { filesystem } from '../../scripts/filesystem.mjs';
 import { allowHostArgs, developmentGate, installBrowserOrigins, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, unwatchFile, watch, watchFile } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { gpuModules, shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
 import { webDist, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
@@ -1070,7 +1070,7 @@ const server = createServer(async (req, res) => {
   const file = url.pathname === '/' ? '/index.html' : url.pathname;
   if (file === '/dev.js') { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); res.end(readFileSync(resolve(root, 'host/web/dev.js'))); return; }
   // The module artifact as it is now, not as the last build copied it: a reload picks up an edit (LLP 1067 D5).
-  if (file.startsWith('/modules/') && app.modules.web && /^\/modules\/[\w./-]+\.js$/.test(file) && !file.includes('..')) { const path = resolve(app.dir, 'modules/web', file.slice('/modules/'.length)); if (existsSync(path)) { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); res.end(readFileSync(path)); return; } }
+  if (file.startsWith('/modules/') && app.modules.web && /^\/modules\/[\w./-]+\.js$/.test(file) && !file.includes('..')) { const path = resolve(dirname(app.modules.web), file.slice('/modules/'.length)); if (existsSync(path)) { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); res.end(readFileSync(path)); return; } }
   try {
     if (!found) { res.writeHead(404); res.end(); return; }
     let body = found.body;

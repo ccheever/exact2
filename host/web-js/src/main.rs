@@ -13,6 +13,7 @@ mod code;
 mod emit;
 mod faces;
 mod facts;
+mod nested;
 mod paint;
 #[cfg(test)]
 mod paint_tests;

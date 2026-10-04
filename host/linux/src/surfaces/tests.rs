@@ -52,7 +52,7 @@ fn surface_messages_without_listeners_are_discarded_and_listeners_still_receive_
     assert_eq!(text.props.str(exact_kernel::PropId::Text), Some("dawn"));
 }
 
-fn compile_fixture(source: &std::path::Path, path: &std::path::Path) {
+pub(super) fn compile_fixture(source: &std::path::Path, path: &std::path::Path) {
     #[cfg(not(windows))]
     let mut command = {
         let mut command = std::process::Command::new("cc");
@@ -349,6 +349,11 @@ fn cpu_canvas_pick_is_forwarded_without_a_device() {
     );
     let reply = p.surface_request(1, json!({"op":"layout","x":50,"y":50}));
     assert_eq!(reply["hit"]["name"], "cpu");
+    let screenshot = p.merge_surfaces(r#"{"op":"screenshot"}"#, "{}".into());
+    assert!(screenshot.contains("flat (no device)"));
+    p.surfaces.abis.get_mut("").unwrap().rendered = true;
+    let screenshot = p.merge_surfaces(r#"{"op":"screenshot"}"#, "{}".into());
+    assert!(!screenshot.contains("no device"));
     drop(p);
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }

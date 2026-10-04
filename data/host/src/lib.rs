@@ -14,6 +14,8 @@ mod documents;
 mod native;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;
+#[cfg(all(test, windows))]
+mod windows_native_tests;
 
 /// Host-configured app directories; recorded without opening them.
 #[derive(Clone)]
@@ -91,9 +93,8 @@ impl<D: DataSource> Storage<D> {
                     .map_err(|_| unavailable("storage request must be UTF-8"))?;
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    // A chosen document is not app storage: it needs no app
-                    // directories (LLP 1069.010 D1).
-                    if self.directories.is_none() && !native::document(payload) {
+                    // Document/native disk authority is independent of app roots.
+                    if self.directories.is_none() && !native::independent_storage(payload) {
                         return Err(unavailable(
                             "storage is unavailable in an unconfigured host",
                         ));

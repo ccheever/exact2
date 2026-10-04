@@ -198,10 +198,15 @@ impl<D: DataSource> Presenter<D> {
         if let Some(reason) = assets.take_refusal() {
             return Err(HostError::Asset(reason));
         }
-        self.updates
-            .as_mut()
-            .unwrap()
-            .commit_activation(candidate.entry, candidate.seq)
+        let shaders = self
+            .surfaces
+            .prepare_shaders(&self.compat, &assets)
+            .map_err(HostError::Asset)?;
+        let updates = self.updates.as_mut().unwrap();
+        self.surfaces
+            .activate_shaders(shaders, || {
+                updates.commit_activation(candidate.entry, candidate.seq)
+            })
             .map_err(HostError::Asset)?;
         self.updates.as_mut().unwrap().boot_started();
         self.host = host;
@@ -272,6 +277,7 @@ mod tests {
         fn take_note(&mut self) -> Option<String> {
             None
         }
+        #[cfg(unix)]
         fn fd(&self) -> std::os::unix::io::RawFd {
             -1
         }

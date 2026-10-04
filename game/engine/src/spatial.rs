@@ -1,5 +1,5 @@
 //! CPU geometry shared by layout and pick. The renderer is not a source of truth.
-use crate::{math, Affine3A, Camera, Entity, Mesh, Vec2, Vec3, Visible, World};
+use crate::{math, Affine3A, Camera, Entity, Mesh, Vec2, Vec3, World};
 use glam::Mat4;
 
 pub(crate) struct View {
@@ -268,7 +268,7 @@ pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, 
     let (origin, direction) = view.ray(point);
     let mut hit = None;
     for (e, mesh) in w.query::<&Mesh>().iter() {
-        if w.get::<Visible>(e).is_some_and(|v| !v.0) {
+        if !w.is_visible(e) {
             continue;
         }
         let Some(pose) = w.global(e) else {
@@ -306,7 +306,7 @@ pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, 
         }
     }
     for (e, sprite) in w.query::<&crate::Sprite>().iter() {
-        if w.get::<Visible>(e).is_some_and(|v| !v.0) {
+        if !w.is_visible(e) {
             continue;
         }
         let pose = displayed_bounds_pose(w, e, Some(view));

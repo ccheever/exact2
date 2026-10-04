@@ -76,8 +76,11 @@ impl Em<'_> {
             if slot.owner.map(|o| o.0) == Some(arm) {
                 let init = code::expression(plan, plan.code(slot.init), scope, &mut self.uses)
                     .map_err(|x| format!("child state {}: {x}", plan.str(slot.name)))?;
+                // Typed as a root slot is: its initializer and every write
+                // conform, or the runner refuses (SlotType).
                 let sig = self.uses.rt("sig");
-                own.push(format!("{k}:{sig}({init})"));
+                let ty = serde_json::to_string(&type_code(plan, slot.ty)).unwrap();
+                own.push(format!("{k}:{sig}({init},{ty})"));
             }
         }
         if own.is_empty() {

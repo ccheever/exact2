@@ -1106,6 +1106,10 @@ impl Module {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn readback(&mut self, id: u32, frame: &Frame) -> Option<(fixture::Pixels, bool)> {
         self.check_device();
+        if let Some(why) = shaders::missing(self.registry.shaders) {
+            self.error = why;
+            return None;
+        }
         self.flush();
         let gpu = self.gpu.as_ref()?;
         let Some(inst) = self.instances.get_mut(&id) else {

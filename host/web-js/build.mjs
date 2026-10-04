@@ -1,3 +1,4 @@
+import { moduleDirectory } from '../../scripts/app.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
 // 1. `exact-web-js js` compiles the plan (the app's Contract, or a baked
@@ -15,7 +16,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, normalize, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'rolldown/utils';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants } from './module.mjs';
@@ -82,12 +83,12 @@ const appTs = resolve(appDir, 'app.ts');
 const devLogic = [];
 // Native modules (LLP 1024): the app's module artifact, `modules/web/` beside
 // the page as `modules/`, with the web host's adapter (native.js).
-const pageModules = existsSync(resolve(appDir, 'modules/web/index.js'));
+const pageModules = existsSync(resolve(moduleDirectory(appDir, 'web'), 'index.js'));
 // The page module's container hooks (LLP 1075.003.000 §3.7): their glue loads
 // only for a page module that exports one. Its exports are read by Bun's
 // parser, never run: a browser module may touch the DOM as it loads. An
 // `export *` may export one.
-const pageSource = pageModules ? readFileSync(resolve(appDir, 'modules/web/index.js'), 'utf8') : '';
+const pageSource = pageModules ? readFileSync(resolve(moduleDirectory(appDir, 'web'), 'index.js'), 'utf8') : '';
 const pageExports = pageModules ? new Bun.Transpiler({ loader: 'js' }).scan(pageSource) : { exports: [], imports: [] };
 const containerHooks = pageExports.exports.some(n => ['navigation', 'route', 'routeEnded', 'tabs'].includes(n))
   || /\bexport\s*\*\s*from\b/.test(pageSource);
@@ -102,7 +103,7 @@ const compiler = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARG
 const [cmd, pre] = fresh(compiler, `${compiler}.d`) ? [compiler, []] : ['cargo', ['run', '-q', '-p', 'exact-web-js', '--']];
 const cargo = spawnSync(cmd, [...pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
-for (const f of ['rt.js', 'shape.js', 'pointer.js', 'document.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['rt.js', 'roster.js', 'router.js', 'shape.js', 'pointer.js', 'document.js']) cpSync(resolve(here, f), resolve(gen, f));
 // Canvas 2D surfaces (a loaded chunk: this runtime's engine over the web
 // host's own replayer) are drawn by the Rust data module, or by a
 // TypeScript source's `draw` in the page (ts-draw.js, in the same chunk).
@@ -258,7 +259,7 @@ for (const f of ['navigation.js', 'names.js']) cpSync(resolve(gen, f), resolve(g
 writeFileSync(resolve(gen, 'agent.js'), readFileSync(resolve(gen, 'agent.js'), 'utf8').replace("from './names.js'", "from './agent-names.js'").replace("from './navigation.js'", "from './agent-navigation.js'"));
 // A source granted `auth.session` signs in through the system browser (auth.js, LLP 1069.006).
 const auth = /^\s*auth\.session\s/m.test(grants);
-if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace('__APP_TS__', resolve(appDir, 'app.ts'))
+if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace("'__APP_TS__'", JSON.stringify(resolve(appDir, 'app.ts')))
   .replace('__AUTH_IMPORT__', auth ? "import { install as signIn } from './auth.js';" : '')
   .replace('__AUTH_INSTALL__', auth ? `signIn(${JSON.stringify(grants)}, () => asking);` : ''));
 for (const f of ['auth-glue.js', 'storage-environment.js', 'http-body.js', 'grant-admission.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
@@ -307,8 +308,13 @@ if (production) for (const f of readdirSync(gen).filter(f => f.endsWith('.js')))
 const how = opt('--render') ?? 'rust';
 // Inject only into the app's module graph, never the copied host runtime.
 // Oxc resolves lexical bindings, so an authored local `fetch` stays local.
+const generatedRoots = [gen, realpathSync(gen)];
 const scopedModule = (code, id) => {
-  if (!ts || id.startsWith(gen + '/') || id.startsWith(realpathSync(gen) + '/') || !/\.[cm]?[jt]sx?$/.test(id)) return null;
+  if (!ts || !/\.[cm]?[jt]sx?$/.test(id)) return null;
+  if (generatedRoots.some(root => {
+    const path = relative(root, id);
+    return path === '' || !isAbsolute(path) && path !== '..' && !path.startsWith('..' + sep);
+  })) return null;
   // And the clock, timers and Math.random refused by name (LLP 1027.000 D3).
   const bound = ['fetch', 'Date', 'Math', 'Intl', 'setTimeout', 'setInterval', 'requestAnimationFrame', 'requestIdleCallback',
     'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance'];
@@ -414,7 +420,7 @@ if (existsSync(resolve(gen, 'flow.flag'))) cpSync(buildFlow(), resolve(out, 'tex
 // dep-info, module.mjs `fresh`): the bindings and wasm-opt with it.
 const literalModuleURLs = code => [...code.matchAll(/new\s+URL\(\s*['"]([^'":/#][^'"]*)['"]\s*,\s*import\.meta\.url\s*\)/g)].map(match => match[1]);
 const moduleImports = code => new Bun.Transpiler({ loader: 'js' }).scanImports(code).map(entry => entry.path).filter(path => path.startsWith('.'));
-const publicDependency = (from, specifier) => normalize(resolve('/', dirname(from), specifier)).replace(/^\//, '');
+const publicDependency = (from, specifier) => posix.resolve('/', posix.dirname(from), specifier).slice(1);
 async function copyLazyModules(roots) {
   const { webHostFiles } = await import('../../scripts/app.mjs');
   const inventory = webHostFiles(), queue = roots.map(name => ({ name, source: inventory[name] })), copied = new Set();
@@ -452,7 +458,7 @@ if (existsSync(gpuLib)) {
   cpSync(cache, out, { recursive: true });
   await copyLazyModules(['gpu-glue.js']);
 }
-if (pageModules) cpSync(resolve(appDir, 'modules/web'), resolve(out, 'modules'), { recursive: true });
+if (pageModules) cpSync(moduleDirectory(appDir, 'web'), resolve(out, 'modules'), { recursive: true });
 if (existsSync(resolve(appDir, 'assets'))) cpSync(resolve(appDir, 'assets'), resolve(out, 'assets'), { recursive: true });
 if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve(out, 'deck'), { recursive: true });
 if (devReload) writeFileSync(resolve(out, '.exact-dev-logic.json'), JSON.stringify({ version: 1, modules: devLogic.sort(([a], [b]) => a.localeCompare(b)) }) + '\n');

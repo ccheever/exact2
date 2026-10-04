@@ -190,3 +190,18 @@ test('packaged native freshness rejects changed source and copied binary bytes',
     rmSync(binary); expect(packagedBuildChanges(receipt,root)).toEqual([binary,gpu]);
   } finally { rmSync(root,{recursive:true,force:true}); }
 });
+
+
+test('packaged native freshness verifies executable-relative shader bytes', () => {
+  const root=mkdtempSync(resolve(tmpdir(),'exact-package-shaders-'));
+  const receipt=resolve(root,'build.json'), binary=resolve(root,'game.exe'), shader=resolve(root,'shaders/fog.wgsl');
+  const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
+  try {
+    mkdirSync(resolve(root,'shaders')); writeFileSync(binary,'exe'); writeFileSync(shader,'shader');
+    writeFileSync(receipt,JSON.stringify({version:1,binary:{inputs:[],missing:[],directories:[]},products:[{path:binary,sha256:digest('exe')}]}));
+    writeFileSync(resolve(root,'compat.json'),JSON.stringify({embedded:{assets:[{name:'shaders/fog.wgsl',bytes:6,sha256:digest('shader')}]}}));
+    expect(packagedBuildChanges(receipt,root)).toEqual([]);
+    writeFileSync(shader,'edited'); expect(packagedBuildChanges(receipt,root)).toEqual([shader]);
+    rmSync(shader); expect(packagedBuildChanges(receipt,root)).toEqual([shader]);
+  } finally { rmSync(root,{recursive:true,force:true}); }
+});

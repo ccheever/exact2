@@ -19,6 +19,7 @@ use std::{
 #[path = "surface_controls.rs"]
 mod controls;
 mod pixels;
+mod shaders;
 
 const LIMIT: usize = 256 * 1024 * 1024;
 type Read = unsafe extern "C" fn(u32) -> u32;
@@ -29,6 +30,7 @@ struct Abi {
     library: Library,
     output_error: std::cell::RefCell<Option<String>>,
     rendered: bool,
+    shaders: shaders::Pack,
 }
 impl Abi {
     fn open(compat: &Value, artifact: &str) -> Result<Self, String> {
@@ -55,6 +57,7 @@ impl Abi {
         let abi = Self {
             library: unsafe { Library::new(path) }.map_err(|e| e.to_string())?,
             output_error: Default::default(),
+            shaders: Default::default(),
             rendered: std::env::var("EXACT_GPU_RENDER").as_deref() == Ok("1"),
         };
         unsafe {
@@ -446,7 +449,13 @@ impl Surfaces {
             if !self.attempted.insert(artifact.clone()) {
                 continue;
             }
-            match Abi::open(&compat, &artifact) {
+            match Abi::open(&compat, &artifact).and_then(|mut abi| {
+                if artifact.is_empty() {
+                    let pack = abi.prepare_shaders(&compat, assets)?;
+                    abi.commit_shaders(pack)?;
+                }
+                Ok(abi)
+            }) {
                 Ok(abi) => {
                     let length =
                         unsafe { abi.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_recover")() };
@@ -458,7 +467,10 @@ impl Surfaces {
                     }
                     self.abis.insert(artifact, abi);
                 }
-                Err(e) => host.log(format!("surface module unavailable: {e}")),
+                Err(e) => {
+                    host.log(format!("surface module unavailable: {e}"));
+                    self.error = Some(e);
+                }
             }
         }
         if self.abis.is_empty() {
@@ -1251,7 +1263,14 @@ impl<D: DataSource> Presenter<D> {
             }
             Some("state") => r["world"] = self.worlds(json!({"op":"state"})).into(),
             Some("logs") => r["world"] = self.worlds(json!({"op":"logs"})).into(),
-            Some("screenshot") if !self.surfaces.canvases.is_empty() => {
+            Some("screenshot")
+                if self.surfaces.canvases.values().any(|canvas| {
+                    self.surfaces
+                        .abis
+                        .get(&canvas.artifact)
+                        .is_some_and(|abi| !abi.rendered)
+                }) =>
+            {
                 r["note"] = "Contract painted; canvas rectangles are flat (no device)".into()
             }
             _ => {}
