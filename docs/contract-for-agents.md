@@ -575,3 +575,8 @@ takes none, underline, line-through, or both lines; solid/currentcolor/auto
 components retain the supported defaults. Color/style/thickness extensions are
 refused by name. Linux paints solid lines with UA metrics and diagnoses its
 missing underline skip-ink behavior in the driver log.
+
+A flex shorthand's grow/shrink factors must be adjacent. Intrinsic flex-basis
+keywords (content/min-content/max-content/fit-content) are CSS values, but the
+current dimension representation cannot size that mode; the diagnostic names
+this limit. `auto` takes the basis from the authored main-size property.

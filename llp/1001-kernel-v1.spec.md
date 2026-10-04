@@ -1067,3 +1067,9 @@ underline/line-through to the existing line row; other color/style/thickness
 components are diagnosed. Linux draws its UA lines from font size and glyph
 advances; underline skip-ink:auto is not implemented and its driver log names
 that deviation once. Web and Apple use their text systems' decoration metrics.
+
+CSS flex shorthand admits grow/shrink factors and any admitted dimension basis,
+with the factors adjacent as CSS requires. Intrinsic flex-basis keywords
+content/min-content/max-content/fit-content are not represented by v1 dimension
+rows; the compiler names their intrinsic sizing requirement and refuses them,
+rather than describing valid CSS as a malformed shorthand.

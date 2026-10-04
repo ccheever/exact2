@@ -1350,3 +1350,23 @@ fn css_native_interaction_gaps_are_named_precisely() {
     }
     contract::compile("component App\n  view\n    textarea rows=3 maxlength=5 resize=\"none\" user-select=\"none\"\n").unwrap();
 }
+
+#[test]
+fn css_flex_factor_order_and_intrinsic_basis_refusals_are_precise() {
+    let source = |value: &str| format!("component App\n  view\n    box flex=\"{value}\"\n");
+    assert!(
+        contract::compile(&source("0 auto 1")).is_err(),
+        "grow and shrink must be adjacent in CSS"
+    );
+    contract::compile(&source("20px 0 1")).unwrap();
+    contract::compile(&source("NONE")).unwrap();
+    for basis in ["content", "min-content", "max-content", "fit-content"] {
+        let error = contract::compile(&source(&format!("1 1 {basis}")))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("intrinsic basis sizing") && error.contains("CSS flex-basis"),
+            "{error}"
+        );
+    }
+}

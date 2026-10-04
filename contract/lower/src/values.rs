@@ -397,6 +397,14 @@ pub(crate) fn check_style_value(
             if rows.contains(&StyleId::WrapFlow) && !matches!(v.as_str(), "auto" | "both") {
                 return err("lower-attr-value", "unsupported `wrap-flow` value: CSS Exclusions defines it; exact2 v1 implements `both` (or `auto`)", span);
             }
+            if rows.contains(&StyleId::FlexBasis)
+                && matches!(
+                    v.trim(),
+                    "content" | "min-content" | "max-content" | "fit-content"
+                )
+            {
+                return err("lower-flex-basis", format!("CSS flex-basis `{v}` requires intrinsic basis sizing; exact2 dimension rows represent auto, lengths and percentages, and do not implement that intrinsic sizing mode. Use auto for a basis taken from the main-size property"), span);
+            }
             if rows.contains(&StyleId::Transition) {
                 if let Err(reason) = exact_motion::Transitions::parse(v) {
                     let supported = "translate, scale, rotate, opacity; color, background-color, border-color (and each side), tint-color, box-shadow; SVG fill, stroke, stroke-dashoffset, r, cx, cy, x, y, rx, ry; numeric height on admitted height owners";
@@ -768,9 +776,9 @@ pub(crate) fn flex_component(value: &Expr, index: usize) -> Result<Expr, LowerEr
         Expr::Str(text, span) => {
             let number = |s: &str| s.parse::<f64>().ok().filter(|n| n.is_finite() && *n >= 0.0);
             let (grow, shrink, basis) = match text.trim() {
-                "none" => (0.0, 0.0, "auto"),
-                "auto" => (1.0, 1.0, "auto"),
-                "initial" => (0.0, 1.0, "auto"),
+                word if word.eq_ignore_ascii_case("none") => (0.0, 0.0, "auto"),
+                word if word.eq_ignore_ascii_case("auto") => (1.0, 1.0, "auto"),
+                word if word.eq_ignore_ascii_case("initial") => (0.0, 1.0, "auto"),
                 text => {
                     let mut depth = 0;
                     let words: Vec<_> = text
@@ -786,10 +794,12 @@ pub(crate) fn flex_component(value: &Expr, index: usize) -> Result<Expr, LowerEr
                         .filter(|s| !s.is_empty())
                         .collect();
                     let mut factors = Vec::new();
+                    let mut factor_positions = Vec::new();
                     let mut basis = None;
-                    for word in words {
+                    for (position, word) in words.into_iter().enumerate() {
                         if let Some(n) = number(word) {
                             factors.push(n);
+                            factor_positions.push(position);
                         } else if basis.replace(word).is_some() {
                             return err(
                                 "lower-attr-value",
@@ -801,9 +811,15 @@ pub(crate) fn flex_component(value: &Expr, index: usize) -> Result<Expr, LowerEr
                     // A third unitless zero is a zero length, not a factor.
                     if factors.len() == 3 && factors[2] == 0.0 && basis.is_none() {
                         factors.pop();
+                        factor_positions.pop();
                         basis = Some("0px");
                     }
-                    if factors.len() > 2 || (factors.is_empty() && basis.is_none()) || depth != 0 {
+                    if factors.len() > 2
+                        || (factors.is_empty() && basis.is_none())
+                        || depth != 0
+                        || (factor_positions.len() == 2
+                            && factor_positions[1] != factor_positions[0] + 1)
+                    {
                         return err(
                             "lower-attr-value",
                             "`flex` expects none, auto, or <grow> [<shrink>] [<basis>]",
