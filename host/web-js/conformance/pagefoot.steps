@@ -1,0 +1,6 @@
+# The list mounts as its footer: the footer asks for the first page, which
+# lands at the next timer and fills the scrollport; nothing more is asked.
+tap show
+clock +300
+clock +300
+clock +300

@@ -444,13 +444,20 @@ impl SizeIndex {
         follow_end: bool,
     ) -> Result<Anchor, IndexError> {
         let offset = self.clamp_offset(offset, viewport)?;
-        let row = self.tree.find(offset, false);
-        let within = row.map_or(0.0, |i| (offset - self.tree.prefix(i)).max(0.0));
         // Browser scroll ranges round fractional CSS extents to whole pixels;
         // native document geometry also rounds through f32. Admit up to half a
         // logical pixel/point on every host, independent of extent (including
         // small resident windows); never follow a reader beyond that tolerance.
         let tolerance = 0.5;
+        // Rows that all fit keep no position, as a page that cannot scroll:
+        // rows arriving before them (a feed's first page before its
+        // "loading" row) show from the start, not scrolled to that row.
+        let row = if self.max_offset(viewport) <= tolerance {
+            None
+        } else {
+            self.tree.find(offset, false)
+        };
+        let within = row.map_or(0.0, |i| (offset - self.tree.prefix(i)).max(0.0));
         Ok(Anchor {
             order: Rc::clone(&self.order),
             row,

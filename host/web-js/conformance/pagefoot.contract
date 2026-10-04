@@ -1,0 +1,42 @@
+// data: carousel
+// Synthetic conformance plan: a feed whose list starts as its footer row
+// alone ("Loading…"), mounted after the page has run. The footer reaching
+// the end asks for the first page; a timer lands it before the footer.
+// The page shows from its first row: a list that all fit kept no anchor
+// on its footer (LLP 1010, 2026-10-03). Rows that fill the scrollport and
+// its lead ask for nothing more until the reader scrolls: one ask.
+shape Card
+  id: string
+  n: number
+  label: string
+  width: number
+  color: string
+
+component PageFoot
+  resource cards = cards(2000) as shape list<Card>
+  state shown = false
+  state hi = 0
+  state loading = false
+  state asks = 0
+  derive rows = filter(cards, c => c.n < hi or c.n == 1999)
+  action show
+    shown = true
+  action more
+    asks = asks + 1
+    if not loading
+      loading = true
+  action land
+    if loading
+      hi = hi + 30
+      loading = false
+  task arrive mount
+    every(300, land)
+  view
+    column testId="root" height="100%" display="flex" flex-direction="column"
+      button press=show testId="show" flex-shrink=0
+        text `${asks} asks, ${hi} rows${loading ? ", loading" : ""}`
+      when shown
+        list virtualized=true reachend=more testId="feed" flex=1 min-height=0 width="100%"
+          each c in rows key=c.id
+            row testId=`row-${c.n}` height=(c.n == 1999 ? 40 : 150) box-sizing="border-box" padding-left=12 align-items="center" border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"
+              text (c.n == 1999 ? "Loading…" : c.label) font-size=14

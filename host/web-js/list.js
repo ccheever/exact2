@@ -126,7 +126,8 @@ class SizeIndex {
   }
   anchor(offset, port, follow) {
     offset = this.clamp(offset, port);
-    const row = find(this.t, offset, false);
+    // Rows that all fit keep no position, as a page that cannot scroll: rows arriving before them show from the start (index.rs).
+    const row = this.maxOffset(port) <= 0.5 ? null : find(this.t, offset, false);
     return { order: this.order, row, within: row === null ? 0 : Math.max(0, offset - this.prefix(row)), follows: follow && port > 0 && this.maxOffset(port) - offset <= 0.5 };
   }
   anchorAt(key, within) { const i = this.pos.get(key); return i === undefined ? null : { order: this.order, row: i, within, follows: false }; }
@@ -165,8 +166,8 @@ function keyText(k) {
 const Lists = new Map();
 let Controller = null, Loading = null, Published = "";
 const Deferred = []; // [collection, targets]: an end edge waits for the first edge's requests (runner/collection.rs)
-
 const Held = new Set(); // collections whose edge waits for their covered route to show (runner/collection.rs `held_edges`)
+
 class Collection {
   constructor(el, o, own) {
     this.el = el; this.view = viewId(el); this.axis = o.x ? "x" : "y"; this.own = own; this.o = o;
@@ -756,7 +757,6 @@ function report(bytes, f, fill) {
   return true;
 }
 function edges(c, edge) {
-  let endAfterNoop = edge.endAfterNoop;
   // @ref LLP 1010 — a list on a route its stack keeps covered is hidden and
   // inert: its edge waits, armed, for the route to show (runner/collection.rs).
   if (inactive(c.el)) {
@@ -764,6 +764,7 @@ function edges(c, edge) {
     if (!Held.has(c)) { Held.add(c); journal.push(`t=${clock.now} ${edge.first ? "reachend" : "reachstart"} view ${c.view} waits: its list is on a covered route; it is offered when the route shows`); }
     return;
   }
+  let endAfterNoop = edge.endAfterNoop;
   for (const [position, i] of [[0, edge.first], [1, 1]]) {
     if (position === 1 && (!endAfterNoop || !c.edgeArmed[1])) break;
     if (position === 1) c.edgeArmed[1] = false;

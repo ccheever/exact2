@@ -825,6 +825,17 @@ makes the list longer re-arms the end too, since the page arrived before that
 row rather than past it. Without this, the feed bench's timeline stalled after
 one page in about one run in ten. `pagetail.contract` pins it.
 
+**2026-10-03 (two web-parity fixes found by agents writing a feed):** a list on
+a route its navigation root keeps covered (LLP 1038 D6: a deep link's root under
+the screen it opened, a feed under a thread) is hidden and inert, so its edge
+waits, armed, and is journaled once (`reachend view N waits: …`); when the route
+shows, the runner asks the host for a report, which offers it. Nothing is asked
+for a screen the reader has not seen (`Runner::held_edges`, list.js `Held`;
+`covered.contract`). And rows that all fit their scrollport keep no anchor, as a
+page that cannot scroll keeps none: a first page landing before a feed's lone
+"loading" row shows from the start rather than scrolled to keep that row in place
+(`capture_anchor`, list.js `anchor`; `pagefoot.contract`).
+
 ### 6.6 Paired runner evidence, 2026-09-16
 
 `bun scripts/metrics.mjs --list-memory --collections --repeats 3 --json`

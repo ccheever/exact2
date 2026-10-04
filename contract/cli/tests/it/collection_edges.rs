@@ -760,3 +760,21 @@ fn a_list_on_a_covered_route_waits_for_it_to_show() {
     assert_eq!(hits(&r), (1., 1.), "shown, the list is offered both edges");
 }
 
+// A list that is its "loading" row alone, at rest at the start: the first
+// page lands before that row and shows from the start, as a page that could
+// not scroll would; it is not scrolled to keep the loading row in place.
+#[test]
+fn a_first_page_before_a_lone_trailing_row_shows_from_the_start() {
+    let source = SOURCE
+        .replace(
+            "  state fail = false\n",
+            "  state fail = false\n  state limit = 0\n  derive shown = filter(rows, (x) => x < limit or x == 199)\n  action grow\n    limit = limit + 20\n",
+        )
+        .replace("each x in rows key=x", "each x in shown key=x");
+    let mut r = boot(&source);
+    measure(&mut r, 0., 32.);
+    r.act("grow", vec![]).unwrap();
+    let offset = r.collections()[0].correction.as_ref().map_or(0., |c| c.offset);
+    assert_eq!(offset, 0., "no correction off the start");
+    assert_eq!(r.collections()[0].rows[0].index, 0, "the first row shows");
+}
