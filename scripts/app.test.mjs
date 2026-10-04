@@ -435,7 +435,7 @@ test('applying autofocus props cannot trigger browser focus during a batch', asy
   assert.equal(el.exactAutofocus, false);
 });
 
-test.each(['rlib', 'staticlib', 'executable'].flatMap(kind => [null, 'intermediate', 'output/intermediate', '.'].map(split => [kind, split])))('copied %s roots with build directory %s require unique compiler dep-info', async (kind, split) => {
+test.each(['rlib', 'staticlib', 'executable', 'windows-executable'].flatMap(kind => [null, 'intermediate', 'output/intermediate', '.'].map(split => [kind, split])))('copied %s roots with build directory %s require unique compiler dep-info', async (kind, split) => {
   const { unitDepInfo } = await import('./app.mjs');
   const root = mkdtempSync(resolve(tmpdir(), 'exact-unit-dep-'));
   try {
@@ -443,16 +443,17 @@ test.each(['rlib', 'staticlib', 'executable'].flatMap(kind => [null, 'intermedia
     const dir = resolve(metadata.target_directory, 'release'), deps = resolve(metadata.build_directory, 'release/deps'), src = resolve(root, 'src/main.rs');
     mkdirSync(dir, {recursive:true});
     mkdirSync(deps, {recursive:true});
-    const executable = kind === 'executable', target = executable ? 'game-native' : 'game_apple';
+    const executable = kind.endsWith('executable'), target = executable ? 'game-native' : 'game_apple';
+    const suffix = kind === 'windows-executable' ? '.exe' : '';
     const extension = kind === 'staticlib' ? '.a' : '.rlib';
-    const artifact = resolve(dir, executable ? target : `lib${target}${extension}`);
+    const artifact = resolve(dir, executable ? target + suffix : `lib${target}${extension}`);
     writeFileSync(artifact, 'selected unit');
     const message = {filenames:[artifact],
       executable:executable ? artifact : null, target:{name:target, src_path:src}};
     writeFileSync(resolve(dir, `${target}.d`), `${artifact}: ${src}\n`);
     const unit = (hash, bytes, source = src) => {
       const name = `${target.replaceAll('-', '_')}-${hash}`, dep = resolve(deps, `${name}.d`);
-      writeFileSync(resolve(deps, executable ? name : `lib${name}${extension}`), bytes);
+      writeFileSync(resolve(deps, executable ? name + suffix : `lib${name}${extension}`), bytes);
       writeFileSync(dep, `${dep}: ${source}\n\n# env-dep:EXACT_UPDATE_TRUST=development\n`);
       return dep;
     };

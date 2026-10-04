@@ -2,12 +2,12 @@
 // Orchestrate the game's existing proof; every drive still uses the eight operations.
 import {spawn, spawnSync} from 'node:child_process';
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
-import {basename, resolve} from 'node:path';
-import {equal, agreePins, pinInputs, pinRevision, webUnavailable, paranoidRuns, proofCommand} from './proof.mjs';
+import {basename, isAbsolute, resolve} from 'node:path';
+import {equal, agreePins, nativeProofHost, pinInputs, pinRevision, webUnavailable, paranoidRuns, proofCommand} from './proof.mjs';
 import {gameDefaults, lintGame, prepareGame} from './app/shells.mjs';
 
 const [destination, ...args] = process.argv.slice(2);
-const local = destination === '.' || destination?.includes('/');
+const local = destination === '.' || (destination && isAbsolute(destination)) || destination?.includes('/') || destination?.includes('\\');
 const name = local ? basename(resolve(destination)) : destination;
 const option = (flag, fallback) => args.includes(flag) ? args[args.indexOf(flag) + 1] : fallback;
 const device = args.includes('--device'), phone = option('--phone');
@@ -15,7 +15,7 @@ if (args.includes('--phone') && (!device || !phone || phone.startsWith('--'))) t
 let repin = args.includes('--repin');
 const repeat = Number(option('--repeat', '1'));
 if (!/^[a-z][a-z0-9-]*$/.test(name ?? '') || !Number.isSafeInteger(repeat) || repeat < 1) {
-  throw new Error('Usage: bun game/prove.mjs <name|path> --hosts web,linux,ios --repeat 2 --compare-saves');
+  throw new Error('Usage: bun game/prove.mjs <name|path> --hosts web,linux,windows,ios --repeat 2 --compare-saves');
 }
 const app = local ? resolve(destination) : resolve(import.meta.dir, 'games', name), script = resolve(app, 'proof.mjs');
 if (!existsSync(script)) throw new Error(`No proof for ${name}`);
@@ -28,11 +28,13 @@ if (firstPins && !repin) {
   console.log('No pins yet; filling the first baseline after every requested host and mode agrees.');
   repin = true;
 }
-const hosts = option('--hosts', repin || args.includes('--compare-saves') ? 'linux,web' : 'linux').split(',');
-if (!hosts.length || new Set(hosts).size !== hosts.length || hosts.some(h => !['web','linux','macos','ios'].includes(h))) {
-  throw new Error('Use --hosts linux,web,macos,ios to select distinct proof hosts');
+const defaultNative = process.platform === 'win32' ? 'windows' : 'linux';
+const hosts = option('--hosts', repin || args.includes('--compare-saves') ? `${defaultNative},web` : defaultNative).split(',');
+if (!hosts.length || new Set(hosts).size !== hosts.length || hosts.some(h => !['web','linux','windows','macos','ios'].includes(h))) {
+  throw new Error('Use --hosts linux,windows,web,macos,ios to select distinct proof hosts');
 }
-if (firstPins && (!hosts.includes('linux') || !hosts.includes('web'))) throw new Error('first baseline requires linux and web');
+const native = nativeProofHost(hosts);
+if (firstPins && (!native || !hosts.includes('web'))) throw new Error('first baseline requires a native host (linux or windows) and web');
 if (device && !hosts.includes('ios')) throw new Error('--device requires ios in --hosts');
 const artifacts = resolve(app, 'artifacts/prove');
 mkdirSync(artifacts, {recursive:true});
@@ -71,7 +73,7 @@ if (repin) {
   }
   const pinFile = resolve(app, 'pins.json'), before = JSON.parse(readFileSync(pinFile, 'utf8'));
   const rows = [], errors = [], exercised = [];
-  if (!hosts.includes('linux')) throw new Error('repin requires the linux host; use --hosts linux,web');
+  if (!native) throw new Error('repin requires a native host; use --hosts linux,web or --hosts windows,web');
   // A single web dist is mode-specific: bake and run each mode serially.
   for (const host of hosts) {
     let unavailable = false;
@@ -89,7 +91,7 @@ if (repin) {
     }, host);
     if (!unavailable) exercised.push(host);
   }
-  try { rows.push(await run('linux', 1, false, '0', 'release')); } catch (error) { errors.push(error); }
+  try { rows.push(await run(native, 1, false, '0', 'release')); } catch (error) { errors.push(error); }
   for (const error of errors) console.error(error.message);
   if (errors.length) throw new Error(`repin refused: mode/host proof failed; pins.json unchanged; inspect ${root}/*/run.log and rerun the named proof with --paranoid`);
   const candidate = agreePins(rows, before, hosts, app);
@@ -98,7 +100,7 @@ if (repin) {
   const after = {...candidate, inputs, game:previous.game ?? name, generated:command, at:pinRevision(app, inputs), ...(option('--reason', '') ? {reason:option('--reason', '')} : {})};
   for (const section of ['ticks', 'saves']) for (const [key, value] of Object.entries(after[section]))
     console.log(`${section} ${key}: ${before[section]?.[key] ?? '(new)'} → ${value}`);
-  if (!exercised.includes('web')) console.log('WEB not exercised; pins record linux only, no web agreement claimed.');
+  if (!exercised.includes('web')) console.log(`WEB not exercised; pins record ${exercised.join(',')} only, no web agreement claimed.`);
   writeFileSync(pinFile, JSON.stringify(after, null, 2)+'\n');
 } else {
 // Each proof checks its own build receipt. Only multiple hosts need a separate

@@ -8,7 +8,7 @@ import {test, expect} from 'bun:test';
 import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, symlinkSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
-import {agreePins, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
+import {agreePins, nativeProofHost, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
 import {proofCommand, worldObservations, pinRevision} from './proof.mjs';
 import {comparePlacement} from './games/placement-fixture/proof.mjs';
 import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, clockSpan} from '../scripts/agent.mjs';
@@ -108,6 +108,22 @@ test('inventory failure clears the timer before unconditional session cleanup', 
   ],(...args)=>calls.push(args[0]));
   expect(polls).toBe(0);
   expect(calls).toEqual(['first','session cleanup','second']);
+});
+
+test('Windows receipts bind the executable, GPU DLL, packaged assets and build profile', () => {
+  const dir=mkdtempSync(resolve(tmpdir(),'game-windows-receipt-'));
+  const artifacts={binary:resolve(dir,'game.exe'),module:resolve(dir,'game_gpu.dll')};
+  try {
+    expect(artifactDigest('windows',dir,artifacts)).toBe(null);
+    writeFileSync(artifacts.binary,'exe'); writeFileSync(artifacts.module,'gpu');
+    const first=artifactDigest('windows',dir,artifacts);
+    mkdirSync(resolve(dir,'assets')); writeFileSync(resolve(dir,'assets/terrain.tex'),'terrain');
+    expect(artifactDigest('windows',dir,artifacts)).not.toBe(first);
+    rmSync(artifacts.module);
+    expect(artifactDigest('windows',dir,artifacts)).toBe(null);
+    expect(buildInputHash('windows','target','0','release').digest('hex'))
+      .not.toBe(buildInputHash('windows','target','0','gpu-dev').digest('hex'));
+  } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
 for (const fails of [false, true]) test(`browser held key release survives canvas removal (clock failure=${fails})`, async () => {
@@ -422,7 +438,18 @@ const syntheticHash = '0x' + '12345678' + '9abcdef0';
 const repeatedHash = digit => '0x' + digit.repeat(16);
 const candidates = (hosts = ['linux','web']) => [...hosts.flatMap(host => ['0','1','fresh-game'].map(mode => ({
   name:'fixture', host, mode, failures:[], pins:{ticks:{60:syntheticHash}, saves:{continuation:'a'.repeat(64)}},
-}))), {name:'fixture',host:'linux',mode:'0',profile:'release',failures:[],pins:{ticks:{60:syntheticHash},saves:{continuation:'a'.repeat(64)}}}];
+}))), {name:'fixture',host:nativeProofHost(hosts),mode:'0',profile:'release',failures:[],pins:{ticks:{60:syntheticHash},saves:{continuation:'a'.repeat(64)}}}];
+
+test('Windows baselines require all native and web modes plus matching release evidence', () => {
+  const hosts=['windows','web'], rows=candidates(hosts), old=rows[0].pins;
+  expect(agreePins(rows,old,hosts,'.')).toEqual({...old,hosts});
+  expect(()=>agreePins(rows.slice(0,-1),old,hosts,'.')).toThrow('windows release');
+  expect(()=>agreePins(rows.filter(row=>!(row.host==='windows'&&row.mode==='fresh-game')),old,hosts,'.')).toThrow('windows fresh-game missing');
+  const bad=structuredClone(rows); bad[4].pins.saves.continuation='b'.repeat(64);
+  expect(()=>agreePins(bad,old,hosts,'.')).toThrow('web 1 saves');
+  expect(()=>agreePins(rows,old,['web'],'.')).toThrow('linux or windows');
+  expect(nativeProofHost(['windows','linux','web'])).toBe('linux');
+});
 test('repin requires all modes and hosts to agree on every tick and save', () => {
   const rows=candidates(), old=structuredClone(rows[0].pins);
   expect(agreePins(rows, old, ['linux','web'], '.')).toEqual({...old,hosts:['linux','web']});
@@ -544,6 +571,7 @@ test('direct placement comparison rejects two hosts passing a two-pixel oracle',
 
 for (const scenario of ['report','repin','external-repin', ...['ordinary','repeat','cwd','failure','UNVERIFIED','PASS'].map(command => `external-report-${command}`)]) test(`prove retains refused summaries and refuses missing requested repin hosts (${scenario})`, async () => {
   const name=`r8b-tooling-${process.pid}-${scenario.toLowerCase()}`;
+  const native=process.platform==='win32'?'windows':'linux';
   // A sibling checkout is external without Bun's expensive /tmp ancestor search.
   const directory = scenario.startsWith('external-') ? mkdtempSync(resolve(import.meta.dir, '../../prove external-')) : null;
   const app=resolve(directory ?? resolve(import.meta.dir,'games'),name);
@@ -580,19 +608,19 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     if (selected('ordinary')) {
     const ordinary=await run(['--report']);
     expect(ordinary.code).toBe(0);
-    expect(ordinary.calls).toEqual([{host:'linux',build:false,mode:'0'}]);
-    expect(ordinary.text).toContain('REPORT linux 0: no recorded stalls or refusals');
-    expect(JSON.parse(readFileSync(resolve(ordinary.root,'summary.json'),'utf8')).rows.map(row=>row.host)).toEqual(['linux']);
+    expect(ordinary.calls).toEqual([{host:native,build:false,mode:'0'}]);
+    expect(ordinary.text).toContain(`REPORT ${native} 0: no recorded stalls or refusals`);
+    expect(JSON.parse(readFileSync(resolve(ordinary.root,'summary.json'),'utf8')).rows.map(row=>row.host)).toEqual([native]);
     }
     if (selected('repeat')) {
     const repeated=await run(['--repeat','2']);
     expect(repeated.code).toBe(0);
-    expect(repeated.calls).toEqual(Array(2).fill({host:'linux',build:false,mode:'0'}));
+    expect(repeated.calls).toEqual(Array(2).fill({host:native,build:false,mode:'0'}));
     }
     if (directory && selected('cwd')) {
       const here=await run(['--report'],{},true);
       expect(here.code).toBe(0);
-      expect(here.calls).toEqual([{host:'linux',build:false,mode:'0'}]);
+      expect(here.calls).toEqual([{host:native,build:false,mode:'0'}]);
     }
     if (selected('failure')) {
     const started = performance.now();
@@ -621,7 +649,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
       expect(compared.code).toBe(0);
       expect(compared.text).toContain('COMPARE generic authored proof');
       expect(compared.calls.length).toBe(4);
-      expect(compared.calls.filter(call=>!call.build).map(call=>call.host).sort()).toEqual(['linux','web']);
+      expect(compared.calls.filter(call=>!call.build).map(call=>call.host).sort()).toEqual([native,'web'].sort());
       const mixed=await run(['--hosts','linux,web','--compare-saves'],{R8B_PASS_WEB:'1',R8B_UNVERIFIED_HOST:'web'});
       expect(mixed.calls.slice(0,2)).toEqual([{host:'linux',build:true,mode:'0'},{host:'web',build:true,mode:'0'}]);
       expect(mixed.calls.slice(2).map(call=>call.host).sort()).toEqual(['linux','web']);
@@ -635,7 +663,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     } else {
     const refused=await run(['--repin']);
     expect(refused.code).toBe(1); expect(refused.text).toContain('repin refused');
-    expect(refused.calls.map(call=>call.host)).toEqual(['linux','linux','linux','web','linux']);
+    expect(refused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native]);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(pins);
     const allowed=await run(['--repin','--hosts','linux','--reason','Saved glow is a Tween sampled by the renderer']);
     expect(allowed.code).toBe(0);
@@ -649,21 +677,21 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     for (const args of [['--repin'], ['--hosts','linux']]) {
       const refused = await run(args);
       expect(refused.code).toBe(1);
-      expect(refused.text).toContain(args[0] === '--repin' ? 'omit `--repin` for the first baseline' : 'first baseline requires linux and web');
+      expect(refused.text).toContain(args[0] === '--repin' ? 'omit `--repin` for the first baseline' : 'first baseline requires a native host (linux or windows) and web');
       expect(refused.calls).toEqual([]);
     }
     const firstRefused=await run([]);
     expect(firstRefused.code).toBe(1);
-    expect(firstRefused.calls.map(call=>call.host)).toEqual(['linux','linux','linux','web','linux']);
+    expect(firstRefused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native]);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(empty);
     const first=await run([],{R8B_PASS_WEB:'1'});
     expect(first.code).toBe(0);
     expect(first.calls).toEqual([
-      ...['linux','web'].flatMap(host=>['0','1','fresh-game'].map(mode=>({host,mode,build:false}))),
+      ...[native,'web'].flatMap(host=>['0','1','fresh-game'].map(mode=>({host,mode,build:false}))),
       {host:'web',mode:'0',build:true},
-      {host:'linux',mode:'0',build:false},
+      {host:native,mode:'0',build:false},
     ]);
-    expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8')).hosts).toEqual(['linux','web']);
+    expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8')).hosts).toEqual([native,'web']);
     }
   } finally { rmSync(directory ?? app,{recursive:true,force:true}); }
 });
@@ -832,6 +860,7 @@ test('reused Chrome reads current-page GPU timing and clears storage, history an
       const database = () => new Promise((resolve,reject) => { const r=indexedDB.open('stage',1); r.onupgradeneeded=()=>r.result.createObjectStore('data'); r.onsuccess=()=>resolve(r.result); r.onerror=()=>reject(r.error); });
       // glue.js's agent-mode surface: the driver asks through agentSettled.
       const agent=async request=>{
+        if(request.op==='tags') return {clock:0};
         if(request.op==='layout') return {nodes:[{id:1,x:0,y:0,w:100,h:40}]};
         if(request.op==='timing') { document.getElementById('exact-root').dataset.gpuMs=request.ms; return {}; }
         const db=await database();
