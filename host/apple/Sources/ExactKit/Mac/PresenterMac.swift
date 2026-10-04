@@ -72,6 +72,9 @@ final class Presenter {
     /// The one Arrange contact, until its source settles; a test's calls.
     var reorder: ReorderHold?
     var reorderCalls: ReorderCalls?
+    /// A grouped session (LLP 1094), until its ghost lands; a test's calls.
+    var reorderGroup: ReorderGroupHold?
+    var reorderGroupCalls: ReorderGroupCalls?
     private var scrollObserver: NSObjectProtocol?
     private var visibleText: [UInt32: NSRect] = [:]
     private var textViewportIndex: TextViewportIndex?
@@ -564,6 +567,7 @@ final class Presenter {
         mouseTransformDrag.cancel()
         mouseReorder.cancel()
         reorder?.abandon()
+        reorderGroup?.abandon()
         collections.reset()
         leaves.reset()
         autofocusProcessed.removeAll()

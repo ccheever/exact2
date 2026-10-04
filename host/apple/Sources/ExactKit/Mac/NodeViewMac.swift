@@ -214,6 +214,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var tabbable: Bool {
         if let index = explicitTabIndex { return index >= 0 }
         return kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: Self.focusEvents)
+            || reorderKeys // a grouped grip takes the keys (LLP 1094 D9)
     }
     /// Sequential focus follows the web: a button is in the loop even when
     /// macOS "Keyboard navigation" is off (that setting would otherwise
@@ -262,6 +263,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             if event.modifierFlags.contains(.shift) { window.selectPreviousKeyView(self) } else { window.selectNextKeyView(self) }
             return
         }
+        if reorderKey(name) { return }
         if pressable, name == "Enter" || name == " " {
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)

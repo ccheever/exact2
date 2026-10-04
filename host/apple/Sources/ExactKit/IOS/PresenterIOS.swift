@@ -46,6 +46,9 @@ final class Presenter {
     /// The one Arrange contact, until its source settles; a test's calls.
     var reorder: ReorderHold?
     var reorderCalls: ReorderCalls?
+    /// A grouped session (LLP 1094), until its ghost lands; a test's calls.
+    var reorderGroup: ReorderGroupHold?
+    var reorderGroupCalls: ReorderGroupCalls?
     lazy var transformGeometry = TransformGeometryHost(self)
     /// Nodes showing a `background-attachment: fixed` gradient (LLP 1066
     /// D7): re-aimed at the viewport when anything scrolls or a batch lands.
@@ -321,6 +324,7 @@ final class Presenter {
         canvasKey = nil
         session?.transformInputHold?.cancel()
         reorder?.abandon()
+        reorderGroup?.abandon()
         session?.rasters.reset()
         collections.reset()
         autofocusProcessed.removeAll()

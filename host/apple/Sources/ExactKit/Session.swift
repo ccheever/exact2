@@ -937,7 +937,7 @@ public final class ExactSession {
         presenter.apply(batch)
         if !batch.canvasImages.isEmpty { presenter.canvas2d.load(batch.canvasImages) }
         AnimatedRasters.shared.poke()
-        for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)) }
+        for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)); presenter.reorderGroup?.observe(ReorderGroupState(op.payload)) }
         presenter.reorder?.raiseLifted()
         frames.motion = batch.motion
         frames.spatial = batch.spatial
