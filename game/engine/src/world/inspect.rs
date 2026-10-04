@@ -40,8 +40,9 @@ impl World {
         self.state.seed
     }
     /// A random stream for presentation only (`Game::present`), seeded from the
-    /// tick and `salt`: the same each time a boundary is presented, and never
-    /// drawn from the world's stream, so visuals cannot change the simulation.
+    /// world seed, the tick and `salt`: the same each time a boundary is
+    /// presented, different per seed, and never drawn from the world's stream, so
+    /// visuals cannot change the simulation.
     pub fn presentation_rng(&self, salt: u64) -> Rng {
         // Each input passes a full splitmix finalizer before the next joins, so
         // no two (seed, tick, salt) triples share a stream by cancelling bits.

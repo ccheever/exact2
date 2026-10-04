@@ -241,7 +241,8 @@ world's. Present may write presentation components only: any simulation write th
 reading or writing a presentation component. A save carrying presentation rows is
 refused, and a present that fails on a restored world refuses the restore.
 `Offset(Transform)` is the built-in one: the renderer draws an entity at its pose
-times its offset.
+times its offset. Parented children keep their own poses; props on a rigged
+entity's sockets follow it. Picking, layout and physics use the simulated pose.
 
 Mark cosmetic entities `Ambient`. Declare `ambient_resource::<T>()` and
 `derived_publication(name)` in setup/register when appropriate; these policies
