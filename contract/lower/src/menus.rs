@@ -41,12 +41,32 @@ fn has(attrs: &[Attr], name: &str) -> bool {
 
 /// A confirmation's direct rows, as its host reads them: `each`, `when`
 /// and `match` are not elements, so the rows they produce are its rows.
-/// `repeats` is whether a row is inside an `each`.
+/// `repeats` is whether a row is inside an `each`; `arms` is the `when` and
+/// `match` arms it is on, outermost first, each as the choice node's address
+/// and the arm's index. Addresses, not spans: a component used on two arms
+/// is inlined as two nodes with one span.
 struct Row<'a> {
     tag: &'a str,
     attrs: Vec<Attr>,
     span: Span,
     repeats: bool,
+    arms: Vec<(usize, usize)>,
+}
+
+impl Row<'_> {
+    /// Whether `self` and `other` are on different arms of one `when` or
+    /// `match`, so never both present.
+    fn exclusive(&self, other: &Row) -> bool {
+        for (a, b) in self.arms.iter().zip(&other.arms) {
+            if a.0 != b.0 {
+                return false;
+            }
+            if a.1 != b.1 {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 impl Lowerer<'_> {
@@ -88,7 +108,7 @@ impl Lowerer<'_> {
             );
         }
         let mut rows = Vec::new();
-        self.rows(children, false, &mut rows);
+        self.rows(children, false, &mut Vec::new(), &mut rows);
         // How it hides this one: the popover's `popovertarget` with
         // `popovertargetaction="hide"`, the dialog's `commandfor` with
         // `command="close"`. `None` when a value is not a literal.
@@ -123,13 +143,15 @@ impl Lowerer<'_> {
         for row in &rows {
             match row.tag {
                 "text" => {}
-                "button" | "link" if has(&row.attrs, "press") => {
+                // The hosts present buttons only; a `link` is refused as
+                // any other element row is.
+                "button" if has(&row.attrs, "press") => {
                     if hides(&row.attrs) == Some(false) {
                         return refuse(row, format!("this action's `press` does not also hide it ({how})"));
                     }
                     actions += 1;
                 }
-                "button" | "link" => match hides(&row.attrs) {
+                "button" => match hides(&row.attrs) {
                     Some(false) => {
                         return refuse(row, "this `button` has no `press` and does not hide it, so it is neither an action nor the cancel".into())
                     }
@@ -142,10 +164,7 @@ impl Lowerer<'_> {
             }
         }
         for (i, later) in cancels.iter().enumerate() {
-            if cancels[..i]
-                .iter()
-                .any(|earlier| !self.exclusive(children, earlier.span, later.span))
-            {
+            if cancels[..i].iter().any(|earlier| !earlier.exclusive(later)) {
                 return refuse(later, "a second cancel; there is at most one".into());
             }
         }
@@ -161,10 +180,18 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    /// The element rows `nodes` produce, through `each`, `when` and `match`.
-    fn rows<'n>(&self, nodes: &'n [Node], repeats: bool, out: &mut Vec<Row<'n>>) {
+    /// The element rows `nodes` produce, through `each`, `when` and `match`;
+    /// `arms` is the path of arms `nodes` are on.
+    fn rows<'n>(
+        &self,
+        nodes: &'n [Node],
+        repeats: bool,
+        arms: &mut Vec<(usize, usize)>,
+        out: &mut Vec<Row<'n>>,
+    ) {
         for node in nodes {
-            match node {
+            let choice = std::ptr::from_ref(node) as usize;
+            let branches: Vec<&'n [Node]> = match node {
                 Node::Element {
                     tag, attrs, span, ..
                 } => {
@@ -179,57 +206,27 @@ impl Lowerer<'_> {
                         attrs: all,
                         span: *span,
                         repeats,
+                        arms: arms.clone(),
                     });
+                    continue;
                 }
-                Node::When {
-                    then, otherwise, ..
-                } => {
-                    self.rows(then, repeats, out);
-                    self.rows(otherwise, repeats, out);
-                }
-                Node::Match { some, none, .. } => {
-                    self.rows(&some.1, repeats, out);
-                    self.rows(none, repeats, out);
-                }
-                Node::Each { body, .. } => self.rows(body, true, out),
-                // A component's use is expanded before lowering; a slot's
-                // fill is its caller's to check.
-                Node::Use { .. } | Node::Children { .. } => {}
-            }
-        }
-    }
-
-    /// Whether the rows at `a` and `b` are on different arms of one `when`
-    /// or `match`, so never both present.
-    fn exclusive(&self, nodes: &[Node], a: Span, b: Span) -> bool {
-        fn holds(nodes: &[Node], at: Span) -> bool {
-            nodes.iter().any(|n| match n {
-                Node::Element { span, .. } => *span == at,
-                Node::When {
-                    then, otherwise, ..
-                } => holds(then, at) || holds(otherwise, at),
-                Node::Match { some, none, .. } => holds(&some.1, at) || holds(none, at),
-                Node::Each { body, .. } => holds(body, at),
-                Node::Use { .. } | Node::Children { .. } => false,
-            })
-        }
-        nodes.iter().any(|n| {
-            let arms: Vec<&[Node]> = match n {
                 Node::When {
                     then, otherwise, ..
                 } => vec![then, otherwise],
                 Node::Match { some, none, .. } => vec![&some.1, none],
-                _ => return false,
+                Node::Each { body, .. } => {
+                    self.rows(body, true, arms, out);
+                    continue;
+                }
+                // A component's use is inlined before lowering; a slot's
+                // fill is its caller's to check.
+                Node::Use { .. } | Node::Children { .. } => continue,
             };
-            let (ia, ib) = (
-                arms.iter().position(|arm| holds(arm, a)),
-                arms.iter().position(|arm| holds(arm, b)),
-            );
-            match (ia, ib) {
-                (Some(x), Some(y)) if x != y => true,
-                (Some(x), Some(y)) if x == y => self.exclusive(arms[x], a, b),
-                _ => false,
+            for (arm, branch) in branches.into_iter().enumerate() {
+                arms.push((choice, arm));
+                self.rows(branch, repeats, arms, out);
+                arms.pop();
             }
-        })
+        }
     }
 }

@@ -56,33 +56,49 @@ fn shade(value: ColorValue, shadowed: bool) -> ColorValue {
     }
 }
 
-/// Chrome's inset shading, measured against it: the shadowed side is
-/// `Color::Dark()`, the lit side `Color::Light()`. A colour too near black
-/// to darken (within `#202020`) is lightened once for the shadowed side and
-/// twice for the lit one; one too near white to lighten (within `#ebebeb`,
-/// exclusive) is its own lit side.
+/// Chrome's inset shading: Blink's `CalculateInsetOutsetColor`
+/// (third_party/blink/renderer/core/paint/box_border_painter.cc, the
+/// `TableDefaultBorderColorCurrentColor` branch Chrome ships, "chosen to match
+/// WebKit's behavior"). By relative luminance (`color_utils::
+/// GetRelativeLuminance4f`): a colour no brighter than `#202020` is
+/// lightened once for the shadowed side and twice for the lit one; otherwise
+/// the shadowed side is `Color::Dark()`, and the lit side `Color::Light()`
+/// unless the colour is brighter than `#ebebeb`, when it is itself.
 fn inset_shade(c: Color, shadowed: bool) -> Color {
-    let distance = |to: u8| {
-        [c.r(), c.g(), c.b()]
-            .iter()
-            .map(|&v| (v as i32 - to as i32).pow(2))
-            .sum::<i32>()
-    };
-    let near_black = distance(0) <= 3 * 0x20 * 0x20;
-    match (shadowed, near_black) {
-        (true, false) => dark(c),
-        (true, true) => light(c),
-        (false, true) => light(light(c)),
-        (false, false) if distance(0xff) < 3 * 0x14 * 0x14 => c,
-        (false, false) => light(c),
+    // Luminance of rgb(32, 32, 32) and rgb(235, 235, 235), as Blink spells them.
+    const BASE_DARK: f32 = 0.014_443_844;
+    const BASE_LIGHT: f32 = 0.830_77;
+    let luminance = relative_luminance(c);
+    match shadowed {
+        _ if luminance <= BASE_DARK => {
+            if shadowed {
+                light(c)
+            } else {
+                light(light(c))
+            }
+        }
+        true => dark(c),
+        false if luminance > BASE_LIGHT => c,
+        false => light(c),
     }
+}
+
+/// `color_utils::GetRelativeLuminance4f`: WCAG's, over sRGB linearised
+/// with the 0.04045 threshold.
+fn relative_luminance(c: Color) -> f32 {
+    let linear = |v: u8| {
+        let v = v as f32 / 255.0;
+        if v <= 0.040_45 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * linear(c.r()) + 0.7152 * linear(c.g()) + 0.0722 * linear(c.b())
 }
 
 /// Chrome's `Color::Dark()`.
 fn dark(c: Color) -> Color {
-    if c.0 | 0xff == Color::BLACK.0 {
-        return Color::rgba(0x54, 0x54, 0x54, c.a());
-    }
     let v = channels_max(c);
     let multiplier = if v == 0.0 {
         0.0
@@ -119,8 +135,13 @@ mod tests {
         Color::rgba(v, v, v, 0xff)
     }
 
+    fn rgb(r: u8, g: u8, b: u8) -> Color {
+        Color::rgba(r, g, b, 0xff)
+    }
+
     /// Each pair Chrome painted for `border: 2px inset <colour>` (top, then
-    /// bottom), read from its pixels.
+    /// bottom), read from its pixels (Chrome 154; the dark saturated colours
+    /// are where luminance, not distance from black, decides).
     #[test]
     fn inset_shades_are_chromes() {
         for (colour, top, bottom) in [
@@ -146,6 +167,30 @@ mod tests {
                 Color::rgba(23, 46, 69, 0xff),
                 Color::rgba(79, 158, 238, 0xff),
             ),
+            (rgb(0x00, 0x00, 0x40), rgb(0, 0, 148), rgb(0, 0, 233)),
+            (rgb(0x40, 0x00, 0x00), rgb(148, 0, 0), rgb(233, 0, 0)),
+            (rgb(0x00, 0x40, 0x00), rgb(0, 0, 0), rgb(0, 148, 0)),
+            (rgb(0x00, 0x00, 0x80), rgb(0, 0, 44), rgb(0, 0, 212)),
+            (rgb(0x00, 0x00, 0x60), rgb(0, 0, 180), rgb(0, 0, 255)),
+            (rgb(0x0a, 0x0a, 0x40), rgb(23, 23, 148), rgb(36, 36, 233)),
+            (rgb(0x10, 0x10, 0x40), rgb(37, 37, 148), rgb(58, 58, 233)),
+            (rgb(0x20, 0x20, 0x00), rgb(116, 116, 0), rgb(200, 200, 0)),
+            (rgb(0x3a, 0x00, 0x00), rgb(142, 0, 0), rgb(227, 0, 0)),
+            (rgb(0x00, 0x3a, 0x3a), rgb(0, 0, 0), rgb(0, 142, 142)),
+            (rgb(0x00, 0xff, 0x00), rgb(0, 171, 0), rgb(0, 255, 0)),
+            (
+                rgb(0xe0, 0xe0, 0xf0),
+                rgb(146, 146, 156),
+                rgb(238, 238, 255),
+            ),
+            (
+                rgb(0xf0, 0xe0, 0xe0),
+                rgb(156, 146, 146),
+                rgb(255, 238, 238),
+            ),
+            (grey(0x1f), grey(115), grey(199)),
+            (grey(0x21), grey(0), grey(117)),
+            (grey(0x4b), grey(0), grey(159)),
         ] {
             assert_eq!(inset_shade(colour, true), top, "{colour:?} top");
             assert_eq!(inset_shade(colour, false), bottom, "{colour:?} bottom");

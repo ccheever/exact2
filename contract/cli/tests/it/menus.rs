@@ -140,6 +140,11 @@ fn a_shape_the_native_sheet_cannot_present_is_refused_naming_the_row() {
     for (body, why) in [
         (format!("{open}\n{action}\n  hr\n{CANCEL}"), "a `hr` row"),
         (format!("{open}\n{action}\n  view\n    text \"Hi\""), "a `view` row"),
+        // The hosts present buttons only: a `link` action is any other row.
+        (
+            format!("{open}\n{action}\n  link press=go popovertarget=\"c\" popovertargetaction=\"hide\"\n    text \"Go\""),
+            "a `link` row is not text, an action or the cancel",
+        ),
         (
             format!("{open}\n  button press=go popovertarget=\"c\"\n    text \"Go\""),
             "does not also hide it",
@@ -163,4 +168,28 @@ fn a_shape_the_native_sheet_cannot_present_is_refused_naming_the_row() {
         assert_eq!(id, "lower-alertdialog", "{body}: {message}");
         assert!(message.contains(why), "{body}: {message}");
     }
+}
+
+#[test]
+fn one_cancel_component_on_both_arms_of_a_when_is_one_cancel() {
+    // Inlined, the two uses are two nodes with one span; they are still on
+    // different arms. Two uses on one arm are still two cancels.
+    let cancel = "component Cancel\n  view\n    button popovertarget=\"c\" popovertargetaction=\"hide\"\n      text \"Cancel\"\n";
+    let open = "column id=\"c\" popover=\"auto\" role=\"alertdialog\"\n  button press=go popovertarget=\"c\" popovertargetaction=\"hide\"\n    text \"Go\"";
+    let arms = format!(
+        "{}{cancel}",
+        app(&format!(
+            "{open}\n  when busy\n    Cancel()\n  else\n    Cancel()"
+        ))
+    );
+    if let Err(e) = contract::compile(&arms) {
+        panic!("{arms}\n{e}");
+    }
+    let twice = format!(
+        "{}{cancel}",
+        app(&format!("{open}\n  when busy\n    Cancel()\n    Cancel()"))
+    );
+    let e = contract::compile(&twice).unwrap_err();
+    assert_eq!(e.id, "lower-alertdialog", "{}", e.message);
+    assert!(e.message.contains("a second cancel"), "{}", e.message);
 }

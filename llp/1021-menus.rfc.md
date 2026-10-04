@@ -408,10 +408,11 @@ row: a popover with `role="alertdialog"` (or a `dialog` with that role, which
 also needs `closedby="any"`) whose rows, read through `each`, `when` and
 `match` to the elements they produce, are anything but `text`, actions (a
 `button` with `press` that hides it: `popovertarget` and
-`popovertargetaction="hide"`, or `commandfor` and `command="close"`) and at
+`popovertargetaction="hide"`, or `commandfor` and `command="close"`; a `link`
+is refused as any other row, since the hosts present buttons) and at
 most one cancel (a `button` without `press` that hides it; one on each arm of
-one `when` is one, one inside `each` may repeat and is refused), or that has
-no action. A value known only at run time (a bound `popovertargetaction`, an
+one `when` is one, the same component used on both arms included, and one
+inside `each` may repeat and is refused), or that has no action. A value known only at run time (a bound `popovertargetaction`, an
 `id` that is not a literal) is left to the host, which still refuses and logs. Placement
 beyond D2's rule is `position-area` ("Placement", below); the keyboard
 contract stays where §5 puts it.
@@ -467,7 +468,12 @@ The row is a schema enum (`PositionArea`, bit 175). The web writes it as
 the CSS declaration on both targets and the browser places the popover
 (Chrome, the oracle, implements it with the invoker as the implicit
 anchor; an engine without anchor positioning keeps its default centred
-popover, and nothing in the host reimplements it). The painted top layers — iOS under the agent (`lift`)
+popover, and nothing in the host reimplements it). The UA sheet's
+`[popover] { inset: 0; margin: auto }` needs no reset: with a
+`position-area` Chrome 154 uses zero margins (measured: a 242×122 popover
+under `top span-all` over an invoker at x 190, width 172, y 801 is at
+155,679, centred and flush; without the row, margin auto centres it in the
+viewport), and the fixture's `open-above-sheet` lays out the same way. The painted top layers — iOS under the agent (`lift`)
 and macOS's — place by the table, from one function (`PositionArea.swift`).
 The iOS sheet (`role="alertdialog"`, a `UIAlertController` popover) takes a
 side from it: a `top` area permits only a down arrow, which UIKit places
