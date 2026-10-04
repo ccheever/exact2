@@ -17,7 +17,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.ok(existsSync(resolve(dir, 'app.test.contract')));
     // The diary instructions travel in full, for every agent, and .exact/ stays local.
     const agents = () => readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
-    assert.match(agents(), /<!-- exact diary[^]*## The authoring diary[^]*<!-- \/exact diary -->/);
+    assert.match(agents(), /<!-- exact:[^]*docs\/contract-for-agents\.md[^]*## The authoring diary[^]*<!-- \/exact -->/);
     assert.equal(readFileSync(resolve(dir, 'CLAUDE.md'), 'utf8'), '@AGENTS.md\n');
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
     // Execute the generated dispatcher against fake SDK entry points: cwd may
@@ -56,20 +56,20 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     const web = resolve(dir, 'web/Cargo.toml');
     writeFileSync(web, readFileSync(web, 'utf8').replaceAll(/path = "[^"]*"/g, 'path = "/nowhere/exact2/x"'));
     // An older app gains the diary block; an author's own text is kept and a stale block replaced.
-    writeFileSync(resolve(dir, 'AGENTS.md'), '# Mine\n\n<!-- exact diary: old -->\nstale\n<!-- /exact diary -->\n\nAfter.\n');
+    writeFileSync(resolve(dir, 'AGENTS.md'), '# Mine\n\n<!-- exact: old -->\nstale\n<!-- /exact -->\n\nAfter.\n');
     writeFileSync(resolve(dir, 'CLAUDE.md'), '# Claude notes\n');
     writeFileSync(resolve(dir, '.gitignore'), '/target/');
-    assert.match(createApp(dir, { update: true }), /the diary instructions, exact2 paths in web\/Cargo\.toml/);
-    assert.match(agents(), /^# Mine\n\n<!-- exact diary[^]*## The authoring diary[^]*<!-- \/exact diary -->\n\nAfter\.\n$/);
+    assert.match(createApp(dir, { update: true }), /the agent instructions, exact2 paths in web\/Cargo\.toml/);
+    assert.match(agents(), /^# Mine\n\n<!-- exact:[^]*## The authoring diary[^]*<!-- \/exact -->\n\nAfter\.\n$/);
     assert.ok(!agents().includes('stale'));
-    assert.match(readFileSync(resolve(dir, 'CLAUDE.md'), 'utf8'), /^# Claude notes\n\n<!-- exact diary/);
+    assert.match(readFileSync(resolve(dir, 'CLAUDE.md'), 'utf8'), /^# Claude notes\n\n<!-- exact:/);
     assert.equal(readFileSync(resolve(dir, '.gitignore'), 'utf8'), '/target/\n/.exact/\n');
     assert.deepEqual(outsideWorkspaceProblems(dir), []);
     assert.ok(!readFileSync(web, 'utf8').includes('/nowhere'));
     const appTest = resolve(dir, 'app.test.contract');
     assert.match(readFileSync(appTest, 'utf8'), /the greeting loads/, 'update preserves existing tests');
     rmSync(appTest);
-    assert.doesNotMatch(createApp(dir, { update: true }), /the diary instructions/, 'current instructions are left as they are');
+    assert.doesNotMatch(createApp(dir, { update: true }), /the agent instructions/, 'current instructions are left as they are');
     assert.match(readFileSync(appTest, 'utf8'), /test "the app opens"\n  clock settle/);
     assert.ok(!readFileSync(appTest, 'utf8').includes('greeting'), 'an older app need not have the scaffold IDs');
     assert.equal(readFileSync(resolve(dir, 'Cargo.toml'), 'utf8'), manifest, 'the patch table is rewritten in place');

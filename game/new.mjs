@@ -111,7 +111,7 @@ ${patchLines(dir).join('\n')}
     'rust-toolchain.toml': readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8'),
     'exact.mjs': commandsFor(dir, name),
     '.gitignore': '/target/\n/dist/\n/app.contract.d.ts\n/.exact/\n',
-    'AGENTS.md': `# ${title}\n\nAn Exact app; its commands are \`bun exact.mjs\` (run it bare for the list).\n\n${diaryBlock()}`,
+    'AGENTS.md': `# ${title}\n\n${agentBlock(dir)}`,
     'CLAUDE.md': '@AGENTS.md\n',
     'app.json': JSON.stringify({
       name: title, short_name: title, id: `com.example.${name}`, start_url: '/', display: 'standalone',
@@ -249,28 +249,49 @@ Cargo.lock is still exact2's: this machine's Cargo cache lacks some of its crate
 first build resolves it, fetching them once (it needs the network then, not now).` : ''}`;
 }
 
-/** docs/diary.md, as the marked block an app's AGENTS.md carries: in full, since
- * an agent in the app's directory may not be able to read the checkout. */
-const DIARY = /<!-- exact diary[^>]*-->[\s\S]*?<!-- \/exact diary -->\n?/;
-function diaryBlock() {
-  const text = readFileSync(resolve(ROOT, 'docs/diary.md'), 'utf8').replace(/^#/gm, '##');
-  return `<!-- exact diary: written by \`exact new\` and \`bun exact.mjs update\` from exact2's docs/diary.md -->\n${text.trimEnd()}\n<!-- /exact diary -->\n`;
+/** The marked block an app's AGENTS.md carries: how to work on the app from
+ * its own directory, where the checkout's guides are, and docs/diary.md in
+ * full, since an agent in the app's directory may not be able to read the
+ * checkout. */
+const BLOCK = /<!-- exact:[^>]*-->[\s\S]*?<!-- \/exact -->\n?/;
+function agentBlock(dir) {
+  const exact2 = pathFrom(dir, ROOT), diary = readFileSync(resolve(ROOT, 'docs/diary.md'), 'utf8').replace(/^#/gm, '##');
+  return `<!-- exact: written by \`exact new\` and \`bun exact.mjs update\`; edit outside this block -->
+## Working on this app
+
+An Exact app, built with the exact2 checkout at \`${exact2}\`. Run everything from this
+directory:
+
+- \`bun exact.mjs\` lists the commands: \`web\` (the dev loop), \`web-build\`, \`test web\`
+  (runs app.test.contract; also \`macos\`, \`ios\`), \`agent web tree\` (inspect or drive),
+  \`ios --run\`, \`mac --run\`, \`update\`, \`feedback\`.
+- Compile and see every diagnostic at once:
+  \`cargo run -q --manifest-path ${exact2}/Cargo.toml -p contract -- build app.contract --json\`
+
+Start with \`${exact2}/docs/contract-for-agents.md\`; then \`contract-grammar.md\`,
+\`reference.md\` (data modules) and \`agent-pitfalls.md\` beside it. Their commands are
+written for exact2's root (\`apps/caltrain\`, \`bun scripts/agent.mjs web\`); here, use the
+ones above.
+
+${diary.trimEnd()}
+<!-- /exact -->
+`;
 }
 
-/** An existing app gets the current diary block: replaced where it is, added to
+/** An existing app gets the current block: replaced where it is, added to
  * AGENTS.md otherwise, and reachable from CLAUDE.md; \`.exact/\` is ignored. */
-function writeDiaryInstructions(dir) {
+function writeAgentInstructions(dir) {
   const path = file => resolve(dir, file), read = file => existsSync(path(file)) ? readFileSync(path(file), 'utf8') : null;
-  const place = text => text === null ? diaryBlock() : DIARY.test(text) ? text.replace(DIARY, diaryBlock()) : `${text.trimEnd()}\n\n${diaryBlock()}`;
+  const place = text => text === null ? agentBlock(dir) : BLOCK.test(text) ? text.replace(BLOCK, agentBlock(dir)) : `${text.trimEnd()}\n\n${agentBlock(dir)}`;
   const before = ['AGENTS.md', 'CLAUDE.md', '.gitignore'].map(read);
   writeFileSync(path('AGENTS.md'), place(before[0]));
   const claude = before[1];
   if (claude === null) writeFileSync(path('CLAUDE.md'), '@AGENTS.md\n');
-  else if (DIARY.test(claude) || !claude.includes('@AGENTS.md')) writeFileSync(path('CLAUDE.md'), place(claude));
+  else if (BLOCK.test(claude) || !claude.includes('@AGENTS.md')) writeFileSync(path('CLAUDE.md'), place(claude));
   const ignore = before[2] ?? '';
   if (!/^\/?\.exact\/?$/m.test(ignore)) writeFileSync(path('.gitignore'), `${ignore}${ignore && !ignore.endsWith('\n') ? '\n' : ''}/.exact/\n`);
   const after = ['AGENTS.md', 'CLAUDE.md', '.gitignore'].map(read);
-  return after.some((text, i) => text !== before[i]) ? ', the diary instructions' : '';
+  return after.some((text, i) => text !== before[i]) ? ', the agent instructions' : '';
 }
 
 /** The app's own command runner. EXACT2 names the checkout once (D3); the
@@ -340,7 +361,7 @@ function updateApp(dir, name) {
     : manifest.replace(section, table => block + (at + table.length < manifest.length ? '\n' : '')));
   writeFileSync(resolve(dir, 'rust-toolchain.toml'), readFileSync(resolve(ROOT, 'rust-toolchain.toml')));
   writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name));
-  const diary = writeDiaryInstructions(dir);
+  const agents = writeAgentInstructions(dir);
   // An older app may predate the generated test command. Preserve authored
   // tests; otherwise start with a boot check that assumes no app-specific IDs.
   const test = resolve(dir, 'app.test.contract');
@@ -360,7 +381,7 @@ test "the app opens"
     if (next !== text) { writeFileSync(path, next); changed.push(file); }
   }
   resolveOffline(dir);
-  return `Updated ${dir}: patches, toolchain, exact.mjs${diary}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
+  return `Updated ${dir}: patches, toolchain, exact.mjs${agents}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
 }
 
 if (import.meta.main) {
