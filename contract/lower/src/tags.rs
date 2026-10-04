@@ -749,6 +749,20 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "font-variant-numeric" => styles(&[StyleId::FontVariantNumeric]),
         "text-decoration" | "border" | "border-top" | "border-right" | "border-bottom"
         | "border-left" => AttrTarget::Shorthand,
+        // @ref LLP 1093 — CSS multi-column layout and the break rules inside
+        // it. The shorthands, and the two longhands with keywords a row does
+        // not hold (`auto` columns, `thin`/`medium`/`thick` rules), project
+        // through `shorthands`.
+        "columns" | "column-count" | "column-rule" | "column-rule-width" => AttrTarget::Shorthand,
+        "column-width" => styles(&[StyleId::ColumnWidth]),
+        "column-fill" => styles(&[StyleId::ColumnFill]),
+        "column-rule-style" => styles(&[StyleId::ColumnRuleStyle]),
+        "column-rule-color" => styles(&[StyleId::ColumnRuleColor]),
+        "widows" => styles(&[StyleId::Widows]),
+        "orphans" => styles(&[StyleId::Orphans]),
+        "break-before" => styles(&[StyleId::BreakBefore]),
+        "break-after" => styles(&[StyleId::BreakAfter]),
+        "break-inside" => styles(&[StyleId::BreakInside]),
         "resize" => styles(&[StyleId::Resize]),
         "user-select" => styles(&[StyleId::UserSelect]),
         "text-decoration-line" => styles(&[StyleId::TextDecorationLine]),
@@ -1361,4 +1375,47 @@ pub(crate) fn host_transform_recipients(
         }
     }
     recipients
+}
+
+/// How an element is a flex or grid container, if it is: its tag, or a
+/// literal `display` (LLP 1093 §1).
+pub(crate) fn flex_container<'a>(tag: &'a str, attrs: &[contract_syntax::Attr]) -> Option<&'a str> {
+    let display = attrs
+        .iter()
+        .rev()
+        .find(|a| a.name == "display")
+        .and_then(|a| match &a.value {
+            contract_syntax::Expr::Str(v, _) => Some(v.as_str()),
+            _ => None,
+        });
+    match display {
+        Some("flex" | "grid" | "inline-flex" | "inline-grid") => {
+            Some("a `display` of flex or grid")
+        }
+        Some(_) => None,
+        None => matches!(tag, "column" | "row").then_some(tag),
+    }
+}
+
+/// @ref LLP 1093 §1 — a flex or grid container is never a multi-column one:
+/// CSS ignores the rows there, so they are refused rather than dropped.
+pub(crate) fn multicol_on_flex(
+    tag: &str,
+    a: &contract_syntax::Attr,
+) -> Result<(), crate::LowerError> {
+    let multicol = matches!(
+        a.name.as_str(),
+        "columns"
+            | "column-count"
+            | "column-width"
+            | "column-fill"
+            | "column-rule"
+            | "column-rule-width"
+            | "column-rule-style"
+            | "column-rule-color"
+    );
+    if multicol {
+        return crate::err("lower-attr-tag", format!("`{}` makes a block a multi-column container, and `{tag}` makes a flex or grid container, where CSS ignores it; write `view` (a block) for columns", a.name), a.span);
+    }
+    Ok(())
 }
