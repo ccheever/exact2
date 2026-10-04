@@ -70,3 +70,13 @@ mod zone;
 pub use app::run;
 pub use host::{Host, HostError};
 pub use presenter::Presenter;
+
+/// Run `f` inside an atrace section on Android (Perfetto shows it on this
+/// thread); elsewhere just `f`.
+#[inline]
+pub(crate) fn traced<T>(_name: &core::ffi::CStr, f: impl FnOnce() -> T) -> T {
+    #[cfg(target_os = "android")]
+    return android::trace(_name, f);
+    #[cfg(not(target_os = "android"))]
+    f()
+}

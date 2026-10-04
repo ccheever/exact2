@@ -741,7 +741,7 @@ impl<D: DataSource> Presenter<D> {
         let error = self.service_commit();
         self.size_controls();
         self.queue_collections();
-        let refined = self.refine_collections();
+        let refined = crate::traced(c"exact refine collections", || self.refine_collections());
         let geometry = self.refresh_transform_geometry();
         error.or(refined).or(geometry)
     }

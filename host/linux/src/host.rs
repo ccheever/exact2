@@ -802,7 +802,7 @@ impl<D: DataSource> Host<D> {
             self.log(refusal);
             return Some(refusal.into());
         }
-        match self.runner.dispatch(view, event) {
+        match crate::traced(c"exact dispatch", || self.runner.dispatch(view, event)) {
             Ok(receipt) => self.commit(
                 &[Timed {
                     at_ms: self.now_ms,
@@ -1056,7 +1056,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> Option<String> {
-        self.commit_effects(receipts, error).0
+        crate::traced(c"exact commit", || self.commit_effects(receipts, error).0)
     }
 
     fn commit_effects(
@@ -1124,11 +1124,13 @@ impl<D: DataSource> Host<D> {
         self.retire_transform_binding();
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-        let layout = if receipts.is_empty() {
-            self.layout_motion()
-        } else {
-            self.layout()
-        };
+        let layout = crate::traced(c"exact layout", || {
+            if receipts.is_empty() {
+                self.layout_motion()
+            } else {
+                self.layout()
+            }
+        });
         self.observe_layout();
         paint |= layout.as_ref().copied().unwrap_or(true);
         // Transitions the reader plays leave the engine before it presents.

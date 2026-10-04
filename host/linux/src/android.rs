@@ -198,6 +198,41 @@ extern "C" fn on_vsync(_frame_time_nanos: i64, data: *mut c_void) {
     v.arrived.set(true);
 }
 
+/// Run the calling thread only on the cores outside the slowest cluster
+/// (those whose top clock is above the lowest top clock). A thread that does
+/// a frame's work in bursts and sleeps between them looks idle to the
+/// scheduler, which wakes it on a little core: a tap's commit there took two
+/// to three times as long. Whether the mask was set.
+pub fn fast_cores() -> bool {
+    let mut tops: Vec<(usize, u64)> = Vec::new();
+    for cpu in 0..libc::CPU_SETSIZE {
+        let dir = format!("/sys/devices/system/cpu/cpu{cpu}");
+        if !std::path::Path::new(&dir).exists() {
+            break;
+        }
+        let top = std::fs::read_to_string(format!("{dir}/cpufreq/cpuinfo_max_freq"));
+        if let Some(top) = top.ok().and_then(|t| t.trim().parse().ok()) {
+            tops.push((cpu, top));
+        }
+    }
+    let Some(slowest) = tops.iter().map(|t| t.1).min() else {
+        return false;
+    };
+    let fast: Vec<usize> = tops.iter().filter(|t| t.1 > slowest).map(|t| t.0).collect();
+    if fast.is_empty() {
+        return false;
+    }
+    // SAFETY: a zeroed cpu_set_t is the empty set; CPU_SET writes within it
+    // (every index is below CPU_SETSIZE); the call reads it for its duration.
+    unsafe {
+        let mut set: libc::cpu_set_t = std::mem::zeroed();
+        for cpu in fast {
+            libc::CPU_SET(cpu, &mut set);
+        }
+        libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &set) == 0
+    }
+}
+
 /// Open an atrace section on this thread (close it with [`section_end`]).
 pub fn section_begin(name: &core::ffi::CStr) {
     // SAFETY: a NUL-terminated name.
