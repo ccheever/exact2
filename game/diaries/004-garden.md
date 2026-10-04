@@ -977,7 +977,7 @@ planting direction is published. It now walks using only that text, plants
 and produces identical saves after restoring while the hint is active. A
 second test frees a full garden's opposite-corner carrot, follows the hint
 there, fills it again, expands and follows the newly available space. All
-21 simulation tests and three layout tests pass; game determinism Clippy
+21 simulation tests and three crop tests pass; game determinism Clippy
 and formatting pass. The real-host proof extends boundary recovery with
 buying another carrot and following the empty-plot hint to a second planting,
 then repeats the whole continuation in a fresh process.
@@ -1016,3 +1016,41 @@ timings using that helper did not guarantee a tick; no comparison to those
 old timings is claimed. Logs: `/tmp/exact2-garden-empty-{baseline,tests,scale-all}.log`.
 
 Strict acceptance and the next periodic main integration follow this checkpoint.
+
+### Accepted verification and another main update
+
+Feature `374d89061` is followed by merge `f59d587ac`, bringing main
+`e097e4cae`'s Cargo metadata cache key, browser shutdown evidence and Apple
+paint-plane changes. All five root gates pass: build, 2,351 enabled tests
+across 81 binaries (nine ignored), strict Clippy, formatting, caps and boot.
+The app/build, Windows portability and surface-record suite passes 164 tests
+with six optional/platform skips. Logs: `/tmp/exact2-maine097-*.log`.
+The first root-test transcript used two independently opened file handles
+for stdout/stderr and overwrote some output; a repeated passing run uses one
+redirected stream. Counts use each Cargo-launched binary's final result once.
+
+With sources fixed, strict collector `artifacts/prove/run-bTYZe6/` accepts
+all seven matching runs. Linux normal/Save/FreshGame take 13.9/6.4/6.3 s;
+web 81.4/98.6/74.8 s; native release 28.8 s. Every run has zero failures.
+Six descendant audits pass; web Save's optional scan is unavailable while
+all owned carriers close. The collector restores the ordinary web build
+(21.0 s). Its child summaries remain UNVERIFIED while collecting candidates;
+acceptance comes from the successful collector and written pins.
+
+The independent macOS run (`artifacts/empty-main-macos/`) takes 39.4 s and
+matches the inputs, every pin, six world observations and nine saves of all
+seven strict runs. Its optional descendant scan is unavailable with owned
+carriers closed. The empty-plot screenshot was inspected again. Both old
+tick pins remain unchanged; continuation/market save digests now include
+the new HUD field. Recovery additionally buys, follows the hint and plants
+a second carrot; its accepted save is `048fa471…`.
+
+Forest and Rivals pass complete web/macOS proofs after the merge, retaining
+their existing world and save pins. Their diaries record those comparisons
+and inspected captures. These verification times include builds and concurrent
+work. The empty-plot queue item is closed; future playtesting should seek new
+gameplay evidence rather than tune this successful controller batch further.
+
+A final ordinary Linux proof checks the accepted pins and reports PASS in
+1.475 s, with a successful process audit (`artifacts/empty-accepted-linux/`).
+Caps passes after staging the pins and all three diary updates.

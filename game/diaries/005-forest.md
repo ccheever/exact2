@@ -906,3 +906,14 @@ optional scan is unavailable while all owned carriers close. Artifacts:
 `artifacts/main-7cdf-{web,macos}/`. Rivals diary 006 records the passing root
 gates and the advisory Lean check unavailable because `lake` is absent.
 No gameplay or Jev-policy change; times include builds and concurrent work.
+
+## Bake cache and paint-plane integration (2026-10-04)
+
+During Garden's empty-plot work, merge `f59d587ac` brings main through
+`e097e4cae`. Forest's complete web/macOS proofs pass in 129.8/172.6 s.
+Both hosts agree on inputs, pins, nine worlds and fifteen saves; worlds and
+saves also match the previous accepted integration. Both shelter screenshots
+were inspected. Both optional descendant scans are unavailable while every
+owned carrier closes. Artifacts: `artifacts/main-e097-{web,macos}/`. Garden
+diary 004 records the shared gates. No Forest gameplay or Jev-policy changes;
+timings include builds and concurrent verification.

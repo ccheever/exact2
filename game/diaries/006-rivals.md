@@ -1106,3 +1106,17 @@ No gameplay or Jev-policy changes accompany the merge.
 
 Caps passes after staging the three diaries. All six game runs finish with
 zero failures, and the working tree is committed at this verified boundary.
+
+## Bake cache and paint-plane integration (2026-10-04)
+
+During Garden's empty-plot work, merge `f59d587ac` brings main through
+`e097e4cae`. Rivals' complete web/macOS proofs pass in 47.0/63.4 s.
+Both hosts agree on inputs, pins, ten worlds and fourteen saves; worlds and
+saves match the previous integration. Both five-kill Mayhem screenshots
+were inspected, showing the round still live with its 25-kill target. Web's
+process audit passes; native's optional scan is unavailable with owned
+carriers closed. Artifacts: `artifacts/main-e097-web-recheck/` and
+`artifacts/main-e097-macos/`. The first web attempt was interrupted because
+I passed a mistyped Chrome executable path; the corrected run is the evidence
+above. Garden diary 004 records the shared passing gates. No Rivals gameplay
+or Jev-policy changes; timings include builds and concurrent verification.
