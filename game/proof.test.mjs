@@ -1,4 +1,4 @@
-import {parseFlags} from '../scripts/agent-launch.mjs';
+import {parseFlags, chromium} from '../scripts/agent-launch.mjs';
 import {runFocusCommands} from '../host/web/navigation.js';
 import {captureWorld, diffWorlds, formatWorldDiff} from './proof.mjs';
 import {createHash} from 'node:crypto';
@@ -998,7 +998,8 @@ test('E10 browser buttons retain UA keyboard focus and hover feedback', async ()
     if(path.endsWith('.js')) return new Response(Bun.file(resolve(root,path.slice(1))),{headers:{'content-type':'text/javascript'}});
     return new Response('',{status:404});
   }});
-  const child=spawn(process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',['--headless=new','--remote-debugging-pipe','--no-sandbox','--no-first-run','--disable-background-networking',`--user-data-dir=${profile}`,'about:blank'],{stdio:['ignore','ignore','ignore','pipe','pipe']});
+  const child=spawn(chromium().executable,['--headless=new','--remote-debugging-pipe','--no-sandbox','--no-first-run','--disable-background-networking',`--user-data-dir=${profile}`,'about:blank'],{stdio:['ignore','ignore','ignore','pipe','pipe'],windowsHide:true});
+  if (!child.pid) await new Promise((ok,fail)=>{child.once('spawn',ok);child.once('error',fail);});
   const exited=new Promise(resolve=>child.once('exit',resolve));
   const cdp=new Cdp(child.stdio[3],child.stdio[4]);
   const deadline=setTimeout(()=>cdp.fail('button browser timed out'),30000);
@@ -1032,7 +1033,16 @@ test('E10 browser buttons retain UA keyboard focus and hover feedback', async ()
     await evaluate('globalThis.pressFocus=outside');
     for(const type of ['mousePressed','mouseReleased']) await call('Input.dispatchMouseEvent',{type,x:15,y:15,button:'left',clickCount:1});
     expect(await evaluate('document.activeElement === outside')).toBe(true);
-  } finally {clearTimeout(deadline);child.kill('SIGKILL');await exited;server.stop(true);rmSync(profile,{recursive:true,force:true});}
+  } finally {
+    clearTimeout(deadline);
+    await cdp.send('Browser.close',{},undefined,2000).catch(()=>{});
+    await Promise.race([exited,Bun.sleep(2000)]);
+    if (child.exitCode === null && child.signalCode === null) {
+      if (process.platform === 'win32') spawnSync('taskkill',['/PID',String(child.pid),'/T','/F'],{stdio:'ignore',windowsHide:true,timeout:2000});
+      else child.kill('SIGKILL');
+    }
+    await exited; server.stop(true); rmSync(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100});
+  }
 },60000);
 
 test('E10 Beacons and skinned Linux proof hashes match release under the fast profile', async () => {
