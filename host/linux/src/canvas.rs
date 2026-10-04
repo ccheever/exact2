@@ -30,6 +30,11 @@
 //!   only over `region` with those corner radii (a clip-free rounded image; `clip.rs`)
 //! - `26 ANIMATED id len utf8-path(padded to 4)` — after `IMAGE_DEF`: the picture is a GIF's or
 //!   WebP's first frame; a reader may draw that file's animated drawable in its place
+//! - `27 BACKDROP sigma x y w h radii×8` — blur what this recording drew so far (the row's
+//!   content beneath) by `sigma` (local units), within that rounded rect: a material's backdrop
+//! - `28 NATIVE view kind x y w h radii×8 len utf8-json` — a platform element (`paint/native.rs`;
+//!   kind 0 video, 1 web view, 2 module) shown in that rounded rect: the reader draws the
+//!   platform view's own drawing there
 //! - `25 DASH phase n d×n` — the next STROKE is dashed: `n` (even) on/off lengths and the
 //!   offset into them, in the stroke's own units (SVG `stroke-dasharray`, `stroke-dashoffset`)
 //!
@@ -67,6 +72,10 @@ const IMAGE_RRECT: u32 = 14;
 const DASH: u32 = 25;
 /// A picture's animated file: id, length, path.
 const ANIMATED: u32 = 26;
+/// A backdrop blur: sigma, then the rounded rect.
+const BACKDROP: u32 = 27;
+/// A platform element: view, kind, rounded rect, props.
+const NATIVE: u32 = 28;
 /// A row's recording: id, the id of the row it replaces (0 for none; the top
 /// bit set when the row shows in this frame, so the reader makes it before
 /// drawing), width and height (device pixels), then the count of words up to
@@ -480,6 +489,42 @@ impl Backend for Recorder {
             return;
         }
         self.picture(&Picture::Bitmap(image.clone()), dst, clips, ts);
+    }
+
+    fn backdrop_blur(&mut self, shape: &Shape, sigma: f32, ts: Transform) {
+        // What is beneath is what the reader already drew in this row; it
+        // blurs that, clipped to the shape (LLP 1053.000 D2).
+        if sigma <= 0.0 || shape.rect.2 <= 0.0 || shape.rect.3 <= 0.0 {
+            return;
+        }
+        let bounds = clip::map(shape.rect, ts);
+        if self.culled(bounds) {
+            return;
+        }
+        self.need(bounds);
+        self.transform(ts);
+        self.ops.push(BACKDROP);
+        self.f(sigma);
+        self.rect_radii(shape);
+    }
+
+    fn native(
+        &mut self,
+        id: ViewId,
+        kind: crate::paint::NativeKind,
+        shape: &Shape,
+        ts: Transform,
+        props: &str,
+    ) {
+        let bounds = clip::map(shape.rect, ts);
+        if self.culled(bounds) {
+            return;
+        }
+        self.need(bounds);
+        self.transform(ts);
+        self.ops.extend([NATIVE, id, kind as u32]);
+        self.rect_radii(shape);
+        self.string(props);
     }
 
     fn canvas(&mut self, pixels: &Arc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {

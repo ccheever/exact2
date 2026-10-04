@@ -35,6 +35,8 @@ pub(crate) mod damage;
 pub mod gradient;
 pub use gradient::GradientPaint;
 mod inline;
+mod native;
+pub use native::NativeKind;
 mod placed;
 mod presented;
 mod region;
@@ -484,6 +486,16 @@ pub trait Backend {
     fn surface_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4) {}
     /// Composite a 2D canvas's bitmap into `dst`, clipped (LLP 1056 D7).
     fn canvas(&mut self, _pixels: &Arc<Pixmap>, _dst: Rect4, _clips: &[Shape], _ts: Transform) {}
+    /// A platform element (`paint/native.rs`) in `shape`; `props` is JSON.
+    fn native(
+        &mut self,
+        _id: ViewId,
+        _kind: NativeKind,
+        _shape: &Shape,
+        _ts: Transform,
+        _props: &str,
+    ) {
+    }
     /// Paint a paragraph with its top-left at `origin`.
     fn text(
         &mut self,
@@ -1218,6 +1230,9 @@ impl Painter {
                 }
             }
             NodeType::Svg => self.svg(walk, node, rect, content, ts),
+            NodeType::Video | NodeType::WebView | NodeType::NativeView => {
+                self.native(node, content, &outer, ts)
+            }
             NodeType::Control if node.props.str(PropId::Type) == Some("select") => {
                 let label = walk.scene.kernel.select_chosen(node.id).map(|c| c.label);
                 self.field_control(node, content, ts, label.as_deref().unwrap_or(""), true);
