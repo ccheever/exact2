@@ -1130,6 +1130,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion). Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
     async clock(spec = 'settle') {
+      // @ref LLP 1080.000 §12 — an Apple host takes its clock over at the wall under platform timing (and reports a clock it already has otherwise); a seek counts from where it stands. Settle needs no count.
+      if (spec !== 'settle' && ['ios', 'host-ios', 'macos', 'host'].includes(carrier.host)) s.now = (await s.op({ op: 'clock', take: true })).clock;
       const req = { op: 'clock' };
       if (spec === 'settle') req.settle = true;
       else if (typeof spec === 'string' && spec.startsWith('+')) req.to = s.now + Number(spec.slice(1));
@@ -1216,8 +1218,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     close: carrier.close,
   };
-  // Under platform timing the app's clock is time since its launch, not 0:
-  // `clock +N` counts from where the runner stands (LLP 1035.003 D5).
+  // Under platform timing this seed is the runner's clock; on the Apple hosts
+  // `s.clock` rebases it on the host's (LLP 1035.003 D5, LLP 1080.000 §12).
   if (timing === 'platform' && carrier.host !== 'web') { const { clock } = await s.op({ op: 'tags' }); if (Number.isFinite(clock)) s.now = clock; }
   return s;
 }
