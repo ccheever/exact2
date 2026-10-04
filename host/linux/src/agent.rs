@@ -121,8 +121,8 @@ fn tagged<D: DataSource>(p: &Presenter<D>, line: &str, mut reply: String) -> Str
 
 pub(crate) fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     // An agent's taps and contacts reach a canvas as a finger, as on the web
-    // and iOS, so a proof leaves the same world on every host.
-    p.agent_finger(true);
+    // and iOS. An explicit contextmenu is a mouse's secondary button (LLP 1015.000).
+    p.agent_finger(!field_bool(line, "contextmenu"));
     let reply = answer_line(p, line);
     p.agent_finger(false);
     reply
@@ -230,6 +230,12 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             };
             if request.get("resize").is_some() {
                 return resize(p, &request);
+            }
+            if field_bool(line, "contextmenu") {
+                return match id() {
+                    Some(id) => p.contextmenu(id).unwrap_or_else(|e| error(&e)),
+                    None => error("contextmenu needs an id"),
+                };
             }
             if let Some(reply) = p.control_tap(&request) {
                 return reply.to_string();

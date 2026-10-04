@@ -23,8 +23,9 @@
 // the derived defaults it had before the manifest existed.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { BINARYEN } from '../host/web/stages.mjs';
 
@@ -168,7 +169,7 @@ export function outsideWorkspaceProblems(workspace) {
   // A nested workspace inherits the checkout's pinned toolchain from rustup.
   // An external workspace still needs its own pin.
   const localToolchain = resolve(workspace, 'rust-toolchain.toml');
-  const toolchain = !existsSync(localToolchain) && resolve(workspace).startsWith(ROOT + '/')
+  const toolchain = !existsSync(localToolchain) && under(ROOT, resolve(workspace))
     ? resolve(ROOT, 'rust-toolchain.toml') : localToolchain;
   const channel = existsSync(toolchain) ? /^channel\s*=\s*"([^"]+)"/m.exec(readFileSync(toolchain, 'utf8'))?.[1] : null;
   if (PINNED_RUST && channel !== PINNED_RUST) problems.push(`${toolchain}: ${channel ? `pins ${channel}` : 'is missing'}; exact2 builds with ${PINNED_RUST}. Copy ${resolve(ROOT, 'rust-toolchain.toml')} there (\`bun exact.mjs update\` does).`);
@@ -209,7 +210,7 @@ function checkOutsideLock(workspace) {
 
 export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exactSurface'].includes(name);
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 /** Source paths inside the wasm (panic locations) name no machine: the
  * toolchain's sources as std's own rlibs do (`/rustc/<commit>`), Cargo's
@@ -284,12 +285,12 @@ if (process.versions.bun && PINNED_BUN) {
   // Build steps start `bun` by name (the bake's compatibility inputs, the
   // TypeScript compiler); they get the Bun that passed, not whatever is first on PATH.
   const found = Bun.which('bun');
-  if (!found || realpathSync(found) !== realpathSync(process.execPath)) process.env.PATH = `${dirname(process.execPath)}:${process.env.PATH ?? ''}`;
+  if (!found || realpathSync(found) !== realpathSync(process.execPath)) process.env.PATH = `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ''}`;
 }
 
 // `exact setup` installs Binaryen privately; every build finds the same pin.
 const binaryenBin = resolve(homedir(), '.cache/exact/binaryen', BINARYEN.replace(' ', '_'), 'bin');
-if (existsSync(resolve(binaryenBin, 'wasm-opt'))) process.env.PATH = `${binaryenBin}:${process.env.PATH ?? ''}`;
+if (existsSync(resolve(binaryenBin, process.platform === 'win32' ? 'wasm-opt.exe' : 'wasm-opt'))) process.env.PATH = `${binaryenBin}${delimiter}${process.env.PATH ?? ''}`;
 
 // @ref LLP 1043.000 §3 D7/D8 — one inventory for host builds, serving and fixtures.
 // Groups preserve capability-based shipping; none of these imports enters boot.
@@ -430,7 +431,7 @@ export function moduleDirectory(dir, platform) {
 /** The app `nameOrCrate` names (`caltrain`, `caltrain-web`, …; `EXACT_APP_DIR`'s basename when unset): its directory, cargo workspace, target directory, crate names, and manifest. */
 export function resolveApp(nameOrCrate) {
   const outside = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : null;
-  let name = nameOrCrate ? String(nameOrCrate).replace(/-(web|apple|ios|macos|linux|gpu)$/, '') : outside ? basename(outside) : 'caltrain';
+  let name = nameOrCrate ? String(nameOrCrate).replace(/-(web|apple|ios|macos|linux|windows|gpu)$/, '') : outside ? basename(outside) : 'caltrain';
   let dir = outside ?? resolve(ROOT, 'apps', name);
   if (!outside && !existsSync(resolve(dir, 'app.contract')) && existsSync(resolve(ROOT, 'game/games', name, 'app.contract'))) dir = resolve(ROOT, 'game/games', name);
   if (!existsSync(resolve(dir, 'app.contract'))) throw new Error(`no app at ${dir} (no app.contract)${outside ? '' : '; set EXACT_APP_DIR for an app outside this repo'}`);
@@ -609,7 +610,11 @@ export function developmentBuildEnv() {
     ignoredToolchain = toolchain;
     delete env.RUSTUP_TOOLCHAIN;
   }
-  if (process.versions.bun) env.PATH = [dirname(process.execPath), ...(env.PATH ?? '').split(delimiter).filter(Boolean)].join(delimiter);
+  // process.env looks up Windows names case-insensitively; spreading it into a
+  // plain object does not. Preserve Path and emit only one spelling for children.
+  const path = env.PATH ?? Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] ?? '';
+  for (const key of Object.keys(env)) if (key !== 'PATH' && key.toLowerCase() === 'path') delete env[key];
+  env.PATH = [...(process.versions.bun ? [dirname(process.execPath)] : []), ...path.split(delimiter).filter(Boolean)].join(delimiter);
   return env;
 }
 
@@ -685,7 +690,10 @@ export function verifyBakeFiles(receipt, plan, assets) {
 // product whose inputs it describes. @ref LLP 1030 D3/D3a.
 const canonicalBuild = (v) => v === null || typeof v !== 'object' ? JSON.stringify(v) : Array.isArray(v) ? `[${v.map(canonicalBuild).join(',')}]` : `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonicalBuild(v[k])}`).join(',')}}`;
 const buildHash = (v) => createHash('sha256').update(v).digest('hex');
-const under = (root, path) => path === root || path.startsWith(root + '/');
+const under = (root, path) => {
+  const child = relative(root, path);
+  return child === '' || (!isAbsolute(child) && child !== '..' && !child.startsWith('..' + sep));
+};
 const orderedBuild = (rows) => rows.sort((a, b) => Buffer.compare(Buffer.from(canonicalBuild(a)), Buffer.from(canonicalBuild(b))));
 function buildCommand(command, args, app, env, stderr = 'pipe') {
   let result = spawnSync(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
@@ -773,9 +781,12 @@ export function compilerPaths(text, workspace) {
   const at = first.indexOf(': ');
   if (at < 0) throw new Error('rustc dep-info has no dependency rule');
   const paths = []; let word = '', escape = false;
-  for (const ch of first.slice(at + 2)) {
+  const dependencies = first.slice(at + 2);
+  for (let index = 0; index < dependencies.length; index++) {
+    const ch = dependencies[index];
     if (escape) { word += ch; escape = false; }
-    else if (ch === '\\') escape = true;
+    // rustc escapes spaces in dep-info but leaves Windows path separators raw.
+    else if (ch === '\\' && (process.platform !== 'win32' || /[\s#]/.test(dependencies[index + 1] ?? ''))) escape = true;
     else if (/\s/.test(ch)) { if (word) { paths.push(resolve(workspace, word)); word = ''; } }
     else word += ch;
   }
@@ -810,12 +821,12 @@ export function unitDepInfo(message, workspace, metadata) {
     const directory = resolve(dirname(intermediate(file)), 'deps');
     if (!existsSync(directory)) continue;
     const executable = file === message.executable;
-    const extension = executable ? '' : file.slice(file.lastIndexOf('.'));
+    const extension = executable ? (file.endsWith('.exe') ? '.exe' : '') : file.slice(file.lastIndexOf('.'));
     const stem = executable ? message.target.name.replaceAll('-', '_') : basename(file, extension);
     const bytes = readFileSync(file), matches = [];
     for (const name of readdirSync(directory)) {
       if (!name.startsWith(stem + '-') || (!executable && !name.endsWith(extension))) continue;
-      const unit = executable ? name : name.slice(3, -extension.length);
+      const unit = executable ? (extension ? name.slice(0, -extension.length) : name) : name.slice(3, -extension.length);
       if (!/^[a-f0-9]+$/.test(unit.slice(unit.lastIndexOf('-') + 1))) continue;
       const product = resolve(directory, name);
       if (statSync(product).size !== bytes.length || !readFileSync(product).equals(bytes)) continue;
@@ -932,7 +943,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     // A linked native archive is an input too; Rust dep-info cannot name its C/ObjC bytes.
     for (const raw of m.linked_paths) {
       const dir = raw.replace(/^native=/, '');
-      if (under(resolve(m.out_dir), resolve(dir))) for (const file of readdirSync(dir)) if (/\.(a|o|dylib|so)$/.test(file)) add(resolve(dir,file));
+      if (under(resolve(m.out_dir), resolve(dir))) for (const file of readdirSync(dir)) if (/\.(a|o|dylib|so|lib|obj|dll)$/.test(file)) add(resolve(dir,file));
     }
     builders.push({package:pkg.name,role,cfgs:m.cfgs,environment:orderedBuild(environment),libraries:m.linked_libs,env:m.env.filter(([key])=>!key.startsWith('EXACT_')).map(normalizeEnv)});
   }
@@ -1043,7 +1054,7 @@ export function buildBake(app, platform, target, options = {}) {
   else delete env.EXACT_GPU_DEVELOPMENT;
   if (options.part && (kind !== 'linux' || bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST))) throw new Error('partial bakes require development gpu-dev Linux');
   const selected = bakeSelection(graph, options.part).map(pkg => {
-    const unit = pkg.id === graph.root.id && kind === 'linux' ? pkg.targets.find(t => t.kind.includes('bin')) : cargoLibraryTarget(pkg);
+    const unit = pkg.id === graph.root.id && ['linux','windows'].includes(kind) ? pkg.targets.find(t => t.kind.includes('bin')) : cargoLibraryTarget(pkg);
     if (!unit) throw new Error(`Cargo has no buildable target for ${pkg.name}`);
     return {pkg, unit};
   });
@@ -1061,7 +1072,7 @@ export function buildBake(app, platform, target, options = {}) {
     // bundling its whole dependency graph into a 700 MB archive nobody reads. The archive the
     // app links is asked for here, where it is built to be launched.
     const archive=apple&&pkg.id===graph.root.id;
-    const args=[archive?'rustc':options.check?'check':'build',...(archive?['--crate-type','staticlib']:[]),...cargoReproducibilityFlags(app),...injectedProfiles(app),...(sized?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
+    const args=[archive?'rustc':options.check?'check':'build',...(archive?['--crate-type','staticlib']:[]),...cargoReproducibilityFlags(app),...injectedProfiles(app),...(sized?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(['linux','windows'].includes(kind)&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
     const result=buildCommand('cargo',args,app,env,'inherit');
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
     if (gpuPackage(pkg) && platform !== 'web') {

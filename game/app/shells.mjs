@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Resolve authored keys in memory; only the bake writes the resolved manifest.
@@ -47,7 +47,7 @@ export function gameDefaults(dir) {
     app:{id, name:title},
     host:{macos:{minimumOS:'14.0', window:{width:1280,height:720}}, ios:{minimumOS:'17.0',deviceFamily:['iphone','ipad']},web:{}},
     game:{crate, type}, rust:false,
-    deploy:{store:{web:'0',macos:'0',ios:'0',linux:'0'}},
+    deploy:{store:{web:'0',macos:'0',ios:'0',linux:'0',windows:'0'}},
   }, overrides);
   return app;
 }
@@ -78,11 +78,11 @@ export function gameShells(dir, game, workspace) {
   const source = existsSync(resolve(workspace, 'Cargo.toml')) ? workspace : gameRoot;
   const cargo = Bun.TOML.parse(readFileSync(resolve(source, 'Cargo.toml'), 'utf8'));
   const authoredLogic = existsSync(resolve(dir, 'logic/Cargo.toml'));
-  cargo.workspace.members = ['gpu','web','apple','linux', authoredLogic ? '../logic' : 'logic', ...(data ? ['../data'] : [])];
+  cargo.workspace.members = ['gpu','web','apple','linux','windows', authoredLogic ? '../logic' : 'logic', ...(data ? ['../data'] : [])];
   delete cargo.workspace.exclude;
   // Engine crates are dependencies here: the wildcard already optimizes them.
   // Retain member overrides and any settings distinct from that wildcard.
-  const members = new Set([crate, data?.crate, ...['gpu','web','apple','linux'].map(kind => `${name}-${kind}`)].filter(Boolean));
+  const members = new Set([crate, data?.crate, ...['gpu','web','apple','linux','windows'].map(kind => `${name}-${kind}`)].filter(Boolean));
   for (const profile of Object.values(cargo.profile ?? {})) {
     const defaults = profile.package?.['*'];
     if (defaults) for (const [name, settings] of Object.entries(profile.package)) {
@@ -98,7 +98,8 @@ export function gameShells(dir, game, workspace) {
   mkdirSync(root,{recursive:true});
   mkdirSync(resolve(root,'.cargo'),{recursive:true});
   // Cargo already inherits the SDK's config when this workspace is inside it.
-  const inherited = realpathSync(root).startsWith(realpathSync(gameRoot) + '/');
+  const child = relative(realpathSync(gameRoot), realpathSync(root));
+  const inherited = child === '' || (!isAbsolute(child) && child !== '..' && !child.startsWith('..' + sep));
   let config = (inherited ? '[build]\n' : readFileSync(resolve(gameRoot,'.cargo/config.toml'),'utf8'))
     .replace('[build]', `[build]\nbuild-dir = ${JSON.stringify(resolve(dir,'target'))}`);
   // Clippy reads the determinism lints from here, for authored and generated logic alike.
@@ -154,12 +155,12 @@ export function gameShells(dir, game, workspace) {
   const bakeArt = hasArt(appDir);
   // The snapshot excludes this entire generated root, including its gitignore.
   if (!existsSync(resolve(root, '.gitignore'))) writeFileSync(resolve(root, '.gitignore'), '*\n!.gitignore\n');
-  for (const kind of ['gpu', 'web', 'apple', 'linux']) {
+  for (const kind of ['gpu', 'web', 'apple', 'linux', 'windows']) {
     const shell = resolve(root, kind);
     const levelBake = relative(shell, resolve(source, 'bake/src/files.rs'));
     // These adapters contain entry points only; tests live in authored crates.
-    const target = kind === 'linux'
-      ? `[[bin]]\nname = "${name}-linux"\npath = "src/main.rs"\ntest = false`
+    const target = ['linux', 'windows'].includes(kind)
+      ? `[[bin]]\nname = "${name}-${kind}"\npath = "src/main.rs"\ntest = false`
       : `[lib]\ncrate-type = ["${kind === 'apple' ? 'staticlib' : 'cdylib'}"]\ntest = false\ndoctest = false`;
     const header = `[package]\nname = "${name}-${kind}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false\n\n${target}\n\n[dependencies]\n`;
     const dataDependency = data ? `exact-data-host.workspace = true\napp-data = { package = "${data.crate}", path = ${JSON.stringify(relative(shell, dataDir))} }\n` : '';
@@ -169,7 +170,7 @@ export function gameShells(dir, game, workspace) {
       : `exact-runner.workspace = true\nexact-${kind}.workspace = true\n${kind === 'web' ? 'exact-web-capabilities.workspace = true\n' : ''}${dataDependency}\n[build-dependencies]\nexact-game-app.workspace = true\n${dataBuildDependency}`;
     const files = {
       'Cargo.toml': header + dependencies,
-      [kind === 'linux' ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""}${app.game.assets === true ? ", assets" : ""});\n` : 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
+      [['linux', 'windows'].includes(kind) ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""}${app.game.assets === true ? ", assets" : ""});\n` : 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
       'build.rs': kind === 'gpu'
         ? `use exact_game::{Args, Game, Value};
 use std::{env, fs, path::PathBuf};
@@ -276,7 +277,7 @@ function lockedMetadata(root, flags, env) {
   if (result.status === 0) writeFileSync(cache, JSON.stringify({key:key(JSON.parse(result.stdout)), text:result.stdout}));
   return result;
 }
-const shellMembers = (game, name) => new Set([game.crate, game.data?.crate, ...['gpu','web','apple','linux'].map(kind => `${name}-${kind}`)].filter(Boolean));
+const shellMembers = (game, name) => new Set([game.crate, game.data?.crate, ...['gpu','web','apple','linux','windows'].map(kind => `${name}-${kind}`)].filter(Boolean));
 
 // Every ordinary bake is locked; dependency edits require an explicit update,
 // never a publisher's cache choice.

@@ -168,6 +168,17 @@ structure TaskDecl where
   action : String
   deriving Repr, Inhabited
 
+/-- A row of the `routes` table (LLP 1038 D2), in declaration order: the
+table the compiler checked (`exact_route::Table`). A notfound row has an
+empty pattern; `parent` indexes the table. -/
+structure RouteDecl where
+  name : String
+  pattern : String
+  parent : Option Nat := .none
+  tab : Bool := false
+  notfound : Bool := false
+  deriving Repr, Inhabited
+
 /-- A whole program: the expanded root and the file's declarations. -/
 structure Program where
   shapes : List Shape := []
@@ -179,6 +190,11 @@ structure Program where
   actions : List ActionDecl := []
   tasks : List TaskDecl := []
   view : List Node := []
+  /-- The route table, when the program declares `routes`. -/
+  routes : List RouteDecl := []
+  /-- The router's slot: the root state `routes <slot>` names (the
+  expander puts it first), of type `Router`. -/
+  router : Option String := .none
   deriving Repr, Inhabited
 
 namespace Expr

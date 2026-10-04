@@ -179,7 +179,7 @@ impl Module {
         // after recording: its drawable is in the submit, and must not be
         // shown.
         // Canvases whose first frame this is (`Module::seen`).
-        let mut first: Vec<Arc<AtomicBool>> = open
+        let first: Vec<Arc<AtomicBool>> = open
             .canvases
             .iter()
             .filter(|c| c.texture.is_some())
@@ -187,6 +187,8 @@ impl Module {
             .filter(|i| !i.seen.load(Ordering::Acquire))
             .map(|i| i.seen.clone())
             .collect();
+        #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
+        let mut first = first;
         #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
         let rode = {
             let ride = open.canvases.iter().all(|c| c.failed.is_none());

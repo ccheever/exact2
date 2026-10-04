@@ -23,6 +23,7 @@ exact-data-host = { path = "../data/host" }
 exact-web = { path = "../host/web" }
 exact-web-capabilities = { path = "../host/web-capabilities" }
 exact-linux = { path = "../host/linux" }
+exact-windows = { path = "../host/windows" }
 exact-apple = { path = "../host/apple" }
 exact-runner = { path = "../runner" }
 wasm-bindgen = "=0.2.127"

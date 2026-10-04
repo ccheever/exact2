@@ -40,7 +40,7 @@ impl Sources {
         &self.paths[span.source_id as usize]
     }
     pub(crate) fn resolve(&self, mut error: CompileError) -> CompileError {
-        error.file = Some(self.path(error.span).to_path_buf());
+        error.file = Some(self.path(error.span).into());
         for related in error.related.iter_mut() {
             related.file = Some(self.path(related.span).to_path_buf());
         }

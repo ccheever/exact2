@@ -1,8 +1,14 @@
 name = "contract-semantics"
-defaultTargets = ["Contract"]
+defaultTargets = ["Contract", "Apps"]
 
 # The library is compiled to native code so a generated program's `main`,
 # run with `lean --run`, calls the interpreter natively.
 [[lean_lib]]
 name = "Contract"
 precompileModules = true
+
+# Real apps' embeddings (`contract lean`, kept current by `difftest apps`)
+# and the invariants proved of them.
+[[lean_lib]]
+name = "Apps"
+globs = ["Apps.+"]

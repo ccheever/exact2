@@ -1,22 +1,27 @@
 // Session setup shared by the agent CLI and its programmatic driver.
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { delimiter, relative, resolve } from 'node:path';
+import { basename, delimiter, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { bakeOutput, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 /** One browser lookup for the agent and its tests: an explicit override,
  * otherwise the platform's ordinary Chromium installation. A bare CHROME
  * name is resolved through PATH before a test decides whether to skip. */
 export function chromium(environment = process.env, platform = process.platform) {
-  const named = environment.CHROME ?? (platform === 'darwin'
-    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-    : '/usr/bin/chromium');
-  const candidates = named.includes('/') ? [resolve(named)]
-    : (environment.PATH ?? '').split(delimiter).filter(Boolean).map(dir => resolve(dir, named));
+  const named = environment.CHROME ? [environment.CHROME] : platform === 'win32' ? [
+    resolve(environment.ProgramFiles ?? 'C:\\Program Files', 'Google/Chrome/Application/chrome.exe'),
+    resolve(environment['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Google/Chrome/Application/chrome.exe'),
+    ...(environment.LOCALAPPDATA ? [resolve(environment.LOCALAPPDATA, 'Google/Chrome/Application/chrome.exe')] : []),
+    resolve(environment['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Microsoft/Edge/Application/msedge.exe'),
+  ] : [platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/usr/bin/chromium'];
+  const candidates = named.flatMap(name => /[/\\]/.test(name) ? [resolve(name)]
+    : (environment.PATH ?? '').split(delimiter).filter(Boolean).map(dir => resolve(dir, name)));
   const executable = candidates.find(path => { try { accessSync(path, constants.X_OK); return true; } catch { return false; } });
-  return { executable: executable ?? named, unavailable: executable ? null : `Chromium is missing at ${named}; set CHROME to an installed browser` };
+  return { executable: executable ?? named[0], unavailable: executable ? null : `Chromium is missing at ${named.join(', ')}; set CHROME to an installed browser` };
 }
 
 export function parseFlags(argv) {
@@ -116,6 +121,24 @@ export function depInfoNewer(since, bin, info) {
 /** Cargo's dep-info beside a binary: every source input newer than the binary, or gone. */
 export const depInfoChanges = bin => existsSync(bin) ? depInfoNewer(statSync(bin).mtimeMs, bin) : [];
 
+/** A packaged Windows game keeps compiler provenance in the private bake cache.
+ * Require both unchanged source inputs and the exact copied executable/DLLs. */
+export function packagedBuildChanges(receipt, directory) {
+  if (!existsSync(receipt)) return ['missing compiler build receipt'];
+  const build = JSON.parse(readFileSync(receipt, 'utf8'));
+  if (build.version !== 1 || !build.binary?.inputs || !build.products?.length) return ['invalid compiler build receipt'];
+  const changed = pendingBuildInputs(build);
+  const products = build.products.filter(product => /\.(exe|dll)$/.test(product.path));
+  if (!products.some(product => product.path.endsWith('.exe'))) changed.push('receipt has no executable');
+  for (const product of products) {
+    const path = resolve(directory, basename(product.path));
+    try {
+      if (createHash('sha256').update(readFileSync(path)).digest('hex') !== product.sha256) changed.push(path);
+    } catch { changed.push(path); }
+  }
+  return changed;
+}
+
 /** The plans a development bake of this app left a source map beside (LLP 1012.001.000 D6), as `sourceMapReader` locators: the Linux binary's own (its dep-info names the plan in OUT_DIR) and each platform's in the bake output (Apple, web). Which one describes the running plan is the reply's digest's to say. */
 export function bakedPlans(linuxBin, bakeDir) {
   const out = depInfoInputs(linuxBin).filter(p => p.endsWith('/out/app.plan'));
@@ -133,7 +156,7 @@ export function traceLocators(appName) {
 }
 
 // Outputs, fixtures and prose are not what a build is made from.
-const NOT_INPUT = /^(target|dist|dist.previous|web-dist|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.md$/;
+const NOT_INPUT = /^(target|dist|dist.previous|dist-windows|web-dist|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.md$/;
 /** Files under `roots` modified after `since`; `{shallow}` roots contribute only their own files. */
 export function newerThan(since, roots, skip = () => false) {
   const out = [];
@@ -190,6 +213,7 @@ export function receiptChanges(receipt, app) {
  * its proof, pins, documents, tests, and helper scripts outside the built trees.
  * The proof's input digest (game/proof.mjs) and the web staleness check share it. */
 export function gameNonInput(path) {
+  path = path.replaceAll('\\', '/');
   return /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.md)$/.test(path)
     || (/\.m?js$/.test(path) && !/^(logic|data|gpu|art|assets|deck)\//.test(path));
 }

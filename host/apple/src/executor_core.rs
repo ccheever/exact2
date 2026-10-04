@@ -156,12 +156,14 @@ impl Core {
         // test thread: a test waits for a slot rather than being refused.
         // The including crate says when (`WAIT_FOR_SLOT`): its own tests,
         // and an integration test's build of it (render's `test-wait`).
-        for _ in 0..if super::WAIT_FOR_SLOT { 5000 } else { 0 } {
-            if reserved {
-                break;
+        if super::WAIT_FOR_SLOT {
+            for _ in 0..5000 {
+                if reserved {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                reserved = reserve();
             }
-            std::thread::sleep(std::time::Duration::from_millis(1));
-            reserved = reserve();
         }
         let mut core = Self {
             shared,

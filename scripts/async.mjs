@@ -99,7 +99,8 @@ function checks(sha) {
     // a runner that does not start fails here, never skips.
     ...(apple ? [['ios-touch', 'bun', ['scripts/smoke-touch.mjs', '--build']]] : []),
     // The Contract semantics (semantics/README.md; Charlie, 2026-10-03): the
-    // Lean project builds with every proof checked, then the runner against
+    // Lean project builds with every proof checked (the app proofs among
+    // them, over embeddings `difftest apps` checks are current), then the runner against
     // the semantics over the scripted corpus and a fixed random sweep (fixed
     // seeds, so a divergence is attributed to the commit that made it).
     // A `sorry` fails it: a proof that is not there is not checked. Every
@@ -108,6 +109,7 @@ function checks(sha) {
       'export PATH="$HOME/.elan/bin:$PATH"; failed=0',
       'out=$(cd semantics && lake build 2>&1) || failed=1; echo "$out"',
       'if echo "$out" | grep -q "declaration uses .sorry."; then echo "error: semantics: a proof uses sorry"; failed=1; fi',
+      'cargo run -q -p contract-difftest -- apps || failed=1',
       'cargo run -q -p contract-difftest -- corpus || failed=1',
       'cargo run -q -p contract-difftest -- explore contract/corpus apps/*/app.contract || failed=1',
       'cargo run -q -p contract-difftest -- random --seed 1 --count 5000 || failed=1',

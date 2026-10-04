@@ -8,8 +8,13 @@ use std::{path::PathBuf, process::Command};
 struct App(PathBuf);
 impl App {
     fn new(name: &str) -> Self {
+        let suffix = if cfg!(windows) {
+            "é space"
+        } else {
+            "é space\""
+        };
         let path =
-            std::env::temp_dir().join(format!("exact-map-{name}-{}-é\"", std::process::id()));
+            std::env::temp_dir().join(format!("exact-map-{name}-{}-{suffix}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
         Self(path.canonicalize().unwrap())
     }
@@ -327,7 +332,7 @@ fn measured_bake_refusal_names_the_imported_node_and_its_caller() {
     let (plan, map) = contract::compile_path_mapped(&root).unwrap();
     let error = map.bake_error(&contract::bake(plan, NoData).unwrap_err());
     assert_eq!(error.id, "bake-zero-size");
-    assert_eq!(error.file, Some(child));
+    assert_eq!(error.file.as_deref(), Some(child.as_path()));
     assert_eq!(error.span.line, 4);
     assert_eq!(error.related.len(), 1);
     assert_eq!(error.related[0].file, Some(root));

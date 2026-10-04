@@ -95,7 +95,7 @@ impl SourceMap {
             id: id.into(),
             message,
             span: node.map_or_else(Span::default, |node| node.span),
-            file: node.map(|node| self.sources.path(node.span).to_path_buf()),
+            file: node.map(|node| self.sources.path(node.span).into()),
             related: related.into_boxed_slice(),
         }
     }

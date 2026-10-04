@@ -9,6 +9,7 @@ construct (`contract/lower/src/expr.rs`, `stmts.rs`).
 -/
 import Contract.Syntax
 import Contract.Value
+import Contract.Route
 
 namespace Contract
 
@@ -58,18 +59,6 @@ def fieldIndex (env : Env) (s field : String) : Option Nat :=
 
 end Env
 
-/-- `encodeURIComponent`: UTF-8 bytes, all but the unreserved marks
-percent-encoded in uppercase hex. -/
-def encodeURIComponent (s : String) : String :=
-  let keep (b : UInt8) : Bool :=
-    let c := b.toNat
-    (0x41 ≤ c && c ≤ 0x5a) || (0x61 ≤ c && c ≤ 0x7a) || (0x30 ≤ c && c ≤ 0x39) ||
-    "-_.!~*'()".toList.any (·.toNat == c)
-  let hex := "0123456789ABCDEF".toList
-  s.toUTF8.toList.foldl (fun acc b =>
-    if keep b then acc.push (Char.ofNat b.toNat)
-    else acc.push '%' |>.push (hex.getD (b.toNat / 16) '0') |>.push (hex.getD (b.toNat % 16) '0')) ""
-
 /-- A roster entry applied to evaluated arguments. `map` and `filter` are
 not here: their callback is evaluated by `eval`. -/
 def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
@@ -96,6 +85,29 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   | "endsWith", [.str a, .str b] => .ok (.bool (Str.endsWith a b))
   | "trim", [.str s] => .ok (.str (Str.trim s))
   | "encodeURIComponent", [.str s] => .ok (.str (encodeURIComponent s))
+  -- The router (LLP 1038, `Contract.Route`): verbs and reads over the
+  -- program's table.
+  | "open", [r, .str l] => Route.verb env.prog.routes r (Route.open env.prog.routes · l)
+  | "push", [r, .str l] => Route.verb env.prog.routes r (Route.push env.prog.routes · l)
+  | "replace", [r, .str l] => Route.verb env.prog.routes r (Route.replace env.prog.routes · l)
+  | "back", [r] => Route.verb env.prog.routes r (.ok ∘ Route.back)
+  | "select", [r, .str n] => Route.verb env.prog.routes r (Route.select · n)
+  | "go", [r, .str l] => Route.verb env.prog.routes r (Route.go env.prog.routes · l)
+  | "stack", [r] => Route.read env.prog.routes r fun x =>
+      Option.some (.list ((Route.stack x).map (Route.entryValue env.prog.routes)))
+  | "top", [r] => Route.read env.prog.routes r fun x => (Route.top x).map (Route.entryValue env.prog.routes)
+  | "depth", [r] => Route.read env.prog.routes r fun x => Option.some (.num (Float.ofNat (Route.depth x)))
+  | "params", [r, .str n] => Route.read env.prog.routes r fun x =>
+      Option.some (.list ((Route.params x n).map .str))
+  | "searchParam", [e, .str n] =>
+    match Route.entryOf env.prog.routes e with
+    | .some en => .ok (.str (Route.searchParam en.url n))
+    | .none => .error (.type "`searchParam` of a value that is not an entry")
+  | "encodeRouteSegment", [.str s] =>
+    match Route.encodeRouteSegment s with
+    | .some t => .ok (.str t)
+    | .none => .error (.refused "a path parameter cannot be empty, `.` or `..`")
+  | "path", .str name :: vs => Route.pathValue env.prog.routes name vs
   | "join", [.list xs, .str sep] =>
     match xs with
     | [.str s] => .ok (.str s)

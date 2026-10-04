@@ -10,7 +10,10 @@ state in exactly this form; the two texts are compared line by line.
   `derive <name> <value>`  each derive, declaration order
   `resource <name> <value>`
   `command <name> <value>…` each command the step's commit issued
-  `view <testId> <text>`   each element with a `testId`, in preorder
+  `view <testId> <text>`   each element with a `testId`, in preorder, but
+                           none inside a virtualized `list`: the runner
+                           shows the rows its window lays out (a layout
+                           fact), the semantics every row
 
 Values: a number is `n` and its 16 hex digits of IEEE bits (every NaN is
 `7ff8000000000000`); a string is quoted with `\"`, `\\`, `\n`, `\r`, `\t`
@@ -56,7 +59,7 @@ partial def viewLines : List VNode → List String
     let here := match n.testId with
       | .some id => ["view " ++ quote id ++ " " ++ (n.text.map quote).getD "-"]
       | .none => []
-    here ++ viewLines n.children ++ viewLines rest
+    here ++ (if n.windowed then [] else viewLines n.children) ++ viewLines rest
 
 def why : Err → String
   | .type w => "type: " ++ w

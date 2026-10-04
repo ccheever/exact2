@@ -31,7 +31,7 @@ pub fn lean_path(path: &Path, name: &str) -> Result<String, CompileError> {
         id: "contract-unreadable".into(),
         message: format!("{}: {e}", path.display()),
         span: Span::default(),
-        file: Some(path.to_path_buf()),
+        file: Some(path.into()),
         related: Box::new([]),
     })?;
     crate::compile_path_source(path, &src)?;
@@ -44,7 +44,7 @@ pub fn lean_path(path: &Path, name: &str) -> Result<String, CompileError> {
         id: "contract-use-unreadable".into(),
         message: format!("{}: {e}", root.display()),
         span: Span::default(),
-        file: Some(path.to_path_buf()),
+        file: Some(path.into()),
         related: Box::new([]),
     })?;
     let (file, _) =
@@ -271,7 +271,29 @@ impl Emitter<'_> {
             ));
         }
         let _ = writeln!(o, "  tasks := [{}],", tasks.join(",\n    "));
-        let _ = writeln!(o, "  view := {}", self.nodes(&root.view)?);
+        let _ = writeln!(o, "  view := {},", self.nodes(&root.view)?);
+        // The checked route table (LLP 1038 D2) and the slot `routes` names.
+        let routes: Vec<String> = shapes
+            .routes
+            .iter()
+            .flat_map(|t| &t.routes)
+            .map(|r| {
+                format!(
+                    "{{ name := {}, pattern := {}, parent := {}, tab := {}, notfound := {} }}",
+                    string(&r.name),
+                    string(&r.pattern),
+                    r.parent.map_or(".none".into(), |p| format!(".some {p}")),
+                    r.tab,
+                    r.notfound
+                )
+            })
+            .collect();
+        let _ = writeln!(o, "  routes := [{}],", routes.join(",\n    "));
+        let router = match &self.checked.file.routes {
+            Some(r) => format!(".some {}", string(&r.slot)),
+            None => ".none".into(),
+        };
+        let _ = writeln!(o, "  router := {router}");
         o.push_str("}\n");
         self.out.push_str(&o);
         Ok(())

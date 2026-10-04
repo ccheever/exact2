@@ -617,7 +617,7 @@ impl Module {
         let id = self.next;
         let mut surface = factory();
         surface.clock(self.seekable);
-        if let (Some(_), Some(gpu)) = (&presentation, &self.gpu) {
+        if let Some(gpu) = &self.gpu {
             surface.device_ready(gpu.device.features());
         }
         let (presentation, config) = presentation.map_or((None, None), |(target, config)| {

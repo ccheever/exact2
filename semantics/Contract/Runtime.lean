@@ -239,6 +239,9 @@ structure VNode where
   `input` whose literal `type` is `checkbox`, `range`, `date`, …): its
   payloads follow HTML's rules, which the semantics leaves out. -/
   control : Option String := .none
+  /-- A `list` whose `virtualized` is literally `true`: the runner shows
+  the rows its window lays out, which the observation leaves out. -/
+  windowed : Bool := false
   /-- The rows this element stands in, innermost first. -/
   rows : List RowId
   children : List VNode
@@ -259,41 +262,55 @@ def rowKey : Value → Result Value
     else .error (.refused "a row key that is not finite")
   | _ => .error (.refused "a row key that is not a string, number or bool")
 
+/-- An element's text: the first positional argument, displayed, of a tag
+whose positional is its text (`text`, `tspan`, `option`). -/
+def elementText (fuel : Nat) (env : Env) (ls : Locals) (tag : String) (pos : List Expr) :
+    Result (Option String) :=
+  match pos with
+  | e :: _ =>
+    if tag == "text" || tag == "tspan" || tag == "option" then do
+      let v ← eval fuel env false ls e
+      pure (Option.some (← v.display))
+    else pure Option.none
+  | [] => pure Option.none
+
+/-- An element's `testId`, displayed. -/
+def elementTestId (fuel : Nat) (env : Env) (ls : Locals) (props : List (String × Expr)) :
+    Result (Option String) :=
+  match lookupField "testId" props with
+  | .some e => do pure (Option.some (← (← eval fuel env false ls e).display))
+  | .none => pure Option.none
+
+/-- The form control an element is, when not a text field. -/
+def elementControl (tag : String) (props : List (String × Expr)) : Option String :=
+  if tag == "select" then Option.some "select"
+  else if tag == "input" then
+    match lookupField "type" props with
+    | .some (.str t) =>
+      if ["checkbox", "file", "range", "date", "time", "datetime-local"].contains t.toLower
+      then Option.some t else Option.none
+    | _ => Option.none
+  else Option.none
+
 /-- Render a view. Returns the elements and the rows that are live after
 it (their slots, kept from `store` or initialized now). -/
 def render : Nat → RenderCx → Locals → List Node → RowStore → Result (List VNode × RowStore)
   | 0, _, _, _, _ => .error outOfFuel
   | _ + 1, _, _, [], live => .ok ([], live)
   | fuel + 1, cx, ls, n :: rest, live => do
-    let (here, live) ← match n with
+    let (here, live) ← (match n with
       | .element tag pos props hs children => do
-        -- Only what a host observes here is forced: the first positional
-        -- argument of a tag whose positional is its text (`text`, `tspan`,
-        -- `option`) and the `testId`. Every other attribute is
-        -- presentation, kept unevaluated (the runner evaluates it as it
-        -- binds it; on a well-typed program neither can fail).
-        let text ← match pos with
-          | e :: _ =>
-            if tag == "text" || tag == "tspan" || tag == "option" then do
-              let v ← eval fuel cx.env false ls e
-              pure (Option.some (← v.display))
-            else pure Option.none
-          | [] => pure Option.none
-        let testId ← match lookupField "testId" props with
-          | .some e => do pure (Option.some (← (← eval fuel cx.env false ls e).display))
-          | .none => pure Option.none
+        -- Only what a host observes here is forced: the text and the
+        -- `testId`. Every other attribute is presentation, kept
+        -- unevaluated (the runner evaluates it as it binds it; on a
+        -- well-typed program neither can fail).
+        let text ← elementText fuel cx.env ls tag pos
+        let testId ← elementTestId fuel cx.env ls props
         let (kids, live) ← render fuel cx ls children live
-        let control :=
-          if tag == "select" then Option.some "select"
-          else if tag == "input" then
-            match lookupField "type" props with
-            | .some (.str t) =>
-              if ["checkbox", "file", "range", "date", "time", "datetime-local"].contains t.toLower
-              then Option.some t else Option.none
-            | _ => Option.none
-          else Option.none
         pure ([{ tag, testId, text, handlers := hs, locals := ls, rows := cx.rows,
-                 control, children := kids : VNode }], live)
+                 control := elementControl tag props,
+                 windowed := tag == "list" && (lookupField "virtualized" props matches .some (.bool true)),
+                 children := kids : VNode }], live)
       | .when tag c thn els => do
         match ← eval fuel cx.env false ls c with
         | .bool true => renderArm fuel cx ls tag 0 thn live
@@ -306,7 +323,7 @@ def render : Nat → RenderCx → Locals → List Node → RowStore → Result (
         | _ => .error (.type "`match` on a value that is not an option")
       | .each tag x ix list key body => do
         let items ← (← eval fuel cx.env false ls list).asList
-        renderRows fuel cx ls tag x ix key body items 0 [] live
+        renderRows fuel cx ls tag x ix key body items 0 [] live : Result (List VNode × RowStore))
     let (more, live) ← render fuel cx ls rest live
     pure (here ++ more, live)
 where
@@ -411,6 +428,16 @@ def update (p : Program) (o : Oracle) (slots : List (String × Value)) (store : 
   let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now }
   .ok (st, render fuel { env, store } [] p.view [])
 
+/-- Whether the router slot, if the program has one, holds a valid router
+(`Route.routerOf`). -/
+def routerValid (p : Program) (slots : List (String × Value)) : Bool :=
+  match p.router with
+  | .none => true
+  | .some x =>
+    match lookup x slots with
+    | .some v => (Route.routerOf p.routes v).isSome
+    | .none => true
+
 /-- Run an action as one commit. `rows` are the rows in force where the
 event arrived (none for a timer). -/
 def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : List Value)
@@ -445,6 +472,9 @@ def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : Li
         if !((fx.writes ++ fx.rowWrites).all fun (x, v) => conforms p v (slotTy x)) then
           refuse (.refused "a write of the wrong type") else
         let slots := (answered ++ fx.writes).foldl (fun s (x, v) => setSlot s x v) c.slots
+        -- The router slot must hold a valid router after every commit (the
+        -- runner's `router_change`): a forged value is refused.
+        if !routerValid p slots then refuse (.refused "an invalid router value") else
         let store := applyRowWrites p c.store rows fx.rowWrites
         match update p o slots store c.now c.settled fx.refreshes with
         | .error e => refuse e
@@ -455,43 +485,60 @@ def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : Li
           ({ c with slots, settled := st, store, poisoned := true,
                     commands := c.commands ++ fx.commands }, .poisoned e)
 
-/-- Boot: initialize the root slots in declaration order (an initializer
-reads the slots before it), settle, render, and start the timers. -/
-def boot (p : Program) (o : Oracle) : Config × Outcome :=
-  let empty : Config := { slots := [], settled := {}, store := [], view := [], now := 0, timers := [] }
-  let init : Result (List (String × Value)) := p.states.foldlM (fun slots st => do
+/-- The root slots at boot, in declaration order (an initializer reads the
+slots before it), then the mutations' (`none`). A late slot holds `()`
+until boot settlement is done (the runner's slots start as unit). -/
+def initSlots (p : Program) : Result (List (String × Value)) := do
+  let slots ← p.states.foldlM (fun slots st => do
       if st.owner.isSome then return slots
-      -- A late slot holds `()` until boot settlement is done (the runner's
-      -- slots start as unit).
       if st.late then return slots ++ [(st.name, Value.unit)]
+      -- The router slot starts at the launch of `/` (the location the
+      -- harness's `Runner::boot` launches), never its initializer.
+      if p.router == Option.some st.name then
+        match Route.launch p.routes "/" with
+        | .ok r => return slots ++ [(st.name, Route.routerValue p.routes r)]
+        | .error why => throw (.refused s!"router launch refused: {why}")
       let env : Env := { prog := p, slots, now := 0 }
       let v ← eval fuel env false [] st.init
       if !conforms p v st.ty then throw (.refused s!"slot `{st.name}` initialized with the wrong type")
       pure (slots ++ [(st.name, v)])) []
-  if p.states.any (·.ty == .record "Router") then (empty, .refused (.unsupported "routes")) else
-  match init with
+  pure (slots ++ p.mutations.map (·.name, Value.none))
+
+/-- The timers boot starts, one per task. -/
+def startTimers (p : Program) (slots : List (String × Value)) : Result (List Timer) :=
+  p.tasks.mapM fun t => do
+    if t.kind == .frame then throw (.unsupported "frame tasks")
+    let ms ← (← eval fuel { prog := p, slots } false [] t.ms).asNum
+    pure { action := t.action, interval := ms, once := t.kind == .after, next := ms }
+
+/-- The late slots, in declaration order, against the settled values. -/
+def lateSlots (p : Program) (st : Settled) (slots : List (String × Value)) :
+    Result (List (String × Value)) :=
+  p.states.foldlM (fun slots decl => do
+    if !decl.late || decl.owner.isSome then return slots
+    let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 }
+    let v ← eval fuel env false [] decl.init
+    if !conforms p v decl.ty then throw (.refused s!"slot `{decl.name}` initialized with the wrong type")
+    pure (setSlot slots decl.name v)) slots
+
+/-- The configuration before boot, and after a boot that is refused. -/
+def Config.empty : Config := { slots := [], settled := {}, store := [], view := [], now := 0, timers := [] }
+
+/-- Boot: initialize the root slots, settle, initialize the late slots,
+render, and start the timers. -/
+def boot (p : Program) (o : Oracle) : Config × Outcome :=
+  let empty := Config.empty
+  match initSlots p with
   | .error e => (empty, .refused e)
   | .ok slots =>
-    let slots := slots ++ p.mutations.map (·.name, Value.none)
-    let timers : Result (List Timer) := p.tasks.mapM fun t => do
-      if t.kind == .frame then throw (.unsupported "frame tasks")
-      let ms ← (← eval fuel { prog := p, slots } false [] t.ms).asNum
-      pure { action := t.action, interval := ms, once := t.kind == .after, next := ms }
-    match timers with
+    match startTimers p slots with
     | .error e => (empty, .refused e)
     | .ok timers =>
       if p.mutations.any (·.andThen.isSome) then (empty, .refused (.unsupported "`then`")) else
       match settle p o slots 0 with
       | .error e => (empty, .refused e)
       | .ok st =>
-      -- The late slots, in declaration order, against the settled values.
-      let late : Result (List (String × Value)) := p.states.foldlM (fun slots decl => do
-          if !decl.late || decl.owner.isSome then return slots
-          let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 }
-          let v ← eval fuel env false [] decl.init
-          if !conforms p v decl.ty then throw (.refused s!"slot `{decl.name}` initialized with the wrong type")
-          pure (setSlot slots decl.name v)) slots
-      match late with
+      match lateSlots p st slots with
       | .error e => (empty, .refused e)
       | .ok slots =>
       let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 }
@@ -505,11 +552,11 @@ def boot (p : Program) (o : Oracle) : Config × Outcome :=
 /-! ## Events -/
 
 /-- The first element, in preorder, whose `testId` is `id`. -/
-partial def findTestId (id : String) : List VNode → Option VNode
+def findTestId (id : String) : List VNode → Option VNode
   | [] => .none
-  | n :: rest =>
+  | n@{ children, .. } :: rest =>
     if n.testId == Option.some id then .some n
-    else match findTestId id n.children with
+    else match findTestId id children with
       | .some m => .some m
       | .none => findTestId id rest
 

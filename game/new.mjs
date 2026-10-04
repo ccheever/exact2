@@ -16,9 +16,9 @@ export function takenTypes(directory = import.meta.dir) {
   return new Set([...exported, ...items(read(resolve(directory, 'engine/src/scene.rs'))), ...template.filter(t => t !== 'SmallGame')]);
 }
 export function createGame(destination, directory = import.meta.dir, options = {}) {
-  const local = destination === '.' || destination?.includes('/');
+  const local = destination === '.' || /[\\/]/.test(destination ?? '');
   const name = local ? basename(resolve(destination)) : destination;
-  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name ?? '') || /-(web|apple|linux|gpu)$/.test(name)) {
+  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name ?? '') || /-(web|apple|linux|windows|gpu)$/.test(name)) {
     throw new Error('Usage: bun game/new.mjs <name|path> [--assets] (lowercase-hyphenated name, no host suffix)');
   }
   // The type is `use exact_game::*;`'s neighbour: it may not shadow an engine export
