@@ -1991,6 +1991,33 @@
       ],
       "default": "none"
     },
+    "ColumnFill": {
+      "_comment": "@ref LLP 1093 D5: CSS `column-fill`. balance: the columns are as short as the content allows (within a definite height or under `max-height`); auto: each column is filled to the column height in turn. `balance-all` is refused by the compiler.",
+      "values": [
+        "balance",
+        "auto"
+      ],
+      "default": "balance"
+    },
+    "BreakBetween": {
+      "_comment": "@ref LLP 1093 D3/D4: CSS `break-before`/`break-after` in a multi-column flow (Fragmentation 3 \u00a73.1). column forces a break; avoid and avoid-column make a break there a last choice. The page and region values are refused by the compiler.",
+      "values": [
+        "auto",
+        "avoid",
+        "column",
+        "avoid-column"
+      ],
+      "default": "auto"
+    },
+    "BreakInside": {
+      "_comment": "@ref LLP 1093 D4: CSS `break-inside` (Fragmentation 3 \u00a73.2): avoid and avoid-column make every break inside the box a last choice. avoid-page and avoid-region are refused by the compiler.",
+      "values": [
+        "auto",
+        "avoid",
+        "avoid-column"
+      ],
+      "default": "auto"
+    },
     "Hyphens": {
       "_comment": "CSS `hyphens` (Text 3 \u00a75.4, the reader diary). manual: a soft hyphen (U+00AD) is a break that shows a hyphen; none: it is not a break, so the kernel's runs carry U+034F in its place (as invisible, the same length in UTF-8 and UTF-16, no break opportunity); auto: also the hyphenation points of the document's language, where the host has a dictionary (the web, Apple; Linux has none and declares it, LLP 1001).",
       "values": [
@@ -3188,6 +3215,84 @@
       "codec": "enum:Hyphens",
       "inherited": true,
       "text": true,
+      "layout": true
+    },
+    {
+      "bit": 178,
+      "field": "column_count",
+      "codec": "u16",
+      "layout": true,
+      "default": 0,
+      "_comment": "@ref LLP 1093 D1: CSS `column-count`; 0 is `auto`. A block container whose `column-count` or `column-width` is not auto is a multi-column container."
+    },
+    {
+      "bit": 179,
+      "field": "column_width",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto",
+      "_comment": "@ref LLP 1093 D1: CSS `column-width`, a length or auto (no percentage, as CSS). The used count and width are Multi-column Layout 1 \u00a73.4's, over the content-box width and the gap. The gap is `column-gap` when set, else the element's own font size (CSS's `normal`, 1em)."
+    },
+    {
+      "bit": 180,
+      "field": "column_fill",
+      "codec": "enum:ColumnFill",
+      "layout": true
+    },
+    {
+      "bit": 181,
+      "field": "column_rule_width",
+      "codec": "f32",
+      "default": 3,
+      "_comment": "@ref LLP 1093 \u00a71, D7: CSS `column-rule-width`; `thin`, `medium` (the initial value) and `thick` are 1, 3 and 5 points."
+    },
+    {
+      "bit": 182,
+      "field": "column_rule_style",
+      "codec": "enum:BorderStyle",
+      "_comment": "@ref LLP 1093 \u00a71, D7: CSS `column-rule-style`, the styles the hosts paint for borders; the others are refused by the compiler."
+    },
+    {
+      "bit": 183,
+      "field": "column_rule_color",
+      "codec": "current-color",
+      "default": "currentcolor"
+    },
+    {
+      "bit": 184,
+      "field": "widows",
+      "codec": "u16",
+      "inherited": true,
+      "layout": true,
+      "default": 2,
+      "_comment": "@ref LLP 1093 D4: CSS `widows`, a positive integer: the fewest lines of a paragraph a break may leave for the next column. Chrome applies the initial 2 to every paragraph in a multi-column flow, so the kernel does too."
+    },
+    {
+      "bit": 185,
+      "field": "orphans",
+      "codec": "u16",
+      "inherited": true,
+      "layout": true,
+      "default": 2,
+      "_comment": "@ref LLP 1093 D4: CSS `orphans`, a positive integer: the fewest lines of a paragraph a break may leave in its column."
+    },
+    {
+      "bit": 186,
+      "field": "break_before",
+      "codec": "enum:BreakBetween",
+      "layout": true
+    },
+    {
+      "bit": 187,
+      "field": "break_after",
+      "codec": "enum:BreakBetween",
+      "layout": true
+    },
+    {
+      "bit": 188,
+      "field": "break_inside",
+      "codec": "enum:BreakInside",
       "layout": true
     }
   ],

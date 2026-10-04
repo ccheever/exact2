@@ -29,9 +29,15 @@ pub(crate) fn css_rows(css: &str) -> Rows {
         let (name, value) = decl.split_once(':').unwrap();
         let px = value.strip_suffix("px").unwrap_or(value).parse::<f64>();
         let percent = value.strip_suffix('%').map(str::parse::<f64>);
+        // Keywords, and `line-height` in pixels (a bare number multiplies).
+        let text = matches!(
+            name,
+            "aspect-ratio" | "column-fill" | "break-before" | "break-after" | "break-inside"
+        );
         let v = match (px, percent, value) {
+            (Ok(_), _, _) if name == "line-height" => t(value),
             (Ok(x), _, _) => n(x),
-            (_, _, "auto") if name != "aspect-ratio" => StyleValue::Auto,
+            (_, _, "auto") if !text => StyleValue::Auto,
             (_, Some(Ok(x)), _) if name != "width" && name != "height" => StyleValue::Percent(x),
             _ => t(value),
         };
@@ -86,6 +92,21 @@ pub(crate) fn css_rows(css: &str) -> Rows {
             "translate" | "scale" | "rotate" | "transform" | "filter" | "backdrop-filter"
             | "isolation" => &[],
             "position" => &[PositionType],
+            // LLP 1093: multi-column layout and the text its cases flow.
+            "column-count" => &[ColumnCount],
+            "column-width" => &[ColumnWidth],
+            "column-gap" => &[ColumnGap],
+            "column-fill" => &[ColumnFill],
+            "widows" => &[Widows],
+            "orphans" => &[Orphans],
+            "break-before" => &[BreakBefore],
+            "break-after" => &[BreakAfter],
+            "break-inside" => &[BreakInside],
+            "gap" => &[RowGap, ColumnGap],
+            "white-space" => &[WhiteSpace],
+            "line-height" => &[LineHeight],
+            "font-size" => &[FontSize],
+            "background-color" => &[BackgroundColor],
             "left" => &[Left],
             "right" => &[Right],
             "top" => &[Top],
