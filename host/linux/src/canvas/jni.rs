@@ -94,14 +94,10 @@ macro_rules! canvas_jni {
             }
 
             /// What a booting thread hands the thread that runs the host: the
-            /// host, its first frame and the pictures that frame announced. The
+            /// host and its first frame. The
             /// host's `Rc`s move with it whole; nothing on the booting thread
             /// keeps one (its image and executor threads hold only `Send` state).
-            struct Booted(
-                Host,
-                Option<Vec<u32>>,
-                std::collections::BTreeMap<u32, $crate::canvas::Picture>,
-            );
+            struct Booted(Host, Option<Vec<u32>>);
             // SAFETY: see above: the booting thread lets go of all of it.
             unsafe impl Send for Booted {}
             static BOOTED: std::sync::Mutex<Option<Result<Booted, String>>> =
@@ -142,7 +138,7 @@ macro_rules! canvas_jni {
                                 |mut h| {
                                     h.set_borrowed(true);
                                     let first = h.frame();
-                                    Booted(h, first, $crate::canvas::take_pending())
+                                    Booted(h, first)
                                 },
                             )
                         });
@@ -163,11 +159,10 @@ macro_rules! canvas_jni {
                     slot = READY.wait(slot).unwrap_or_else(|e| e.into_inner());
                 }
                 match slot.take().expect("booted") {
-                    Ok(Booted(mut h, first, pending)) => {
+                    Ok(Booted(mut h, first)) => {
                         h.set_borrowed(false);
                         HOST.with(|s| *s.borrow_mut() = Some(h));
                         PRIMED.with(|p| *p.borrow_mut() = first);
-                        $crate::canvas::give_pending(pending);
                         JNI_TRUE
                     }
                     Err(e) => {
@@ -389,6 +384,15 @@ macro_rules! canvas_jni {
                     }
                 })
                 .unwrap_or(0)
+            }
+
+            /// The scroller `scroll` moves (its group's id in the stream), or 0.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_feed(
+                _env: *mut JNIEnv,
+                _class: jclass,
+            ) -> jint {
+                with(|h| h.feed().map_or(0, |v| v as jint)).unwrap_or(0)
             }
 
             /// System Back: whether the app took it.
