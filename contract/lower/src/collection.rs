@@ -62,7 +62,7 @@ impl Lowerer<'_> {
         if !row
             && !attrs.iter().any(|a| match a.name.as_str() {
                 "height" | "max-height" => !matches!(&a.value, Expr::Str(s, _) if s == "auto"),
-                "flex" => numeric_literal(&a.value).is_none_or(|n| n > 0.0),
+                "flex" => super::values::flex_bounds(&a.value),
                 _ => false,
             })
         {

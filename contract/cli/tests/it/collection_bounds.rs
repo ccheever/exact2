@@ -173,3 +173,38 @@ fn horizontal_container_padding_and_measured_row_spacing_still_compile() {
         contract::compile(&source(&format!("virtualized=false height=200 {name}=64"))).unwrap();
     }
 }
+
+/// The `flex` shorthand's text is a bound as its longhands are (Grok's batch
+/// 2 review): a positive grow, or a definite non-zero basis; `none`,
+/// `initial`, `"0"` and a zero grow over `auto` are not, on a virtualized
+/// list and on a `scroll` alike. A scroller's shrink comes from the
+/// shorthand too, so `flex="none"` does not shrink under a bounded column.
+#[test]
+fn the_flex_shorthand_text_bounds_as_its_longhands_do() {
+    let scroll = |parent: &str, attrs: &str| {
+        format!(
+            "component App\n  view\n    {parent}\n      scroll {attrs}\n        box height=1000\n"
+        )
+    };
+    for flex in ["none", "0", "initial", "0 1 auto", "0 0 0px", "0 0 content"] {
+        let e =
+            contract::compile(&source(&format!("virtualized=true flex=\"{flex}\""))).unwrap_err();
+        assert_eq!(e.id, "lower-collection-unbounded", "{flex}: {e}");
+        let e = contract::compile(&scroll("column", &format!("flex=\"{flex}\""))).unwrap_err();
+        assert_eq!(e.id, "lower-scroll-unbounded", "{flex}: {e}");
+    }
+    for flex in ["1", "auto", "2 1 0%", "0 0 200px", "0 1 50%"] {
+        contract::compile(&source(&format!("virtualized=true flex=\"{flex}\""))).unwrap();
+        contract::compile(&scroll("column", &format!("flex=\"{flex}\""))).unwrap();
+    }
+    // The scroll exception: a shrinking item with a zero minimum under a
+    // bounded column, its shrink read from the shorthand.
+    contract::compile(&scroll(
+        "column height=200",
+        "flex=\"0 1 auto\" min-height=0",
+    ))
+    .unwrap();
+    let e =
+        contract::compile(&scroll("column height=200", "flex=\"none\" min-height=0")).unwrap_err();
+    assert_eq!(e.id, "lower-scroll-unbounded", "{e}");
+}

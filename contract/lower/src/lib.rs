@@ -809,7 +809,10 @@ impl<'a> Lowerer<'a> {
                 if tag == "scroll"
                     && !clips_y
                     && parent_stacks
-                    && !has(&["height", "max-height", "flex"])
+                    && !has(&["height", "max-height"])
+                    && !expanded
+                        .iter()
+                        .any(|a| a.name == "flex" && values::flex_bounds(&a.value))
                     && !values::shrinking_scroll(expanded, self.parent_bounded_column)
                 {
                     return err(

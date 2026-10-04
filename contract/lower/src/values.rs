@@ -871,16 +871,61 @@ pub(crate) fn flex_component(value: &Expr, index: usize) -> Result<Expr, LowerEr
     Ok(out)
 }
 
+/// A literal `flex` (a number or the CSS shorthand's text) as its three
+/// longhands; `None` for a computed one, which the bake's measured-layout
+/// lint judges.
+pub(crate) fn flex_longhands(value: &Expr) -> Option<(f64, f64, String)> {
+    if !matches!(value, Expr::Str(..)) && numeric_literal(value).is_none() {
+        return None;
+    }
+    let part = |i| flex_component(value, i).ok();
+    let grow = part(0).as_ref().and_then(numeric_literal)?;
+    let shrink = part(1).as_ref().and_then(numeric_literal)?;
+    let Some(Expr::Str(basis, _)) = part(2) else {
+        return None;
+    };
+    Some((grow, shrink, basis))
+}
+
+/// Whether a `flex` bounds its box on the main axis by itself: a positive
+/// grow (it takes the container's free space), or a definite, non-zero
+/// basis. `none`, `initial`, `"0"` (grow 0 over a zero basis) and a zero
+/// grow over `auto` or content are not (Grok's batch 2 review). A computed
+/// value is left to the bake's lint.
+pub(crate) fn flex_bounds(value: &Expr) -> bool {
+    let Some((grow, _, basis)) = flex_longhands(value) else {
+        return true;
+    };
+    let basis = basis.trim();
+    let intrinsic = matches!(
+        basis,
+        "auto" | "content" | "min-content" | "max-content" | "fit-content"
+    );
+    let zero = basis
+        .trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == '%')
+        .parse::<f64>()
+        .is_ok_and(|n| n == 0.0);
+    grow > 0.0 || !(intrinsic || zero)
+}
+
 /// A shrinking flex item with a zero minimum fits a bounded flex column.
+/// Its shrink is the `flex-shrink` longhand's, or else the `flex`
+/// shorthand's (`flex="none"` does not shrink).
 pub(crate) fn shrinking_scroll(attrs: &[Attr], bounded_column: bool) -> bool {
+    let shrink = attrs
+        .iter()
+        .rev()
+        .find(|a| a.name == "flex-shrink")
+        .map(|a| numeric_literal(&a.value))
+        .or_else(|| {
+            let flex = attrs.iter().rev().find(|a| a.name == "flex")?;
+            Some(flex_longhands(&flex.value).map(|(_, shrink, _)| shrink))
+        });
     bounded_column
         && attrs
             .iter()
             .any(|a| a.name == "min-height" && numeric_literal(&a.value) == Some(0.0))
-        && attrs
-            .iter()
-            .find(|a| a.name == "flex-shrink")
-            .is_none_or(|a| numeric_literal(&a.value).is_none_or(|n| n > 0.0))
+        && shrink.is_none_or(|n| n.is_none_or(|n| n > 0.0))
 }
 
 pub(crate) fn bounded_column(tag: &str, attrs: &[Attr], inherited: bool) -> bool {
