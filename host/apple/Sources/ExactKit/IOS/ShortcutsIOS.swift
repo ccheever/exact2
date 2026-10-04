@@ -91,15 +91,21 @@ extension Presenter {
 
     /// A key command's chord, pressing its button (once; a repeat is not a press).
     func performShortcut(_ command: UIKeyCommand) {
-        guard let input = command.input,
-              let chord = ChordIOS(Substring(input.count == 1 ? input : ChordIOS.name(of: input) ?? input)) else { return }
+        guard let input = command.input else { return }
         let held = KeyCodes.held(command.modifierFlags)
-        if let node = shortcut(key: chord.key, held: held, focus: focusedNode) { press(node.id) }
+        // Every input is named back to ARIA's key first, a one-character one
+        // too (`"\r"` is Enter, review B2); UIKit gives Backspace and Delete
+        // the same input, so either name a button declares is its key.
+        let names = ChordIOS.names(of: input)
+        for name in names.isEmpty ? [input] : names {
+            guard let chord = ChordIOS(Substring(name)) else { continue }
+            if let node = shortcut(key: chord.key, held: held, focus: focusedNode) { press(node.id); return }
+        }
     }
 }
 
 private extension ChordIOS {
-    /// The ARIA name of a key command's input (`UIKeyCommand.inputEscape` → `Escape`).
-    static func name(of input: String) -> String? { named.first { $0.value == input }?.key }
+    /// The ARIA names of a key command's input (`UIKeyCommand.inputEscape` → `Escape`), in name order.
+    static func names(of input: String) -> [String] { named.filter { $0.value == input }.map(\.key).sorted() }
 }
 #endif

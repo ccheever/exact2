@@ -99,6 +99,32 @@ final class HitOrderIOSTests: XCTestCase {
         XCTAssertFalse(n.isHidden)
     }
 
+    /// An iPad keyboard's Enter, Tab, Escape, Backspace and Delete arrive as
+    /// one character; each is named back to ARIA's key before it is matched,
+    /// so the button that declares it is pressed (review B2: only longer
+    /// inputs were, and the command, taken over the system's, was dropped).
+    func testANamedOneCharacterShortcutPressesItsButton() throws {
+        let p = presenter(raised: 0)
+        p.apply(wireBatch([
+            ["op": "create", "id": 5, "kind": "button", "handlers": ["press"], "props": ["accessibilityKeyShortcuts": "Escape"]],
+            ["op": "children", "id": 1, "ids": [3, 2, 5]],
+            ["op": "frame", "id": 5, "x": 10.0, "y": 300.0, "w": 80.0, "h": 40.0],
+        ]))
+        window.layoutIfNeeded()
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let cases: [(String, String, UIKeyModifierFlags)] = [
+            ("Escape", UIKeyCommand.inputEscape, []), ("Meta+Enter", "\r", .command), ("Tab", "\t", []),
+            ("Backspace", "\u{8}", []), ("Delete", UIKeyCommand.inputDelete, []), ("Meta+k", "k", .command),
+        ]
+        for (chord, input, flags) in cases {
+            p.apply(wireBatch([["op": "props", "id": 5, "set": ["accessibilityKeyShortcuts": chord], "clear": []]]))
+            pressed = []
+            p.performShortcut(UIKeyCommand(input: input, modifierFlags: flags, action: #selector(UIResponder.becomeFirstResponder)))
+            XCTAssertEqual(pressed, [5], chord)
+        }
+    }
+
     /// A native module's view inside a `pointer-events: none` box is not a
     /// target either: the touch reaches the button around it (paint F9).
     func testAPointerEventsNoneBoxsPlatformViewLetsTheTouchThrough() throws {
