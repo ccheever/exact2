@@ -36,13 +36,28 @@ fn live(mut sim: Sim<Rivals>) -> Sim<Rivals> {
 /// Per-tick wall time over `ticks` ticks, in microseconds: (mean, p50, p99, max).
 fn time_ticks(sim: &mut Sim<Rivals>, ticks: u32) -> (f64, f64, f64, f64) {
     let mut samples = Vec::new();
+    let mut max = 0.0;
+    let mut worst = (0, 0, 0);
     for _ in 0..ticks {
+        let before = sim.world().resource::<rivals_logic::round::Round>().number;
         let t = Instant::now();
         frame(sim);
-        samples.push(t.elapsed().as_secs_f64() * 1e6);
+        let elapsed = t.elapsed().as_secs_f64() * 1e6;
+        samples.push(elapsed);
+        if elapsed > max {
+            max = elapsed;
+            worst = (
+                sim.world().tick(),
+                before,
+                sim.world().resource::<rivals_logic::round::Round>().number,
+            );
+        }
     }
     let mean = samples.iter().sum::<f64>() / samples.len() as f64;
-    let max = samples.iter().cloned().fold(0.0, f64::max);
+    println!(
+        "slowest of {ticks} ticks: tick {}, round {} -> {}, {max:.1} µs",
+        worst.0, worst.1, worst.2
+    );
     (
         mean,
         quantile(samples.clone(), 0.5),
@@ -67,6 +82,13 @@ fn bench_bots() {
         println!(
             "bots {bots:>2}: tick mean {mean:>7.1} µs  p50 {p50:>7.1}  p99 {p99:>7.1}  max {max:>8.1}  (hits {hits}, budget 8333 µs)"
         );
+        // Exercise the actual round transition even when this fight's winner
+        // arrives too late for the measured ten seconds.
+        sim.world_mut()
+            .resource_mut::<rivals_logic::round::Round>()
+            .over_until = sim.world().seconds() as f32;
+        let (mean, _, p99, max) = time_ticks(&mut sim, 120);
+        println!("bots {bots:>2}, round reset and first second: mean {mean:.1} µs  p99 {p99:.1}  max {max:.1}");
     }
 }
 

@@ -210,10 +210,8 @@ pub fn setup(w: &mut World, args: &Options) {
         let e = fighter::spawn(w, i + 2, &label, true, COLORS[i as usize % COLORS.len()]);
         let spawn = if args.range {
             training::lane(i + 2)
-        } else if count == 1 {
-            arena::SPAWNS[1]
         } else {
-            arena::SPAWNS[(i as usize + 1) % arena::SPAWNS.len()]
+            arena::SPAWNS[i as usize + 1]
         };
         fighter::place(w, e, spawn);
         if args.range {
@@ -384,7 +382,7 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
     if over_until > 0.0 {
         if now >= over_until {
             w.resource_mut::<Round>().over_until = 0.0;
-            round::next_round(w, args.bot_count() == 1);
+            round::next_round(w);
         } else {
             mouse_look(w, args, false);
             weapons::effects(w);

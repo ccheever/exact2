@@ -63,7 +63,8 @@ const BLOCKS: &[Block] = &[
     block([17.0, 0.6, -9.0], [0.6, 1.2, 4.0], SLAB),
 ];
 
-/// Spawns face the middle; duels use the first two.
+/// Spawns face the middle; duels start at the first two. There is room for
+/// every supported fighter without wrapping onto an occupied capsule.
 pub const SPAWNS: &[[f32; 2]] = &[
     [0.0, 18.0],
     [0.0, -18.0],
@@ -75,6 +76,22 @@ pub const SPAWNS: &[[f32; 2]] = &[
     [-18.0, -18.0],
     [-8.0, 18.0],
     [8.0, -18.0],
+    [-18.0, -12.0],
+    [-18.0, -6.0],
+    [-18.0, 6.0],
+    [-18.0, 12.0],
+    [18.0, -12.0],
+    [18.0, -6.0],
+    [18.0, 6.0],
+    [18.0, 12.0],
+    [-12.0, 18.0],
+    [-6.0, 18.0],
+    [6.0, 18.0],
+    [12.0, 18.0],
+    [-12.0, -18.0],
+    [-6.0, -18.0],
+    [6.0, -18.0],
+    [12.0, -18.0],
 ];
 
 /// Spots tucked against cover, where a hurt or reloading bot hides.

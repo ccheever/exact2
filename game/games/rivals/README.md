@@ -13,9 +13,11 @@ bun game/app/shells.mjs game/games/rivals --test
 
 ## Playing
 
-Pick **Duel** (one bot), **Free for all** (seven bots) or **Range** (three
-standing dummies). In combat, first to five kills takes the round; the dead respawn
-after two seconds at the spawn farthest from living enemies.
+Pick **Duel** (one bot), **Free for all** (seven bots), **Mayhem** (24 bots) or
+**Range** (three standing dummies). In combat, first to five kills takes the
+round. All 25 fighters have distinct starts; the dead respawn after two seconds
+at the spawn farthest from living enemies, including anyone else who respawned
+on that tick.
 
 Range is a thirty-second target drill. Eliminate the green target, then switch to
 the next one: each correct elimination earns 100 points times your combo (up to
@@ -75,7 +77,8 @@ fixed rates for the tick-rate experiments.
 
 With `AI_GATEWAY_API_KEY` in the environment, run
 `bun game/games/rivals/proof.mjs web --playtest` (or `macos`). Add `--duel` for a
-moving opponent. Jev chooses targets and tactics from the visible HUD. An authored
+moving opponent, or `--mayhem` for the 24-bot free-for-all. Jev chooses targets
+and tactics from the visible HUD. An authored
 pointer motor aims from rendered nameplate positions and queues the trigger on
 the same simulation tick. The controller also reads
 the player's own movement distance to recognize blocked steps: after two failures

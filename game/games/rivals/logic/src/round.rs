@@ -193,12 +193,13 @@ pub fn score(w: &mut World, hits: Vec<Damage>) {
 /// Respawn the dead whose timer ran out, at the safest spawn.
 pub fn respawn(w: &mut World) {
     let now = w.seconds() as f32;
-    let all: Vec<(Entity, u32, bool, f32, Vec3)> = w
+    let mut all: Vec<(Entity, u32, bool, f32, Vec3)> = w
         .query::<(&Fighter, &Transform)>()
         .iter()
         .map(|(e, (f, t))| (e, f.slot, f.alive, f.respawn_at, t.position))
         .collect();
-    for &(e, slot, alive, at, _) in &all {
+    for index in 0..all.len() {
+        let (e, slot, alive, at, _) = all[index];
         if alive || now < at {
             continue;
         }
@@ -220,6 +221,9 @@ pub fn respawn(w: &mut World) {
             .copied()
             .unwrap_or([0.0, 0.0]);
         fighter::place(w, e, best);
+        // A second fighter respawning this tick must see this placement too.
+        all[index].2 = true;
+        all[index].4 = Vec3::new(best[0], 0.92, best[1]);
         w.log(format!(
             "respawn {} at {:?}",
             w.require::<Fighter>(e).label,
@@ -251,7 +255,7 @@ pub fn check_win(w: &mut World) {
 }
 
 /// Begin the next round: scores cleared, rockets gone, everyone at a spawn.
-pub fn next_round(w: &mut World, duel: bool) {
+pub fn next_round(w: &mut World) {
     let rockets: Vec<Entity> = w.query::<&Rocket>().iter().map(|(e, _)| e).collect();
     for e in rockets {
         w.despawn(e);
@@ -263,12 +267,7 @@ pub fn next_round(w: &mut World, duel: bool) {
             f.kills = 0;
             f.deaths = 0;
         }
-        let spawn = if duel {
-            SPAWNS[i % 2]
-        } else {
-            SPAWNS[i % SPAWNS.len()]
-        };
-        fighter::place(w, e, spawn);
+        fighter::place(w, e, SPAWNS[i]);
     }
     let mut r = w.resource_mut::<Round>();
     r.number += 1;

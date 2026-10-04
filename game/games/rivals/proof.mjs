@@ -24,7 +24,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const title = await s.tree();
   const titleAx = await axNames(s);
   check('Duel is initially focused and named', node(title, 'play')?.focused === true && (titleAx.unavailable || titleAx.name('play') === 'Play'));
-  check('title offers duel, free-for-all and range', ['play', 'ffa', 'range'].every(id => !!node(title, id)) && title.nodes.some(n => n.props?.text === 'RIVALS'));
+  check('title offers duel, free-for-all, Mayhem and range', ['play', 'ffa', 'mayhem', 'range'].every(id => !!node(title, id)) && title.nodes.some(n => n.props?.text === 'RIVALS'));
+  if (host !== 'linux') await s.screenshot(resolve(out, 'title.png'));
   check('world loads after a mode is chosen', !node(title, 'world'));
   await s.tap('range');
   const game = s.world('world');
@@ -152,6 +153,38 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   if (host === 'web') await f.screenshot(resolve(out, 'game.png'));
   await f.close();
 
+  // The maximum roster is a playable mode. Starts are distinct, and restoring
+  // its busy fight must retain the same queries, bot decisions and respawns.
+  const crowd = await open({fresh:true});
+  await crowd.tap('mayhem');
+  const mayhem = crowd.world('world');
+  const starters = (await mayhem.snapshot()).entities.filter(e => e.components?.Fighter);
+  check('Mayhem starts twenty-five fighters without overlapping capsules', starters.length === 25 && starters.every((a, i) => starters.slice(i + 1).every(b => {
+    const p = a.components.Transform.position, q = b.components.Transform.position;
+    return Math.hypot(p[0] - q[0], p[2] - q[2]) > 0.7;
+  })));
+  await mayhem.key_down('KeyF');
+  await mayhem.run(2600);
+  check('Mayhem is an active fight', (await mayhem.snapshot()).entities.filter(e => e.components?.Fighter).some(e => e.components.Fighter.deaths > 0));
+  if (host !== 'linux') await crowd.screenshot(resolve(out, 'mayhem.png'));
+  await mayhem.save(resolve(out, 'mayhem.world'));
+  const finishMayhem = async session => {
+    const g = session.world('world');
+    await g.hold('KeyD', 600);
+    await g.run(400);
+    return g.snapshot();
+  };
+  const crowdedEnd = await finishMayhem(crowd);
+  await mayhem.save(resolve(out, 'mayhem-continued.world'));
+  pinSave('mayhem', resolve(out, 'mayhem-continued.world'));
+  await crowd.close();
+  const crowdBack = await open({fresh:true, world:resolve(out, 'mayhem.world')});
+  await crowdBack.tap('mayhem');
+  check('fresh process continues Mayhem identically', JSON.stringify(await finishMayhem(crowdBack)) === JSON.stringify(crowdedEnd));
+  await crowdBack.world('world').save(resolve(out, 'mayhem-restored.world'));
+  check('Mayhem continuation saves are byte-identical', readFileSync(resolve(out, 'mayhem-continued.world')).equals(readFileSync(resolve(out, 'mayhem-restored.world'))));
+  await crowdBack.close();
+
   const training = await open({fresh:true});
   await training.tap('range');
   const range = training.world('world');
@@ -248,10 +281,11 @@ async function motorCheck({open, out, check}) {
 // neither reads enemy world positions or writes the simulation. This measures
 // decisions, not visual perception or human aim.
 async function playtest({open, out, say}) {
-  const duel = process.argv.includes('--duel');
-  const mode = duel ? 'duel' : 'drill';
+  const mayhem = process.argv.includes('--mayhem');
+  const duel = process.argv.includes('--duel') || mayhem;
+  const mode = mayhem ? 'mayhem' : duel ? 'duel' : 'drill';
   const s = await open();
-  await s.tap(duel ? 'play' : 'range');
+  await s.tap(mayhem ? 'mayhem' : duel ? 'play' : 'range');
   const game = s.world('world');
   await game.run(100);
   const transcript = resolve(out, `jev-${mode}-decisions.jsonl`);
@@ -288,7 +322,7 @@ async function playtest({open, out, say}) {
       if (blindTurn >= 360) for (const action of ['scan','scan_left','turn_back']) delete choices[action];
     }
     const decision = await decide({state:{...state, contacts, recent, ...(duel ? {blockedActions:[...blocked].filter(([,n])=>n>=2).map(([name])=>name), blindTurnDegrees:Math.round(blindTurn)} : {})}, choices, transcript,
-      goal:duel ? 'Win the duel while staying alive. Shoot visible opponents, reload when ammunition is low, and use the incoming-hit direction to turn toward attacks. The compass shows where you face. Recent movedMeters is your actual movement: a movement command under 0.3 metres hit an obstacle. Jump or strafe around it; do not repeat blocked steps. If repeated scanning finds nobody, move to a new position instead of spinning in place. The motor aims only at visible nameplates; it cannot see through cover. Avoid unnecessary weapon switching.'
+      goal:duel ? `Win the ${mayhem ? 'free-for-all against 24 bots' : 'duel'} while staying alive. Shoot visible opponents, reload when ammunition is low, and use the incoming-hit direction to turn toward attacks. The compass shows where you face. Recent movedMeters is your actual movement: a movement command under 0.3 metres hit an obstacle. Jump or strafe around it; do not repeat blocked steps. If repeated scanning finds nobody, move to a new position instead of spinning in place. The motor aims only at visible nameplates; it cannot see through cover. Avoid unnecessary weapon switching.`
         : 'Score as highly as possible in the thirty-second drill. Shoot the green TARGET named in the HUD, avoiding other dummies to preserve your combo. Reload when needed and wait if the requested dummy is respawning. The motor aims at your chosen nameplate.'});
     say(`JEV ${mode} ${turn+1}: ${decision.choice} · ${state['drill-score'] || `${state['you-kills']}–${state['rival-kills']} · ${state.hp} HP`}`);
     const started = s.now, triggers = [];

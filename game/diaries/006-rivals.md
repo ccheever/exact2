@@ -855,3 +855,42 @@ checks overlapped, so their elapsed times are not isolated performance measures.
 No engine API was needed for the bot fix: existing capsule sweeps, seekable
 simulation, named state reads and fresh-process saves sufficed to reproduce,
 correct and verify the game-side failure.
+
+## Full arenas need distinct spawns (2026-10-04)
+
+The 24-bot tail was reproducible at tick 1311, the first tick of round two.
+The same timing experiment now reports the slow tick and its round transition.
+Startup was worse: 9.29 ms at tick two. Temporarily restoring the previous bot
+implementation while holding every other source fixed showed a 9.83 ms startup
+peak too. Its match did not reset within the measured ten seconds. The ramp fix
+exposed an existing cost during a round reset; it did not introduce the bad starts.
+
+Rivals wrapped 25 fighters around ten spawn coordinates, placing two or three
+capsules at the same point. Simultaneous respawns independently used the same
+snapshot of living enemies and also chose the same point. Two regression tests
+fail on those exact overlaps: player/bot-10 at `[0, .92, 18]` on setup, and
+player/bot-1 at `[8, .92, -18]` when everyone is due to respawn.
+
+The first fix supplies 26 clear arena positions, removes wrapping on setup and
+round reset, and makes each respawn visible to the next placement that tick.
+All 27 game tests pass, including static-collider clearance of every candidate,
+distinct starts/restarts for the maximum roster, and byte-identical continuation
+after restoring immediately before simultaneous respawns. Clippy passes too.
+
+For the before/after timing comparison, only `arena.rs`, `lib.rs` and `round.rs`
+were temporarily restored from the preceding commit; the same instrumented
+release benchmark ran both implementations sequentially. It now forces a round
+transition after the ten-second measurement so a later victory cannot omit that
+path. At 24 bots, startup's maximum drops **9.348 → 0.274 ms**; the forced reset
+and its first second drop **2.343 → 0.303 ms**. The ordinary measured interval's
+mean/p99/max change **0.285/0.938/8.313 → 0.169/0.262/0.417 ms**. Its before run
+also includes a natural round reset; gameplay diverges with the new spawns, so
+these are observed workload timings, not a per-operation microbenchmark.
+Logs: `/tmp/exact2-rivals-spawn-forced-{before,after}.log`.
+
+The maximum roster is now playable from the title as **Mayhem · 24 bots**.
+Its proof checks 25 separated starts, combat, and identical continuation from
+a fresh-process save. Jev can play it with the existing controller's `--mayhem`
+option; the duel controller is unchanged. The complete Linux proof has zero
+behavioral failures in 4.37 s and a passing process audit. It remains
+`UNVERIFIED` until the new baseline is collected. Artifact: `spawn-linux/`.

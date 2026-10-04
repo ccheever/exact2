@@ -77,6 +77,11 @@ component Rivals
     training = false
     playing = true
 
+  action mayhem
+    bots = 24
+    training = false
+    playing = true
+
   action range
     bots = 3
     training = true
@@ -192,5 +197,7 @@ component Rivals
               text "Duel" font-size=20 color="#10141b"
             button press=brawl aria-label="Free for all" testId="ffa" padding=16 border-radius=12 background-color="#354751"
               text "Free for all" font-size=20
+            button press=mayhem aria-label="Mayhem: 24 bots" testId="mayhem" padding=16 border-radius=12 background-color="#633847"
+              text "Mayhem · 24 bots" font-size=20
             button press=range aria-label="Training range" testId="range" padding=16 border-radius=12 background-color="#354751"
               text "Range" font-size=20

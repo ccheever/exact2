@@ -454,6 +454,76 @@ fn hunting_bot_commits_to_a_new_destination_after_searching_a_sighting() {
     }
 }
 
+#[test]
+fn a_full_arena_starts_and_restarts_without_overlapping_fighters() {
+    let mut sim = game(Options {
+        bots: 24,
+        ..Options::default()
+    });
+    for &[x, z] in rivals_logic::arena::SPAWNS {
+        let hits = exact_game_physics::overlap(
+            sim.world(),
+            &exact_game_physics::Shape::Capsule {
+                radius: rivals_logic::fighter::RADIUS,
+                height: rivals_logic::fighter::HEIGHT,
+            },
+            exact_game::Transform::at(x, 0.92, z),
+            rivals_logic::arena::WORLD,
+        );
+        assert!(
+            hits.is_empty(),
+            "spawn [{x}, {z}] overlaps arena geometry: {hits:?}"
+        );
+    }
+    assert_separate_fighters(&sim);
+    rivals_logic::round::next_round(sim.world_mut());
+    assert_separate_fighters(&sim);
+}
+
+#[test]
+fn simultaneous_respawns_reserve_different_clear_spawns() {
+    let mut sim = game(Options {
+        bots: 24,
+        ..Options::default()
+    });
+    // Everyone is due at the same tick. Each placement must become visible
+    // when choosing the next one, including the first when nobody is alive.
+    for (_, f) in sim.world_mut().query::<&mut Fighter>().iter() {
+        f.alive = false;
+        f.respawn_at = 0.0;
+    }
+    let saved = sim.save().unwrap();
+    let mut restored = game(Options {
+        bots: 24,
+        ..Options::default()
+    });
+    restored.restore_bound(&saved).unwrap();
+    for s in [&mut sim, &mut restored] {
+        rivals_logic::round::respawn(s.world_mut());
+        assert!(s.world().query::<&Fighter>().iter().all(|(_, f)| f.alive));
+        assert_separate_fighters(s);
+        s.run(100.0);
+    }
+    assert_eq!(sim.save().unwrap(), restored.save().unwrap());
+}
+
+fn assert_separate_fighters(sim: &Sim<Rivals>) {
+    let fighters: Vec<_> = sim
+        .world()
+        .query::<(&Fighter, &exact_game::Transform)>()
+        .iter()
+        .map(|(_, (f, t))| (f.label.clone(), t.position))
+        .collect();
+    for (i, (name, at)) in fighters.iter().enumerate() {
+        for (other, pos) in &fighters[i + 1..] {
+            assert!(
+                (*pos - *at).length() > 2.0 * rivals_logic::fighter::RADIUS,
+                "{name} at {at} overlaps {other} at {pos}"
+            );
+        }
+    }
+}
+
 /// A scripted, aggressive player: strafes, jumps, slides, sprays and flicks the
 /// mouse. Every input is a key edge or an absolute pointer move at a stamp.
 fn scripted(sim: &mut Sim<Rivals>, seconds: u32) {
