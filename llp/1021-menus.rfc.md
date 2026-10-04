@@ -477,7 +477,7 @@ layer): CSS does the same, as an absolutely positioned box that overflows
 its area but fits its containing block is shifted back into it. Nothing
 flips: a flip is `position-try`, still refused.
 
-The row is a schema enum (`PositionArea`, bit 175). The web writes it as
+The row is a schema enum (`PositionArea`, bit 176). The web writes it as
 the CSS declaration on both targets and the browser places the popover
 (Chrome, the oracle, implements it with the invoker as the implicit
 anchor; an engine without anchor positioning keeps its default centred

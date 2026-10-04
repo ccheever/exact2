@@ -1457,6 +1457,7 @@ fn inherit_unset_and_currentcolor_are_csss() {
         field.props.str(exact_kernel::PropId::EnterKeyHint),
         Some("send")
     );
+}
 
 #[test]
 fn position_area_places_a_popover_in_the_admitted_subset_only() {
