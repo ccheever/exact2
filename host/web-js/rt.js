@@ -789,8 +789,9 @@ export function on(e, kind, f) {
     case "message": return addEventListener("message", ev => { if (ev.source === e.contentWindow && ev.origin === guestOrigin(e)) f(typeof ev.data === "string" ? ev.data : JSON.stringify(ev.data)); });
     case "error": l("exact-error", ev => f(ev.detail)); return l("error", () => f(e.error?.message || "Media could not be loaded"));
     case "timeupdate": return l(kind, () => f(e.currentTime));
-    // The port's offsets, as the web host sends them (`glue.js` `attach`).
-    case "scroll": return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } f(e.scrollLeft, e.scrollTop); });
+    // The port's offsets, as the web host sends them (`glue.js` `attach`);
+    // an action taking one more parameter hears the `ScrollEvent` record.
+    case "scroll": return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } f(e.scrollLeft, e.scrollTop, [e.scrollLeft, e.scrollTop, e.scrollWidth, e.scrollHeight, e.clientWidth, e.clientHeight]); });
     // Pull to refresh is a native port's; the web has none (`glue.js` attaches nothing).
     case "refresh": return;
     case "durationchange": return l(kind, () => Number.isFinite(e.duration) && f(e.duration));

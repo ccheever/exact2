@@ -520,7 +520,9 @@ final class Presenter {
     var onPanRelease: ((UInt32, Double, Double) -> Void)?
     var onPanSample: ((Bool, Double, Double, Double) -> Void)?
     var panVelocity: ((Double) -> (Double, Double))?
-    var onScroll: ((UInt32, Double, Double) -> Void)?
+    /// A scroller with a `scroll` handler moved: left, top, then its
+    /// `scrollWidth`, `scrollHeight`, `clientWidth`, `clientHeight`.
+    var onScroll: ((UInt32, [Double]) -> Void)?
     /// A scroller (nil: the page) moved, handler or not: `frame()` reads
     /// boxes where the viewer sees them (LLP 1051.000 D1).
     var onScrolled: ((UInt32?, Double, Double) -> Void)?
@@ -614,7 +616,7 @@ final class Presenter {
         guard views[id]?.handlers.contains("panrelease") == true else { return }
         send(id) { [self] in onPanRelease?(id, vx, vy) }
     }
-    func scroll(_ id: UInt32, _ left: Double, _ top: Double) { send(id) { [self] in onScroll?(id, left, top) } }
+    func scroll(_ id: UInt32, _ metrics: [Double]) { send(id) { [self] in onScroll?(id, metrics) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
     func message(_ id: UInt32, _ value: String) {

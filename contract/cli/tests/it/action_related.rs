@@ -147,7 +147,6 @@ fn all_event_payload_arities_share_the_lowering_rule() {
         ("durationchange", 1),
         ("pan", 2),
         ("panrelease", 2),
-        ("scroll", 2),
         ("heightrelease", 2),
         ("transformgeometry", 4),
         ("transformrelease", 6),
@@ -171,6 +170,8 @@ fn all_event_payload_arities_share_the_lowering_rule() {
             refusal(&root("text \"hello\"", &wrong));
         }
     }
+    // `scroll`'s two offsets, then its optional `ScrollEvent` (chat F4).
+    assert_eq!(contract_analyze::handler_arity("scroll", 0), Some(2..=3));
     // Edges carry no payload: their action takes exactly the bound arguments.
     assert_eq!(
         contract_analyze::handler_arity("reachstart", 1),

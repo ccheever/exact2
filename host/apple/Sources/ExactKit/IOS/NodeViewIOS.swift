@@ -605,13 +605,22 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         } else { queueScrollEvent() }
     }
     private func sendScrollEvent() {
-        guard handlers.contains("scroll"), let point = scroll?.contentOffset,
+        guard handlers.contains("scroll"), let sv = scroll, case let point = sv.contentOffset,
               point != lastScrollEvent, presenter?.views[id] === self,
               hasScrollLayoutBox else { return }
         lastScrollEvent = point
         dispatchingScrollEvent = true
         defer { dispatchingScrollEvent = false }
-        presenter?.scroll(id, Double(point.x), Double(point.y + (scroll.map(scrollTopInset) ?? 0)))
+        // CSS's extents (`ScrollEvent`): the port inside the insets, and the
+        // port plus the range UIKit clamps a settled offset to, so at the
+        // end `scrollHeight - scrollTop - clientHeight` is 0 (chat F4).
+        let inset = sv.adjustedContentInset, top = scrollTopInset(sv)
+        let port = CGSize(width: max(0, sv.bounds.width - inset.left - inset.right),
+                          height: max(0, sv.bounds.height - inset.top - inset.bottom))
+        let range = CGSize(width: max(0, sv.contentSize.width + inset.right - sv.bounds.width),
+                           height: max(0, sv.contentSize.height + inset.bottom - sv.bounds.height + top))
+        presenter?.scroll(id, [point.x, point.y + top, port.width + range.width, port.height + range.height,
+                               port.width, port.height].map(Double.init))
     }
     private func queueScrollEvent() {
         guard handlers.contains("scroll"), !scrollEventQueued else { return }

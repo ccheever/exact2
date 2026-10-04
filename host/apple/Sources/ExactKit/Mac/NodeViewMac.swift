@@ -577,10 +577,16 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.scrollEventQueued = false
-            guard let point = self.scroll?.contentView.bounds.origin, point != self.lastScrollEvent,
+            guard let sv = self.scroll, case let point = sv.contentView.bounds.origin, point != self.lastScrollEvent,
                   self.presenter?.views[self.id] === self, self.hasScrollLayoutBox else { return }
             self.lastScrollEvent = point
-            self.presenter?.scroll(self.id, Double(point.x), Double(point.y))
+            // CSS's extents (`ScrollEvent`): the port, and the port plus
+            // the range the clip view clamps to, so at the end
+            // `scrollHeight - scrollTop - clientHeight` is 0 (chat F4).
+            let port = sv.contentView.bounds.size, document = sv.documentView?.frame.size ?? port
+            let range = CGSize(width: max(0, document.width - port.width), height: max(0, document.height - port.height))
+            self.presenter?.scroll(self.id, [point.x, point.y, port.width + range.width, port.height + range.height,
+                                             port.width, port.height].map(Double.init))
         }
     }
 

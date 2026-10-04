@@ -441,11 +441,12 @@ working fixture, not inferred from JavaScript's Event interface.
 | --- | --- |
 | One string | `change`, `input` (text field, textarea, `select`), `message`, `error` |
 | A string, then optionally a `KeyboardEvent` | `key`: the key's name; an action taking one more parameter also hears the [modifiers](#keys) |
+| Two numbers, then optionally a `ScrollEvent` | `scroll`: left and top; an action taking one more parameter also hears the scroller's extents (below) |
 | One boolean | `hover`; `change`, `input` on a checkbox or `switch` |
 | One number | `timeupdate`, `durationchange`; `change`, `input` on `type="range"` |
 | One `list<Picked>` | `change`, `input` on `type="file"` |
 | One `MarkdownSelection` | `select` |
-| Two numbers | `scroll`, `pan`, `panrelease`, `heightrelease` |
+| Two numbers | `pan`, `panrelease`, `heightrelease` |
 | A string, then an `option<string>` | `reorderdrop`, on a vertical `list virtualized=true` only: the dragged row's key, then the key it lands before (`none` at the end) |
 | Four numbers | `transformgeometry` |
 | Six numbers | `transformrelease` |
@@ -453,7 +454,23 @@ working fixture, not inferred from JavaScript's Event interface.
 | Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove` |
 | None | `press`, `cancel`, `focus`, `blur`, `submit`, `load`, `contextmenu`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
-`scroll` appends left then top offsets; `panrelease` appends x/y release velocity;
+`scroll` appends left then top offsets, and to an action that takes one more
+parameter a `ScrollEvent`: the scroller's own `scrollLeft`, `scrollTop`,
+`scrollWidth`, `scrollHeight`, `clientWidth` and `clientHeight` as the event
+fires, what a web handler reads off `event.target`. "At the end" is the web's
+arithmetic, on every host and on a virtualized list too (chat F4, a
+jump-to-latest pill); a native host's `scrollHeight` is its port plus the range
+it clamps to:
+
+```text
+action moved(x: number, y: number, e: ScrollEvent)
+  away = e.scrollHeight - e.scrollTop - e.clientHeight > 1
+list virtualized=true scroll-start="end" scrollFollowEnd=true scroll=moved …
+```
+
+As on the web, the event comes when the offset changes (a follow of the end
+moves it); content that grows below a reader who is not following it changes
+no offset and sends none. `panrelease` appends x/y release velocity;
 `heightrelease` appends height and velocity. A `pan` hears a drag that starts
 anywhere inside it, a nested `button` or `press` node included: past the slop
 the pan takes the contact and the press does not fire, while a tap still

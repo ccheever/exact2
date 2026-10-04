@@ -284,9 +284,11 @@ final class Runtime {
             exact_scrolled(rt, view == nil ? 1 : 0, view ?? 0, left, top)
         }
     }
-    func scroll(_ view: UInt32, left: Double, top: Double, now: Double) -> Batch {
+    /// A scroll event: left, top, then the scroller's `scrollWidth`,
+    /// `scrollHeight`, `clientWidth` and `clientHeight` (`ScrollEvent`, chat F4).
+    func scroll(_ view: UInt32, metrics: [Double], now: Double) -> Batch {
         return on {
-            let n = write("\(left),\(top)")
+            let n = write(metrics.map { "\($0)" }.joined(separator: ","))
             return read(exact_dispatch(rt, view, 13, n, now))
         }
     }

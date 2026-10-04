@@ -5,7 +5,8 @@ use exact_data_host::Storage;
 use exact_kernel::{Env, Frame, Kernel, NodeKey, Offer, PropId};
 use exact_plan::{Plan, Value};
 use exact_runner::{
-    DataSource, Dispatch, Event, Outcome, Reply, RequestOut, Runner, RunnerError, Viewport, Work,
+    DataSource, Dispatch, Event, Outcome, Reply, RequestOut, Runner, RunnerError, ScrollEvent,
+    Viewport, Work,
 };
 use std::{
     collections::BTreeMap,
@@ -1171,7 +1172,13 @@ fn horizontal_edges_take_priority_then_vertical_scroll_rehits_and_persists_the_d
         assert!(requested > app.state("calendarScrollTop").as_number().unwrap());
         // The native scroll executor reports the authored offset back. No new
         // pointer message is sent while the calendar moves beneath the finger.
-        app.event("month-scroll-2026-09", Event::Scroll(0.0, requested));
+        app.event(
+            "month-scroll-2026-09",
+            Event::Scroll(ScrollEvent {
+                top: requested,
+                ..Default::default()
+            }),
+        );
         if app.derived("hoverDay") != &initial_day {
             break;
         }

@@ -2,7 +2,7 @@
 //! the runner owns membership, estimates and anchors. No recursive frame/layout.
 use super::*;
 use exact_kernel::{Dimension, Kernel, NodeKey};
-use exact_runner::{CollectionFeedback, CollectionSnapshot, ListAxis, RowMeasurement};
+use exact_runner::{CollectionFeedback, CollectionSnapshot, ListAxis, RowMeasurement, ScrollEvent};
 use std::collections::{BTreeSet, VecDeque};
 
 const PASSES: usize = 2;
@@ -442,10 +442,8 @@ impl<D: DataSource> Presenter<D> {
             // An earlier handler may have changed this pending target. Fold
             // that change into this event, at its original queue position.
             self.collection.scroll_events.retain(|(id, _)| *id != view);
-            let (x, y) = self.scroll_of(view);
-            let result =
-                self.host
-                    .dispatch_at(view, Event::Scroll(x as f64, y as f64), self.host.now());
+            let event = self.scroll_event(view);
+            let result = self.host.dispatch_at(view, event, self.host.now());
             let after = self.after_commit();
             error = error.or(result).or(after);
         }
@@ -561,6 +559,30 @@ impl<D: DataSource> Presenter<D> {
             && facts.row_width == g.cross
     }
 
+    /// The authored `scroll` event at the port's offset, with its extents
+    /// (chat F4): the box is the port, as the scroll range is measured, and
+    /// the content is the port plus the range the offset clamps to.
+    fn scroll_event(&self, view: ViewId) -> Event {
+        let (x, y) = self.scroll_of(view);
+        let kernel = self.host.kernel();
+        let (port, max) = kernel.node(view).map_or(((0., 0.), (0., 0.)), |node| {
+            let bounds = self.display.bounds(kernel, view).unwrap_or_else(|| {
+                let limit = self.collection_scroll_limits().get(&view).copied();
+                self.brush
+                    .scroll_bounds(kernel, self.host.content_region(), &node, limit)
+            });
+            ((node.frame.width, node.frame.height), bounds.max)
+        });
+        Event::Scroll(ScrollEvent {
+            left: x as f64,
+            top: y as f64,
+            width: (port.0 + max.0) as f64,
+            height: (port.1 + max.1) as f64,
+            client_width: port.0 as f64,
+            client_height: port.1 as f64,
+        })
+    }
+
     pub(super) fn collection_scroll_limits(&self) -> BTreeMap<ViewId, f32> {
         self.host
             .collections()
@@ -634,9 +656,8 @@ impl<D: DataSource> Presenter<D> {
             .handlers_of(view)
             .contains(&EventKind::Scroll);
         let mut error = if authored {
-            let (x, y) = self.scroll_of(view);
-            self.host
-                .dispatch_at(view, Event::Scroll(x as f64, y as f64), self.host.now())
+            let event = self.scroll_event(view);
+            self.host.dispatch_at(view, event, self.host.now())
         } else {
             None
         };

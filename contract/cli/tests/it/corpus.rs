@@ -815,13 +815,25 @@ fn scroll_events_append_two_numeric_offsets_after_authored_arguments() {
         .node_by_key(r.kernel().find_by_test_id("port")[0])
         .unwrap()
         .id;
-    r.dispatch(id, Event::scroll_payload("12.5,-3.25").unwrap())
-        .unwrap();
+    r.dispatch(
+        id,
+        Event::scroll_payload("12.5,-3.25,600,600,400,100").unwrap(),
+    )
+    .unwrap();
     assert_eq!(r.slot("name"), Some(&Value::str("row")));
     assert_eq!(r.slot("left"), Some(&Value::Number(12.5)));
     assert_eq!(r.slot("top"), Some(&Value::Number(-3.25)));
-    for bad in ["NaN,0", "0,inf", "0", "1,2,3", "bad,2"] {
-        assert!(Event::scroll_payload(bad).is_none());
+    for bad in [
+        "NaN,0,1,1,1,1",
+        "0,inf,1,1,1,1",
+        "0",
+        "1,2",
+        "1,2,3,4,5",
+        "0,0,-1,1,1,1",
+        "bad,2,1,1,1,1",
+        "0,0,1,1,1,1,1",
+    ] {
+        assert!(Event::scroll_payload(bad).is_none(), "{bad}");
     }
     for params in [
         "id: string, x: string, y: number",
@@ -834,11 +846,44 @@ fn scroll_events_append_two_numeric_offsets_after_authored_arguments() {
         );
     }
     assert_eq!(
-        contract::compile(&src.replace("scroll=moved(\"row\")", "scroll=moved"))
+        contract::compile(&src.replace("scroll=moved(\"row\")", "scroll=moved(\"row\", 1)"))
             .unwrap_err()
             .id,
         "analyze-handler-arity"
     );
+}
+
+/// An action taking one more parameter hears the scroller's extents, the
+/// web's `Element` fields, so "at the end" is the web's arithmetic (chat F4).
+#[test]
+fn a_scroll_action_taking_one_more_parameter_hears_the_scroll_event() {
+    let src = r#"component App
+  state away = 0
+  state wide = 0
+  action moved(x: number, y: number, e: ScrollEvent)
+    away = e.scrollHeight - e.scrollTop - e.clientHeight
+    wide = e.scrollWidth - e.clientWidth + e.scrollLeft
+  view
+    scroll height=100 scroll=moved testId="port"
+      box width=600 height=600
+"#;
+    let mut r = Runner::boot(
+        Plan::decode(&contract::compile(src).unwrap().encode()).unwrap(),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let port = r.kernel().find_by_test_id("port")[0];
+    let id = r.kernel().node_by_key(port).unwrap().id;
+    r.dispatch(id, Event::scroll_payload("2,380,600,600,400,100").unwrap())
+        .unwrap();
+    assert_eq!(r.slot("away"), Some(&Value::Number(120.0)));
+    assert_eq!(r.slot("wide"), Some(&Value::Number(202.0)));
+    r.dispatch(id, Event::scroll_payload("2,500,600,600,400,100").unwrap())
+        .unwrap();
+    assert_eq!(r.slot("away"), Some(&Value::Number(0.0)));
 }
 
 #[test]

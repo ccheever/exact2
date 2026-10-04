@@ -707,7 +707,13 @@ fn a_picker_sticker_drops_on_the_final_date_once_and_lands_on_its_image() {
     for _ in 0..120 {
         app.presented_frame(1000.0 / 120.0);
         let requested = app.state("calendarScrollRequest").as_number().unwrap();
-        app.event("month-scroll-2026-09", Event::Scroll(0.0, requested));
+        app.event(
+            "month-scroll-2026-09",
+            Event::Scroll(ScrollEvent {
+                top: requested,
+                ..Default::default()
+            }),
+        );
         if unscrolled.1 - requested < cancel_top - 16.0 {
             break;
         }
@@ -731,7 +737,10 @@ fn a_picker_sticker_drops_on_the_final_date_once_and_lands_on_its_image() {
     assert_eq!(app.state("calendarScrollRequest"), &expected_scroll);
     app.event(
         "month-scroll-2026-09",
-        Event::Scroll(0.0, expected_scroll.as_number().unwrap()),
+        Event::Scroll(ScrollEvent {
+            top: expected_scroll.as_number().unwrap(),
+            ..Default::default()
+        }),
     );
     app.finish_motion();
     app.assert_creation_closed();

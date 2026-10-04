@@ -205,7 +205,9 @@ fn event(rng: &mut Rng, kind: EventKind) -> Option<Event> {
         EventKind::Pointerup => Event::Pointerup(pointer(rng)),
         EventKind::Pointermove => Event::Pointermove(pointer(rng)),
         EventKind::Swiperight => Event::Swiperight,
-        EventKind::Scroll => Event::Scroll(0.0, (rng.below(5) * 40) as f64),
+        EventKind::Scroll => {
+            Event::scroll_payload(&format!("0,{},400,1000,400,200", rng.below(5) * 40)).unwrap()
+        }
         EventKind::Navigate => Event::Navigate(rng.pick(&["/", "/t/1", "/nowhere"]).to_string()),
         EventKind::Pan => Event::Pan(rng.below(9) as f64 - 4.0, 0.0),
         EventKind::Panrelease => Event::PanRelease((rng.below(9) as f64 - 4.0) * 250.0, 0.0),

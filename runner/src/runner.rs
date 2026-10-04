@@ -18,6 +18,7 @@ mod reorder_codec;
 mod root_font;
 pub use event::{
     ActionBinding, ActionBindingError, ActionBindingRefusal, ControlValue, Event, KeyModifiers,
+    ScrollEvent,
 };
 mod canvas2d;
 pub use canvas2d::{

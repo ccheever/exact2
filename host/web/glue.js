@@ -527,7 +527,8 @@ function attach(el, id, handlers) {
       let pan;
       on("pointerdown", e => (pan ??= inputHandlers?.pan(el, id, on))?.(e));
     } else if (kind === "scroll") {
-      on("scroll", () => { const n = writeIn(`${el.scrollLeft},${el.scrollTop}`); send(wasm.exact_dispatch(id, 13, n, now())); });
+      // The offsets, then the extents an action's `ScrollEvent` reads (chat F4).
+      on("scroll", () => { const n = writeIn(`${el.scrollLeft},${el.scrollTop},${el.scrollWidth},${el.scrollHeight},${el.clientWidth},${el.clientHeight}`); send(wasm.exact_dispatch(id, 13, n, now())); });
     } else if (kind === "swiperight") {
       motion.attachSwipe(el, id, on);
     } else if (kind === "heightrelease") {

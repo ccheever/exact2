@@ -376,11 +376,13 @@ fn ordinary_authored_scroll_events_wait_for_ack_and_coalesce_with_reader_input()
   state top = 200
   state observed = 0
   state count = 0
+  state away = 0
   action jump
     top = top + 100
-  action moved(x, y)
+  action moved(x: number, y: number, e: ScrollEvent)
     observed = y
     count = count + 1
+    away = e.scrollHeight - e.scrollTop - e.clientHeight
   view
     column
       button "Jump" press=jump testId="jump"
@@ -394,6 +396,9 @@ fn ordinary_authored_scroll_events_wait_for_ack_and_coalesce_with_reader_input()
     let count = |p: &Presenter<Rows>| p.host.runner().slot("count").cloned();
     assert_eq!(observed(&p), Some(Value::Number(200.)));
     assert_eq!(count(&p), Some(Value::Number(1.)));
+    // The `ScrollEvent`'s extents: what is left below the port (chat F4).
+    let away = p.host.runner().slot("away").cloned();
+    assert_eq!(away, Some(Value::Number(1000. - 200. - 100.)));
     let first = p.display_frame().unwrap();
     assert!(p.display_complete(&first));
     p.tap(named(&p, "jump")).unwrap();
