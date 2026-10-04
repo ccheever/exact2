@@ -574,4 +574,16 @@ death score. Root build, test (2,285 enabled, nine ignored), clippy, formatting
 and boot pass on the merged main. The normal web proof passes all gameplay,
 rescue and new supply checks in 75.7 s, including a fresh-process supply run
 with identical continuation bytes. Its screenshot shows readable controls and
-the persistent camp bearing. The final macOS drive and strict baseline follow.
+the persistent camp bearing. The final macOS drive passes in 99.7 s; its screenshot
+also shows readable controls. Its owned processes exit, while the optional `ps`
+descendant audit times out.
+
+The strict collector `artifacts/prove/run-Tnufcz` accepts the new baseline after
+Linux and web agree in normal, Save and FreshGame modes, plus Linux release.
+All seven gameplay runs have zero failures and successful descendant audits.
+Their source-input digest, both tick pins, all six world snapshots and nine save
+digests also match the independent macOS drive. Web's three modes take 84.1,
+108.3 and 116.0 s; the release comparison takes 80.0 s including a 54.8 s rebuild.
+The new `supplies` continuation pin records collecting fuel, returning home and
+feeding the fire through the visible compass controls. This completes the supply
+feature checkpoint; the two-night Jev objective remains unfinished.

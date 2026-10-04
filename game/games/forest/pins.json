@@ -1,19 +1,20 @@
 {
   "ticks": {
-    "0": "0xdd3bb86ac949b93b",
-    "4500": "0x1297ea42b0978dee"
+    "0": "0x5e2768542a522677",
+    "4500": "0x8c9c3ee2aec1515c"
   },
   "saves": {
-    "night": "be903a2897f0f37df2e21085f02d235b43945010817b63cf33267551bd838b62",
-    "rescue": "d776ce0978d614600b306a3f472ed6f2780430032d3e8b35b2bbfd2170b72eb8"
+    "night": "8715d9771a1c217d8583ea25f95d7229b15471a7e1bdc413e617564878fa8ad7",
+    "rescue": "126183525109ba84dae6e322ea65d07bbfda2733a64e3323767127f344eb78cf",
+    "supplies": "37cb7e657901c786935e0a9c3dbb73868ad7ce37b999712dbdd3e44a5a308dbd"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "e1d34b64d5afe2d812215c7803139e734e217b99dae1de7688504f6da92fa6a6",
+  "inputs": "32a86f926a32995abb1ac9a46d207de2ba1b5e41a657a3968aca94d5073fb77e",
   "game": "forest",
   "generated": "bun game/prove.mjs forest --repin --hosts 'linux,web'",
-  "at": "2395fefd21a52edde09077ec05ad47657568013b",
-  "reason": "Rescue compass and camp supplies, saved escort continuation, and listener-aware Linux surface messages"
+  "at": "bd629642dad15c3963da796aebe12dd6b43f0b81",
+  "reason": "Saved supply and camp compasses, frozen death score, new supply continuation, and main 843dd48d6"
 }
