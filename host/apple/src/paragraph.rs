@@ -31,28 +31,29 @@ impl<D: DataSource> Host<D> {
     }
 
     /// A drawn face's box (a title's avatar, LLP 1075.003 §9.10): a View
-    /// with a background, authored width and height in points, and one
-    /// child (its text or symbol). Its points go as `faceBoxSize` `"WxH"`,
-    /// because a header the bar replaces is laid out as `display: none`, so no
-    /// frame tells the host the size the author gave it. The test reads the
-    /// node alone, never its ancestors: a box moved into or out of a header
-    /// needs no recomputation, and a child added or removed touches the box.
+    /// with a fill and authored width and height in points. Its points go as
+    /// `faceBoxSize` `"WxH"`, because a header the bar replaces is laid out
+    /// as `display: none`, so no frame tells the host the size the author
+    /// gave it. The test reads the node alone, never its ancestors or its
+    /// children: a box moved into or out of a header needs no
+    /// recomputation, and initials beside a status dot are still a face.
     fn face_box_size(&self, id: ViewId) -> Option<String> {
         let kernel = self.runner.kernel();
         let node = kernel.node(id)?;
-        if node.node_type != NodeType::View || node.children().len() != 1 {
+        if node.node_type != NodeType::View {
             return None;
         }
-        let filled = node
-            .style
-            .background_color
-            .is_some_and(|c| c.resolve(false).a() != 0 || c.resolve(true).a() != 0);
         let (exact_kernel::Dimension::Points(w), exact_kernel::Dimension::Points(h)) =
             (node.style.width, node.style.height)
         else {
             return None;
         };
-        filled.then(|| format!("{w}x{h}"))
+        // No `background-color` is `currentcolor`: the text colour fills it.
+        let fill = node
+            .style
+            .background_color
+            .unwrap_or_else(|| node.text_color());
+        (fill.resolve(false).a() != 0 || fill.resolve(true).a() != 0).then(|| format!("{w}x{h}"))
     }
 
     pub(super) fn paragraph_owner(&self, id: ViewId) -> Option<ViewId> {

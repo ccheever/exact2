@@ -29,7 +29,7 @@ fn props_of(batch: &str, id: u32) -> Option<serde_json::Value> {
 
 #[test]
 fn a_face_box_carries_its_authored_size_and_loses_it() {
-    let src = "component App\n  state wide = false\n  action widen\n    wide = not wide\n  view\n    column\n      header\n        row press=widen testId=\"go\"\n          column\n            column\n              column\n                column\n                  column\n                    column\n                      column\n                        column\n                          column width=(wide ? \"auto\" : 40) height=40 background-color=\"#dcfce7\" testId=\"avatar\"\n                            text \"MC\"\n          text \"Maya\" aria-level=2\n      column width=40 height=40 testId=\"empty\"\n        text \"no fill\"\n";
+    let src = "component App\n  state wide = false\n  action widen\n    wide = not wide\n  view\n    column\n      header\n        row press=widen testId=\"go\"\n          column\n            column\n              column\n                column\n                  column\n                    column\n                      column\n                        column\n                          column width=(wide ? \"auto\" : 40) height=40 background-color=\"#dcfce7\" testId=\"avatar\"\n                            text \"MC\"\n          text \"Maya\" aria-level=2\n      column width=40 height=40 background-color=\"transparent\" testId=\"empty\"\n        text \"no fill\"\n      column width=40 height=40 testId=\"plain\"\n        text \"unstyled\"\n";
     let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
     let (mut host, first) = Host::boot(
         &plan.encode(),
@@ -45,9 +45,22 @@ fn a_face_box_carries_its_authored_size_and_loses_it() {
     };
     let avatar = id(&host, "avatar");
     let props = props_of(&first, avatar).expect("the avatar is created with props");
-    assert_eq!(props["faceBoxSize"], "40x40", "nine wrappers below the header: {first}");
-    let empty = props_of(&first, id(&host, "empty")).unwrap_or_default();
-    assert!(empty.get("faceBoxSize").is_none(), "a box with no fill is no face");
+    assert_eq!(
+        props["faceBoxSize"], "40x40",
+        "nine wrappers below the header: {first}"
+    );
+    let empty =
+        props_of(&first, id(&host, "empty")).expect("the unfilled box is created with props");
+    assert!(
+        empty.get("faceBoxSize").is_none(),
+        "a transparent box is no face"
+    );
+    let plain =
+        props_of(&first, id(&host, "plain")).expect("the unstyled box is created with props");
+    assert!(
+        plain.get("faceBoxSize").is_none(),
+        "nor is a box with no background-color"
+    );
     // A width that stops being authored points clears it.
     let go = id(&host, "go");
     let next = host.dispatch_at(go, Event::Press, 0.0);
@@ -55,7 +68,9 @@ fn a_face_box_carries_its_authored_size_and_loses_it() {
     let cleared = v["ops"].as_array().unwrap().iter().any(|op| {
         op["op"] == "props"
             && op["id"] == avatar
-            && op["clear"].as_array().is_some_and(|c| c.iter().any(|k| k == "faceBoxSize"))
+            && op["clear"]
+                .as_array()
+                .is_some_and(|c| c.iter().any(|k| k == "faceBoxSize"))
     });
     assert!(cleared, "no longer a fixed box: {next}");
 }
