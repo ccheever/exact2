@@ -596,7 +596,7 @@ grants nothing. The next section writes one end to end;
 The view asks; `app.ts` answers. The README's todo list keeps its data in memory.
 This app keeps a reading list in SQLite, so it survives a restart, and shows a
 quote fetched from the network. It was made with `exact new`, and its test passes
-on the web host.
+on the web host, macOS and the iOS Simulator.
 
 ```contract
 shape Book
@@ -674,12 +674,16 @@ function withBooks<T>(storage: Storage, work: (db: Database) => Promise<T>): Pro
 
 const sources: Sources = {
   // A read: SQLite rows to the declared `list<Book>`. Integers arrive as
-  // bigint, so convert them. At build (bake) time there is no storage, and
-  // the throw leaves the resource to be asked when the app runs.
+  // bigint, so convert them. At build (bake) time there is no storage: the
+  // refusal's code is 'bake', and an empty list is the first frame's value.
+  // The app asks again when it runs.
   books: (_args, _store, storage): Promise<Result<'books'>> =>
     withBooks(storage, async (db) => {
       const { rows } = await db.query('SELECT id, title FROM books ORDER BY id');
       return rows.map(([id, title]) => ({ id: String(id), title: String(title) }));
+    }).catch((error) => {
+      if ((error as { code?: string }).code === 'bake') return [];
+      throw error;
     }),
   // A write, sent by the `saved` mutation; `refreshes books` reads the list again.
   addBook: ([title], _store, storage): Promise<Result<'addBook'>> =>
@@ -725,9 +729,11 @@ call outside them fails. The capabilities are:
 **What catches people.**
 
 - *There is no storage or network at build time.* The build bakes each
-  resource's first value into the plan. A source that throws then (as `books`
-  does, with storage unavailable) is simply asked again when the app runs. To
-  show something better than the type's zero meanwhile, give the resource an
+  resource's first value into the plan, and a storage call then is refused
+  with `code: 'bake'`. Catch that and return a first-frame value, as `books`
+  does: a source that throws during the bake fails a native build. The app
+  asks again when it runs. A `fetch` at bake is left unbaked instead; to show
+  something better than the type's zero meanwhile, give the resource an
   `else` placeholder, as `quote` does.
 - *An open database locks its file.* A mutation and the refresh it triggers
   overlap, and the second `open` fails as busy. Queue every open, as
@@ -758,9 +764,10 @@ bun exact.mjs test web                    # each test starts with an empty store
 bun exact.mjs agent web --storage demo "type title Dune" "tap add" "clock settle" tree
 ```
 
-On the web, every agent drive starts a new browser profile, so a scratch store
-lasts one drive. To see the list survive a restart, add a book in the dev loop
-(`bun exact.mjs web`) and reload the page, or run the app on macOS.
+A named scratch store outlives the drive on macOS and iOS: run the second line
+twice with `agent macos` and the second launch lists the first one's book. On the
+web, every agent drive starts a new browser profile, so a scratch store lasts one
+drive; add a book in the dev loop (`bun exact.mjs web`) and reload the page instead.
 
 **Rust instead.** A data module can be a Rust crate rather than `app.ts`:
 `bun exact.mjs contract rust app.contract -o shapes.rs` generates the shapes as
