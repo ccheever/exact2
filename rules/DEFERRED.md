@@ -343,6 +343,16 @@ change can break.
   benchmark app, scheduler, core feature matrix or second application-state graph.
   Production ABI changes, arbitrary object unification and a default shared heap
   remain unselected.
+- Notifications were never on the doing list (LLP 1069 §1 ranked them first of
+  the "next"). **Expanded (waived by the orchestrator under Charlie's 2026-10-04
+  delegation, "make decisions without me"):** local notifications by the web's
+  Notification API names — `showNotification` now or at a time, `closeNotification`
+  by tag — under the existing `device.notifications` grant. Consumers: the Habits
+  app's reminders (x2apps habits F13) and Dash's price alerts, both faked as
+  in-app banners. Unblocks a reminder that reaches the person outside the window.
+  Take: none offered. Still refused: push delivery from a server, actions and
+  replies on a notification, badges, repeating schedules, and a readable
+  permission fact.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 **Restated (Charlie, 2026-09-27, LLP 1069.001):** the tag count guards against
