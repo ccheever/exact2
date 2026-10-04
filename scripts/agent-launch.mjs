@@ -133,7 +133,7 @@ export function traceLocators(appName) {
 }
 
 // Outputs, fixtures and prose are not what a build is made from.
-const NOT_INPUT = /^(target|dist|dist.previous|web-dist|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.md$/;
+const NOT_INPUT = /^(target|dist|dist.previous|web-dist|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.test\.contract$|\.md$/;
 /** Files under `roots` modified after `since`; `{shallow}` roots contribute only their own files. */
 export function newerThan(since, roots, skip = () => false) {
   const out = [];
