@@ -458,12 +458,21 @@
       return Promise.reject(new TypeError("exactStream maps each event to the answer: (event) => value"));
     if (stream && call.stream) return Promise.reject(new Error("an answer streams one request"));
     if (stream && ceiling === undefined) ceiling = 1048576;
+    // The web's `signal`: an aborted fetch rejects with its reason at once.
+    // The host's request still runs; its reply is dropped (`__exact_fulfill`).
+    var signal = init ? init.signal : undefined;
+    if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
     var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, max_response_bytes: ceiling, stream: stream ? true : undefined }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
-    return new Promise(function (resolve, reject) { pending.set(ticket, { resolve: resolve, reject: reject, call: call }); });
+    return new Promise(function (resolve, reject) {
+      pending.set(ticket, { resolve: resolve, reject: reject, call: call });
+      if (signal) signal.addEventListener("abort", function () {
+        if (pending.delete(ticket)) reject(signal.reason);
+      }, { once: true });
+    });
   };
 
   // --- signing in through the system browser (LLP 1069.006) ---------------

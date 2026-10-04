@@ -33,6 +33,51 @@ export function exercise(source: string): string {
     const visits:string[]=[];live.forEach((v,k)=>{visits.push(k+v);if(k==='a')live.append('c','3');});
     return JSON.stringify({seen,visits,first,linked,href:url.href,same:params===url.searchParams,entries:Array.from(params),bad:URL.canParse('/x'),parse:URL.parse('not a url'),nul:new URLSearchParams([['\0','\0']]).get('\0')});
   }
+  if(source==='standard') {
+    // What a web developer expects of a data module (docs/reference.md):
+    // the globals Hermes is given (js/src/standard.js, Ibex's abort.js).
+    const shared={n:1}, cyclic:any={shared,list:[shared,shared],when:new Date(86400000),re:/a+/gi,
+      map:new Map<unknown,unknown>([[shared,'k'],['v',shared]]),set:new Set([1,shared]),bytes:new Uint8Array([1,2,3]).subarray(1),
+      boxed:Object('s'),big:12n,error:new RangeError('far',{cause:shared}),sparse:[1,,3],get read(){return 'got';}};
+    cyclic.self=cyclic;
+    const copy=structuredClone(cyclic);
+    const refused=[()=>{},Symbol('s'),Promise.resolve(),new WeakMap()].map(v=>{try{structuredClone(v);return 'cloned';}catch(e){return (e as DOMException).name;}});
+    const controller=new AbortController(), heard:string[]=[];
+    controller.signal.addEventListener('abort',()=>heard.push('listener'));
+    controller.signal.onabort=()=>heard.push('onabort');
+    controller.abort();
+    let thrown='';
+    try{controller.signal.throwIfAborted();}catch(e){thrown=(e as DOMException).name;}
+    const any=AbortSignal.any([new AbortController().signal,AbortSignal.abort('why')]);
+    return JSON.stringify({
+      distinct:copy!==cyclic&&copy.shared!==shared, shared:copy.list[0]===copy.list[1]&&copy.list[0]===copy.shared&&copy.map.get('v')===copy.shared,
+      cyclic:copy.self===copy, when:copy.when.getTime(), re:[copy.re.source,copy.re.flags], map:[...copy.map.values()].length, set:copy.set.has(copy.shared),
+      bytes:[Array.from(copy.bytes),copy.bytes.byteOffset,copy.bytes.buffer.byteLength], boxed:typeof copy.boxed, big:String(copy.big),
+      error:[copy.error instanceof RangeError,copy.error.message,copy.error.cause===copy.shared], sparse:[copy.sparse.length,1 in copy.sparse], read:copy.read,
+      refused, aborted:[controller.signal.aborted,(controller.signal.reason as DOMException).name,thrown,heard], any:[any.aborted,any.reason],
+      sorted:[[3,1,2].toSorted(),[3,1,2].toSorted((a,b)=>b-a),Array.prototype.toSorted.call({length:2,0:'b',1:'a'})],
+      typed:[Array.from(new Int8Array([1,-2,3]).toReversed()),Array.from(new Int8Array([3,-2,1]).toSorted()),Array.from(new Int8Array([1,2,3]).with(-1,9))],
+      newer:[[1,2,3].at(-1),[1,2,3].findLast(n=>n<3),Object.groupBy([1,2,3],n=>n%2?'odd':'even'),'a.b'.replaceAll('.','/'),typeof Promise.withResolvers],
+    });
+  }
+  if(source==='microtask') {
+    const order:string[]=[];
+    queueMicrotask(()=>order.push('first'));
+    Promise.resolve().then(()=>order.push('promise'));
+    queueMicrotask(()=>{order.push('throws');throw new Error('reported, not rejected');});
+    queueMicrotask(()=>order.push('after'));
+    order.push('sync');
+    return new Promise<string>(done=>queueMicrotask(()=>done(JSON.stringify(order)))) as unknown as string;
+  }
+  if(source==='abort') {
+    // A fetch's `signal`, before and after the request starts; the reply of
+    // the aborted one is never awaited.
+    const early=fetch('https://example.invalid/early',{signal:AbortSignal.abort()}).then(()=>'fetched',e=>(e as Error).name);
+    const controller=new AbortController();
+    const late=fetch('https://example.invalid/late',{signal:controller.signal}).then(()=>'fetched',e=>(e as Error).name);
+    controller.abort(new Error('mine'));
+    return Promise.all([early,late,late.then(()=>controller.signal.reason.message)]).then(JSON.stringify) as unknown as string;
+  }
   if(source==='base64') {
     const inputs=['','Zg','Zh','Zg==','Zm8','Zm9','Zm9v',' /w==\n','AA=='];
     const rejected=['a','a===','Zg=','%%%%','-w=='].map(s=>{try{atob(s);return false;}catch(e){return (e as Error).name==='InvalidCharacterError';}});
