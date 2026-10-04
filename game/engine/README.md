@@ -192,6 +192,10 @@ declared `.sound` assets, which the primitive module also decodes; a save record
 their content identity, as it does a level's.
 `sim.save()?` checks current mesh roots even before requests are drained and
 reports pending or failed declarations by name. Failed cosmetics do not block saves.
+Declared assets, and any asset a mesh or sprite has shown once it is loaded, stay
+resident when nothing shows them, so one that returns is Loaded at once and never
+gates a save; only an unshown request still in flight retires. A paranoid
+round trip that falls while a mid-game request is in flight waits for the next sample.
 
 Declare a data-authored level with
 `const LEVEL: Option<asset::Level> = Some(asset::Level::of::<Island>("island.level.json"))`.

@@ -433,8 +433,10 @@ fn headless_loader_drains_dependencies_and_reports_failures_without_panicking() 
     );
 }
 
+// A shown asset stays resident once loaded: when it returns it is Loaded at
+// once and a save does not refuse (Grow a Garden's 202 hidden specks).
 #[test]
-fn cosmetic_names_retire_and_respawn_requests_again() {
+fn a_shown_asset_stays_resident_after_it_leaves_and_returns_loaded() {
     let mut sim = Sim::<Cosmetic>::new(()).unwrap();
     assert_eq!(sim.take_assets(), ["late.model"]);
     sim.asset("late.model", Some(&bin::to_vec(&asset::Model::default())))
@@ -442,10 +444,24 @@ fn cosmetic_names_retire_and_respawn_requests_again() {
     let entity = sim.world().resolve("late").unwrap();
     sim.world_mut().despawn(entity);
     assert!(sim.take_assets().is_empty());
-    assert!(!sim.agent(r#"{"op":"state"}"#).contains("late.model"));
+    assert!(sim.take_retired_assets().is_empty());
+    assert!(sim
+        .agent(r#"{"op":"state"}"#)
+        .contains(r#"{"name":"late.model","state":"Loaded"}"#));
     sim.world_mut()
         .spawn((Transform::default(), Mesh::asset("late.model")));
+    assert!(sim.take_assets().is_empty());
+    assert!(sim.save().is_ok(), "a returning asset never gates a save");
+}
+// A request nobody shows any more, still in flight, retires as before.
+#[test]
+fn an_unshown_request_in_flight_still_retires() {
+    let mut sim = Sim::<Cosmetic>::new(()).unwrap();
     assert_eq!(sim.take_assets(), ["late.model"]);
+    let entity = sim.world().resolve("late").unwrap();
+    sim.world_mut().despawn(entity);
+    assert!(sim.take_assets().is_empty());
+    assert_eq!(sim.take_retired_assets(), ["late.model"]);
 }
 #[test]
 fn asset_requests_support_more_than_256_names() {
@@ -473,7 +489,7 @@ fn a_publication_only_tick_names_the_changing_key() {
 }
 
 #[test]
-fn declared_delivery_state_retires_but_simulation_data_is_stable() {
+fn declared_assets_stay_loaded_when_nothing_shows_them() {
     let mut sim = Sim::<Loading>::new(()).unwrap();
     sim.asset("crate.model", Some(&bin::to_vec(&asset::Model::default())))
         .unwrap();
@@ -482,12 +498,16 @@ fn declared_delivery_state_retires_but_simulation_data_is_stable() {
     sim.take_assets();
     assert!(sim.world().model("crate.model").is_some());
     let state = sim.agent(r#"{"op":"state"}"#);
-    assert!(state.contains("\"assets\":[]"), "{state}");
+    assert!(
+        state.contains(r#"{"name":"crate.model","state":"Loaded"}"#),
+        "{state}"
+    );
     let saved = sim.save().unwrap();
     sim.restore(&saved).unwrap();
     sim.world_mut()
         .spawn((Transform::default(), Mesh::asset("crate.model")));
-    assert_eq!(sim.take_assets(), ["crate.model"]);
+    assert!(sim.take_assets().is_empty());
+    assert!(sim.save().is_ok());
 }
 
 #[test]
@@ -661,9 +681,10 @@ fn paranoid_discovery_keeps_tick_edits_retirement_and_public_restore_visible() {
         deliver(&mut sim, &names[0]);
         // Prepare the future root before the tick so paranoid saves can use it.
         deliver(&mut sim, &names[1]);
+        // Shown assets stay resident: nothing retires as the root changes or goes.
         sim.run(10.);
         assert!(sim.take_assets().is_empty());
-        assert_eq!(sim.take_retired_assets(), [names[0].clone()]);
+        assert!(sim.take_retired_assets().is_empty());
         let first = sim.save().unwrap();
         sim.run(10.);
         assert!(sim.take_assets().is_empty());
@@ -671,7 +692,7 @@ fn paranoid_discovery_keeps_tick_edits_retirement_and_public_restore_visible() {
         let checkpoint = sim.save().unwrap();
         sim.run(10.);
         assert!(sim.take_assets().is_empty());
-        assert_eq!(sim.take_retired_assets(), [names[1].clone()]);
+        assert!(sim.take_retired_assets().is_empty());
         let empty = sim.save().unwrap();
         if SPRITES {
             sim.world_mut()
@@ -686,12 +707,11 @@ fn paranoid_discovery_keeps_tick_edits_retirement_and_public_restore_visible() {
         assert!(sim.take_assets().is_empty());
         let replacement = sim.save().unwrap();
         sim.restore(&checkpoint).unwrap();
-        assert_eq!(sim.take_assets(), [names[1].clone()]);
-        assert_eq!(sim.take_retired_assets(), [names[2].clone()]);
-        deliver(&mut sim, &names[1]);
+        assert!(sim.take_assets().is_empty());
+        assert!(sim.take_retired_assets().is_empty());
         sim.run(10.);
         assert!(sim.take_assets().is_empty());
-        assert_eq!(sim.take_retired_assets(), [names[1].clone()]);
+        assert!(sim.take_retired_assets().is_empty());
         assert_eq!(sim.save().unwrap(), empty);
         vec![first, checkpoint, empty, replacement]
     }
@@ -701,4 +721,33 @@ fn paranoid_discovery_keeps_tick_edits_retirement_and_public_restore_visible() {
         assert_eq!(run::<false>(mode), mesh, "mesh {mode:?}");
         assert_eq!(run::<true>(mode), sprites, "sprites {mode:?}");
     }
+}
+
+// Rivals' first rocket requested `rocket.model` at tick 179 and the paranoid
+// Save proof aborted ("assets are not ready"). A sample taken while a mid-game
+// request is in flight now waits for the next one.
+#[test]
+fn a_model_first_requested_mid_game_does_not_break_a_paranoid_save() {
+    struct Rocket;
+    impl Game for Rocket {
+        const ID: &'static str = "mid-game-model";
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            if w.tick() == 3 {
+                w.spawn((Transform::default(), Mesh::asset("rocket.model")));
+            }
+        }
+    }
+    let mut hashes = Vec::new();
+    for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
+        let mut sim = Sim::<Rocket>::new(()).unwrap().paranoid(mode);
+        sim.run(100.);
+        assert_eq!(sim.take_assets(), ["rocket.model"]);
+        sim.asset("rocket.model", Some(&bin::to_vec(&asset::Model::default())))
+            .unwrap();
+        sim.run(100.);
+        hashes.push(sim.world().hash());
+    }
+    assert!(hashes.windows(2).all(|h| h[0] == h[1]));
 }

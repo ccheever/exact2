@@ -125,6 +125,8 @@ pub struct Sim<G: Game> {
     setup_pending: bool,
     asset_mesh_revision: u64,
     asset_sprite_names: Vec<(crate::Entity, String)>,
+    // Every asset a mesh or sprite has shown: once loaded it stays resident.
+    pub(crate) shown: std::collections::BTreeSet<String>,
     defer_assets: bool,
     textures: std::collections::BTreeMap<String, crate::asset::TextureData>,
     pub(crate) args: G::Args,
@@ -288,9 +290,22 @@ impl<G: Game> Sim<G> {
                 .collect();
             let mut roots: std::collections::BTreeSet<_> =
                 names.iter().map(|(n, _)| n.clone()).collect();
-            if self.setup_pending {
-                roots.extend(G::ASSETS.iter().map(|n| (*n).to_owned()));
-            }
+            // Declared and once-loaded assets stay resident: an asset that leaves
+            // the screen and returns is still Loaded, so a save never refuses for
+            // it. Only unreferenced requests still in flight (or failed) retire.
+            roots.extend(G::ASSETS.iter().map(|n| (*n).to_owned()));
+            let assets = &self.world.assets;
+            roots.extend(assets.declared.iter().cloned());
+            self.shown.extend(roots.iter().cloned());
+            roots.extend(
+                assets
+                    .states
+                    .iter()
+                    .filter(|(n, s)| {
+                        **s == crate::asset::AssetState::Loaded && self.shown.contains(*n)
+                    })
+                    .map(|(n, _)| n.clone()),
+            );
             if let Some(level) = G::LEVEL {
                 roots.insert(level.name.into());
             }
@@ -532,6 +547,7 @@ impl<G: Game> Sim<G> {
             world,
             asset_mesh_revision: u64::MAX,
             asset_sprite_names: Vec::new(),
+            shown: Default::default(),
             defer_assets: false,
             textures: Default::default(),
             args_json: crate::json::to_string(&args).map_err(|e| e.to_string())?,
@@ -1098,7 +1114,17 @@ impl<G: Game> Sim<G> {
         // completed boundary. Retain the horizon outside the reconstructed Sim.
         let horizon = self.world_us;
         self.world_us = ((tick as u128 * 1_000_000).div_ceil(G::HZ as u128)) as i64;
-        let bytes = self.save().unwrap_or_else(|error| panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", mode, G::ID, G::ID));
+        let bytes = match self.save() {
+            Ok(bytes) => bytes,
+            // An asset first shown this tick is still in flight: no save can be
+            // taken until it lands, so this sample waits for the next one rather
+            // than failing the proof (a model first requested mid-game).
+            Err(error) if error.message.starts_with("save refused: assets are not ready") => {
+                self.world_us = horizon;
+                return;
+            }
+            Err(error) => panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", mode, G::ID, G::ID),
+        };
         let host = self.last_us;
         let mut queue = std::mem::take(&mut self.queue);
         queue.shrink_to_fit();
