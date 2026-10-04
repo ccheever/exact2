@@ -850,10 +850,18 @@ async function main(args) {
   startSweep(moduleTarget);
   const metal = read('xcrun', ['-sdk', 'macosx', 'metal', '--version']).status === 0;
   if (!metal) console.warn('host/apple: no Metal toolchain, so no Canvas 2D GPU module: canvases draw with Core Graphics. Install it with `xcodebuild -downloadComponent MetalToolchain`.');
-  const hostModules = embedOnly ? null : startApple('sh', ['-c', 'profile=$1 target=$2 dir=$3 manifest=$4; shift 4; for crate; do cargo build --profile "$profile" -p "$crate" --lib --target "$target" --target-dir "$dir" --manifest-path "$manifest" || exit $?; done',
-    'host-modules', cargoProfile, target, moduleTarget, resolve(root, 'Cargo.toml'), 'exact-svg-raster', ...(metal ? ['exact-canvas-vello'] : [])], resolve(webBuildDir, 'host-modules.log'),
-    { env: { ...process.env, ...cargoEnv, [`CARGO_PROFILE_${cargoProfile.toUpperCase().replace(/-/g, '_')}_STRIP`]: 'false' } });
-  if (hostModules) beside.push(hostModules);
+  const buildModules = (crates, log) => {
+    const step = startApple('sh', ['-c', 'profile=$1 target=$2 dir=$3 manifest=$4; shift 4; for crate; do cargo build --profile "$profile" -p "$crate" --lib --target "$target" --target-dir "$dir" --manifest-path "$manifest" || exit $?; done',
+      'host-modules', cargoProfile, target, moduleTarget, resolve(root, 'Cargo.toml'), ...crates], resolve(webBuildDir, log),
+      { env: { ...process.env, ...cargoEnv, [`CARGO_PROFILE_${cargoProfile.toUpperCase().replace(/-/g, '_')}_STRIP`]: 'false' } });
+    beside.push(step);
+    return step;
+  };
+  // A production binary whose plan is its own for good (store level 0) may
+  // make no canvas, and then has no use for the canvas module: its compile
+  // waits for the bake to say (below). Every other build starts it now.
+  const fixedPlan = cargoProfile === 'release' && expected.composition === 'embedded';
+  const hostModules = embedOnly ? null : buildModules(['exact-svg-raster', ...(metal && !fixedPlan ? ['exact-canvas-vello'] : [])], 'host-modules.log');
   const buildReceipt = contractLast(() => buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, profile: cargoProfile, prepareGpu(product) {
     // Cargo puts its own unsigned file back on every build, and a signature
     // carries its signing time: signing in place made the app's bake (which
@@ -926,6 +934,17 @@ async function main(args) {
     if (!args.includes('--run') && !args.includes('--host')) return;
   }
   const t1 = Date.now();
+  // The Canvas 2D GPU module only where a canvas can be (LLP 1047 D1's loaded
+  // tier, by the plan's own rows): a production binary at store level 0 runs
+  // the plan it was baked with and no other, so when that plan makes no
+  // `Canvas` the module is neither compiled nor bundled, 3.9 MB of every
+  // bundle. Any other build carries it: a development plan or a later bundle
+  // may bring a canvas. Without the module a canvas draws with Core Graphics,
+  // as it does on a Mac with no Metal toolchain, so nothing is refused.
+  const makes = buildReceipt.graph.nodeTypes;
+  const canvasGpu = metal && !(cargoProfile === 'release' && level === '0' && Array.isArray(makes) && !makes.includes('Canvas'));
+  if (metal && !canvasGpu) console.log('host/apple: the plan makes no canvas and cannot change (production, store level 0): no Canvas 2D GPU module in this build');
+  const lateCanvas = canvasGpu && fixedPlan && !embedOnly ? buildModules(['exact-canvas-vello'], 'canvas-module.log') : null;
   const env = swiftEnv(libDir, composition);
   // The products: the standalone app, and with --host the sample host too
   // (LLP 1031 D10 — the fixture the smoke drives).
@@ -1101,11 +1120,12 @@ async function main(args) {
   // which Canvas2DGpu.swift dlopens the first time a canvas that animates
   // draws), started above: each its own dylib, never linked into the presenter.
   await hostModules.done();
+  await lateCanvas?.done();
   const svgBuilt = resolve(webBuildDir, svgLoadName);
   copyFileSync(resolve(moduleLibDir, 'libexact_svg_raster.dylib'), svgBuilt);
   const canvasGpuLoadName = 'libexact_canvas_gpu.dylib';
-  const canvasGpuBuilt = metal ? resolve(webBuildDir, canvasGpuLoadName) : null;
-  if (metal) copyFileSync(resolve(moduleLibDir, 'libexact_canvas_vello.dylib'), canvasGpuBuilt);
+  const canvasGpuBuilt = canvasGpu ? resolve(webBuildDir, canvasGpuLoadName) : null;
+  if (canvasGpu) copyFileSync(resolve(moduleLibDir, 'libexact_canvas_vello.dylib'), canvasGpuBuilt);
   const t2 = Date.now();
   // Where the build's time went, said at its end: the app's Rust and bake; the
   // Swift host's link, and what of its compile the bake did not cover; the

@@ -527,7 +527,21 @@ fn artifact_graph(
         }
         artifacts.push(json!({"name":asset["name"],"kind":"bundle","sha256":asset["sha256"],"bytes":asset["bytes"],"requires":requires}));
     }
-    Ok(json!({"version":1,"sources":sources,"surfaceCalls":calls,"artifacts":artifacts}))
+    // The node types the plan can make, deferred templates and branches
+    // included. A build reads it for which of the host's loaded modules the
+    // plan can reach (LLP 1047 D1): a plan with no `Canvas` never asks for
+    // the Canvas 2D GPU module.
+    let mut node_types: Vec<&str> = plan
+        .nodes
+        .iter()
+        .filter_map(|node| exact_kernel::NodeType::from_wire(node.node_type))
+        .map(exact_kernel::NodeType::name)
+        .collect();
+    node_types.sort_unstable();
+    node_types.dedup();
+    Ok(
+        json!({"version":1,"sources":sources,"surfaceCalls":calls,"nodeTypes":node_types,"artifacts":artifacts}),
+    )
 }
 
 /// Refresh the resident compiler's candidate graph beside its plan. The
