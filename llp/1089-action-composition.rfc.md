@@ -1,11 +1,11 @@
 # LLP 1089: Action composition
 
 **Type:** RFC
-**Status:** Draft r2, 2026-10-04. r1 was reviewed twice by one family, Grok 4.7 (xhigh), with two scopes: semantics (`llp/reviews/1089-r1.grok-a.md`) and implementation (`llp/reviews/1089-r1.grok-b.md`). Codex/Astra's budget was exhausted, so there is no second family. Both reviews were READY WITH CHANGES. r2 resolves every MATERIAL and MINOR finding, with no new round. The `rules/DEFERRED.md` waiver (r1's §7.1) is recorded by the orchestrator under Charlie's 2026-10-04 delegation ("make decisions without me").
+**Status:** Accepted (r3, by the orchestrator under Charlie's delegation after three rounds; Grok 4.7 only — Codex budget exhausted). Each round was Grok 4.7 (xhigh). r1 had two scopes, semantics (`llp/reviews/1089-r1.grok-a.md`) and implementation (`llp/reviews/1089-r1.grok-b.md`); r2 had a delta review (`llp/reviews/1089-r2.grok.md`). All three were READY WITH CHANGES. r3 is the final edit, with no further round, and resolves every finding of r2. The `rules/DEFERRED.md` waiver is recorded by the orchestrator under Charlie's 2026-10-04 delegation ("make decisions without me").
 **Systems:** Contract compiler (`contract/{syntax,types,analyze,lower}`, `contract/cli/src/{lean.rs,symbols.rs}`), Lean semantics and difftest (`semantics/`), the JS target's conformance (`host/web-js/conformance`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
-**Revised:** 2026-10-04 (r2)
+**Revised:** 2026-10-04 (r2, r3)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stage 1 on 2026-10-05 and stage 2 on 2026-10-05 (§5)
 **Amends:** LLP 1017 §11 (the tail call becomes one case of a call); LLP 1006 §2 (statements); `rules/DEFERRED.md` **Actions**
 **Related:** LLP 1017 P4c and §11; LLP 1035.005.000 D1 (effects inferred) and D2 (`let`); LLP 1088 D8 (one send per path); LLP 1016 D5; diaries `~/projects/x2apps/{spreadsheet,files,mail}/DIARY.md`. Research only: LLP 0082 §Actions ("actions may call actions"), LLP 0481 §4.1 (effects compose through calls and callback values; call cycles are rejected from the call graph).
@@ -84,8 +84,13 @@ goes, in one commit:
 
 A statement `name(args)` in an action body is:
 
-- **a host command** when `name` is in `HOST_COMMANDS`
-  (`types/src/checks.rs:744`). That is today's rule, unchanged.
+- **a host command** when `name` is in `HOST_COMMANDS`. That is today's
+  rule, unchanged. The list moves from `types/src/checks.rs:744`
+  (`pub(super)`) into `contract-syntax`, which depends on nothing. The
+  expander (`inline/calls.rs`) consults it before it looks for an action,
+  a prop or an inject, and the type checker reads the same list. Without
+  that, Caltrain's wrapper would expand into itself and be refused as
+  `syntax-call-cycle`.
   `action setScheme` may still call the command `setScheme(scheme)`, and
   `press=setScheme` still binds the action. An action named like a host
   command can be bound but not called. There is no ambiguity refusal.
@@ -177,6 +182,11 @@ recorded other-frame write of the slot. It keeps the rest of that walk:
 - `changed()` forgets a fact when its name is written.
 
 Entering a `Stmt::Call` changes the frame and resets nothing else.
+A name bound by a `map`/`filter` arrow parameter, a `match` binding or a
+`let` is not a slot read. An arrow parameter or a `match` binding may
+share a slot's spelling (`lists.rs:88–95`, `actions.rs:272`). So the walk
+keeps a binder scope, as `actions.rs` does, and skips the names in it.
+`map(xs, count => count + 1)` reads the item, not state `count`.
 
 | | |
 |---|---|
@@ -224,9 +234,14 @@ reads effects recurses into `Stmt::Call`'s `body`:
 - `check_mutation_then` (`analyze/src/lib.rs:229`), which also moves from
   the authored `c.actions` to the expanded actions, so a `then` action that
   calls a sender of its own mutation is refused;
-- `contract symbols` (`cli/src/symbols.rs:348`), which computes writes and
-  calls from the expanded action, so `symbols --name enter` answers "what
-  does Enter touch". It reads the authored component today.
+- `contract symbols` (`cli/src/symbols.rs:348`), which computes writes
+  and calls from the expanded action, so `symbols --name enter` answers
+  "what does Enter touch". It reads the authored component today. Its
+  own statement walk (`fn stmts`, `:595`) is a separate match from
+  `effects()`. It gains a `Call` arm that records the callee as a
+  reference and walks `body`. `--name` for a root action reads the
+  expanded action of that name. A child's expanded name is `name#n`
+  (`inline.rs:42`), so its entry is listed under the authored name.
 
 Expanded statements keep the callee's spans, so the source map and `perf`
 point at the lines that do the work.
@@ -241,6 +256,31 @@ is `save(); save()`. The message names the frames:
 > 41) and in `openSheet` (called at line 42).
 
 ### D7 — Where each kind of call expands
+
+**Pass order.** Today the type pass checks each authored child
+(`check_children`, `types/src/lib.rs:1209`), then expands
+(`expand_all`, `:1217`), then checks the expanded root (`check_root`,
+`:1225`). On the authored body, a sibling call or a non-tail prop call is
+still a `Stmt::Command`, and `check_command` refuses it before any `Call`
+exists. Probes confirm it: `inc()` and a `cb()` followed by a write are
+both `type-unknown-command` today. So:
+
+1. **Before `check_children`,** `contract_syntax` expands same-component
+   calls in every component, the root included (`expand_calls(file)`).
+   `check_children` then checks bodies that hold `Stmt::Call`.
+2. **Inside `expand_all`,** after lifting, prop and inject calls are marked
+   and expanded at every position. `check_root` then checks the lifted
+   actions with every call resolved.
+3. **In the child-scope check,** a prop or inject call has no body yet. It
+   is checked as a call by its arguments only (D8), against the prop's
+   or inject's declared `action` type. That check accepts a sibling call
+   and a non-tail prop or inject call.
+
+**`subst_stmts` gains a `Call` arm** (`inline/subst.rs`). It substitutes
+`Call.body` like any block: state targets to `name#n`, child derives,
+captures. It does not copy the body through as it copies a command's name
+(`subst.rs:305–308`). The lifted, substituted body is what D3, D5, D6 and
+lowering read.
 
 **Same-component calls expand before lifting, in that component's scope.**
 Root actions call root actions by their own names. In a child component,
@@ -285,15 +325,28 @@ authored, curried, binding, span }`:
 
 It replaces the `@tail:` marker and the `@check:` leftover.
 
-**Types.** Call arguments refine an untyped callee parameter in the same
-pass as handler bindings (`refine_params_from_view`,
-`types/src/component.rs:204`), before `check_body` (`:213`). A helper
-written `action move(dr, dc)` is then typed by its calls. The type pass
-checks the authored arguments in the caller's scope against the callee's
-parameters after the curried ones. It does not check `body` again. LLP
-1088 §9.2's deferral stands.
+**The argument cut.** A call's source arguments are checked against the
+callee's **authored** parameters. On a lifted action, skip the leading
+`@capture:` parameters first (`inline.rs:459–481`, `:602–606`), then skip
+the curried prefix. A same-component call has `curried = 0`. The lifted
+re-check in `check_root` uses the same cut. Today `lifted: true` only
+skips the `let`-shadow check (`actions.rs:103`).
 
-**Lowering** emits `body` in place.
+**Refinement.** `refine_params_from_view` (`component.rs:434`) walks only
+view handlers (`:468–515`). A new `refine_params_from_calls` walks every
+action body's `Call`s, with the same cut, in the same phase: after
+`refine_params_from_view` and before `check_body` (`:204`, `:213`). A
+helper written `action move(dr, dc)` and called only from `clipKey` is
+then typed by its calls. It refines once, in declaration order. A type
+learned later does not flow back, because LLP 1088 §9.2's deferral stands.
+The type pass does not check `body` again.
+
+**Lowering** compiles `Call.body` as its own block: its `let`s (the
+parameters and the callee's locals) drop before the next statement
+(`lower/src/stmts.rs:49–52`). Lean's `compileBlock` drops a `let` the same
+way (`Lower.lean:407–410`). "In place" means those instructions stand where
+the call stood, with no call opcode. Existing tail calls are last in their
+block, so a nested block and today's splice emit the same drops.
 
 **Existing tail calls stay byte-identical.** Plan action parameter names
 are strings (`plan/src/builder.rs:507`). So the resolver renames a
@@ -351,9 +404,10 @@ Rust expander's output, and a renaming bug in it would not show. So:
 
 **Diagnostics:**
 
-- **`type-call-arity`**, from the `Call`'s counts and binding span. For
-  example: "`move` takes 2 argument(s) after the 1 curried at
-  `go=move(id)` (line 12), given 1".
+- **`type-call-arity`**, from the `Call`'s counts and the binding's line
+  (a `Span` carries no text). For example: "`move` takes 2 argument(s)
+  after the 1 curried at line 12, given 1"; a same-component call gives
+  "`move` takes 2 argument(s), given 1".
 - **`type-unknown-command`, for a name that some other component
   declares as an action.** The checker searches every component before
   answering: "`archive` is an action of `App`, not in `Row`'s scope; pass
@@ -384,11 +438,11 @@ action started with; pass the value".
 
 | | Stage 1 | Stage 2 |
 |---|---|---|
-| syntax | `inline/tail.rs` → `inline/calls.rs`: same-component expansion before lift; prop/inject marking at every position after lift; `Stmt::Call`; running size count; cycle and target refusals; `effects()` recurses | — |
-| types | call refinement beside `refine_params_from_view`; arity from the `Call`'s counts; value and action-argument refusals; the cross-component search for `type-unknown-command` | — |
+| syntax | `HOST_COMMANDS` moves here; `inline/tail.rs` → `inline/calls.rs`: `expand_calls(file)` for same-component calls, run before `check_children`; `subst_stmts`'s `Call` arm; prop/inject marking at every position after lift; `Stmt::Call`; running size count; cycle and target refusals; `effects()` recurses | — |
+| types | `expand_calls` before `check_children`; argument checks against authored parameters (skip captures, then curried); `refine_params_from_calls` before `check_body`; arity from the `Call`'s counts; value and action-argument refusals; the cross-component search for `type-unknown-command` | — |
 | analyze | `calls.rs`, D3's walk on `sends.rs`'s guards; D8's frame message; `check_mutation_then` on the expanded body | — |
-| lower | emit `Stmt::Call`'s body | — |
-| cli | `symbols` from the expanded action; `lean.rs` emits `body` | `lean.rs` emits `.call` |
+| lower | `Stmt::Call`'s body compiled as its own block | — |
+| cli | `symbols`: expanded action, a `Call` arm in `fn stmts`; `lean.rs` emits `body` | `lean.rs` emits `.call` |
 | plan, runner, JS target, hosts | none | none |
 | Lean, difftest | — | `Stmt.call`, the effect record, `exec` depth, proofs, corpus, generator |
 | JS conformance | — | `host/web-js/conformance/calls.contract` (async lane) |
@@ -400,8 +454,14 @@ action started with; pass the value".
   keeps every tail case. It adds:
   - calls first, in the middle, in an arm, and twice;
   - a chain of three;
-  - a same-component call inside a child, used in a row;
-  - a prop call before the child's own writes;
+  - a same-component call inside a child, used in a row (today refused
+    as `type-unknown-command` by `check_children`);
+  - a prop call before the child's own writes (`tail_call.rs:174`'s case,
+    today refused);
+  - a call followed by a `let`, where the later local takes the callee's
+    freed index;
+  - `map(xs, count => count + 1)` after another frame writes state
+    `count`: accepted;
   - an inject call;
   - curried and payload arguments;
   - an untyped helper typed by its calls;
@@ -412,8 +472,11 @@ action started with; pass the value".
   `setScheme` stays the command.
 - **Plans unchanged.** Decode, on the base and on stage 1:
   - every in-repo app's plan;
-  - a tail-call fixture (`tail_call.rs`'s conditional dismiss, with a
-    curried argument), since no in-repo app calls an action prop.
+  - two tail-call fixtures from `tail_call.rs`, since no in-repo app
+    calls an action prop:
+    - `VIEWER`: `close=dismiss`, then `close("swiped")` inside an `if`.
+      It covers the caller parameter's `dy@c{k}`.
+    - The curried `done=note("ada")` test. It covers the capture `let`s.
 
   Compare the bytes.
 - **Lean**: `lake build` with the proofs; difftest `corpus`, `random --count
@@ -482,6 +545,22 @@ a branch from origin/main. Each commit passes the five checks.
 
 ## 8. Revisions
 
+- **r3** (2026-10-04, final; round 3 of 3): Grok 4.7 xhigh's delta
+  review of r2 (`llp/reviews/1089-r2.grok.md`). Each finding was checked
+  against the code, and each held:
+  - D7's pass order: same-component calls expand before `check_children`,
+    and prop and inject calls before `check_root`; `subst_stmts` gains a
+    `Call` arm;
+  - D8's argument cut skips captures, then the curried prefix, and
+    `refine_params_from_calls` walks action bodies;
+  - `HOST_COMMANDS` moves into `contract-syntax`;
+  - lowering compiles `Call.body` as a block;
+  - D3 skips binders;
+  - the arity text names a line;
+  - the byte fixtures are named;
+  - `symbols` gets a `Call` arm.
+
+  The orchestrator accepted it under Charlie's delegation.
 - **r2** (2026-10-04): two Grok 4.7 xhigh reviews of r1, one family with
   two scopes. Every finding was checked against the code and every one
   held. Each is resolved in the decision it names, and the dispositions are
