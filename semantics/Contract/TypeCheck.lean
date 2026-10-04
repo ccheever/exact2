@@ -149,7 +149,7 @@ def inferCall (p : Program) (G : Scope) : Scope → String → List Expr → Opt
         match ts? with
         | .some ts => rosterTy name ts
         | .none => .none
-  | _, name, args, ts? =>
+  | Γ, name, args, ts? =>
     match p.fns.find? (·.name == name) with
     | .some fd =>
       match ts? with
@@ -158,8 +158,11 @@ def inferCall (p : Program) (G : Scope) : Scope → String → List Expr → Opt
     | .none =>
       match args with
       | [.var x] =>
-        if name = "pending" then (if isResource p x || isMutation p x then .some .bool else .none)
-        else if name = "failed" then (if isResource p x then .some .bool else .none)
+        if name = "pending" then
+          (if (isResource p x || isMutation p x) && (lookupTy x Γ).isNone && (lookupTy x G).isSome
+           then .some .bool else .none)
+        else if name = "failed" then
+          (if isResource p x && (lookupTy x Γ).isNone && (lookupTy x G).isSome then .some .bool else .none)
         else
           match ts? with
           | .some ts => rosterTy name ts
@@ -284,8 +287,8 @@ def checkState (p : Program) (i : Nat) : Bool :=
     | .some _, _ => true
   | .none => true
 
-def checkDerive (p : Program) (d : DeriveDecl) : Bool := inferLe p (compScope p) [] d.body d.ty
-def checkResource (p : Program) (r : ResourceDecl) : Bool := (inferList p (compScope p) [] r.args).isSome
+def checkDerive (p : Program) (d : DeriveDecl) : Bool := inferLe p (settleScope p) [] d.body d.ty
+def checkResource (p : Program) (r : ResourceDecl) : Bool := (inferList p (settleScope p) [] r.args).isSome
 def checkAction (p : Program) (a : ActionDecl) : Bool := checkStmts p (compScope p) a.params.reverse a.body
 /-- A task's action exists and takes no parameters. -/
 def taskAction (p : Program) (t : TaskDecl) : Bool :=
@@ -293,7 +296,7 @@ def taskAction (p : Program) (t : TaskDecl) : Bool :=
   | .some a => a.params.isEmpty
   | .none => false
 def checkTask (p : Program) (t : TaskDecl) : Bool :=
-  inferLe p (compScope p) [] t.ms .number && taskAction p t
+  inferLe p (compScope p) [] t.ms .number && taskAction p t && (t.ms matches .num _)
 
 /-- The checker: every part well typed. -/
 def check (p : Program) : Bool :=
@@ -345,13 +348,17 @@ theorem inferCall_rest {p : Program} {G Γ : Scope} {name : String} {args : List
         · next hn =>
           subst hn
           split at h
-          · next hr => simp at h; subst h; exact .pending hfd hr
+          · next hr =>
+            simp only [Bool.and_eq_true, Option.isNone_iff_eq_none] at hr
+            simp at h; subst h; exact .pending hfd hr.1.1 hr.1.2 hr.2
           · simp at h
         · split at h
           · next hn =>
             subst hn
             split at h
-            · next hr => simp at h; subst h; exact .failed hfd hr
+            · next hr =>
+              simp only [Bool.and_eq_true, Option.isNone_iff_eq_none] at hr
+              simp at h; subst h; exact .failed hfd hr.1.1 hr.1.2 hr.2
             · simp at h
           · split at h
             · next ts => exact .roster hfd (hts ts rfl) h
@@ -720,7 +727,7 @@ theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
   refine {
     shapes := ?_, names := hnames, routeShapes := hrs, routerSlot := hrslot, states := hst, derivesComplete := hdt, resourcesComplete := hrt,
     mutations := hmt, params := ?_, fns := ?_, rootInits := ?_, lateInits := ?_, derives := ?_,
-    resources := ?_, actions := ?_, tasks := ?_, taskActions := ?_, view := checkNodes_sound _ hview }
+    resources := ?_, actions := ?_, tasks := ?_, taskActions := ?_, taskLiterals := ?_, view := checkNodes_sound _ hview }
   · intro sh hs f hf
     simp only [checkShapes, List.all_eq_true] at hsh
     exact hsh sh hs f hf
@@ -744,13 +751,19 @@ theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
   · intro a ha; exact checkStmts_sound _ (hacts a ha)
   · intro t ht
     simp only [checkTask, Bool.and_eq_true] at htasks
-    exact inferLe_sound (htasks t ht).1
+    exact inferLe_sound (htasks t ht).1.1
   · intro t ht
     simp only [checkTask, Bool.and_eq_true] at htasks
-    have := (htasks t ht).2
+    have := (htasks t ht).1.2
     simp only [taskAction] at this
     split at this
     · next a ha => exact ⟨a, ha, by simpa using this⟩
+    · simp at this
+  · intro t ht
+    simp only [checkTask, Bool.and_eq_true] at htasks
+    have := (htasks t ht).2
+    split at this
+    · next b hb => exact ⟨b, hb⟩
     · simp at this
 
 end Contract

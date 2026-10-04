@@ -226,11 +226,14 @@ inductive HasTy (p : Program) (G : Scope) : Scope → Expr → Ty → Prop
   | filter : p.fns.find? (·.name == "filter") = .none → ps.length ≤ 2 → HasTy p G Γ l (.list a) →
       HasTy p G (bindTy ps a Γ) body b → b.le .bool = true →
       HasTy p G Γ (.call "filter" [l, .arrow ps body]) (.list a)
-  /-- `pending(x)` names a resource or a mutation. -/
+  /-- `pending(x)` names a resource or a mutation in scope (the checker's
+  `scope.lookup`: no local shadows it, and the component scope has it). -/
   | pending : p.fns.find? (·.name == "pending") = .none → (isResource p x || isMutation p x) = true →
+      lookupTy x Γ = .none → (lookupTy x G).isSome = true →
       HasTy p G Γ (.call "pending" [.var x]) .bool
-  /-- `failed(x)` names a resource. -/
+  /-- `failed(x)` names a resource in scope. -/
   | failed : p.fns.find? (·.name == "failed") = .none → isResource p x = true →
+      lookupTy x Γ = .none → (lookupTy x G).isSome = true →
       HasTy p G Γ (.call "failed" [.var x]) .bool
   | roster : p.fns.find? (·.name == name) = .none → ListTy p G Γ args ts → rosterTy name ts = .some t →
       HasTy p G Γ (.call name args) t
@@ -344,6 +347,17 @@ def lateScope (p : Program) (i : Nat) : Scope :=
   p.derives.map (fun d => (d.name, d.ty)) ++ p.resources.map (fun r => (r.name, r.ty)) ++
   p.mutations.map (fun m => (m.name, Ty.option m.ty))
 
+/-- A state lifted from a child component: a late root slot or one an arm
+owns. Its name (`x#N`) cannot be written in the root's source. -/
+def lifted (p : Program) (x : String) : Bool :=
+  p.states.any fun s => s.name == x && (s.late || s.owner.isSome)
+
+/-- What a derive's body or a resource's argument reads: the root's own
+names — no lifted state (the expander substitutes a child's derive where
+it is read, and a resource lives in the root). So settlement, which boot
+runs before the late slots are initialized, reads none of them. -/
+def settleScope (p : Program) : Scope := (compScope p).filter fun q => !lifted p q.1
+
 /-- The names a component declares. -/
 def compNames (p : Program) : List String :=
   p.states.map (·.name) ++ p.derives.map (·.name) ++ p.resources.map (·.name) ++
@@ -370,14 +384,17 @@ structure WellTyped (p : Program) : Prop where
     p.router ≠ .some st.name → ∃ t, HasTy p (rootScope p i) [] st.init t ∧ t.le st.ty = true
   lateInits : ∀ i st, p.states[i]? = .some st → st.owner = .none → st.late = true →
     ∃ t, HasTy p (lateScope p i) [] st.init t ∧ t.le st.ty = true
-  derives : ∀ d ∈ p.derives, ∃ t, HasTy p (compScope p) [] d.body t ∧ t.le d.ty = true
+  derives : ∀ d ∈ p.derives, ∃ t, HasTy p (settleScope p) [] d.body t ∧ t.le d.ty = true
   /-- A source's signature is free: its arguments need only type. -/
-  resources : ∀ r ∈ p.resources, ∃ ts, ListTy p (compScope p) [] r.args ts
+  resources : ∀ r ∈ p.resources, ∃ ts, ListTy p (settleScope p) [] r.args ts
   actions : ∀ a ∈ p.actions, StmtsTy p (compScope p) a.params.reverse a.body
   tasks : ∀ t ∈ p.tasks, ∃ u, HasTy p (compScope p) [] t.ms u ∧ u.le .number = true
   /-- A task names an action, which takes no parameters (the analyzer's
   `analyze-unknown-action`, `analyze-handler-arity`): a timer passes none. -/
   taskActions : ∀ t ∈ p.tasks, ∃ a, p.actions.find? (·.name == t.action) = .some a ∧ a.params = []
+  /-- A task's interval is a number literal (the compiler's
+  `lower-timer-literal`). -/
+  taskLiterals : ∀ t ∈ p.tasks, ∃ b, t.ms = .num b
   view : NodesTy p (compScope p) [] p.view
 
 end Contract

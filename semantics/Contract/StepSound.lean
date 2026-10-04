@@ -10,10 +10,11 @@ parameters. For a program the checker accepts (`check p = true`):
 * every reachable configuration is `ConfigOK` (`reachable_configOK`);
 * every step from one — `dispatch` or `advance`, whatever the oracle —
   lands in a `ConfigOK` configuration and either commits or fails for a
-  `Legitimate` reason: never a type error, never an unbound name
-  (`step_sound`, `dont_go_wrong`).
+  `Legitimate` reason: never a type error, an unbound name or a `pending`
+  read (`step_sound`; with boot, `dont_go_wrong` in `Contract.BootSound`).
 -/
 import Contract.RenderSound
+import Contract.SettleComplete
 import Contract.TypeCheck
 
 namespace Contract
@@ -21,8 +22,10 @@ namespace Contract
 /-! ## Legitimate failures -/
 
 /-- Why a step of a well-typed program may fail. Every refusal or poison
-is one of these (`Legitimate.of_legit`): there is no constructor for a
-type error (`Err.type`) or an unbound name (`Err.unbound`).
+is one of these (`Legitimate.of_strict`): there is no constructor for a
+type error (`Err.type`), an unbound name (`Err.unbound`) or a `pending`
+read — a step reads only settled values (`settle_complete`), and
+settlement waits on its `pending` reads rather than failing with them.
 
 * `refused` covers the data seam (an oracle with no answer for a call, a
   source or mutation answering a value of the wrong shape), a number that
@@ -33,28 +36,31 @@ type error (`Err.type`) or an unbound name (`Err.unbound`).
   action's remaining parameters), the router (a forged router value
   committed, a verb or read of a value of the shape `Router` that is not a
   valid router, `searchParam` of a forged entry, an empty or dot path
-  segment), a row slot read or written outside its row, a cycle among
-  derives and resources, resource limits (the interpreter's fuel, the
-  timer fire limit), and a configuration already poisoned.
+  segment, a launch of `/` the table refuses), a row slot read or written
+  outside its row, a cycle among derives and resources, resource limits
+  (the interpreter's fuel, the timer fire limit), and a configuration
+  already poisoned.
 * `unsupported` is what the semantics leaves out (`format*`, geometry
-  reads, a payload for a form control).
-* `pending` is a read of a derive or resource that has not settled. -/
+  reads, a payload for a form control, frame tasks, a mutation's `then`). -/
 inductive Legitimate : Err → Prop
   | refused (why : String) : Legitimate (.refused why)
   | unsupported (what : String) : Legitimate (.unsupported what)
-  | pending : Legitimate .pending
 
-theorem Legitimate.of_legit {e : Err} (h : Legit e) : Legitimate e := by
-  cases e <;> simp [Legit] at h <;> constructor
+theorem Legitimate.of_strict {e : Err} (h : Strict e) : Legitimate e := by
+  obtain ⟨h, hn⟩ := h
+  cases e <;> simp [Legit] at h hn <;> constructor
 
-theorem Legitimate.legit {e : Err} (h : Legitimate e) : Legit e := by
-  cases h <;> trivial
+theorem Legitimate.strict {e : Err} (h : Legitimate e) : Strict e := by
+  cases h <;> exact ⟨trivial, by simp⟩
 
 theorem Legitimate.not_type {e : Err} (h : Legitimate e) : ∀ w, e ≠ .type w := by
   intro w he; subst he; cases h
 
 theorem Legitimate.not_unbound {e : Err} (h : Legitimate e) : ∀ x, e ≠ .unbound x := by
   intro x he; subst he; cases h
+
+theorem Legitimate.not_pending {e : Err} (h : Legitimate e) : e ≠ .pending := by
+  intro he; subst he; cases h
 
 /-- A step's outcome is a commit, or a refusal or poison for a legitimate
 reason. -/
@@ -69,11 +75,12 @@ def OutcomeOK : Outcome → Prop
 def TimersOK (p : Program) (timers : List Timer) : Prop :=
   ∀ tm ∈ timers, ∃ a, p.actions.find? (·.name == tm.action) = .some a ∧ a.params = []
 
-/-- A well-typed configuration. Its slots are present unless nothing can
-run (no element, no timer: the configuration of a refused boot). -/
+/-- A well-typed configuration. Its slots are present and every derive and
+resource settled, unless nothing can run (no element, no timer: the
+configuration of a refused boot). -/
 structure ConfigOK (p : Program) (c : Config) : Prop where
   slots : SlotsOK p c.slots
-  present : SlotsPresent p c.slots ∨ (c.view = [] ∧ c.timers = [])
+  present : (SlotsPresent p c.slots ∧ Complete p c.settled) ∨ (c.view = [] ∧ c.timers = [])
   settled : SettledOK p c.settled
   store : StoreOK p c.store
   view : ViewOK p c.view
@@ -122,22 +129,51 @@ theorem StoreOK.applyRowWrites {p : Program} {rows : List RowId} :
         exact h _ _ hm'
     · exact h
 
+/-- What settlement reads, in an environment whose root slots outside
+`lifted p` are present and of their types: `EnvOK` for `settleScope p`. -/
+theorem settleEnvOK {p : Program} (hp : WellTyped p) {slots : List (String × Value)} {now : F64}
+    (hpres : ∀ x, lifted p x = false → ((∃ st ∈ p.states, st.name = x ∧ st.owner = .none) ∨
+      ∃ m ∈ p.mutations, m.name = x) → x ∈ slots.map (·.1))
+    (hslots : ∀ x v, (x, v) ∈ slots → lifted p x = false → ValTy p v (slotTy p x)) :
+    SettleHyps p (settleScope p) slots now := by
+  refine ⟨⟨hp.fns, hp.routeShapes⟩, fun d hd => ?_, hp.resources, fun st hst => ?_⟩
+  · obtain ⟨t, ht, -⟩ := hp.derives d hd; exact ⟨t, ht⟩
+  have := envOKE_gen (E := Legit) (L := lifted p)
+    (env := { prog := p, slots, derives := st.derives, resources := st.resources, now })
+    hp (fun _ h _ => h) rfl hpres hslots RowsOK.nil hst (.inl trivial)
+  exact ⟨this.1, fun x t hx => GoodR.of_goodW (this.2.1 x t hx)⟩
+
 /-- Settle and render against well-typed slots: settlement fails only
-legitimately and settles well-typed values; rendering fails only
-legitimately and renders a well-typed view and row store. -/
+legitimately (never `pending`) and settles well-typed values, every derive
+and resource; rendering fails only legitimately and renders a well-typed
+view and row store. -/
 theorem update_good {p : Program} (hp : WellTyped p) {o slots store now prev force}
     (hs : SlotsOK p slots) (hpres : SlotsPresent p slots) (hstore : StoreOK p store)
     (hprev : SettledOK p prev) :
-    GoodR (fun r => SettledOK p r.1 ∧ GoodR (fun r => ViewOK p r.1 ∧ StoreOK p r.2) r.2)
+    GoodW Strict (fun r => SettledOK p r.1 ∧ Complete p r.1 ∧
+        GoodW Strict (fun r => ViewOK p r.1 ∧ StoreOK p r.2) r.2)
       (update p o slots store now prev force) := by
   have N := Names.of hp.names
-  have hfn : ProgOK p := ⟨hp.fns, hp.routeShapes⟩
   unfold update
-  refine GoodR.bind (settle_legit N.resources ⟨hfn, fun d hd => ?_, hp.resources,
-      fun st hst => EnvGood.envOK hp ⟨rfl, hs, hpres, RowsOK.nil, hst⟩⟩ hprev) fun st hst => ?_
-  · obtain ⟨t, ht, -⟩ := hp.derives d hd; exact ⟨t, ht⟩
-  refine ⟨hst, ?_⟩
-  exact (render_good hp fuel).1 ⟨rfl, hs, hpres, RowsOK.nil, hst⟩ hstore StoreOK.nil LocalsOK.nil hp.view
+  cases hst : settle p o slots now prev force with
+  | error e =>
+    have := settle_strict (o := o) (now := now) (force := force) N.resources
+      (settleEnvOK hp (hpres.of _) (fun _ _ hx _ => hs.valTy hp hx)) hprev
+    rw [hst] at this; exact this
+  | ok st =>
+    have hok := settle_settledOK N.resources hprev hst
+    have hc := settle_complete hst
+    refine ⟨hok, hc, ?_⟩
+    exact (render_good hp (E := Strict) (fun _ h hn => ⟨h, hn⟩) fuel).1 ⟨rfl, hs, hpres, RowsOK.nil, hok⟩
+      (.inl hc) hstore StoreOK.nil LocalsOK.nil hp.view
+
+theorem mapM_goodW {α β} {E : Err → Prop} {f : α → Result β} : ∀ {xs : List α},
+    (∀ x ∈ xs, GoodW E (fun _ => True) (f x)) → GoodW E (fun _ => True) (xs.mapM f)
+  | [], _ => trivial
+  | x :: xs, h => by
+    simp only [List.mapM_cons]
+    exact GoodW.bind (h x (by simp)) fun _ _ =>
+      GoodW.bind (mapM_goodW fun y hy => h y (by simp [hy])) fun _ _ => trivial
 
 /-! ## Actions -/
 
@@ -145,30 +181,33 @@ theorem update_good {p : Program} (hp : WellTyped p) {o slots store now prev for
 present, running an action that exists lands in a well-typed
 configuration, and commits, or refuses or poisons legitimately. -/
 theorem runAction_sound {p : Program} (hp : WellTyped p) {o c name args rows c' out}
-    (hc : ConfigOK p c) (hpres : SlotsPresent p c.slots)
+    (hc : ConfigOK p c) (hlive : SlotsPresent p c.slots ∧ Complete p c.settled)
     (hname : ∃ a, p.actions.find? (·.name == name) = .some a)
     (h : runAction p o c name args rows = (c', out)) : ConfigOK p c' ∧ OutcomeOK out := by
   have hfn : ProgOK p := ⟨hp.fns, hp.routeShapes⟩
-  have keep : ∀ {e}, (c, Outcome.refused e) = (c', out) → Legit e → ConfigOK p c' ∧ OutcomeOK out :=
+  obtain ⟨hpres, hcomp⟩ := hlive
+  have refusedS : ∀ w, Strict (.refused w) := fun _ => ⟨trivial, by simp⟩
+  have keep : ∀ {e}, (c, Outcome.refused e) = (c', out) → Strict e → ConfigOK p c' ∧ OutcomeOK out :=
     fun h' he => by
-      simp only [Prod.mk.injEq] at h'; rw [← h'.1, ← h'.2]; exact ⟨hc, Legitimate.of_legit he⟩
+      simp only [Prod.mk.injEq] at h'; rw [← h'.1, ← h'.2]; exact ⟨hc, Legitimate.of_strict he⟩
   simp only [runAction] at h
   split at h
-  · exact keep h trivial
+  · exact keep h (refusedS _)
   split at h
   · next hnone => obtain ⟨a, ha⟩ := hname; rw [ha] at hnone; cases hnone
   next a ha =>
   have ham := List.mem_of_find?_eq_some ha
   split at h
-  · exact keep h trivial
+  · exact keep h (refusedS _)
   next hlen =>
   split at h
-  · exact keep h trivial
+  · exact keep h (refusedS _)
   next hconf =>
   have hloc : LocalsOK p a.params.reverse ((a.params.map (·.1)).zip args).reverse :=
     (Agree.reverse (agree_of_conforms hp (by simpa using hlen) (by simpa using hconf)
       (hp.params a ham))).localsOK
-  have hexec := exec_sound_ty (n := fuel) hfn ((hc.envGood hpres rows).envOK hp) hloc (hp.actions a ham)
+  have hexec := exec_sound_E (n := fuel) hfn (fun _ h hn => ⟨h, hn⟩) ((hc.envGood hpres rows).envOKE hp hcomp) hloc
+    (hp.actions a ham)
   split at h
   · next e he => rw [he] at hexec; exact keep h hexec
   next fx hx =>
@@ -176,20 +215,20 @@ theorem runAction_sound {p : Program} (hp : WellTyped p) {o c name args rows c' 
   split at h
   · next e he =>
     refine keep h ?_
-    have : GoodR (fun _ => True) (fx.sends.mapM fun (m, src, vs) => do
+    have : GoodW Strict (fun _ => True) (fx.sends.mapM fun (m, src, vs) => do
         let v ← o.ask src vs
         let ty := ((p.mutations.find? (·.name == m)).map (·.ty)).getD .unknown
         if !conforms p v ty then throw (Err.refused s!"mutation `{m}` answered with the wrong shape")
         pure (m, Value.some v)) := by
-      refine mapM_good fun ⟨m, src, vs⟩ _ => GoodR.bind (ask_legit o src vs "") fun v _ => ?_
+      refine mapM_goodW fun ⟨m, src, vs⟩ _ => GoodW.bind (ask_legit o src vs "") fun v _ => ?_
       dsimp only
       split
-      · simp [throw, throwThe, MonadExceptOf.throw, bind, Except.bind, GoodR, Legit]
+      · simp only [throw, throwThe, MonadExceptOf.throw, bind, Except.bind, GoodW]; exact refusedS _
       · trivial
     rw [he] at this; exact this
   next answered hans =>
   split at h
-  · exact keep h trivial
+  · exact keep h (refusedS _)
   next hw =>
   generalize hS : List.foldl _ c.slots (answered ++ fx.writes) = S at h
   have hSeq : S = applyWrites c.slots (answered ++ fx.writes) := by rw [← hS]; rfl
@@ -200,7 +239,7 @@ theorem runAction_sound {p : Program} (hp : WellTyped p) {o c name args rows c' 
   have hkeys := applyWrites_keys c.slots (answered ++ fx.writes)
   have hpres' : SlotsPresent p (applyWrites c.slots (answered ++ fx.writes)) := hpres.of_keys hkeys
   split at h
-  · exact keep h trivial
+  · exact keep h (refusedS _)
   -- The slots after the commit, as `runAction_slotsOK` computes them.
   have hok : SlotsOK p (applyWrites c.slots (answered ++ fx.writes)) := by
     have hsends := (exec_sound hx).sends (hp.slotTyped.sends a ham) (by simp)
@@ -226,17 +265,17 @@ theorem runAction_sound {p : Program} (hp : WellTyped p) {o c name args rows c' 
   · next e he => rw [he] at hup; exact keep h hup
   · next st view live hu =>
     rw [hu] at hup
-    obtain ⟨hst, hv, hl⟩ := hup
+    obtain ⟨hst, hcm, hv, hl⟩ := hup
     simp only [Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
-    exact ⟨⟨hok, .inl hpres', hst, hl, hv, hc.timers⟩, trivial⟩
+    exact ⟨⟨hok, .inl ⟨hpres', hcm⟩, hst, hl, hv, hc.timers⟩, trivial⟩
   · next st e hu =>
     rw [hu] at hup
-    obtain ⟨hst, he⟩ := hup
+    obtain ⟨hst, hcm, he⟩ := hup
     simp only [Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
-    exact ⟨⟨hok, .inl hpres', hst, hc.store.applyRowWrites hrow, hc.view, hc.timers⟩,
-      Legitimate.of_legit he⟩
+    exact ⟨⟨hok, .inl ⟨hpres', hcm⟩, hst, hc.store.applyRowWrites hrow, hc.view, hc.timers⟩,
+      Legitimate.of_strict he⟩
 
 /-! ## Dispatch -/
 
@@ -248,11 +287,12 @@ payload. -/
 theorem handler_args_good {p : Program} (hp : WellTyped p) {c : Config} {n : VNode} {h}
     (hc : ConfigOK p c) (hn : VNode.In n c.view) (hh : h ∈ n.handlers) :
     ∃ a, p.actions.find? (·.name == h.2.1) = .some a ∧ ∃ ts, Ty.lePrefix ts (a.params.map (·.2)) = true ∧
-      (SlotsPresent p c.slots →
-        GoodR (fun vs => ValTyL p vs ts) (evalList fuel (actionEnv p c n.rows) false n.locals h.2.2)) := by
+      (SlotsPresent p c.slots → Complete p c.settled →
+        GoodW Strict (fun vs => ValTyL p vs ts) (evalList fuel (actionEnv p c n.rows) false n.locals h.2.2)) := by
   obtain ⟨a, ha, Γ, ts, hl, hts, hle⟩ := hc.view n hn h hh
   have hfn : ProgOK p := ⟨hp.fns, hp.routeShapes⟩
-  exact ⟨a, ha, ts, hle, fun hpres => evalList_sound_ty hfn ((hc.envGood hpres n.rows).envOK hp) hl hts⟩
+  exact ⟨a, ha, ts, hle, fun hpres hcomp =>
+    evalList_sound_E hfn (fun _ h hn => ⟨h, hn⟩) ((hc.envGood hpres n.rows).envOKE hp hcomp) hl hts⟩
 
 theorem VNode.In.ne_nil {n : VNode} {vs : List VNode} (h : VNode.In n vs) : vs ≠ [] := by
   cases h <;> simp
@@ -261,28 +301,29 @@ theorem VNode.In.ne_nil {n : VNode} {vs : List VNode} (h : VNode.In n vs) : vs �
 theorem dispatch_sound {p : Program} (hp : WellTyped p) {o c target event payload c' out}
     (hc : ConfigOK p c) (h : dispatch p o c target event payload = (c', out)) :
     ConfigOK p c' ∧ OutcomeOK out := by
-  have keep : ∀ {e}, (c, Outcome.refused e) = (c', out) → Legit e → ConfigOK p c' ∧ OutcomeOK out :=
+  have refusedS : ∀ w, Strict (.refused w) := fun _ => ⟨trivial, by simp⟩
+  have keep : ∀ {e}, (c, Outcome.refused e) = (c', out) → Strict e → ConfigOK p c' ∧ OutcomeOK out :=
     fun h' he => by
-      simp only [Prod.mk.injEq] at h'; rw [← h'.1, ← h'.2]; exact ⟨hc, Legitimate.of_legit he⟩
+      simp only [Prod.mk.injEq] at h'; rw [← h'.1, ← h'.2]; exact ⟨hc, Legitimate.of_strict he⟩
   simp only [dispatch] at h
   split at h
-  · exact keep h trivial
+  · exact keep h (refusedS _)
   split at h
-  · exact keep h trivial
+  · exact keep h (refusedS _)
   next n hn =>
   have hin := findTestId_in hn
-  have hpres : SlotsPresent p c.slots := hc.present.resolve_right fun ⟨hv, _⟩ => hin.ne_nil hv
+  have hlive := hc.present.resolve_right fun ⟨hv, _⟩ => hin.ne_nil hv
   split at h
-  · exact keep h trivial
+  · exact keep h (refusedS _)
   next ev a args hh =>
   obtain ⟨ad, had, ts, -, hargs⟩ := handler_args_good hp hc hin (List.mem_of_find?_eq_some hh)
-  have hargs := hargs hpres
+  have hargs := hargs hlive.1 hlive.2
   simp only [actionEnv] at hargs
   split at h
-  · exact keep h trivial
+  · exact keep h ⟨trivial, by simp⟩
   split at h
   · next e he => rw [he] at hargs; exact keep h hargs
-  · exact runAction_sound hp hc hpres ⟨ad, had⟩ h
+  · exact runAction_sound hp hc hlive ⟨ad, had⟩ h
 
 /-! ## Handler arguments at the action's boundary -/
 
@@ -355,9 +396,10 @@ theorem curried_conform {p : Program} :
 
 /-! ## Moving the clock -/
 
-theorem ConfigOK.withTimers {p : Program} {c : Config} (hc : ConfigOK p c) (hpres : SlotsPresent p c.slots)
+theorem ConfigOK.withTimers {p : Program} {c : Config} (hc : ConfigOK p c)
+    (hlive : SlotsPresent p c.slots ∧ Complete p c.settled)
     {ts : List Timer} (hts : TimersOK p ts) (t : F64) : ConfigOK p { c with timers := ts, now := t } :=
-  ⟨hc.slots, .inl hpres, hc.settled, hc.store, hc.view, hts⟩
+  ⟨hc.slots, .inl hlive, hc.settled, hc.store, hc.view, hts⟩
 
 theorem ConfigOK.withNow {p : Program} {c : Config} (hc : ConfigOK p c) (t : F64) :
     ConfigOK p { c with now := t } :=
@@ -381,7 +423,7 @@ theorem advance_go_sound {p : Program} (hp : WellTyped p) {o due finish}
     · obtain ⟨h1, h2⟩ := hfinish c hc; rw [h2]; exact ⟨h1, trivial⟩
     next tm i hd =>
     have htm := hdue c tm i hd
-    have hpres : SlotsPresent p c.slots := hc.present.resolve_right fun ⟨_, ht⟩ => by simp [ht] at htm
+    have hpres := hc.present.resolve_right fun ⟨_, ht⟩ => by simp [ht] at htm
     obtain ⟨a, ha, hpa⟩ := hc.timers tm htm
     have hset : ∀ x, TimersOK p (c.timers.set i { tm with next := x }) := fun x y hy => by
       rcases List.mem_or_eq_of_mem_set hy with hy | rfl
@@ -504,6 +546,7 @@ theorem boot_configOK {p : Program} (hp : WellTyped p) (o : Oracle) : ConfigOK p
   next slots hl =>
   have hpres : SlotsPresent p slots := (initSlots_present hi).of_keys (lateSlots_keys hl)
   have hsettled := settle_settledOK N.resources SettledOK.empty hst
+  have hcomp := settle_complete hst
   have htimers : TimersOK p timers := by
     intro tm htm
     obtain ⟨t, htk, he⟩ := List.mem_map.mp (startTimers_actions ht tm htm)
@@ -513,12 +556,13 @@ theorem boot_configOK {p : Program} (hp : WellTyped p) (o : Oracle) : ConfigOK p
   · next view live hr =>
     simp only [Prod.mk.injEq] at hb
     obtain ⟨rfl, -⟩ := hb
-    have hrender := (render_good hp fuel).1
+    have hrender := (render_good hp (E := Legit) (fun _ h _ => h) fuel).1
       (cx := { env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 },
                store := [] })
-      ⟨rfl, hs, hpres, RowsOK.nil, hsettled.1, hsettled.2⟩ StoreOK.nil StoreOK.nil LocalsOK.nil hp.view
+      ⟨rfl, hs, hpres, RowsOK.nil, hsettled.1, hsettled.2⟩ (.inr trivial) StoreOK.nil StoreOK.nil LocalsOK.nil
+      hp.view
     rw [hr] at hrender
-    exact ⟨hs, .inl hpres, hsettled, hrender.2, hrender.1, htimers⟩
+    exact ⟨hs, .inl ⟨hpres, hcomp⟩, hsettled, hrender.2, hrender.1, htimers⟩
   · exact empty hb
 
 /-! ## Runs -/
@@ -547,22 +591,5 @@ theorem step_sound {p : Program} (hp : WellTyped p) {c : Config} (hc : ConfigOK 
   cases ev with
   | dispatch target event payload => exact dispatch_sound hp hc rfl
   | advance t => exact advance_sound hp hc rfl
-
-/-- **Well-typed programs don't go wrong.** For a program the checker
-accepts, every reachable configuration is well typed, and every event from
-it lands in a well-typed configuration and either commits, or refuses or
-poisons for a legitimate reason (`Legitimate`: a refusal or an unsupported
-entry or a pending read) — never a type error, never an unbound name. -/
-theorem dont_go_wrong {p : Program} (hcheck : check p = true) {c : Config} (h : Reachable p c)
-    (o : Oracle) (ev : Event) :
-    ConfigOK p c ∧ ConfigOK p (ev.step p o c).1 ∧ OutcomeOK (ev.step p o c).2 ∧
-      ∀ e, ((ev.step p o c).2 = .refused e ∨ (ev.step p o c).2 = .poisoned e) →
-        Legitimate e ∧ (∀ w, e ≠ .type w) ∧ (∀ x, e ≠ .unbound x) := by
-  have hp := check_sound hcheck
-  have hc := reachable_configOK hp h
-  obtain ⟨h1, h2⟩ := step_sound hp hc o ev
-  refine ⟨hc, h1, h2, fun e he => ?_⟩
-  have hl : Legitimate e := by rcases he with he | he <;> rw [he] at h2 <;> exact h2
-  exact ⟨hl, hl.not_type, hl.not_unbound⟩
 
 end Contract
