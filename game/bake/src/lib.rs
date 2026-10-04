@@ -103,7 +103,14 @@ fn sources(path: &Path) -> Result<(Model, ModelSources), String> {
                 .collect::<Vec<_>>()
         })
         .collect();
-    let sources = textures::materials(&doc, &images, &mut model, stem, &used_materials)?;
+    let sources = textures::materials(
+        &doc,
+        &images,
+        &mut model,
+        stem,
+        path.parent().unwrap_or(Path::new(".")),
+        &used_materials,
+    )?;
     let textures: ModelSources = sources
         .into_iter()
         .map(|(name, (full, slots, cut))| (name, (full, textures::channels(slots, cut))))

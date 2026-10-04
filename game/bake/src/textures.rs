@@ -13,6 +13,7 @@ pub fn materials(
     images: &[gltf::image::Data],
     out: &mut Model,
     stem: &str,
+    dir: &std::path::Path,
     used: &std::collections::BTreeSet<usize>,
 ) -> Result<Sources, String> {
     let json = serde_json::to_value(doc.as_json()).map_err(|e| e.to_string())?;
@@ -89,8 +90,15 @@ pub fn materials(
             let key = (texture.index(), srgb, uses_alpha, cutoff.map(f32::to_bits));
             let bits = 1 << slot | u8::from(uses_alpha) << 5;
             let index = if let Some(&(i, ref name)) = cache.get(&key) {
-                payloads.get_mut::<String>(name).unwrap().1 |= bits;
+                if let Some(payload) = payloads.get_mut::<String>(name) {
+                    payload.1 |= bits;
+                }
                 i
+            } else if let Some(name) = standalone(texture.source(), dir, srgb)? {
+                let index = out.textures.len() as u32;
+                out.textures.push(name.clone());
+                cache.insert(key, (index, name));
+                index
             } else {
                 let image = &images[texture.source().index()];
                 let name = format!(
@@ -174,6 +182,46 @@ pub fn materials(
     }
     out.materials.push(MaterialData::default());
     Ok(payloads)
+}
+/// A glTF image whose URI names a PNG under `art/textures/` (colour) or
+/// `art/data/` (linear) samples that standalone texture, baked once for every
+/// model and generated mesh, instead of embedding a copy.
+fn standalone(
+    image: gltf::Image<'_>,
+    dir: &std::path::Path,
+    srgb: bool,
+) -> Result<Option<String>, String> {
+    let gltf::image::Source::Uri { uri, .. } = image.source() else {
+        return Ok(None);
+    };
+    if uri.starts_with("data:") {
+        return Ok(None);
+    }
+    let Ok(path) = std::fs::canonicalize(dir.join(uri)) else {
+        return Ok(None);
+    };
+    let Some(art) = path
+        .ancestors()
+        .find(|a| a.file_name() == Some("art".as_ref()))
+    else {
+        return Ok(None);
+    };
+    let kind = crate::PngKind::of(art, &path);
+    if kind == crate::PngKind::Sprite {
+        return Ok(None);
+    }
+    if (kind == crate::PngKind::Color) != srgb {
+        return Err(format!(
+            "image `{uri}`: art/textures/ holds colour (sRGB) textures and art/data/ \
+             linear ones; this slot samples {}",
+            if srgb { "colour" } else { "linear data" }
+        ));
+    }
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| format!("image `{uri}`: invalid art stem"))?;
+    Ok(Some(format!("{stem}.tex")))
 }
 /// What the sampling slots read, for choosing block formats. Colour slots
 /// (sRGB) never share a payload with data slots (linear): srgb is in its key.
