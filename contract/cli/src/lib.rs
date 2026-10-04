@@ -447,6 +447,12 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                             s.push_str("\"into\",\"key\":");
                             q(key, &mut s);
                         }
+                        TapForm::Pinch { scale, at } => {
+                            s.push_str(&format!("\"pinch\",\"scale\":{scale}"));
+                            if let Some((x, y)) = at {
+                                s.push_str(&format!(",\"at\":[{x},{y}]"));
+                            }
+                        }
                     }
                     if !modifiers.is_empty() {
                         s.push_str(",\"modifiers\":");
@@ -462,6 +468,7 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     press,
                     over,
                     hold,
+                    during,
                     ..
                 } => {
                     s.push_str("{\"op\":\"drag\",\"target\":");
@@ -477,6 +484,16 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                         if let Some(ms) = ms {
                             s.push_str(&format!(",\"{name}\":{ms}"));
                         }
+                    }
+                    if !during.is_empty() {
+                        s.push_str(",\"during\":[");
+                        for (i, op) in during.iter().enumerate() {
+                            if i > 0 {
+                                s.push(',');
+                            }
+                            q(op, &mut s);
+                        }
+                        s.push(']');
                     }
                 }
                 Step::Size { width, height, .. } => {
@@ -518,11 +535,24 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                         "{{\"op\":\"resize\",\"width\":{width},\"height\":{height}"
                     ));
                 }
-                Step::Key { target, key, .. } => {
+                Step::Key {
+                    target,
+                    key,
+                    phase,
+                    duration,
+                    ..
+                } => {
                     s.push_str("{\"op\":\"key\",\"target\":");
                     q(target, &mut s);
                     s.push_str(",\"key\":");
                     q(key, &mut s);
+                    if let Some(phase) = phase {
+                        s.push_str(",\"phase\":");
+                        q(phase, &mut s);
+                    }
+                    if let Some(ms) = duration {
+                        s.push_str(&format!(",\"for\":{ms}"));
+                    }
                 }
                 Step::Pick { target, paths, .. } => {
                     s.push_str("{\"op\":\"pick\",\"target\":");

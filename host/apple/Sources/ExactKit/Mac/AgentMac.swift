@@ -395,7 +395,9 @@ extension Agent {
         case "hold":
             guard let p = contact else { return ["error": "no contact is down"] }
             let ms = max(0, req["ms"] as? Double ?? 0)
-            if ms > 0 { RunLoop.main.run(until: Date(timeIntervalSinceNow: ms / 1000)) }
+            // A test drag's hold is virtual time (platformer R7): the driver seeks
+            // the clock, so the run loop does not sleep the gesture out.
+            if ms > 0, req["virtual"] as? Bool != true { RunLoop.main.run(until: Date(timeIntervalSinceNow: ms / 1000)) }
             contactClock += ms / 1000
             return ["phase": "hold", "at": at(p), "delivery": "platform"]
         case "up":

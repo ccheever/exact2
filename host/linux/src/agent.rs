@@ -941,8 +941,15 @@ pub(crate) fn driver_key(name: &str) -> Option<(&'static str, &'static str)> {
     }
     if name.len() == 1 {
         let ch = name.chars().next()?;
-        if let Some(index) = (ch.is_ascii_alphabetic()).then(|| letter_index(name)).flatten() {
-            let key = if ch.is_ascii_uppercase() { UPPER[index] } else { LOWER[index] };
+        if let Some(index) = (ch.is_ascii_alphabetic())
+            .then(|| letter_index(name))
+            .flatten()
+        {
+            let key = if ch.is_ascii_uppercase() {
+                UPPER[index]
+            } else {
+                LOWER[index]
+            };
             return Some((LETTERS[index], key));
         }
         if let Some(index) = digit_index(name) {
@@ -1006,7 +1013,8 @@ pub(crate) fn driver_key(name: &str) -> Option<(&'static str, &'static str)> {
 
 fn letter_index(name: &str) -> Option<usize> {
     let ch = name.chars().next()?;
-    ch.is_ascii_alphabetic().then(|| (ch.to_ascii_uppercase() as usize) - ('A' as usize))
+    ch.is_ascii_alphabetic()
+        .then(|| (ch.to_ascii_uppercase() as usize) - ('A' as usize))
 }
 
 fn digit_index(name: &str) -> Option<usize> {

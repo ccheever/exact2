@@ -775,9 +775,14 @@ the driver's 2026-01-01 UTC. The steps are `tap "id" [hover|dblclick|contextmenu
 `tap "id" modifiers "Shift+Meta"` (a press with keys held),
 `tap "list" into "key"` (a virtualized list's row brought into view by its key,
 so the next step can tap a row outside the rendered window),
-`tap "id" drag dx dy [from x y] [mouse] [press ms] [over ms] [hold ms]`,
+`tap "id" pinch <scale> [at x y]` (two fingers; `scale` greater than 0),
+`tap "id" drag dx dy [from x y] [mouse] [press ms] [over ms] [hold ms] [during "op" …]`
+(`during` is last: quoted reads or `clock` while the finger is down, after the
+move and before the hold; `press` and `hold` advance the virtual clock, except
+under `--timing platform`),
 `type "id" "text"` (sets the value), `type "id" "text" append` (after the value
-the tree shows, as typing after a prefill), or `type "id" key "Name"`,
+the tree shows, as typing after a prefill), or `type "id" key "Name"`
+(`down`, `up`, or `for <ms>` on the virtual clock),
 `type "id" paste "text"`, `type "id" copy`, `type "id" cut`, `pick "id" "path"…` or
 `pick "id" cancel` (a held picker or export, by its node or capability as
 above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
@@ -789,7 +794,8 @@ test shows what persists),
 (the node's text; a control's value, so a `select` reads its chosen value, not its
 options; else its descendants' — a button's label — else a field's value), and
 `expect state name == <number|string|bool|none|[]>`, where `name` may go on into
-a record's fields (`board.active.present`). A failed expect with no input before
+a record's fields (`board.active.present`) or a list index (`rows.0`), and the
+number may be negative (`== -3`). A failed expect with no input before
 it names the requests still in flight (the boot's own, or what a `clock +N` left
 on real time). An input step ends with what it settled: an answer the data
 module gave in the input's turn, and its mutation's `then`, are there for the

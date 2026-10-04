@@ -1000,14 +1000,22 @@ fn a_mouse_contact_goes_down_holds_and_lifts() {
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
     let (pad, log) = (id(&p, "pad"), id(&p, "log"));
-    for line in [
-        format!(r#"{{"op":"tap","phase":"down","id":{pad},"x":20,"y":20,"mouse":true}}"#),
-        r#"{"op":"tap","phase":"hold","ms":32,"mouse":true}"#.to_string(),
-        r#"{"op":"tap","phase":"up","mouse":true}"#.to_string(),
-    ] {
-        let reply = handle(&mut p, &line);
-        assert!(!reply.contains("\"error\""), "{line}: {reply}");
-    }
+    let down = handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","phase":"down","id":{pad},"x":20,"y":20,"mouse":true}}"#),
+    );
+    assert!(!down.contains("\"error\""), "{down}");
+    // A hold seeks the presenter clock and reports it, so the driver does not seek again (platformer R7).
+    let before = p.host().now();
+    let held = handle(
+        &mut p,
+        r#"{"op":"tap","phase":"hold","ms":32,"mouse":true,"virtual":true}"#,
+    );
+    assert!(!held.contains("\"error\""), "{held}");
+    let held: serde_json::Value = serde_json::from_str(&held).unwrap();
+    assert_eq!(held["clock"].as_f64(), Some(before + 32.0), "{held}");
+    let up = handle(&mut p, r#"{"op":"tap","phase":"up","mouse":true}"#);
+    assert!(!up.contains("\"error\""), "{up}");
     let k = p.host().kernel();
     assert_eq!(
         k.node(log).unwrap().props.str(exact_kernel::PropId::Text),
