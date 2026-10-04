@@ -40,7 +40,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
-import { closeSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { DOCUMENT_UTIS, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
@@ -882,15 +882,28 @@ async function main(args) {
     mkdirSync(paths.namespace, { recursive: true });
     const capture = mkdtempSync(resolve(paths.namespace, '.capture-'));
     cleanup.push(capture);
-    captureAppleProduct(buildReceipt, resolve(cargoLibDir, `lib${crate.replace(/-/g, '_')}.a`), resolve(capture, `lib${crate.replace(/-/g, '_')}.a`));
+    // SwiftPM links again whenever the archive is a new file, and a capture's copy of it was one on every build
+    // (0.5 s with nothing changed). A development capture takes a product whose bytes the last one holds from it,
+    // the same file; `held` says which bytes those were.
+    const heldAt = resolve(paths.namespace, 'captured-products.json'), holds = {};
+    let held = {};
+    if (cargoProfile === HOST_DEV) try { held = JSON.parse(readFileSync(heldAt, 'utf8')); } catch { /* the first capture */ }
+    const take = (source, file) => {
+      const product = buildReceipt.products.find(p => p.path === source), was = resolve(paths.capture, file);
+      holds[file] = product?.sha256 ?? null;
+      if (product && held[file] === product.sha256 && existsSync(was) && statSync(was).size === product.bytes) linkSync(was, resolve(capture, file));
+      else captureAppleProduct(buildReceipt, source, resolve(capture, file));
+    };
+    take(resolve(cargoLibDir, `lib${crate.replace(/-/g, '_')}.a`), `lib${crate.replace(/-/g, '_')}.a`);
     // GPU products are the signed copies prepareGpu made (the primary and each module).
-    for (const file of [...(hasGpu ? [dylib] : []), ...moduleDylibs.map(m => m.built)]) captureAppleProduct(buildReceipt, resolve(cargoLibDir, 'signed', file), resolve(capture, file));
+    for (const file of [...(hasGpu ? [dylib] : []), ...moduleDylibs.map(m => m.built)]) take(resolve(cargoLibDir, 'signed', file), file);
     bakedPlan = readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.plan`));
     copyAppleStaticTrees(app.dir, capture, [['assets', 'assets'], ['deck', 'deck']]);
     copyShaders(app, resolve(capture, 'shaders'));
     if (buildReceipt.rust) copyStaticTreeIfPresent(buildReceipt.rust, resolve(capture, 'rust'));
     verifyBakeFiles(buildReceipt.compat, bakedPlan, listAssets(capture, true));
     placeAppleArtifact(capture, paths.capture);
+    writeFileSync(heldAt, JSON.stringify(holds));
   } }));
   const libDir = paths.capture;
   const bakedCompat = buildReceipt.compat;
@@ -950,8 +963,6 @@ async function main(args) {
   // (LLP 1031 D10 — the fixture the smoke drives).
   const products = [ios ? 'ExactIOS' : 'ExactMac', ...(args.includes('--host') ? [ios ? 'ExactHostIOS' : 'ExactHostMac'] : [])];
   const product = products[0];
-  // swift build does not see the Rust archive change; drop the executables so
-  // they relink against the archive cargo just built (a relink is ~0.4 s).
   // The scratch is shared by every app of this destination (appleArtifacts);
   // `linkRoot` is this app's own, for what names it.
   const linkRoot = paths.scratch;
@@ -1082,18 +1093,27 @@ async function main(args) {
       mkdirSync(swiftBuildRoot, { recursive: true });
       writeFileSync(answer, swiftBinDir);
     }
-    for (const p of products) rmSync(resolve(swiftBinDir, p), { force: true });
+    const archive = buildReceipt.products.find(made => made.path === resolve(cargoLibDir, `lib${crate.replace(/-/g, '_')}.a`))?.sha256;
     for (const p of products) {
       const productArgs = [...swiftArgs];
+      let entitled = null;
       if (ios && !device) {
         // Simulator Security reads entitlements from the Mach-O text section.
         // Device-style entitlements in its ad-hoc signature can prevent launch.
         const ent = resolve(linkRoot, `${p}-entitlements.plist`);
-        writeFileSync(ent, entitlements({...app, id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, bakedCompat.reach));
+        entitled = entitlements({...app, id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, bakedCompat.reach);
+        writeFileSync(ent, entitled);
         productArgs.push('-Xlinker', '-sectcreate', '-Xlinker', '__TEXT',
           '-Xlinker', '__entitlements', '-Xlinker', ent);
       }
+      // swift build does not see the Rust archive (or that plist) change, so the executable is dropped to be
+      // linked again: 0.4 s, and it was every build's. A development build drops only one linked from other
+      // bytes, which `<product>.linked` beside it says: the archive's hash, whose it is, and the plist.
+      const linked = resolve(swiftBinDir, `${p}.linked`), from = createHash('sha256').update(JSON.stringify([archive ?? null, libDir, env.EXACT_LIB ?? null, entitled])).digest('hex');
+      const same = cargoProfile === HOST_DEV && archive && existsSync(resolve(swiftBinDir, p)) && existsSync(linked) && readFileSync(linked, 'utf8') === from;
+      if (!same) for (const stale of [p, `${p}.linked`]) rmSync(resolve(swiftBinDir, stale), { force: true });
       runApple('swift', [...productArgs, '--product', p], { cwd: pkg, env });
+      writeFileSync(linked, from);
       const executable = resolve(binDir, p);
       copyFileSync(resolve(swiftBinDir, p), executable);
       assertAppleIdentity(app, executable, bakedCompat.id);
