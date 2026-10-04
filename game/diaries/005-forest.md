@@ -453,9 +453,18 @@ Friction and lessons:
   release-equivalence test), passing 101 tests and finding two stale fixtures:
   the CLI-body fixture omitted `layoutArgs`, and the phone mock still intercepted
   `build.mjs` after device discovery moved to `devices.mjs`. Updated those doubles;
-  both focused reruns passed. Neither failure was in the new game or Jev helper.
+  both focused reruns passed, then the full 103-test suite passed warm in 9.11 s.
+  Neither failure was in the new game or Jev helper.
 - Giving the player useful information also gave Jev useful information. A
   private “AI knows every child coordinate” interface would have hidden the
   missing player guidance. Keep model observations tied to the player-facing
   experience when testing discoverability; keep exact-state scripted proofs for
   reproducibility.
+
+The cross-host repin exposed a host discrepancy the web/macOS pair did not:
+Linux returned `NoHandler { event: "message" }` when the rescue emitted its
+notification into a canvas without a Contract message handler. All three Linux
+modes reached that same event; web's three modes completed the rescue. The web
+glue explicitly checks `messageViews` before dispatch, whereas Linux dispatched
+every string and turned the missing handler into a clock error. The fix belongs
+in host delivery; adding a dummy handler to Forest would conceal it.
