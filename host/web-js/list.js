@@ -125,8 +125,11 @@ class SizeIndex {
   }
   anchor(offset, port, follow) {
     offset = this.clamp(offset, port);
-    const row = find(this.t, offset, false);
-    return { order: this.order, row, within: row === null ? 0 : Math.max(0, offset - this.prefix(row)), follows: follow && port > 0 && this.maxOffset(port) - offset <= 0.5 };
+    const follows = follow && port > 0 && this.maxOffset(port) - offset <= 0.5;
+    // At the start, no anchor unless it follows the end (index.rs
+    // `capture_anchor`): CSS scroll anchoring selects none at a zero offset.
+    const row = offset <= 0 && !follows ? null : find(this.t, offset, false);
+    return { order: this.order, row, within: row === null ? 0 : Math.max(0, offset - this.prefix(row)), follows };
   }
   anchorAt(key, within) { const i = this.pos.get(key); return i === undefined ? null : { order: this.order, row: i, within, follows: false }; }
   restoreAnchor(a, port) {
