@@ -470,7 +470,16 @@ literal `display="flex"` and a literal positive `height`, takes
 nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
 `reorderdrop`. `reorderdrop` belongs only on a vertical `list virtualized=true`
 (each row's handle names it with `reorderFor`); the compiler refuses it on any
-other element, where no host could drag. Lists nest one level deep; an inner vertical list needs a literal
+other element, where no host could drag. Lists that share a `reorderGroup`
+(each with a `reorderdrop`, an `id` and string keys) exchange rows: the drop
+fires once, on the list the row lands in, with the key it lands before and,
+for an action taking one more parameter, `ReorderEvent { from, to }`. A board
+is columns in a plain horizontal `scroll`, each a header, a grouped list
+(`flex=1 min-height=…`) and its quick-add; give each grip `touch-action="none"`
+and no `press`, `pan`, `pointerdown` or `key` of its own, so the host's keys
+(Space, the arrows, Enter, Escape) work on it. The host draws the lifted row,
+holds the drop until the move shows (a second at most) and scrolls the lists
+near their edges; do not build card drags by hand. Lists nest one level deep; an inner vertical list needs a literal
 `height` or `max-height`. Do not revive the removed legacy `item-height`
 windowing mechanism. Rows inserted, removed or resized above what the reader
 sees keep the reader's place, as CSS scroll anchoring does; a list at its start

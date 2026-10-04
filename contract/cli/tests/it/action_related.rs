@@ -139,8 +139,13 @@ fn navigate_optional_arity_survives_multiple_bindings_and_intersection() {
 
 #[test]
 fn all_event_payload_arities_share_the_lowering_rule() {
-    // `press` may also hand on its `MouseEvent` (`handler_accepts`).
+    // `press` may also hand on its `MouseEvent` (`handler_accepts`), and
+    // `reorderdrop` its `ReorderEvent` after the two keys (LLP 1094 D2).
     assert_eq!(contract_analyze::handler_arity("press", 0), Some(0..=1));
+    assert_eq!(
+        contract_analyze::handler_arity("reorderdrop", 0),
+        Some(2..=3)
+    );
     for (event, count) in [
         ("change", 1),
         ("hover", 1),
@@ -151,7 +156,6 @@ fn all_event_payload_arities_share_the_lowering_rule() {
         ("heightrelease", 2),
         ("transformgeometry", 4),
         ("transformrelease", 6),
-        ("reorderdrop", 2),
         ("reachstart", 0),
         ("reachend", 0),
     ] {

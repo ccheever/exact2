@@ -536,7 +536,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | One `list<Picked>` | `change`, `input` on `type="file"` |
 | One `MarkdownSelection` | `select` |
 | Two numbers | `pan`, `panrelease`, `heightrelease` |
-| A string, then an `option<string>` | `reorderdrop`, on a vertical `list virtualized=true` only: the dragged row's key, then the key it lands before (`none` at the end) |
+| A string, an `option<string>`, then optionally a `ReorderEvent` | `reorderdrop`, on a vertical `list virtualized=true` only: the dragged row's key, then the key it lands before (`none` at the end); an action taking one more parameter also hears `ReorderEvent { from, to }`, the two lists' `id`s (equal within one list; [LLP 1094](../llp/1094-dropping-across-lists.rfc.md) D2) |
 | Four numbers | `transformgeometry` |
 | Six numbers | `transformrelease` |
 | Special: zero or one location string, no captured args | `navigate` |

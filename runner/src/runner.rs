@@ -15,6 +15,7 @@ mod pointer;
 pub use pointer::{DropEvent, PointerEvent, WheelEvent};
 mod reorder;
 mod reorder_codec;
+mod reorder_group;
 mod root_font;
 pub use event::{
     ActionBinding, ActionBindingError, ActionBindingRefusal, ControlValue, Event, KeyModifiers,
@@ -308,6 +309,10 @@ pub struct Runner<D: DataSource> {
     tree: Option<Tree>,
     reorder_owner: Option<exact_kernel::NodeKey>,
     reorder_ops: Vec<exact_kernel::Op>,
+    /// The session the owner's token names (LLP 1094 D4).
+    reorder_session: Option<Box<reorder_group::Session>>,
+    /// A grouped drop's source while its `reorderdrop` runs (D2).
+    dropping_from: Option<exact_kernel::NodeKey>,
     ids: Ids,
     now_ms: f64,
     timers: Vec<Timer>,
@@ -765,6 +770,8 @@ impl<D: DataSource> Runner<D> {
             tree: None,
             reorder_owner: None,
             reorder_ops: Vec::new(),
+            reorder_session: None,
+            dropping_from: None,
             ids: Ids::default(),
             now_ms,
             timers: Vec::new(),
@@ -1216,6 +1223,8 @@ impl<D: DataSource> Runner<D> {
             .filter(|(_, row)| !(row.frame && self.presenting))
             .map(|(timer, _)| timer.next_ms)
             .chain(self.then_due.iter().copied())
+            // A drop's hold waits a second for its move (LLP 1094 D8).
+            .chain(self.reorder_deadline())
             .filter(|ms| ms.is_finite())
             .reduce(f64::min)
     }

@@ -298,6 +298,28 @@ impl<D: DataSource> Runner<D> {
                 }
                 continue;
             }
+            // A drop's hold ends at its deadline (LLP 1094 D8), before a
+            // timer due at the same time: the drop came first.
+            if let Some(at) = self
+                .reorder_deadline()
+                .filter(|at| timers && *at <= now_ms && due.is_none_or(|(_, t)| *at <= t))
+            {
+                self.now_ms = self.now_ms.max(at);
+                match self.reorder_timeout() {
+                    Ok(receipt) => receipts.push(Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }),
+                    Err(e) => {
+                        return Advanced {
+                            receipts,
+                            now_ms: self.now_ms,
+                            error: Some(e),
+                        }
+                    }
+                }
+                continue;
+            }
             let Some((i, at)) = due else { break };
             if receipts.len() == TIMER_FIRE_LIMIT {
                 return Advanced {
