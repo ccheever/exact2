@@ -329,6 +329,26 @@ fn storage_then_fetch_then_storage_preserves_each_answer_context() {
     assert!(matches!(s.get("session"), Some("a" | "b")));
 }
 
+/// Storage an answer starts and does not await still lands (kanban F22): a
+/// write made before a value returned at once, and one queued behind the
+/// module's storage chain and begun after the answer's own promise resolved.
+/// The browser runs both to their end; so does Hermes, before the reply.
+#[test]
+fn storage_an_answer_does_not_await_still_lands() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    assert_eq!(call(&mut m, &mut s, "unawaited", "first"), "answered");
+    assert_eq!(call(&mut m, &mut s, "read-at", "unawaited"), "first");
+    assert_eq!(call(&mut m, &mut s, "queued", "second"), "answered");
+    assert_eq!(
+        std::fs::read_to_string(root.0.join("data/queued/file")).unwrap(),
+        "second"
+    );
+    assert_eq!(call(&mut m, &mut s, "read-at", "queued/file"), "second");
+}
+
 /// An app that serializes its storage work through one promise chain starts the
 /// second answer's work in a microtask of the first. Each answer must still settle
 /// with its own value.

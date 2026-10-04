@@ -321,6 +321,13 @@ same browser origin, subject to browser storage retention and quota policies.
 An open database exclusively locks its file; conflicting opens or filesystem
 mutations return `Unavailable` with a busy message. Agent mode skips storage.
 
+An answer's storage and `fetch` steps run whether or not it awaits them: a save
+started and not awaited (queued behind the module's own promise chain, say)
+lands on every host. In the browser the answer is given at once and the save
+finishes behind it; on Hermes the answer is given once the steps it started
+have landed (kanban F22). A storage or `fetch` call made when no answer is in
+flight is refused and logged, never silently dropped.
+
 This first browser implementation targets modest app stores: filesystem
 operations read the app's file records, and each SQLite mutation atomically
 saves the whole database file. Database files share the filesystem namespace,

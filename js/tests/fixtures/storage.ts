@@ -7,7 +7,25 @@ const grants = "fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/not
 // database operations. The second answer's storage calls run in a later microtask.
 let tail: Promise<unknown> = Promise.resolve();
 
-async function answer(_source:string, args:unknown[], store:Store, storage:Storage, native:{available:boolean; call(request:Record<string,unknown>):Record<string,unknown>; later(request:Record<string,unknown>):Promise<Record<string,unknown>>}|null) {
+// Writes an answer starts and does not await (kanban F22): the answer is
+// given before they land, and they must land all the same.
+function answer(source:string, args:unknown[], store:Store, storage:Storage, native:any) {
+  const op = String(args[0]), value = String(args[1]);
+  if (op === "unawaited") {
+    storage.fs.atomicWriteFile(storage.fs.directories.data + "/unawaited", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
+    return {text:"answered"};
+  }
+  if (op === "queued") {
+    tail = tail.then(async () => {
+      await storage.fs.mkdir(storage.fs.directories.data + "/queued");
+      await storage.fs.atomicWriteFile(storage.fs.directories.data + "/queued/file", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
+    });
+    return Promise.resolve({text:"answered"});
+  }
+  return work(source, args, store, storage, native);
+}
+
+async function work(_source:string, args:unknown[], store:Store, storage:Storage, native:{available:boolean; call(request:Record<string,unknown>):Record<string,unknown>; later(request:Record<string,unknown>):Promise<Record<string,unknown>>}|null) {
   const op = String(args[0]), value = String(args[1]);
   if (op === 'later') {
     if (!native?.available) return {text: 'no native module'};
@@ -58,6 +76,7 @@ async function answer(_source:string, args:unknown[], store:Store, storage:Stora
     try { return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(path)))}; }
     catch (_) { return {text:"empty"}; }
   }
+  if (op === "read-at") return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(storage.fs.directories.data + "/" + value)))};
   if (op === "read") return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(path)))};
   if (op === "refused") {
     try { await storage.fs.writeFile("app:/cache/no", new Uint8Array([1])); }
