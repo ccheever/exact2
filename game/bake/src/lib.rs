@@ -599,14 +599,21 @@ mod png_kind_tests {
         let art = Path::new("/game/art");
         assert_eq!(PngKind::of(art, &art.join("strip.png")), PngKind::Sprite);
         assert_eq!(PngKind::of(art, &art.join("ui/strip.png")), PngKind::Sprite);
-        assert_eq!(PngKind::of(art, &art.join("textures/soil.png")), PngKind::Color);
+        assert_eq!(
+            PngKind::of(art, &art.join("textures/soil.png")),
+            PngKind::Color
+        );
         assert_eq!(PngKind::of(art, &art.join("data/sky.png")), PngKind::Data);
         let dir = std::env::temp_dir().join(format!("exact-bake-png-kind-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("soil.png");
         let mut image = image::RgbaImage::new(8, 8);
         for (x, _, p) in image.enumerate_pixels_mut() {
-            *p = image::Rgba(if x < 4 { [255, 0, 0, 255] } else { [0, 0, 255, 255] });
+            *p = image::Rgba(if x < 4 {
+                [255, 0, 0, 255]
+            } else {
+                [0, 0, 255, 255]
+            });
         }
         image.save(&path).unwrap();
         for kind in [PngKind::Color, PngKind::Data] {

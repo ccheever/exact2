@@ -119,8 +119,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 mesh.reach.y.to_bits(),
                 mesh.reach.z.to_bits(),
                 mesh.cap.to_bits(),
-                0,
-                0,
+                // The level-of-detail band, camera distance [near, far).
+                self.batches[group.batch].distance[0].to_bits(),
+                self.batches[group.batch].distance[1].to_bits(),
                 0,
             ];
             self.cull.words.extend(words);

@@ -565,3 +565,64 @@ fn ssao_cost_at_1080p() {
         best[3] - best[0]
     );
 }
+
+#[derive(Default, Args)]
+struct LodArgs {
+    distance: f32,
+}
+struct Lod;
+impl Game for Lod {
+    const ID: &'static str = "look-lod";
+    type Args = LodArgs;
+    fn setup(w: &mut World, args: &LodArgs) {
+        w.insert_resource(Environment {
+            background: Some([0.; 3]),
+            ambient: 1.,
+            zenith: [1.; 3],
+            horizon: [1.; 3],
+            ground: [1.; 3],
+            fog: None,
+            bloom: None,
+            ..Default::default()
+        });
+        w.spawn((Transform::at(0., 0., args.distance), Camera::default()));
+        let near = w.generated("near.model", quad([1., 0., 0., 1.])).unwrap();
+        w.generated("far.model", quad([0., 1., 0., 1.])).unwrap();
+        w.spawn((
+            Transform::default(),
+            near,
+            ModelLod {
+                levels: vec![LodLevel {
+                    distance: 6.,
+                    model: "far.model".into(),
+                }],
+                hide: Some(20.),
+            },
+        ));
+    }
+    fn tick(_: &mut World, _: &Input, _: &LodArgs) {}
+}
+
+#[test]
+fn a_model_lod_swaps_by_camera_distance_and_hides_beyond_its_limit() {
+    let Some(gpu) = gpu() else { return };
+    let centre = |distance: f64| {
+        let mut s = WorldSurface::<Lod, ModelPresentation, true>::default();
+        s.bind(&[Value::Number(distance)], None).unwrap();
+        s.device_ready(exact_gpu::wgpu::Features::empty());
+        s.prepare_assets(
+            &gpu.device,
+            &gpu.queue,
+            exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+        );
+        let (pixels, _) = fixture::render(&gpu, &mut s, &frame()).unwrap();
+        assert!(s.error().is_none(), "{:?}", s.error());
+        pixels.at(64, 64)
+    };
+    let near = centre(3.);
+    assert!(near[0] > 100 && near[1] < 40, "near level: {near:?}");
+    let far = centre(10.);
+    assert!(far[1] > 100 && far[0] < 40, "far level: {far:?}");
+    let gone = centre(30.);
+    assert!(gone[0] < 10 && gone[1] < 10, "beyond hide: {gone:?}");
+}

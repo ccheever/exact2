@@ -546,6 +546,28 @@ impl Default for NodeMaterial {
 #[derive(Clone, Debug, Default, PartialEq, Component)]
 pub struct NodeMaterials(pub Vec<NodeMaterial>);
 
+/// One coarser level of a model instance: drawn from `distance` metres from the
+/// camera, up to the next level's distance.
+#[derive(Clone, Debug, Default, PartialEq, crate::Data)]
+pub struct LodLevel {
+    /// Camera distance in metres where this level takes over.
+    pub distance: f32,
+    /// The model drawn at this level (declare it in `Game::ASSETS`).
+    pub model: String,
+}
+/// Distance-based level of detail for a model entity. Its own `Mesh` is drawn
+/// nearer than the first level; each level's model from its distance on; beyond
+/// `hide` (if set) nothing. The GPU cull picks the level per instance per frame
+/// from its distance to the camera, so a walking camera changes nothing on the
+/// CPU. Levels share the entity's pose, `Material` and `Opacity`.
+#[derive(Clone, Debug, Default, PartialEq, Component)]
+pub struct ModelLod {
+    /// Coarser levels in increasing distance.
+    pub levels: Vec<LodLevel>,
+    /// Camera distance in metres beyond which the instance is not drawn.
+    pub hide: Option<f32>,
+}
+
 /// Explicit visibility; absent visibility is interpreted as visible.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Component)]
 pub struct Visible(pub bool);

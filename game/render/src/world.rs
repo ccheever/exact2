@@ -231,6 +231,7 @@ struct Versions {
     viewmodel: u64,
     opacity: u64,
     node_materials: u64,
+    lod: u64,
     // An animated rig moves its socket followers' subtrees without a Transform write.
     pose: u64,
     live: u64,
@@ -249,6 +250,7 @@ impl Versions {
             viewmodel: w.revision::<ViewModel>(),
             opacity: w.revision::<exact_game::Opacity>(),
             node_materials: w.revision::<exact_game::NodeMaterials>(),
+            lod: w.revision::<exact_game::ModelLod>(),
             pose: w.revision::<exact_game::Pose>(),
             live: w.entities_revision(),
             membership: w.membership::<Transform>(),
@@ -432,6 +434,7 @@ impl Feed {
             || next.visible != old.visible
             || next.viewmodel != old.viewmodel
             || next.node_materials != old.node_materials
+            || next.lod != old.lod
             || next.live != old.live
             || next.membership != old.membership;
         // Validate live slots before any history swap. A last partial page is clipped

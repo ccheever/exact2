@@ -152,6 +152,9 @@ pub struct Batch {
     /// Drawn in the viewmodel layer: the nearest [`VIEWMODEL_DEPTH`] of the depth
     /// range, in front of the whole world; false in [`Batch::new`].
     pub viewmodel: bool,
+    /// The camera distances `[near, far)` at which an instance draws in this
+    /// batch (a level of detail); `[0, ∞)` in [`Batch::new`]. The GPU cull applies it.
+    pub distance: [f32; 2],
 }
 
 /// The depth range the viewmodel layer takes while any viewmodel draws; the
@@ -166,6 +169,7 @@ impl Batch {
             slots,
             casts_shadows: true,
             viewmodel: false,
+            distance: [0., f32::INFINITY],
         }
     }
     /// This draw in the viewmodel layer, casting no shadows.

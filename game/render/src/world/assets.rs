@@ -4,7 +4,8 @@ use crate::{DrawInstance, MaterialId, RENDER_SLOT_BASE};
 pub(super) struct Assets {
     pub records: Vec<DrawInstance>,
     pub entities: Vec<exact_game::Entity>,
-    groups: BTreeMap<(MeshId, MaterialId, bool, bool), Vec<u32>>,
+    // Geometry, material, mirrored, viewmodel, and the level's distance band bits.
+    groups: BTreeMap<(MeshId, MaterialId, bool, bool, [u32; 2]), Vec<u32>>,
 }
 impl Assets {
     pub fn batches(
@@ -21,46 +22,69 @@ impl Assets {
         }
         for (entity, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
             let Mesh::Asset(name) = mesh else { continue };
-            let Some((nodes, names)) = r.model(name) else {
-                continue;
-            };
-            let looks = w.get::<exact_game::NodeMaterials>(entity);
             if w.get::<Visible>(entity).is_some_and(|v| !v.0) {
                 continue;
             }
-            if !nodes.is_empty() {
-                self.entities.push(entity);
-            }
+            let looks = w.get::<exact_game::NodeMaterials>(entity);
             let viewmodel = w.has::<exact_game::ViewModel>(entity);
-            for (&(geometry, material, local, skin), node) in nodes.iter().zip(names) {
-                let slot = RENDER_SLOT_BASE + self.records.len() as u32;
-                let look = looks
-                    .as_ref()
-                    .and_then(|l| l.0.iter().find(|m| m.node == *node));
-                self.records.push(DrawInstance {
-                    data: 0,
-                    transform: entity.index(),
-                    geometry,
-                    material,
-                    local,
-                    skin,
-                    tint: look.map_or([1.; 4], |l| l.color),
-                    glow: look.map_or([0.; 3], |l| l.emissive),
-                });
-                self.groups
-                    .entry((geometry, material, local.determinant() < 0., viewmodel))
-                    .or_default()
-                    .push(slot);
+            // The entity's own model, then each coarser level, each in its band.
+            let lod = w.get::<exact_game::ModelLod>(entity);
+            let mut levels = vec![(name.as_str(), 0.)];
+            if let Some(lod) = &lod {
+                levels.extend(lod.levels.iter().map(|l| (l.model.as_str(), l.distance)));
+            }
+            let end = lod.as_ref().and_then(|l| l.hide).unwrap_or(f32::INFINITY);
+            let mut drawn = false;
+            for (level, &(model, near)) in levels.iter().enumerate() {
+                let far = levels.get(level + 1).map_or(end, |l| l.1).min(end);
+                if !(near < far) {
+                    continue;
+                }
+                let Some((nodes, names)) = r.model(model) else {
+                    continue;
+                };
+                drawn |= !nodes.is_empty();
+                let band = [near.max(0.).to_bits(), far.to_bits()];
+                for (&(geometry, material, local, skin), node) in nodes.iter().zip(names) {
+                    let slot = RENDER_SLOT_BASE + self.records.len() as u32;
+                    let look = looks
+                        .as_ref()
+                        .and_then(|l| l.0.iter().find(|m| m.node == *node));
+                    self.records.push(DrawInstance {
+                        data: 0,
+                        transform: entity.index(),
+                        geometry,
+                        material,
+                        local,
+                        skin,
+                        tint: look.map_or([1.; 4], |l| l.color),
+                        glow: look.map_or([0.; 3], |l| l.emissive),
+                    });
+                    self.groups
+                        .entry((
+                            geometry,
+                            material,
+                            local.determinant() < 0.,
+                            viewmodel,
+                            band,
+                        ))
+                        .or_default()
+                        .push(slot);
+                }
+            }
+            if drawn {
+                self.entities.push(entity);
             }
         }
         r.instances(&self.records)?;
-        for (&(mesh, _, _, viewmodel), list) in &self.groups {
+        for (&(mesh, _, _, viewmodel, band), list) in &self.groups {
             if list.is_empty() {
                 continue;
             }
             let start = slots.len() as u32;
             slots.extend(list);
-            let batch = Batch::new(mesh, start..slots.len() as u32);
+            let mut batch = Batch::new(mesh, start..slots.len() as u32);
+            batch.distance = band.map(f32::from_bits);
             batches.push(if viewmodel { batch.viewmodel() } else { batch });
         }
         Ok(())

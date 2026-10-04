@@ -309,6 +309,12 @@ emission per named node of one instance (stored in that node's instance record).
 an ordered 4×4 screen-door dither (depth stays exact, nothing is sorted; model
 shadows fade with it, primitive shadows do not), blended model materials multiply
 their alpha. Custom-material hooks ignore both.
+`ModelLod { levels, hide }` swaps an instance's model by camera distance: each level
+is its own batch with a distance band in its cull group words, and the GPU cull
+drops instances outside the band in every view (shadow cascades included), so a
+moving camera costs the CPU nothing. Levels share the pose, looks and opacity.
+Devices without indirect draws, keep-all cull and `KEEP_ALL` custom materials
+draw every level.
 `Glow(Tween)` also multiplies the model's baked emissive factor and texture,
 including on entities without a `Material` component. Removing `Glow` restores
 authored emission. The model-only multiplier uses material slot 9 (primitive
