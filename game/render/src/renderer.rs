@@ -650,6 +650,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     pub fn culled(&mut self) -> Option<[u64; 4]> {
         self.cull.culled(&self.device)
     }
+    /// Camera-view triangles the GPU cull kept, from the same read as `culled`.
+    pub fn culled_triangles(&self) -> Option<u64> {
+        self.cull.culled_triangles()
+    }
 
     fn check_capacity(&self, arena: &'static str, end: u64) -> Result<(), RenderError> {
         let limit = u64::from(self.max_slots());

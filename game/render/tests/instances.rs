@@ -565,7 +565,10 @@ impl Game for Swing {
     fn setup(w: &mut World, _: &()) {
         let mut clip = Animation::play("swing").speed(0.);
         clip.time = 0.5;
-        w.spawn_named("model", (Transform::default(), Mesh::asset("arm.model"), clip));
+        w.spawn_named(
+            "model",
+            (Transform::default(), Mesh::asset("arm.model"), clip),
+        );
     }
     fn tick(w: &mut World, _: &Input, _: &()) {
         animation::step(w);
@@ -666,8 +669,14 @@ fn animated_rigid_parts_sharing_a_material_draw_once_and_follow_their_nodes() {
         64. + (-0.9 + 1.8 * 0.6f32.cos()) / 6. * 128.,
         64. - 1.8 * 0.6f32.sin() / 6. * 128.,
     );
-    assert!(lit(&a, cx as u32, cy as u32), "the lower part follows its node");
-    assert!(!lit(&a, 64 + 19, 64), "nothing left at the bind pose's lower part");
+    assert!(
+        lit(&a, cx as u32, cy as u32),
+        "the lower part follows its node"
+    );
+    assert!(
+        !lit(&a, 64 + 19, 64),
+        "nothing left at the bind pose's lower part"
+    );
     let mut differ = 0;
     for y in 0..128 {
         for x in 0..128 {
@@ -677,5 +686,8 @@ fn animated_rigid_parts_sharing_a_material_draw_once_and_follow_their_nodes() {
             }
         }
     }
-    assert!(differ <= 8, "{differ} pixels differ between merged and per-part draws");
+    assert!(
+        differ <= 8,
+        "{differ} pixels differ between merged and per-part draws"
+    );
 }

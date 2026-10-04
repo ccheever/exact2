@@ -321,6 +321,11 @@ drops instances outside the band in every view (shadow cascades included), so a
 moving camera costs the CPU nothing. Levels share the pose, looks and opacity.
 Devices without indirect draws, keep-all cull and `KEEP_ALL` custom materials
 draw every level.
+`world.perf.culled.cameraTriangles` counts what the cull kept for the camera
+(`stats.triangles` counts every submitted level). On this Mac (`tests/lod_bench.rs`,
+20,000 2,048-triangle trees, 1080p): 36.7 M camera triangles and a 15.8 ms frame
+without `ModelLod`; 0.27 M and 4.5-7.9 ms with a 12-triangle level from 40 m and
+`hide: Some(400.)`.
 `Glow(Tween)` also multiplies the model's baked emissive factor and texture,
 including on entities without a `Material` component. Removing `Glow` restores
 authored emission. The model-only multiplier uses material slot 9 (primitive

@@ -708,6 +708,9 @@ fn soft_particles_fade_where_they_meet_the_scene() {
     // Alpha 0.1 of a full white dot, through the tone curve.
     assert!(touching < hard / 2, "{touching} vs {hard}");
     let half = centre(1., 0.5);
-    assert!(touching < half && half < hard, "{touching} < {half} < {hard}");
+    assert!(
+        touching < half && half < hard,
+        "{touching} < {half} < {hard}"
+    );
     assert!(clear.abs_diff(centre(0., 2.)) <= 2, "{clear}");
 }

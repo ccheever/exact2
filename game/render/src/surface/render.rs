@@ -255,6 +255,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface
         self.encoded = Some(renderer.timed.get());
         if self.perf.armed() {
             self.perf.culled = renderer.culled();
+            self.perf.culled_triangles = renderer.culled_triangles();
         }
         let wants = !G::paused(sim.args()) || ticks != 0;
         self.dirty = false;

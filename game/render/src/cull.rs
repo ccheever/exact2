@@ -83,6 +83,8 @@ struct Counts {
     groups: usize,
     views: usize,
     last: Option<[u64; VIEWS as usize]>,
+    // Camera-view triangles of the same read frame.
+    triangles: u64,
 }
 
 impl Cull {
@@ -223,6 +225,7 @@ impl Cull {
                 groups: 0,
                 views: 0,
                 last: None,
+                triangles: 0,
             });
         }
     }
@@ -271,12 +274,20 @@ impl Cull {
             if let Some(ok) = counts.done.lock().unwrap().take() {
                 if ok {
                     let data = counts.buffer.slice(..).get_mapped_range().unwrap();
+                    let word = |at: usize| {
+                        u64::from(u32::from_ne_bytes(
+                            data[at * 4..at * 4 + 4].try_into().unwrap(),
+                        ))
+                    };
                     let mut totals = [0u64; VIEWS as usize];
+                    counts.triangles = 0;
                     for (v, total) in totals.iter_mut().enumerate().take(counts.views) {
                         for g in 0..counts.groups {
-                            let at = ((v * counts.groups + g) * 5 + 1) * 4;
-                            *total +=
-                                u64::from(u32::from_ne_bytes(data[at..at + 4].try_into().unwrap()));
+                            let at = (v * counts.groups + g) * 5;
+                            *total += word(at + 1);
+                            if v == 0 {
+                                counts.triangles += word(at) / 3 * word(at + 1);
+                            }
                         }
                     }
                     drop(data);
@@ -287,6 +298,13 @@ impl Cull {
             }
         }
         counts.last
+    }
+
+    /// Camera-view triangles the GPU cull kept in the frame `culled` last read.
+    pub fn culled_triangles(&self) -> Option<u64> {
+        self.counts
+            .as_ref()
+            .and_then(|c| c.last.map(|_| c.triangles))
     }
 
     /// Whether this frame's groups differ from the uploaded setup.
