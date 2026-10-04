@@ -190,6 +190,10 @@ final class CollectionHost {
         /// building only what shows).
         var lastLimit: UInt32?
         var port: [Double]?
+        /// The offset when the batch began: where the reader is. Rows that
+        /// leave above a deep offset shrink the document first, and the
+        /// platform's clamp to it is not a scroll (`endBatch`'s shift).
+        var batchStart: Double?
         init(_ snapshot: CollectionSnapshot) { self.snapshot = snapshot }
     }
     weak var presenter: Presenter?
@@ -338,6 +342,7 @@ final class CollectionHost {
         #endif
     }
     func beginBatch(_ batch: Batch) {
+        if batchDepth == 0 { for (view, entry) in entries { entry.batchStart = geometry(view)?.offset } }
         batchDepth += 1
         for op in batch.ops where op.op == .collections {
             guard let items = op.payload["items"] as? [[String: Any]] else { continue }
@@ -377,7 +382,7 @@ final class CollectionHost {
                 // under a pan or a fling, which go on from there.
                 if let delta = entry.cursor.takeShift(revision: entry.snapshot.revision, correction) {
                     correcting = true
-                    shift(view, by: delta, extent: entry.snapshot.extent)
+                    shift(view, by: delta, extent: entry.snapshot.extent, from: entry.batchStart)
                     correcting = false
                 }
             } else if let correction = entry.snapshot.correction,
@@ -391,6 +396,7 @@ final class CollectionHost {
                 correct(view, top: correction.offset, extent: entry.snapshot.extent, smooth: correction.smooth)
                 correcting = false
             }
+            entry.batchStart = nil
             dirty.insert(view)
         }
         batchDepth = max(0, batchDepth - 1)

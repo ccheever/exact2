@@ -279,9 +279,10 @@ extension CollectionHost {
         return Double(horizontal ? node.bounds.width : node.bounds.height)
     }
     /// An anchor's correction (`CollectionCursor.takeShift`): the offset
-    /// moves by `delta` with the rows that moved; a momentum scroll's next
-    /// delta goes on from there.
-    func shift(_ id: UInt32, by delta: Double, extent: Double) {
+    /// moves by `delta` with the rows that moved, from `start` (where the
+    /// batch began, before the clip view clamped to a document that shrank
+    /// under it); a momentum scroll's next delta goes on from there.
+    func shift(_ id: UInt32, by delta: Double, extent: Double, from start: Double?) {
         guard let node = presenter?.views[id], let scroll = node.scroll else { return }
         let clip = scroll.contentView, horizontal = entries[id]?.snapshot.horizontal ?? false
         let content = node.contentBox()
@@ -294,7 +295,7 @@ extension CollectionHost {
             owedTargets[id] = horizontal ? NSPoint(x: headed.x + CGFloat(delta), y: headed.y) : NSPoint(x: headed.x, y: headed.y + CGFloat(delta))
             return
         }
-        let now = Double(horizontal ? clip.bounds.minX - content.minX : clip.bounds.minY - content.minY)
+        let now = start ?? Double(horizontal ? clip.bounds.minX - content.minX : clip.bounds.minY - content.minY)
         correct(id, top: now + (delta.isFinite ? delta : 0), extent: extent)
     }
     /// A smooth correction's target that arrived while one was animating.

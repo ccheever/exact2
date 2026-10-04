@@ -77,11 +77,12 @@ extension CollectionHost {
         return Double(horizontal ? node.bounds.width : node.bounds.height)
     }
     /// An anchor's correction (`CollectionCursor.takeShift`): the offset
-    /// moves by `delta` in the layout pass that moved the rows. Assigning
+    /// moves by `delta` from `start` (where the batch began) in the layout
+    /// pass that moved the rows. Assigning
     /// `contentOffset` keeps a pan or a deceleration going from the new
     /// offset at its velocity, as `UICollectionView`'s self-sizing
     /// invalidation does with its content offset adjustment.
-    func shift(_ id: UInt32, by delta: Double, extent: Double) {
+    func shift(_ id: UInt32, by delta: Double, extent: Double, from start: Double?) {
         guard let node = presenter?.views[id], let scroll = node.scroll else { return }
         fit(node, scroll, extent: extent)
         guard delta != 0, delta.isFinite else { return }
@@ -94,6 +95,12 @@ extension CollectionHost {
         }
         let insets = scroll.adjustedContentInset
         var target = scroll.contentOffset
+        if let start {
+            // From where the batch began (`geometry`'s offset): UIKit has
+            // already pulled the offset in to content that shrank under it.
+            let content = node.contentBox()
+            if horizontal { target.x = CGFloat(start) - insets.left + content.minX } else { target.y = CGFloat(start) - insets.top + content.minY }
+        }
         if horizontal { target.x += CGFloat(delta) } else { target.y += CGFloat(delta) }
         if !(scroll.isTracking || scroll.isDragging || scroll.isDecelerating) {
             // At rest the port stays inside the content (under a finger or
