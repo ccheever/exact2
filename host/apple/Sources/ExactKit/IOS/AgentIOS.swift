@@ -373,6 +373,7 @@ extension Agent {
         host.glassAgentFields(&native)
         if presenter.leaves.isPending(host) { native["pending"] = true }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
+        if let grouped = presenter.groupedLists.observation(host) { native["groupedList"] = grouped }
         if let control = presenter.controls.observation(host) { native["control"] = control }
         var responder: UIResponder? = host
         while let current = responder {
@@ -456,6 +457,12 @@ extension Agent {
            let activated = presenter.segments.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "segmented-control"]
                 : ["error": "native segment #\(id) is unavailable"]
+        }
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           let activated = presenter.groupedLists.activate(node) {
+            return activated ? ["tapped": id, "delivery": "host-activation", "native": "grouped-list"]
+                : ["error": "grouped-list row #\(id) is disabled or not pressable"]
         }
         if let id = req["id"] as? Int, presenter.swipeActions.ownsAction(UInt32(id)),
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil {

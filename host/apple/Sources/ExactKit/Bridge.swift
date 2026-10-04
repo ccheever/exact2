@@ -456,6 +456,15 @@ final class Runtime {
             return ButtonFace(json: Data(bytes: exact_out(rt), count: Int(len)))
         }
     }
+    #if os(iOS)
+    /// A grouped list's sections and rows (LLP 1082 D4).
+    func groupedList(_ view: UInt32) -> GroupedListModel? {
+        return on(busy: nil) {
+            let len = exact_grouped_list(rt, view)
+            return GroupedListModel(json: Data(bytes: exact_out(rt), count: Int(len)))
+        }
+    }
+    #endif
     /// A select's options and the one it shows (LLP 1069.001 D5).
     func selectOptions(_ view: UInt32) -> SelectMenu {
         return on(busy: SelectMenu(json: Data())) {

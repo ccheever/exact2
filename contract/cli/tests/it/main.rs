@@ -33,6 +33,7 @@ mod fonts;
 mod format;
 mod function_graph;
 mod geometry;
+mod grouped_list;
 mod height_binding;
 mod insets;
 mod instance;

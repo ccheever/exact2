@@ -25,6 +25,7 @@ pub mod controls;
 pub mod dataset;
 pub mod expr;
 mod fonts;
+mod grouped;
 mod keyframes;
 mod lint;
 mod media;
@@ -720,6 +721,18 @@ impl<'a> Lowerer<'a> {
                 controls::check_nesting(tag, parent_tag, *span)?;
                 let numeric = controls::range_attrs(control, expanded);
                 let expanded = numeric.as_deref().unwrap_or(expanded);
+                // @ref LLP 1082 D1, D3 — a grouped list's sheet, before its
+                // author's rows, and its sections' shape.
+                let grouped = grouped::style(tag, expanded)?;
+                let (sheet, sections);
+                let (expanded, children) = match grouped {
+                    Some(style) => {
+                        sheet = [grouped::list_rows(style, *span), expanded.to_vec()].concat();
+                        sections = grouped::sections(style, children)?;
+                        (sheet.as_slice(), &sections)
+                    }
+                    None => (expanded, children),
+                };
                 tags::validate_list(tag, expanded, *span)?;
                 self.check_collection(tag, expanded, children, *span)?;
                 // A row list is a flex item of its column like any carousel;

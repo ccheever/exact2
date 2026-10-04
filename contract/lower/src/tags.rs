@@ -628,8 +628,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "canonical" => AttrTarget::Prop(p("headCanonical")),
         "robots" => AttrTarget::Prop(p("headRobots")),
         "status" => AttrTarget::Prop(p("headStatus")),
-        // `scroll document=(expr)`: the page's scroller when the expression
-        // holds (LLP 1048.003 D4); bare `scroll document` is `document=true`.
+        // `scroll document=(expr)`: the page's scroller when it holds (LLP 1048.003 D4); bare is `=true`.
         "document" => AttrTarget::Prop(p("scrollDocument")),
         "virtualized" => AttrTarget::Prop(p("virtualized")),
         "testId" => AttrTarget::Prop(p("testId")),
@@ -649,6 +648,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "backgroundMaterial" => AttrTarget::Prop(p("backgroundMaterial")),
         "glassGroup" => AttrTarget::Prop(p("glassGroup")),
         "buttonStyle" => AttrTarget::Prop(p("buttonStyle")),
+        "listStyle" => AttrTarget::Prop(p("listStyle")),
         "toolbarPlacement" => AttrTarget::Prop(p("toolbarPlacement")),
         "retainFocus" => AttrTarget::Prop(p("retainFocus")),
         "swipeIndicator" => AttrTarget::Prop(p("swipeIndicator")),

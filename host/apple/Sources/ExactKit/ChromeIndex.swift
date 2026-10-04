@@ -7,7 +7,7 @@
 struct ChromeIndex {
     static let keys = ["navigationBack", "inert", "popover", "popovertarget",
                        "contextTarget", "toolbarPlacement", "accessibilityKeyShortcuts",
-                       "commandfor", "swipeContent", "id", "accessibilityLive", "autofocus"]
+                       "commandfor", "swipeContent", "id", "accessibilityLive", "autofocus", "listStyle"]
     /// Props a pass reads for one value. Every list row has a role and every
     /// `main` or `header` a tag, so these are indexed by that value, never by
     /// presence.

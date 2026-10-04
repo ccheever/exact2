@@ -741,6 +741,35 @@ custom-button style to one. `accent-color` tints the styles that support it
 [the native-button fixture](../scripts/fixtures/native-buttons.contract) and
 [its compiler checks](../contract/lower/src/controls.rs) for the admitted forms.
 
+A settings screen is a grouped list: a `list` whose `appearance` is the literal
+`auto`. Its children are `section`s. A section's first child may be a `header`
+and its last a `footer`, each holding a `text`; everything between is its rows.
+A row is read by its shape: an optional leading `image "symbol:…"`, a `text`
+title, an optional second `text` (a value) or a `column` of two texts (a
+subtitle), and an optional trailing accessory — a `forward-chevron` or
+`checkmark` image, a checkbox or switch `input`, or a `button` holding only
+`image "symbol:info"`. `destructive` draws a row red. Any other row is custom
+and keeps its own views.
+
+```contract
+list appearance="auto" listStyle="inset-grouped" flex=1
+  section
+    header
+      text "Account"
+    button press=openProfile
+      image "symbol:person"
+      text "Profile"
+      image "symbol:forward-chevron"
+    footer
+      text "Who can see you."
+```
+
+`listStyle` is `inset-grouped` (the default), `grouped` or `plain`, a literal.
+iOS draws UIKit's own list (`UICollectionView` with a list configuration); the
+other hosts draw a sheet measured from it, and your own attributes replace any
+of its rows. See [the grouped-list fixture](../scripts/fixtures/grouped-list.contract)
+and LLP 1082.
+
 ## Navigation and documents
 
 A root-file `routes` table declares paths and an implicit router state. Nested

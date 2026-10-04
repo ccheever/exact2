@@ -36,6 +36,7 @@ pub mod export;
 mod flow;
 pub mod generated;
 pub mod gradient;
+pub mod grouped;
 pub mod id;
 pub mod kernel;
 pub mod layout;
@@ -61,6 +62,7 @@ pub use error::{
     ApplyError, DecodeError, KernelError, LayoutError, StyleDomainError, StyleValueError,
 };
 pub use generated::*;
+pub use grouped::{Accessory, GroupedList, GroupedRow, GroupedSection};
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
 pub use kernel::{HostCover, Kernel, NodeRef, PresentedHeight, StickyConstraint};
 pub use layout::LayoutReceipt;

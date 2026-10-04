@@ -58,6 +58,7 @@ final class Presenter {
     lazy var menus = MenuHost(presenter: self)
     lazy var keyboardToolbars = KeyboardToolbars(self)
     lazy var segments = SegmentHost(self)
+    lazy var groupedLists = GroupedListHost(self)
     lazy var controls = ControlHost(self)
     /// Nodes marked `hook="word"` (LLP 1075.003.000).
     lazy var elements = ElementHooks(self)
@@ -301,6 +302,7 @@ final class Presenter {
         collections.reset()
         autofocusProcessed.removeAll()
         segments.reset()
+        groupedLists.reset()
         controls.reset()
         edited = nil
         menus.reset()
@@ -545,6 +547,8 @@ final class Presenter {
     /// A select's options and the one it shows, read from the kernel.
     var selectOptions: ((UInt32) -> SelectMenu)?
     var buttonFace: ((UInt32) -> ButtonFace)?
+    /// A grouped list's sections and rows (LLP 1082 D4).
+    var groupedList: ((UInt32) -> GroupedListModel?)?
 
     /// An event a view reports: sent only while the presenter still has the
     /// view (the platform fires editing-ended as a destroyed field leaves the
@@ -645,6 +649,7 @@ final class Presenter {
         if !applying { flats.begin(batch) }
         pool.begin(batch)
         swipeActions.prepare()
+        groupedLists.prepare()
         prepareContexts(batch)
         modals.prepare(batch)
         navigation.prepare(batch)
@@ -857,6 +862,7 @@ final class Presenter {
         glassGroups.reconcile()
         let changed = touchedAndAbove(touchedIDs)
         swipeActions.sync(changed: changed)
+        groupedLists.sync(changed: changed)
         positionContexts()
         syncAccessibility(changed: changed)
     }

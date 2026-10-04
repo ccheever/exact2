@@ -686,6 +686,7 @@ public final class ExactSession {
         presenter.buttonFace = { [unowned self] id in runtime.buttonFace(id) }
         presenter.onIntrinsic = { [unowned self] sizes in whenIdle { [unowned self] in apply(runtime.intrinsics(sizes)) } }
         #if os(iOS)
+        presenter.groupedList = { [unowned self] id in runtime.groupedList(id) }
         // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout
         // as an intrinsic size does; the hooks replay once the module connects.
         presenter.onCovers = { [unowned self] covers in whenIdle { [unowned self] in apply(runtime.covers(covers)) } }

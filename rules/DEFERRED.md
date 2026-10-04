@@ -237,6 +237,15 @@ header, and a named scroller under an inline title's bar (LLP 1075.003
 §9.10). The Signal Clone's conversation header and photo viewer are the
 consumer. Unblocks them with no module. Take: none offered; waived by
 Charlie's approval. No new attribute, no title menu, no bar added by a route.
+**Expanded (Charlie, 2026-10-03: "A native grouped-list role mapped to
+UICollectionView list layout"):** `list appearance="auto"` is a grouped list
+(LLP 1082): sections with a header and footer, rows read by shape, UIKit's
+own list on iOS and a measured sheet elsewhere; `listStyle` picks
+`inset-grouped`, `grouped` or `plain`. The Signal Clone's settings screens are
+the consumer. Unblocks native cell highlight, separators, dynamic type and
+VoiceOver rows in a settings screen without a module. Take: none offered;
+waived by Charlie's approval. No sidebar styles, no virtualized grouped list,
+no grouped swipe actions.
 
 ## Surfaces
 

@@ -461,6 +461,11 @@ uint32_t exact_select_options(ExactRuntime rt, uint32_t view);
  * buffer, not a batch: {"button":bool,"title":string|null,"symbol":apple-name|null,
  * "raster","leading","fits":bool,"label":string|null,"style",...the native style}. */
 uint32_t exact_press_face(ExactRuntime rt, uint32_t view);
+/* A grouped list's sections and rows (LLP 1082 D4), JSON in the output
+ * buffer, not a batch: {"style","sections":[{"view","header","footer","rows":
+ * [{"view","custom","symbol","title","secondary","subtitle","accessory",
+ * "target","pressable","destructive","disabled"}]}]}, or null. */
+uint32_t exact_grouped_list(ExactRuntime rt, uint32_t view);
 
 /* The agent API (LLP 1012): a request in the input buffer's first len bytes
  * ({"op":"tree"} / "state" / "logs" / "settle"), the reply in the output

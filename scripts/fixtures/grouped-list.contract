@@ -1,0 +1,102 @@
+// LLP 1082: a grouped list — `list appearance="auto"` — as a settings
+// screen: section headers and footers, rows with a leading symbol, a value,
+// a subtitle, a disclosure chevron, a switch, a checkmark choice, a detail
+// button, a destructive row, and one custom row (a profile card) as the
+// escape hatch. iOS draws UIKit's own list (UICollectionView, list
+// configuration); the web, macOS and Linux draw the sheet Contract writes.
+// The segmented control picks `listStyle`, a literal, so each style is its
+// own list.
+component GroupedList
+  state taps = 0
+  state receipts = true
+  state scheme = "dark"
+  state kind = "inset-grouped"
+  action tap
+    taps = taps + 1
+  action toggle(on: bool)
+    receipts = on
+  action choose(next: string)
+    scheme = next
+  action pick(next: string)
+    kind = next
+  view
+    column testId="grouped-list" height="100%" padding-top="env(safe-area-inset-top)" background-color="light-dark(#f2f2f7, #000000)"
+      row role="tablist" margin=16 gap=2
+        button role="tab" aria-selected=(kind == "inset-grouped") press=pick("inset-grouped") flex=1 testId="style-inset"
+          text "Inset"
+        button role="tab" aria-selected=(kind == "grouped") press=pick("grouped") flex=1 testId="style-grouped"
+          text "Grouped"
+        button role="tab" aria-selected=(kind == "plain") press=pick("plain") flex=1 testId="style-plain"
+          text "Plain"
+      when kind == "grouped"
+        list appearance="auto" listStyle="grouped" testId="settings" flex=1
+          GroupedListRows(taps=taps, receipts=receipts, scheme=scheme, tap=tap, toggle=toggle, choose=choose)
+      else
+        when kind == "plain"
+          list appearance="auto" listStyle="plain" testId="settings" flex=1
+            GroupedListRows(taps=taps, receipts=receipts, scheme=scheme, tap=tap, toggle=toggle, choose=choose)
+        else
+          list appearance="auto" testId="settings" flex=1
+            GroupedListRows(taps=taps, receipts=receipts, scheme=scheme, tap=tap, toggle=toggle, choose=choose)
+
+component GroupedListRows
+  props
+    taps: number
+    receipts: bool
+    scheme: string
+    tap: action
+    toggle: action
+    choose: action
+  view
+    section
+      button press=tap testId="profile"
+        row width=56 height=56 border-radius=28 background-color="#5b8def" align-items="center" justify-content="center" margin-top=10 margin-bottom=10
+          text "MC" color="#ffffff" font-size=22 font-weight=600
+        column flex-grow=1 margin-left=8 min-width=0
+          text "Maya Chen" font-size=22
+          text "+1 415 555 0134" color="light-dark(#3c3c4399, #ebebf599)" font-size=15
+        image "symbol:forward-chevron" width=10 height=14 object-fit="contain" font-weight=600 tint-color="light-dark(#3c3c434d, #ebebf54d)"
+    section
+      header
+        text "Account"
+      button press=tap testId="account"
+        image "symbol:person"
+        text "Account"
+        image "symbol:forward-chevron"
+      button press=tap testId="notifications"
+        image "symbol:notifications"
+        text "Notifications"
+        text "On"
+        image "symbol:forward-chevron"
+      button press=tap testId="privacy"
+        image "symbol:lock"
+        column
+          text "Privacy"
+          text "Screen lock, read receipts"
+        image "symbol:forward-chevron"
+      row testId="detail-row"
+        image "symbol:info"
+        text "Detail"
+        button press=tap testId="detail" aria-label="More info"
+          image "symbol:info" width=26 height=26 object-fit="contain" tint-color="light-dark(#0088ff, #0091ff)"
+      footer
+        text `Tapped ${taps} times.`
+    section
+      header
+        text "Appearance"
+      row testId="receipts-row"
+        text "Read Receipts"
+        input type="checkbox" switch checked=receipts input=toggle testId="receipts" aria-label="Read Receipts"
+      button press=choose("dark") testId="dark"
+        text "Dark"
+        when scheme == "dark"
+          image "symbol:checkmark"
+      button press=choose("system") testId="system"
+        text "System"
+        when scheme == "system"
+          image "symbol:checkmark"
+      footer
+        text "Footer text for the section that explains the setting."
+    section
+      button press=tap destructive=true testId="delete"
+        text "Delete Account"
