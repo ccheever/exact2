@@ -40,7 +40,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { checkModuleRoster, copyShaders, appleCargoClaims, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
+import { HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators } from './devices.mjs';
@@ -128,7 +128,14 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
   const namespace = resolve(owner, destination, target, composition, trust);
   const product = destination === 'macos' ? (host ? 'ExactHostMac' : 'ExactMac') : (host ? 'ExactHostIOS' : 'ExactIOS');
   const products = resolve(namespace, host ? 'host' : 'standalone');
-  return { owner, namespace, target, product, products, scratch: resolve(namespace, 'swift'),
+  // The Swift host is the same code for every app, so its compile is shared:
+  // one SwiftPM scratch per destination and deployment target, whatever the
+  // app, its composition or its trust (a per-app scratch recompiled ExactKit
+  // for each app: 45–56 s on an M4, 100 s under load). Only the link is the
+  // app's, made under `swiftLock` and copied out to the app's private stage
+  // before the lock is released. `scratch` keeps what is the app's alone.
+  const swift = resolve(app.target, 'apple-swift', `${destination}-${deploymentTargets(app)[platform]}`);
+  return { owner, namespace, target, product, products, scratch: resolve(namespace, 'link'), swift, swiftLock: `${swift}.lock`,
     lock: resolve(owner, '.apple-build.lock'), capture: resolve(namespace, 'capture'),
     binary: resolve(products, product), bundle: destination === 'macos'
       ? resolve(owner, 'macos', `${host ? app.displayName + ' Host' : app.displayName}.app`)
@@ -761,12 +768,11 @@ function main(args) {
       HOST_CXXFLAGS: `${process.env.HOST_CXXFLAGS ?? ''} -isysroot ${read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim()}`,
     } : {}),
   };
-  // A production bake is `release`; any other builds `apple-dev` (Cargo.toml),
+  // A production bake is `release`; any other builds `host-dev` (Cargo.toml),
   // the same optimizations without whole-graph LTO, for the touch-one-line budget.
   // An app outside this repo gets it with the root's other profiles, injected
   // at build (injectedProfiles, LLP 1036.001 D1).
-  const devProfile = 'apple-dev';
-  const cargoProfile = cargoEnv.EXACT_UPDATE_TRUST === 'production' ? 'release' : devProfile;
+  const cargoProfile = cargoEnv.EXACT_UPDATE_TRUST === 'production' ? 'release' : HOST_DEV;
   const cargoLibDir = resolve(app.target, target, cargoProfile);
   // Named Cargo products can alias in external workspaces or two checkouts
   // sharing a target. Claim those names through bake-and-capture only.
@@ -782,8 +788,11 @@ function main(args) {
     // again only when Cargo's bytes or the identity change.
     const signed = resolve(dirname(product), 'signed', basename(product)), record = `${signed}.source`;
     const source = `${createHash('sha256').update(readFileSync(product)).digest('hex')} ${sha1 ?? '-'}\n`;
+    // An ad-hoc signature (`-`: every simulator build) names no certificate
+    // to require; asked for one, the verification failed, and the copy was
+    // signed again by every build, which reran the app's bake and compile.
     const current = existsSync(signed) && existsSync(record) && readFileSync(record, 'utf8') === source
-      && read('codesign', ['--verify', '--strict', ...(sha1 ? ['-R', `=certificate leaf = H"${sha1}"`] : []), signed]).status === 0;
+      && read('codesign', ['--verify', '--strict', ...(sha1 && sha1 !== '-' ? ['-R', `=certificate leaf = H"${sha1}"`] : []), signed]).status === 0;
     if (!current) {
       mkdirSync(dirname(signed), { recursive: true });
       copyFileSync(product, signed);
@@ -860,12 +869,24 @@ function main(args) {
   const product = products[0];
   // swift build does not see the Rust archive change; drop the executables so
   // they relink against the archive cargo just built (a relink is ~0.4 s).
-  const swiftBuildRoot = paths.scratch;
+  // The scratch is shared by every app of this destination (appleArtifacts);
+  // `linkRoot` is this app's own, for what names it.
+  const swiftBuildRoot = paths.swift, linkRoot = paths.scratch;
+  mkdirSync(linkRoot, { recursive: true });
+  rmSync(resolve(paths.namespace, 'swift'), { recursive: true, force: true }); // the per-app scratch this replaced
   const binDir = mkdtempSync(resolve(paths.namespace, '.products-'));
   cleanup.push(binDir);
+  // A development build compiles the Swift host as it compiles its Rust
+  // (`host-dev`): optimized, but file by file and incrementally, so an edited
+  // Swift file is a 3-second build and not the whole module again (45 s on an
+  // M4; a cold compile is 25 s, not 57). SwiftPM compiles that way only in its
+  // debug configuration, so the optimization and the dead-code strip are
+  // asked for on top of it. A production bake and an archive keep the
+  // whole-module build, which is the smaller and faster binary.
+  const swiftWhole = cargoProfile === 'release' || !!ipa;
   // One `swift build` per product: given two `--product` flags SwiftPM
   // builds only the last; the second build is incremental and quick.
-  const swiftArgs = ['build', '-c', 'release', '--scratch-path', swiftBuildRoot];
+  const swiftArgs = ['build', '-c', swiftWhole ? 'release' : 'debug', '--scratch-path', swiftBuildRoot, ...(swiftWhole ? [] : ['-Xswiftc', '-O', '-Xlinker', '-dead_strip'])];
   if (ios) {
     swiftArgs.push(
       '--triple', iosTripleFor(app, device, tv),
@@ -896,31 +917,38 @@ function main(args) {
     // `-platform_version` wins over the driver's.
     if (designCompatible(app, 'macos')) swiftArgs.push('-Xlinker', '-platform_version', '-Xlinker', 'macos', '-Xlinker', targets.macos, '-Xlinker', COMPATIBLE_SDK.macos);
   }
-  // SwiftPM owns its output layout. Swift Build and the native build system
-  // use different directories; ask with the same destination arguments.
-  const located = read('swift', [...swiftArgs, '--show-bin-path'], { cwd: pkg, env });
-  if (located.status !== 0) throw new Error(`swift output path: ${located.stderr}`);
-  const swiftBinDir = located.stdout.trim();
-  if (!swiftBinDir || !isAbsolute(swiftBinDir)) throw new Error('swift returned no absolute binary output path');
-  for (const p of products) rmSync(resolve(swiftBinDir, p), { force: true });
-  for (const p of products) {
-    const productArgs = [...swiftArgs];
-    if (ios && !device) {
-      // Simulator Security reads entitlements from the Mach-O text section.
-      // Device-style entitlements in its ad-hoc signature can prevent launch.
-      const ent = resolve(swiftBuildRoot, `${p}-entitlements.plist`);
-      mkdirSync(swiftBuildRoot, {recursive: true});
-      writeFileSync(ent, entitlements({...app, id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, bakedCompat.reach));
-      productArgs.push('-Xlinker', '-sectcreate', '-Xlinker', '__TEXT',
-        '-Xlinker', '__entitlements', '-Xlinker', ent);
+  // The shared scratch links one app at a time: another app's build of this
+  // destination waits here (seconds once ExactKit is compiled), and the
+  // executable is in this build's private stage before the claim is let go.
+  mkdirSync(dirname(paths.swiftLock), { recursive: true });
+  const releaseSwift = awaitBuildOutput(app, paths.swiftLock, (owner) => console.log(`host/apple: waiting for the Swift build of ${owner} in ${swiftBuildRoot.replace(root + '/', '')}`));
+  try {
+    // SwiftPM owns its output layout. Swift Build and the native build system
+    // use different directories; ask with the same destination arguments.
+    const located = read('swift', [...swiftArgs, '--show-bin-path'], { cwd: pkg, env });
+    if (located.status !== 0) throw new Error(`swift output path: ${located.stderr}`);
+    const swiftBinDir = located.stdout.trim();
+    if (!swiftBinDir || !isAbsolute(swiftBinDir)) throw new Error('swift returned no absolute binary output path');
+    for (const p of products) rmSync(resolve(swiftBinDir, p), { force: true });
+    for (const p of products) {
+      const productArgs = [...swiftArgs];
+      if (ios && !device) {
+        // Simulator Security reads entitlements from the Mach-O text section.
+        // Device-style entitlements in its ad-hoc signature can prevent launch.
+        const ent = resolve(linkRoot, `${p}-entitlements.plist`);
+        writeFileSync(ent, entitlements({...app, id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, bakedCompat.reach));
+        productArgs.push('-Xlinker', '-sectcreate', '-Xlinker', '__TEXT',
+          '-Xlinker', '__entitlements', '-Xlinker', ent);
+      }
+      runApple('swift', [...productArgs, '--product', p], { cwd: pkg, env });
+      const executable = resolve(binDir, p);
+      copyFileSync(resolve(swiftBinDir, p), executable);
+      assertAppleIdentity(app, executable, bakedCompat.id);
+      const platform = ios ? 'ios' : 'macos';
+      assertLinkedSdk(executable, designCompatible(app, platform) ? COMPATIBLE_SDK[platform] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
     }
-    runApple('swift', [...productArgs, '--product', p], { cwd: pkg, env });
-    const executable = resolve(binDir, p);
-    copyFileSync(resolve(swiftBinDir, p), executable);
-    assertAppleIdentity(app, executable, bakedCompat.id);
-    const platform = ios ? 'ios' : 'macos';
-    assertLinkedSdk(executable, designCompatible(app, platform) ? COMPATIBLE_SDK[platform] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
-  }
+  } finally { releaseSwift(); }
+  const tSwift = Date.now();
   // The iframe arm (@ref LLP 1020 D3): the only artifact that links WebKit.
   // It is built beside the presenter but never linked into it; WebModule.swift
   // dlopens this file at the first iframe create commit.
@@ -936,15 +964,20 @@ function main(args) {
   }
   // Each arm is one Swift file: compile it once per source, arguments and
   // compiler, kept in the scratch path. Rebuilt into a fresh directory, the
-  // two cost 93 s of every build at load 120.
+  // two cost 93 s of every build at load 120. The host's own arms are kept
+  // in the shared scratch, one compile for every app; an app's module
+  // artifact (`own`) in its own directory, so two apps never evict each
+  // other's. Each is written under this process's name and renamed, since
+  // another app's build may be compiling the same arm.
   const swiftc = read('xcrun', ['--sdk', sdkName, 'swiftc', '--version']).stdout ?? '';
-  const arm = (args, source, built, extra = '') => {
+  const arm = (args, source, built, extra = '', own = false) => {
     const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : a), [].concat(source).map(f => readFileSync(f, 'utf8')), swiftc, extra])).digest('hex').slice(0, 16);
-    const dir = resolve(swiftBuildRoot, 'arms'), cached = resolve(dir, `${key}-${basename(built)}`);
+    const dir = resolve(own ? linkRoot : swiftBuildRoot, 'arms'), cached = resolve(dir, `${key}-${basename(built)}`);
     if (!existsSync(cached)) {
       mkdirSync(dir, { recursive: true });
-      runApple('xcrun', args.map(a => a === built ? `${cached}.tmp` : a));
-      renameSync(`${cached}.tmp`, cached);
+      const making = `${cached}.${process.pid}.tmp`;
+      runApple('xcrun', args.map(a => a === built ? making : a));
+      renameSync(making, cached);
       for (const old of readdirSync(dir)) if (old.endsWith(`-${basename(built)}`) && resolve(dir, old) !== cached) rmSync(resolve(dir, old), { force: true });
     }
     copyFileSync(cached, built);
@@ -961,7 +994,7 @@ function main(args) {
   const modulesLoadName = 'libexact_modules.dylib';
   // @ref LLP 1075.003 Q2 — the app's `data-*` words as typed keys, written
   // from app.json `data` beside the glue (built, never committed).
-  const dataKeys = resolve(swiftBuildRoot, `ExactDataKeys-${app.id}.swift`);
+  const dataKeys = resolve(linkRoot, `ExactDataKeys-${app.id}.swift`);
   if (app.modules.apple.length) writeDataKeys(app, dataKeys);
   const moduleSources = app.modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), dataKeys, ...app.modules.apple] : [];
   const modulesBuilt = moduleSources.length ? resolve(webBuildDir, modulesLoadName) : null;
@@ -1000,7 +1033,7 @@ function main(args) {
   const iosArch = device ? 'arm64' : (iosTriple.startsWith('arm64') ? 'arm64' : 'x86_64');
   const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false, arch = macArch) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...frameworkArgs(forIos, simulator, arch), ...linkArgs(forIos), '-o', out, ...targetArgs];
   const macTarget = ['-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`];
-  if (modulesBuilt) arm(moduleArgs(sdkName, ios ? ['-target', device ? 'arm64-apple-ios17.0' : tv ? iosTripleFor(app, false, true) : iosTriple, '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), moduleSources, modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch));
+  if (modulesBuilt) arm(moduleArgs(sdkName, ios ? ['-target', device ? 'arm64-apple-ios17.0' : tv ? iosTripleFor(app, false, true) : iosTriple, '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), moduleSources, modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch), true);
   if (app.modules.tags.length) {
     // The roster the artifact serves, read from its table: a macOS slice (the
     // one this process can load) of the same sources for an iOS build.
@@ -1012,7 +1045,7 @@ function main(args) {
     if (modulesBuilt && typeof Bun !== 'undefined' && !probeable) console.warn(`host/apple: an xcframework has no macOS slice, so the iOS module roster is not probed; the manifest's roster stands`);
     if (modulesBuilt && typeof Bun !== 'undefined' && probeable) {
       const probe = ios ? resolve(webBuildDir, 'probe-' + modulesLoadName) : modulesBuilt;
-      if (ios) arm(moduleArgs('macosx', macTarget, probe), moduleSources, probe, frameworkStamp(false, false, macArch));
+      if (ios) arm(moduleArgs('macosx', macTarget, probe), moduleSources, probe, frameworkStamp(false, false, macArch), true);
       const { dlopen, read, CString } = import.meta.require('bun:ffi');
       const table = dlopen(probe, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi();
       provided = Object.keys(JSON.parse(new CString(read.ptr(table, 8)).toString()));
@@ -1022,13 +1055,21 @@ function main(args) {
   // The SVG island module (@ref LLP 1055.000 §8 ruling 4): exact-svg-raster
   // as its own dylib, never linked into the presenter; SvgIsland.swift
   // dlopens it the first time a mask or filter needs pixel work.
+  const tArms = Date.now();
   const svgBuilt = resolve(webBuildDir, svgLoadName);
   const svgTarget = process.env.CARGO_TARGET_DIR ?? resolve(root, 'target');
+  // The host's two Rust modules build with the app's profile. A development
+  // build's are `host-dev`, sharing the archive's units: at `release` the
+  // kernel was compiled a second time, in one codegen unit and through thin
+  // LTO, which was 27 of the 35 s a touched kernel line cost and 57 of a cold
+  // build's 184 s (an M4).
   // Unstripped: Xcode 27's strip leaves this dylib with a mis-aligned
   // LINKEDIT string pool that dyld refuses (as Cargo.toml says of build
   // scripts), even at `strip = "debuginfo"`.
-  runApple('cargo', ['build', '--release', '-p', 'exact-svg-raster', '--lib', '--target', target, '--target-dir', svgTarget, '--manifest-path', resolve(root, 'Cargo.toml')], { cwd: root, env: { ...process.env, ...cargoEnv, CARGO_PROFILE_RELEASE_STRIP: 'false' } });
-  copyFileSync(resolve(svgTarget, target, 'release', 'libexact_svg_raster.dylib'), svgBuilt);
+  const moduleCargo = (pkg) => runApple('cargo', ['build', '--profile', cargoProfile, '-p', pkg, '--lib', '--target', target, '--target-dir', svgTarget, '--manifest-path', resolve(root, 'Cargo.toml')],
+    { cwd: root, env: { ...process.env, ...cargoEnv, [`CARGO_PROFILE_${cargoProfile.toUpperCase().replace(/-/g, '_')}_STRIP`]: 'false' } });
+  moduleCargo('exact-svg-raster');
+  copyFileSync(resolve(svgTarget, target, cargoProfile, 'libexact_svg_raster.dylib'), svgBuilt);
   // The Canvas 2D GPU module (@ref LLP 1056 §8.5): exact-canvas-vello as its
   // own dylib, never linked into the presenter; Canvas2DGpu.swift dlopens it
   // the first time a canvas that animates draws. Its shaders are Metal
@@ -1043,12 +1084,17 @@ function main(args) {
     // ("mis-aligned LINKEDIT string pool", as it does the SVG module; found by
     // dlopen in the simulator, 2026-09-30). The crate's build.rs has the linker
     // omit its local symbols instead (-Wl,-x).
-    runApple('cargo', ['build', '--release', '-p', 'exact-canvas-vello', '--lib', '--target', target, '--target-dir', svgTarget, '--manifest-path', resolve(root, 'Cargo.toml')], { cwd: root, env: { ...process.env, ...cargoEnv, CARGO_PROFILE_RELEASE_STRIP: 'false' } });
-    copyFileSync(resolve(svgTarget, target, 'release', 'libexact_canvas_vello.dylib'), canvasGpuBuilt);
+    moduleCargo('exact-canvas-vello');
+    copyFileSync(resolve(svgTarget, target, cargoProfile, 'libexact_canvas_vello.dylib'), canvasGpuBuilt);
   } else {
     console.warn('host/apple: no Metal toolchain, so no Canvas 2D GPU module: canvases draw with Core Graphics. Install it with `xcodebuild -downloadComponent MetalToolchain`.');
   }
   const t2 = Date.now();
+  // Where the build's time went, said at its end: the app's Rust and bake; the
+  // Swift host's compile and link; the arms and the app's module artifact;
+  // the host's two Rust modules; and assembling, signing and installing.
+  const seconds = (ms) => (ms / 1000).toFixed(1);
+  const timing = () => `cargo ${seconds(t1 - t0)} s, swift ${seconds(tSwift - t1)} s, arms ${seconds(tArms - tSwift)} s, modules ${seconds(t2 - tArms)} s, package ${seconds(Date.now() - t2)} s`;
   const bin = resolve(binDir, product);
   const hostPaths = appleArtifacts(app, { destination, composition, trust: cargoEnv.EXACT_UPDATE_TRUST, host: true });
   const publishProducts = () => {
@@ -1151,7 +1197,7 @@ function main(args) {
     publishProducts();
     release();
     rmSync(webBuildDir, { recursive: true, force: true });
-    console.log(`host/apple: ${resolve(paths.products, product).replace(root + '/', '')} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s; ${sha1 ? 'signed ' + sha1.slice(0, 8) : 'ad-hoc signed'}); GPU: ${gpuNote}; web arm: ${webLoadName}${modulesBuilt ? `; modules: ${modulesLoadName}` : ''}`);
+    console.log(`host/apple: ${resolve(paths.products, product).replace(root + '/', '')} (${timing()}; ${sha1 ? 'signed ' + sha1.slice(0, 8) : 'ad-hoc signed'}); GPU: ${gpuNote}; web arm: ${webLoadName}${modulesBuilt ? `; modules: ${modulesLoadName}` : ''}`);
     // A live source is explicit (--url or EXACT_DEV_PLAN). The shared web
     // output may belong to another app, and TypeScript edits publish complete
     // URL generations rather than rewriting its initial app.plan.
@@ -1222,7 +1268,7 @@ function main(args) {
     mkdirSync(dirname(ipa), { recursive: true });
     rmSync(ipa, { force: true });
     run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', resolve(payload, 'Payload'), ipa]);
-    console.log(`host/apple: ${ipa} (${prof ? `signed by ${prof.name}` : 'ad-hoc signed, for re-signing'}, cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s${svgFilterBuilt ? '' : '; no SVG filter kernels (no Metal toolchain)'})`);
+    console.log(`host/apple: ${ipa} (${prof ? `signed by ${prof.name}` : 'ad-hoc signed, for re-signing'}, ${timing()}${svgFilterBuilt ? '' : '; no SVG filter kernels (no Metal toolchain)'})`);
     return;
   }
   const dev = device ? ph : simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined, { tv });
@@ -1233,7 +1279,7 @@ function main(args) {
       run('xcrun', ['devicectl', 'device', 'install', 'app', '--device', ph.udid, placed]);
     } else install(dev, placed, app, host);
   }
-  console.log(`host/apple: ${paths.bundle} on ${dev.name} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s); GPU: ${gpuNote}${ios && !svgFilterBuilt ? '; no SVG filter kernels (no Metal toolchain)' : ''}; web arm: ${webLoadName}${modulesBuilt ? `; modules: ${modulesLoadName} (Frameworks, signed)` : ''}`);
+  console.log(`host/apple: ${paths.bundle} on ${dev.name} (${timing()}); GPU: ${gpuNote}${ios && !svgFilterBuilt ? '; no SVG filter kernels (no Metal toolchain)' : ''}; web arm: ${webLoadName}${modulesBuilt ? `; modules: ${modulesLoadName} (Frameworks, signed)` : ''}`);
   if (args.includes('--run')) {
     if (device) run('xcrun', deviceLaunchArgs(ph.udid, app.id, launchEnv));
     else {
@@ -1276,8 +1322,9 @@ function test(args) {
     const unit = package_ && cargoLibraryTarget(package_);
     if (!unit) throw new Error(`Cargo has no library target for ${crate}`);
     cargoRelease = claimBuildOutput(app, appleCargoClaims(app, ios ? iosTarget : 'host', [unit])[0]);
-    run('cargo', ['rustc', '--crate-type', 'staticlib', '--release', '-p', crate, '--lib', ...(ios ? ['--target', iosTarget] : [])], { cwd: app.workspace, env: cargoEnv });
-    const libDir = ios ? resolve(app.target, iosTarget, 'release') : resolve(app.target, 'release');
+    // The development profile, as an app's build: `release` put the whole graph through LTO for a test run.
+    run('cargo', ['rustc', '--crate-type', 'staticlib', ...injectedProfiles(app), '--profile', HOST_DEV, '-p', crate, '--lib', ...(ios ? ['--target', iosTarget] : [])], { cwd: app.workspace, env: cargoEnv });
+    const libDir = ios ? resolve(app.target, iosTarget, HOST_DEV) : resolve(app.target, HOST_DEV);
     const env = { ...process.env, EXACT_TESTS: '1', EXACT_LIB_DIR: libDir, EXACT_LIB: unit.name.replace(/-/g, '_'), EXACT_APP_COMPOSITION: 'embedded' };
     // The filter kernels the Metal chain's tests run (no bundle to find them in).
     mkdirSync(paths.namespace, { recursive: true });

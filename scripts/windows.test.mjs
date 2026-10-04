@@ -1,4 +1,5 @@
 import {test, expect} from 'bun:test';
+import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
@@ -6,11 +7,40 @@ import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {closeFilesystemReader, filesystem, filesystemErrorCode} from './filesystem.mjs';
 import {packagedBuildChanges} from './agent-launch.mjs';
-import {browserKey} from './agent.mjs';
+import {browserKey, open} from './agent.mjs';
 import {runCaps} from './caps.mjs';
 import {binaryenArchive, binaryenVersion} from './exact.mjs';
 import {listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
 import {gameShells} from '../game/app/shells.mjs';
+
+test('browser contextmenu reaches an off-center point and refuses invalid or covered points', async () => {
+  const server = Bun.serve({port:0, fetch() { return new Response(`
+    <div id="exact-root" data-boot-ms="1"><canvas id="world" style="position:absolute;left:20px;top:30px;width:100px;height:100px"></canvas>
+    <button style="position:absolute;left:20px;top:30px;width:20px;height:20px">HUD</button></div>
+    <script>
+    const world=document.getElementById('world'), events=[];
+    for (const type of ['pointerdown','pointerup','contextmenu']) world.addEventListener(type,e=>{e.preventDefault();events.push([type,e.clientX,e.clientY,e.button,e.isTrusted]);});
+    const node={id:1,type:'canvas',props:{testId:'world'}}, box={id:1,x:20,y:30,w:100,h:100};
+    const agent=async r=>r.op==='tags'?{clock:0}:r.op==='tree'?{nodes:[node]}:r.op==='layout'?{viewport:{w:420,h:900},nodes:[box]}:r.op==='state'?{events}:{};
+    window.exact={ready:Promise.resolve(),views:new Map([[1,world]]),agent,agentSettled:agent};
+    </script>`, {headers:{'content-type':'text/html'}}); }});
+  let session;
+  try {
+    session=await open({host:'web',url:server.url.href});
+    const reply=await session.tap('world',{contextmenu:true,at:[25,75]});
+    expect(reply.at).toEqual([45,105]);
+    const {events}=await session.carrier.ask({op:'state'});
+    expect(events.map(event=>event[0]).sort()).toEqual(['contextmenu','pointerdown','pointerup']);
+    expect(events.every(event=>event[1]===45 && event[2]===105 && event[3]===2 && event[4]===true)).toBe(true);
+    for(const at of [null,[],[25],[25,75,0],['25',75],[NaN,75],[25,Infinity],[-1,75],[100,75],[25,100],[5,5]]) {
+      await assert.rejects(session.tap('world',{contextmenu:true,at}), /contextmenu|covers/);
+    }
+    expect((await session.carrier.ask({op:'state'})).events).toEqual(events);
+    await session.tap('world',{down:true,at:[25,75]});
+    await assert.rejects(session.tap('world',{contextmenu:true,at:[25,75]}), /held contact/);
+    await session.pointer('up');
+  } finally { await session?.close(); server.stop(true); }
+},60000);
 
 test.skipIf(process.platform !== 'win32')('release Windows game shells use GUI executables and preserve agent pipes', () => {
   const root=mkdtempSync(resolve(tmpdir(),'exact GUI shell '));

@@ -1,0 +1,58 @@
+// Exact owns document state and layout. The small Windows adapter presents HWNDs.
+component WindowsDesk
+  state title = "Welcome to Windows Desk"
+  state body = "A little native Windows app, built with Exact2.\n\nTry typing here. This is a real Windows text editor: selection, undo, copy and paste, keyboard navigation, and a native scrollbar.\n\nChoose a sample on the left, or open a text file. Save As exports your document wherever you choose.\n\nCtrl+N  New document\nCtrl+O  Open text file\nCtrl+S  Save document\n\nThe Contract file owns this document and its layout. Windows owns the controls."
+  state dirty = false
+  state pinned = false
+  action changeTitle(value)
+    title = value
+    dirty = true
+  action changeBody(value)
+    body = value
+    dirty = true
+  action pin(value)
+    pinned = value
+  action fresh
+    title = "Untitled"
+    body = ""
+    dirty = false
+    pinned = false
+  action welcome
+    title = "Welcome to Windows Desk"
+    body = "Exact2 + Windows\n\nThis window uses native Windows controls.\n\nEdit a document, try a different font, pin the window, and save a text file.\n\nUse Tab to move between controls. Right-click the editor for its native editing menu."
+    dirty = false
+  action checklist
+    title = "Today's checklist"
+    body = "TODAY\n\n[ ] Write down one good idea\n[ ] Take a walk\n[ ] Make something small\n\nNOTES\n\nA little space to think."
+    dirty = false
+  action scratch
+    title = "Scratchpad"
+    body = "Ideas, reminders, and loose ends...\n\n"
+    dirty = false
+  action saved
+    dirty = false
+  view
+    column width="100%" height="100%" padding=20 gap=16 box-sizing="border-box"
+      text "Windows Desk" id="heading" height=34 font-size=24
+      text "A small workspace made with Exact2 and Windows controls" id="subtitle" height=24
+      row flex=1 min-height=0 gap=22
+        column width=210 gap=12
+          text "START WITH A SAMPLE" id="samples-label" height=24
+          list id="samples" height=180
+            button "Welcome" id="welcome" press=welcome height=40
+            button "Today's checklist" id="checklist" press=checklist height=40
+            button "Scratchpad" id="scratch" press=scratch height=40
+          button "New document" id="new" press=fresh height=36
+          button "Open text file..." id="open" height=36
+          button "Save As..." id="save" press=saved height=36
+          text "EDITOR FONT" id="font-label" height=24 margin-top=16
+          select id="font" height=32
+            option "Segoe UI" value="Segoe UI"
+            option "Consolas" value="Consolas"
+            option "Georgia" value="Georgia"
+          input type="checkbox" id="pin" checked=pinned change=pin height=32
+        column flex=1 min-width=0 min-height=0 gap=12
+          text "DOCUMENT TITLE" id="title-label" height=24
+          input id="title" value=title input=changeTitle height=38
+          textarea id="body" value=body input=changeBody flex=1 min-height=0
+      text (dirty ? "Unsaved changes" : "Ready") id="status" height=24

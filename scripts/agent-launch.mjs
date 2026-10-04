@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bakeOutput, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
+import { bakeOutput, linuxBinary, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -156,7 +156,7 @@ export function bakedPlans(linuxBin, bakeDir) {
  * left — where the live driver looks. */
 export function traceLocators(appName) {
   const out = [process.env.EXACT_DEV_PLAN, resolve(webDist(), 'app.plan')].filter(Boolean);
-  try { const a = resolveApp(appName); out.push(...bakedPlans(process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`), bakeOutput(a))); } catch {}
+  try { const a = resolveApp(appName); out.push(...bakedPlans(process.env.EXACT_LINUX_BIN ?? linuxBinary(a), bakeOutput(a))); } catch {}
   return out;
 }
 

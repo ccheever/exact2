@@ -29,7 +29,7 @@ pub fn project() -> PathBuf {
 }
 
 /// `lake`, from `PATH` or elan's default place.
-fn lake() -> PathBuf {
+pub fn lake() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
         let elan = Path::new(&home).join(".elan/bin/lake");
         if elan.is_file() {
@@ -43,7 +43,12 @@ fn lake() -> PathBuf {
 /// the generated `main` calls the interpreter as machine code).
 pub fn build() -> Result<(), String> {
     let out = Command::new(lake())
-        .args(["build", "Contract.Observe", "Contract.OracleText"])
+        .args([
+            "build",
+            "Contract.Observe",
+            "Contract.OracleText",
+            "Contract.LowerCheck",
+        ])
         .current_dir(project())
         .output()
         .map_err(|e| format!("lake build: {e} (is Lean installed? see semantics/README.md)"))?;

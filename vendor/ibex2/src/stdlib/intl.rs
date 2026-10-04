@@ -8,18 +8,13 @@
 //! @ref LLP 0057#3-the-boundary — Rust owns standard-library semantics
 
 use crate::boundary::{HostArg, HostError, HostValue};
+use crate::host_opcodes::intl_number::{
+    CREATE, CURRENCY_DIGITS, FORMAT, FORMAT_PARTS, PART_TYPE, PART_VALUE, RESOLVED,
+    SUPPORTED_LOCALES,
+};
 use std::collections::HashMap;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::sync::{Arc, Mutex, Weak};
-
-const CREATE: u32 = 90;
-const FORMAT: u32 = 91;
-const FORMAT_PARTS: u32 = 92;
-const PART_TYPE: u32 = 93;
-const PART_VALUE: u32 = 94;
-const RESOLVED: u32 = 95;
-const SUPPORTED_LOCALES: u32 = 96;
-const CURRENCY_DIGITS: u32 = 98;
 
 const INTEGER_FIELD: i32 = 0;
 const FRACTION_FIELD: i32 = 1;

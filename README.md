@@ -235,7 +235,7 @@ reload stream, never the local installer's token.
 ```sh
 bun host/apple/build.mjs --run              # macOS
 bun host/apple/build.mjs --ios --run        # an iOS Simulator (--device --run for a connected iPhone)
-cargo build --release -p caltrain-linux     # Linux: a DRM/KMS console, or headless anywhere
+cargo build --profile host-dev -p caltrain-linux   # Linux: a DRM/KMS console, or headless anywhere (--release to ship)
 ```
 
 A first native build takes a few minutes; later builds reuse it. iOS commands use an
@@ -601,8 +601,11 @@ else here was admitted because a real app needed it.
 
 ### Not yet, or not at all
 
-- **Windows and Android.** Deferred. A Direct2D host exists in the predecessor, and it
-  gets ported once the loop is proven.
+- **Windows.** An initial native host runs Skirmish with the shared renderer and
+  optional game engine. [Windows Desk](apps/windows-desk/README.md) demonstrates
+  native controls over Contract and the kernel with an app-local Win32 presenter;
+  general Windows control parity and delivery remain unfinished.
+- **Android.** Deferred.
 - **No JSX or React tier.** Nothing runs JavaScript above the data seam. The door stays
   open, but no one is building it.
 - **TypeScript can't import npm packages yet.** `app.ts` imports only its own local

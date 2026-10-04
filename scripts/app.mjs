@@ -196,7 +196,7 @@ export function lockedMetadata(workspace, noDeps = false, env = process.env) {
   const args = ['metadata', '--locked', '--offline', ...(noDeps ? ['--no-deps'] : []), '--format-version', '1'];
   const options = { cwd: workspace, env, encoding: 'utf8', maxBuffer: 1 << 26 };
   let result = spawnSync('cargo', args, options);
-  if (result.status !== 0 && /--offline was specified|attempting to make an HTTP request|in the offline mode/.test(result.stderr ?? '')) {
+  if (result.status !== 0 && /--offline was specified|attempting to make an HTTP request|in the offline mode|offline mode \(via `--offline`\)/.test(result.stderr ?? '')) {
     console.error(`${workspace}: fetching missing locked Cargo sources (cargo fetch --locked)`);
     const fetched = spawnSync('cargo', ['fetch', '--locked'], options);
     if (fetched.status === 0) result = spawnSync('cargo', args, options);
@@ -712,7 +712,7 @@ function buildCommand(command, args, app, env, stderr = 'pipe') {
   // An offline Cargo that lacks a source it needs (a new workspace, a new
   // lock entry) fetches the lock's sources once and tries again, instead of
   // failing on the first missing crate (LLP 1054 O2).
-  if (command === 'cargo' && result.status !== 0 && /--offline was specified|attempting to make an HTTP request|in the offline mode/.test(result.stderr ?? '')) {
+  if (command === 'cargo' && result.status !== 0 && /--offline was specified|attempting to make an HTTP request|in the offline mode|offline mode \(via `--offline`\)/.test(result.stderr ?? '')) {
     console.error(`${app.name}: Cargo's sources are not all fetched; fetching the locked ones (cargo fetch --locked) and trying again`);
     const fetched = spawnSync('cargo', ['fetch', '--locked'], { cwd: app.workspace, env, stdio: ['ignore', 'inherit', 'inherit'] });
     if (fetched.status === 0) result = spawnSync(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
@@ -754,6 +754,16 @@ export function hermesIos(env = process.env) {
   if (env.EXACT_HERMES_IOS_DIR) return { pin, root: resolve(env.EXACT_HERMES_IOS_DIR), cached: false };
   return { pin, root: resolve(env.HOME ?? homedir(), '.cache/exact/hermes', `${pin.slice(0, 12)}-lean-ios`), cached: true };
 }
+/** The profile a development native build compiles with (Cargo.toml): an
+ * Apple app through host/apple/build.mjs, the Linux host by `linuxBuild`.
+ * What ships is baked at `release`. */
+export const HOST_DEV = 'host-dev';
+/** The Linux host an agent drives: the app's development executable, or
+ * another binary of its Linux crate (`<app>-render`). */
+export const linuxBinary = (app, bin = app.crate('linux')) => resolve(app.target, HOST_DEV, bin);
+/** The command that builds it. An app outside this repo gets the root's
+ * profiles on the command line, as its Apple build does (injectedProfiles). */
+export const linuxBuild = (app, bin = null) => ['cargo', 'build', ...injectedProfiles(app), '--profile', HOST_DEV, '-p', app.crate('linux'), ...(bin ? ['--bin', bin] : [])];
 export function bakeTarget(platform) {
   if (platform === 'web') return 'wasm32-unknown-unknown';
   if (platform === 'ios') return 'aarch64-apple-ios';
@@ -1014,6 +1024,21 @@ export function claimBuildOutput(app, path) {
   const release = () => { if (held) { held = false; rmSync(path); process.removeListener('exit', release); } };
   process.once('exit', release);
   return release;
+}
+
+/** A claim on an output several apps share and each holds briefly (the Swift
+ * scratch): wait for a live owner instead of refusing. `waiting` hears the
+ * owner's app once. A dead owner's claim is taken, as claimBuildOutput takes it. */
+export function awaitBuildOutput(app, path, waiting) {
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  for (let told = false; ; Atomics.wait(pause, 0, 0, 200)) {
+    try { return claimBuildOutput(app, path); }
+    catch (error) {
+      if (!/^Apple build busy for /.test(error.message)) throw error;
+      // The message carries the owner's claim: its app, not the one waiting.
+      if (!told) { told = true; waiting?.(/"app":"([^"]+)"/.exec(error.message)?.[1] ?? 'another app'); }
+    }
+  }
 }
 
 function claimLive(text) {

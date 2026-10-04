@@ -4,10 +4,15 @@
 
 use ibex2::engine::hermes::{DynamicCode, Hermes};
 
+fn install_runtime(rt: &mut Hermes) {
+    let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+    rt.install_runtime(ibex2::bindings::Groups::DEFAULT, &context)
+        .expect("bindings");
+}
+
 fn hardened() -> Hermes {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-    assert!(rt.install_stdlib());
-    rt.install_bindings().expect("bindings");
+    install_runtime(&mut rt);
     rt.harden().expect("harden");
     rt
 }
@@ -117,8 +122,7 @@ fn the_freeze_stays_within_its_budget() {
     let mut samples: Vec<f64> = (0..20)
         .map(|_| {
             let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-            assert!(rt.install_stdlib());
-            rt.install_bindings().expect("bindings");
+            install_runtime(&mut rt);
             let t = std::time::Instant::now();
             rt.harden().expect("harden");
             t.elapsed().as_secs_f64() * 1000.0
@@ -142,8 +146,7 @@ fn the_freeze_stays_within_its_budget() {
 fn the_global_object_carries_exactly_the_allowed_names() {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     let baseline: std::collections::BTreeSet<String> = rt.global_names().into_iter().collect();
-    assert!(rt.install_stdlib());
-    rt.install_bindings().expect("bindings");
+    install_runtime(&mut rt);
     rt.harden().expect("harden");
     let added: std::collections::BTreeSet<String> = rt
         .global_names()
@@ -152,11 +155,12 @@ fn the_global_object_carries_exactly_the_allowed_names() {
         .collect();
     // The set to match is what the list allows beyond what the engine already
     // had (anything the engine provides natively is in the baseline).
-    let allowed: std::collections::BTreeSet<String> = ibex2::loader::ALLOWED_GLOBALS
-        .iter()
-        .map(|s| s.to_string())
-        .filter(|name| !baseline.contains(name))
-        .collect();
+    let allowed: std::collections::BTreeSet<String> =
+        ibex2::loader::allowed_globals(rt.installed_groups().expect("groups were installed"))
+            .into_iter()
+            .map(|s| s.to_string())
+            .filter(|name| !baseline.contains(name))
+            .collect();
     assert_eq!(
         added, allowed,
         "left: on the global object; right: ALLOWED_GLOBALS minus the engine's own"

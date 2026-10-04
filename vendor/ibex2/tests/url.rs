@@ -7,8 +7,9 @@ use ibex2::engine::hermes::{DynamicCode, Hermes};
 
 fn runtime() -> Hermes {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-    assert!(rt.install_stdlib());
-    rt.install_bindings().expect("bindings");
+    let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+    rt.install_runtime(ibex2::bindings::Groups::DEFAULT, &context)
+        .expect("bindings");
     rt
 }
 

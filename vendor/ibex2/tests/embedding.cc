@@ -3,6 +3,7 @@
 #include "../include/ibex2_jsi.h"
 #include <cstdlib>
 #include <cstring>
+#include <type_traits>
 
 using namespace facebook;
 namespace {
@@ -16,13 +17,89 @@ struct Consumer {
   std::unique_ptr<jsi::Runtime> runtime;
   std::unique_ptr<ibex2::jsi_adapter::Adapter> adapter;
 };
+uint32_t bytecode_version() {
+  auto *root = jsi::castInterface<facebook::hermes::IHermesRootAPI>(
+      facebook::hermes::makeHermesRootAPI());
+  return root == nullptr ? 0 : root->getBytecodeVersion();
+}
 char *copy(const std::string &s) {
   auto *p = static_cast<char *>(std::malloc(s.size() + 1));
   std::memcpy(p, s.c_str(), s.size() + 1);
   return p;
 }
 }
+
+using InstallMethod = void (ibex2::jsi_adapter::Adapter::*)(
+    ibex2::jsi_adapter::Groups, const Ibex2Bindings*,
+    const ibex2::jsi_adapter::CompiledScript*, size_t);
+static_assert(std::is_same_v<decltype(&ibex2::jsi_adapter::Adapter::install),
+                             InstallMethod>);
+static_assert(!std::is_convertible_v<const void*, const Ibex2Bindings*>);
+
 extern "C" {
+int bindings_validate_groups(uint16_t groups, char **error) {
+  try {
+    ibex2::jsi_adapter::validate_groups(groups);
+    return 1;
+  } catch (const std::exception &e) {
+    if (error != nullptr) *error = copy(e.what());
+    return 0;
+  }
+}
+char *bindings_expected_scripts(uint16_t groups, char **error) {
+  try {
+    const auto scripts = ibex2::jsi_adapter::expected_scripts(groups);
+    std::string joined;
+    for (const char *script : scripts) {
+      if (!joined.empty()) joined.push_back('\n');
+      joined.append(script);
+    }
+    return copy(joined);
+  } catch (const std::exception &e) {
+    if (error != nullptr) *error = copy(e.what());
+    return nullptr;
+  }
+}
+void *bindings_consumer_create_uninstalled(const void *queue) {
+  try {
+    auto c = std::make_unique<Consumer>();
+    auto config = ::hermes::vm::RuntimeConfig::Builder()
+        .withEnableEval(false).withMicrotaskQueue(true).build();
+    c->runtime = facebook::hermes::makeHermesRuntimeNoThrow(config);
+    if (!c->runtime) return nullptr;
+    c->adapter = std::make_unique<ibex2::jsi_adapter::Adapter>(
+        *c->runtime, queue, bytecode_version());
+    return c.release();
+  } catch (const std::exception &) {
+    return nullptr;
+  }
+}
+int bindings_consumer_install(
+    void *handle, const Ibex2Bindings *bindings, uint16_t groups,
+    const ibex2::jsi_adapter::CompiledScript *scripts, size_t script_count,
+    char **error) {
+  try {
+    auto *c = static_cast<Consumer *>(handle);
+    if (c == nullptr || c->adapter == nullptr) return 0;
+    c->adapter->install(groups, bindings, scripts, script_count);
+    return 1;
+  } catch (const std::exception &e) {
+    if (error != nullptr) *error = copy(e.what());
+    return 0;
+  }
+}
+void *bindings_consumer_create(const void *queue, const Ibex2Bindings *bindings,
+                               uint16_t groups,
+                               const ibex2::jsi_adapter::CompiledScript *scripts,
+                               size_t script_count, char **error) {
+  void *consumer = bindings_consumer_create_uninstalled(queue);
+  if (consumer == nullptr) return nullptr;
+  if (bindings_consumer_install(consumer, bindings, groups, scripts,
+                                script_count, error) == 1)
+    return consumer;
+  delete static_cast<Consumer *>(consumer);
+  return nullptr;
+}
 void *storage_consumer_create(const void *queue, const void *grants,
                               const uint8_t *factory, size_t len,
                               const uint8_t *harden, size_t harden_len, char **error) {
@@ -40,7 +117,8 @@ void *storage_consumer_create(const void *queue, const void *grants,
     auto before = stringify.call(rt, names.call(rt, rt.global())).getString(rt).utf8(rt);
     auto f = rt.evaluateJavaScript(std::make_shared<Bytes>(factory, len), "sqlite.hbc")
         .getObject(rt).getFunction(rt);
-    c->adapter = std::make_unique<ibex2::jsi_adapter::Adapter>(rt, queue);
+    c->adapter = std::make_unique<ibex2::jsi_adapter::Adapter>(
+        rt, queue, bytecode_version());
     if (harden_len) rt.evaluateJavaScript(std::make_shared<Bytes>(harden, harden_len), "harden.hbc");
     auto storage = c->adapter->storage(grants, f);
     auto after = stringify.call(rt, names.call(rt, rt.global())).getString(rt).utf8(rt);
