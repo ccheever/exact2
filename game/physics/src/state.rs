@@ -46,6 +46,29 @@ pub(crate) struct Synced {
     pub presentation: u64,
     pub revisions: [u64; 4],
 }
+// Collider handles already index a dense Rapier arena. Keep the verified
+// generation at that slot, avoiding a tree lookup per collider during capture.
+// This derived table has at most the arena's high-water slot count; a reused
+// slot cannot inherit the previous collider's verification.
+#[derive(Default)]
+pub(crate) struct Elidable(Vec<Option<u32>>);
+impl Elidable {
+    fn contains(&self, h: &[u32; 2]) -> bool {
+        self.0.get(h[0] as usize).copied().flatten() == Some(h[1])
+    }
+    fn insert(&mut self, h: [u32; 2]) {
+        let slot = h[0] as usize;
+        if self.0.len() <= slot {
+            self.0.resize(slot + 1, None);
+        }
+        self.0[slot] = Some(h[1]);
+    }
+    pub fn remove(&mut self, h: &[u32; 2]) {
+        if self.contains(h) {
+            self.0[h[0] as usize] = None;
+        }
+    }
+}
 pub(crate) struct Live {
     pub rapier: PhysicsWorld,
     pub entries: BTreeMap<Entity, Entry>,
@@ -60,7 +83,7 @@ pub(crate) struct Live {
     pub synced: Option<Synced>,
     // Static colliders verified equal to their entry's rebuild since last edited;
     // sync forgets every row it visits.
-    pub elidable: BTreeSet<[u32; 2]>,
+    pub elidable: Elidable,
 }
 impl Live {
     fn new(rapier: PhysicsWorld, entries: BTreeMap<Entity, Entry>) -> Self {
@@ -78,7 +101,7 @@ impl Live {
             slots: entries.keys().map(|e| (e.index(), *e)).collect(),
             removed: Vec::new(),
             synced: None,
-            elidable: BTreeSet::new(),
+            elidable: Elidable::default(),
             rapier,
             entries,
         }
@@ -132,7 +155,7 @@ impl Saved {
         let mut refused = None;
         // A filled hole is its entry's rebuild by construction: elidable without
         // re-verifying, so a restore does not re-serialize every static collider.
-        let mut filled = BTreeSet::new();
+        let mut filled = Elidable::default();
         let fill = |h: ColliderHandle| {
             let rebuilt = owners
                 .get(&raw(h))
@@ -423,7 +446,8 @@ mod tests {
         crate::register(&mut w);
         let parent = w.spawn(Transform::default());
         let mut e = w.spawn((Transform::default(), Collider::default()));
-        for stage in 0..9 {
+        let mut previous_collider = None;
+        for stage in 0..12 {
             match stage {
                 1 => w.get_mut::<Transform>(e).unwrap().position.x = 3.0,
                 2 => w.get_mut::<Collider>(e).unwrap().friction = 0.2,
@@ -445,12 +469,54 @@ mod tests {
                     assert_eq!(e.index(), previous.index(), "exercise slot reuse");
                     assert_ne!(e, previous);
                 }
+                9 => {
+                    w.remove::<Collider>(e);
+                }
+                10 => {
+                    w.insert(
+                        e,
+                        Collider {
+                            sensor: true,
+                            ..Collider::default()
+                        },
+                    );
+                }
+                11 => w.get_mut::<Collider>(e).unwrap().sensor = false,
                 _ => {}
             }
             crate::step(&mut w);
             let physics = w.resource::<crate::Physics>();
             let executor = &physics.executor;
             let before = bin::to_vec(executor);
+            // Compare to capture that proves every hole afresh, ignoring the
+            // cache. Reused slots, changed materials and body transitions must
+            // preserve the exact snapshot, not only a successfully decoded one.
+            {
+                let saved = executor.0.borrow();
+                let live = saved.live.as_ref().unwrap();
+                if let Some(handle) = live.entries.get(&e).and_then(|e| e.collider_handle) {
+                    if matches!(stage, 8 | 10) {
+                        let old: [u32; 2] = previous_collider.unwrap();
+                        assert_eq!(handle[0], old[0], "exercise Rapier slot reuse");
+                        assert_ne!(handle[1], old[1], "exercise a new generation");
+                    }
+                    previous_collider = Some(handle);
+                }
+                let options = bincode::DefaultOptions::new();
+                let mut expected = SNAPSHOT.to_vec();
+                options
+                    .serialize_into(
+                        &mut expected,
+                        &live.rapier.with_holes(|h, co| {
+                            let entry = &live.entries[&live.reverse[&raw(h)]];
+                            rebuild(entry).is_ok_and(|fresh| {
+                                options.serialize(co).unwrap() == options.serialize(&fresh).unwrap()
+                            })
+                        }),
+                    )
+                    .unwrap();
+                assert_eq!(saved.bytes, expected, "uncached snapshot at stage {stage}");
+            }
             let warm = hash::of(executor);
             assert_eq!(warm, hash::of(executor), "repeat at stage {stage}");
             assert_eq!(

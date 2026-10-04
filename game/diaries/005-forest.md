@@ -1002,3 +1002,37 @@ and saves also match `inline-macos` before the integration. Both descendant
 audits pass with no recorded children left, and both shelter captures were
 inspected. Artifacts: `artifacts/modules-{web,macos}/`. No gameplay or
 Jev-policy changes.
+
+## Index collider verification by its arena slot (2026-10-04)
+
+The remaining snapshot work still searched a `BTreeSet` twice for every
+static collider: once while checking which colliders needed verification,
+then again while encoding their holes. Rapier already gives every collider
+an arena slot and generation. A derived vector now holds the verified
+generation at that slot. Sync and removal clear it at the same points as
+before; restore seeds it from the holes it rebuilt. Its length is bounded
+by Rapier's arena high-water slot count. The exact rebuild comparison,
+collider traversal, saved bytes and hash algorithm are unchanged.
+
+Six alternating runs of the existing release `hash_of_a_static_forest`
+measurement compare baseline `850a7afab` with this change:
+
+| Trees | Warm snapshot before / after | Warm hash before / after |
+| --- | ---: | ---: |
+| 20,000 | 1.505 / 0.695 ms | 1.050 / 1.045 ms |
+| 100,000 | 8.115 / 3.845 ms | 6.980 / 6.940 ms |
+
+At 100k, warmed snapshot encoding is 53% cheaper; snapshot plus hash falls
+from about 15.1 to 10.8 ms. Cold snapshot medians are 48.68 / 39.86 ms,
+and cold hashing 63.11 / 61.13 ms. These are isolated state-capture costs,
+not a live FPS claim. Logs: `/tmp/exact2-physics-holes-{baseline,candidate,ab}.log`;
+individual samples: `/tmp/exact2-physics-holes-ab.json`. The first candidate
+is retained; no snapshot format or gameplay change is needed.
+
+The existing lifecycle test now compares every cached snapshot with a
+capture that proves every collider hole afresh, then checks save, clone
+and hash agreement. It covers pose/material edits, body changes, parent
+movement, despawn and both entity and Rapier collider-slot reuse, including
+collider removal/reinsertion and sensor changes. The full physics suite,
+Clippy and formatting pass before main integration; host verification and
+the integration results follow below.

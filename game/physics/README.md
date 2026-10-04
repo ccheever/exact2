@@ -61,7 +61,11 @@ Saved state is opaque bincode/serde for bodies, colliders, islands, broad/narrow
 joints and integration parameters, plus entity/handle maps and last writes. Restore validates and decodes live state atomically; pipeline/CCD workspaces are scratch under Rapier's serialization contract.
 The hole format is `PhysicsWorld::with_holes`/`FillHoles` in the vendored Rapier
 (`pipeline/physics_world.rs`, marked Exact2), which keeps slots, generations and
-the free list.
+the free list. Whether a static collider has been verified lives in a derived
+table indexed by its Rapier arena slot, carrying the generation so a reused slot
+cannot inherit verification. Sync and removal invalidate it; restore fills it
+from the holes it rebuilt. Capture still verifies each uncached collider against
+its exact serialized rebuild, with no change to EXPHYS v3 bytes.
 `Data::write(&self)` refreshes dirty bytes for save, hash and JSON; `refresh_snapshot`
 measures the same operation. Stepping does not serialize. JSON summarizes the opaque bytes by length/hash.
 A hash (`Writer::digests`) reads a digest instead of the content: the snapshot
@@ -70,8 +74,11 @@ sync or writeback touches it. The cached digest lives beside its entry and is
 excluded from Data, so hashing needs no second map lookup per collider. Both are
 functions of the saved content, recomputed identically after a load. Six alternating
 release runs on arm64 measured a warmed 100k-tree hash after a step at a median
-8.5 ms of snapshot encoding plus 7.4 ms of hashing, down from 8.5 + 10.2 ms with
-the separate digest map (2026-10-04). Cold entry hashing still costs about 66 ms.
+3.85 ms of snapshot encoding plus 6.94 ms of hashing, down from 8.12 + 6.98 ms
+with a tree lookup for each collider's verification flag (2026-10-04).
+Cold capture still costs about 40 ms encoding plus 61 ms hashing. These are
+isolated state-capture measurements, not live frame timings; diary 005 records
+the separate earlier digest-map improvement.
 Malformed or obsolete Rapier payloads fail during `World::load`, before replacement.
 
 Continuation tests preserve the complete authoritative snapshot; `Executor::clone`
