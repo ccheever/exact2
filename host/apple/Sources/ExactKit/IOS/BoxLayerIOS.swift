@@ -59,6 +59,21 @@ extension NodeView {
         guard kind == "image", symbolView == nil, style["tint_color"] == nil, let bitmap = raster?.image else {
             imageLayer?.removeFromSuperlayer(); imageLayer = nil; return
         }
+        if let look = flightLook {
+            // Flying (LLP 1013.000 D4): the whole image where the flight
+            // puts it; the view's own bounds and radius clip it.
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            defer { CATransaction.commit() }
+            let l = imageLayer ?? CALayer()
+            if l.superlayer !== layer { imageLayer = l; insertBoxSublayer(l) }
+            l.frame = look.image
+            l.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+            let frame = AnimatedRasters.shared.frame(for: self) ?? bitmap.image
+            if (l.contents as AnyObject?) !== frame { l.contents = frame }
+            l.cornerRadius = 0
+            l.masksToBounds = false
+            return
+        }
         let uniform = number("border_width")
         let content = bounds.insetBy(
             left: number("border_width_left", uniform) + number("padding_left"),

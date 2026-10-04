@@ -169,19 +169,18 @@ export function commit(f, what = "commit") {
   const [out, cmds, landed] = [Out, Commands, Landed];
   Writes = null;
   unpark();
-  for (const f of Before) f();
-  // Presence measures what it tracks before the tree changes (LLP 1063).
-  Pres?.before({ ops: [] }, Views);
-  try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.message}`); console.error(e); return false; }
-  settled();
-  if (!ok) return false;
-  clock.epoch++;
-  Store.persist();
-  for (const go of out) go();
-  for (const c of cmds) command(...c);
-  // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
-  for (const m of landed) if (m.then) { m.due = clock.now; if (!clock.agent) drive(); }
-  return true;
+  const tail = () => { // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
+    for (const f of Before) f();
+    Pres?.before({ ops: [] }, Views); // presence measures what it tracks before the tree changes (LLP 1063)
+    try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.message}`); console.error(e); return false; }
+    settled(); if (!ok) return false;
+    clock.epoch++; Store.persist();
+    for (const go of out) go(); for (const c of cmds) command(...c);
+    // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
+    for (const m of landed) if (m.then) { m.due = clock.now; if (!clock.agent) drive(); }
+    return true;
+  };
+  return Sh ? Sh.commit(tail, Queue, inflight) : tail();
 }
 /** What runs after each commit's tree update (a loaded piece's publication),
  * and before it (the text flow piece puts flowed paragraphs back). */
@@ -809,7 +808,7 @@ export function on(e, kind, f) {
 // was: `clear` passes over it.
 // Until the piece is here, rows jump and leave at once, as the wasm host's
 // do when it is unavailable.
-let Pres = null, Presence = null, Present = null, Leave = null;
+let Pres = null, Presence = null, Present = null, Leave = null, Sh = null; // Sh: shared.js, loaded with presence-glue.js, runs the commits that hand on a shared element's name in a view transition (LLP 1013.000 D7)
 /** The after-paint pieces on their way (the agent waits for them before an
  * operation, as glue.js's `agentSettled` waits for `pieces.pending()`). */
 export const pieces = () => Promise.all([Motion, Inputs, Presence, Flow, Native].filter(Boolean)).then(() => {}, () => {});
@@ -821,7 +820,7 @@ export function pr(e) {
   Created.push(e);
   if (Presence || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   inflight.n++;
-  Presence = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => { globalThis.exact ??= {}; return import("./presence-glue.js"); })
+  Presence = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => { globalThis.exact ??= {}; return Promise.all([import("./presence-glue.js"), import("./shared.js").then(m => { Sh = m; })]); })
     .then(() => {
       const x = globalThis.exact;
       Pres = x.presenceLive = x.presence(document.getElementById("exact-root"));
@@ -1016,7 +1015,7 @@ export function when(p, subject, a0, a1) {
     arm = want;
     if (!b) return untracked(() => { [s, b] = adoptArm(p, want < 0 ? null : want ? a1 : a0, own); });
     untracked(() => { if (s) end(s); clear(a, b); s = want < 0 ? null : build(b, want ? a1 : a0, own); });
-  });
+  }).$r = () => [a, b]; // the region's range, for shared.js
 }
 /** `match`: arm 0 with the bound value while the subject is `some`, else arm 1. */
 export function match(p, subject, a0, a1) {
@@ -1030,7 +1029,7 @@ export function match(p, subject, a0, a1) {
     arm = want;
     if (!b) return untracked(() => { [s, b] = adoptArm(p, want < 0 ? null : want ? a1 : p2 => a0(p2, bound), own); });
     untracked(() => { if (s) end(s); clear(a, b); s = want < 0 ? null : build(b, want ? a1 : p2 => a0(p2, bound), own); });
-  });
+  }).$r = () => [a, b]; // the region's range, for shared.js
 }
 /** `each`: rows by key in item order; a kept row keeps its elements, its
  * item and position are signals its bindings read. */
@@ -1130,7 +1129,7 @@ export function each(p, list, key, row, pure) {
       rows = next; paintList(parent);
       b ??= mark(p);
     });
-  });
+  }).$r = () => [a, b]; // the region's range, for shared.js
 }
 
 /** The indices of `list`'s kept rows (`old`, their former places) on a

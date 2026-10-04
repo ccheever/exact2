@@ -93,6 +93,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var lastAccessibilityWrite = AccessibilityWrite()
     var boxGradient: CAGradientLayer?
     var imageLayer: CALayer?
+    /// While it flies as a shared element (LLP 1013.000 D4): where its image is drawn.
+    var flightLook: FlightLook?
     var materialView: NSView?
     /// `glassGroup`'s view and a grouped glass's isolation (`GlassGroup.swift`).
     var glassGroupView: NSView?
@@ -1164,7 +1166,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // included, as it lays it out: the authored one goes back on.
         applyTransform()
         if style["perspective"] != nil { applyPerspective() }
-        if kind == "image" { presenter?.session?.rasters.resized(self) }
+        if kind == "image", flightLook == nil { presenter?.session?.rasters.resized(self) }
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
@@ -1237,7 +1239,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             let radii = BorderPaint.radii(style, in: bounds)
             BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, shape: CornerShape(style["corner_shape"]))
         }
-        if kind == "image", symbolView == nil, !(layerPaint && imageLayer != nil), let bitmap = raster?.image {
+        if kind == "image", symbolView == nil, flightLook == nil, !(layerPaint && imageLayer != nil), let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
             // and padding), clipped by the border box's radius: `fill`
             // stretches, `contain`/`cover` keep the ratio, `none` is the

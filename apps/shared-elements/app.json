@@ -1,0 +1,42 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Shared Elements",
+  "short_name": "Shared Elements",
+  "id": "com.exact.sharedelements",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#111418",
+  "background_color": "#f6f4ef",
+  "app": {
+    "id": "com.exact.sharedelements",
+    "name": "Shared Elements"
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 420,
+        "height": 780,
+        "minWidth": 360,
+        "minHeight": 560
+      }
+    },
+    "web": {},
+    "linux": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

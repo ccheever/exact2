@@ -727,6 +727,9 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::NavigationBack => "navigationBack",
             PropId::NavigationPresentation => "navigationPresentation",
             PropId::NavigationSource => "navigationSource",
+            // LLP 1013.000 D7: the shared-element name the JS target's view
+            // transitions pair by.
+            PropId::SharedElement => "data-shared-element",
             PropId::Closedby => "closedby",
             PropId::ContextTarget => "contextTarget",
             PropId::ContextMagnify => "contextMagnify",

@@ -272,6 +272,23 @@ extension NodeView {
 
     /// The image's pixels onto a sublayer, or none (`draw(_:)` paints them).
     func applyImageLayer() {
+        if let look = flightLook, let layer, kind == "image", let bitmap = raster?.image {
+            // Flying (LLP 1013.000 D4): the whole image where the flight
+            // puts it; the view's own bounds and radius clip it.
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            defer { CATransaction.commit() }
+            let l = imageLayer ?? CALayer()
+            imageLayer = l
+            if l.superlayer !== layer { insertBoxSublayer(l) }
+            l.frame = look.image
+            l.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+            l.contentsGravity = .resize
+            let frame = AnimatedRasters.shared.frame(for: self) ?? bitmap.image
+            if (l.contents as AnyObject?) !== frame { l.contents = frame }
+            l.cornerRadius = 0
+            l.masksToBounds = false
+            return
+        }
         guard let layer, layerBoxEligible, let plan = imagePlan, let bitmap = raster?.image else {
             imageLayer?.removeFromSuperlayer(); imageLayer = nil; return
         }

@@ -446,6 +446,22 @@ impl Batch {
         self.ops.push(format!("{{\"op\":\"exit\",\"id\":{id}}}"));
     }
 
+    /// `{"op":"flight","id":…,"from":…}` — the view's shared-element name
+    /// arrives from `from` (LLP 1013.000 D4). Sent before the batch's
+    /// destroys: the presenter captures where `from` is shown, then, once
+    /// the batch is applied, lifts `id` and flies it from there to its place
+    /// by the `flight` progress it is presented.
+    pub fn flight(&mut self, id: u32, from: u32) {
+        self.ops
+            .push(format!("{{\"op\":\"flight\",\"id\":{id},\"from\":{from}}}"));
+    }
+
+    /// `{"op":"land","id":…}` — the flight's curve settled: the view goes
+    /// back to its place.
+    pub fn land(&mut self, id: u32) {
+        self.ops.push(format!("{{\"op\":\"land\",\"id\":{id}}}"));
+    }
+
     /// `{"op":"roots","ids":[…]}`.
     pub fn roots(&mut self, ids: &[u32]) {
         let mut s = String::from("{\"op\":\"roots\",\"ids\":");
