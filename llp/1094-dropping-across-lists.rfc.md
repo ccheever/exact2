@@ -1,396 +1,538 @@
 # LLP 1094: Dropping across lists
 
 **Type:** RFC
-**Status:** Draft (r1)
-**Systems:** Contract compiler, `kernel/tables/schema.json`, runner (`collection/reorder*.rs`, `runner/reorder.rs`, `geometry.rs`), web (`host/web/{motion,geometry}-glue.js`, `host/web-js/{reorder,arrange}.js`), Apple (`Reorder{IOS,Hold}.swift`, `MouseReorderMac.swift`, `arrange.rs`), Linux (`presenter/{arrange,contact,paint}.rs`), the driver, conformance, docs
+**Status:** Draft (r2, round 1 of 3). r1 (`cbe16cc1e`) was reviewed twice by Grok 4.7 (xhigh). Codex/Astra's budget was exhausted, so the two reviews are one family with two scopes: semantics and authoring (`llp/reviews/1094-r1.grok-a.md`, READY WITH CHANGES) and implementation (`llp/reviews/1094-r1.grok-b.md`, NOT READY). r2 resolves or rejects every finding (§9). It also records the orchestrator's rulings on r1's open questions, made under Charlie's 2026-10-04 delegation.
+**Systems:** Contract compiler and the test-step parser (`contract/syntax/src/parser/steps.rs`), `kernel/tables/schema.json`, runner (`collection/reorder*.rs`, `runner/reorder.rs`, `runner/pointer.rs`, `geometry.rs`), web (`host/web/{motion,geometry,input}-glue.js`, `host/web/src/reorder_drag.rs`, `host/web-js/{reorder,arrange,pointer,rt}.js`), Apple (`Reorder{IOS,Hold}.swift`, `MouseReorderMac.swift`, `Bridge.swift`, `arrange.rs`), Linux (`presenter/{arrange,contact,pointer}.rs`, `paint.rs`), the driver, conformance (`host/web-js/{conform.mjs,conformance}`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-05
-**Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stage 1 on 2026-10-06, stage 2 on 2026-10-07, stage 3 on 2026-10-08 (§6)
-**Amends:** LLP 1070 §4.7 (reorder on a row list and a nested list); LLP 1056 §8.6 (the `PointerEvent` record); LLP 1001 (one declared deviation, D10); `docs/contract-grammar.md`'s payload table; `rules/DEFERRED.md` **Motion** (D12)
-**Related:** LLP 1051.000 D1 (`frame`); LLP 1057.001 rule 3; LLP 1070.000 (`scrollIntoView`); LLP 1083.000 (paint order); LLP 1088 §9.1 (durable lists live in the data module); LLP 1012 (the driver). Diaries: `~/projects/x2apps/{kanban,kanban2}/DIARY.md`. The fix/input lane's report of 2026-10-04 (Options A–C; C shipped in LLP 1051.000 D1).
+**Revised:** 2026-10-05 (r2)
+**Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stage 1 on 2026-10-06, stage 2 on 2026-10-07, stage 3 on 2026-10-08, stage 4 on 2026-10-09–10, stage 5 on 2026-10-11 (§6)
+**Amends:** LLP 1056 §8.6 (the `PointerEvent` record and its wire); LLP 1001 (one declared deviation, D11); `docs/contract-grammar.md`'s payload table; `rules/DEFERRED.md` **Motion** (D13)
+**Related:** LLP 1051.000 D1 (`frame`); LLP 1057.001 rule 3; LLP 1070 §4.7 (still in force, §7); LLP 1083.000 (paint order); LLP 1088 §9.1; LLP 1012. Diaries: `~/projects/x2apps/{kanban,kanban2}/DIARY.md`. The fix/input lane's report of 2026-10-04 (Options A–C; C shipped in LLP 1051.000 D1).
 
 ## Summary
 
 `reorderdrop` moves a row within one vertical virtualized list. Two kanban
-builds needed to move a card between columns and built it by hand: `pan`
-deltas, `frame()` of every column and card, a root ghost, an insertion index
-from `filter` and `length`, and edge autoscroll bound to state. The first
-took about 60 lines; the second about 100, unrolling eight `frame` calls and
-capping a board at eight columns.
+builds moved cards between columns by hand, with `pan` deltas, `frame()` of
+every column and card, a root ghost, an insertion index and edge autoscroll
+bound to state. The first build took about 60 lines. The second took about
+100, unrolled eight `frame` calls and capped a board at eight columns.
 
-This RFC widens `reorderdrop` to lists that share a group, SortableJS's
-model. Lists name a group (`reorderGroup="cards"`). A drop fires on the
-target list's `reorderdrop` with today's two keys, and an action taking one
-more parameter also gets a `ReorderEvent` naming the source and target. Today's
-lift, preview and autoscroll extend to row lists and nested lists, which
-make a board. For hand-built drags it adds `elementFromPoint(x, y)` and
-keeps `frame()` untransformed.
+This RFC lets vertical virtualized lists that share a `reorderGroup` exchange
+rows:
+
+- **The drop.** It fires on the target list's `reorderdrop` with today's two
+  keys. An action that takes one more parameter also gets a `ReorderEvent`
+  naming both lists.
+- **The board.** Each column holds a grouped card list, and the columns sit
+  in a plain horizontal `scroll`.
+- **Column reorder** needs a row list at the window's height and a nested
+  list. Both are refused today, so it is deferred with its preconditions
+  (§7).
+- **Hand-built drags** get `elementFromPoint(x, y)` and `PointerEvent`
+  client coordinates. `frame()` stays untransformed.
 
 | | Decision | Diaries | Stage |
 |---|---|---|---|
-| D1 | `reorderGroup` on a virtualized list; same-group lists in one session exchange rows | kanban F4, kanban2 | 1 |
-| D2 | One drop, on the target list: `item`, `before`, then an optional `ReorderEvent { from, to }` | kanban F4 | 1 |
-| D3 | The action moves the data with one `send` | both | 1 |
-| D4 | Reorder on a row list and a nested list (LLP 1070 §4.7's refusals lifted) | kanban F4 (columns) | 1–3 |
-| D5 | Today's recognizers; a grouped lift shows a top-layer ghost | kanban2 (aim) | 2, 3 |
-| D6 | Target, gap, and autoscroll of every scroller under the ghost | both | 1–3 |
-| D7 | Drop, a hold until the move shows, cancel | — | 1–3 |
-| D8 | Keyboard and assistive technology | kanban (built by hand) | 1–3 |
-| D9 | `elementFromPoint(x, y) -> option<string>`, an action read | kanban2 #2 | 1–3 |
-| D10 | `frame()` stays untransformed, declared; `PointerEvent` gains `clientX`/`clientY` | kanban2 #3 | 1 |
-| D11 | Driver `tap A drag to B`, in tests too; `state.reorder`; conformance | kanban F14, F18 | 2 |
-| D12 | The `rules/DEFERRED.md` entry | — | 1 |
+| D1 | `reorderGroup` on a vertical virtualized list | kanban F4, kanban2 | 1 |
+| D2 | One drop, on the target: `item`, `before`, then optionally `ReorderEvent { from, to }` | kanban F4 | 1 |
+| D3 | The board, and the action's one `send` | both | 1 |
+| D4 | The runner's session: the source's token, two previews, one commit | — | 1 |
+| D5 | The host calls and wires | — | 1–5 |
+| D6 | Lift, the host's ghost and its look | kanban2 (aim) | 2–5 |
+| D7 | Target, gap and autoscroll | both | 1–5 |
+| D8 | Three endings: cancel, drop, hold | — | 1–5 |
+| D9 | Keyboard and assistive technology | kanban (built by hand) | 1–5 |
+| D10 | `elementFromPoint(x, y) -> option<string>` | kanban2 #2 | 1–2, 4–5 |
+| D11 | `frame()` untransformed, declared; `PointerEvent` gains `clientX`/`clientY` | kanban2 #3 | 1 |
+| D12 | Driver, test files and conformance | kanban F14, F18 | 2 |
+| D13 | `rules/DEFERRED.md` | — | 1 |
 
 ## 1. Evidence
 
-- **Kanban (first build, F4).** `app.contract:198–245`: `dragCard` maps
-  `frame()` over every column and the target's cards on each move, picks
-  the column with `length(filter(lefts, l => l <= px))` and the slot with
-  `length(filter(mids, m => m < py))`, and writes `boardScrollTo` within
-  48 px of an edge. F6 is fixed (LLP 1057.001 rule 3).
-- **Kanban2** (`423e4c4bc`, Grok 4.7). `app.contract:480–580` unrolls
-  `frame("col-0")`…`frame("col-7")` three times. A drop aimed at the grip's
-  untransformed frame stayed in the source column while the card's body was
-  over the next; aiming at `base + delta + size/2` cost 30 minutes.
-- **What exists** (`a98895a22`):
-  - The payload is `item: string`, `before: option<string>`
-    (`contract/analyze/src/payload.rs:37`), with no event record
-    (`contract/types/src/selection.rs:7–23`).
-  - Refused outside a virtualized list (`lower-reorder-collection`,
-    `contract/lower/src/collection.rs:40`), on a row list (`:133`) and a
-    nested list (`:183`, `lower-collection-reorder`).
-  - The runner keeps one preview per collection
-    (`instance/collection/reorder.rs:6–16`) and one owner
-    (`runner/reorder.rs:83–111`). The gap is vertical, certified against
-    `ReorderGeometry` v1 (`scroll_top`, `port_height`). The drop dispatches
-    in the commit that resets the preview (`runner/reorder.rs:148–173`).
-  - Every host lifts the real row, clipped by its own scrollport. Autoscroll
-    is the host's: 32 px at 720 px/s on web and Apple, 24 px ramping to
-    300 px/s on Linux.
-  - No host has a keyboard or accessibility path for reorder.
+- **Kanban, first build (F4).** `app.contract:198–245` maps `frame()` over
+  every column and the target's cards on each move. It finds the column
+  with `length(filter(lefts, l => l <= px))` and the slot with
+  `length(filter(mids, m => m < py))`, and sets `boardScrollTo` within 48 px
+  of an edge. `moveCard` (`app.ts:302–309`) inserts at the end when `before`
+  is missing. `stepCard` left/right keeps the index, clamped (`:311–320`).
+- **Kanban2** (`423e4c4bc`). `app.contract:480–580` unrolls
+  `frame("col-0")`…`frame("col-7")`. A drop aimed at the grip's
+  untransformed frame stayed in the source column while the card was over
+  the next one. The fix was the card's centre, `base + delta + size/2`.
+- **What exists** (verified at `e097e4cae`):
+  - The payload is `item`, `before` (`analyze/src/payload.rs:37`), with no
+    record (`types/src/selection.rs:7–23`).
+  - A virtualized row list needs a literal `height`
+    (`lower-collection-cross`, `lower/src/collection.rs:139`). A nested list
+    needs a literal `height` or `max-height` (`:186`). There is one direct
+    `each` (`:72`).
+  - The runner has one owner (`runner/reorder.rs`) and one preview per
+    collection. `Offsets::at` shifts rows only between a source index and
+    `before` in that list (`collection/reorder.rs:293–310`). `end_preview`
+    zeroes every target in the drop's commit (`:240`).
+  - The JS target reimplements the preview, the owner and the drop
+    (`host/web-js/reorder.js`, `arrange.js`).
+  - The wires are vertical: the web motion packet v3 (176-byte header,
+    `reorder_drag.rs`), Apple's `exact_reorder_move(rt, token, dy,
+    scroll_top, …)` (`exact.h:363`), Linux in process.
+  - The pumps run only while an edge band scrolls (`motion-glue.js:1034`,
+    `ReorderHold.swift:209`).
+  - Line caps: `host/linux/src/paint.rs` is at 1,498 lines, `motion-glue.js`
+    at 1,146 and `rt.js` at 1,338.
 
 ## 2. What the platforms offer
 
-- **HTML drag and drop** (`draggable`, `dragover`, `drop`, `DataTransfer`)
-  moves data between elements, windows and applications; it is not a list
-  move. A target hears `dragover` per element and computes its own index. The drag image is a bitmap taken at
-  `dragstart` that the page cannot animate, and the page moves siblings
-  itself. Mobile support came late and only through a long press; touch
-  sortable libraries ship a pointer-event path (SortableJS's fallback).
-  Taken from the web: the names (SortableJS's `group`,
-  `from`, `to`; DOM's `elementFromPoint`, `clientX`, `clientY`),
-  `pointercancel` as a cancel, and the top layer for the ghost.
-- **UIKit.** `UICollectionView`'s drag and drop delegates move items
-  between collection views in one app: a `.move` proposal with
-  `.insertAtDestinationIndexPath` opens a gap, and a
+- **HTML drag and drop** moves data between elements and applications.
+  - A target hears `dragover` per element and computes its own index.
+  - The drag image is a bitmap the page cannot animate.
+  - Touch support came late, through a long press; touch sortable libraries
+    use pointer events (SortableJS's fallback).
+
+  Taken from the web: the names (SortableJS's `group`, `from`, `to`; DOM's
+  `elementFromPoint`, `clientX`, `clientY`), `pointercancel`, and the top
+  layer. SortableJS's group also means `pull`, `put` and `clone`. Here a
+  group is only a shared name and one list-to-list move.
+- **UIKit.** `UICollectionView`'s drop delegates move items between
+  collection views. A `.move` proposal opens a gap, and a
   `UICollectionViewDropPlaceholder` holds the slot until the data source
-  commits (D7's hold). A `UIDragSession` is asynchronous over item providers
-  (a collection view's drag is off by default on iPhone); Exact keeps its own recognizer for parity.
-- **AppKit.** `NSDraggingSession` is pasteboard-based; `NSTableView` and
-  `NSCollectionView` show a gap, and `animatesToStartingPositionsOnCancelOrFail`
-  snaps back. D6 and D7 take the gap and the snap back; Exact starts no
-  session.
+  commits; D8's hold is that placeholder. A session that ends outside every
+  view fails the drop. D8 commits to the last target instead, as both
+  boards and SortableJS do.
+- **AppKit.** `NSTableView` and `NSCollectionView` show a gap, and
+  `animatesToStartingPositionsOnCancelOrFail` snaps back. D7 and D8 take
+  both. Exact starts no `NSDraggingSession`.
 
 ## 3. Decisions
 
-### D1 — `reorderGroup` names a group of lists
+### D1 — `reorderGroup`
 
 ```
-list id=`cards-${col.id}` virtualized=true reorderGroup="cards" reorderdrop=dropCard(col.id) …
-  each card in col.cards key=card.id
-    box reorderFor=`cards-${col.id}` touch-action="none" aria-label=`Move ${card.title}` …
+list id=`cards-${col.id}` virtualized=true reorderGroup="cards" reorderdrop=dropCard(col.id) flex=1 min-height=48
+  each card in filter(col.cards, k => k.visible) key=card.id
+    column …
+      box reorderFor=`cards-${col.id}` touch-action="none" aria-label=`Move ${card.title}` …
 ```
 
-- `reorderGroup` is a string prop on `list` (a new `schema.json` id beside
-  `reorderFor`, 77). Lists with the same non-empty value mounted in one
-  session exchange rows. Without it a list behaves as today.
-- A grouped list is virtualized, keys its `each` by string, and has a
-  `reorderdrop` and an `id` (`reorderFor` already resolves a list by id).
+- **The prop.** `reorderGroup` is a string prop on `list`. It takes the
+  table's next free prop id; 77 stays `reorderFor`.
+- **What it does.** Vertical virtualized lists with the same non-empty
+  value, mounted in one session, exchange rows.
+- **What a grouped list needs.** String keys, a `reorderdrop` and an `id`.
   Otherwise `lower-reorder-group`: "`reorderGroup` joins lists that take a
-  drop: give this `list virtualized=true` a `reorderdrop` and an `id`". On
-  any other tag, `lower-reorder-collection`'s message.
-- Keys are unique across a group. The runner opens no gap in a list that
-  already has the dragged key, and the development journal says so once a
-  drag.
+  drop: give this `list virtualized=true` a `reorderdrop` and an `id`".
+- **What it refuses.** A row list and a nested list still get
+  `lower-collection-reorder` (§7).
+- **Groups stay within one session** (ruled).
+- **Keys.** The source list gaps around the lifted key, as today. Any other
+  list that already holds `item` is not a target: the sticky target stays,
+  no drop fires there, and the development journal says so once a drag. An
+  index would reject the duplicate (`collection/index.rs:27`, `DuplicateKey`).
 
-### D2 — The drop: two keys, then an optional `ReorderEvent`
+### D2 — The drop
 
-- A drop fires once, on the **target** list's `reorderdrop`: `item` (the
-  dragged key) and `before` (the target's key it lands before, `none` at the
-  end), as today.
-- `reorderdrop` joins `event_record`'s table: an action taking one more
-  parameter gets `ReorderEvent { from: string, to: string }`, the source and
-  target lists' `id`s (SortableJS's names). Within one list `from == to`;
-  an action that ignores it is unchanged.
-- The source list's action does not fire: one gesture, one action, one
-  commit. The captured `col.id` already names the target.
-- Grammar row: "A string, an `option<string>`, then optionally a
-  `ReorderEvent` | `reorderdrop`".
+- **One drop, on the target list.** It fires once, on the **target** list's
+  `reorderdrop`, with `item` and `before` (the target's key it lands before,
+  `none` at the end).
+- **The record.** `reorderdrop` joins `event_record`. An action that takes
+  one more parameter gets `ReorderEvent { from: string, to: string }`, the
+  two lists' `id`s. Within one list, `from == to`.
+- **The source fires nothing.** One gesture is one action and one commit.
+- **The grammar row reads:** "A string, an `option<string>`, then
+  optionally a `ReorderEvent` | `reorderdrop`".
 
-### D3 — The action moves the data with one send
+### D3 — The board, and the action
 
-Board data is durable, so it is the data module's (LLP 1088 §9.1):
+- **Layout.** Columns are a plain `each` in a horizontal
+  `scroll overflow-x="auto"`. Each column is a flex column: a header, the
+  grouped list (`flex=1`, a bound on a list that is not nested), and the
+  quick-add.
+  - The header and the quick-add are outside the list, so they act as
+    gutters (D7).
+  - The list keeps one direct `each`, over the visible cards. The filtered
+    keys then take no slots.
+  - `min-height` makes an empty column a target.
+- **The action.** Board data is the data module's (LLP 1088 §9.1), so the
+  drop's action is one `send`:
 
-```
-action dropCard(col: string, item: string, before: option<string>)
-  let at = match before { case some(k) => k, case none => "" }
-  send edited = edit("moveCard", boardId, item, col, at)
-```
+  ```
+  action dropCard(col: string, item: string, before: option<string>)
+    let at = match before { case some(k) => k, case none => "" }
+    send edited = edit("moveCard", boardId, item, col, at)
+  ```
 
-The module removes and inserts in one answer. Session-state lists get the
-same move when LLP 1088 §9.1's list construction lands; this RFC adds no
-list function. D7's hold covers the answer's latency.
+- **Grips.** The conversion deletes `press`, `pan`, `pointerdown` and `key`
+  from each grip (kanban2's `press=gripTap`), so D9's keys install.
+- **Columns.** Column drag stays the app's (§7).
 
-### D4 — Reorder on a row list and a nested list
+### D4 — The runner's session
 
-LLP 1070 §4.7 refused both "until a consumer". Kanban is it: the columns are
-a row list, the cards a list in each column's row.
+- **One token.** The token stays the **source**'s identity for the whole
+  gesture, and `reorder_owner` stays the source list. The session adds
+  `target: NodeKey` (initially the source) and a phase: `active`,
+  `holding`, `cancelling`, `settling`.
+- **The previews.** `preview_reorder_into(token, target, geometry, y)`
+  writes both previews in one commit:
+  - **target == source:** today's `Offsets::at`, byte for byte, so
+    `reorder.contract` and every in-list host path are unchanged.
+  - **Outgoing,** on the source: the source row keeps its slot. The host
+    hides it, and each row after it translates by `−h` (h = the source
+    row's height).
+  - **Incoming { key, extent },** on the target: `certified_gap_excluding`
+    with nothing excluded picks the gap. Every row at or after it
+    translates by `+extent` (extent = h), and rows before it by 0.
+  - **A retarget** closes the old target's `Incoming` and opens the new one
+    in the same commit.
+- **The drop** (`drop_reorder`) dispatches `reorderdrop` on
+  `session.target`. Every other step (`begin`, `cancel`, `reorder_frame`,
+  `finish`, `reconcile_reorder`) keeps the source token.
+- **The JS target.** `host/web-js/reorder.js` and `arrange.js` implement
+  the same session in stage 2, case for case (`Outgoing`, `Incoming`,
+  retarget, the three endings), so the wasm and JS targets agree in
+  conformance.
 
-- The preview runs along the list's main axis (`translate: {offset}px 0px`
-  on a row list, the same spring).
-- `ReorderGeometry` v2 carries `axis`, `scroll_main` and `port_main` in
-  place of `scroll_top` and `port_height`. The codec and every host's
-  encoder move together; v1 is deleted.
-- `reorder_collection` and `edit_walk` (`traversal.rs:540–548`) reach an
-  inner list. A lift from an inner list pins its outer row too, so the
-  board's window keeps the source column while the board autoscrolls. A
-  lifted column carries its inner list in the ghost.
-- LLP 1070's other row-list refusals stand (wrapping, reversed and
-  right-to-left flow, `gap`, main-axis padding).
+### D5 — The host calls and wires
 
-### D5 — The lift and the ghost
+The 68-byte `ReorderGeometry` and every existing packet are unchanged. Each
+host gains one call:
 
-- **Recognition** is each host's, as today: `pointerdown` plus an 8 px slop
-  on the web; the handle's pan, or a long press where the list pans, on iOS;
-  the mouse or contact slop on macOS and Linux. For a grouped or row list a
-  move past the slop in any direction lifts (today a vertical list's grip
-  lifts only on a mostly vertical move); the grip's `touch-action="none"`
-  keeps scrolling off it.
-- **A grouped lift shows a ghost in the top layer**, because the real row
-  cannot leave its scrollport's clip. The source slot keeps its space,
-  hidden, while the ghost is over the source list.
-  - Web: a `cloneNode(true)` of the row wrapper in a `popover="manual"`
-    element shown with `showPopover()`, `position: fixed` at the row's
-    viewport box, `pointer-events: none`; the source gets `visibility:
-    hidden`.
-  - iOS: `snapshotView(afterScreenUpdates: false)` in the window, above the
-    content. macOS: `cacheDisplay(in:to:)` into a topmost image view.
-    Linux: the lifted subtree painted last with no ancestor clip.
-- The ghost follows the contact by the grip's offset. The point that picks
-  target and gap is the **ghost's centre**, not the pointer: the fix
-  kanban2 found by hand.
-- Ungrouped vertical lists keep today's raised real row.
-- iOS plays a light impact at the lift, as UIKit's drag lift does.
+- **Web, wasm:** motion op 21, `reorder-preview-into`. It uses the v3
+  header with the source binding and token. Its geometry floats, revision
+  and scroll sequence are the target's. `count = 1`, and the one 32-byte
+  record carries the target's key. The decoder is `reorder_drag.rs`.
+- **Web, JS target:** `arrange.js`'s `reorder-preview` packet gains
+  `target` and `targetGeometry`.
+- **Apple:** `exact_reorder_move_into(rt, token, target_key, content_y,
+  target_scroll_top, inside, now_ms)`. Here `content_y` is the ghost's
+  centre in the target's content coordinates.
+- **Linux:** the same call, in process.
 
-### D6 — Target, gap and autoscroll
+Each host computes `y` in the target's content space: the ghost centre's
+viewport y, minus the target port's viewport top, plus its scroll top.
 
-- **Target:** the grouped list whose scrollport contains the ghost's centre,
-  found by the host from the lists' viewport boxes. Between lists the last
-  target stays (as SortableJS keeps its placeholder), so a gutter does not
-  flicker. An empty list is a target with `before = none`; the docs say to
-  give it a `min-height`.
-- **Gap:** the runner opens a gap of the ghost's extent along the target's
-  main axis, before the certified key (`certified_gap_excluding`, excluding
-  nothing in a foreign list). While the target is another list, the source
-  closes its slot. The gap is the insertion indicator; no line is drawn.
-- **Session:** `reorder_owner` becomes a session holding `source`,
-  `target`, and one preview per list, `Outgoing` in the source and
-  `Incoming { key, extent }` in a target. A target change closes the old
-  target's preview and opens the new one in one commit.
-- **Autoscroll:** the innermost scroller under the ghost's centre that can
-  move toward its edge band scrolls, then each enclosing one, so the target
-  list scrolls on its axis and the board's scroller (a row list or a plain
-  `scroll`) on the other. Each host keeps today's band and speed; the gap
-  re-certifies against the moved geometry.
+### D6 — Lift and ghost
 
-### D7 — Drop, hold and cancel
+- **Recognition** is each host's, as today. For a grouped list, a move past
+  the slop in any direction lifts; `touch-action="none"` keeps scrolling off
+  the grip.
+- **The ghost.** A grouped lift shows the row as a ghost in the top layer,
+  since the real row cannot leave its scrollport's clip. The source keeps
+  its node identity, ids and testIds, hidden while D4's `Outgoing` is
+  active.
+  - **Web:** a `cloneNode(true)` of the wrapper with every `id`, `testId`
+    and Exact identity attribute stripped. It sits in a `popover="manual"`
+    shown with `showPopover()`, with `position: fixed` and `pointer-events:
+    none`.
+  - **iOS:** `snapshotView(afterScreenUpdates: false)` in the window.
+  - **macOS:** `cacheDisplay(in:to:)` into a topmost image view.
+  - **Linux:** the lifted subtree painted last with no ancestor clip, in a
+    new `presenter/lift.rs` that the paint walk calls. Today's lift moves
+    there too, so `paint.rs` shrinks.
+- **New files.** The web ghost, retargeting, hold and keyboard live in a
+  new `host/web/group-glue.js` that `arrangeController` calls, not in
+  `motion-glue.js`. Apple's live in `ReorderGroup.swift`.
+- **The look is the host's** (ruled): a shadow (`0 8px 24px` at 25% black)
+  and a 1.03 scale, the same on every host. There is no scale under
+  `prefers-reduced-motion`. iOS also plays a light impact at the lift.
+- **The ghost's centre** picks the target and the gap, not the pointer. The
+  ghost follows the contact by the grip's offset.
 
-- **Drop:** `reorderdrop` (D2) dispatches in the commit that ends the
-  preview, as today.
-- **Hold:** when that commit does not show the move (the action sent a
-  mutation, D3), the ghost and the target's gap stay: UIKit's drop
-  placeholder. The hold ends at the first commit where the dragged key sits
-  in the target before `before` (the ghost springs onto the row, which then
-  shows), or the key is in no grouped list (deleted: the ghost fades), or
-  after 1 s on the session's clock (the ghost springs home, the gaps close,
-  and the journal says `reorderdrop: the move did not show within 1 s`). A
-  within-list drop holds too, so an asynchronous reorder no longer springs
-  back, then jumps.
-- **Cancel:** Escape, `pointercancel` or lost capture, the window resigning
-  key, the source binding dying (`reconcile_reorder`), or the pointer
-  leaving the window. The ghost springs to the source slot, the gaps close,
-  no action runs. A drop outside every list goes to the sticky target, as
-  SortableJS and both kanban builds do.
+### D7 — Target, gap and autoscroll
 
-### D8 — Keyboard and assistive technology
+- **The target** is the grouped list whose scrollport's viewport box
+  contains the ghost's centre.
+  - Over no list (a gutter, a header, the quick-add), the last target
+    stays, as SortableJS keeps its placeholder.
+  - A list that holds `item` is never a target (D1).
+- **Autoscroll** is geometric, not a parent walk: the ghost is detached
+  (D6). The candidates are the target list's port, then each scroll
+  ancestor of the target list in the source tree whose viewport box
+  contains the ghost's centre (or the source's, before any retarget).
+  - The innermost candidate that can still move toward its edge band on its
+    own axis scrolls first; for a board, that is the column vertically,
+    then the board horizontally.
+  - Each host keeps its band and speed, measured on that scroller's axis.
+  - The pump runs while any candidate is in a band.
+  - After a scroll, the gap re-certifies on source and target.
+- **The gap is the indicator.** No line is drawn.
 
-- **Keyboard**, on a grip with no `press` or `key` handler of its own (an
-  authored one keeps its keys and the app's alternative stands). The grip is
-  focusable (`tabindex=0` on the web; the key view loop on macOS). Space
-  lifts; arrows along the target's main axis move `before` one row; arrows
-  across it move to the nearest grouped list that way, by viewport boxes, at
-  the row nearest the ghost; the gap stays in view by `scrollIntoView`'s
-  `nearest` (LLP 1070.000); Space or Enter drops; Escape cancels. (dnd-kit's keys.) A keyboard drop is the same
-  `reorderdrop` and holds the same way; when the hold ends, focus moves to
-  the moved row's grip. The runner's `reorder_step` API serves keyboard and
-  custom actions alike.
-- **Assistive technology:** a grip gets custom actions,
-  `accessibilityCustomActions` on iOS and `NSAccessibilityCustomAction` on
-  macOS: "Move earlier", "Move later", and in a group "Move to previous
-  list" and "Move to next list". Each is one drop without a lift. The web
-  has no custom actions, so its path is the keyboard; Linux exposes no
-  accessibility tree (LLP 1015 §7) and gets the keyboard only.
-- **Announcements:** none from the host in r1 (§8 Q2); the app's own
-  `aria-live` text, written in the drop's action, carries them.
+### D8 — Three endings
 
-### D9 — `elementFromPoint(x, y)`
+1. **Cancel, only before the drop.** Any of these cancels:
+   - Escape;
+   - `pointercancel`;
+   - a real loss of the grip's capture (a child's loss while the grip takes
+     capture is not a cancel, habits F10, `motion-glue.js:1100`);
+   - the window resigning key;
+   - the source binding dying.
 
-- `elementFromPoint(x: number, y: number) -> option<string>`, an action
-  read like `frame` (`type-geometry-outside-action` elsewhere).
-- It answers the `id` of the topmost node at viewport point `(x, y)`, or of
-  its nearest ancestor with one: DOM's
-  `document.elementFromPoint(x, y)?.closest("[id]")?.id`, `none` when there
-  is none. Contract names elements by id (`frame`, `focus`). `testId` is the
-  driver's, not the app's.
-- Boxes are `frame()`'s: layout boxes in the viewport, every scroll applied,
-  transforms not (D10). Ancestors' `overflow` clips apply; `pointer-events:
-  none`, `display: none` and `visibility: hidden` are skipped; paint order is
-  CSS's (LLP 1083.000), so a later sibling and a higher `z-index` win.
-- Natively the runner walks the kernel's boxes in reverse paint order with
-  `Scrolled`'s offsets (`runner/src/geometry.rs`), no presenter needed. The
-  web glue walks the same layout boxes it uses for `frame`
-  (`geometry-glue.js`), not the browser's `elementFromPoint`, which tests
-  painted, transformed boxes and would disagree with native.
+   On a cancel the ghost springs home, both previews close, and no action
+   runs.
+2. **Drop.** A pointer-up anywhere, inside the window or out (the grip
+   holds capture), drops into the current, sticky target. Leaving the
+   window does not cancel.
+   - If the drop's commit already shows the move, the preview ends as today
+     (terminal, rebase, finish). Every host's current path stays correct
+     for a synchronous action.
+   - Otherwise `drop_reorder` returns `holding`. The `Incoming` and
+     `Outgoing` targets stay, the hold is not released, and the ghost stays
+     at the gap.
+3. **The hold ends** at the first commit where one of these is true:
+   - **It landed.** With `before = some(k)`, the key's successor in the
+     target is `k`. With `none`, the key is the target's last.
+   - **It landed elsewhere.** The key is in the target at another index.
+     The ghost springs onto that row in both cases.
+   - **It is gone.** The key is in no grouped list, so the ghost fades.
+   - **Timeout.** 1 s has passed on the session clock. The ghost springs
+     onto wherever the key now is (home if unmoved), and the journal says
+     `reorderdrop: the move did not show within 1 s`. The deadline is a
+     runner-internal one-shot in the timer queue that `advance_timed`
+     services. Every host already wakes for it, and the agent's seekable
+     clock drives it.
 
-### D10 — `frame()` stays untransformed; `PointerEvent` gains client coordinates
+   The host learns which ending applied from the commit's reorder frame
+   (`reorder_frame` gains `ending: landed | gone | timeout`). While
+   `holding`, Escape does nothing, because the send is out. A new lift is
+   refused while `holding`, `cancelling` or `settling`. The source pin is
+   kept until `finish_reorder`, after the spring settles.
 
-- `frame()` keeps LLP 1051.000 D1's box (viewport, scrolled, untransformed).
-  `getBoundingClientRect` includes transforms, so this is a deviation,
-  declared in LLP 1001 with its reason:
-  - a transform's presented value lives in each host's motion engine (or in
-    CSS on the web), a spring in flight or a drag the engine holds, which
-    the runner cannot read while an action runs (LLP 1051.000 D1, change of
-    2026-09-28);
-  - including it on the web alone breaks the parity the web-as-standard rule
-    exists to protect;
-  - decisions (a snap stop, a fit, a drop slot) ask where layout put a box.
-- A hand-built drag adds the translate it wrote, as kanban2 did.
-- `PointerEvent` gains `clientX` and `clientY`, the viewport point in CSS px
-  (DOM's names), which `elementFromPoint` takes. Today a drag adds
-  `offsetX` to its node's `frame().x` by hand.
+### D9 — Keyboard and assistive technology
 
-### D11 — Driver, tests and conformance
+- **Keyboard,** on a grip with no `press`, `key`, `pan` or `pointerdown`
+  handler of its own.
+  - **Focus.** The host makes the grip focusable (`tabindex=0` and
+    `role="button"` on the web; the key view loop on macOS).
+  - **Keys.** Space lifts. Up and down move `before` one row. Left and
+    right move to the previous or next grouped list **in tree order** (all
+    are mounted, D3) at the same index, clamped to the end; `before` is that
+    list's key at the index, or `none`. The gap is kept in view with
+    `scrollIntoView`'s `nearest`. Space or Enter drops, and Escape cancels
+    (dnd-kit's keys).
+  - **The drop** is D8's, hold included. Focus then goes to the moved row's
+    grip when the move landed, and back to the source grip otherwise.
+- **Custom actions.** iOS (`accessibilityCustomActions`) and macOS
+  (`NSAccessibilityCustomAction`) get "Move earlier", "Move later", "Move to
+  previous list" and "Move to next list".
+  - Each is one `reorderdrop`, by the same index rule, with no lift and no
+    ghost.
+  - The web's path is the keyboard. Linux has no accessibility tree
+    (LLP 1015 §7), so it gets the keyboard.
+- **The runner's `reorder_step(token, direction)`** serves both paths.
+- **Announcements are the app's** in v1 (ruled), through its own
+  `aria-live` text.
 
-- `tap A drag to B [at x y] [over ms] [hold ms] [during "op"…]` ends at B's
-  box centre, or at `(x, y)` from B's top-left. The driver computes the
-  delta from both boxes at the press and runs today's `dragTap`, on every
-  host where `drag` runs. Test files gain `tap "A" drag to "B"`
-  (`scripts/agent-test.mjs`, beside `drag`), so a move test does not depend
-  on the viewport.
-- During a session `state.reorder` is `{ item, from, to, before, phase }`,
-  phase `lifted`, `holding` or `cancelling`, for `during` reads. The
-  keyboard path drives with today's `type <grip> key Space` and arrow keys.
-- `host/web-js/conformance/reorder-group.contract` and its `.steps`: three
-  grouped lists (one empty) in a row list that itself reorders; a cross-list
-  drag, a drop into the empty list, a column drag, an autoscrolling drag,
-  Escape mid-drag, a keyboard move across lists, and a drop whose mutation
-  answers after 200 ms. It runs in the async lane beside `reorder.contract`,
-  which passes unchanged.
+### D10 — `elementFromPoint(x, y)`
 
-### D12 — `rules/DEFERRED.md`
+- **Signature.** `elementFromPoint(x: number, y: number) -> option<string>`
+  is a stdlib action read. Outside an action it is refused with
+  `type-geometry-outside-action`.
+- **What it returns.** The `id` of the topmost node at viewport `(x, y)`, or
+  of its nearest ancestor with an `id`. That is DOM's
+  `elementFromPoint(x, y)?.closest("[id]")?.id`. Contract names elements by
+  id, and `testId` is the driver's.
+- **Which boxes count.** `frame()`'s: layout boxes in the viewport, every
+  scroll applied, no transforms. Ancestors' `overflow` clips apply.
+  `pointer-events: none`, `display: none` and `visibility: hidden` are
+  skipped. The order is `Kernel::paint_order` (LLP 1083.000).
+- **Where it runs.**
+  - **Native:** the runner, from kernel boxes and `Scrolled`.
+  - **Web:** a new `point(x, y)` in `geometry-glue.js` over the same
+    untransformed boxes, reached from a few lines of `rt.js` (`x_elementFromPoint`)
+    and the wasm import beside `read`.
+  - Linux's `Presenter::hit` and the browser's own `elementFromPoint` test
+    painted, transformed boxes, so neither is used.
+- **The recipe, for a drag still built by hand.** Test the dragged node's
+  **visual centre**: `frame(id)`, plus the pan delta the action stored, plus
+  half the box. Do not test the pointer. `clientX`/`clientY` (D11) are for
+  hits that really want the pointer. A `pan` carries only deltas.
 
-Stage 1 adds under **Motion**, beside the `panrelease` and pointer entries:
+### D11 — `frame()` stays untransformed; `PointerEvent` gains client coordinates
 
-> **Expanded (LLP 1094):** a reorder spanning lists that share a
-> `reorderGroup`, on vertical and row virtualized lists and one level of
-> nesting, with a top-layer ghost, a drop hold, keyboard and custom-action
-> moves, and the action read `elementFromPoint`. Consumers: the two kanban
-> builds. Unblocks a board without a hand-built drag. Take: none offered.
-> Still out: drags out of or into the app, multi-item drags, grids, a
-> gesture arena.
+- **`frame()` keeps LLP 1051.000 D1's box.** `getBoundingClientRect`
+  includes transforms, so this deviation is declared in LLP 1001:
+  - A presented transform lives in each host's motion engine, or in CSS,
+    which the runner cannot read during an action.
+  - Including it on the web alone would break parity.
+  - Decisions ask where layout put a box.
+- **`PointerEvent` gains `clientX` and `clientY`,** the viewport point in
+  CSS px. The wire appends them:
+  `offsetX,offsetY,buttons,pressure,pointerType,pointerId,clientX,clientY[,held]`.
+- **Every writer changes in stage 1:**
+  - `runner/src/runner/pointer.rs`'s `parse`;
+  - Linux `pointer_record` (`presenter/pointer.rs:39`);
+  - Apple `PointerSample.line` (`Bridge.swift:603`);
+  - `host/web/input-glue.js`'s `record`;
+  - `host/web-js/pointer.js`'s `record`.
 
-It needs Charlie's waiver, or the orchestrator's under his delegation, as
-LLP 1089's was recorded (§8 Q1).
+  There is no compatibility parse. All the writers are in the repo
+  ("Delete; don't deprecate").
+
+### D12 — Driver, test files and conformance
+
+- **The agent.** `tap A drag to B [at x y] [over ms] [hold ms] [during "op"…]`
+  ends at B's box centre, or at `(x, y)` from B's top-left. The delta comes
+  from both boxes at the press, then today's `dragTap` runs. If B is
+  unmounted or off screen, it is refused by name. An autoscrolling drag is
+  written with `drag dx dy hold ms`.
+- **Test files.** `tap "A" drag to "B"`, in `parser/steps.rs` beside
+  `drag`.
+- **`state.reorder`.** During a session it reads `{ item, from, to, before,
+  phase }`.
+- **The keyboard path** drives with `type <grip> key Space` and the arrow
+  keys.
+- **Conformance.** `conform.mjs` gains the op `drag <target> to <target>
+  [ms]`. The fixture is `reorder-group.contract` with its `.steps`:
+  - three grouped lists in a horizontal `scroll`, one of them empty;
+  - a cross-list drag, a drop into the empty list, and a drag that
+    autoscrolls the board;
+  - Escape mid-drag;
+  - a keyboard move across lists;
+  - a drop whose mutation answers after 200 ms, and one that never answers
+    (the timeout).
+
+  The Chrome pair (wasm and JS) and Linux run every step. Firefox and
+  WebKit skip drag steps, as they skip `reorder.steps` today
+  (`conform.mjs:356`), and run the keyboard steps.
+
+### D13 — `rules/DEFERRED.md`
+
+The orchestrator's waiver, under Charlie's 2026-10-04 delegation, is
+recorded in its own commit with r2. It goes under **Motion**:
+
+> **Expanded (LLP 1094; waived by the orchestrator under Charlie's
+> 2026-10-04 delegation, "make decisions without me"):** a reorder spanning
+> vertical virtualized lists that share a `reorderGroup`, in one session.
+> It brings a host-drawn top-layer ghost, a drop hold, keyboard and
+> custom-action moves, the action read `elementFromPoint`, and
+> `PointerEvent`'s `clientX`/`clientY`.
+>
+> - **Consumers:** the two kanban builds (F4).
+> - **Unblocks:** card moves on a board without a hand-built drag.
+> - **Take:** none offered.
+> - **Still out:** reorder on row and nested lists (LLP 1094 §7), drags
+>   into or out of the app, multi-item drags, grids, and a gesture arena.
 
 ## 4. Effect on each implementation
 
-| | Stage 1 | Stage 2 | Stage 3 |
-|---|---|---|---|
-| schema, compiler | `reorderGroup`; `ReorderEvent` in `event_record` and the payload table; `elementFromPoint`; `clientX`/`clientY`; row and nested refusals deleted; `lower-reorder-group` | — | — |
-| runner | the session (`Outgoing`/`Incoming`); main axis; geometry v2; outer pin; hold; `reorder_step`; `elementFromPoint` | — | — |
-| web, both targets | — | direction; popover ghost; target; nested autoscroll; hold; keyboard; `elementFromPoint` glue; `reorder.js`'s `Incoming` | — |
-| Apple, Linux | geometry v2 encoders | — | ghost, target, autoscroll, hold, keyboard; Apple custom actions; iOS lift haptic |
-| driver | — | `drag to`, the test step, `state.reorder` | macOS, Linux and iOS (`--touch platform`) drives |
-| docs | grammar rows; LLP 1001 deviation; DEFERRED | the board recipe in `contract-for-agents.md` | — |
+| | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| compiler, schema | `reorderGroup`, `ReorderEvent`, `elementFromPoint`, `lower-reorder-group`, step `drag to` | — | — | — | — |
+| runner | session, `preview_reorder_into`, the endings and deadline, `reorder_step`, `elementFromPoint`, pointer wire | — | — | — | — |
+| web, both targets | pointer writers | op 21, `group-glue.js`, the JS session, `point()` | — | — | — |
+| driver, conformance | — | `drag to`, `state.reorder`, the fixture | — | — | — |
+| apps | — | — | kanban ×2 converted (web) | macOS run | — |
+| Apple | `PointerSample` | — | — | `move_into`, ghost, autoscroll, hold, keys, custom actions | — |
+| Linux | `pointer_record` | — | — | — | `lift.rs`, target, autoscroll, hold, keys |
 
 ## 5. Tests
 
-- **Compiler** (`contract/cli/tests/it/{reorder_collection,collection_axis,collection_nest}.rs`):
-  a grouped list accepted; each `lower-reorder-group` refusal asserted whole;
-  `reorderdrop` on a row list and a nested list accepted; a `ReorderEvent`
-  parameter typed and a wrong record refused; `elementFromPoint` outside an
-  action refused.
-- **Runner**: outgoing and incoming offsets; a target change in one commit;
-  a duplicate key opens no gap; a horizontal gap; the outer pin across a
-  window move; each of the hold's three ends; cancel; keyboard steps across
-  lists; `elementFromPoint` under a clip, `pointer-events: none` and a higher
-  `z-index`; `runner/tests/it/reorder_codec.rs` for v2.
-- **Hosts** (each host's reorder and arrange tests): a cross-list drag, a column drag, an
-  outer scroller's autoscroll, the hold, the ghost's removal.
-- **Conformance:** D11's fixture on Chrome, Firefox and WebKit.
-- **Driven:** both kanban builds (outside the repo, `EXACT_APP_DIR`) convert
-  their columns to grouped `list virtualized=true`, delete the hand-built
-  drag (`dragCard`, `dragColumn`, the frame unrolling, the ghost,
-  `boardScrollTo`) and pass their authored tests with `drag to` steps on web
-  and macOS. One cross-column
-  drag on the iOS simulator under `--touch platform`.
+- **Compiler:**
+  - a grouped list is accepted;
+  - each `lower-reorder-group` refusal is asserted whole;
+  - row and nested refusals are unchanged;
+  - `ReorderEvent` is typed;
+  - `elementFromPoint` outside an action is refused;
+  - the test step `drag to` parses.
+- **Runner:**
+  - an in-list preview is byte-identical to today's;
+  - `Outgoing` and `Incoming` offsets;
+  - a retarget happens in one commit;
+  - a foreign list holding `item` is never a target;
+  - each ending: a synchronous drop, landed (`some`, `none`), elsewhere,
+    gone, the timeout on `advance_timed`;
+  - Escape while holding is ignored, and a lift while holding is refused;
+  - `reorder_step` across lists with clamping;
+  - `elementFromPoint` under a clip, under `pointer-events: none` and under
+    a higher `z-index`;
+  - the eight-field pointer wire.
+- **Hosts.** Each host's reorder tests add a cross-list drag, an
+  autoscrolled board, the hold, the timeout and the ghost's removal. The web
+  ghost's clone is checked to carry no `id` or `testId`.
+- **Conformance:** D12's fixture.
+- **Driven.** Both kanban builds (`EXACT_APP_DIR`) convert their card lists
+  (D3) and delete `dragCard`, `dropCard`, the frame unrolling, the card
+  ghost and the card half of `boardScrollTo`. Their authored tests pass
+  with `drag to`, on the web in stage 3 and on macOS in stage 4. One iOS
+  `--touch platform` drag runs in stage 4.
 
 ## 6. Implementation plan
 
-Implementer: Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, on a
-branch from origin/main. Each commit passes the five checks.
+Implementer: Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, from
+origin/main. Each commit passes the five checks. Every new web or Linux
+behaviour goes in a new file (D6), not in a file near the cap.
 
-1. **Stage 1, 2026-10-06: compiler and runner** (D1–D4, the runner halves of
-   D6–D8, D9, D10, D12). The Apple and Linux encoders move to geometry v2 so
-   single-list reorder keeps running. **Exit:** §5's compiler and runner
-   tests; interaction-gallery, exact-live and `reorder.contract` unchanged on
-   web and macOS.
-2. **Stage 2, 2026-10-07: the web, both targets, and the driver** (D5–D8,
-   D11). **Exit:** the conformance fixture green on three browsers; both
-   kanban builds converted and passing on the web.
-3. **Stage 3, 2026-10-08: Apple and Linux** (D5–D8). **Exit:** the kanban
-   builds' tests on macOS; Linux's arrange tests; one iOS real-touch drive.
-   If the macOS ghost or the custom actions slip, the rest lands and the
-   slipped piece gets a `QUEUE.md` line.
+1. **2026-10-06, compiler and runner** (D1, D2, D4, D8–D11's runner halves,
+   D13, and the pointer writers).
+   - **Exit:** §5's compiler and runner tests;
+     `interaction-gallery`, `exact-live` and `reorder.contract` unchanged.
+2. **2026-10-07, the web (both targets), the driver and conformance** (D5–D10,
+   D12).
+   - **Exit:** the fixture green on the Chrome pair and Linux, with
+     Firefox and WebKit running the keyboard steps.
+3. **2026-10-08, the kanban conversions on the web.** They start only after
+   stage 2's fixture is green.
+4. **2026-10-09–10, Apple.**
+   - **Exit:** the kanban tests on macOS; one iOS real-touch drag.
+5. **2026-10-11, Linux.**
+   - **Exit:** the arrange tests and the fixture's Linux run.
+   - If the macOS ghost, the custom actions or `lift.rs` slip, the rest
+     lands and the slipped piece gets a `QUEUE.md` line.
 
-## 7. Considered and not taken
+## 7. Deferred, with preconditions
 
-- **HTML drag-and-drop events** (Option A): a per-element target and no
-  index, an image that cannot animate, weak on touch, costly to map onto
-  UIKit and AppKit sessions (§2).
-- **A ghost the app draws, the runner only reporting the target:** half the
-  hand-build stays, and a row that moves itself is still clipped.
-- **Firing the source list's action too:** two actions per gesture means two
-  commits or an order between them.
-- **`frame()` with transforms at their model values:** right only once
-  motion settles, wrong mid-spring on every host but the web. Trigger: a
-  consumer for which the layout box is wrong even after D1–D7.
-- **The browser's own `elementFromPoint`** on the web: it would disagree
-  with native (D9).
+- **Reorder on a row list and on a nested list** (r1's D4: dragging
+  columns). LLP 1070 §4.7's refusals stand. They lift when all of these
+  land, with a consumer:
+  1. A virtualized row list that takes a parent-bounded height (a
+     percentage or `flex`, not only a literal; `lower-collection-cross`),
+     and an inner list bounded by its stretched row (`lower-collection-unbounded`).
+  2. `edit_walk` (`traversal.rs:633`) descends `collection.mounted` as
+     `find_collection_mut` does, pushing each outer row's frame.
+  3. An interaction pin on the outer row, paired with the inner grip's
+     lease and released in `finish_reorder`.
+  4. A main axis on every wire: `axis` in the motion header's spare `u32`,
+     the floats read as `scroll_main`/`port_main`, and a main-axis sample
+     in place of `dy`/`scroll_top` on Apple and Linux. All of them change
+     together (`reorder_drag.rs`, `motion-glue.js`, `reorder.js`,
+     `arrange.js`, Apple, Linux, `exact-live`'s `arrange.rs` test).
+  5. Keyboard and custom actions reach an unmounted neighbour, as LLP 1070
+     §4.7 owes.
 
-## 8. Open questions
+  Until then, kanban's column drag stays the app's.
+- **`frame()` with transforms.** Trigger: a consumer for which the layout
+  box is wrong even with D1–D10.
 
-1. **The DEFERRED waiver** (D12): Charlie's, or the orchestrator's under
-   the 2026-10-04 delegation?
-2. **Host announcements.** Should the web host own a polite `aria-live`
-   region ("Moved X to position 3 of 7 in Doing")? It needs localized host
-   strings, which v1 lacks; r1 leaves announcing to the app.
-3. **Lift styling.** Is the lifted look (a shadow, UIKit's 1.05 scale) the
-   host's or the app's? No state tells the app "lifted"; `state.reorder` is
-   the driver's.
-4. **A group across sessions** (the sample host's two embedded sessions):
-   r1 says one session.
+## 8. Considered and not taken
 
-## 9. Revisions
+- **HTML drag-and-drop events** (Option A): see §2.
+- **A ghost the app draws:** half the hand-build remains, and a row is
+  still clipped.
+- **Firing the source's action too:** two commits for one gesture.
+- **Cancelling when the pointer leaves the window** (UIKit): both boards
+  commit to the last target.
+- **A compatibility parse of the six-field pointer line:** every writer is
+  in the repo.
+- **The browser's `elementFromPoint`:** it would disagree with native.
 
-- **r1** (2026-10-05): first draft. Pushed first as `llp/1091-…` (42bc4e658), a number LLP 1091 (Contract modules) already held; renumbered 1094, since 1092 and 1093 are other lanes'.
+## 9. Open questions
+
+1. **Is 1 s the right hold bound?** It is long enough for a local data
+   module and short enough not to strand a ghost. A networked board may
+   want more. Stage 3 measures kanban's answer time.
+
+Decided (the orchestrator, 2026-10-05, under Charlie's delegation): the
+DEFERRED waiver (D13); `aria-live` is the app's in v1; the lifted look is
+the host's (D6); a group stays within one session (D1).
+
+## 10. Revisions
+
+- **r2** (2026-10-05, round 1 of 3). This revision answers the two Grok 4.7
+  xhigh reviews of r1, which are one family with two scopes. Every finding
+  was checked against the code at `e097e4cae`.
+  - Accepted (A1–A9, B1–B11): the dispositions are in
+    `llp/reviews/1094-r1.grok-{a,b}.md`.
+  - Rejected: one part of B8, the compatibility parse.
+  - Descoped: row and nested reorder (A1, B2's axis, B4), to §7.
+- **r1** (2026-10-05): first draft. It was pushed first as `llp/1091-…`
+  (`42bc4e658`), a number LLP 1091 (Contract modules) already held, and was
+  renumbered 1094.
