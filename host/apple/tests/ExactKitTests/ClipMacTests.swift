@@ -138,6 +138,19 @@ final class ClipMacTests: XCTestCase {
         XCTAssertFalse(n.isHidden, "displayed again, nothing the host said hides it")
     }
 
+    /// Writing back what `isHidden` read of a `display: none` box is not the
+    /// host hiding it (review B1's setter guard).
+    func testWritingBackADisplayNoneBoxsHiddenIsNotTheHostsWord() {
+        let n = node("view", ["display": "none"])
+        n.isHidden = n.isHidden
+        XCTAssertFalse(n.hiddenByHost)
+        n.applyStyle(["display": "block"])
+        XCTAssertFalse(n.isHidden)
+        n.isHidden = true // the host's own word still holds
+        n.applyStyle(["display": "none"]); n.applyStyle(["display": "block"])
+        XCTAssertTrue(n.isHidden)
+    }
+
     /// A native module's view inside a `pointer-events: none` box takes no
     /// click: the button around it does (paint F9), as on the web.
     func testAPointerEventsNoneBoxsPlatformViewLetsTheClickThrough() throws {

@@ -92,6 +92,21 @@ final class SwipeActionsIOSTests: XCTestCase {
         XCTAssertTrue(p.swipeActions.ownsAction(4), "an unprojected row's controls are still its actions")
     }
 
+    /// The projection restores what the host had said of a control, not
+    /// CSS's `display: none` (review B1): shown again, it is visible.
+    func testAProjectionRestoresTheHostsWordNotDisplay() throws {
+        let p = fixture()
+        let owner = try XCTUnwrap(p.views[1]), delete = try XCTUnwrap(p.views[4])
+        delete.applyStyle(["display": "none"])
+        XCTAssertTrue(delete.isHidden)
+        p.swipeActions.touch(owner)
+        XCTAssertNotNil(p.swipeActions.cell(of: owner), "projected")
+        turn()
+        XCTAssertNil(p.swipeActions.cell(of: owner), "released")
+        delete.applyStyle([:])
+        XCTAssertFalse(delete.isHidden, "displayed again, nothing the host said hides it")
+    }
+
     func testARefusedRowSwipesByItsScroll() throws {
         let p = fixture()
         let owner = try XCTUnwrap(p.views[1]), row = try XCTUnwrap(p.views[2])

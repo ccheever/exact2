@@ -60,7 +60,14 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var hiddenByHost: Bool { hostHidden }
     override var isHidden: Bool {
         get { super.isHidden }
-        set { hostHidden = newValue; super.isHidden = newValue || style["display"]?.string == "none" }
+        set {
+            // Writing back "hidden" that only CSS's `display: none` made is not
+            // the host's word (a save of `isHidden` restored; review B1): a
+            // projection that means it hides again on its next pass.
+            let css = style["display"]?.string == "none"
+            if !(newValue && css && !hostHidden && super.isHidden) { hostHidden = newValue }
+            super.isHidden = hostHidden || css
+        }
     }
     var handlers: Set<String> = [] {
         didSet {
