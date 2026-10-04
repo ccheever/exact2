@@ -67,7 +67,7 @@ const EDGES: [f64; 22] = [
     4503599627370496.0,
     1e308,
     1e-308,
-    2.2250738585072009e-308,
+    f64::from_bits(0x000f_ffff_ffff_ffff), // the largest subnormal
     1.7976931348623157e308 / 2.0,
     0.49999999999999994,
     1e21,
@@ -95,7 +95,11 @@ fn operand(rng: &mut Rng) -> f64 {
         4 => {
             // Extreme exponents: products and quotients overflow, underflow,
             // and land among the subnormals.
-            let e = if rng.chance(1, 2) { rng.below(80) } else { 2046 - rng.below(80) };
+            let e = if rng.chance(1, 2) {
+                rng.below(80)
+            } else {
+                2046 - rng.below(80)
+            };
             let s = rng.below(2) << 63;
             f64::from_bits(s | (e << 52) | (rng.next_u64() & 0x000f_ffff_ffff_ffff))
         }
@@ -161,7 +165,8 @@ out.putStrLn s!\"{{cb (a + b)}} {{cb (a - b)}} {{cb (a * b)}} {{cb (a / b)}} {{c
 fn run_batch(lines: &[String], dir: &Path, i: usize) -> Result<Vec<String>, String> {
     let data = dir.join(format!("arith-{}-{i}.txt", std::process::id()));
     let file = dir.join(format!("arith-{}-{i}.lean", std::process::id()));
-    std::fs::write(&data, lines.join("\n") + "\n").map_err(|e| format!("{}: {e}", data.display()))?;
+    std::fs::write(&data, lines.join("\n") + "\n")
+        .map_err(|e| format!("{}: {e}", data.display()))?;
     std::fs::write(&file, module(&data)).map_err(|e| format!("{}: {e}", file.display()))?;
     let out = Command::new(leanrun::lake())
         .args(["env", "lean", "--run"])
@@ -178,7 +183,10 @@ fn run_batch(lines: &[String], dir: &Path, i: usize) -> Result<Vec<String>, Stri
     }
     let _ = std::fs::remove_file(&data);
     let _ = std::fs::remove_file(&file);
-    Ok(String::from_utf8_lossy(&out.stdout).lines().map(str::to_string).collect())
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::to_string)
+        .collect())
 }
 
 /// `difftest arith`: `count` operand pairs from `seed`; true when every
@@ -199,7 +207,9 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
     let jobs = std::env::var("DIFFTEST_JOBS")
         .ok()
         .and_then(|j| j.parse::<usize>().ok())
-        .unwrap_or_else(|| std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).max(1)));
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).max(1))
+        });
     let chunk = count.div_ceil(jobs).max(1);
     let start = std::time::Instant::now();
     let results: Vec<Result<Vec<String>, String>> = std::thread::scope(|scope| {
@@ -208,7 +218,10 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
             .enumerate()
             .map(|(i, part)| scope.spawn(move || run_batch(part, dir, i)))
             .collect();
-        handles.into_iter().map(|h| h.join().expect("arith batch")).collect()
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("arith batch"))
+            .collect()
     });
     let elapsed = start.elapsed().as_secs_f64();
     let mut lean = Vec::with_capacity(count);
@@ -216,7 +229,10 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
         lean.extend(r?);
     }
     if lean.len() != count {
-        return Err(format!("arith: expected {count} lines from Lean, got {}", lean.len()));
+        return Err(format!(
+            "arith: expected {count} lines from Lean, got {}",
+            lean.len()
+        ));
     }
     let mut bad = [0usize; OPS.len()];
     let mut shown = 0;
@@ -229,16 +245,31 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
         let ls: Vec<&str> = l.split(' ').collect();
         for k in 0..OPS.len() {
             let (rv, lv) = if k < 11 {
-                (rs.get(k).copied().unwrap_or(""), ls.get(k).copied().unwrap_or(""))
+                (
+                    rs.get(k).copied().unwrap_or(""),
+                    ls.get(k).copied().unwrap_or(""),
+                )
             } else {
-                let at = |v: &[&str]| v.get(11).and_then(|s| s.get(k - 11..k - 10)).unwrap_or("").to_string();
+                let at = |v: &[&str]| {
+                    v.get(11)
+                        .and_then(|s| s.get(k - 11..k - 10))
+                        .unwrap_or("")
+                        .to_string()
+                };
                 if at(&rs) == at(&ls) {
                     continue;
                 }
                 bad[k] += 1;
                 if shown < 20 {
                     shown += 1;
-                    println!("DIVERGE {} a={:016x} b={:016x}: rust {} lean {}", OPS[k], a.to_bits(), b.to_bits(), at(&rs), at(&ls));
+                    println!(
+                        "DIVERGE {} a={:016x} b={:016x}: rust {} lean {}",
+                        OPS[k],
+                        a.to_bits(),
+                        b.to_bits(),
+                        at(&rs),
+                        at(&ls)
+                    );
                 }
                 continue;
             };
@@ -246,13 +277,22 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
                 bad[k] += 1;
                 if shown < 20 {
                     shown += 1;
-                    println!("DIVERGE {} a={:016x} b={:016x} n={n}: rust {rv} lean {lv}", OPS[k], a.to_bits(), b.to_bits());
+                    println!(
+                        "DIVERGE {} a={:016x} b={:016x} n={n}: rust {rv} lean {lv}",
+                        OPS[k],
+                        a.to_bits(),
+                        b.to_bits()
+                    );
                 }
             }
         }
     }
     let total: usize = bad.iter().sum();
-    let per: Vec<String> = OPS.iter().zip(bad).map(|(o, b)| format!("{o} {b}")).collect();
+    let per: Vec<String> = OPS
+        .iter()
+        .zip(bad)
+        .map(|(o, b)| format!("{o} {b}"))
+        .collect();
     println!(
         "difftest: {count} operand pairs, {} operations, {total} disagreed ({}); Lean side {:.1}s, {:.0} pairs/s over {jobs} processes",
         count * OPS.len(),
