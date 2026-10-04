@@ -61,17 +61,22 @@ final class CanvasPointerMacTests: XCTestCase {
         XCTAssertEqual(r.map(\.1), [1, 3, 3, 1, 0])
         XCTAssertEqual(r[2].2, 10, accuracy: 0.001, "unlocked motion is the position's change")
         XCTAssertEqual(r[0].2, 0, "a down carries no motion")
+        pointerEvents = []
+        XCTAssertTrue(input.pointer(mouse(.otherMouseDown, window, at: at(canvas, window, 60, 50)), phase: "down"))
+        XCTAssertEqual(pointerEvents.first?["buttons"] as? Int, 4, "a made middle press (buttonNumber 0) is the middle button")
         withExtendedLifetime(window) {}
     }
 
-    func testALockableCanvasLocksTakesDeviceDeltasAndEscapeOrResigningKeyUnlocks() {
+    func testALockableCanvasLocksTakesDeviceDeltasAndEscapeOrResigningKeyUnlocks() throws {
         let (s, canvas, window) = fixture(); defer { s.destroy() }
         canvas.props["dataset"] = #"{"pointer-lock":"true"}"#
         let input = canvas.canvasInput!
         XCTAssertTrue(input.pointer(mouse(.leftMouseDown, window, at: at(canvas, window, 50, 50)), phase: "down"))
         // CGAssociateMouseAndMouseCursorPosition is per process; it succeeds
-        // without a window server's input focus.
-        XCTAssertTrue(input.locked, "a press on a lockable canvas captures the mouse")
+        // without input focus (at a login window), but needs a window server.
+        guard input.locked else {
+            throw XCTSkip("no window server connection: CGAssociateMouseAndMouseCursorPosition refused")
+        }
         let cg = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: .zero, mouseButton: .left)!
         cg.setIntegerValueField(.mouseEventDeltaX, value: 25)
         cg.setIntegerValueField(.mouseEventDeltaY, value: -4)
