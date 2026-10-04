@@ -578,7 +578,8 @@ final class CollectionMacTests: XCTestCase {
     }
 
     /// A row playing `exit-animation` is a subview but no longer a child;
-    /// ordering the rows ranks it above them instead of trapping (mail F22).
+    /// ordering the rows keeps it, a paint ghost at its old place that paints
+    /// over them (its paint rank), instead of trapping (mail F22).
     func testAnExitingRowKeepsARankWhileTheRowsReorder() throws {
         let (p, list) = fixture()
         defer { p.collections.reset(); p.reset() }
@@ -589,7 +590,8 @@ final class CollectionMacTests: XCTestCase {
             ["op": "exit", "id": 2],
             ["op": "children", "id": 1, "ids": [5, 4]],
         ]))
-        XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [5, 4, 2])
+        XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [2, 5, 4])
+        XCTAssertTrue(try XCTUnwrap(p.views[2]).paintGhost)
         p.apply(batch([["op": "destroy", "id": 2]]))
         XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [5, 4])
     }
