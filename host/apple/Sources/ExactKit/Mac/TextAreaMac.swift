@@ -23,6 +23,14 @@ final class TextArea: NSTextView {
         if let markup, !hasMarkedText() { markup.bookmark = selectedRange() }
         return super.resignFirstResponder()
     }
+    /// `focus` as the web fires it: when the editor takes the focus, not at
+    /// its first edit (`textDidBeginEditing`; jukebox F23). `blur` is
+    /// `textDidEndEditing`, which AppKit posts whenever the focus leaves.
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        if ok, let owner, owner.handlers.contains("focus") { owner.presenter?.focus(owner.id) }
+        return ok
+    }
 
     override func insertNewline(_ sender: Any?) {
         if markup != nil, !hasMarkedText(), owner?.formatMarkup("newline") == true { return }
@@ -195,7 +203,6 @@ extension NodeView {
     }
     func textDidBeginEditing(_ notification: Notification) {
         presenter?.collections.pinsChanged()
-        if handlers.contains("focus") { presenter?.focus(id) }
         publishMarkupSelection(force: true)
     }
     func textViewDidChangeSelection(_ notification: Notification) {
@@ -209,5 +216,20 @@ extension NodeView {
         presenter?.commitEdit(id, textArea?.string ?? "", change: handlers.contains("change"))
         if handlers.contains("blur") { presenter?.blur(id) }
     }
+}
+
+/// An input's field: `focus` when it takes the focus (its field editor then
+/// edits it), as the web fires it, not at its first edit
+/// (`controlTextDidBeginEditing`; jukebox F23). `blur` is
+/// `controlTextDidEndEditing`, which AppKit sends whenever the editor leaves.
+final class Field: NSTextField {
+    override func becomeFirstResponder() -> Bool { focused(super.becomeFirstResponder(), delegate) }
+}
+final class SecureField: NSSecureTextField {
+    override func becomeFirstResponder() -> Bool { focused(super.becomeFirstResponder(), delegate) }
+}
+private func focused(_ ok: Bool, _ delegate: NSTextFieldDelegate?) -> Bool {
+    if ok, let owner = delegate as? NodeView, owner.handlers.contains("focus") { owner.presenter?.focus(owner.id) }
+    return ok
 }
 #endif

@@ -472,6 +472,64 @@ final class DialogMacTests: XCTestCase {
         XCTAssertFalse(p.viewport.subviews.contains { $0 is DialogBackdrop })
     }
 
+    /// With nothing focused a bare-key shortcut still presses its button, as
+    /// a page's do; a field's `focus` and `blur` arrive when it takes and
+    /// loses the focus, not at its first edit (jukebox F11, F23).
+    func testBareShortcutsWithNothingFocusedAndFieldFocusEvents() throws {
+        _ = NSApplication.shared
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = """
+        component App
+          state heard = ""
+          action note(what: string)
+            heard = `${heard} ${what}`
+          view
+            column width="100%" height="100%"
+              button "Play" testId="play" aria-keyshortcuts="Space" press=note("space")
+              input testId="field" aria-label="Search" focus=note("focus") blur=note("blur")
+              textarea testId="notes" aria-label="Notes" focus=note("tfocus") blur=note("tblur")
+
+        """
+        let input = directory.appendingPathComponent("app.contract")
+        let output = directory.appendingPathComponent("app.plan")
+        try source.write(to: input, atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
+        compiler.arguments = ["build", input.path, "-o", output.path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        let session = ExactApp.shared.makeSession(label: "bare-shortcuts")
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: output), size: CGSize(width: 500, height: 400)).error)
+        let view = ExactView(session: session)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        let p = session.presenter
+        func heard() -> String {
+            let text = session.agent(#"{"op":"state"}"#)
+            let json = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
+            return (json?["slots"] as? [String: Any])?["heard"] as? String ?? ""
+        }
+        func node(_ testId: String) throws -> NodeView { try XCTUnwrap(p.views.values.first { $0.props["testId"] == testId }) }
+        let space = key(49, character: " ")
+        window.makeFirstResponder(nil)
+        XCTAssertTrue(window.firstResponder === window)
+        XCTAssertTrue(view.ownsShortcutFocus(), "with nothing focused the window's keys are the page's")
+        XCTAssertTrue(p.routeKey(space, focused: view.ownsShortcutFocus(), in: window))
+        XCTAssertEqual(heard(), " space")
+        let field = try XCTUnwrap(try node("field").field)
+        window.makeFirstResponder(field)
+        XCTAssertEqual(heard(), " space focus", "focus arrives as the field takes it, before any edit")
+        XCTAssertFalse(p.routeKey(space, focused: view.ownsShortcutFocus(), in: window), "a field's Space is its text")
+        let notes = try XCTUnwrap(try node("notes").textArea)
+        window.makeFirstResponder(notes)
+        XCTAssertEqual(heard(), " space focus blur tfocus")
+        window.makeFirstResponder(nil)
+        XCTAssertEqual(heard(), " space focus blur tfocus tblur")
+    }
 }
 
 private final class MarkedInputClient: NSView, NSTextInputClient {

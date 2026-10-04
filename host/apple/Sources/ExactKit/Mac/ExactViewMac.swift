@@ -56,10 +56,23 @@ public final class ExactView: NSView {
         }
     }
 
-    private func ownsShortcutFocus() -> Bool {
-        let responder = window?.firstResponder as? NSView
+    /// Whether this session's shortcuts and `key` handlers hear the window's
+    /// keys: its view holds the focus, or nothing does — the window itself is
+    /// the first responder — as a page's shortcuts hear keys with no element
+    /// focused (jukebox F11). Of several sessions in one window, the first in
+    /// view order hears them then.
+    func ownsShortcutFocus() -> Bool {
+        let first = window?.firstResponder
+        let responder = first as? NSView
         let editorOwner = (responder as? NSTextView)?.delegate as? NSView
-        return responder?.isDescendant(of: self) == true || editorOwner?.isDescendant(of: self) == true
+        if responder?.isDescendant(of: self) == true || editorOwner?.isDescendant(of: self) == true { return true }
+        guard let window, first == nil || first === window, let content = window.contentView else { return false }
+        func session(in view: NSView) -> ExactView? {
+            if let found = view as? ExactView { return found }
+            for sub in view.subviews { if let found = session(in: sub) { return found } }
+            return nil
+        }
+        return session(in: content) === self
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
