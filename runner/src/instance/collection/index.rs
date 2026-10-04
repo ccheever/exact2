@@ -15,7 +15,7 @@
 
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 mod gaps;
@@ -85,7 +85,7 @@ pub(crate) struct Window {
 #[derive(Debug)]
 pub(crate) struct SizeIndex {
     order: Rc<[Rc<str>]>,
-    positions: BTreeMap<Rc<str>, usize>,
+    positions: HashMap<Rc<str>, usize>,
     rows: Vec<RowHeight>,
     tree: SumTree,
     estimate: f64,
@@ -102,7 +102,7 @@ impl SizeIndex {
         let estimate = valid_height(estimated_height)?;
         Ok(Self {
             order: Rc::from([]),
-            positions: BTreeMap::new(),
+            positions: HashMap::new(),
             rows: Vec::new(),
             tree: SumTree::new(&[])?,
             estimate,
@@ -120,7 +120,7 @@ impl SizeIndex {
         if self.order.as_ref() == keys.as_slice() {
             return Ok(());
         }
-        let mut positions = BTreeMap::new();
+        let mut positions = HashMap::with_capacity(keys.len());
         let mut rows = Vec::with_capacity(keys.len());
         let mut generation = self.next_generation;
         for (i, key) in keys.iter().enumerate() {
@@ -248,7 +248,9 @@ impl SizeIndex {
         format!(
             "{:?} {:?} {:?} {} {} {:?} {:?}",
             self.order,
-            self.positions,
+            self.positions
+                .iter()
+                .collect::<std::collections::BTreeMap<_, _>>(),
             self.rows,
             self.next_generation,
             self.epoch,

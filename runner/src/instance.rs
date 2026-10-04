@@ -975,15 +975,23 @@ fn repeated(region: RegionsId, key: &Value, ident: &str) -> String {
 /// One canonical key text: strings, finite numbers (`-0` is `0`, matching the
 /// VM's equality), bools. NaN is not a key.
 fn key_text(v: &Value) -> Option<String> {
+    let mut text = String::new();
+    key_text_into(v, &mut text).then_some(text)
+}
+
+/// [`key_text`] appended to `out`; whether `v` is a key.
+fn key_text_into(v: &Value, out: &mut String) -> bool {
     match v {
-        v @ exact_plan::str_value!() => Some(exact_num::text!("s:{}", v.text())),
-        Value::Number(n) if n.is_finite() => Some(exact_num::text!(
+        v @ exact_plan::str_value!() => exact_num::push_text!(out, "s:{}", v.text()),
+        Value::Number(n) if n.is_finite() => exact_num::push_text!(
+            out,
             "n:{}",
             exact_num::Shortest(if *n == 0.0 { 0.0 } else { *n })
-        )),
-        Value::Bool(b) => Some(exact_num::text!("b:{}", b)),
-        _ => None,
+        ),
+        Value::Bool(b) => exact_num::push_text!(out, "b:{}", b),
+        _ => return false,
     }
+    true
 }
 
 /// The root of the instance tree: the plan's top-level sites.

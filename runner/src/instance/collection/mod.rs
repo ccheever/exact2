@@ -557,8 +557,15 @@ impl Collection {
             keys.reserve(items.len());
             text_keys.reserve(items.len());
         }
-        let mut unique = std::collections::BTreeSet::new();
+        // Membership only: hashed, and holding the identities the index
+        // keeps (no copy of each key's text).
+        let mut unique: std::collections::HashSet<Rc<str>> = std::collections::HashSet::new();
+        if changed {
+            unique.reserve(items.len());
+        }
         let mut dups = BTreeMap::new();
+        // Each key's text, written here before its identity is made.
+        let mut text = String::new();
         let mut inner = frames.to_vec();
         inner.push(Frame::default());
         for (position, item) in items.iter().enumerate() {
@@ -581,32 +588,41 @@ impl Collection {
                 // following row now preserves duplicate-before-later-trap.
                 keys.reserve(items.len());
                 text_keys.reserve(items.len());
+                unique.reserve(items.len());
                 for prefix in 0..position {
                     let text = self.index.shared_key(prefix).unwrap().clone();
-                    unique.insert(text.to_string());
+                    unique.insert(text.clone());
                     text_keys.push(text);
                     keys.push(self.keys[prefix].clone());
                 }
                 dups.extend(self.dups.range(..position).map(|(p, d)| (*p, *d)));
                 changed = true;
             }
-            let text = key_text(&key).ok_or(InstanceError::KeyKind {
-                region: self.region,
-            })?;
+            text.clear();
+            if !super::key_text_into(&key, &mut text) {
+                return Err(InstanceError::KeyKind {
+                    region: self.region,
+                });
+            }
             // A repeated key is the data's error: the repeat takes the
             // next identity in order (as an `each` does).
             let mut dup = 0;
-            let mut ident = text.clone();
-            while unique.contains(&ident) {
-                dup += 1;
-                ident = super::disambiguate(text.clone(), dup);
-            }
+            let ident: Rc<str> = if unique.contains(text.as_str()) {
+                let mut ident = text.clone();
+                while unique.contains(ident.as_str()) {
+                    dup += 1;
+                    ident = super::disambiguate(text.clone(), dup);
+                }
+                Rc::from(ident)
+            } else {
+                Rc::from(text.as_str())
+            };
             unique.insert(ident.clone());
             if dup > 0 {
                 dups.insert(position, dup);
             }
             keys.push(key);
-            text_keys.push(Rc::from(ident));
+            text_keys.push(ident);
         }
         if changed {
             self.index.replace_keys(text_keys).map_err(index_error)?;
