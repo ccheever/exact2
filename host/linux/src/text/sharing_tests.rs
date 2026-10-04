@@ -467,6 +467,7 @@ fn uncompacted_oracle(engine: &mut TextEngine, p: &Paragraph, width: Option<f32>
         height: old.height,
         first_baseline: old.baselines.first().copied().unwrap_or(0.),
         baselines: Arc::new(old.baselines),
+        bottoms: p.bottoms.clone(),
         ink: RefCell::new(ink::Cache::default()),
         resident_capacity_bytes: 0,
         private_text_bytes_estimate: 0,

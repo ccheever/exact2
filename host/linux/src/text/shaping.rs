@@ -322,6 +322,7 @@ impl ShapedSource {
             height: 0.,
             first_baseline: 0.,
             baselines: Arc::new(Vec::new()),
+            bottoms: Arc::new(Vec::new()),
             ink: RefCell::new(ink::Cache::default()),
             ellipsized: RefCell::new(None),
             resident_capacity_bytes: 0,
@@ -333,6 +334,7 @@ impl ShapedSource {
         let mut w = 0.0f32;
         let mut h = 0.0f32;
         let mut baselines = Vec::new();
+        let mut bottoms = Vec::new();
         let mut explicit = false;
         let mut last_font_metrics = LastFontMetrics::default();
         for run in paragraph.layout_runs() {
@@ -376,11 +378,13 @@ impl ShapedSource {
             explicit |= above_explicit || below_explicit;
             baselines.push(h + above);
             h += above + below;
+            bottoms.push(h);
         }
         paragraph.width = w.ceil();
         paragraph.height = if explicit { h } else { h.ceil() };
         paragraph.first_baseline = baselines.first().copied().unwrap_or(0.);
         paragraph.baselines = Arc::new(baselines);
+        paragraph.bottoms = Arc::new(bottoms);
         paragraph.resident_capacity_bytes = cache::capacities(&paragraph);
         paragraph
     }
@@ -461,6 +465,7 @@ impl ShapedSource {
             height: 0.,
             first_baseline: 0.,
             baselines: Arc::new(Vec::new()),
+            bottoms: Arc::new(Vec::new()),
             ink: RefCell::new(ink::Cache::default()),
             ellipsized: RefCell::new(None),
             resident_capacity_bytes: 0,
@@ -472,6 +477,7 @@ impl ShapedSource {
         let mut w = 0.0f32;
         let mut h = 0.0f32;
         let mut baselines = Vec::new();
+        let mut bottoms = Vec::new();
         let mut explicit = false;
         for run in paragraph.layout_runs() {
             w = w.max(run.line_w);
@@ -480,11 +486,13 @@ impl ShapedSource {
             explicit |= is_explicit;
             baselines.push(h + above);
             h += above + below;
+            bottoms.push(h);
         }
         paragraph.width = w.ceil();
         paragraph.height = if explicit { h } else { h.ceil() };
         paragraph.first_baseline = baselines.first().copied().unwrap_or(0.);
         paragraph.baselines = Arc::new(baselines);
+        paragraph.bottoms = Arc::new(bottoms);
         paragraph.resident_capacity_bytes = cache::capacities(&paragraph);
         paragraph
     }

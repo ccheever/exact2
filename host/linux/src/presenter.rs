@@ -1136,6 +1136,7 @@ impl<D: DataSource> Presenter<D> {
             .rev()
             .filter(|b| {
                 b.contains(x, y)
+                    && crate::paint::hits(self.host.kernel(), b, x, y)
                     && !self.host.route_visibility(b.id).1
                     && self.display.allows(self.host.kernel(), b.id)
             })
@@ -1155,7 +1156,7 @@ impl<D: DataSource> Presenter<D> {
         let b = self
             .box_of(id)
             .ok_or_else(|| format!("no view {id} on screen"))?;
-        let (x, y) = b.center();
+        let (x, y) = crate::paint::tap_point(self.host.kernel(), &b).unwrap_or_else(|| b.center());
         let mut hit = self.hit(x, y);
         while hit.is_some() && hit != Some(id) {
             hit = hit.and_then(|n| self.host.kernel().node(n).and_then(|n| n.parent));
