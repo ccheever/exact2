@@ -90,7 +90,7 @@ final class TextArea: NSTextView {
         if string.isEmpty, !placeholder.isEmpty {
             (placeholder as NSString).draw(in: bounds, withAttributes: [
                 .font: font ?? NSFont.systemFont(ofSize: 16),
-                .foregroundColor: (textColor ?? .black).withAlphaComponent(0.3),
+                .foregroundColor: (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3),
             ])
         }
     }
@@ -177,7 +177,7 @@ extension NodeView {
         guard let f = textArea, let t = text else { return }
         guard !f.hasMarkedText() else { layoutTextArea(); return }
         f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
-        f.textColor = color("text_color", .black)
+        f.textColor = color("text_color", SystemColor.canvasText)
         f.insertionPointColor = caretColor
         let paragraph = NSMutableParagraphStyle()
         if let height = usedLineHeight {

@@ -443,7 +443,14 @@ impl Parser {
                 )
             }
         };
-        if !path.ends_with(".contract") {
+        // A relative path names a `.contract` file; `exact:name` and a
+        // package name are resolved by the driver (LLP 1091 D8/D9). Any other
+        // file — TypeScript, JavaScript, JSON — is never Contract's to load.
+        let relative = path.starts_with("./") || path.starts_with("../");
+        let other = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".json"]
+            .iter()
+            .any(|ext| path.ends_with(ext));
+        if (relative && !path.ends_with(".contract")) || other {
             return Err(SyntaxError {
                 id: "contract-no-imports",
                 message: format!("`use … from \"{path}\"` is not admitted: only a `.contract` file may be used — data comes from the app's Rust data source and formatting from the stdlib roster (LLP 1004 D4)"),

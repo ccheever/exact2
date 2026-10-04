@@ -20,6 +20,7 @@ mod manifest;
 mod map;
 pub mod native;
 pub mod picker;
+mod resolve;
 mod rust;
 mod sources;
 mod strings;
@@ -34,7 +35,9 @@ pub use exact_runner::DataSource;
 pub use logic::{rust_entry, web_linked, web_rust_mode};
 pub use manifest::Manifest;
 pub use map::{plan_digest, SourceMap};
+pub use resolve::Origin;
 pub use rust::rust;
+pub use sources::{Package, Source, SourceGraph};
 pub use symbols::symbols_json;
 pub use typescript::typescript;
 
@@ -309,6 +312,54 @@ pub fn compile_path_source_mapped(
     compile_path_output(path, src, true)
         .map(|(plan, map)| (plan, map.expect("map requested")))
         .map_err(first)
+}
+
+/// Every source compiling `path` reads, the root first, with where each came
+/// from, and the loader's refusals if it stopped (LLP 1091 D10): what a
+/// capture copies, a watcher watches, and a deploy freezes.
+pub fn source_graph(path: &Path) -> SourceGraph {
+    let refused = |message: String| SourceGraph {
+        sources: Vec::new(),
+        packages: Vec::new(),
+        consulted: Vec::new(),
+        errors: vec![CompileError {
+            pass: "use",
+            id: "contract-use-unreadable".into(),
+            message,
+            span: Span::default(),
+            file: Some(path.into()),
+            related: Box::new([]),
+        }],
+    };
+    let src = match std::fs::read_to_string(path) {
+        Ok(src) => src,
+        Err(e) => return refused(format!("{}: {e}", path.display())),
+    };
+    let source_root = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    match source_root.canonicalize() {
+        Ok(app_root) => sources::graph(path, &src, &app_root),
+        Err(e) => refused(format!("{}: {e}", source_root.display())),
+    }
+}
+
+/// For a build script: `cargo:rerun-if-changed` for every source compiling
+/// `path` reads, and each package's `package.json` (LLP 1091 D10), so an
+/// edit to a used file or a library rebuilds the plan, not only an edit to
+/// the root.
+pub fn rerun_if_changed(path: &Path) {
+    println!("cargo:rerun-if-changed={}", path.display());
+    let graph = source_graph(path);
+    for source in &graph.sources {
+        if source.path.is_absolute() {
+            println!("cargo:rerun-if-changed={}", source.path.display());
+        }
+    }
+    for manifest in graph.consulted {
+        println!("cargo:rerun-if-changed={}", manifest.display());
+    }
 }
 
 fn compile_path_output(

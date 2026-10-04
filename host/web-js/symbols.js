@@ -1,6 +1,7 @@
 // Symbol images on the JS target (`image "symbol:<role>"`, LLP 1011): the
 // web host's rendering (`glue.js` `refreshSymbols`) — the role's path as a
-// mask over the node's tint, sized by its font — after each commit. A
+// mask over the node's tint (`AccentColor` when it sets none, LLP 1095 D8),
+// sized by its font — after each commit. A
 // dynamic source names a role from `table`, the plan's own strings that are
 // roles, or, for one its data names (ledger diary F10), from every role,
 // loaded once (`symbol-roles.js`, the build's). Imported by an app's module
@@ -18,7 +19,7 @@ function everyRole() {
     refresh();
   }).finally(() => inflight.n--);
 }
-const STYLE = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
+const STYLE = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:AccentColor}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
 /** `table`: role → [path, filled], for sources a binding names. */
 export function symbols(table) {
   Table = table;

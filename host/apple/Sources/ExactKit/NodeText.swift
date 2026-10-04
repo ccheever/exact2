@@ -89,24 +89,26 @@ extension NodeView {
         // and it was removed from any superview — so it has no appearance of
         // its own to read. It inherits the paragraph's, which is the one
         // actually on screen. @ref LLP 1034 D2
-        let night = drawsDark
+        let night = drawsDark, contrast = drawsHighContrast, elevated = drawsElevated
+        // The view's own tint, read once, where anything here names it (LLP 1095 D8).
+        let tint = style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) ? viewTint : nil
         if props["markup"] == "markdown", let source = props["text"] {
             // Markdown source: the archive expands it into runs, the same
             // expansion the measurer used (LLP 1045 D3).
             runs = MarkupRuns.expand(source, base: textRun(""), color: channels("text_color", dark: night))
             // `currentcolor` in a shadow or stroke is each piece's own colour.
-            let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? [0, 0, 0, 255]
-            for i in runs.indices { (runs[i].shadow, runs[i].stroke) = rows.resolve(dark: night, color: runs[i].color ?? own) }
+            let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
+            for i in runs.indices { (runs[i].shadow, runs[i].stroke) = rows.resolve(dark: night, contrast: contrast, elevated: elevated, tint: tint, color: runs[i].color ?? own) }
         } else if let value = props["text"] {
-            runs.append(InlineText.run(value, style: style, href: props["href"] ?? "", dark: night))
+            runs.append(InlineText.run(value, style: style, href: props["href"] ?? "", dark: night, contrast: contrast, elevated: elevated, tint: tint))
         } else {
-            runs = inlineText.filter(\.paints).map { $0.run(dark: night) }
+            runs = inlineText.filter(\.paints).map { $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint) }
             // A container's background covers its descendants' fragments (CSS).
-            if inlineText.contains(where: { !$0.paints && $0.run(dark: night).background != nil }) {
+            if inlineText.contains(where: { !$0.paints && $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint).background != nil }) {
                 let byId = Dictionary(inlineText.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
                 for (i, leaf) in inlineText.filter(\.paints).enumerated() where runs[i].background == nil {
                     var up = byId[leaf.parent]
-                    while let run = up, runs[i].background == nil { runs[i].background = run.run(dark: night).background; up = byId[run.parent] }
+                    while let run = up, runs[i].background == nil { runs[i].background = run.run(dark: night, contrast: contrast, elevated: elevated, tint: tint).background; up = byId[run.parent] }
                 }
             }
         }
@@ -118,7 +120,7 @@ extension NodeView {
         // `text-overflow: ellipsis` applies to a box that clips its inline overflow.
         let clips = (style["overflow_x"]?.string).map { $0 != "visible" } ?? false
         var spec = Spec(runs: runs, align: align, lineClamp: lineClamp,
-                        color: channels("text_color", dark: night) ?? [0, 0, 0, 255],
+                        color: channels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast),
                         overflowWrap: style["overflow_wrap"]?.string == "anywhere" ? 2 : style["overflow_wrap"]?.string == "break-word" ? 1 : 0, direction: rtl ? 1 : 0, whiteSpace: whiteSpace, strut: textRun(""))
         spec.ellipsis = lineClamp == 0 && clips && style["text_overflow"]?.string == "ellipsis"
         spec.source = source

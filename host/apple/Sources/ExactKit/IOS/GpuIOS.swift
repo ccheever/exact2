@@ -285,6 +285,11 @@ final class Canvases {
                 guard let self, deferred.remove(key) != nil else { return }
                 load(key)
                 session?.frames.requestCanvas()
+                // Work queued while this wave loaded settles when the wave's
+                // last module has loaded or failed: no later batch is owed to
+                // drain it (an idle tick is skipped). Not before, or a module
+                // still loading would answer its tickets "unavailable".
+                if deferred.isEmpty { session?.drainSurfaceWorkNow() }
             }
         }
     }

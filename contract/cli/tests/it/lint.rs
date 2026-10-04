@@ -243,6 +243,65 @@ fn conditional_style_checks_preserve_computation_and_match_bindings() {
 }
 
 #[test]
+fn a_platform_colour_is_a_plan_literal_never_data() {
+    // LLP 1095 D3: state may choose between the plan's literals; a string
+    // that came from an action's argument names no platform colour.
+    let source = r##"component App
+  state on = false
+  state named = "#000000"
+  action toggle
+    on = !on
+  action name(v: string)
+    named = v
+  view
+    column
+      text "a" testId="chosen" color=(on ? "platform-color(ios lintTestOnColor, #010203)" : "platform-color(ios lintTestOffColor, #040506)")
+      text "b" testId="named" color=named
+"##;
+    let mut runner = exact_runner::Runner::boot(
+        contract::compile(source).unwrap(),
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let color = |runner: &exact_runner::Runner<NoData>, id: &str| {
+        let kernel = runner.kernel();
+        let key = kernel.find_by_test_id(id)[0];
+        kernel.node_by_key(key).unwrap().style.text_color
+    };
+    let platform = |c: exact_kernel::style::ColorValue| {
+        let exact_kernel::style::ColorValue::Platform(id) = c else {
+            return None;
+        };
+        exact_kernel::style::roles::platform(id).and_then(|p| p.ios.clone())
+    };
+    assert_eq!(
+        platform(color(&runner, "chosen")).as_deref(),
+        Some("lintTestOffColor")
+    );
+    runner.act("toggle", vec![]).unwrap();
+    assert_eq!(
+        platform(color(&runner, "chosen")).as_deref(),
+        Some("lintTestOnColor")
+    );
+    runner
+        .act(
+            "name",
+            vec![Value::str("platform-color(ios lintTestDataColor, #070809)")],
+        )
+        .unwrap();
+    let named = color(&runner, "named");
+    assert_eq!(
+        platform(named),
+        None,
+        "data names no platform colour: {named:?}"
+    );
+    assert!(!runner.is_poisoned());
+}
+
+#[test]
 fn conditional_pixel_lengths_compile_and_update() {
     for expression in [
         r#"(on ? "0px" : "20px")"#,
@@ -300,7 +359,8 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
         // inherited row has.
         (app("", "view alt=\"x\""), "lower-attr-tag", "`alt` belongs to `image`, not `view`; another element's accessible name is `aria-label`"),
         (app("", "view background-color=\"inherit\""), "lower-attr-value", "`background-color=\"inherit\"`: `background-color` does not inherit, and exact2 inherits only the rows CSS inherits; write the value"),
-        (app("", "text \"a\" color=\"bleu\""), "lower-attr-value", "`color=\"bleu\"` is not a valid `color`: a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, `lab()`, `oklch()`, a named colour, `transparent`, or `light-dark(a, b)` of two"),
+        (app("", "text \"a\" color=\"bleu\""), "lower-attr-value", "`color=\"bleu\"` is not a valid `color`: a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, `lab()`, `oklch()`, a named colour, `transparent`, `light-dark(a, b)` of two, a role (`\"secondary-label\"`, `\"CanvasText\"`: LLP 1095), or `platform-color(ios <name>Color, …, <fallback>)` written whole as a string literal"),
+        (app("", "text \"a\" color=`platform-color(ios ${draft}Color, #000)`"), "lower-platform-color-literal", "`color`: write `platform-color(…)` whole, as a string literal (a branch of `?:` or `match` may be one); it is never built from a template, a concatenation or data, so the platform colours a plan names are fixed when it compiles (LLP 1095 D3)"),
         (app("", "text \"a\" font-size=\"14px\""), "lower-attr-value", "`font-size=\"14px\"` is not a valid `font-size`: expected number; write `font-size=14` (a number is pixels)"),
         (app("", "text \"a\" width=10px"), "syntax-unquoted-length", "`width=10px` needs quotes: a value with a unit is a string, `width=\"10px\"` (a bare number is pixels)"),
         (app("", "text \"a\" className=\"x\""), "lower-unknown-attr", "`text` has no attribute `className`; `class` names a `style` declared in this file, as in `class=Card`"),

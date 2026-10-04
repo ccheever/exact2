@@ -303,6 +303,11 @@ impl Codec {
             Codec::Placement => format!("w.placement(&{access});"),
             Codec::Transitions => format!("w.transitions(&{access});"),
             Codec::Animations => format!("w.animations(&{access});"),
+            // @ref LLP 1095 D1 — a colour-carrying value keeps its references.
+            Codec::CssValue {
+                variant: "Paint" | "Filter" | "BackgroundImage" | "MaskImage" | "BoxShadow" | "TextShadow" | "SymbolPalette",
+                ..
+            } => format!("w.string(&{access}.wire());"),
             Codec::CssValue { .. } => format!("w.string(&{access}.css());"),
             Codec::Enum(_) => format!("w.u8({access} as u8);"),
         }
@@ -344,3 +349,55 @@ const KEYWORD_BITS: &str = r#"    /// A space-separated keyword list as a row's 
         if words.is_empty() { Self::ALL[0].name().to_string() } else { words.join(" ") }
     }
 "#;
+
+/// A colour row's initial value naming a role (`"CanvasText"`, LLP 1095
+/// stage 2): the platform's own colour where a host has it, so an unstyled
+/// node follows the system's appearance and contrast.
+/// A row's initial value as Rust. @ref LLP 1095 stage 2 — a colour default
+/// may name a role.
+fn default_of(codec: &Codec, default: &serde_json::Value, field: &str, colors: &[[String; 6]]) -> String {
+    match (codec, default.as_str()) {
+        (Codec::ColorValue, Some(name)) => role_default(colors, name, field),
+        (Codec::KeywordColor(keyword), Some(name)) if name != *keyword => {
+            format!("Some({})", role_default(colors, name, field))
+        }
+        _ => codec.default_expr(default, field),
+    }
+}
+
+pub fn role_default(colors: &[[String; 6]], name: &str, field: &str) -> String {
+    let id = colors
+        .iter()
+        .position(|c| c[0] == name)
+        .unwrap_or_else(|| panic!("schema: style `{field}` default `{name}` is no role"));
+    format!("ColorValue::Role({id}u8)")
+}
+
+/// @ref LLP 1095 D2 — the colour roles' type and table, from the schema's
+/// `colors`: CSS's system colours, then Exact's.
+pub fn write_color_roles(w: &mut String, colors: &[[String; 6]], rgba: impl Fn(&str) -> u32) {
+    w.push_str(concat!(
+        "/// One colour role (LLP 1095 D2): each Apple platform's class colour\n",
+        "/// property (`@tint` for the view's inherited tint, `/a` for an alpha),\n",
+        "/// and the light and dark fallback every host without one shows.\n",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n",
+        "pub struct ColorRole {\n",
+        "    /// The keyword: CSS's spelling for a system colour, else Exact's.\n    pub name: &'static str,\n",
+        "    /// WebKit's `-apple-system-*` name this role answers to, or empty.\n    pub alias: &'static str,\n",
+        "    /// `UIColor`'s class property.\n    pub ios: &'static str,\n",
+        "    /// `NSColor`'s class property.\n    pub macos: &'static str,\n",
+        "    /// Under a light scheme, RGBA.\n    pub light: u32,\n",
+        "    /// Under a dark scheme, RGBA.\n    pub dark: u32,\n",
+        "}\n",
+        "/// Every role, by id (`ColorValue::Role`).\n",
+        "pub const COLOR_ROLES: &[ColorRole] = &[\n",
+    ));
+    for [name, alias, ios, macos, light, dark] in colors {
+        w.push_str(&format!(
+            "ColorRole {{ name: {name:?}, alias: {alias:?}, ios: {ios:?}, macos: {macos:?}, light: {:#010x}, dark: {:#010x} }},\n",
+            rgba(light),
+            rgba(dark)
+        ));
+    }
+    w.push_str("];\n");
+}

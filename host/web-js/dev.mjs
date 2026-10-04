@@ -26,6 +26,12 @@ const skipped = /(^|\/)(target|dist(?:\.previous)?|node_modules|conformance)(\/|
 
 let building = null; // the build in flight, stopped with the server
 
+/** The Contract packages a build read (LLP 1091 D10), outside the app and
+ * its skipped `node_modules`: the dev loop watches them too. */
+function devPackages(stage) {
+  try { return JSON.parse(readFileSync(resolve(stage, '.gen', 'dev-sources.json'), 'utf8')).packages ?? []; } catch { return []; }
+}
+
 /** One build of `app` into `dist` through a stage under the app's ignored
  * target/ (as the wasm build stages); resolves to null or the build's
  * errors (what the JS target refused, or a compile error). */
@@ -42,7 +48,8 @@ function build(app, dist) {
     child.stderr.on('data', (d) => { log += d; });
     child.on('exit', (code) => {
       building = null;
-      if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done({ error: log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-12).join('\n') || `build exited ${code}` }); }
+      const packages = devPackages(stage);
+      if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done({ packages, error: log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-12).join('\n') || `build exited ${code}` }); }
       const logic = readFileSync(resolve(stage, '.exact-dev-logic.json'), 'utf8').trim();
       writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
         manifestSha256: appManifestDigest(app), files: buildFileCards(stage) }) + '\n');
@@ -50,7 +57,7 @@ function build(app, dist) {
       if (existsSync(dist)) renameSync(dist, `${dist}.previous`);
       renameSync(stage, dist);
       rmSync(`${dist}.previous`, { recursive: true, force: true });
-      done({ error: null, logic });
+      done({ error: null, logic, packages });
     });
   });
 }
@@ -73,6 +80,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     if (building) { again = true; return; }
     const at = saved, t = since = Date.now();
     built = await build(app, dist); error = built.error;
+    watchPackages(built.packages);
     if (error) { console.log(`build failed in ${Date.now() - t} ms; the page keeps the last good build\n${error}`); push({ error }); }
     else {
       logicRevision = built.logic;
@@ -98,6 +106,12 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // The app's sources, and the runtime and compiler it builds with.
   const watchers = [watch(app.dir, { recursive: true }, changed(app.dir)), watch(resolve(root, 'host/web-js'), { recursive: true }, changed(resolve(root, 'host/web-js')))];
   for (const f of ['navigation.js', 'index.html']) watchers.push(watch(resolve(root, 'host/web', f), changed(resolve(root, 'host/web'))));
+  // Each Contract package the app uses, wherever it is installed or linked.
+  const packages = new Set();
+  const watchPackages = (roots = []) => {
+    for (const dir of roots) if (!packages.has(dir)) { packages.add(dir); watchers.push(watch(dir, { recursive: true }, changed(dir))); }
+  };
+  watchPackages(built.packages);
   // The one TypeScript configuration app.ts is checked with (js/bake/src/typescript.mjs).
   watchers.push(watch(resolve(root, 'js/bake/src/typescript.mjs'), changed(resolve(root, 'js/bake/src'))));
   // The page's side: reload on a new build, the errors of a failed one in an

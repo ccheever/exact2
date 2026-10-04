@@ -712,6 +712,106 @@ subsequent async data parity, iOS simulator guard sweep and TypeScript Caltrain
 UI drive, physical iOS guard execution and physical live-URL replacement;
 signed module delivery remains owed.
 
+#### D5 Windows captured-module paths (2026-10-04, implemented)
+
+**Implementer:** Codex Windows lane, 2026-10-04. This is a bounded repair of
+the existing producer containment check. Parent independently reviewed and
+approved this scope before implementation, requiring absolute incoming IDs,
+concrete regular-file admission and the real filesystem/refusal cases below.
+It does not enable the Windows native JavaScript executor: `js/build.rs` still
+leaves `ENGINE_LINKED=false` there. Producer tests returning at that guard are
+not evidence of a linked Hermes runtime or successful native TypeScript bake.
+
+On SDK `a73a3ae4a`, the actual no-Hermes one-shot and resident configuration
+tests both refuse their captured `__exact_entry.ts`. The one-shot generated
+Rolldown plugin tests `id.startsWith(process.cwd() + '/')`; Windows supplies
+backslash file IDs. The first error uses the real short-name temporary path
+`C:\\Users\\CHARLI~1\\AppData\\Local\\Temp\\.exact-js-bake-…` and says
+`module outside captured app`. The resident test first invokes that same
+one-shot producer, so its failure does not yet establish a resident defect.
+The captured-source names test separately expects slash-delimited strings
+where its API returns `PathBuf`; that assertion should compare paths.
+
+The proposed change shares one internal captured-module assertion from the
+already shared `typescript.mjs` with the one-shot and resident Rolldown
+plugins. It requires an absolute file ID, resolves both the stage and module
+through the filesystem, and uses `node:path.relative` component containment:
+refuse an absolute relative result, `..`, or a path beginning `..` plus the
+platform separator. An empty result is not a module. This accepts a captured
+file across separator, case and Windows short/long-name spellings without
+accepting a sibling prefix or a link resolving outside the stage. Missing or
+virtual modules still refuse. No fallback reads the uncaptured app, no output
+is published on refusal, and no import authority, package resolution, native
+runtime admission, compiler deadline or receipt format changes. The capture
+remains producer-owned; this check does not introduce an adversarial-writer
+filesystem sandbox or relax existing source-link refusal.
+
+The first implementation check found that Bun's `realpathSync` preserves an
+uppercase Unicode input spelling while `realpathSync.native` returns the
+actual on-disk spelling; both sides therefore use the native operation before
+component comparison. A resident fixture's fabricated origin paths also
+mixed separators through `PathBuf::join("original/shared")`; host-native
+component joins make that fixture match the producer's canonical origins.
+
+Independent peer review identified that Windows `path.relative` folds case,
+including in a case-sensitive directory. Parent reviewed and approved the
+additional requirement that joining the canonical root and computed relative
+path exactly reconstruct the canonical file. Alternate spelling must already
+resolve to its real spelling; a distinct canonical sibling is not admitted.
+The guard regression injects differing canonical prefix spellings to exercise
+this condition; it is explicitly synthetic, not a case-sensitive NTFS claim.
+An additional owned directory probe successfully enabled NTFS case sensitivity
+with `fsutil`, created distinct `stage` and `STAGE` directories, and exercised
+the actual helper: its own file was accepted and the case-only sibling's file
+was refused. Only that ignored probe directory's attribute was changed.
+
+Focused Windows qualification: all six library tests passed after the review
+guard, including actual one-shot/resident bundling and byte agreement, config
+invalidation/refusal/recovery, space/Unicode and casing aliases, and a real
+junction escape. The preexisting Unix shell recovery test is now explicitly
+Unix-only. The other 11 producer tests compiled and passed, but most return at
+the unavailable native-engine guard; the ordinary web producer's real
+TypeScript check and build did execute. The initial failure logs remain under
+`target/upstream-a73/`. A separate existing `scripts/app.test.mjs` Cargo-graph
+case uses a POSIX shell wrapper, colon PATH and Unix artifact suffixes; its
+Windows trace assertion failed, while the five other focused metadata/receipt,
+shader-pack, environment and deterministic-web flag tests passed. This is not a
+claim that the complete JavaScript test suite or linked native JS is qualified.
+Final independent code review approved the shared guard, both call sites and
+the stated evidence limits. On this Windows checkout, the final default build
+and 2,310 tests passed (54 existing ignores), default and affected producer
+strict Clippy passed, caps and boot passed. All 164 workspace packages passed
+format checking before the narrow change; both affected packages passed again
+after it. The optional Contract differential check was attempted and refused
+because `lake` is not installed; no Lean qualification is claimed.
+
+After rebasing onto `80c52506c` (platform colours), the default build and
+2,319 tests passed (54 existing ignores), default and native presenter strict
+Clippy passed, all 164 packages passed formatting, and caps/boot passed.
+The six actual producer library tests passed again. The rebuilt Contract CLI
+resolved and compiled Skirmish's single source and Markdown's app plus package
+source, with source maps. A focused native tint test passed with explicit CPU
+painting. Its first run had mistakenly named `EXACT_PAINT` rather than
+`EXACT_PAINTER`, so that successful Auto-painter run is not CPU-only evidence;
+the corrected run is recorded separately under `target/upstream-80c/`.
+The incoming colour schema changes its checked wire digest and bake identity;
+old style modules must be rebuilt. Game EXSIM v7 is unchanged, and Skirmish
+uses explicit text colours and no symbol tint. Native/browser game consumer
+qualification against this newer SDK remains separate from this compiler fix.
+
+Qualification is the existing actual TypeScript/Rolldown no-Hermes tests in
+both producer modes plus a bounded real-filesystem guard regression: nested
+captured file accepted; sibling-prefix, parent traversal, missing/non-file ID
+and outside target refused; Windows junction escape refused when the fixture
+can create it, with any privilege limitation reported explicitly. Include a
+space/Unicode stage and, where available, the actual short-name temporary
+root. Keep the existing invalid-config/refusal/recovery checks and compare
+produced script bytes between modes. The genuine Unix shell-wrapper producer
+test remains Unix-only and is not claimed as Windows drain/recovery coverage.
+Run the affected tests and strict lint, scoped formatting, then the repository
+gates; retain the initial failure logs and the missing-Lean advice result.
+No browser, GPU or native game launch is needed for this compiler-path repair.
+
 ### D6 — The web: the browser is the executor; one wasm import; the same module under two loaders
 
 **Startup scrolling (2026-09-08).** Baked content remains scrollable and readable

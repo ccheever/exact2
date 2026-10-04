@@ -352,6 +352,8 @@ fn build_sources(
             origin(&root, &mounted, name).display()
         );
     }
+    // And the Contract libraries the app uses, wherever they are installed.
+    contract::rerun_if_changed(&root.join("app.contract"));
     Ok(())
 }
 
@@ -526,6 +528,49 @@ fn origin(root: &Path, mounts: &[(String, PathBuf)], name: &Path) -> PathBuf {
         Some((_, dir)) => dir.join(parts.as_path()),
         None => root.join(name),
     }
+}
+
+/// The Contract packages the app's sources use (LLP 1091 D10), staged as
+/// `node_modules/<name>/…`: each one's `package.json` and the `.contract`
+/// files the compiler read from it, so the staged compile resolves them as the
+/// original did. Returns the files and, per package, its staged directory and
+/// where it lives, for mapping diagnostics and the source map back.
+type Packages = (BTreeMap<PathBuf, Vec<u8>>, Vec<(PathBuf, PathBuf)>);
+fn packages(app: &Path) -> Result<Packages, String> {
+    let graph = contract::source_graph(&app.join("app.contract"));
+    let mut files = BTreeMap::new();
+    let mut roots: Vec<(PathBuf, PathBuf)> = Vec::new();
+    // Each name a package was reached by is staged: one directory installed
+    // under two names resolves under both in the stage as it did outside.
+    for package in &graph.packages {
+        let staged = Path::new("node_modules").join(&package.name);
+        match roots.iter().find(|(at, _)| *at == staged) {
+            Some((_, other)) if *other != package.root => {
+                return Err(format!(
+                    "two copies of the package `{}` ({} and {}) are used; the bake stages one",
+                    package.name,
+                    other.display(),
+                    package.root.display()
+                ))
+            }
+            Some(_) => continue,
+            None => roots.push((staged.clone(), package.root.clone())),
+        }
+        let read = graph
+            .sources
+            .iter()
+            .filter(|source| matches!(&source.origin, contract::Origin::Package { root, .. } if *root == package.root))
+            .map(|source| &source.path)
+            .chain([&package.manifest]);
+        for path in read {
+            let relative = path
+                .strip_prefix(&package.root)
+                .map_err(|e| e.to_string())?;
+            let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            files.insert(staged.join(relative), bytes);
+        }
+    }
+    Ok((files, roots))
 }
 
 /// Capture the app-local source graph, and the directories the manifest
@@ -706,7 +751,9 @@ fn bake_in(
         return Err("TypeScript bake requires the lean Hermes executor on this producer".into());
     }
     let app = app.canonicalize().map_err(|e| e.to_string())?;
-    let captured = sources(&app)?;
+    let mut captured = sources(&app)?;
+    let (package_files, package_roots) = packages(&app)?;
+    captured.extend(package_files.clone());
     if !captured.contains_key(Path::new("app.ts"))
         || !captured.contains_key(Path::new("app.contract"))
     {
@@ -748,9 +795,17 @@ fn bake_in(
     }
     *previous = captured.clone();
     // A changed graph (including a newly added import) is a refused capture.
-    if sources(&app)? != captured {
+    let mut again = sources(&app)?;
+    again.extend(packages(&app)?.0);
+    if again != captured {
         return Err("app sources changed during capture; retry the build".into());
     }
+    // Staged packages first: the stage holds them too.
+    let moves: Vec<(PathBuf, PathBuf)> = package_roots
+        .iter()
+        .map(|(staged, root)| (stage.join(staged), root.clone()))
+        .chain([(stage.to_path_buf(), app.clone())])
+        .collect();
     // Every independent refusal, one after another as `contract build`
     // prints them, in the bake's output and the dev overlay.
     let development = matches!(mode, BakeMode::Development { .. });
@@ -758,12 +813,12 @@ fn bake_in(
         contract::compile_path_all(&stage.join("app.contract"), development).map_err(|errors| {
             errors
                 .into_iter()
-                .map(|e| contract_error(e, stage, &app))
+                .map(|e| contract_error(e, &moves))
                 .collect::<Vec<_>>()
                 .join("\n")
         })?;
     if let Some(map) = source_map.as_mut() {
-        map.relocate_sources(stage, &app)?;
+        map.relocate_sources_through(&moves)?;
     }
     let mut declarations = contract::typescript(&plan)?;
     // Canvas 2D (LLP 1056 D1): a module that exports `draw` and `surfaces`
@@ -909,14 +964,23 @@ fn exports(source: &str, name: &str) -> bool {
     })
 }
 
-fn contract_error(mut error: contract::CompileError, stage: &Path, app: &Path) -> String {
-    let canonical = stage.canonicalize().unwrap_or_else(|_| stage.to_path_buf());
-    // The staged path an app reads as its own: the error's file and each related one.
+fn contract_error(mut error: contract::CompileError, moves: &[(PathBuf, PathBuf)]) -> String {
+    // The staged path an app reads as its own, or its package's: the error's
+    // file and each related one.
+    let moves: Vec<_> = moves
+        .iter()
+        .map(|(staged, original)| {
+            let canonical = staged.canonicalize().unwrap_or_else(|_| staged.clone());
+            (staged, canonical, original)
+        })
+        .collect();
     let own = |path: &Path| {
-        path.strip_prefix(stage)
-            .or_else(|_| path.strip_prefix(&canonical))
-            .ok()
-            .map(|relative| app.join(relative))
+        moves.iter().find_map(|(staged, canonical, original)| {
+            path.strip_prefix(staged)
+                .or_else(|_| path.strip_prefix(canonical))
+                .ok()
+                .map(|relative| original.join(relative))
+        })
     };
     if let Some(path) = error.file.as_mut() {
         if let Some(mapped) = own(path) {
@@ -983,11 +1047,12 @@ fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
     std::fs::write(
         stage.join("__exact_bundle.mjs"),
         r#"
+import { assertCapturedModule } from './__exact_config.mjs';
 export default {
   input: '__exact_entry.ts',
   tsconfig: '__exact_tsconfig.json',
   plugins: [{ name: 'captured-sources', load(id) {
-    if (!id.startsWith(process.cwd() + '/')) throw new Error('module outside captured app: ' + id);
+    assertCapturedModule(process.cwd(), id);
     return null;
   }}],
 };

@@ -151,7 +151,7 @@ impl Em<'_> {
                 if id == StyleId::TextStrokeColor {
                     return Ok(());
                 }
-                one("-webkit-text-stroke", Some(style::SYSTEM_COLOR_MAP.to_string()))
+                one("-webkit-text-stroke", Some(style::color_map(plan)))
             }
             // @ref LLP 1077 D8 — 0 is `none`, as css.rs writes it.
             StyleId::Perspective => one(
@@ -257,14 +257,13 @@ impl Em<'_> {
                     use exact_kernel::StyleCodec as C;
                     let colors = matches!(
                         id.codec(),
-                        C::ColorValue | C::KeywordColor | C::Paint | C::BackgroundImage | C::MaskImage | C::BoxShadow | C::TextShadow
+                        C::ColorValue | C::KeywordColor | C::Paint | C::BackgroundImage | C::MaskImage | C::BoxShadow | C::TextShadow | C::Filter
                     );
-                    let system = style::SYSTEM_COLOR_MAP.as_str();
                     // Composed with the row's own map (`accent-color` has one).
                     let map = match w.map {
-                        Some(m) if colors => Some(format!("v=>({m})(({system})(v))")),
+                        Some(m) if colors => Some(format!("v=>({m})(({})(v))", style::color_map(plan))),
                         Some(m) => Some(m.to_string()),
-                        None => colors.then(|| system.to_string()),
+                        None => colors.then(|| style::color_map(plan)),
                     };
                     // A computed image the native hosts refuse is dropped
                     // here too, and journaled as they journal it, so the web
@@ -603,4 +602,59 @@ pub(super) fn attributes(
         }
     }
     (attrs, content, css)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::style::{
+        color_map,
+        tests::{role, run},
+    };
+
+    /// A bound `filter` (LLP 1095 D1) is written through the colour map:
+    /// the emitted binding wraps its value in `color_map(plan)`, which turns
+    /// a role into its CSS, an admitted `platform-color()` literal into its
+    /// fallback, and refuses one the plan does not hold.
+    #[test]
+    fn a_bound_filter_goes_through_the_colour_map() {
+        let literal = "drop-shadow(0px 2px 4px platform-color(ios webJsFilterColor, #010203))";
+        let source = format!(
+            r#"component App
+  state on = false
+  action flip
+    on = !on
+  view
+    column
+      button press=flip testId="flip"
+        text "Flip"
+      text "Shadow" filter=(on ? "{literal}" : "drop-shadow(0px 2px 4px system-orange)")
+"#
+        );
+        let plan = contract::compile(&source).unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        let map = color_map(&plan);
+        assert!(
+            map.contains("webJsFilterColor"),
+            "the plan admits the literal"
+        );
+        assert!(
+            js.contains(&format!(",\"filter\",\"\",()=>({map})((")),
+            "the bound filter is not mapped:\n{js}"
+        );
+        assert_eq!(
+            run(
+                &map,
+                &[
+                    "drop-shadow(0px 2px 4px system-orange)",
+                    literal,
+                    "drop-shadow(0px 2px 4px platform-color(ios webJsOtherColor, #010203))",
+                ]
+            ),
+            serde_json::json!([
+                format!("drop-shadow(0px 2px 4px {})", role("system-orange")),
+                "drop-shadow(0px 2px 4px #010203ff)",
+                null,
+            ])
+        );
+    }
 }

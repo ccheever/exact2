@@ -85,6 +85,20 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, None)
     }
 
+    /// The platform's colours resolve differently (LLP 1095 D1): paint
+    /// motion re-targets, transitioning under each owner's row (D6).
+    /// `first`: the session's first report, a correction without motion.
+    pub(super) fn repaint_colors(&mut self, batch: &mut Batch, first: bool) {
+        if let Some(retired) = self.paint.motion.colors_changed(
+            self.runner.kernel(),
+            &mut self.engine,
+            self.now_ms / 1000.0,
+            first,
+        ) {
+            self.retire_paint(retired, batch);
+        }
+    }
+
     /// A view's own appearance, when the presenter finds it differs from the
     /// session's (LLP 1062 D4): its node's colours resolve by it. The first
     /// report for a view corrects what was presented without motion, as the

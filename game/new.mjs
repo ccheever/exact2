@@ -110,7 +110,10 @@ ${patchLines(dir).join('\n')}
 `,
     'rust-toolchain.toml': readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8'),
     'exact.mjs': commandsFor(dir, name),
-    '.gitignore': '/target/\n/dist/\n/app.contract.d.ts\n/.exact/\n',
+    '.gitignore': '/target/\n/dist/\n/node_modules/\n/app.contract.d.ts\n/.exact/\n',
+    // Contract libraries come through node_modules (LLP 1091 D9): \`bun add\`
+    // one, or \`"name": "file:../path"\` for a local library.
+    'package.json': JSON.stringify({ name, private: true, dependencies: {} }, null, 2) + '\n',
     'AGENTS.md': agentNotes(dir, name),
     'app.json': JSON.stringify({
       $schema: pathFrom(dir, resolve(ROOT, 'scripts/app.schema.json')),
@@ -294,6 +297,11 @@ Commands, from this directory:
 The loop: generate the types, edit, \`contract build --json\` until it prints \`[]\`,
 \`test web\`, look at it with \`agent web … screenshot\`, then the native hosts.
 \`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup --check\` names anything this machine is missing.
+
+Contract libraries: \`use Card from "@scope/ui"\` reads an installed package's
+\`.contract\` files (\`bun add @scope/ui\`, or \`"@me/ui": "file:../ui"\` in
+\`package.json\` for a local one), and \`use Activity from "exact:motion"\` a
+built-in. Each file sees only the names its \`use\` lines list.
 
 Generated, so don't edit: the \`[patch.crates-io]\` table in \`Cargo.toml\`,
 \`rust-toolchain.toml\`, \`exact.mjs\`, and this block.

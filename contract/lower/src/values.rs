@@ -131,7 +131,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         ),
         StyleValueError::AutoNotAdmitted { .. } => "`auto` is not admitted here".into(),
         StyleValueError::OutOfRange { .. } => "out of the row's range".into(),
-        StyleValueError::BadColor { .. } => "a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, `lab()`, `oklch()`, a named colour, `transparent`, or `light-dark(a, b)` of two".into(),
+        StyleValueError::BadColor { .. } => "a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, `lab()`, `oklch()`, a named colour, `transparent`, `light-dark(a, b)` of two, a role (`\"secondary-label\"`, `\"CanvasText\"`: LLP 1095), or `platform-color(ios <name>Color, …, <fallback>)` written whole as a string literal".into(),
         StyleValueError::BadShapeOutside { .. } => "expected none, circle(), ellipse(), inset() with one round radius, or polygon() with at most 64 vertices; lengths are points/px or percentages".into(),
         StyleValueError::BadClipPath { .. } => "expected none or path() with explicit absolute M/L/Q/C/Z commands and separated finite coordinates".into(),
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
@@ -391,6 +391,43 @@ fn scheme_colour(a: &Attr, rows: &[StyleId]) -> Result<(), LowerError> {
     )
 }
 
+/// Whether `e` puts a `platform-color(` literal into a value it computes.
+fn builds_platform_color(e: &Expr) -> bool {
+    let named = |t: &str| t.contains("platform-color(");
+    match e {
+        Expr::Str(t, _) => named(t),
+        Expr::Template(parts, _) => parts.iter().any(|p| match p {
+            contract_syntax::TemplatePart::Text(t) => named(t),
+            contract_syntax::TemplatePart::Expr(e) => builds_platform_color(e),
+        }),
+        Expr::Some(e, _)
+        | Expr::Member(e, _, _)
+        | Expr::NamedArg(_, e, _)
+        | Expr::Unary(_, e, _)
+        | Expr::Typed(e, _, _) => builds_platform_color(e),
+        Expr::Arrow { body, .. } => builds_platform_color(body),
+        Expr::Call(_, args, _) => args.iter().any(builds_platform_color),
+        Expr::Binary(_, l, r, _) => builds_platform_color(l) || builds_platform_color(r),
+        Expr::Ternary(c, y, n, _) => [c, y, n].iter().any(|e| builds_platform_color(e)),
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => [subject, some, none]
+            .iter()
+            .any(|e| builds_platform_color(e)),
+        Expr::Let { value, body, .. } => {
+            builds_platform_color(value) || builds_platform_color(body)
+        }
+        Expr::Number(..)
+        | Expr::Bool(..)
+        | Expr::None(_)
+        | Expr::EmptyList(_)
+        | Expr::Ident(..) => false,
+    }
+}
+
 pub(crate) fn check_style_value(
     a: &Attr,
     rows: &[StyleId],
@@ -430,6 +467,16 @@ pub(crate) fn check_style_value(
                 pending.push((some, some.span()));
             }
             Expr::Let { body, .. } => pending.push((body, body.span())),
+            // @ref LLP 1095 D3 — a plan's platform colours are its literals:
+            // never built from a template, a concatenation or a call.
+            Expr::Str(..) => {}
+            other if builds_platform_color(other) => {
+                return err(
+                    "lower-platform-color-literal",
+                    format!("`{}`: write `platform-color(…)` whole, as a string literal (a branch of `?:` or `match` may be one); it is never built from a template, a concatenation or data, so the platform colours a plan names are fixed when it compiles (LLP 1095 D3)", a.name),
+                    span,
+                );
+            }
             _ => {}
         }
         // A computed gradient is parsed where it is painted: a native host

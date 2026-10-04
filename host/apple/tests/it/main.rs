@@ -4,6 +4,7 @@
 mod animation;
 mod canvas_defer;
 mod content_region;
+mod controls;
 mod development;
 mod flights;
 mod glass;

@@ -451,6 +451,13 @@ uint32_t exact_scheme(ExactRuntime rt, uint32_t dark);
  * differs from the session's: its node's light-dark() colours resolve by it
  * (LLP 1062). */
 uint32_t exact_view_scheme(ExactRuntime rt, uint32_t view, uint32_t dark);
+/** LLP 1095 D1: every colour reference the presenter should resolve, as JSON
+ *  `[[kind, id, "name"], …]` in the output buffer; returns its length. */
+uint32_t exact_color_references(ExactRuntime rt);
+/** LLP 1095 D1: what the presenter resolved them to, as LE records in the
+ *  input buffer (u8 kind, u8 dark, u16 id, u8 r, g, b, a); returns the
+ *  batch's length. */
+uint32_t exact_colors(ExactRuntime rt, size_t len);
 uint32_t exact_tick(ExactRuntime rt, double now_ms);      /* a motion frame, only while "motion" is true */
 /* An image node loaded: its bitmap's pixel counts, taken one-for-one as
  * points (never divided by the backing scale — a 2× asset is not half its

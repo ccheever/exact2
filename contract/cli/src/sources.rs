@@ -1,9 +1,10 @@
 //! File loading and source identity shared by Contract compilation and navigation.
 //! @ref LLP 1017.000 P8; LLP 1035.005 D2/D3; LLP 1091 (module scope).
 
+use crate::resolve::{resolve, Origin};
 use crate::CompileError;
 use contract_syntax::scope::{rescope, Kind, Scope};
-use contract_syntax::{File, NameSpans, Span, UseDecl, UseName, VisitSpans};
+use contract_syntax::{File, NameSpans, Span, UseDecl, UseName};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -11,8 +12,15 @@ use std::{
 
 pub(crate) struct Sources {
     paths: Vec<PathBuf>,
+    /// Where each source came from, by source id (LLP 1091 D10).
+    pub(crate) origins: Vec<Origin>,
     /// Every name a `use` brought, resolved, for navigation.
     pub(crate) imports: Vec<Import>,
+    /// Every package a `use` reached, by each name it was reached by (one
+    /// directory installed under two names is two), in order.
+    pub(crate) packages: Vec<Package>,
+    /// Every `package.json` a resolution read, refused or not.
+    pub(crate) consulted: Vec<PathBuf>,
 }
 
 /// One name a `use` brought: where it is written, and the declaration it
@@ -23,20 +31,42 @@ pub(crate) struct Import {
     pub(crate) name: String,
 }
 impl Sources {
-    pub(crate) fn relocate(&mut self, captured: &Path, original: &Path) -> Result<(), String> {
-        let canonical = captured.canonicalize().map_err(|e| e.to_string())?;
+    /// Map each source from where it was captured to where it lives: the
+    /// first `(captured, original)` pair whose captured directory holds it
+    /// (a bake's stage, and each package mirrored into the stage's
+    /// `node_modules`, listed first; LLP 1091 D10).
+    pub(crate) fn relocate(&mut self, moves: &[(PathBuf, PathBuf)]) -> Result<(), String> {
+        let moves = moves
+            .iter()
+            .map(|(captured, original)| {
+                let canonical = captured.canonicalize().map_err(|e| e.to_string())?;
+                Ok((captured, canonical, original))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
         let paths = self
             .paths
             .iter()
             .map(|path| {
-                path.strip_prefix(captured)
-                    .or_else(|_| path.strip_prefix(&canonical))
-                    .map(|relative| original.join(relative))
-                    .map_err(|_| {
+                if !path.is_absolute() {
+                    // An `exact:` module: compiled in, nowhere on disk.
+                    return Ok(path.clone());
+                }
+                moves
+                    .iter()
+                    .find_map(|(captured, canonical, original)| {
+                        path.strip_prefix(captured)
+                            .or_else(|_| path.strip_prefix(canonical))
+                            .ok()
+                            .map(|relative| original.join(relative))
+                    })
+                    .ok_or_else(|| {
                         format!(
                             "source {} is outside captured root {}",
                             path.display(),
-                            captured.display()
+                            moves
+                                .last()
+                                .map(|(captured, ..)| captured.display().to_string())
+                                .unwrap_or_default()
                         )
                     })
             })
@@ -71,7 +101,10 @@ pub(crate) fn load(
         app_root,
         sources: Sources {
             paths: vec![path.to_path_buf()],
+            origins: vec![Origin::App],
             imports: Vec::new(),
+            packages: Vec::new(),
+            consulted: Vec::new(),
         },
         active: vec![root_key.clone()],
         units: Vec::new(),
@@ -88,6 +121,84 @@ pub(crate) fn load(
     match loader.scope() {
         Ok(file) => Ok((file, loader.sources)),
         Err(e) => Err(resolve(&loader.sources, vec![e])),
+    }
+}
+
+/// One source a compilation reads (LLP 1091 D10).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Source {
+    /// Its canonical path, or its `exact:` name.
+    pub path: PathBuf,
+    /// Where it came from.
+    pub origin: Origin,
+}
+
+/// A package a `use` reached: the name it was reached by, and where it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Package {
+    /// The name `use` wrote.
+    pub name: String,
+    /// Its version, as its `package.json` says.
+    pub version: String,
+    /// Its directory, canonical.
+    pub root: PathBuf,
+    /// Its `package.json`, canonical.
+    pub manifest: PathBuf,
+}
+
+/// Every source a compilation of one root reads, in load order, and why it
+/// stopped, if it did: a watcher needs the files read before a failure too.
+#[derive(Debug, Clone)]
+pub struct SourceGraph {
+    /// The sources, the root first.
+    pub sources: Vec<Source>,
+    /// Every package reached, by each name it was reached by.
+    pub packages: Vec<Package>,
+    /// Every `package.json` resolution read, including one whose `exports`
+    /// then refused: what a fix would edit.
+    pub consulted: Vec<PathBuf>,
+    /// The loader's refusals; empty when every source loaded and scoped.
+    pub errors: Vec<CompileError>,
+}
+
+pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
+    let root_key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let mut loader = Loader {
+        app_root,
+        sources: Sources {
+            paths: vec![root_key.clone()],
+            origins: vec![Origin::App],
+            imports: Vec::new(),
+            packages: Vec::new(),
+            consulted: Vec::new(),
+        },
+        active: vec![root_key.clone()],
+        units: Vec::new(),
+        cache: HashMap::new(),
+    };
+    let errors = match loader.load_source(&root_key, src, 0) {
+        Err(all) => all,
+        Ok(()) => loader.scope().err().into_iter().collect(),
+    };
+    let errors = errors
+        .into_iter()
+        .map(|e| loader.sources.resolve(e))
+        .collect();
+    let sources = loader
+        .sources
+        .paths
+        .iter()
+        .zip(&loader.sources.origins)
+        .map(|(path, origin)| Source {
+            path: path.clone(),
+            origin: origin.clone(),
+        })
+        .collect();
+    SourceGraph {
+        sources,
+        packages: loader.sources.packages,
+        consulted: loader.sources.consulted,
+        errors,
     }
 }
 
@@ -127,33 +238,36 @@ impl Loader<'_> {
             targets: Vec::new(),
         });
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let from = self.sources.origins[index].clone();
         for u in &uses {
-            validate_use_path(u).map_err(|e| vec![e])?;
-            let target = dir.join(&u.path);
-            let key = target.canonicalize().map_err(|e| {
-                vec![use_error(
-                    "contract-use-unreadable",
-                    format!("{}: {}: {e}", described(u), target.display()),
-                    u,
-                )]
+            let resolved = resolve(
+                &u.path,
+                &dir,
+                &from,
+                self.app_root,
+                &mut self.sources.consulted,
+            )
+            .map_err(|(id, message)| {
+                vec![use_error(id, format!("{}: {message}", described(u)), u)]
             })?;
-            if !key.starts_with(self.app_root) {
-                return Err(vec![use_error(
-                    "contract-use-path",
-                    format!("{} leaves the app directory", described(u)),
-                    u,
-                )]);
+            if let Origin::Package {
+                name,
+                version,
+                root,
+                manifest,
+            } = &resolved.origin
+            {
+                let package = Package {
+                    name: name.clone(),
+                    version: version.clone(),
+                    root: root.clone(),
+                    manifest: manifest.clone(),
+                };
+                if !self.sources.packages.contains(&package) {
+                    self.sources.packages.push(package);
+                }
             }
-            if key.extension().and_then(|extension| extension.to_str()) != Some("contract") {
-                return Err(vec![use_error(
-                    "contract-use-path",
-                    format!(
-                        "{} resolves to a file that is not `.contract`",
-                        described(u)
-                    ),
-                    u,
-                )]);
-            }
+            let key = resolved.key;
             if self.active.contains(&key) {
                 return Err(vec![use_error(
                     "contract-use-cycle",
@@ -164,15 +278,19 @@ impl Loader<'_> {
             let used = match self.cache.get(&key) {
                 Some(&used) => used,
                 None => {
-                    let used_src = std::fs::read_to_string(&key).map_err(|e| {
-                        vec![use_error(
-                            "contract-use-unreadable",
-                            format!("{}: {}: {e}", described(u), key.display()),
-                            u,
-                        )]
-                    })?;
+                    let used_src = match resolved.builtin {
+                        Some(text) => text.to_owned(),
+                        None => std::fs::read_to_string(&key).map_err(|e| {
+                            vec![use_error(
+                                "contract-use-unreadable",
+                                format!("{}: {}: {e}", described(u), key.display()),
+                                u,
+                            )]
+                        })?,
+                    };
                     let used = self.sources.paths.len();
                     self.sources.paths.push(key.clone());
+                    self.sources.origins.push(resolved.origin);
                     self.active.push(key.clone());
                     self.load_source(&key, &used_src, used as u32)?;
                     self.active.pop();
@@ -200,7 +318,7 @@ impl Loader<'_> {
         for index in 0..self.units.len() {
             self.scope_of(index, &unique, &mut scopes)?;
         }
-        let elsewhere = self.declared_elsewhere();
+        let elsewhere = self.declared_elsewhere(&unique);
         for (index, unit) in self.units.iter_mut().enumerate() {
             let mut scope = scopes[index].take().expect("every unit is scoped");
             scope.elsewhere = elsewhere
@@ -246,7 +364,15 @@ impl Loader<'_> {
                     }
                     let mut unique = name.to_owned();
                     let mut n = 1;
-                    while taken.contains(&(kind, unique.clone())) {
+                    // A used file's shape named like a roster function is
+                    // renamed, or every file's call of the roster function
+                    // would construct it.
+                    let roster = |name: &str| {
+                        index > 0
+                            && kind == Kind::Call
+                            && exact_plan::Stdlib::from_name(name).is_some()
+                    };
+                    while taken.contains(&(kind, unique.clone())) || roster(&unique) {
                         n += 1;
                         unique = if n == 2 {
                             format!("{name}__{stem}")
@@ -337,13 +463,18 @@ impl Loader<'_> {
         scopes[index] = Some(Scope {
             names,
             elsewhere: HashMap::new(),
+            roster: Some(|name| exact_plan::Stdlib::from_name(name).is_some()),
         });
         Ok(())
     }
 
     /// Every declared name, by namespace, to the first unit that declares it
-    /// and that unit's path, for refusing a name a file does not see.
-    fn declared_elsewhere(&self) -> HashMap<(Kind, String), (usize, String)> {
+    /// and that unit's path, for refusing a name a file does not see — the
+    /// generated ones too, so `Helper__ui` is no way around a `use`.
+    fn declared_elsewhere(
+        &self,
+        unique: &[HashMap<(Kind, String), String>],
+    ) -> HashMap<(Kind, String), (usize, String)> {
         let mut out = HashMap::new();
         for (index, unit) in self.units.iter().enumerate() {
             let path = &self.sources.paths[index];
@@ -354,6 +485,10 @@ impl Loader<'_> {
                 .to_string();
             for (kind, name) in declarations(&unit.file) {
                 out.entry((kind, name.to_owned()))
+                    .or_insert_with(|| (index, shown.clone()));
+            }
+            for ((kind, _), generated) in &unique[index] {
+                out.entry((*kind, generated.clone()))
                     .or_insert_with(|| (index, shown.clone()));
             }
         }
@@ -376,10 +511,14 @@ impl Loader<'_> {
             .iter_mut()
             .flat_map(|file| std::mem::take(&mut file.fonts))
         {
-            if !fonts
-                .iter()
-                .any(|prior| prior.name == font.name && same_declaration(prior, &font))
-            {
+            let alike = |prior: &contract_syntax::FontDecl| {
+                prior.name == font.name
+                    && prior.faces.len() == font.faces.len()
+                    && prior.faces.iter().zip(&font.faces).all(|(a, b)| {
+                        (a.weight, a.italic, &a.source) == (b.weight, b.italic, &b.source)
+                    })
+            };
+            if !fonts.iter().any(alike) {
                 fonts.push(font);
             }
         }
@@ -477,44 +616,4 @@ fn name_error(id: &str, message: String, span: Span) -> CompileError {
 
 fn use_error(id: &str, message: String, u: &UseDecl) -> CompileError {
     name_error(id, message, u.span)
-}
-
-fn validate_use_path(u: &UseDecl) -> Result<(), CompileError> {
-    let Some(relative) = u.path.strip_prefix("./") else {
-        return Err(use_error(
-            "contract-use-path",
-            format!("{} needs a portable path beginning `./`", described(u)),
-            u,
-        ));
-    };
-    if relative.is_empty()
-        || u.path.contains('\\')
-        || relative
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
-    {
-        return Err(use_error(
-            "contract-use-path",
-            format!(
-                "{} must stay below its file with no `..` segments",
-                described(u)
-            ),
-            u,
-        ));
-    }
-    Ok(())
-}
-
-fn same_declaration<T: Clone + PartialEq + VisitSpans>(a: &T, b: &T) -> bool {
-    if a == b {
-        return true;
-    }
-    let (mut a, mut b) = (a.clone(), b.clone());
-    let mut original_position = |span: &mut contract_syntax::Span| {
-        span.source_id = 0;
-        span.end_col = 0;
-    };
-    a.visit_spans(&mut original_position);
-    b.visit_spans(&mut original_position);
-    a == b
 }

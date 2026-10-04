@@ -15,25 +15,55 @@ typealias SymbolConfig = NSImage.SymbolConfiguration
 #endif
 
 extension NodeView {
+    /// The symbol's own tint, or `nil` to follow the platform's accent
+    /// (LLP 1095 stage 2): the initial `tint-color` is `AccentColor`, which the
+    /// platform keeps dynamic (iOS inherits the hierarchy's `tintColor`, a
+    /// window or app tint included; macOS has `controlAccentColor`), so it is
+    /// never resolved to channels here.
+    var symbolTint: PlatformColor? {
+        guard let row = style["tint_color"] else { return nil }
+        if case .object(let o) = row, o["sys"]?.string == "@tint" { return nil }
+        return channels("tint_color").map(TextEngine.color)
+    }
+    /// The accent a `nil` `symbolTint` follows, for an API that needs a colour.
+    var inheritedTint: PlatformColor {
+        #if os(iOS) || os(tvOS)
+        return tintColor
+        #else
+        return .controlAccentColor
+        #endif
+    }
+
     /// What the symbol's look reads from its style, for the image's key: a
-    /// change makes it again.
+    /// change makes it again. Its colours are resolved into the
+    /// configuration, so every trait they resolve by is here too, and the
+    /// system colours' generation (LLP 1095 D5).
     var symbolLookKey: String {
         [style["symbol_rendering"]?.string ?? "", "\(style["symbol_palette"] ?? .null)",
-         "\(number("symbol_value", -1))", "\(style["tint_color"] ?? .null)", "\(drawsDark)"].joined(separator: "|")
+         "\(number("symbol_value", -1))", "\(style["tint_color"] ?? .null)", "\(drawsDark)",
+         "\(drawsHighContrast ?? SystemColor.highContrast)", "\(drawsElevated)", "\(SystemColor.generation)", bakedTintKey].joined(separator: "|")
+    }
+    /// The inherited tint, when the look bakes it into the image: a
+    /// hierarchical glyph without its own tint or tinted by it (`Highlight`
+    /// too), or a palette naming it.
+    private var bakedTintKey: String {
+        let mode = style["symbol_rendering"]?.string
+        let bakes = (mode == "hierarchical" && (symbolTint == nil || style["tint_color"]?.namesTint == true))
+            || (mode == "palette" && style["symbol_palette"]?.namesTint == true)
+        guard bakes, let tint = viewTint else { return "" }
+        return "\(SystemColor.channels("@tint", dark: drawsDark, tintColor: tint, fallback: nil) ?? [])"
     }
 
     /// The symbol's configuration: its size and weight, then its rendering
     /// mode (D10) — hierarchical in the tint, a palette, or multicolor.
     func symbolConfiguration(_ base: SymbolConfig) -> SymbolConfig {
-        let tint = color("tint_color", .black)
+        let tint = symbolTint ?? inheritedTint
         switch style["symbol_rendering"]?.string {
         case "hierarchical": return base.applying(SymbolConfig(hierarchicalColor: tint))
         case "multicolor": return base.applying(SymbolConfig.preferringMulticolor())
         case "palette":
             let colors = (style["symbol_palette"]?.array ?? []).compactMap { c -> PlatformColor? in
-                if let fixed = c.numbers, fixed.count == 4 { return TextEngine.color(fixed) }
-                if let pair = c.array, pair.count == 2, let chosen = pair[drawsDark ? 1 : 0].numbers { return TextEngine.color(chosen) }
-                return nil
+                c.channels(dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: c)).map(TextEngine.color)
             }
             return colors.isEmpty ? base : base.applying(SymbolConfig(paletteColors: colors))
         default: return base

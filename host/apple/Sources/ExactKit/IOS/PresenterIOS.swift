@@ -14,6 +14,29 @@ final class Presenter {
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
 
     var autofocusProcessed: Set<ObjectIdentifier> = []
+    private var projectionSyncOwed = false
+    /// What the native projections show changed outside a batch (a subtree's
+    /// appearance or size traits, geometry a sheet replayed after the batch).
+    /// Run the projection steps an empty batch used to run, once, on the next
+    /// turn, without waiting for a batch an idle app may never commit (LLP
+    /// 1079's amendment of 2026-10-04): grouped lists remount (frames, cell
+    /// heights, switches), then tab bars and controls.
+    func requestProjectionSync() {
+        guard !projectionSyncOwed else { return }
+        projectionSyncOwed = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            projectionSyncOwed = false
+            guard !applying else { return }
+            // Rows stay carried: a trait refresh never pulls a row (and a
+            // first responder or a touch in it) out of its cell. Lists mount
+            // first, so a segment or control in a carried row is judged
+            // where it shows.
+            groupedLists.sync(changed: [])
+            segments.sync()
+            controls.sync()
+        }
+    }
     /// The `aria-modal` view VoiceOver was last moved into, and the views
     /// made modal, which a cleared prop drops from the index (`syncModal`).
     var announcedModal: (id: UInt32, incarnation: UInt64)?
@@ -672,7 +695,7 @@ final class Presenter {
     /// and makes its correction without the presenter's whole finalization
     /// pass, unless work waits on a batch (a focus, a callback, a scroll).
     private func applySnapshots(_ batch: Batch) -> Bool {
-        guard !applying, batch.error == nil, !batch.ops.isEmpty, batch.ops.allSatisfy({ $0.op == .collections }),
+        guard !applying, batch.error == nil, !batch.controls, !batch.ops.isEmpty, batch.ops.allSatisfy({ $0.op == .collections }),
               waiting.isEmpty, pendingScrolls.isEmpty, pendingFocus == nil else { return false }
         collections.beginBatch(batch)
         collections.endBatch()
@@ -993,6 +1016,13 @@ final class Presenter {
     /// Geometry can be deferred for the source route while a modal owns the
     /// session viewport. Replaying it uses the same path as the original batch.
     func applyGeometry(_ op: BatchOp) {
+        // Replayed outside a batch (a sheet's dismissal completing): carried
+        // rows go back to their authored parents first, as before a batch,
+        // so the new box is theirs; the projections remount on the next turn.
+        if !applying {
+            groupedLists.prepare()
+            requestProjectionSync()
+        }
         let id = op.id
         guard let v = views[id] else { return }
         switch op.op {

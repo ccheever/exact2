@@ -27,6 +27,10 @@ pub struct Batch {
     canvas: bool,
     /// A canvas draw is owed to a turn of its own (LLP 1072 §8.5).
     canvas_owed: bool,
+    /// A control's viewless contents changed (a native button's face, a
+    /// select's options), which put no op on any view: the presenter
+    /// configures its controls (LLP 1069.011 §9).
+    pub controls: bool,
     /// Image handles a 2D canvas asked for (LLP 1056 D9): the presenter
     /// decodes each and answers `exact_canvas_image`.
     images: Vec<String>,
@@ -619,6 +623,9 @@ impl Batch {
         }
         if self.canvas_owed {
             s.push_str(",\"canvasOwed\":true");
+        }
+        if self.controls {
+            s.push_str(",\"controls\":true");
         }
         if !self.images.is_empty() {
             s.push_str(",\"canvasImages\":[");

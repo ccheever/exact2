@@ -207,6 +207,38 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(try rgb(.dark), [1, 0, 0, 1])
     }
 
+    /// Outside a batch (a sheet's dismissal replaying geometry, a subtree's
+    /// appearance), the projections sync on the next turn with no batch to
+    /// carry them (LLP 1079's amendment of 2026-10-04): the collection takes
+    /// the list's new box and the switch its control as it now stands.
+    func testAnOutOfBatchChangeReachesTheProjectionOnTheNextTurn() throws {
+        let p = presenter { self.model() }
+        let l = try list(p)
+        let toggle = try XCTUnwrap(switches(try cell(p, 12)).first)
+        XCTAssertTrue(toggle.isOn)
+        p.views[13]?.props["checked"] = "false"
+        p.applyGeometry(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 600.0]]).ops[0])
+        p.requestProjectionSync() // coalesced with the replay's
+        XCTAssertEqual(l.collection.frame.width, 402, "not inline")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(l.collection.frame, CGRect(x: 0, y: 0, width: 300, height: 600))
+        XCTAssertFalse(toggle.isOn)
+    }
+
+    /// A carried custom row given a new box outside a batch keeps it, and is
+    /// carried into its cell again on the next turn.
+    func testAReplayedBoxReachesACarriedRow() throws {
+        let p = presenter { self.model(custom: true) }
+        let row = try XCTUnwrap(p.views[21])
+        let before = try cell(p, 21)
+        XCTAssertTrue(row.superview === before.contentView, "carried")
+        p.applyGeometry(wireBatch([["op": "frame", "id": 21, "x": 16.0, "y": 52.0, "w": 354.0, "h": 80.0]]).ops[0])
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let after = try cell(p, 21)
+        XCTAssertEqual(row.frame.height, 80, "the replayed box, not the one saved at the last carry")
+        XCTAssertTrue(row.superview === after.contentView, "carried again")
+    }
+
     func testCustomRowsGoBackInTheirOrder() throws {
         let p = presenter {
             var m = self.model(custom: true)

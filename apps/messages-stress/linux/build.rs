@@ -8,7 +8,7 @@ mod factory;
 
 fn main() {
     let source_factory = factory::Source::selected();
-    println!("cargo:rerun-if-changed=../app.contract");
+    contract::rerun_if_changed(std::path::Path::new("../app.contract"));
     println!("cargo:rerun-if-changed=build.rs");
     let plan = match contract::compile_path(std::path::Path::new("../app.contract")) {
         Ok(p) => p,

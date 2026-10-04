@@ -516,10 +516,6 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         // no work of ours and no repaint pass. This is the whole reason the
         // kernel keeps the pair instead of flattening it.
         RowValue::ColorValue(ColorValue::Fixed(c)) => rgba_into(out, *c),
-        // A system colour is its pair: Chrome has no `-apple-system-*`.
-        RowValue::ColorValue(c @ ColorValue::System(_)) => {
-            declared(out, id, &RowValue::ColorValue(c.pair()))
-        }
         RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
             out.push_str("light-dark(");
             rgba_into(out, *l);
@@ -527,6 +523,9 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             rgba_into(out, *d);
             out.push(')');
         }
+        // @ref LLP 1095 D2 — a CSS system colour as is, an Exact role as
+        // `var(--exact-<role>, <fallback>)`, a `platform-color()` as its web colour.
+        RowValue::ColorValue(c) => exact_kernel::gradient::color_css(out, *c),
         RowValue::LineHeight(v) => out.push_str(&v.css()),
         RowValue::Enum(e) => out.push_str(e),
         RowValue::ClipPath(p) => out.push_str(&p.css()),

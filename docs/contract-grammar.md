@@ -116,8 +116,14 @@ are animatable and constant-call values can be evaluated at compilation.
 Styles accept literal style attributes and explicitly styleable props (currently
 `buttonStyle`), not arbitrary expressions or event props.
 
-A `use` path begins with `./`, stays below its importing file without `..`
-segments, and resolves to a `.contract` file inside the app directory. A file's
+A `use` specifier is a relative path (`./` or `../`) to a `.contract` file that
+stays inside the using file's root — the app directory, or the package it
+belongs to (`contract-use-path`); an `exact:` built-in (`exact:motion`;
+`contract-use-builtin`); or a package name, `name[/sub]` or
+`@scope/name[/sub]`, found in the nearest `node_modules` above the using file
+and mapped through its `package.json` `exports` (a string, or the `contract` or
+`default` condition), else `index.contract` (`contract-use-package`).
+`contract sources <file>` prints every file a compile reads, as JSON. A file's
 names are its own declarations and the names its `use` lines list, each
 optionally renamed with `as` (LLP 1091): a component, shape, function, style,
 keyframes, or timeline, declared by the used file or named by its own `use`
