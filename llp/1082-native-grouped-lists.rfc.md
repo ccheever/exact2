@@ -155,24 +155,29 @@ This adds to `rules/DEFERRED.md` as Charlie approved, without a take: one tag me
 
 ## 6. As built
 
-- **Contract.** `grouped.rs` holds the checks and the sheet, `lib.rs` has a 13-line hook, and `tags.rs` gains `listStyle`; one comment was folded to stay at the cap. Tests are in `contract/cli/tests/it/grouped_list.rs`:
+- **Contract.** `grouped.rs` holds the checks and the sheet. `lib.rs` has the hook and the precedence split, and `tags.rs` gains `listStyle`; one comment was folded to stay at the cap. `contract/cli/tests/it/grouped_list.rs` has 15 tests:
   - the kernel's model, read live;
-  - the sheet's metrics against §2 (a row 52 apart, its text at 72 after a symbol and 32 without one);
-  - an author's row replacing the sheet's;
+  - the sheet's metrics against §2 (rows 52 apart, the text at 72 after a symbol and at 32 without one);
+  - the author's attributes and classes over the sheet;
+  - conditional symbols, texts and subtitle lines in both states;
+  - hidden parts, plain sections, native button rows;
   - each refusal.
-- **Kernel.** `grouped.rs`, `Kernel::grouped_list`.
-- **Apple.** `exact_grouped_list` and `GroupedListIOS.swift`. XCTests (`GroupedListIOSTests`) cover:
+- **Kernel.** `grouped.rs`, `Kernel::grouped_list`. Adding a prop and a role moved `SCHEMA_DIGEST`'s snapshot (`wire/codec.rs`).
+- **Apple.** `exact_grouped_list` and `GroupedListIOS.swift`. `GroupedListIOSTests` has 13 tests:
   - the collection view in the box over the hidden scroll;
-  - a list cell of the model's parts, with a destructive red;
-  - a tap that highlights and presses once, and not on a `row`;
-  - a toggle that flips its control and snaps back to the committed state;
-  - a custom row carried and given back;
-  - a batch that adds a checkmark;
+  - cells of the model's parts;
+  - the tap: highlighted, pressed once, refused when scrolled away or inert;
+  - a switch following its control's state and target, and one rebuilt only after its own action;
+  - custom rows carried, given back in order, turning custom and back, and keeping their section's inertness;
+  - a header's text changing;
+  - the wheel;
   - a list that goes.
 - **Fixture.** `scripts/fixtures/grouped-list.contract` is a settings screen with a profile card (custom), symbol rows, a value, a subtitle, a detail button, a switch, a checkmark choice, a destructive row, and a segmented control for the three styles.
-- **Seen.** The fixture was driven on the iOS 27 simulator, the web and Linux, beside §2's scratch UIKit app. It matched in both appearances; the comparison sheets are listed in the code review.
-  - On iOS, the agent's `tap` on the rows pressed them; the detail button and the switch reached their actions; the checkmark moved with the choice.
-  - On iOS, plain footers stay under their rows (D5).
+- **Seen.** The fixture was driven beside §2's scratch UIKit app, in light and dark, on the iOS 27 simulator, the web (Chrome) and Linux.
+  - On iOS the agent tapped rows, the detail button, the switch and the choice, and wheeled the list to tap a row below the fold.
+  - Plain footers stay under their rows.
+  - macOS draws the same sheet Linux and the web do; it was not driven.
+- **Review.** Three rounds each by Astra and Grok (`llp/reviews/code-2026-10-03-grouped-list.*.md`). Round 3 ended with Astra at DO NOT LAND and Grok at LAND WITH FIXES. Every round-3 finding is fixed or declared in §4.
 
 ## 7. Open
 
