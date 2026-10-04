@@ -53,9 +53,12 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     };
     await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
     for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
-    // Local time on the 1600 ms cycle (800 ms, alternate).
-    // Several read in one evaluation, so a loaded machine cannot move the
-    // page's clock between them.
+    // How far apart two times are on the 1600 ms cycle, either way round: a
+    // whole number of cycles apart in float can read as a hair under one.
+    const apart = (a, b) => { const d = (((a - b) % 1600) + 1600) % 1600; return Math.min(d, 1600 - d); };
+    // Local time on the 1600 ms cycle (800 ms, alternate). Several read in
+    // one evaluation, so a loaded machine cannot move the page's clock
+    // between them.
     const phases = (...ids) => evaluate(`${JSON.stringify(ids)}.map(id => { const a = anim(id); return [a.currentTime % 1600, a.playState]; })`);
     const phase = async id => (await phases(id))[0];
 
@@ -64,8 +67,8 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     await evaluate(`add('engine', 'pulse 800ms ease-in-out infinite alternate')`);
     await evaluate(`add('free', 'pulse 800ms ease-in-out infinite alternate', '')`);
     const [[lock], [engine], [free]] = await phases('lock', 'engine', 'free');
-    expect(Math.abs(lock - engine)).toBeLessThan(1);
-    expect(Math.abs(lock - free)).toBeGreaterThan(200); // no clock: CSS's own start
+    expect(apart(lock, engine)).toBeLessThan(1);
+    expect(apart(lock, free)).toBeGreaterThan(200); // no clock: CSS's own start
     // A lone pulse on an idle clock starts at its first keyframe.
     await evaluate(`add('alone', 'pulse 800ms infinite alternate', 'Other')`);
     expect((await phase('alone'))[0]).toBeLessThan(100);
@@ -77,7 +80,7 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     await evaluate(`document.getElementById('engine').style.animationPlayState = 'running'; sync()`);
     const [[l2], [e2, state]] = await phases('lock', 'engine');
     expect(state).toBe('running');
-    expect(Math.abs(l2 - e2)).toBeLessThan(1);
+    expect(apart(l2, e2)).toBeLessThan(1);
 
     // A lone member keeps its clock busy while paused: a joiner then, and
     // the member's own resume, both take the phase it started on.
@@ -89,8 +92,8 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     await evaluate(`add('late', 'pulse 800ms infinite alternate', 'Solo')`);
     await evaluate(`document.getElementById('solo').style.animationPlayState = 'running'; sync()`);
     const [late, solo] = await evaluate(`[anim('late').startTime, anim('solo').startTime]`);
-    expect(Math.abs((late - origin) % 1600)).toBeLessThan(1);
-    expect(Math.abs((solo - origin) % 1600)).toBeLessThan(1);
+    expect(apart(late, origin)).toBeLessThan(1);
+    expect(apart(solo, origin)).toBeLessThan(1);
 
     // A running pulse moved to another clock joins that one: a later
     // joiner there shares its start.
@@ -100,7 +103,7 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     await Bun.sleep(300);
     await evaluate(`add('after', 'pulse 800ms infinite alternate', 'After')`);
     const [mover, after] = await evaluate(`[anim('mover').startTime, anim('after').startTime]`);
-    expect(Math.abs((after - mover) % 1600)).toBeLessThan(1);
+    expect(apart(after, mover)).toBeLessThan(1);
 
     // A finished one moved to another clock stays finished.
     await evaluate(`add('done', 'pulse 100ms 1 forwards', 'Done')`);
@@ -127,9 +130,9 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
 
     // A finite one joining late ends on a cycle boundary of the clock.
     await evaluate(`add('three', 'pulse 800ms 3 alternate')`);
-    const ends = await evaluate(`(() => { const a = anim('three'), l = anim('lock'); return [(a.startTime - l.startTime) % 1600, a.effect.getComputedTiming().endTime]; })()`);
-    expect(Math.abs(ends[0])).toBeLessThan(1);
-    expect(ends[1]).toBeCloseTo(2400, 6);
+    const ends = await evaluate(`(() => { const a = anim('three'), l = anim('lock'); return [a.startTime, l.startTime, a.effect.getComputedTiming().endTime]; })()`);
+    expect(apart(ends[0], ends[1])).toBeLessThan(1);
+    expect(ends[2]).toBeCloseTo(2400, 6);
 
     // The page's last clock taken away and given back: it joins again.
     await evaluate(`document.getElementById('exact-root').replaceChildren(); add('back', 'pulse 800ms infinite alternate', 'Back')`);
@@ -140,7 +143,7 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     await Bun.sleep(200);
     await evaluate(`add('back2', 'pulse 800ms infinite alternate', 'Back')`);
     const [back, back2] = await evaluate(`[anim('back').startTime, anim('back2').startTime]`);
-    expect(Math.abs((back2 - back) % 1600)).toBeLessThan(1);
+    expect(apart(back2, back)).toBeLessThan(1);
   } finally {
     child.kill();
     server.close();
