@@ -276,7 +276,12 @@ export async function realTap({ ask, touches, id, at, drag, abandon }) {
     const raced = async (promise) => {
       promise.catch(() => {}); // a late failure after the race is not this drive's
       const r = await Promise.race([promise, gestureEnd]);
-      if (r === over) throw new Error(`${what}: the ops during it outlasted the gesture; lengthen press or hold`);
+      if (r === over) {
+        // The runner is done; the app has not answered a second after: its carrier is spent.
+        const why = `${what}: the ops during it outlasted the gesture by a second; the app's carrier was stopped (lengthen press or hold)`;
+        abandon?.(why);
+        throw transport(why);
+      }
       return r;
     };
     const entries = async () => {
