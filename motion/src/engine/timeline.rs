@@ -95,9 +95,7 @@ impl Engine {
                     }
                 }
                 // Onto a clock timeline: in its phase (LLP 1055.002).
-                if self.animation_clock(node).is_some() {
-                    self.rejoin_clock(node);
-                }
+                self.join_clock_node(node);
             }
             (None, None) => {}
         }

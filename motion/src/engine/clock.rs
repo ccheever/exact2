@@ -5,39 +5,59 @@
 //! `Name` is in step (D4): the most recent cycle boundary on the timeline at
 //! or before the moment it starts. A timeline is one number, its origin, set
 //! when an animation joins it idle (D3). Nothing here runs per frame: a start
-//! is chosen once, when a play starts or resumes, and every executor plays
-//! from it as it plays any other start (Core Animation's `beginTime`).
+//! is chosen once, when a play starts, resumes or moves onto a clock, and
+//! every executor plays from it as it plays any other start (Core
+//! Animation's `beginTime`).
+//!
+//! Inside a commit ([`Engine::hold_clock_joins`]) the joins wait for its end,
+//! when every node's rows are applied, so the start a join takes does not
+//! depend on the order the commit's nodes were applied in: a member another
+//! node's row ends in the same commit is gone, a drag-bound play is not a
+//! member, and a join reads the timing its row ends the commit with.
 
-use super::animate::AnimationPlay;
 use super::Engine;
 use crate::animation::{Animation, Direction};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-/// Each node's clock timeline, and each timeline's origin.
+/// Each node's clock timeline, each timeline's origin, and the plays that
+/// join at the end of the commit.
 #[derive(Debug, Default)]
 pub(super) struct Clocks {
     of: BTreeMap<u64, String>,
     origins: BTreeMap<String, f64>,
+    joining: BTreeMap<u64, Joining>,
+    held: bool,
+}
+
+/// What of a node joins its clock.
+#[derive(Debug)]
+enum Joining {
+    /// These plays (row indices), started or resumed by its row. A resumed
+    /// one was a member all along (paused, it held the clock busy), so it
+    /// keeps the origin it rejoins; a new one is not one yet.
+    Plays {
+        started: BTreeSet<usize>,
+        resumed: BTreeSet<usize>,
+    },
+    /// The node itself, moved onto the clock: every play it has.
+    Node,
 }
 
 impl Engine {
     /// Put `node`'s animations on the clock timeline `clock` (or with
-    /// `None`, on their own starts again). Plays already running keep their
-    /// start; it decides where each one that starts or resumes from now on
-    /// begins.
+    /// `None`, on their own starts again). Moving onto one, its running
+    /// plays join it as new ones would (D4); a kept start would be a member
+    /// out of phase.
     pub fn set_animation_clock(&mut self, node: u64, clock: Option<&str>) {
         match clock {
             Some(name) if self.clocks.of.get(&node).map(String::as_str) != Some(name) => {
                 self.clocks.of.insert(node, name.to_owned());
-                // Its plays join as new ones would; kept starts would be
-                // members out of phase, and hold the timeline busy on them.
-                if !self.timeline_bound(node) {
-                    self.rejoin_clock(node);
-                }
+                self.join_clock_node(node);
             }
             Some(_) => {}
             None => {
                 self.clocks.of.remove(&node);
+                self.clocks.joining.remove(&node);
             }
         }
     }
@@ -47,72 +67,147 @@ impl Engine {
         self.clocks.of.get(&node).map(String::as_str)
     }
 
-    /// Put `node`'s running plays on its clock's phase, as a join does (D4);
-    /// a held one rejoins when it resumes (D6).
-    pub(super) fn rejoin_clock(&mut self, node: u64) {
-        let Some(mut plays) = self.animations.remove(&node) else {
+    /// Hold every clock join until [`Engine::join_clocks`]: a commit's rows
+    /// are applied first (`MotionSync::apply`).
+    pub fn hold_clock_joins(&mut self) {
+        self.clocks.held = true;
+    }
+
+    /// Join the plays that started, resumed or moved onto a clock since the
+    /// joins were held (D3, D4), and stop holding them.
+    pub fn join_clocks(&mut self) {
+        self.clocks.held = false;
+        let joining = std::mem::take(&mut self.clocks.joining);
+        if joining.is_empty() {
             return;
-        };
+        }
         let now = self.now;
-        for play in plays.iter_mut().filter(|p| p.hold.is_none()) {
-            play.start = self.clock_start(node, &play.animation, now, &[]);
-            for p in play.animation.keyframes.properties() {
-                self.dirty.insert((node, p));
+        // Whether a play of `node` at `index` joins now, and so is not yet
+        // a member.
+        let joins = |node: u64, index: usize| match joining.get(&node) {
+            Some(Joining::Node) => true,
+            Some(Joining::Plays { started, .. }) => started.contains(&index),
+            None => false,
+        };
+        // Each joining clock's origin: kept while a member is live (paused,
+        // or not yet ended; a drag-bound play follows its drag, not the
+        // clock), else now.
+        let names: BTreeSet<String> = joining
+            .keys()
+            .filter_map(|node| self.clocks.of.get(node).cloned())
+            .collect();
+        for name in names {
+            let busy = self
+                .clocks
+                .of
+                .iter()
+                .filter(|(n, c)| **c == name && !self.timeline_bound(**n))
+                .any(|(n, _)| {
+                    self.animations.get(n).is_some_and(|plays| {
+                        plays.iter().enumerate().any(|(i, p)| {
+                            !joins(*n, i)
+                                && (p.hold.is_some() || p.local(now) < p.animation.end_time())
+                        })
+                    })
+                });
+            if !busy || !self.clocks.origins.contains_key(&name) {
+                self.clocks.origins.insert(name, now);
             }
         }
-        self.animations.insert(node, plays);
+        for (node, what) in &joining {
+            let Some(origin) = self
+                .clocks
+                .of
+                .get(node)
+                .and_then(|name| self.clocks.origins.get(name))
+                .copied()
+            else {
+                continue;
+            };
+            if self.timeline_bound(*node) {
+                continue;
+            }
+            let Some(plays) = self.animations.get_mut(node) else {
+                continue;
+            };
+            for (i, play) in plays.iter_mut().enumerate() {
+                // A held play rejoins when it resumes (D6); an ended one
+                // stays ended, not restarted by the move.
+                let picked = match what {
+                    Joining::Node => true,
+                    Joining::Plays { started, resumed } => {
+                        started.contains(&i) || resumed.contains(&i)
+                    }
+                };
+                if !picked || play.hold.is_some() || play.local(now) >= play.animation.end_time() {
+                    continue;
+                }
+                play.start = boundary(&play.animation, now, origin);
+                for p in play.animation.keyframes.properties() {
+                    self.dirty.insert((*node, p));
+                }
+            }
+            self.schedule_animations(*node);
+        }
+    }
+
+    /// Plays of `node` that join its clock, `started` or `resumed` (row
+    /// indices): now, or at the end of the commit while joins are held.
+    pub(super) fn join_clock(&mut self, node: u64, started: &[usize], resumed: &[usize]) {
+        if !self.clocks.of.contains_key(&node) || started.len() + resumed.len() == 0 {
+            return;
+        }
+        let entry = self.clocks.joining.entry(node).or_insert(Joining::Plays {
+            started: BTreeSet::new(),
+            resumed: BTreeSet::new(),
+        });
+        if let Joining::Plays {
+            started: s,
+            resumed: r,
+        } = entry
+        {
+            s.extend(started);
+            r.extend(resumed);
+        }
+        self.join_clocks_unless_held();
+    }
+
+    /// `node` moved onto its clock, or off a drag timeline while on one:
+    /// every play it has joins (D4), now or at the end of the commit.
+    pub(super) fn join_clock_node(&mut self, node: u64) {
+        if self.clocks.of.contains_key(&node) {
+            self.clocks.joining.insert(node, Joining::Node);
+            self.join_clocks_unless_held();
+        }
+    }
+
+    fn join_clocks_unless_held(&mut self) {
+        if !self.clocks.held {
+            self.join_clocks();
+        }
     }
 
     pub(super) fn forget_clock(&mut self, node: u64) {
         self.clocks.of.remove(&node);
+        self.clocks.joining.remove(&node);
     }
+}
 
-    /// Where a play of `animation` on `node` that starts (or resumes) at
-    /// `now` begins: `now` off a clock timeline; on one, the last cycle
-    /// boundary at or before `now` (D4). A timeline nothing live is on takes
-    /// `now` as its origin first (D3), so a lone animation starts at its
-    /// first keyframe. `also` is plays the caller holds outside the table
-    /// (the node's own, while its row is replaced).
-    pub(super) fn clock_start(
-        &mut self,
-        node: u64,
-        animation: &Animation,
-        now: f64,
-        also: &[AnimationPlay],
-    ) -> f64 {
-        let Some(name) = self.clocks.of.get(&node) else {
-            return now;
-        };
-        // Live: paused (it will resume on this timeline) or not yet ended.
-        let live = |p: &AnimationPlay| p.hold.is_some() || p.local(now) < p.animation.end_time();
-        let busy = also.iter().any(live)
-            || self
-                .clocks
-                .of
-                .iter()
-                .filter(|(n, c)| *c == name && **n != node)
-                .any(|(n, _)| self.animations.get(n).is_some_and(|ps| ps.iter().any(live)));
-        let origin = match self.clocks.origins.get(name) {
-            Some(origin) if busy => *origin,
-            _ => {
-                self.clocks.origins.insert(name.clone(), now);
-                now
-            }
-        };
-        // An alternating cycle is two iterations, so a joiner's first is
-        // forwards and it ends on the keyframe it would end on alone.
-        let alternates = matches!(
-            animation.direction,
-            Direction::Alternate | Direction::AlternateReverse
-        );
-        let period = animation.duration * if alternates { 2.0 } else { 1.0 };
-        if !(period > 0.0 && period.is_finite()) {
-            return now;
-        }
-        // A join on a boundary, in float, can land a hair before it and
-        // take the cycle before: one whole period early, which can end a
-        // finite joiner before it shows. Within a nanosecond is on it.
-        let into = (now - origin).rem_euclid(period);
-        now - if period - into < 1e-9 { 0.0 } else { into }
+/// The last cycle boundary of `origin`'s timeline at or before `now`: an
+/// iteration, or two under `alternate`, so a joiner's first is forwards and
+/// it ends on the keyframe it would end on alone.
+fn boundary(animation: &Animation, now: f64, origin: f64) -> f64 {
+    let alternates = matches!(
+        animation.direction,
+        Direction::Alternate | Direction::AlternateReverse
+    );
+    let period = animation.duration * if alternates { 2.0 } else { 1.0 };
+    if !(period > 0.0 && period.is_finite()) {
+        return now;
     }
+    // A join on a boundary, in float, can land a hair before it and take
+    // the cycle before: one whole period early, which can end a finite
+    // joiner before it shows. Within a nanosecond is on it.
+    let into = (now - origin).rem_euclid(period);
+    now - if period - into < 1e-9 { 0.0 } else { into }
 }

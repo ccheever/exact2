@@ -91,6 +91,16 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     expect(Math.abs((late - origin) % 1600)).toBeLessThan(1);
     expect(Math.abs((solo - origin) % 1600)).toBeLessThan(1);
 
+    // A running pulse moved to another clock joins that one: a later
+    // joiner there shares its start.
+    await evaluate(`add('mover', 'pulse 800ms infinite alternate', 'Before')`);
+    await Bun.sleep(300);
+    await evaluate(`document.getElementById('mover').style.setProperty('--exact-animation-clock', 'After'); sync()`);
+    await Bun.sleep(300);
+    await evaluate(`add('after', 'pulse 800ms infinite alternate', 'After')`);
+    const [mover, after] = await evaluate(`[anim('mover').startTime, anim('after').startTime]`);
+    expect(Math.abs((after - mover) % 1600)).toBeLessThan(1);
+
     // A finite one joining late ends on a cycle boundary of the clock.
     await evaluate(`add('three', 'pulse 800ms 3 alternate')`);
     const ends = await evaluate(`(() => { const a = anim('three'), l = anim('lock'); return [(a.startTime - l.startTime) % 1600, a.effect.getComputedTiming().endTime]; })()`);

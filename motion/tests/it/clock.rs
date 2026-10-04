@@ -6,6 +6,7 @@ use exact_motion::{Animations, Engine, Keyframes, NamedTimeline};
 
 const LOCK: u64 = 3;
 const ENGINE: u64 = 4;
+const SPINNER: u64 = 5;
 
 fn row(text: &str) -> Animations {
     let pulse = Keyframes::parse("from{opacity:0.4}to{opacity:1}").unwrap();
@@ -132,6 +133,20 @@ fn a_paused_member_keeps_the_timeline_busy_and_resume_rejoins() {
 }
 
 #[test]
+fn a_lone_member_resumed_rejoins_its_own_phase() {
+    let mut e = Engine::new();
+    e.set_animation_clock(LOCK, Some("Pending"));
+    e.set_animations(LOCK, &row("pulse 1s infinite")).unwrap();
+    e.advance(0.4).unwrap();
+    e.set_animations(LOCK, &row("pulse 1s infinite paused"))
+        .unwrap();
+    e.advance(7.9).unwrap();
+    e.set_animations(LOCK, &row("pulse 1s infinite running"))
+        .unwrap();
+    assert_eq!(start(&e, LOCK), 7.0, "paused, it kept Pending busy");
+}
+
+#[test]
 fn different_durations_meet_at_common_boundaries() {
     let mut e = Engine::new();
     for node in [LOCK, ENGINE] {
@@ -173,6 +188,91 @@ fn leaving_a_drag_timeline_onto_a_clock_takes_its_phase() {
     e.set_animation_timeline(ENGINE, None);
     assert_eq!(start(&e, ENGINE), 5.0);
     assert_eq!(opacity(&e, LOCK), opacity(&e, ENGINE));
+    // And the clock samples it again, frame after frame.
+    e.frame();
+    e.advance(5.6).unwrap();
+    assert!(!e.quiescent());
+    let painted = e.frame().iter().any(|p| p.node == ENGINE);
+    assert!(painted, "a sampling host paints it after the unbind");
+}
+
+#[test]
+fn moving_onto_a_clock_leaves_an_ended_play_ended() {
+    let mut e = Engine::new();
+    e.set_animations(ENGINE, &row("pulse 1s 1")).unwrap();
+    e.advance(10.3).unwrap();
+    e.set_animation_clock(ENGINE, Some("Pending"));
+    assert_eq!(start(&e, ENGINE), 0.0, "not restarted");
+}
+
+#[test]
+fn a_paused_node_moved_onto_an_idle_timeline_sets_its_origin() {
+    let mut e = Engine::new();
+    e.set_animation_clock(LOCK, Some("Pending"));
+    e.set_animations(LOCK, &row("pulse 1s 2")).unwrap();
+    e.set_animations(ENGINE, &row("pulse 1s infinite paused"))
+        .unwrap();
+    e.advance(10.3).unwrap();
+    e.set_animation_clock(ENGINE, Some("Pending"));
+    e.advance(10.5).unwrap();
+    e.set_animation_clock(SPINNER, Some("Pending"));
+    e.set_animations(SPINNER, &row("pulse 1s infinite"))
+        .unwrap();
+    assert_eq!(start(&e, SPINNER), 10.3, "Pending went busy at 10.3, not 0");
+}
+
+// A commit's joins wait for all of its rows (`MotionSync::apply`), so the
+// order its nodes were applied in does not pick the phase.
+#[test]
+fn in_one_commit_a_member_ended_elsewhere_is_gone() {
+    let mut e = Engine::new();
+    for node in [LOCK, ENGINE] {
+        e.set_animation_clock(node, Some("Pending"));
+    }
+    e.set_animations(LOCK, &row("pulse 800ms infinite alternate"))
+        .unwrap();
+    e.advance(1.2).unwrap();
+    e.hold_clock_joins();
+    e.set_animations(ENGINE, &row("pulse 800ms 1 alternate"))
+        .unwrap();
+    e.set_animations(LOCK, &Animations::NONE).unwrap();
+    e.join_clocks();
+    assert_eq!(start(&e, ENGINE), 1.2, "idle at the commit's end: from now");
+}
+
+#[test]
+fn in_one_commit_a_join_reads_the_row_it_ends_with() {
+    let mut e = Engine::new();
+    e.set_animation_clock(LOCK, Some("Pending"));
+    e.set_animations(LOCK, &row("pulse 1s infinite")).unwrap();
+    e.set_animations(ENGINE, &row("pulse 1s infinite")).unwrap();
+    e.advance(5.3).unwrap();
+    e.hold_clock_joins();
+    e.set_animation_clock(ENGINE, Some("Pending"));
+    e.set_animations(ENGINE, &row("pulse 2s infinite")).unwrap();
+    e.join_clocks();
+    assert_eq!(start(&e, ENGINE), 4.0, "the 2 s cycle's boundary");
+}
+
+#[test]
+fn in_one_commit_a_drag_bound_play_is_no_member() {
+    let mut e = Engine::new();
+    e.set_animation_clock(LOCK, Some("Pending"));
+    e.set_animations(LOCK, &row("pulse 1s 2")).unwrap();
+    e.set_animation_timeline(ENGINE, Some((NamedTimeline::Missing, [0.0, 1.0])));
+    e.set_animations(ENGINE, &row("pulse 1s infinite")).unwrap();
+    e.advance(10.3).unwrap();
+    // Pending went idle at 2 with its origin at 0. One commit starts
+    // SPINNER on it and moves ENGINE off its drag timeline onto it.
+    e.hold_clock_joins();
+    for node in [SPINNER, ENGINE] {
+        e.set_animation_clock(node, Some("Pending"));
+    }
+    e.set_animations(SPINNER, &row("pulse 1s infinite"))
+        .unwrap();
+    e.set_animation_timeline(ENGINE, None);
+    e.join_clocks();
+    assert_eq!((start(&e, SPINNER), start(&e, ENGINE)), (10.3, 10.3));
 }
 
 #[test]

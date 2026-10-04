@@ -10,9 +10,10 @@ use std::collections::HashSet;
 /// is a bare name a `timeline` declares into `"clock(Name)"`, on view
 /// elements and in `style` declarations. On an element any other value is
 /// left as written (a bare name there may be a binding, and a component's
-/// prop, state, derive, resource, or an `each` or `match` binder of the
-/// name shadows the timeline as it shadows any name); in a style, where
-/// only a timeline's name is admitted, one no `timeline` declares is refused.
+/// prop, inject, state, derive, resource, mutation, action, or an `each` or
+/// `match` binder of the name shadows the timeline as it shadows any name);
+/// in a style, where only a timeline's name is admitted, one no `timeline`
+/// declares is refused.
 pub fn resolve_clock_timelines(file: &mut File) -> Result<(), SyntaxError> {
     let names: HashSet<String> = file.timelines.iter().map(|t| t.name.clone()).collect();
     for style in &mut file.styles {
@@ -43,6 +44,8 @@ pub fn resolve_clock_timelines(file: &mut File) -> Result<(), SyntaxError> {
         let locals = (c.props.iter().chain(&c.injects).map(|p| &p.name))
             .chain(c.states.iter().chain(&c.derives).map(|b| &b.name))
             .chain(c.resources.iter().map(|r| &r.name))
+            .chain(c.mutations.iter().map(|m| &m.name))
+            .chain(c.actions.iter().map(|a| &a.name))
             .filter(|n| names.contains(*n))
             .cloned()
             .collect();
