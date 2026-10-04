@@ -41,7 +41,7 @@ final class GesturePrecedenceMacTests: XCTestCase {
     /// lifts, as the web's order has it.
     func testPointerDownAndUpReachTheNearestPointerNodeAroundThePress() {
         let p = host([
-            ["op": "create", "id": 1, "kind": "button", "handlers": ["press", "pointerdown", "pointerup"]],
+            ["op": "create", "id": 1, "kind": "button", "handlers": ["press", "pointerdown", "pointerup", "pointermove"]],
             ["op": "create", "id": 2, "kind": "view"],
             ["op": "children", "id": 1, "ids": [2]],
             ["op": "roots", "ids": [1]],
@@ -50,12 +50,22 @@ final class GesturePrecedenceMacTests: XCTestCase {
         ])
         var log: [String] = []
         p.onPress = { log.append("press \($0)") }
-        p.onPointer = { id, down in log.append("\(down ? "down" : "up") \(id)") }
+        var samples: [PointerSample] = []
+        p.onPointer = { id, kind, sample in
+            log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)"); samples.append(sample)
+        }
         let child = p.views[2]!
         child.mouseDown(with: event(.leftMouseDown, child))
         XCTAssertEqual(log, ["down 1"], "before any press")
+        // LLP 1056 §3 stage 3: the held pointer's drag is the node's move,
+        // its point from the node's content box (the child's middle, 35 in).
+        child.mouseDragged(with: event(.leftMouseDragged, child, down: 5, right: 10))
+        XCTAssertEqual(log, ["down 1", "move 1"])
+        XCTAssertEqual(samples.last?.x, 45); XCTAssertEqual(samples.last?.y, 40)
+        XCTAssertEqual(samples.last?.type, "mouse"); XCTAssertEqual(samples.last?.id, 1)
         child.mouseUp(with: event(.leftMouseUp, child))
-        XCTAssertEqual(log, ["down 1", "up 1", "press 1"])
+        XCTAssertEqual(log, ["down 1", "move 1", "up 1", "press 1"])
+        XCTAssertEqual(samples.last?.buttons, 0)
         XCTAssertNil(p.pointerHeld)
     }
 

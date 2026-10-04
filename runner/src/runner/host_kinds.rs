@@ -5,8 +5,9 @@
 use super::Event;
 
 impl Event {
-    /// Decode ABI kind 13 (scroll), 19 (media), 20 (pan), 21 (select) or
-    /// 28 (panrelease, LLP 1057 §10.6) from its UTF-8 payload.
+    /// Decode ABI kind 13 (scroll), 19 (media), 20 (pan), 21 (select), 28
+    /// (panrelease, LLP 1057 §10.6) or 29 to 31 (the pointer's down, up and
+    /// move) from its UTF-8 payload.
     pub fn of_host_kind(kind: u32, payload: &str) -> Result<Event, &'static str> {
         match kind {
             13 => Event::scroll_payload(payload).ok_or("invalid scroll coordinates"),
@@ -15,6 +16,8 @@ impl Event {
             20 => Event::pan_payload(payload).ok_or("invalid pan deltas"),
             21 => Event::selection_payload(payload).ok_or("invalid Markdown selection"),
             28 => Event::pan_release_payload(payload).ok_or("invalid pan release velocity"),
+            // LLP 1056 §3 stage 3: the pointer's record.
+            29..=31 => Event::pointer_payload(kind, payload).ok_or("invalid pointer event"),
             _ => Err("unknown event kind"),
         }
     }

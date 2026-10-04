@@ -1192,6 +1192,7 @@ impl Em<'_> {
                 | EventKind::Dblclick
                 | EventKind::Pointerdown
                 | EventKind::Pointerup
+                | EventKind::Pointermove
                 | EventKind::Play
                 | EventKind::Playing
                 | EventKind::Pause

@@ -314,7 +314,7 @@ uint32_t exact_location_of(ExactRuntime rt, size_t len);
 uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
- * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 29 = pointerdown, 30 = pointerup, 13 = scroll (UTF-8 scrollLeft,scrollTop),
+ * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 13 = scroll (UTF-8 scrollLeft,scrollTop),
  * 14 = navigate (UTF-8 location; navigation root only, LLP 1038 D8),
  * 15 = heightrelease, 16 = transformgeometry, 17 = transformrelease,
  * 18 = reorder (collection move payload),
@@ -324,6 +324,9 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * 22 = refresh (the platform's pull-to-refresh control fired; no payload);
  * 28 = panrelease (UTF-8 vx,vy; px/s, once when a pan that began ends; a
  *      cancelled contact releases at 0,0; LLP 1057 §10.6);
+ * 29 = pointerdown, 30 = pointerup, 31 = pointermove (UTF-8
+ *      offsetX,offsetY,buttons,pressure,pointerType,pointerId: content-box CSS
+ *      px, DOM's buttons bits, 0 to 1, mouse|pen|touch; LLP 1056 §3 stage 3);
  * any other kind is refused with an error batch.
  * Format lists are space-separated command tokens. Link keeps the remaining bytes.
  * A change's text, key's name, or guest message is the payload in the input

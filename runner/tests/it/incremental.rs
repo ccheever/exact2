@@ -201,8 +201,9 @@ fn event(rng: &mut Rng, kind: EventKind) -> Option<Event> {
         EventKind::Message => Event::Message(text(rng)),
         EventKind::Contextmenu => Event::Contextmenu,
         EventKind::Dblclick => Event::Dblclick,
-        EventKind::Pointerdown => Event::Pointerdown,
-        EventKind::Pointerup => Event::Pointerup,
+        EventKind::Pointerdown => Event::Pointerdown(pointer(rng)),
+        EventKind::Pointerup => Event::Pointerup(pointer(rng)),
+        EventKind::Pointermove => Event::Pointermove(pointer(rng)),
         EventKind::Swiperight => Event::Swiperight,
         EventKind::Scroll => Event::Scroll(0.0, (rng.below(5) * 40) as f64),
         EventKind::Navigate => Event::Navigate(rng.pick(&["/", "/t/1", "/nowhere"]).to_string()),
@@ -725,4 +726,10 @@ fn store_provenance_propagates_through_unchanged_values() {
         assert!(r.resource_reads_store("input"), "full={full}");
         assert!(r.resource_reads_store("dependent"), "full={full}");
     }
+}
+
+/// A pointer sample somewhere over a node.
+fn pointer(rng: &mut Rng) -> exact_runner::PointerEvent {
+    let line = format!("{},{},1,0.5,mouse,1", rng.below(200), rng.below(200));
+    exact_runner::PointerEvent::parse(&line).unwrap()
 }

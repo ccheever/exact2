@@ -401,6 +401,12 @@ function), `exit-animation`, `layout-transition`, and presentation timelines hav
 specific documented behavior;
 they do not admit arbitrary frame callbacks or a second app-state graph.
 
+For drawing and pointer-tracking, `pointerdown`, `pointermove` and `pointerup`
+hand an action that takes it a `PointerEvent` (`offsetX`/`offsetY` from the
+node's content box, `buttons`, `pressure`, `pointerType`, `pointerId`), on any
+node, a canvas included; set `touch-action="none"` on a drawing surface. See
+[Pointer](contract-grammar.md#pointer).
+
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
 `Geometry`. Handle `unavailable` and `provisional`. `frame` reads the last layout's border box
 where the viewer sees it, as `getBoundingClientRect` does: in the viewport, with every

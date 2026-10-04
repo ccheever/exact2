@@ -511,7 +511,7 @@ final class Presenter {
     var onContextmenu: ((UInt32) -> Void)?
     var onDblclick: ((UInt32) -> Void)?
     /// A touch went down on a node (`true`) or came up (LLP 1005 §3).
-    var onPointer: ((UInt32, Bool) -> Void)?
+    var onPointer: ((UInt32, PointerKind, PointerSample) -> Void)?
     var onSwiperight: ((UInt32) -> Void)?
     var onRefresh: ((UInt32) -> Void)?
     var onPan: ((UInt32, Double, Double) -> Void)?
@@ -605,7 +605,7 @@ final class Presenter {
     func key(_ id: UInt32, _ name: String) { send(id) { [self] in onKey?(id, name) } }
     func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }
     func dblclick(_ id: UInt32) { send(id) { [self] in onDblclick?(id) } }
-    func pointer(_ id: UInt32, down: Bool) { send(id) { [self] in onPointer?(id, down) } }
+    func pointer(_ id: UInt32, _ kind: PointerKind, _ sample: PointerSample) { send(id) { [self] in onPointer?(id, kind, sample) } }
     func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }
     func refresh(_ id: UInt32) { send(id) { [self] in onRefresh?(id) } }
     func pan(_ id: UInt32, _ dx: Double, _ dy: Double) { send(id) { [self] in onPan?(id, dx, dy) } }

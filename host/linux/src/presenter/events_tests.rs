@@ -245,3 +245,46 @@ fn a_repress_during_release_keeps_the_original_hit_box_and_cancel_never_activate
     assert!(!p.host.motion(), "the feedback needs no more frames");
     assert!(log(&p).ends_with(" 0"));
 }
+
+/// LLP 1005 §3, LLP 1056 §3 stage 3: the pointer's down, moves and up reach
+/// the node hearing them with its record, from its content box; a free
+/// pointer's moves too, with no button down.
+#[test]
+fn the_pointer_events_carry_their_record_from_the_content_box() {
+    const PAD: &str = r#"component App
+  state seen = ""
+  action down(e: PointerEvent)
+    seen = `${seen} d${e.offsetX},${e.offsetY}/${e.buttons}`
+  action move(e: PointerEvent)
+    seen = `${seen} m${e.offsetX},${e.offsetY}/${e.buttons}`
+  action up(e: PointerEvent)
+    seen = `${seen} u${e.offsetX},${e.offsetY}/${e.pressure}`
+  view
+    column width=400 height=400
+      box height=40
+      box pointerdown=down pointermove=move pointerup=up testId="pad" width=200 height=100 padding=10
+        box testId="inner" width=50 height=50
+      text seen testId="log" height=20
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(PAD).unwrap().encode(),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.boxes();
+    p.pointer_move(15., 55., 1.).unwrap();
+    p.pointer_down(20., 60., 2.).unwrap();
+    p.pointer_move(30., 70., 3.).unwrap();
+    p.pointer_move(300., 300., 4.).unwrap();
+    p.pointer_up(310., 290., 5.).unwrap();
+    assert_eq!(
+        log(&p),
+        " m5,5/0 d10,10/1 m20,20/1 m290,250/1 u300,240/0",
+        "a held pointer is the pad's wherever it goes"
+    );
+}

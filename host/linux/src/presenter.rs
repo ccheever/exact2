@@ -42,6 +42,7 @@ mod display_frame;
 mod events;
 mod pan_release;
 mod picker;
+mod pointer;
 #[cfg(test)]
 mod save_tests;
 mod svg_hit;
@@ -113,6 +114,8 @@ pub struct Presenter<D: DataSource> {
     pointer: Option<(f32, f32)>,
     /// The nodes with a `hover` handler under the pointer, innermost first.
     hovered: Vec<ViewId>,
+    /// The node holding the pointer's `pointerdown` until it lifts.
+    pointer_held: Option<exact_kernel::NodeKey>,
     pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
@@ -405,6 +408,7 @@ impl<D: DataSource> Presenter<D> {
             autofocus_processed: Default::default(),
             pointer: None,
             hovered: Vec::new(),
+            pointer_held: None,
             control_contact: None,
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),

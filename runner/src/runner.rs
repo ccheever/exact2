@@ -11,6 +11,8 @@ mod commit;
 mod control;
 mod event;
 mod host_kinds;
+mod pointer;
+pub use pointer::PointerEvent;
 mod reorder;
 mod reorder_codec;
 mod root_font;

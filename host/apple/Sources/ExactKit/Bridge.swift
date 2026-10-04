@@ -330,8 +330,11 @@ final class Runtime {
         }
     }
     func dblclick(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 11, 0, now)) } }
-    /// `pointerdown` (29) or `pointerup` (30), LLP 1005 §3.
-    func pointer(_ view: UInt32, down: Bool, now: Double) -> Batch { on { read(exact_dispatch(rt, view, down ? 29 : 30, 0, now)) } }
+    /// `pointerdown` (29), `pointerup` (30) or `pointermove` (31) with its
+    /// record (LLP 1005 §3, LLP 1056 §3 stage 3).
+    func pointer(_ view: UInt32, _ kind: PointerKind, _ sample: PointerSample, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, kind.rawValue, write(sample.line), now)) }
+    }
     func submit(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 7, 0, now)) } }
     func media(_ view: UInt32, event: String, payload: String, now: Double) -> Batch {
         return on {
@@ -578,4 +581,17 @@ final class Runtime {
     func log(_ line: String) {
         Owner.shared.notify { [self] in _ = exact_log(rt, write(line)) }
     }
+}
+
+/// The pointer's three events and their ABI kinds (LLP 1005 §3).
+enum PointerKind: UInt32 { case down = 29, up = 30, move = 31 }
+
+/// DOM's `PointerEvent`, the subset the runner's record carries (LLP 1056 §3
+/// stage 3): the point from the node's content box in its own points, DOM's
+/// button bits (AppKit's `pressedMouseButtons` uses the same), 0 to 1 of
+/// pressure (DOM's 0.5 while pressed where nothing measures it), the device
+/// (`mouse`, `pen`, `touch`) and its id (the mouse is 1, as browsers number it).
+struct PointerSample {
+    var x: Double, y: Double, buttons: Int, pressure: Double, type: String, id: Int
+    var line: String { "\(x),\(y),\(buttons),\(min(1, max(0, pressure))),\(type),\(id)" }
 }

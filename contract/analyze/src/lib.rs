@@ -282,7 +282,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 42] = [
+pub const HANDLERS: [&str; 43] = [
     "press",
     "change",
     "input",
@@ -299,9 +299,12 @@ pub const HANDLERS: [&str; 42] = [
     "contextmenu",
     "dblclick",
     // A touch or button went down on the node, and came up or was cancelled
-    // (DOM's names; Charlie, 2026-10-03: hold-to-record, LLP 1005 §3).
+    // (DOM's names; Charlie, 2026-10-03: hold-to-record, LLP 1005 §3); the
+    // pointer moved over it or while held (LLP 1056 §3 stage 3). Each may
+    // hand its action a `PointerEvent`.
     "pointerdown",
     "pointerup",
+    "pointermove",
     "swiperight",
     "refresh",
     "scroll",
@@ -353,6 +356,11 @@ pub fn handler_payload(attr: &str) -> Option<&'static str> {
 pub fn handler_arity(attr: &str, given: usize) -> Option<std::ops::RangeInclusive<usize>> {
     if attr == "navigate" {
         return (given == 0).then_some(0..=1);
+    }
+    // The pointer's record is the action's to take or leave, as navigate's
+    // location is (LLP 1056 §3 stage 3).
+    if matches!(attr, "pointerdown" | "pointerup" | "pointermove") {
+        return Some(given..=given + 1);
     }
     let payload = match attr {
         "transformgeometry" => 4,
@@ -487,6 +495,7 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
                         None if attr == "scroll" => " plus scrollLeft and scrollTop",
                         None if attr == "heightrelease" => " plus height and velocity",
                         None if attr == "panrelease" => " plus vx and vy",
+                        None if attr.starts_with("pointer") => " and may take a PointerEvent",
                         None if attr == "transformgeometry" => " plus four geometry numbers",
                         None if attr == "transformrelease" => " plus six transform release numbers",
                         None => "",

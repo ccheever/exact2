@@ -264,8 +264,14 @@ impl<D: DataSource> Presenter<D> {
         }
         None
     }
-    /// Primary down shared by evdev, VNC, and explicitly labeled agent synthesis.
+    /// Primary down shared by evdev, VNC, and explicitly labeled agent
+    /// synthesis; then the node's `pointerdown` (LLP 1005 §3), which the
+    /// contact never waits for.
     pub fn pointer_down(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+        let taken = self.contact_down(x, y, now_ms)?;
+        self.pointer_pressed(x, y, now_ms).map_or(Ok(taken), Err)
+    }
+    fn contact_down(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         self.pointer_sample(x, y, now_ms)?;
         if self.host.content_region().is_some() {
             if let Some(view) = self
@@ -393,7 +399,9 @@ impl<D: DataSource> Presenter<D> {
         let moved = self.pointer_moved(x, y, now_ms);
         // The device's motion belongs to this move alone, sent or not.
         self.clear_raw_motion();
-        moved
+        let moved = moved?;
+        // A node's `pointermove` (LLP 1056 §3 stage 3), as pan's, per move.
+        self.pointer_moved_over(x, y, now_ms).map_or(Ok(moved), Err)
     }
     fn pointer_moved(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         self.retire_pointer();
@@ -585,6 +593,10 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Accepted final sample, typed action while held, end once, pin released last.
     pub fn pointer_up(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+        // DOM's order: the node's `pointerup`, then any click.
+        if let Some(error) = self.pointer_lifted(Some((x, y)), now_ms) {
+            return Err(error);
+        }
         self.retire_pointer();
         if self.contact.is_some() {
             self.pointer_sample(x, y, now_ms)?;
@@ -713,6 +725,10 @@ impl<D: DataSource> Presenter<D> {
     /// Escape, wheel takeover, disconnection, or invalidated binding: no
     /// release event, except a pan that began, which releases at rest.
     pub fn pointer_cancel(&mut self, now_ms: f64) -> Result<(), String> {
+        // A cancel is an up (LLP 1005 §3).
+        if let Some(error) = self.pointer_lifted(None, now_ms) {
+            return Err(error);
+        }
         if self.contact.is_none() {
             return Ok(());
         }

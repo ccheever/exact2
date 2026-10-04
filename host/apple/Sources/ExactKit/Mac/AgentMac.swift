@@ -479,7 +479,13 @@ extension Agent {
             }
             // The pointer moved onto the target: the node with a hover
             // handler at the hit point enters (and whatever was hovered
-            // leaves), as a tracking area would report for a real move.
+            // leaves), as a tracking area would report for a real move, and
+            // the nearest `pointermove` node hears the move (LLP 1056 §3).
+            var mover: NSView? = win.contentView?.hitTest(p) ?? v
+            while let cur = mover, !((cur as? NodeView)?.handlers.contains("pointermove") ?? false) { mover = cur.superview }
+            if let node = mover as? NodeView, let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
+                node.pointerHovered(event)
+            }
             var n: NSView? = win.contentView?.hitTest(p) ?? v
             while let cur = n, !((cur as? NodeView)?.handlers.contains("hover") ?? false) { n = cur.superview }
             if let node = n as? NodeView { presenter.hover(node, true) } else if let h = presenter.hovered { presenter.hover(h, false) }

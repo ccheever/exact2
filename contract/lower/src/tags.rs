@@ -567,6 +567,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "dblclick" => AttrTarget::Handler("dblclick"),
         "pointerdown" => AttrTarget::Handler("pointerdown"), // LLP 1005 §Events, DOM's own
         "pointerup" => AttrTarget::Handler("pointerup"),
+        "pointermove" => AttrTarget::Handler("pointermove"), // LLP 1056 §3 stage 3
         "reachstart" => AttrTarget::Handler("reachstart"),
         "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),

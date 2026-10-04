@@ -426,6 +426,7 @@ fn refine_params_from_view(
                             | "dblclick"
                             | "pointerdown"
                             | "pointerup"
+                            | "pointermove"
                             | "swiperight"
                             | "refresh"
                             | "reachstart"
@@ -500,6 +501,11 @@ fn refine_params_from_view(
                                 "hover" => vec![Ty::Bool],
                                 "select" => vec![Ty::Record("MarkdownSelection".into())],
                                 "scroll" | "panrelease" => vec![Ty::Number, Ty::Number],
+                                // Optional: an action that leaves it takes
+                                // only its bound arguments (LLP 1056 §3).
+                                "pointerdown" | "pointerup" | "pointermove" => {
+                                    vec![Ty::Record("PointerEvent".into())]
+                                }
                                 _ => vec![],
                             };
                             let start = ct.actions[ai].len().saturating_sub(payload.len());

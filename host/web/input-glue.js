@@ -115,11 +115,29 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // button or a touch going down on the node, then up or cancelled (a
     // cancel is an up). The up is heard on the document, so it arrives
     // wherever the pointer lifts; a pointer capture would also retarget the
-    // click there, a press the platforms do not make. `fire(29)` is down,
-    // `fire(30)` up.
+    // click there, a press the platforms do not make. LLP 1056 §3 stage 3 —
+    // `pointermove`: a free pointer over the node (no button down), or the
+    // held one anywhere, at most once a frame, the latest. Each carries the
+    // `PointerEvent` record (`offsetX,offsetY,buttons,pressure,pointerType,
+    // pointerId`, from the content box): `fire(29, r)` is down, 30 up, 31 a
+    // move. The JS target's pointer.js is the same rule.
     pointer(el, on, fire) {
-      let held = null;
+      let held = null, last = null, move = null, frame = 0;
       const wants = kind => el.exactHandlers?.includes(kind);
+      const record = (e, lifted = false) => {
+        const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+        const sx = el.offsetWidth ? r.width / el.offsetWidth : 1, sy = el.offsetHeight ? r.height / el.offsetHeight : 1;
+        const left = parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft), top = parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop);
+        const type = e.pointerType === "pen" || e.pointerType === "touch" ? e.pointerType : "mouse";
+        return `${(e.clientX - r.left) / (sx || 1) - left},${(e.clientY - r.top) / (sy || 1) - top},${lifted ? 0 : e.buttons},${lifted ? 0 : Math.min(1, Math.max(0, e.pressure || 0))},${type},${e.pointerId}`;
+      };
+      const flush = () => {
+        cancelAnimationFrame(frame); frame = 0;
+        const m = move; move = null;
+        if (m && wants("pointermove") && ready()) fire(31, record(m));
+      };
+      const moved = e => { last = e; move = e; if (!frame) frame = requestAnimationFrame(flush); };
+      const heldMove = e => { if (e.pointerId === held) moved(e); };
       // The end: an up or cancel anywhere in the document, or the pointer
       // leaving it (out of the window, into a frame) or the window losing
       // focus, which this document never hears the up from.
@@ -128,16 +146,27 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         if (e.type === "blur" ? e.target !== window : e.pointerId !== held || (e.type === "pointerout" && e.relatedTarget && e.relatedTarget.localName !== "iframe")) return;
         held = null;
         for (const [type, target] of ends) target.removeEventListener(type, up, target === document);
-        if (wants("pointerup") && ready()) fire(30);
+        document.removeEventListener("pointermove", heldMove, true);
+        flush();
+        if (wants("pointerup") && ready()) fire(30, record(e.type === "blur" ? last : e, true));
       };
+      const disabled = () => el.matches(":disabled") || el.hasAttribute("disabled") || inertAncestor(el);
+      // A free pointer over it: the innermost node hearing moves takes them.
+      on("pointermove", e => {
+        if (e.exactPointerMover) return;
+        e.exactPointerMover = el;
+        if (held === null && e.buttons === 0 && wants("pointermove") && !disabled()) moved(e);
+      });
       return e => {
         // The innermost enabled pointer node takes it (the event bubbles
         // here first from inner ones, which mark it).
-        if (e.exactPointerOwner || !e.isPrimary || e.button !== 0 || held !== null || el.matches(":disabled") || el.hasAttribute("disabled") || inertAncestor(el)) return;
+        if (e.exactPointerOwner || !e.isPrimary || e.button !== 0 || held !== null || disabled()) return;
         e.exactPointerOwner = el;
-        held = e.pointerId;
+        held = e.pointerId; last = e;
         for (const [type, target] of ends) target.addEventListener(type, up, target === document);
-        if (wants("pointerdown")) fire(29);
+        document.addEventListener("pointermove", heldMove, true);
+        flush();
+        if (wants("pointerdown") && ready()) fire(29, record(e));
       };
     },
     pan(el, id, on) {

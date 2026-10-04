@@ -216,10 +216,13 @@ pub enum Event {
     Dblclick,
     /// A touch or primary button went down on the view (DOM's
     /// `pointerdown`), before any gesture is recognized (LLP 1005 §3).
-    Pointerdown,
+    Pointerdown(super::PointerEvent),
     /// That touch or button came up, or the platform cancelled it (DOM's
     /// `pointerup`; a `pointercancel` is delivered as one).
-    Pointerup,
+    Pointerup(super::PointerEvent),
+    /// The pointer moved over the view, or while held after going down on
+    /// it: at most one a frame (LLP 1056 §3 stage 3, as built).
+    Pointermove(super::PointerEvent),
     /// A platform-recognized right swipe.
     Swiperight,
     /// A pull past the top of a scroll container asked for fresh content
@@ -775,8 +778,9 @@ impl<D: DataSource> Runner<D> {
                 Event::Message(_) => "message",
                 Event::Contextmenu => "contextmenu",
                 Event::Dblclick => "dblclick",
-                Event::Pointerdown => "pointerdown",
-                Event::Pointerup => "pointerup",
+                Event::Pointerdown(_) => "pointerdown",
+                Event::Pointerup(_) => "pointerup",
+                Event::Pointermove(_) => "pointermove",
                 Event::Swiperight => "swiperight",
                 Event::Refresh => "refresh",
                 Event::Scroll(_, _) => "scroll",
@@ -859,8 +863,9 @@ impl<D: DataSource> Runner<D> {
             Event::Message(message) => (EventKind::Message, Some(Value::str(message)), "message"),
             Event::Contextmenu => (EventKind::Contextmenu, None, "contextmenu"),
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
-            Event::Pointerdown => (EventKind::Pointerdown, None, "pointerdown"),
-            Event::Pointerup => (EventKind::Pointerup, None, "pointerup"),
+            Event::Pointerdown(p) => (EventKind::Pointerdown, Some(p.value()), "pointerdown"),
+            Event::Pointerup(p) => (EventKind::Pointerup, Some(p.value()), "pointerup"),
+            Event::Pointermove(p) => (EventKind::Pointermove, Some(p.value()), "pointermove"),
             Event::Swiperight => (EventKind::Swiperight, None, "swiperight"),
             Event::Refresh => (EventKind::Refresh, None, "refresh"),
             Event::Scroll(_, _) => (EventKind::Scroll, None, "scroll"),
@@ -902,8 +907,16 @@ impl<D: DataSource> Runner<D> {
             args.push(self.eval(code, &[], &frames)?);
         }
         if let Some(p) = payload {
-            // A navigate action may deliberately ignore its location (D8).
-            if kind != EventKind::Navigate || !self.plan.action(handler.action).params.is_empty() {
+            // A navigate action may deliberately ignore its location (D8),
+            // and a pointer action its record (LLP 1056 §3 stage 3).
+            let optional = matches!(
+                kind,
+                EventKind::Navigate
+                    | EventKind::Pointerdown
+                    | EventKind::Pointerup
+                    | EventKind::Pointermove
+            );
+            if !optional || self.plan.action(handler.action).params.len as usize > args.len() {
                 args.push(p);
             }
         }
