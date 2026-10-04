@@ -17,11 +17,30 @@ impl<D: DataSource> Presenter<D> {
             .unwrap_or_default()
     }
 
+    /// `blur()` drops the focus; `blur(id)` only when that node holds it.
+    pub(crate) fn blur_command(&mut self, args: &[exact_plan::Value]) {
+        let holds = |name: &str| {
+            self.focus
+                .and_then(|id| self.host.kernel().node(id))
+                .is_some_and(|n| n.props.str(PropId::Id) == Some(name))
+        };
+        if args
+            .first()
+            .and_then(exact_plan::Value::as_str)
+            .is_none_or(holds)
+        {
+            self.blur();
+        }
+    }
+
     /// `focus(id)` from an action: the node whose `id` that is, when it is
     /// focusable, as `element.focus()` takes it on the web; otherwise the
     /// journal says why, as the web host's does (it had been an unknown
     /// command here).
-    pub(crate) fn focus_command(&mut self, name: &str) {
+    pub(crate) fn focus_command(&mut self, args: &[exact_plan::Value]) {
+        let Some(name) = args.first().and_then(exact_plan::Value::as_str) else {
+            return eprintln!("exact: focus requires an element id");
+        };
         let kernel = self.host.kernel();
         let found = kernel
             .rows(None)

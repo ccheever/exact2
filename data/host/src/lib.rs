@@ -101,7 +101,10 @@ impl<D: DataSource> Storage<D> {
                     // A drive that names no scratch store has no directories
                     // either: its request is answered with the web's refusal,
                     // which the module can handle (`native::agent_refusal`).
-                    if self.directories.is_none() && !native::independent_storage(payload) && !self.agent {
+                    if self.directories.is_none()
+                        && !native::independent_storage(payload)
+                        && !self.agent
+                    {
                         return Err(unavailable(
                             "storage is unavailable in an unconfigured host",
                         ));
@@ -332,7 +335,8 @@ impl<D: DataSource> DataSource for Storage<D> {
             Pending::Storage(payload, grants) => {
                 let paths = self.directories.clone();
                 let alive = self.alive.clone();
-                let refused = paths.is_none() && self.agent && !native::independent_storage(&payload);
+                let refused =
+                    paths.is_none() && self.agent && !native::independent_storage(&payload);
                 Some(Box::new(move || {
                     if !alive.load(std::sync::atomic::Ordering::Acquire) {
                         return Outcome::Failed {

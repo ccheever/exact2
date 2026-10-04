@@ -467,7 +467,6 @@ impl<D: DataSource> Presenter<D> {
                     Some(v) if v.as_str() == Some("light") => Some(false),
                     _ => None,
                 }),
-                "copyText" => eprintln!("exact: copyText unsupported on the headless/DRM host"),
                 // No haptic engine here (LLP 1077 D14): nothing to feel.
                 "haptic" => {}
                 // Outside a `key` event (`key_event` takes a key's), nothing to prevent or stop.
@@ -479,25 +478,8 @@ impl<D: DataSource> Presenter<D> {
                     let runner = self.host.runner_mut();
                     exact_runner::share::arm(runner, share, c.source, self.agent, false);
                 }
-                // `blur()` drops the focus; `blur(id)` only when that node holds it.
-                "blur" => {
-                    let holds = |name: &str| {
-                        self.focus
-                            .and_then(|id| self.host.kernel().node(id))
-                            .is_some_and(|n| n.props.str(PropId::Id) == Some(name))
-                    };
-                    if match c.args.first().and_then(exact_plan::Value::as_str) {
-                        Some(s) => holds(s),
-                        None => true,
-                    } {
-                        self.blur();
-                    }
-                }
-                "focus" => match c.args.first().and_then(exact_plan::Value::as_str) {
-                    Some(name) => self.focus_command(name),
-                    None => eprintln!("exact: focus requires an element id"),
-                },
-                "selectText" => eprintln!("exact: selectText unsupported on the headless/DRM host"),
+                "blur" => self.blur_command(&c.args),
+                "focus" => self.focus_command(&c.args),
                 // An element's, by its id (minesweeper F3); a row's is the runner's.
                 "scrollIntoView" => self.scroll_element_into_view(&c.args),
                 // The inverse of `message=`: text into the named surface's
@@ -527,8 +509,9 @@ impl<D: DataSource> Presenter<D> {
                 name @ ("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
                     self.document_picker(name, &c.args)
                 }
-                // No browser, editor or dev menu here: known, and named so.
-                name @ ("openURL" | "format" | "reload") => {
+                // No clipboard, text selection, browser, editor or dev menu
+                // here: known, and named so.
+                name @ ("copyText" | "selectText" | "openURL" | "format" | "reload") => {
                     eprintln!("exact: {name} unsupported on the headless/DRM host")
                 }
                 other => eprintln!("exact: unknown command {other}"),

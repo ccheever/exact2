@@ -1,7 +1,6 @@
 import { renderMarkup, reportPlace } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
-import { conforms, eq } from "./shape.js"; import { pointer } from "./pointer.js"; import { commands } from "./commands.js"; import { media, mediaProp, mediaOn, mediaPiece, MEDIA_EVENTS } from "./media.js";
+import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq } from "./shape.js"; import { pointer } from "./pointer.js"; import { commands } from "./commands.js"; import { media, mediaProp, mediaOn, mediaPiece, MEDIA_EVENTS } from "./media.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq }; // the compiler installs `Paint` only when a plan can layer boxes
-import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head };
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
 //
