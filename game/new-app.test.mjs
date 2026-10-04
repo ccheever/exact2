@@ -96,6 +96,19 @@ test('a sibling app resolves every host dependency from its own manifest', () =>
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('offline, with none of exact2\'s crates in Cargo\'s cache, a new app keeps exact2\'s lock for its first build', () => {
+  const root = resolve(import.meta.dir, '..'), parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  const saved = { CARGO_HOME: process.env.CARGO_HOME, CARGO_NET_OFFLINE: process.env.CARGO_NET_OFFLINE };
+  Object.assign(process.env, { CARGO_HOME: resolve(parent, 'cargo-home'), CARGO_NET_OFFLINE: 'true' });
+  try {
+    assert.match(createApp(resolve(parent, 'field-log')), /Cargo\.lock is still exact2's/);
+    assert.deepEqual(readFileSync(resolve(parent, 'field-log/Cargo.lock')), readFileSync(resolve(root, 'Cargo.lock')));
+  } finally {
+    for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test('failed creation removes the half-written app', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
   const dir = resolve(parent, 'field-log');

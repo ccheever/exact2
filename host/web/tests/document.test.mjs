@@ -11,7 +11,7 @@ import { homedir, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/agent.mjs';
 import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
-import { resolveApp } from '../../../scripts/app.mjs';
+import { hermesIos, resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild, serveStatic } from '../serve.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
@@ -26,6 +26,8 @@ function weatherlightPrerequisite() {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
   // js/build.rs's macOS fallback: the machine's cache, when there is no sibling ibex.
   const cache = resolve(homedir(), '.cache/exact/hermes-macos'), cached = process.platform === 'darwin' && !process.env.EXACT_HERMES_DIR && !existsSync(resolve(ROOT, '../ibex')) && existsSync(resolve(cache, 'engine'));
+  const receipt = resolve(cache, 'engine/hermes-input-receipt.json');
+  if (cached && !(existsSync(receipt) && readFileSync(receipt, 'utf8').includes(`"sourceCommit": "${hermesIos().pin}"`))) return `${receipt} does not name the pinned Hermes`;
   const engine = process.platform === 'linux' ? resolve(ROOT, '../ibex/linux-vanilla')
     : resolve(process.env.EXACT_HERMES_DIR ?? (cached ? resolve(cache, 'engine') : resolve(ROOT, '../ibex/ios/Frameworks-vanilla')));
   const headers = process.platform === 'linux' ? resolve(process.env.HERMES_INCLUDE_DIR ?? resolve(engine, 'hermes-headers')) : resolve(engine, 'hermes-headers');

@@ -73,7 +73,7 @@ fn main() {
     }
     // Engine and compiler come from one place: the cache only when there is
     // no sibling ibex at all and no engine named, so the two are never mixed;
-    // a cache selected must carry a receipt naming the pin (checked below).
+    // a cache selected must carry a receipt naming the pin.
     let cache =
         PathBuf::from(env::var_os("HOME").unwrap_or_default()).join(".cache/exact/hermes-macos");
     let from_cache = cfg!(target_os = "macos")
@@ -90,6 +90,15 @@ fn main() {
     let engine = env::var("EXACT_HERMES_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| cached(ibex.join("ios/Frameworks-vanilla"), "engine"));
+    // Before the stub's return too: the bake compiles with the cache's hermesc either way.
+    if from_cache {
+        let receipt = std::fs::read_to_string(cache.join("engine/hermes-input-receipt.json"));
+        assert!(
+            receipt.is_ok_and(|r| r.contains(&format!("\"sourceCommit\": \"{HERMES_PIN}\""))),
+            "exact-js: the cached Hermes at {} has no engine/hermes-input-receipt.json naming facebook/hermes {HERMES_PIN} (\"sourceCommit\"); add one if it is that build, or name an engine with EXACT_HERMES_DIR",
+            cache.display()
+        );
+    }
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target = env::var("TARGET").unwrap_or_default();
     // The iOS input is a pair of lean CMake builds, not the full framework
@@ -177,13 +186,7 @@ fn main() {
         return;
     }
     // Headers, compiler and VM come from one commit.
-    let receipt = std::fs::read_to_string(engine.join("hermes-input-receipt.json"));
-    assert!(
-        receipt.is_ok() || !from_cache,
-        "exact-js: the cached Hermes at {} has no hermes-input-receipt.json naming its facebook/hermes commit (\"sourceCommit\"); add one, or name an engine with EXACT_HERMES_DIR",
-        engine.display()
-    );
-    if let Ok(receipt) = receipt {
+    if let Ok(receipt) = std::fs::read_to_string(engine.join("hermes-input-receipt.json")) {
         let commit = receipt
             .split_once("\"sourceCommit\": \"")
             .and_then(|(_, rest)| rest.get(..40))
