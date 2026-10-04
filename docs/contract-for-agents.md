@@ -537,3 +537,10 @@ border radii) accept `vw`, `vh`, `vmin`, `vmax`, and `svw/svh/lvw/lvh/dvw/dvh`.
 On native, all viewport variants follow the window; on web, CSS resolves
 small/large/dynamic viewports. Scalar lengths such as font size and gap do
 not yet accept viewport units.
+
+Transitions animate translate/scale/rotate/opacity, box paint (color,
+background-color, border colors, tint-color, box-shadow), SVG paint/geometry
+and the admitted numeric height path. `width` and other general layout
+properties cannot interpolate yet: native layout is not run per frame.
+The diagnostic names this engine limit; `layout-transition` animates a
+change in the laid-out box using the existing measured projection.

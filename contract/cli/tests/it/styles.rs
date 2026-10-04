@@ -1213,3 +1213,32 @@ fn viewport_units_are_admitted_on_dimension_rows() {
         assert_eq!(style_of(&r, "item").width, Dimension::Viewport(unit, 50.0));
     }
 }
+
+#[test]
+fn a_css_width_transition_names_the_engine_limit_not_a_syntax_error() {
+    let e = refused("transition=\"width 200ms ease\"");
+    assert_eq!(e.id, "lower-attr-value");
+    assert!(
+        e.message.contains("`width` is a CSS layout property"),
+        "{e}"
+    );
+    assert!(e.message.contains("layout per frame"), "{e}");
+    assert!(
+        e.message.contains("opacity") && e.message.contains("border-color"),
+        "{e}"
+    );
+    assert!(!e.message.contains("not a CSS"), "{e}");
+    let malformed = refused("transition=\"opacity 20ms gibberish\"");
+    assert!(malformed.message.contains("invalid transition components"));
+    for v in [
+        "opacity 200ms ease",
+        "border-color 200ms ease",
+        "stroke-dashoffset 200ms linear",
+        "height 200ms ease",
+    ] {
+        contract::compile(&format!(
+            "component App\n  view\n    box transition=\"{v}\"\n"
+        ))
+        .unwrap();
+    }
+}

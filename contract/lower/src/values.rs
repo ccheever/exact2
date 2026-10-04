@@ -143,7 +143,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadAnimationTimeline { .. } => "expected auto or a `--name`".into(),
         StyleValueError::BadAnimationRange { .. } => "expected normal, or two distinct lengths (`0px 300px`)".into(),
         StyleValueError::BadTimelineScope { .. } => "expected none, all, or `--name`s separated by commas".into(),
-        StyleValueError::BadTransition { .. } => "not a CSS `transition` shorthand".into(),
+        StyleValueError::BadTransition { .. } => "unsupported transition property or invalid timing components; exact2 supports transform components, opacity, paint and SVG properties, and admitted numeric height transitions; general layout interpolation is not implemented".into(),
         StyleValueError::BadPaint { .. } => "SVG paint is `none`, `currentcolor`, or a colour (`#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `light-dark()`); paint servers (`url(#…)`) are refused (LLP 1055 D12)".into(),
         StyleValueError::BadDashArray { .. } => "`stroke-dasharray` is `none` or non-negative numbers separated by spaces or commas".into(),
         StyleValueError::BadTransform { .. } => "`transform` is `none` or transform functions: matrix, translate, translateX/Y, scale, scaleX/Y, rotate (with SVG's optional centre), skew, skewX/Y; lengths in user units or px, angles in deg, rad, grad or turn".into(),
@@ -377,6 +377,23 @@ pub(crate) fn check_style_value(
         if let Expr::Str(v, _) = value {
             if rows.contains(&StyleId::WrapFlow) && !matches!(v.as_str(), "auto" | "both") {
                 return err("lower-attr-value", "unsupported `wrap-flow` value: CSS Exclusions defines it; exact2 v1 implements `both` (or `auto`)", span);
+            }
+            if rows.contains(&StyleId::Transition) {
+                if let Err(reason) = exact_motion::Transitions::parse(v) {
+                    let supported = "translate, scale, rotate, opacity; color, background-color, border-color (and each side), tint-color, box-shadow; SVG fill, stroke, stroke-dashoffset, r, cx, cy, x, y, rx, ry; numeric height on admitted height owners";
+                    let why = match reason {
+                        exact_motion::ParseError::UnknownProperty(property) => {
+                            let layout = matches!(property.as_str(), "width" | "min-width" | "max-width" | "min-height" | "max-height" | "top" | "right" | "bottom" | "left" | "margin" | "padding" | "flex-basis" | "gap");
+                            format!("`{property}` {}: transitions animate {supported}. General layout-property interpolation would require layout per frame and is not implemented; `layout-transition` animates changes to the laid-out box", if layout { "is a CSS layout property, but exact2 cannot transition it" } else { "is not a supported transition property" })
+                        }
+                        other => format!("invalid transition components ({other:?}); supported properties: {supported}"),
+                    };
+                    return err(
+                        "lower-attr-value",
+                        format!("`transition=\"{v}\"`: {why}"),
+                        span,
+                    );
+                }
             }
             // @ref LLP 1053 §0 G4 — the rest of CSS's list, refused by name.
             if rows.contains(&StyleId::FontVariantNumeric) {
