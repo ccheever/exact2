@@ -28,6 +28,8 @@ struct RunPaintRows: Equatable {
 
     /// Whether a colour here is a `light-dark()` pair.
     var paired: Bool { shadowColor?.isSchemeColor == true || strokeColor?.isSchemeColor == true }
+    /// Whether a colour here is the view's tint (LLP 1095 D8).
+    var namesTint: Bool { shadowColor?.namesTint == true || strokeColor?.namesTint == true }
 
     /// One row off the wire; false when `key` is not one of these rows.
     @discardableResult
@@ -46,9 +48,9 @@ struct RunPaintRows: Equatable {
 
     /// The shadow (offset x, y, blur, r g b a) and stroke (width, r g b a)
     /// for an appearance, `currentcolor` being `color`, the text's own.
-    func resolve(dark: Bool, color: [Double]) -> (shadow: [Double]?, stroke: [Double]?) {
-        let shade = shadow.map { $0 + (shadowColor?.channels(dark: dark) ?? color) }
-        let stroke = strokeWidth > 0 ? [strokeWidth] + (strokeColor?.channels(dark: dark) ?? color) : nil
+    func resolve(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil, color: [Double]) -> (shadow: [Double]?, stroke: [Double]?) {
+        let shade = shadow.map { $0 + (shadowColor?.channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) ?? color) }
+        let stroke = strokeWidth > 0 ? [strokeWidth] + (strokeColor?.channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) ?? color) : nil
         return (shade, stroke)
     }
 }

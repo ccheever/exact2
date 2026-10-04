@@ -243,7 +243,7 @@ extension NodeView {
         guard let f = textArea, let t = text else { return }
         guard f.markedTextRange == nil else { layoutTextArea(); return }
         f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
-        f.textColor = color("text_color", .black)
+        f.textColor = color("text_color", SystemColor.canvasText)
         f.tintColor = caretColor
         (f as? TextArea)?.applyLineHeight(usedLineHeight)
         restyleMarkup()
@@ -257,7 +257,7 @@ extension NodeView {
         let look = MarkupEditor.Look(
             font: { size, weight, family, italic in t.font(size: size, weight: weight, family: family, italic: italic) },
             size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")),
-            italic: (style["font_style"]?.string) == "italic", lineHeight: usedLineHeight, ink: color("text_color", .black))
+            italic: (style["font_style"]?.string) == "italic", lineHeight: usedLineHeight, ink: color("text_color", SystemColor.canvasText))
         editor.restyle(f.textStorage, selection: f.selectedRange, look: look)
         f.typingAttributes = editor.baseAttributes(look)
     }

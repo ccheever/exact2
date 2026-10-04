@@ -133,10 +133,12 @@ fn the_appearance_retargets_light_dark_first_quietly_then_moving() {
 /// LLP 1062 D9: a keyframe's `light-dark()` colour is the presenter's
 /// appearance when it starts; the first report corrects boot's light guess
 /// in place, and a later flip leaves a playing animation as Chrome does.
+/// (The text's own colour is fixed: its initial `CanvasText` would cross as
+/// a reference the presenter resolves white in dark itself, LLP 1095 D8.)
 #[test]
 fn a_light_dark_keyframe_follows_the_presenter_appearance() {
     let plan = contract::compile(
-        "fn accent(): string = \"light-dark(#000000, #ffffff)\"\nkeyframes lit\n  from color=accent()\n  to color=\"light-dark(#ff0000, #0000ff)\"\ncomponent App\n  view\n    text \"lit\" testId=\"word\" animation=\"lit 1s linear both\"\n",
+        "fn accent(): string = \"light-dark(#000000, #ffffff)\"\nkeyframes lit\n  from color=accent()\n  to color=\"light-dark(#ff0000, #0000ff)\"\ncomponent App\n  view\n    text \"lit\" color=\"#000000\" testId=\"word\" animation=\"lit 1s linear both\"\n",
     )
     .unwrap();
     let (mut host, _) = Host::boot(

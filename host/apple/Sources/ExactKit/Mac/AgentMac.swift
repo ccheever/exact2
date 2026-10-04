@@ -879,6 +879,16 @@ extension Agent {
         (Agent.systemAppearance ?? NSApp.effectiveAppearance).bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
     nonisolated(unsafe) static var systemAppearance: NSAppearance?
+    /// `prefer contrast more` (LLP 1095 D7): the high-contrast variant of the
+    /// system appearance, so views redraw and platform colours resolve as
+    /// Increase Contrast shows them.
+    func systemContrast(more: Bool) {
+        let following = NSApp.appearance == nil || NSApp.appearance === Agent.systemAppearance
+        let dark = systemDark
+        let name: NSAppearance.Name = dark ? (more ? .accessibilityHighContrastDarkAqua : .darkAqua) : (more ? .accessibilityHighContrastAqua : .aqua)
+        Agent.systemAppearance = NSAppearance(named: name)
+        if following { NSApp.appearance = Agent.systemAppearance }
+    }
 }
 
 extension Capture {

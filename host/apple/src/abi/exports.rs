@@ -470,6 +470,20 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.view_scheme(view, dark != 0), |n| n)
         }
 
+        /// Every colour reference the presenter should resolve (LLP 1095
+        /// D1), as JSON in the output buffer; returns its length.
+        #[no_mangle]
+        pub extern "C" fn exact_color_references(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.color_references(), |n| n)
+        }
+
+        /// The presenter's colour resolutions from the input buffer (LE
+        /// records: u8 kind, u8 dark, u16 id, rgba8); returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_colors(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.colors(len), |n| n)
+        }
+
         /// An image loaded (or failed: a size ≤ 0); returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_intrinsic(rt: u32, view: u32, width: f32, height: f32) -> u32 {

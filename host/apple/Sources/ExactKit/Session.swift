@@ -455,6 +455,9 @@ public final class ExactSession {
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]
     private var preferenceObservers: [NSObjectProtocol] = []
     private var pageObservers: [NSObjectProtocol] = []
+    #if os(macOS)
+    private var colorObserver: NSObjectProtocol?
+    #endif
 
     init(app: ExactApp, label: String) {
         self.app = app
@@ -515,6 +518,17 @@ public final class ExactSession {
         wire()
         preferenceObservers = DisplayPreferences.observe { [weak self] in self?.tellPreferences() }
         pageObservers = PageFacts.observe { [weak self] in self?.tellPage() }
+        #if os(macOS)
+        // @ref LLP 1095 D5 — the accent or another system colour changed:
+        // what was resolved goes, the report is made again, and every view
+        // applies its colours again.
+        colorObserver = NotificationCenter.default.addObserver(forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self, state != .destroyed else { return }
+            SystemColor.invalidate()
+            reportColors()
+            presenter.views.values.forEach { $0.systemColorsChanged() }
+        }
+        #endif
     }
 
     deinit { destroy() }
@@ -1187,6 +1201,8 @@ public final class ExactSession {
     func tellPreferences() {
         guard booted, state != .destroyed else { return }
         apply(runtime.setPreferences(preferenceBits()))
+        // Increased Contrast changes what every platform colour resolves to.
+        reportColors()
     }
     /// Before a first boot the runtime keeps them, so the first frame is laid
     /// out with the device's preferences rather than a mouse's and then again
@@ -1228,7 +1244,24 @@ public final class ExactSession {
         return batch.error
     }
     /// The view's appearance, for paint motion's `light-dark()` (LLP 1062).
-    public func scheme(dark: Bool) { guard booted, state != .destroyed else { return }; schemeDark = dark; apply(runtime.scheme(dark: dark)) }
+    /// The platform's colours are reported first: before the first scheme
+    /// that fills the kernel's table without motion, so nothing eases from a
+    /// fallback to the platform's colour at startup (LLP 1095 D9).
+    public func scheme(dark: Bool) { guard booted, state != .destroyed else { return }; schemeDark = dark; reportColors(); apply(runtime.scheme(dark: dark)) }
+    /// @ref LLP 1095 D9 — the platform's resolution of every reference the
+    /// kernel paints itself, with the app's tint read here, on main: one
+    /// for every session (`SystemColor.appTint`), since the table is the
+    /// process's; a view's own tint is the host's to paint (`ownTint`).
+    func reportColors() {
+        guard booted, state != .destroyed else { return }
+        #if os(iOS) || os(tvOS)
+        // No window, no report: attaching reports (`didMoveToWindow`),
+        // before its scheme, so nothing eases from a stand-in blue.
+        guard view?.window != nil else { return }
+        #endif
+        // No app tint: `@tint` is left out, and the kernel keeps the last.
+        apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) }))
+    }
     /// The appearance last reported for the session, and each node view
     /// found painting motion in another (a sheet's override, say), by id.
     private(set) var schemeDark: Bool?
@@ -1326,6 +1359,9 @@ public final class ExactSession {
         sampler?.stop()
         DisplayPreferences.forget(preferenceObservers)
         PageFacts.forget(pageObservers)
+        #if os(macOS)
+        colorObserver.map(NotificationCenter.default.removeObserver)
+        #endif
         presenter.reset()
         ExactSession.live.removeValue(forKey: runtime.rt)
         forgetDocuments()

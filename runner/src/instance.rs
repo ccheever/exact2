@@ -877,7 +877,7 @@ impl NodeInst {
                 }
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(StyleProps::default);
-                    match bridge::set_style(p, binding.id, &value, plan.stacks.len()) {
+                    match bridge::set_plan_style(p, binding.id, &value, plan) {
                         Ok(exact_kernel::StyleId::Animation) => {
                             let dropped = u.sites.keyframes.resolve(&mut p.animation);
                             u.notes.extend(dropped);

@@ -19,7 +19,7 @@ pub(super) fn patch(plan: &Plan, rows: &[(&str, Value)]) -> Result<StyleProps, I
     let mut patch = StyleProps::default();
     for (name, value) in rows {
         let id = StyleId::from_name(name).unwrap_or_else(|| panic!("unknown kernel style: {name}"));
-        bridge::set_style(&mut patch, id as u16, value, plan.stacks.len())
+        bridge::set_plan_style(&mut patch, id as u16, value, plan)
             .map_err(InstanceError::Bridge)?;
     }
     Ok(patch)

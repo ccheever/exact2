@@ -644,6 +644,11 @@ impl<D: DataSource> Runner<D> {
         launch: &str,
     ) -> Result<Runner<D>, RunnerError> {
         viewport.validate()?;
+        // @ref LLP 1095 D9 — every platform colour the plan can show is known
+        // before the host's first report, a branch not yet taken included.
+        for text in &plan.strings {
+            exact_kernel::style::roles::intern_literals(text);
+        }
         let carried = match seed {
             Seed::Carried(carried) => Some(carried),
             _ => None,

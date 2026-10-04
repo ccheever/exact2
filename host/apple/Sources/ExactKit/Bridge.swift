@@ -472,6 +472,33 @@ final class Runtime {
     func tick(now: Double) -> Batch { on { read(exact_tick(rt, now)) } }
     func scheme(dark: Bool) -> Batch { on { read(exact_scheme(rt, dark ? 1 : 0)) } }
     func viewScheme(_ view: UInt32, dark: Bool) -> Batch { on { read(exact_view_scheme(rt, view, dark ? 1 : 0)) } }
+    /// @ref LLP 1095 D1 — every colour reference the kernel resolves itself
+    /// (paint motion, gradients, SVG scenes), resolved by the platform in
+    /// both appearances under the current contrast and reported, so none of
+    /// them is a frozen fallback. A name the platform lacks is left out: the
+    /// kernel keeps its fallback pair. `tint` is the app's tint,
+    /// light then dark (`SystemColor.tintPair`), read on main: the owner
+    /// thread has no window to read it from; without one `@tint` is not
+    /// reported, and the kernel keeps what it had.
+    func reportColors(tint: [[Double]]?) -> Batch {
+        on {
+            let len = exact_color_references(rt)
+            let json = Data(bytes: exact_out(rt), count: Int(len))
+            let refs = (try? JSONSerialization.jsonObject(with: json)) as? [[Any]] ?? []
+            var bytes = Data(capacity: refs.count * 16)
+            for r in refs {
+                guard r.count == 3, let kind = r[0] as? Int, let id = r[1] as? Int, let name = r[2] as? String,
+                      tint != nil || !name.hasPrefix("@tint") else { continue }
+                for dark in [false, true] {
+                    guard let c = SystemColor.channels(name, dark: dark, tint: tint?[dark ? 1 : 0], fallback: nil), c.count == 4 else { continue }
+                    bytes.append(UInt8(kind)); bytes.append(dark ? 1 : 0)
+                    withUnsafeBytes(of: UInt16(id).littleEndian) { bytes.append(contentsOf: $0) }
+                    for v in c { bytes.append(UInt8(max(0, min(255, v.rounded())))) }
+                }
+            }
+            return read(exact_colors(rt, write(bytes)))
+        }
+    }
     /// A button's face, custom or native (LLP 1069.011.000 D1).
     func buttonFace(_ view: UInt32) -> ButtonFace {
         return on(busy: ButtonFace()) {

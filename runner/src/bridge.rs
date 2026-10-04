@@ -60,6 +60,29 @@ pub fn unsets(id: u16, value: &Value) -> bool {
             .is_some_and(|style| StyleValue::Text(value.text().into()).unsets(style))
 }
 
+/// [`set_style`] for a binding of `plan`: a `platform-color()` only as one
+/// of the plan's own string literals (LLP 1095 D3), so data, a template or
+/// a concatenation never chooses which platform colour a host looks up. A
+/// literal chosen by state (a ternary's arm, a class) is still the plan's.
+pub fn set_plan_style(
+    patch: &mut StyleProps,
+    id: u16,
+    value: &Value,
+    plan: &exact_plan::Plan,
+) -> Result<StyleId, BridgeError> {
+    if let v @ exact_plan::str_value!() = value {
+        let text = v.text();
+        if text.contains("platform-color(") && !plan.strings.iter().any(|s| s == text) {
+            let style = StyleId::from_bit(id as u32).ok_or(BridgeError::UnknownStyle(id))?;
+            return Err(BridgeError::StyleKind {
+                style,
+                value: value.clone(),
+            });
+        }
+    }
+    set_style(patch, id, value, plan.stacks.len())
+}
+
 /// Set style row `id` on `patch` from `value`.
 pub fn set_style(
     patch: &mut StyleProps,
@@ -141,6 +164,29 @@ impl KeyframesTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_platform_color_is_admitted_only_as_a_plan_literal() {
+        let literal = "platform-color(ios bridgeTestColor, #010203)";
+        let mut plan = exact_plan::Plan::default();
+        plan.strings.push(literal.into());
+        let color = StyleId::TextColor as u16;
+        let mut style = StyleProps::default();
+        assert!(set_plan_style(&mut style, color, &Value::str(literal), &plan).is_ok());
+        for built in [
+            "platform-color(ios bridgeTestOtherColor, #010203)",
+            "linear-gradient(platform-color(ios bridgeTestColor, #010203), #fff)",
+        ] {
+            assert!(
+                matches!(
+                    set_plan_style(&mut style, color, &Value::str(built), &plan),
+                    Err(BridgeError::StyleKind { .. })
+                ),
+                "{built}"
+            );
+        }
+        assert!(set_plan_style(&mut style, color, &Value::str("#fff"), &plan).is_ok());
+    }
 
     #[test]
     fn css_percentages_accept_browser_exponents() {

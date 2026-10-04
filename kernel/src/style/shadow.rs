@@ -7,6 +7,7 @@
 //! and a refusal is the same text at compile time and at run time.
 
 use super::{parse_pixel_length, Color, ColorValue, Vec2};
+use crate::gradient::ColorText;
 
 /// Most shadows one `box-shadow` takes: a bound on what crosses to a host.
 pub const MAX_SHADOWS: usize = 8;
@@ -61,8 +62,17 @@ impl BoxShadows {
         &self.0
     }
 
-    /// Canonical CSS, also the wire form.
+    /// Canonical CSS.
     pub fn css(&self) -> String {
+        self.text(ColorText::Css)
+    }
+
+    /// The wire form: [`Self::css`], with every reference kept (LLP 1095 D1).
+    pub fn wire(&self) -> String {
+        self.text(ColorText::Wire)
+    }
+
+    fn text(&self, mode: ColorText) -> String {
         if self.0.is_empty() {
             return "none".into();
         }
@@ -81,7 +91,7 @@ impl BoxShadows {
                 exact_num::Shortest32(s.blur),
                 exact_num::Shortest32(s.spread)
             ));
-            crate::gradient::color_css(&mut out, s.color);
+            crate::gradient::color_text(&mut out, s.color, mode);
         }
         out
     }
@@ -231,9 +241,18 @@ impl TextShadow {
         self.0.as_ref()
     }
 
-    /// Canonical CSS, also the wire form: `none`, or offsets and blur in px
-    /// and the colour (`currentcolor` when none was written).
+    /// Canonical CSS: `none`, or offsets and blur in px and the colour
+    /// (`currentcolor` when none was written).
     pub fn css(&self) -> String {
+        self.text(ColorText::Css)
+    }
+
+    /// The wire form: [`Self::css`], with every reference kept (LLP 1095 D1).
+    pub fn wire(&self) -> String {
+        self.text(ColorText::Wire)
+    }
+
+    fn text(&self, mode: ColorText) -> String {
         let Some(s) = &self.0 else {
             return "none".into();
         };
@@ -244,7 +263,7 @@ impl TextShadow {
             exact_num::Shortest32(s.blur)
         );
         match s.color {
-            Some(c) => crate::gradient::color_css(&mut out, c),
+            Some(c) => crate::gradient::color_text(&mut out, c, mode),
             None => out.push_str("currentcolor"),
         }
         out

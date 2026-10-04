@@ -210,7 +210,7 @@ fn a_node_read_names_where_each_value_came_from() {
         "{reply}"
     );
     assert!(
-        reply.contains("\"text_color\":{\"value\":\"#000000\",\"source\":\"initial\"}"),
+        reply.contains("\"text_color\":{\"value\":\"CanvasText\",\"source\":\"initial\"}"),
         "{reply}"
     );
     // A box row never appears unless authored.
@@ -255,7 +255,7 @@ fn caret_color_reaches_editors_and_explicit_auto_stops_inheritance() {
     )
     .unwrap();
     assert!(op(&first, view(&host, "inherited")).contains("\"caret_color\":[255,255,255,255]"));
-    assert!(!op(&first, view(&host, "auto")).contains("[255,255,255,255]"));
+    assert!(!op(&first, view(&host, "auto")).contains("\"caret_color\":[255,255,255,255]"));
     assert!(op(&first, view(&host, "transparent")).contains("\"caret_color\":[0,0,0,0]"));
     let changed = host.dispatch_at(view(&host, "toggle"), Event::Press, 0.0);
     assert!(op(&changed, view(&host, "inherited")).contains("\"caret_color\":[0,170,255,255]"));
