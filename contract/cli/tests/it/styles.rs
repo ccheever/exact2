@@ -1201,3 +1201,15 @@ fn a_zero_minimum_scroller_can_shrink_under_a_bounded_column() {
         assert_eq!(e.id, "lower-scroll-unbounded");
     }
 }
+
+#[test]
+fn viewport_units_are_admitted_on_dimension_rows() {
+    for unit in exact_kernel::ViewportUnit::ALL {
+        let r = boot(&format!(
+            "component App\n  view\n    box width=\"50{}\" padding-top=\"5{}\" testId=\"item\"\n",
+            unit.name(),
+            unit.name()
+        ));
+        assert_eq!(style_of(&r, "item").width, Dimension::Viewport(unit, 50.0));
+    }
+}

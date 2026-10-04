@@ -672,6 +672,10 @@ pub fn easing_css(e: &Easing) -> String {
 
 pub(crate) fn dimension(out: &mut String, d: Dimension) {
     match d {
+        Dimension::Viewport(unit, n) => {
+            num_into(out, n);
+            out.push_str(unit.name());
+        }
         Dimension::Auto => out.push_str("auto"),
         Dimension::Points(p) => {
             num_into(out, p);

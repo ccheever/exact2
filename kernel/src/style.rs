@@ -29,7 +29,9 @@ pub use grid::{
 };
 pub mod env;
 pub use env::link as link_segments;
-pub use env::{Edge, Env, EnvRefusal, Rect, SegmentVar};
+pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, SegmentVar};
+mod viewport;
+pub use viewport::ViewportUnit;
 pub mod relative;
 mod shadow;
 pub mod space;
@@ -65,6 +67,8 @@ pub enum Dimension {
     /// <x> <y>)`, plus points. Undefined on a viewport with one segment, or
     /// past its grid: the row's initial value then (CSS-ENV-1 §2.3).
     Segment(SegmentVar, u8, u8, f32),
+    /// A percentage of a viewport dimension, resolved at layout.
+    Viewport(ViewportUnit, f32),
 }
 
 /// The `calc()` pairs the engine holds by handle: Taffy keeps one opaque
@@ -101,6 +105,7 @@ impl Dimension {
             Dimension::Auto => true,
             Dimension::Points(v)
             | Dimension::Percent(v)
+            | Dimension::Viewport(_, v)
             | Dimension::Env(_, v)
             | Dimension::Segment(_, _, _, v) => v.is_finite(),
             Dimension::Calc(p, v) => p.is_finite() && v.is_finite(),
@@ -156,6 +161,7 @@ impl Dimension {
     pub fn resolve(self, env: &Env) -> Dimension {
         match self {
             Dimension::Env(edge, plus) => Dimension::Points(env.inset(edge) + plus),
+            Dimension::Viewport(unit, n) => Dimension::Points(unit.basis(env) * n / 100.0),
             Dimension::Segment(var, x, y, plus) => env::resolve(var, x, y, plus, env),
             other => other,
         }
@@ -169,7 +175,9 @@ impl Dimension {
             Dimension::Points(v) => Dimension::Points(v + points),
             Dimension::Percent(p) => Dimension::Calc(p, points),
             Dimension::Calc(p, v) => Dimension::Calc(p, v + points),
-            Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
+                unreachable!("resolved above")
+            }
         }
     }
 
@@ -184,7 +192,9 @@ impl Dimension {
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
             Dimension::Calc(p, v) => taffy::style::Dimension::calc(calc_handle(p, v)),
-            Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
+                unreachable!("resolved above")
+            }
         }
     }
 
@@ -194,7 +204,9 @@ impl Dimension {
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
             Dimension::Calc(p, v) => taffy::style::LengthPercentageAuto::calc(calc_handle(p, v)),
-            Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
+                unreachable!("resolved above")
+            }
         }
     }
 
@@ -206,7 +218,9 @@ impl Dimension {
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
             Dimension::Calc(p, v) => taffy::style::LengthPercentage::calc(calc_handle(p, v)),
-            Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
+                unreachable!("resolved above")
+            }
         }
     }
 
@@ -219,7 +233,9 @@ impl Dimension {
             Dimension::Percent(v) => (v / 100.0).to_bits() == 0,
             // A calc() is a handle the engine resolves, never its zero length.
             Dimension::Calc(..) => false,
-            Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
+                unreachable!("resolved above")
+            }
         }
     }
 }
@@ -455,6 +471,7 @@ impl StyleValue {
                 Ok(parsed) => Ok(parsed),
             }?
             .or_else(|| Dimension::parse_calc(t))
+            .or_else(|| viewport::parse(t))
                 .or_else(|| {
                     parse_pixel_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']))
                         .map(Dimension::Points)
@@ -464,7 +481,7 @@ impl StyleValue {
                 .or_else(|| absolute_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])))
                 .ok_or(StyleValueError::WrongKind {
                     style,
-                    expected: "number, px, rem or em length, percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), or env(viewport-segment-* x y)",
+                    expected: "number, px, rem or em length, viewport length (vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh), percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), or env(viewport-segment-* x y)",
                 }),
             _ => Err(StyleValueError::WrongKind {
                 style,
@@ -1199,10 +1216,10 @@ impl StyleProps {
                 Dimension::Auto => StyleValue::Auto,
                 Dimension::Percent(p) => StyleValue::Percent(f64::from(p)),
                 Dimension::Points(v) => StyleValue::Number(f64::from(v)),
-                // No row's default is a calc() or an env() length.
-                Dimension::Calc(..) | Dimension::Env(..) | Dimension::Segment(..) => {
-                    StyleValue::Number(0.0)
-                }
+                Dimension::Calc(..)
+                | Dimension::Env(..)
+                | Dimension::Segment(..)
+                | Dimension::Viewport(..) => StyleValue::Number(0.0),
             };
             // The default fits its own row; nothing to refuse.
             let _ = out.set_dynamic(id, &value);
@@ -1254,8 +1271,7 @@ impl StyleProps {
         } else {
             overflow(self.overflow_y)
         };
-        // CSS Overflow §3: when one axis is not `visible`, a `visible` other
-        // axis computes to `auto`, mapped to Taffy's `Scroll` for sizing.
+        // CSS: a visible axis beside a scrolling one computes to auto.
         let mut overflow_x = overflow(self.overflow_x);
         let mut overflow_y = overflow_y;
         use taffy::style::Overflow as O;
@@ -1345,17 +1361,6 @@ impl StyleProps {
         s.grid_row = self.grid_row.taffy();
         s
     }
-}
-
-/// Whether any set dimension row of `style` is an `env()` length — the
-/// rows a change of the kernel's environment re-derives.
-pub fn uses_env(style: &StyleProps) -> bool {
-    style.mask.iter().any(|id| {
-        matches!(
-            style.get(id),
-            RowValue::Dimension(Dimension::Env(..) | Dimension::Segment(..))
-        )
-    })
 }
 
 /// The engine style for a live slot, its `env()` lengths resolved against

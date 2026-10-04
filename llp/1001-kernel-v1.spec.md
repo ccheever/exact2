@@ -1031,3 +1031,11 @@ same intrinsic-size seam. Without metadata its fallback is 300×150. The Contrac
 tag carries the browser video UA rule `object-fit: contain`; an explicit CSS row
 wins. Playback, controls and the media clock belong to the browser or the optional
 AVKit artifact. Keyboard layout uses the existing viewport policy, not media state.
+
+Viewport dimensions (2026-10-04): dimension rows admit `vw`, `vh`, `vmin`,
+`vmax`, `svw`, `svh`, `lvw`, `lvh`, `dvw`, `dvh`. The web retains the CSS
+unit; native resolves it from the root layout offer and re-derives it on
+resize. Native windows have no retractable browser chrome, so their small,
+large and dynamic viewports coincide. Viewport units on scalar length rows
+(font size, spacing, border widths) remain unsupported; their diagnostic
+names the length forms the row accepts.

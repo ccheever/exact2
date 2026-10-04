@@ -531,3 +531,9 @@ axis beside hidden/scroll/auto computes to auto, as on the web.
 (including `flex="0 1 auto"`). Numeric bindings keep the `n 1 0%` meaning.
 Shorthands may be literal choices; computed strings are refused. A scroller
 with `min-height=0` and positive shrink fits under a bounded flex column.
+
+Dimension rows (width/height, their min/max, padding/margins, offsets and
+border radii) accept `vw`, `vh`, `vmin`, `vmax`, and `svw/svh/lvw/lvh/dvw/dvh`.
+On native, all viewport variants follow the window; on web, CSS resolves
+small/large/dynamic viewports. Scalar lengths such as font size and gap do
+not yet accept viewport units.

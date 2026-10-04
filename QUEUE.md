@@ -1,3 +1,4 @@
+- **Viewport units on scalar CSS lengths** (kanban F9, 2026-10-04): dimension rows retain viewport units across wire and resolve on native resize; font-size, gap, spacing and border widths still use scalar rows. Extend their retained relative lengths and web emission before admitting viewport units there.
 # Queue
 
 - **Routes in the Lean semantics** (2026-10-03, semantics/README.md). 13 of the 31 apps use `routes`, and `difftest explore` reports them as outside the semantics. The router (route/, runner/src/runner/router.rs: the table, launch, the six verbs and the reads) would be a port of about 500 lines of Lean plus the emitter's route table. Also left out: `t(...)`, the `format*` entries, geometry reads, frame tasks, a mutation's `then`, and form-control payloads.
