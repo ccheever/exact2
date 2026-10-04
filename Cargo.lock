@@ -653,6 +653,7 @@ dependencies = [
  "exact-num",
  "exact-plan",
  "icu_locale",
+ "serde_json",
 ]
 
 [[package]]

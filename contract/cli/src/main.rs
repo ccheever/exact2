@@ -10,6 +10,7 @@ use std::process::ExitCode;
 
 mod build;
 mod diff;
+mod vocab;
 
 const USAGE: &str = "usage:
   contract build <file.contract> [-o <file.plan>] [--json] [--map (requires -o)]
@@ -18,7 +19,8 @@ const USAGE: &str = "usage:
   contract types <file.contract> [-o <app.d.ts>]
   contract rust <file.contract> [-o <shapes.rs>]
   contract test <file.test.contract>
-  contract lean <file.contract> [--name <ident>] [-o <file.lean>]";
+  contract lean <file.contract> [--name <ident>] [-o <file.lean>]
+  contract vocab [--json] [<name>]";
 
 #[cfg(windows)]
 fn main() -> ExitCode {
@@ -50,6 +52,7 @@ fn run() -> ExitCode {
         Some("fmt") => fmt(&args[1..]),
         Some("test") => tests(&args[1..]),
         Some("lean") => lean(&args[1..]),
+        Some("vocab") => vocab::run(&args[1..]),
         Some("types") => types(&args[1..], "types", "app.d.ts", contract::typescript),
         Some("rust") => types(&args[1..], "rust", "shapes.rs", contract::rust),
         _ => {

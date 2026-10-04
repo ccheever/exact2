@@ -37,6 +37,7 @@ mod strings;
 mod svg;
 pub mod tags;
 mod values;
+pub mod vocab;
 
 pub use dataset::{data_words, hook_words};
 pub use lint::lint;

@@ -372,9 +372,11 @@ its attributes pass to the module unchecked. A capitalized name is a component u
 built-in tag. Platform support can further restrict an admitted tag, notably
 native `foreignObject`.
 
-Style and prop names come from [`schema.json`](../kernel/tables/schema.json) and
-[`tags.rs`](../contract/lower/src/tags.rs), including shorthands and contextual
-restrictions. This document does not duplicate their changing property tables.
+`contract vocab` lists every tag, style and prop name the compiler admits,
+with each style row's codec, values and default, the renamed spellings and the
+contextual restrictions: `cargo run -q -p contract -- vocab padding` for one
+name, no name for all, `--json` for a document. From an app made by
+`exact new`, run `bun exact.mjs contract vocab`.
 `padding`, `margin`, `inset`, `border-width`, `border-style` and `border-color` take
 CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40).
 CSS hyphens are part of the authored name. `testId` and admitted host-specific
