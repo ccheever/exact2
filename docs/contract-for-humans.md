@@ -644,6 +644,13 @@ measured layout as well as the compiler's structural checks.
 
 Use `aria-label`, roles, and other admitted ARIA attributes where content alone
 does not name a control. Keep accessible labels separate from driver `testId`s.
+They mean on every host what they mean in a browser: `aria-hidden` takes a
+subtree off the tree and out of its ancestors' names; `role="checkbox"`,
+`"radio"` or `"switch"` with `aria-checked` is that control, `role="img"` with a
+label an image; `aria-describedby` (the ids of the elements whose text describes
+this one) and `aria-description` are its description. `aria-invalid`,
+`aria-required` and `aria-haspopup` take their ARIA words or a bool; UIKit has
+no property for those three, so iOS exposes none of them.
 Font sizes, touch targets, focus behavior, and contrast remain author decisions.
 
 Declare bundled fonts at file scope:

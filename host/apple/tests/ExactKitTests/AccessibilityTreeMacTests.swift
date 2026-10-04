@@ -155,6 +155,52 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertEqual([sound["role"] as? String, (sound["states"] as? [String: Any])?["checked"] as? Bool], ["switch", true] as [AnyHashable?])
     }
 
+    /// Onboarding F22, spreadsheet F20: a field's `aria-describedby` text is
+    /// its AXHelp (and follows that text), `aria-required` its AXRequired,
+    /// `aria-invalid` WebKit's AXInvalid; a menu button's `aria-haspopup` is
+    /// Chromium's AXHasPopup and AXPopupValue.
+    func testFormStatesAndHasPopupAreServed() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "input", "props": ["accessibilityLabel": "Email", "testId": "email", "accessibilityRequired": "true",
+                                                              "accessibilityInvalid": "true", "accessibilityDescribedBy": "email-error", "accessibilityHint": "Work address"]],
+            ["op": "create", "id": 21, "kind": "text", "props": ["text": "Enter an email", "id": "email-error"]],
+            ["op": "create", "id": 22, "kind": "button", "handlers": ["press"], "props": ["accessibilityHasPopup": "menu", "testId": "file", "accessibilityHint": "Opens the menu"]],
+            ["op": "create", "id": 23, "kind": "text", "props": ["text": "File"]],
+            ["op": "create", "id": 24, "kind": "input", "props": ["accessibilityLabel": "Name", "testId": "name", "accessibilityInvalid": "false"]],
+            ["op": "children", "id": 22, "ids": [23]],
+            ["op": "children", "id": 1, "ids": [2, 3, 20, 21, 22, 24]],
+            ["op": "frame", "id": 20, "x": 0.0, "y": 100.0, "w": 200.0, "h": 24.0],
+            ["op": "frame", "id": 21, "x": 0.0, "y": 130.0, "w": 200.0, "h": 20.0],
+            ["op": "frame", "id": 22, "x": 0.0, "y": 160.0, "w": 80.0, "h": 30.0],
+            ["op": "frame", "id": 23, "x": 0.0, "y": 0.0, "w": 80.0, "h": 30.0],
+            ["op": "frame", "id": 24, "x": 0.0, "y": 200.0, "w": 200.0, "h": 24.0],
+        ]))
+        p.syncAccessibility()
+        func one(_ testId: String) throws -> [String: Any] {
+            let all = elements(p.axElements(roots: [p.viewport]))
+            return try XCTUnwrap(all.first { $0["testId"] as? String == testId && $0["role"] as? String != "text" }, "\(testId) in \(all.map { "\($0["role"] ?? "") \($0["testId"] ?? "")" })")
+        }
+        var email = try one("email")
+        XCTAssertEqual([email["role"] as? String, email["name"] as? String, email["description"] as? String], ["textbox", "Email", "Enter an email"], "aria-describedby wins over aria-description")
+        var states = try XCTUnwrap(email["states"] as? [String: Any])
+        XCTAssertEqual(states["required"] as? Bool, true)
+        XCTAssertEqual(states["invalid"] as? String, "true")
+        XCTAssertNil((try one("name"))["states"].flatMap { ($0 as? [String: Any])?["invalid"] }, "aria-invalid=false serves nothing")
+        let file = try one("file")
+        XCTAssertEqual([file["role"] as? String, (file["states"] as? [String: Any])?["haspopup"] as? String, file["description"] as? String], ["button", "menu", "Opens the menu"])
+        // The description follows the text it names.
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["text": "Use name@domain"], "clear": []]]))
+        p.syncAccessibility(changed: [21])
+        email = try one("email")
+        XCTAssertEqual(email["description"] as? String, "Use name@domain")
+        p.apply(wireBatch([["op": "props", "id": 20, "set": [:], "clear": ["accessibilityRequired", "accessibilityInvalid", "accessibilityDescribedBy"]]]))
+        p.syncAccessibility(changed: [20])
+        email = try one("email")
+        states = try XCTUnwrap(email["states"] as? [String: Any])
+        XCTAssertEqual([states["required"] as? Bool, states["invalid"] as? Bool, email["description"] as? String], [nil, nil, "Work address"] as [AnyHashable?])
+    }
+
     func testATargetScopesTheReply() throws {
         let p = try fixture()
         let ax = p.axElements(roots: [p.viewport], scope: [2])

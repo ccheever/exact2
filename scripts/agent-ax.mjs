@@ -107,7 +107,9 @@ function collectWeb(nodes, snapshot, limit) {
         }
       }
       const states = {};
-      for (const name of ['disabled', 'selected', 'expanded', 'focused', 'busy', 'modal']) { const v = prop(n, name); if (v != null) states[name] = v === true || v === 'true'; }
+      for (const name of ['disabled', 'selected', 'expanded', 'focused', 'busy', 'modal', 'required']) { const v = prop(n, name); if (v != null) states[name] = v === true || v === 'true'; }
+      // ARIA's word-valued states, kept as their words; `false` is their absence.
+      for (const [name, as] of [['invalid', 'invalid'], ['hasPopup', 'haspopup']]) { const v = prop(n, name); if (v != null && v !== 'false' && v !== false) states[as] = String(v); }
       const checked = prop(n, 'checked'); if (checked != null) states.checked = checked === 'mixed' ? 'mixed' : checked === true || checked === 'true';
       const level = prop(n, 'level'); if (level != null) states.level = Number(level);
       const el = d !== undefined && isElement(d) ? attrs(d) : {};

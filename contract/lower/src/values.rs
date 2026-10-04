@@ -616,6 +616,20 @@ pub(crate) fn check_style_value(
 /// HTML's enumerated attributes whose IDL attributes are bools, as the words
 /// a bool is written: `spellcheck`'s `true`/`false`, `autocorrect`'s
 /// `on`/`off`.
+/// An ARIA state whose value is a word, a bool among them (`true`/`false`):
+/// the words it takes, a bool expression written as one of the first two.
+pub(crate) fn aria_words(prop: PropId) -> Option<(&'static str, &'static [&'static str])> {
+    Some(match prop {
+        PropId::AccessibilityPressed => ("aria-pressed", &["true", "false", "mixed"]),
+        PropId::AccessibilityInvalid => ("aria-invalid", &["true", "false", "grammar", "spelling"]),
+        PropId::AccessibilityHasPopup => (
+            "aria-haspopup",
+            &["true", "false", "menu", "listbox", "tree", "grid", "dialog"],
+        ),
+        _ => return None,
+    })
+}
+
 pub(crate) fn bool_words(prop: PropId) -> Option<(&'static str, &'static str)> {
     match prop {
         PropId::Spellcheck => Some(("true", "false")),
@@ -699,12 +713,14 @@ pub(crate) fn check_prop_value(
             }
         }
     }
-    // ARIA `aria-pressed`: `true`, `false` or `mixed`, or a bool.
-    if prop == PropId::AccessibilityPressed {
-        if matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "true" | "false" | "mixed")) {
+    // ARIA's word-valued states (`aria-pressed`'s `mixed`), or a bool.
+    if let Some((attr, words)) = aria_words(prop) {
+        if matches!(value, Expr::Str(s, _) if !words.contains(&s.as_str())) {
+            let (last, rest) = words.split_last().unwrap();
+            let rest: Vec<String> = rest.iter().map(|w| format!("\"{w}\"")).collect();
             return err(
                 "lower-attr-value",
-                "`aria-pressed` takes a bool or \"true\", \"false\" or \"mixed\"",
+                format!("`{attr}` takes a bool or {} or \"{last}\"", rest.join(", ")),
                 span,
             );
         }

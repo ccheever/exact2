@@ -47,6 +47,29 @@ extension NodeView {
               let pressed = props["accessibilityPressed"], ["true", "false", "mixed"].contains(pressed) else { return nil }
         return pressed
     }
+    /// accname's description (onboarding F22): the text of the elements
+    /// `aria-describedby` names, in order, else `aria-description`'s words.
+    var accessibleDescription: String? {
+        if let refs = props["accessibilityDescribedBy"], let presenter {
+            let text = refs.split(separator: " ").compactMap { presenter.chrome.named[String($0)]?.min().flatMap { presenter.views[$0] } }
+                .map(\.accessibleName).filter { !$0.isEmpty }.joined(separator: " ")
+            if !text.isEmpty { return text }
+        }
+        return props["accessibilityHint"].flatMap { $0.isEmpty ? nil : $0 }
+    }
+    /// The ARIA states AppKit has no property for, under the attribute
+    /// names browsers serve them by: WebKit's `AXInvalid` (onboarding F22),
+    /// Chromium's `AXHasPopup` and `AXPopupValue` (spreadsheet F20). A
+    /// `false` (or absent) state serves none.
+    func ariaAttribute(_ name: String) -> Any? {
+        switch name {
+        case "AXInvalid": return props["accessibilityInvalid"].flatMap { ["", "false"].contains($0) ? nil : $0 }
+        case "AXHasPopup": return props["accessibilityHasPopup"].flatMap { ["", "false"].contains($0) ? nil : true }
+        case "AXPopupValue": return props["accessibilityHasPopup"].flatMap { ["", "false"].contains($0) ? nil : $0 == "true" ? "menu" : $0 }
+        default: return nil
+        }
+    }
+    static let ariaAttributes = ["AXInvalid", "AXHasPopup", "AXPopupValue"]
     var accessibilityVisible: Bool {
         guard paragraphOwner.window != nil, !inert else { return false }
         #if os(macOS)
@@ -62,7 +85,54 @@ extension NodeView {
     }
 }
 
+extension NodeView {
+    /// The object the platform serves for this node — its field, native
+    /// control or text area, else itself — given its description (AXHelp,
+    /// UIKit's hint) and, on AppKit, `aria-required` (AXRequired) and a
+    /// field's name. Each AppKit write posts a notification, so only a
+    /// change is written.
+    func applyFormAccessibility() {
+        let description = accessibleDescription
+        #if os(macOS)
+        // A control's typed values are what AppKit serves its cell.
+        let target: NSView = field ?? presenter?.controls.controls[id] ?? textArea as NSView? ?? self
+        let required = props["accessibilityRequired"] == "true"
+        if target.accessibilityHelp() != description { target.setAccessibilityHelp(description) }
+        if target.isAccessibilityRequired() != required { target.setAccessibilityRequired(required) }
+        // An `input`'s `aria-label` names its field, as a text area's names it.
+        if let field, field.accessibilityLabel() != authoredLabel { field.setAccessibilityLabel(authoredLabel) }
+        #else
+        // UIKit has no property for `aria-required`, `aria-invalid` or `aria-haspopup`.
+        let target: UIView = field ?? presenter?.controls.controls[id] ?? textArea as UIView? ?? self
+        if target.accessibilityHint != description { target.accessibilityHint = description }
+        #endif
+    }
+}
+
 #if os(macOS)
+/// A text field's cell, the object AppKit serves for an `input`: it adds
+/// the ARIA states AppKit has no property for (`NodeView.ariaAttribute`),
+/// read from the node that holds the field.
+final class FieldCell: NSTextFieldCell {
+    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
+    }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        (controlView?.superview as? NodeView)?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+    }
+}
+/// A password field's, as `FieldCell`.
+final class SecureFieldCell: NSSecureTextFieldCell {
+    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
+    }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        (controlView?.superview as? NodeView)?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+    }
+}
+final class Field: NSTextField { override class var cellClass: AnyClass? { get { FieldCell.self } set {} } }
+final class SecureField: NSSecureTextField { override class var cellClass: AnyClass? { get { SecureFieldCell.self } set {} } }
+
 extension NSView {
     /// Core-AAM's toggle button: `AXCheckBox`, subrole `AXToggle`, value 0, 1
     /// or 2 (mixed); `role` when `pressed` is nil.
@@ -153,7 +223,11 @@ extension Presenter {
             autofocusProcessed.formIntersection(Set(views.values.map { ObjectIdentifier($0) }))
             nodes = views.values.sorted(by: { $0.id < $1.id })
         }
+        // A description reads the text of the elements it names, wherever they changed.
+        let described = changed == nil ? [] : chrome.ids("accessibilityDescribedBy").subtracting(nodes.map(\.id)).compactMap { views[$0] }
+        for node in described { node.applyFormAccessibility() }
         for node in nodes {
+            node.applyFormAccessibility()
             // A native button's control is its accessibility element (LLP 1069.011 D4).
             if (node.actsAsButton || node.props["accessibilityRole"] == "button") && !node.isNativeButton {
                 #if os(macOS)

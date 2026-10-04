@@ -19,6 +19,14 @@ final class TextArea: NSTextView {
     weak var owner: NodeView?
     var markup: MarkupEditor?
 
+    // The ARIA states AppKit has no property for (`NodeView.ariaAttribute`).
+    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { owner?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
+    }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        owner?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+    }
+
     override func resignFirstResponder() -> Bool {
         if let markup, !hasMarkedText() { markup.bookmark = selectedRange() }
         return super.resignFirstResponder()

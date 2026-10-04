@@ -728,6 +728,11 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-pressed" => AttrTarget::Prop(p("accessibilityPressed")),
         "aria-modal" => AttrTarget::Prop(p("accessibilityModal")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
+        // A form's states (onboarding F22) and a menu button's (spreadsheet F20).
+        "aria-invalid" => AttrTarget::Prop(p("accessibilityInvalid")),
+        "aria-describedby" => AttrTarget::Prop(p("accessibilityDescribedBy")),
+        "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
+        "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),
