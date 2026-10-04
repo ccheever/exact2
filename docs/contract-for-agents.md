@@ -449,6 +449,16 @@ commands. Use `tree` to find targets, `state` for data and delivery, `layout` fo
 geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: per
 plan site, evaluations, unchanged results, instances created and retired), and
 screenshots for rendered output. Logs name refused operations and data errors.
+`tap` and `type` scroll a target whose middle is out of view into it first (its
+nearest scroll containers, then the page) and say so in the reply's `scrolled`.
+`type` on a control sets it as a person choosing would, with `input` then
+`change`: a `select` takes an option's value or its label, a date, time or
+`datetime-local` input its HTML value (`2026-10-09`, `14:00`,
+`2026-10-09T14:30`), a range a number, a checkbox `true` or `false`.
+`tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
+move, with the finger still down. `clock +N` moves the virtual clock without
+waiting for a store's or the network's reply on real time (unless a timer fires
+first); its reply says what is still in flight, and `clock settle` lands it.
 
 Authored tests are a smaller language over that API:
 
@@ -460,10 +470,16 @@ test "an action uses its computed next value"
   expect state doubled == 2
 ```
 
-This test goes with the complete example above. The steps are `tap "id" [hover]`,
+This test goes with the complete example above. The steps are `size 1200x800`
+(first, the viewport the test's session opens at), `tap "id" [hover]`,
+`tap "id" drag dx dy [press ms] [over ms] [hold ms]`,
 `type "id" "text"` or `type "id" key "Name"`, `clock settle|+ms|ms`,
-`screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`,
-and `expect state name == <number|string|bool|none|[]>`. Not every interactive
+`screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
+(the node's text, else its descendants' — a button's label — else a field's
+value), and `expect state name == <number|string|bool|none|[]>`. The clock
+stands still between steps: a reply, a mutation's `then`, a timer or a
+transition an input started lands at a `clock` step, so `clock settle` before
+the `expect` that depends on it. Not every interactive
 driver operation is a test-file statement. `contract test` parses and prints JSON;
 `agent.mjs <host> --test <file>` actually drives the app.
 

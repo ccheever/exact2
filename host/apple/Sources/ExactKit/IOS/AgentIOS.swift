@@ -408,6 +408,33 @@ extension Agent {
         return presenter.textHost(UInt32(id))
     }
 
+    /// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
+    /// view whose middle is out of view is scrolled to the middle of each
+    /// enclosing scroll view it is outside of, innermost first, then the
+    /// page's — as the web's `scrollIntoView` does there (block centre,
+    /// inline only as far as it takes) — by `scrollRectToVisible`, unanimated,
+    /// as far as each one's range allows; their delegates tell the app, as a
+    /// finger's scroll does.
+    func reveal(_ req: [String: Any]) -> [String: Any] {
+        guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        let from = box(v)
+        var scrolled = false
+        for case let sv as UIScrollView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) where sv.isScrollEnabled {
+            let frame = v.convert(v.bounds, to: sv), port = sv.bounds, mid = CGPoint(x: frame.midX, y: frame.midY)
+            if port.contains(mid) { continue }
+            var rect = port
+            if mid.y < port.minY || mid.y >= port.maxY { rect.origin.y = mid.y - port.height / 2 }
+            if mid.x < port.minX || mid.x >= port.maxX { rect.origin.x = frame.minX; rect.size.width = frame.width }
+            sv.scrollRectToVisible(rect, animated: false)
+            scrolled = true
+        }
+        guard scrolled else { return ["revealed": Int(v.id), "scrolled": false] }
+        presenter.settlePump()
+        let to = box(v)
+        return ["revealed": Int(v.id), "scrolled": to.origin != from.origin,
+                "from": [Agent.r2(from.midX), Agent.r2(from.midY)], "to": [Agent.r2(to.midX), Agent.r2(to.midY)]]
+    }
+
     func tap(_ req: [String: Any]) -> [String: Any] {
         if let reply = touchForm(req) { return reply }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }

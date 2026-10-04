@@ -59,6 +59,7 @@ mod height_drag_tests;
 mod images;
 mod preferences;
 mod retained_action;
+mod reveal;
 mod swipe;
 mod transform;
 mod transform_geometry;

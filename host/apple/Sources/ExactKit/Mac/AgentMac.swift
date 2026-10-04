@@ -314,6 +314,36 @@ extension Agent {
         return presenter.textHost(UInt32(id))
     }
 
+    /// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
+    /// view whose middle is out of view is scrolled to the middle of each
+    /// enclosing clip view it is outside of, innermost first, then the page's
+    /// — as the web's `scrollIntoView` does there (block centre, inline only
+    /// as far as it takes), each clamped to its range. The clip views' bounds
+    /// observers tell the app, as a person's scroll does.
+    func reveal(_ req: [String: Any]) -> [String: Any] {
+        guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        let from = box(v)
+        var scrolled = false
+        for case let clip as NSClipView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) {
+            let frame = v.convert(v.bounds, to: clip), port = clip.bounds
+            let mid = CGPoint(x: frame.midX, y: frame.midY)
+            if port.contains(mid) { continue }
+            var origin = port.origin
+            if mid.y < port.minY || mid.y >= port.maxY { origin.y = mid.y - port.height / 2 }
+            if mid.x < port.minX || mid.x >= port.maxX { origin.x = frame.maxX > port.maxX ? frame.maxX - port.width : frame.minX }
+            let to = clip.constrainBoundsRect(NSRect(origin: origin, size: port.size)).origin
+            if to == port.origin { continue }
+            clip.scroll(to: to)
+            (clip.superview as? NSScrollView)?.reflectScrolledClipView(clip)
+            scrolled = true
+        }
+        guard scrolled else { return ["revealed": Int(v.id), "scrolled": false] }
+        presenter.settlePump()
+        let to = box(v)
+        return ["revealed": Int(v.id), "scrolled": true,
+                "from": [Agent.r2(from.midX), Agent.r2(from.midY)], "to": [Agent.r2(to.midX), Agent.r2(to.midY)]]
+    }
+
     /// A contact held across requests (LLP 1035.003 D1): the mouse button
     /// down at a point in the viewport, dragged along a declared path,
     /// held, released — each phase a real `NSEvent` through `sendEvent`,
@@ -529,6 +559,19 @@ extension Agent {
             return ["tapped": Int(v.id), "pinch": scale, "at": at, "delivery": "platform"]
         }
         if v.kind == "iframe" { return session.webviews.tap(v, request: req, at: at) }
+        // A right click (minesweeper F8): the right button down and up at the
+        // point through the window, as a mouse's are routed; `rightMouseUp`
+        // answers it on the node with a `contextmenu` handler.
+        if req["contextmenu"] as? Bool == true {
+            let t = ProcessInfo.processInfo.systemUptime
+            let eventNumber = AgentMouseRelease.nextEventNumber()
+            guard let down = NSEvent.mouseEvent(with: .rightMouseDown, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: 1, pressure: 1),
+                  let up = NSEvent.mouseEvent(with: .rightMouseUp, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: 1, pressure: 0)
+            else { return ["error": "no mouse event"] }
+            win.sendEvent(down)
+            win.sendEvent(up)
+            return ["tapped": Int(v.id), "at": at, "contextmenu": true, "delivery": "platform"]
+        }
         // A double click is two real clicks, the second with clickCount 2.
         for clicks in 1...(req["dblclick"] as? Bool == true ? 2 : 1) {
             let t = ProcessInfo.processInfo.systemUptime

@@ -192,6 +192,7 @@ public final class Agent {
             session.canvases.settle(now: session.now())
             Agent.reply(tagged(r))
         case "type": let r = releaseCanvasKey(req) ?? type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
+        case "reveal": Agent.reply(tagged(reveal(req))) // before a tap or a type: a target out of view, scrolled into it
         case "clock": let r = clock(req); session.tellAgentOffset(); Agent.reply(tagged(r))
         case "prefer": Agent.reply(tagged(prefer(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))

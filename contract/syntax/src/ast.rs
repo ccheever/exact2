@@ -147,6 +147,34 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `tap "testId" drag dx dy [press ms] [over ms] [hold ms]`: one whole
+    /// drag from the node's middle, the driver's `tap … drag` (kanban F18).
+    Drag {
+        /// The node, by `testId`.
+        target: String,
+        /// Points across.
+        dx: f64,
+        /// Points down.
+        dy: f64,
+        /// Milliseconds held before the move.
+        press: Option<f64>,
+        /// Milliseconds the move takes.
+        over: Option<f64>,
+        /// Milliseconds held after the move.
+        hold: Option<f64>,
+        /// Where.
+        span: Span,
+    },
+    /// `size 1200x800`: the viewport the test's session opens at, its first
+    /// step (the driver's `--size`; kanban F18, paint F5).
+    Size {
+        /// Points across.
+        width: f64,
+        /// Points down.
+        height: f64,
+        /// Where.
+        span: Span,
+    },
     /// `type "testId" "text"`.
     Type {
         /// The field, by `testId`.
@@ -188,7 +216,9 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `expect text "testId" == "value"`: the node's `text` prop.
+    /// `expect text "testId" == "value"`: the node's text — its `text` prop,
+    /// else its descendants' text in order (the web's `textContent`), else a
+    /// field's value.
     ExpectText {
         /// The node, by `testId`.
         target: String,

@@ -262,7 +262,10 @@ special typing; it is not a source-language type annotation.
 
 ```ebnf
 test          = "test" STRING block(step) ;
-step          = "tap" STRING [ "hover" ] NL
+step          = "size" NUMBER "x" NUMBER NL          (* first step only; written 1200x800 *)
+              | "tap" STRING [ "hover" ] NL
+              | "tap" STRING "drag" [ "-" ] NUMBER [ "-" ] NUMBER
+                  { ( "press" | "over" | "hold" ) NUMBER } NL
               | "type" STRING ( STRING | "key" STRING ) NL
               | "clock" ( "settle" | [ "+" ] NUMBER ) NL
               | "screenshot" STRING NL
@@ -272,7 +275,17 @@ step          = "tap" STRING [ "hover" ] NL
 test-value    = NUMBER | STRING | "true" | "false" | "none" | "[" "]" ;
 ```
 
-Targets are driver test ids. `expect state` is deliberately restricted to the
+Targets are driver test ids. Each test is a session of its own: `size 1200x800`,
+the driver's `--size`, is the viewport that session opens at, so it can only be
+the first step. `tap "id" drag dx dy` is the driver's `tap … drag` (from the
+node's middle, in points; `press`, `over`, `hold` in milliseconds, each once).
+`type` on a `select` chooses an enabled option by value, else by its one label;
+on a date, time or range input it sets the value in HTML's format; on a checkbox
+it takes `true` or `false`. A target out of view is scrolled into view first.
+The clock stands still between steps: what an input starts (a reply, a
+mutation's `then`, a timer, a transition) lands at a `clock` step, as `clock settle`.
+`expect text` reads the node's text, else its descendants' text in order (a
+button's label), else a field's value. `expect state` is deliberately restricted to the
 parser's literal cases, not arbitrary expressions or record comparisons. The
 parser currently treats unary minus as an expression rather than a number
 literal in this particular form. Use the interactive state inspection when a
