@@ -626,7 +626,7 @@ streaming, or deployment correctness from a client-only screenshot.
 A root task has one `every(ms, action)`, `after(ms, action)`, or
 `every(frame, action)` entry, on the line under it:
 
-```contract
+```text
   task ticker mount
     every(1000, tick)
 ```
