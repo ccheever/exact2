@@ -193,3 +193,38 @@ fn of_two_mounted_in_one_commit_the_later_in_the_tree_owns() {
     press(&mut p, "both");
     assert_eq!(session(&mut p)["owner"], json!(id(&p, "audio")));
 }
+
+/// A skip interval of 0 is "the platform gave none" (LLP 1098, as built):
+/// the web glue and Apple's `perform` send the element's offset (15, or 10
+/// when none was applied). `seekto` 0 stays the start.
+#[test]
+fn a_skip_of_zero_seconds_uses_the_elements_offset() {
+    let mut p = boot();
+    press(&mut p, "episode");
+    let audio = id(&p, "audio");
+    let r = ask(
+        &mut p,
+        json!({"op": "tap", "id": audio, "mediaSession": "seekbackward", "seconds": 0}),
+    );
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(r["seekOffset"], json!(10.0), "{r}");
+    assert_eq!(slot(&mut p, "seek"), json!(-10));
+    let r = ask(
+        &mut p,
+        json!({"op": "tap", "id": audio, "mediaSession": "seekforward", "seconds": 0}),
+    );
+    assert_eq!(r["seekOffset"], json!(30.0), "{r}");
+    assert_eq!(slot(&mut p, "seek"), json!(20));
+    // An explicit positive interval is the platform's, and `seekto` 0 is a time.
+    let r = ask(
+        &mut p,
+        json!({"op": "tap", "id": audio, "mediaSession": "seekbackward", "seconds": 5}),
+    );
+    assert_eq!(r["seekOffset"], json!(5.0), "{r}");
+    let r = ask(
+        &mut p,
+        json!({"op": "tap", "id": audio, "mediaSession": "seekto", "seconds": 0}),
+    );
+    assert_eq!(r["seekTime"], json!(0.0), "{r}");
+    assert_eq!(slot(&mut p, "seek"), json!(0));
+}
