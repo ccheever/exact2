@@ -1,0 +1,19 @@
+# Tennis runs its rules as a Contract program (../rules/rules.contract, LLP
+# 1046.009 §3.3): exact-game-rules executes it, and build.rs compiles it.
+[package]
+name = "tennis-logic"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+workspace = "../.shells"
+build = "build.rs"
+
+[dependencies]
+exact-game.workspace = true
+exact-game-rules.workspace = true
+
+[build-dependencies]
+contract.workspace = true
+
+[dev-dependencies]
+contract.workspace = true

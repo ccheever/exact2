@@ -463,6 +463,13 @@ const APPS: &[(&str, &str, &str)] = &[
         "videoPlayer",
         "VideoPlayer",
     ),
+    // A game's rules, run inside its tick (LLP 1046.009 §3.3): the program
+    // is a file, not an app, so nothing of the game workspace is compiled.
+    (
+        "game/games/tennis/rules/rules.contract",
+        "tennisRules",
+        "TennisRules",
+    ),
 ];
 
 /// Each checked-in embedding against what `contract lean` makes of the

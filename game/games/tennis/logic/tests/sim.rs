@@ -5,7 +5,7 @@ use exact_game::{Sim, Transform, Value};
 use tennis_logic::brain::{Brain, Source};
 use tennis_logic::players::{Hand, Player, CONTACT};
 use tennis_logic::rules::{Match, Phase, Side};
-use tennis_logic::{Ball, Options, Tennis};
+use tennis_logic::{Options, Tennis};
 
 const TICK: f64 = 1000.0 / 120.0;
 
@@ -38,7 +38,7 @@ fn text(game: &Sim<Tennis>, key: &str) -> String {
 }
 
 fn phase(game: &Sim<Tennis>) -> Match {
-    game.world().resource::<Match>().clone()
+    Match::of(game.world())
 }
 
 /// The near player as an agent would play it: keys only.
@@ -66,7 +66,6 @@ impl Bot {
         let tick = game.world().tick();
         let p = *game.get::<Player>("near").unwrap();
         let at = game.local_position("near").unwrap();
-        let ball = *game.get::<Ball>("ball").unwrap();
         if m.server == Side::Near && m.phase == Phase::Ready && tick >= m.since + 30 {
             self.hold(game, &[]);
             game.tap("KeyJ");
@@ -75,7 +74,7 @@ impl Bot {
             && tick + 1 == m.since + 68 - CONTACT
         {
             game.tap("KeyJ");
-        } else if m.phase == Phase::Rally && ball.hitter == Side::Far && p.contact > tick {
+        } else if m.phase == Phase::Rally && m.hitter == Side::Far && p.contact > tick {
             let (dx, dz) = (p.goal.x - at.x, p.goal.z - at.z);
             let mut keys = vec![];
             if p.contact <= tick + CONTACT + 1 {
@@ -149,10 +148,10 @@ fn rally_until_near_contact(game: &mut Sim<Tennis>, bot: &mut Bot) {
     for _ in 0..2000 {
         bot.step(game, None);
         let p = *game.get::<Player>("near").unwrap();
-        let ball = *game.get::<Ball>("ball").unwrap();
-        if phase(game).phase == Phase::Rally
-            && ball.hitter == Side::Far
-            && !ball.serve
+        let m = phase(game);
+        if m.phase == Phase::Rally
+            && m.hitter == Side::Far
+            && !m.serve
             && p.contact > game.world().tick() + 30
         {
             return;
@@ -394,4 +393,69 @@ fn far_player_lets_out_balls_go_and_calls_them() {
         "{journal:?}"
     );
     let _ = Transform::default();
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// A rules edit reaches a running match without Cargo: the new program is
+/// compiled by the Contract compiler alone, posted to the world as a message,
+/// and adopts the running score by slot name.
+#[test]
+fn an_edited_program_takes_over_a_running_match() {
+    let mut game = game(true);
+    let mut bot = Bot::default();
+    // Play until a point has been decided.
+    for _ in 0..(120 * 120) {
+        bot.step(&mut game, None);
+        if phase(&game).points_played >= 1 {
+            break;
+        }
+    }
+    let before = phase(&game);
+    assert!(before.points_played >= 1, "{before:?}");
+    // The edit: one game wins the match, and the umpire says so.
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../rules/rules.contract"
+    ))
+    .unwrap();
+    let edited = src
+        .replace("derive firstTo = 4", "derive firstTo = 1")
+        .replace(
+            "`Game, set and match ${name(toNear)}`",
+            "`Match ${name(toNear)} (one game)`",
+        );
+    assert_ne!(edited, src);
+    let plan = contract::compile(&edited)
+        .unwrap_or_else(|e| panic!("{e}"))
+        .encode();
+    game.post(format!("rules:{}", hex(&plan)));
+    bot.step(&mut game, None);
+    let journal: Vec<String> = game
+        .world()
+        .journal()
+        .iter()
+        .map(|e| e.line.clone())
+        .collect();
+    assert!(
+        journal.iter().any(|l| l.contains("rules: new program")),
+        "{journal:?}"
+    );
+    let after = phase(&game);
+    assert_eq!(after.points, before.points, "the score is carried by name");
+    assert_eq!(after.points_played, before.points_played);
+    assert_eq!(after.first_to(), 1);
+    // Play on: the first game won ends the match under the new rules.
+    for _ in 0..(120 * 900) {
+        bot.step(&mut game, None);
+        if phase(&game).phase == Phase::Over {
+            break;
+        }
+    }
+    let end = phase(&game);
+    assert_eq!(end.phase, Phase::Over, "{end:?}");
+    assert_eq!(end.games[0] + end.games[1], 1, "{end:?}");
+    assert!(end.call.contains("(one game)"), "{end:?}");
 }

@@ -25,7 +25,12 @@ export function bot(s, world) {
   const read = async () => {
     const near = await s.state('world:near');
     const ball = await world.get('ball', 'Ball');
-    return {tick: near.tick, p: near.entity.components.Player, at: near.entity.components.Transform.position, ball};
+    // Who struck the ball and whether it is a serve are the rules' slots
+    // (rules/rules.contract), saved in the world's `Rules` resource.
+    const slots = (await world.resources())?.Rules?.slots ?? {};
+    const slot = key => { const v = slots[key]; return v && typeof v === 'object' ? (Object.values(v)[0]?.[0] ?? Object.values(v)[0]) : v; };
+    return {tick: near.tick, p: near.entity.components.Player, at: near.entity.components.Transform.position,
+      ball: {...ball, hitter: slot('nearHit') ? 'Near' : 'Far', serve: slot('serve') === true}};
   };
   const ticks = n => world.run(n * TICK);
   return {
@@ -140,7 +145,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const court = await world.get('court', 'Mesh');
   check('singles court is 8.23 × 23.77 m', Math.abs(court.Plane.width - 8.23) < 1e-4 && Math.abs(court.Plane.depth - 23.77) < 1e-4, court);
   await me.serve();
-  const served = await world.get('ball', 'Ball');
+  const {ball: served} = await me.read();
   check('the serve is struck', served.live && served.serve && name(served.hitter) === 'Near', served);
   await me.rally(async () => (await lines(s)).some(l => l.includes('far ')) , 600);
   check('Jev returns (offline fallback)', (await lines(s)).some(l => /far (Forehand|Backhand) \w+ → \w+ \(Offline\)/.test(l)));
