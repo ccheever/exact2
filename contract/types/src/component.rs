@@ -37,10 +37,15 @@ pub(crate) fn check_component(
         .chain(c.mutations.iter().map(|m| (&m.name, m.span)))
         .chain(c.actions.iter().map(|a| (&a.name, a.span)))
     {
-        if seen.insert(name.clone(), span).is_some() {
+        if let Some(first) = seen.insert(name.clone(), span) {
+            // The survey diary's `mutation exported` and `action exported`:
+            // say that the kinds share one set of names.
             sink.push(TypeError {
                 id: "type-duplicate-name",
-                message: format!("`{name}` declared twice"),
+                message: format!(
+                    "`{name}` is declared twice in `{}` (first on line {}): its props, injects, states, derives, resources, mutations and actions share one set of names; rename one",
+                    c.name, first.line
+                ),
                 span,
             });
         }

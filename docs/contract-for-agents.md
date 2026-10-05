@@ -977,6 +977,9 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | Unbounded `scroll` | Real height/max-height or flex in a bounded layout |
 | `state item = none` with no usable type | Supply a typed use/write or rethink whether it is mutable state |
 | Read a slot after writing it to get the new value | Compute `let next` before the assignments |
+| `let next = …` where `next` is already an action, state or other name (`type-let-shadow`) | A name of its own: `let revised = …` |
+| `let op = ""`, then `op = "tab"` in a branch (`type-let-reassign`) | Choose the value where it is bound: `let op = key == "Tab" ? "tab" : "insert"`; or a `state` |
+| `mutation exported` and `action exported` (`type-duplicate-name`) | One name per declaration: a component's props, states, derives, resources, mutations and actions share names (`action fileSaved`) |
 | Dynamic navigation template | `path("route", args…)` |
 | Unconditional per-frame app work | CSS/presentation motion where possible; a frame task gated on the state that needs it (`task fly when flying`) |
 | An always-on `every` that checks whether a toast expired | `task hide when toast != "" key=toastUntil` with `after(ms, clear)` |

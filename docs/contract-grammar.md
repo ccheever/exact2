@@ -226,7 +226,10 @@ whose arguments are plain values, not state; it is answered once at build.
 A mutation's `then` names a parameterless action and follows `refreshes` when
 both are present. `queue`, right after the shape, makes every send of the
 mutation wait its turn (LLP 1092): one request in flight, later sends asked in
-order, each after the reply before it and its `then`. Action effects are inferred: `writes` clauses are refused.
+order, each after the reply before it and its `then`. The clauses after the shape
+may continue onto deeper-indented lines, each starting with its keyword, in the
+same order (`mutation edited as shape Jump refreshes page`, then `then followEdit`
+indented under it). Action effects are inferred: `writes` clauses are refused.
 Component `contract` sections are also refused.
 
 ## Views
