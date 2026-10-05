@@ -1,76 +1,33 @@
 //! Authored low-poly garden models. One immutable mesh per crop keeps a full
 //! field instanced; scenery adds a fixed number of entities, never one per tile.
 use crate::{crops::CROPS, garden::paint};
-use exact_game::{asset::MeshData, *};
+use exact_game::{
+    asset::{MeshBuilder, MeshData},
+    *,
+};
 
-#[derive(Default)]
-struct Model(MeshData);
+/// The classic look's shapes: flat facets over the engine's builder, every
+/// colour authored and stored squared.
+trait Classic {
+    fn quad(&mut self, p: [Vec3; 4], color: [f32; 3]);
+    fn block(&mut self, at: Vec3, size: Vec3, color: [f32; 3]);
+    fn cone(&mut self, at: Vec3, bottom: f32, top: f32, height: f32, color: [f32; 3]);
+    fn globe(&mut self, at: Vec3, radius: Vec3, color: [f32; 3]);
+    fn leaf(&mut self, root: Vec3, tip: Vec3, width: f32, color: [f32; 3]);
+}
 
-impl Model {
-    fn tri(&mut self, a: Vec3, b: Vec3, c: Vec3, color: [f32; 3]) {
-        let n = (b - a).cross(c - a).normalize_or_zero();
-        let i = (self.0.positions.len() / 3) as u32;
-        for p in [a, b, c] {
-            self.0.positions.extend(p.to_array());
-            self.0.normals.extend(n.to_array());
-            self.0.uvs.extend([0.0, 0.0]);
-            self.0.colors.extend([
-                color[0] * color[0],
-                color[1] * color[1],
-                color[2] * color[2],
-                1.0,
-            ]);
-        }
-        self.0.indices.extend([i, i + 1, i + 2]);
-    }
+fn model() -> MeshBuilder {
+    MeshBuilder::flat().squared()
+}
 
+impl Classic for MeshBuilder {
     fn quad(&mut self, p: [Vec3; 4], color: [f32; 3]) {
-        self.tri(p[0], p[1], p[2], color);
-        self.tri(p[0], p[2], p[3], color);
+        self.facet(p[0], p[1], p[2], color);
+        self.facet(p[0], p[2], p[3], color);
     }
 
     fn block(&mut self, at: Vec3, size: Vec3, color: [f32; 3]) {
-        let p = |x, y, z| at + size * Vec3::new(x, y, z) * 0.5;
-        for face in [
-            [
-                p(-1., -1., 1.),
-                p(1., -1., 1.),
-                p(1., 1., 1.),
-                p(-1., 1., 1.),
-            ],
-            [
-                p(1., -1., -1.),
-                p(-1., -1., -1.),
-                p(-1., 1., -1.),
-                p(1., 1., -1.),
-            ],
-            [
-                p(1., -1., 1.),
-                p(1., -1., -1.),
-                p(1., 1., -1.),
-                p(1., 1., 1.),
-            ],
-            [
-                p(-1., -1., -1.),
-                p(-1., -1., 1.),
-                p(-1., 1., 1.),
-                p(-1., 1., -1.),
-            ],
-            [
-                p(-1., 1., 1.),
-                p(1., 1., 1.),
-                p(1., 1., -1.),
-                p(-1., 1., -1.),
-            ],
-            [
-                p(-1., -1., -1.),
-                p(1., -1., -1.),
-                p(1., -1., 1.),
-                p(-1., -1., 1.),
-            ],
-        ] {
-            self.quad(face, color);
-        }
+        self.cuboid(at, size, Quat::IDENTITY, |_| color);
     }
 
     fn cone(&mut self, at: Vec3, bottom: f32, top: f32, height: f32, color: [f32; 3]) {
@@ -81,37 +38,17 @@ impl Model {
         for k in 0..10 {
             let (a, b) = (ring(k, bottom, 0.0), ring(k + 1, bottom, 0.0));
             let (c, d) = (ring(k, top, height), ring(k + 1, top, height));
-            self.tri(a, c, b, color);
+            self.facet(a, c, b, color);
             if top > 0.0 {
-                self.tri(b, c, d, color);
-                self.tri(at + Vec3::Y * height, d, c, color);
+                self.facet(b, c, d, color);
+                self.facet(at + Vec3::Y * height, d, c, color);
             }
-            self.tri(at, a, b, color);
+            self.facet(at, a, b, color);
         }
     }
 
     fn globe(&mut self, at: Vec3, radius: Vec3, color: [f32; 3]) {
-        let point = |j: u32, k: u32| {
-            let (sy, cy) = math::sin_cos(j as f32 * std::f32::consts::PI / 6.0);
-            let (s, c) = math::sin_cos(k as f32 * std::f32::consts::TAU / 10.0);
-            at + radius * Vec3::new(c * sy, cy, s * sy)
-        };
-        for j in 0..6 {
-            for k in 0..10 {
-                let (a, b, c, d) = (
-                    point(j, k),
-                    point(j, k + 1),
-                    point(j + 1, k),
-                    point(j + 1, k + 1),
-                );
-                if j > 0 {
-                    self.tri(a, b, c, color);
-                }
-                if j < 5 {
-                    self.tri(b, d, c, color);
-                }
-            }
-        }
+        self.ellipsoid(at, radius, Quat::IDENTITY, (6, 10), |_| color);
     }
 
     fn leaf(&mut self, root: Vec3, tip: Vec3, width: f32, color: [f32; 3]) {
@@ -127,26 +64,14 @@ impl Model {
             (tip, ridge, right),
             (right, ridge, root),
         ] {
-            self.tri(a, b, c, color);
-            self.tri(c, b, a, color.map(|v| v * 0.82));
+            self.facet(a, b, c, color);
+            self.facet(c, b, a, color.map(|v| v * 0.82));
         }
-    }
-
-    fn finish(mut self) -> MeshData {
-        let mut lo = Vec3::splat(f32::INFINITY);
-        let mut hi = Vec3::splat(f32::NEG_INFINITY);
-        for p in self.0.positions.chunks_exact(3) {
-            let p = Vec3::new(p[0], p[1], p[2]);
-            lo = lo.min(p);
-            hi = hi.max(p);
-        }
-        self.0.bounds = [lo.x, lo.y, lo.z, hi.x, hi.y, hi.z];
-        self.0
     }
 }
 
 fn gardener() -> MeshData {
-    let mut m = Model::default();
+    let mut m = model();
     let (blue, shirt, skin, straw) = (
         [0.20, 0.43, 0.52],
         [0.95, 0.81, 0.48],
@@ -209,7 +134,7 @@ fn gardener() -> MeshData {
 }
 
 fn arm() -> MeshData {
-    let mut m = Model::default();
+    let mut m = model();
     m.block(
         Vec3::new(0., -0.23, 0.),
         Vec3::new(0.19, 0.47, 0.25),
@@ -224,7 +149,7 @@ fn arm() -> MeshData {
 }
 
 fn leg() -> MeshData {
-    let mut m = Model::default();
+    let mut m = model();
     m.block(
         Vec3::new(0., -0.20, 0.),
         Vec3::new(0.27, 0.42, 0.30),
@@ -239,7 +164,7 @@ fn leg() -> MeshData {
 }
 
 fn watering_can() -> MeshData {
-    let mut m = Model::default();
+    let mut m = model();
     let blue = [0.24, 0.62, 0.76];
     m.cone(Vec3::new(0., -0.20, 0.), 0.20, 0.18, 0.30, blue);
     m.block(
@@ -261,7 +186,7 @@ fn watering_can() -> MeshData {
 
 fn plant(kind: usize) -> MeshData {
     let c = &CROPS[kind];
-    let mut m = Model::default();
+    let mut m = model();
     let base = -c.height * 0.5;
     let woody = c.height >= 2.0;
     let stem = if woody {
@@ -307,7 +232,7 @@ fn plant(kind: usize) -> MeshData {
 
 fn fruit(kind: usize) -> MeshData {
     let c = &CROPS[kind];
-    let mut m = Model::default();
+    let mut m = model();
     let r = c.fruit_size;
     match c.id {
         "carrot" => {
@@ -356,7 +281,7 @@ fn fruit(kind: usize) -> MeshData {
 }
 
 fn orchard() -> MeshData {
-    let mut m = Model::default();
+    let mut m = model();
     for (x, z, size) in [
         (-5., -5., 1.4),
         (2., -4., 1.1),
@@ -406,7 +331,7 @@ fn orchard() -> MeshData {
 }
 
 fn flower_bank() -> MeshData {
-    let mut m = Model::default();
+    let mut m = model();
     for i in 0..36 {
         let x = (i % 12) as f32 * 0.7;
         let z = (i / 12) as f32 * 0.75;

@@ -1,6 +1,6 @@
 //! The forest: rolling terrain, a jittered grid of trees and the grid lookups
 //! that collision and navigation use instead of scanning every tree.
-use exact_game::asset::MeshData;
+use exact_game::asset::{MeshBuilder, MeshData};
 use exact_game::*;
 use exact_game_physics::{Collider, Shape};
 
@@ -319,48 +319,36 @@ pub fn fell(w: &mut World, cell: u32) -> Vec3 {
 
 /// A low-poly pine: a hexagonal trunk and two cones, flat-shaded with vertex colours.
 pub fn pine() -> MeshData {
-    let mut m = MeshData::default();
-    let bark = [0.22, 0.13, 0.07, 1.0];
-    let (dark, light) = ([0.04, 0.16, 0.06, 1.0], [0.07, 0.24, 0.08, 1.0]);
+    let mut m = MeshBuilder::flat();
+    let bark = [0.22, 0.13, 0.07];
+    let (dark, light) = ([0.04, 0.16, 0.06], [0.07, 0.24, 0.08]);
     frustum(&mut m, 6, 0.0, 0.32, 2.2, 0.26, bark);
     frustum(&mut m, 8, 1.6, 2.1, 5.2, 0.0, dark);
     frustum(&mut m, 8, 3.8, 1.5, 7.4, 0.0, light);
-    m.bounds = [-2.1, 0.0, -2.1, 2.1, 7.4, 2.1];
-    m
+    m.finish()
 }
 
 /// Append an open-ended frustum (a cone when `r1` is zero) with a closed base.
 pub(crate) fn frustum(
-    m: &mut MeshData,
+    m: &mut MeshBuilder,
     sides: u32,
     y0: f32,
     r0: f32,
     y1: f32,
     r1: f32,
-    color: [f32; 4],
+    color: [f32; 3],
 ) {
     let ring = |k: u32, r: f32, y: f32| {
         let (s, c) = math::sin_cos(k as f32 / sides as f32 * std::f32::consts::TAU);
         Vec3::new(c * r, y, s * r)
     };
-    let mut tri = |a: Vec3, b: Vec3, c: Vec3| {
-        let n = (b - a).cross(c - a).normalize_or_zero();
-        let base = (m.positions.len() / 3) as u32;
-        for p in [a, b, c] {
-            m.positions.extend([p.x, p.y, p.z]);
-            m.normals.extend([n.x, n.y, n.z]);
-            m.uvs.extend([0.0, 0.0]);
-            m.colors.extend(color);
-        }
-        m.indices.extend([base, base + 1, base + 2]);
-    };
     for k in 0..sides {
         let (a, b) = (ring(k, r0, y0), ring(k + 1, r0, y0));
         let (c, d) = (ring(k, r1, y1), ring(k + 1, r1, y1));
-        tri(a, c, b);
+        m.facet(a, c, b, color);
         if r1 > 0.0 {
-            tri(b, c, d);
+            m.facet(b, c, d, color);
         }
-        tri(Vec3::new(0.0, y0, 0.0), a, b);
+        m.facet(Vec3::new(0.0, y0, 0.0), a, b, color);
     }
 }

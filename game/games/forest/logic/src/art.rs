@@ -12,7 +12,7 @@
 //!   crowns, carried logs on the backpack) is presentation, in `look.rs`.
 use crate::forest::{frustum, height, Grove, CELL};
 use crate::player::Child;
-use exact_game::asset::{MaterialData, MeshData, Model, Node};
+use exact_game::asset::{MaterialData, MeshBuilder, MeshData, Model, Node};
 use exact_game::*;
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
@@ -165,14 +165,14 @@ pub fn tree_looks(w: &mut World) -> TreeLooks {
 /// A far tree: the baked one's silhouette in a few dozen flat-shaded triangles,
 /// coloured like its textures at a distance.
 fn far_tree(name: &str) -> MeshData {
-    let mut m = MeshData::default();
-    let bark = [0.05, 0.028, 0.014, 1.0];
+    let mut m = MeshBuilder::flat();
+    let bark = [0.05, 0.028, 0.014];
     match name {
         "oak" | "birch" => {
             let (h, canopy, leaf, wood) = if name == "oak" {
-                (7.0, 2.6, [0.035, 0.08, 0.012, 1.0], bark)
+                (7.0, 2.6, [0.035, 0.08, 0.012], bark)
             } else {
-                (7.6, 1.8, [0.1, 0.13, 0.025, 1.0], [0.33, 0.31, 0.27, 1.0])
+                (7.6, 1.8, [0.1, 0.13, 0.025], [0.33, 0.31, 0.27])
             };
             frustum(&mut m, 6, 0.0, 0.3, h * 0.66, 0.1, wood);
             globe(
@@ -190,15 +190,15 @@ fn far_tree(name: &str) -> MeshData {
         }
         _ => {
             let (tiers, h, spread, droop, leaf, wood) = match name {
-                "pine_a" => (4, 7.4, 2.2, 0.25, [0.016, 0.05, 0.017, 1.0], bark),
-                "pine_b" => (5, 8.8, 1.7, 0.35, [0.015, 0.038, 0.03, 1.0], bark),
+                "pine_a" => (4, 7.4, 2.2, 0.25, [0.016, 0.05, 0.017], bark),
+                "pine_b" => (5, 8.8, 1.7, 0.35, [0.015, 0.038, 0.03], bark),
                 _ => (
                     3,
                     6.0,
                     1.6,
                     0.5,
-                    [0.045, 0.036, 0.017, 1.0],
-                    [0.03, 0.022, 0.015, 1.0],
+                    [0.045, 0.036, 0.017],
+                    [0.03, 0.022, 0.015],
                 ),
             };
             frustum(&mut m, 6, 0.0, 0.3, h * 0.6, 0.12, wood);
@@ -207,7 +207,7 @@ fn far_tree(name: &str) -> MeshData {
                 let base = h * (0.18 + t * 0.7);
                 let radius = spread * (1.0 - t * 0.78);
                 let shade = 0.6 + 0.4 * t;
-                let color = [leaf[0] * shade, leaf[1] * shade, leaf[2] * shade, 1.0];
+                let color = [leaf[0] * shade, leaf[1] * shade, leaf[2] * shade];
                 frustum(
                     &mut m,
                     7,
@@ -220,45 +220,12 @@ fn far_tree(name: &str) -> MeshData {
             }
         }
     }
-    let mut lo = Vec3::splat(f32::INFINITY);
-    let mut hi = Vec3::splat(f32::NEG_INFINITY);
-    for p in m.positions.chunks_exact(3) {
-        lo = lo.min(Vec3::new(p[0], p[1], p[2]));
-        hi = hi.max(Vec3::new(p[0], p[1], p[2]));
-    }
-    m.bounds = [lo.x, lo.y, lo.z, hi.x, hi.y, hi.z];
-    m
+    m.finish()
 }
 
 /// Append a flat-shaded ellipsoid of 8 × 5 facets.
-fn globe(m: &mut MeshData, at: Vec3, radii: Vec3, color: [f32; 4]) {
-    let p = |j: u32, k: u32| {
-        let (sy, cy) = math::sin_cos(j as f32 * PI / 5.0);
-        let (s, c) = math::sin_cos(k as f32 * TAU / 8.0);
-        at + radii * Vec3::new(c * sy, cy, s * sy)
-    };
-    let mut tri = |a: Vec3, b: Vec3, c: Vec3| {
-        let n = (b - a).cross(c - a).normalize_or_zero();
-        let base = (m.positions.len() / 3) as u32;
-        for v in [a, b, c] {
-            m.positions.extend(v.to_array());
-            m.normals.extend(n.to_array());
-            m.uvs.extend([0.0, 0.0]);
-            m.colors.extend(color);
-        }
-        m.indices.extend([base, base + 1, base + 2]);
-    };
-    for j in 0..5 {
-        for k in 0..8 {
-            let (a, b, c, d) = (p(j, k), p(j, k + 1), p(j + 1, k), p(j + 1, k + 1));
-            if j > 0 {
-                tri(a, b, c);
-            }
-            if j < 4 {
-                tri(b, d, c);
-            }
-        }
-    }
+fn globe(m: &mut MeshBuilder, at: Vec3, radii: Vec3, color: [f32; 3]) {
+    m.ellipsoid(at, radii, Quat::IDENTITY, (5, 8), |_| color);
 }
 
 /// The campfire's eighteen entities, where the greybox spawns its eighteen

@@ -280,6 +280,14 @@ whole `asset::Model` (several meshes, nodes and materials), shaded like a baked 
 `asset::Model::parts([(skin, MaterialData::surface(0., 0.3)), (seeds, gold)])` builds
 one from parts, each a mesh with its own material, so code-made art can be glossy,
 metallic or emissive per part; `MaterialData`'s `Default` is glTF's, fully metallic.
+`asset::MeshBuilder` makes the meshes: `MeshBuilder::flat()` gives every
+triangle its own vertices and face normal, `smooth()` keeps the normals its
+shapes give; `.squared()` stores colours authored by eye squared (gamma 2). Its
+shapes are `cuboid`, `ellipsoid`, `tube`, `lathe` and `sheet`, each painted per
+vertex by a closure, over `vertex`/`triangle` and single-colour `facet`s; `finish`
+bounds the mesh. A game keeps its own shapes and palette on top (Garden's classic
+look and `sculpt.rs`, Forest's far trees and deer). It is the engine's portable
+math, so equal calls make byte-equal meshes and identities on every host.
 A material is part of the model's identity. The entity's `Material` still tints and
 adds emission to every part; its metallic and roughness do not reach a model. Materials may sample
 textures named in `model.textures`, such as a shared `art/textures/` PNG, which become

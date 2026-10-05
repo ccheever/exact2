@@ -1,30 +1,21 @@
 //! A readable silhouette and saved attack pose for the night encounter.
 use crate::creatures::{Deer, Mind, WINDUP};
 use exact_game::{
-    asset::MeshData,
+    asset::{MeshBuilder, MeshData},
     audio::{AudioListener, Spatial, Synth},
     *,
 };
 
-#[derive(Default)]
-struct Model(MeshData);
-impl Model {
-    fn tri(&mut self, a: Vec3, b: Vec3, c: Vec3, color: [f32; 3]) {
-        let normal = (b - a).cross(c - a).normalize_or_zero();
-        let first = (self.0.positions.len() / 3) as u32;
-        for p in [a, b, c] {
-            self.0.positions.extend(p.to_array());
-            self.0.normals.extend(normal.to_array());
-            self.0.uvs.extend([0., 0.]);
-            self.0.colors.extend([
-                color[0] * color[0],
-                color[1] * color[1],
-                color[2] * color[2],
-                1.,
-            ]);
-        }
-        self.0.indices.extend([first, first + 1, first + 2]);
-    }
+/// The deer's shapes: flat facets over the engine's builder, every colour
+/// authored and stored squared.
+trait Anatomy {
+    fn bone(&mut self, a: Vec3, b: Vec3, r0: f32, r1: f32, color: [f32; 3]);
+    fn globe(&mut self, at: Vec3, radii: Vec3, color: [f32; 3]);
+}
+fn model() -> MeshBuilder {
+    MeshBuilder::flat().squared()
+}
+impl Anatomy for MeshBuilder {
     fn bone(&mut self, a: Vec3, b: Vec3, r0: f32, r1: f32, color: [f32; 3]) {
         let axis = (b - a).normalize();
         let side = axis
@@ -42,45 +33,19 @@ impl Model {
                 ring(k, b, r1),
                 ring(k + 1, b, r1),
             );
-            self.tri(p, q, r, color);
-            self.tri(q, s, r, color);
-            self.tri(a, q, p, color);
-            self.tri(b, r, s, color);
+            self.facet(p, q, r, color);
+            self.facet(q, s, r, color);
+            self.facet(a, q, p, color);
+            self.facet(b, r, s, color);
         }
     }
     fn globe(&mut self, at: Vec3, radii: Vec3, color: [f32; 3]) {
-        let p = |j: u32, k: u32| {
-            let (sy, cy) = math::sin_cos(j as f32 * std::f32::consts::PI / 6.);
-            let (s, c) = math::sin_cos(k as f32 * std::f32::consts::TAU / 8.);
-            at + radii * Vec3::new(c * sy, cy, s * sy)
-        };
-        for j in 0..6 {
-            for k in 0..8 {
-                let (a, b, c, d) = (p(j, k), p(j, k + 1), p(j + 1, k), p(j + 1, k + 1));
-                if j > 0 {
-                    self.tri(a, b, c, color);
-                }
-                if j < 5 {
-                    self.tri(b, d, c, color);
-                }
-            }
-        }
-    }
-    fn finish(mut self) -> MeshData {
-        let mut lo = Vec3::splat(f32::INFINITY);
-        let mut hi = Vec3::splat(f32::NEG_INFINITY);
-        for p in self.0.positions.chunks_exact(3) {
-            let p = Vec3::new(p[0], p[1], p[2]);
-            lo = lo.min(p);
-            hi = hi.max(p);
-        }
-        self.0.bounds = [lo.x, lo.y, lo.z, hi.x, hi.y, hi.z];
-        self.0
+        self.ellipsoid(at, radii, Quat::IDENTITY, (6, 8), |_| color);
     }
 }
 
 pub fn body() -> MeshData {
-    let mut m = Model::default();
+    let mut m = model();
     let fur = [0.31, 0.21, 0.13];
     let hoof = [0.12, 0.10, 0.085];
     m.globe(Vec3::new(0., 0.05, 0.), Vec3::new(0.49, 0.77, 0.37), fur);
@@ -115,7 +80,7 @@ pub fn body() -> MeshData {
     m.finish()
 }
 pub fn head() -> MeshData {
-    let mut m = Model::default();
+    let mut m = model();
     let bone = [0.82, 0.76, 0.60];
     let fur = [0.42, 0.31, 0.20];
     m.globe(Vec3::new(0., 0.35, 0.31), Vec3::new(0.33, 0.48, 0.37), fur);

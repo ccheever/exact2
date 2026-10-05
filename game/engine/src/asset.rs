@@ -8,10 +8,12 @@ mod names;
 pub use names::asset_name;
 use std::{collections::BTreeSet, mem::ManuallyDrop, rc::Rc, sync::Arc};
 
+mod build;
 mod generated;
 pub(crate) mod level;
 mod map;
 mod sound;
+pub use build::{across, MeshBuilder};
 pub use level::{Level, LevelValue};
 pub use sound::{SoundAsset, SoundData, SOUND_BYTE_BUDGET, SOUND_RATES};
 /// Renderer-neutral pose records and rig geometry.

@@ -264,6 +264,7 @@ The dev compiler retains its last good plan on an error.
 | A first-person weapon | Add `ViewModel` to each part; it draws in front of the world and casts no shadow |
 | Contact shadows in creases | `w.insert_resource(AmbientOcclusion::default())` turns on SSAO (off by default) |
 | Lighting from a photographed sky | `w.insert_resource(EnvironmentMap::new("sky.tex"))` with the equirect in `Game::ASSETS` |
+| Code-made models | `asset::MeshBuilder::flat()` or `smooth()`: boxes, ellipsoids, tubes, lathes and sheets painted per vertex, then `finish()` into `w.generated` or `Model::parts` ([engine](engine/README.md#saves-and-assets)) |
 | Texture generated terrain | UVs in the `MeshData`, a material sampling a `.tex` from `art/textures/`, through `w.generated_model` |
 | Fire, smoke and sparks | `ParticleLook { texture, atlas, fps, stretch, soft }` beside an `Emitter`; `soft: 0.5` fades smoke into the ground |
 | A painted, visible sky | The same `EnvironmentMap` with `visible: true` (and `rotation` to turn it) |
