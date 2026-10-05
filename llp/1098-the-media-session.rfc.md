@@ -1,13 +1,14 @@
 # LLP 1098: The media session
 
 **Type:** RFC
-**Status:** Draft r2 (round 1 of 3).
+**Status:** Accepted (r3, by the orchestrator under Charlie's delegation after two review rounds; Grok 4.7 only — Codex budget exhausted; round-2 findings folded unreviewed — the implementation review checks them).
 - r1 (`dfdbb1058`) was reviewed by Grok 4.7 (xhigh) with two scopes: semantics and web fidelity (`llp/reviews/1098-r1.grok-a.md`, READY WITH CHANGES) and implementation (`llp/reviews/1098-r1.grok-b.md`, READY WITH CHANGES). r2 resolves both (§10).
+- r2 (`5afd75f6a`) had a delta review (`llp/reviews/1098-r2.grok.md`, READY WITH CHANGES: two MATERIAL, two MINOR, two NIT). r3 folds its fixes, each checked against the code, with no further review (§10).
 - The orchestrator accepted every r1 recommendation under Charlie's 2026-10-04 delegation (§9). The admission and its take are recorded in `rules/DEFERRED.md` in their own commit (`c881e5f77`).
 **Systems:** Contract compiler (`metadata=` on `audio` and `video`, two compiler shapes, six events, two offsets, the test steps `tap … mediasession` and `expect mediasession`), kernel props (six), Plan (`EventKind`), Runner (the six events' payload and record, new `runner/src/runner/media_session.rs`), web output shared by both targets (`host/web/media-glue.js`), JS target (`host/web-js/media.js`, `host/web-js/src/emit.rs`), Apple (the video arm: new `host/apple/videoarm/NowPlaying.swift`; `VideoModule.swift`, `Agent.swift`, `build.mjs`; bake receipt), Linux and Windows (the record, no publication; `host/linux/src/agent.rs`), the driver (`scripts/agent.mjs`, `agent-test.mjs`), conformance, docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
-**Revised:** 2026-10-04 (r2)
+**Revised:** 2026-10-04 (r2, r3)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stage 1 on 2026-10-07, stage 2 on 2026-10-08, stage 3 on 2026-10-10–11 (after LLP 1096 stage 3), stage 4 on 2026-10-11 (§6)
 **Amends:** LLP 1042 §3 ("remote-command policy … must not steal", made concrete in D5) and §5 (its lock-screen bullet points here; its unimplemented extension design was deleted as this RFC's take, `c881e5f77`); `rules/DEFERRED.md` (D13, recorded)
 **Related:** LLP 1012 (the agent); LLP 1031 (sessions in one process); LLP 1038 D11 and LLP 1069.007 D4 (`tap` addressing something other than a press); LLP 1048.003 D1 (`head`, a page-wide fact declared in the tree); LLP 1056 §3 (event records); LLP 1088 D7.1 (handler arity messages); LLP 1096 D8 (`audio_session`, the one session owner). Diaries: `~/projects/x2apps/podcast/DIARY.md` (F13, Top 5 #1), `jukebox/DIARY.md` (the media-keys note under 13:18). External, read 2026-10-04: W3C Media Session (`navigator.mediaSession`: `metadata`, `MediaMetadata`, `playbackState`, `setActionHandler`, `MediaSessionActionDetails`, `setPositionState`); MediaPlayer's `MPNowPlayingInfoCenter`, `MPRemoteCommandCenter`, `MPSkipIntervalCommand`, `MPChangePlaybackPositionCommandEvent`, `MPNowPlayingSession`; AVKit's `updatesNowPlayingInfoCenter`.
@@ -194,8 +195,8 @@ asserts it with `expect mediasession`.
     (seconds, may be absent: "the page should choose a sensible default"),
     `seekTime` and `fastSeek` (seekto).
   - `setPositionState({duration, playbackRate, position})`. The browser
-    extrapolates the position by the rate while `playbackState` is
-    `"playing"`.
+    extrapolates the position by the rate while the *actual* playback state
+    is `"playing"` (below).
   - `playbackState`: `"none"`, `"paused"` or `"playing"`, a *declaration*.
     The actual playback state is the declared one only when that is
     `"playing"`; otherwise it is the browser's guess from its media elements
@@ -396,13 +397,23 @@ owner's own `play()` and `pause()`. The app hears them as the element's
   and intersection callback (`media-glue.js:14–18`). Without a latch, the
   app's own mirror write (`playing` → `paused=false`) would re-run it and
   pause the element again. So a remote play sets a **person-play latch** on
-  the element: while it holds, the visibility block does not apply. It
-  holds while the authored `paused` is false, the mirror write included,
-  and clears when the app sets `paused` to true or when the element is back
-  above the threshold (the authored value then applies anyway). A remote
-  pause needs no latch: it is the manual pause LLP 1042 §3 already keeps.
-  Apple's arm keeps the same latch beside its `visibilityBlocked`
-  (`VideoModule.swift`'s `update`).
+  the element: while it holds, the visibility block does not apply. It is
+  set by the remote play itself, before `play()`, and holds across whatever
+  `paused` is bound at that moment, the stale `true` before the app's mirror
+  lands included: an update or intersection callback in between, or a
+  `play` handler that commits without touching `paused`, does not pause
+  the element. It clears only when a later commit writes `paused` to true
+  (a change from the value bound when the latch was set, or a re-write
+  after the mirror), or when the element rises above the threshold, where
+  the authored value applies anyway. A remote pause needs no latch: it is
+  the manual pause LLP 1042 §3 already keeps.
+  - The glue's `syncPlayback` reads `state.visibilityBlocked && !state.latched`
+    in place of `state.visibilityBlocked` (`media-glue.js:15`), and
+    `syncVisibility`'s callback clears the latch when the ratio is at or
+    above the threshold.
+  - Apple's `VideoView.update` skips the overwrite `if visibilityBlocked {
+    props["paused"] = "true" }` (`VideoModule.swift:171`) while the latch
+    holds, so the stale request is never sent to the arm.
 - **A refused play** (the browser's autoplay policy) is the element's
   `error` with `not-allowed`, as for any play (`media-glue.js:20–22`).
 
@@ -518,8 +529,12 @@ load after first paint for any media element. Neither boot path changes
     exposed (`glue.js:1417`), which turns a development asset card into its
     `blob:` URL and a root-absolute `/assets/…` path on a release base into
     the release's (`glue.js:185–198`); and on the JS target a new
-    `exact.assetURL` in `rt.js` that applies its release rule, `rel`
-    (`rt.js:551–552`). A relative path left as it is resolves against
+    `exact.assetURL` in `rt.js` that applies the release rewrite to the
+    string itself: `rel` keys on `src` and `poster` (`rt.js:551–552`), so
+    `rel("mediaArtwork", v)` would return a root-absolute path unchanged,
+    and the new function calls `rel("src", v)` (the pathname test with no
+    key guard). The glue checks `""` and `app:/` before calling either
+    resolver. A relative path left as it is resolves against
     Exact's `<base href="/">` (§1). `glue.js:443` is not touched: it sets
     the attribute, which the glue does not read.
   - `setActionHandler` for `play` and `pause` (D3), always, and for each of
@@ -544,8 +559,11 @@ load after first paint for any media element. Neither boot path changes
   - `media.js` adds the six to `MEDIA_EVENTS` (`:14`), which `rt.js:826`
     routes to `mediaOn`. `mediaOn` (`:65`) calls their handler with the
     record as a trailing argument, as `rt.js:847` hands `scroll`'s:
-    `[name, seekOffset, seekTime, fastSeek === "1"]`, the action from the
-    event's name and `fastSeek` a boolean (D2).
+    `[name, Number(seekOffset), Number(seekTime), fastSeek === "1"]` from
+    the payload's three tokens: the action from the event's name, the two
+    times numbers (`shape.js:10` wants a finite number) and `fastSeek` a
+    boolean (`:12`), compared as the token `"1"` before any `Number()`
+    (D2).
   - The six stay out of `media-glue.js`'s `mediaEvents` (`:10`), which are
     DOM listeners.
 - **`glue.js` is 1,499 lines.** Its one touch rides an existing line: the
@@ -669,9 +687,26 @@ App Store–reviewed declaration and changes the compatibility id
   handlers (`export.rs:72–87`), so for each `Video` row it reads the four
   metadata props and the two offsets from `kernel().node(id).props` (as
   `surface_controls.rs:27–33` reads props) and the six handlers from
-  `Runner::handlers_of` (`runner/src/runner.rs:1152–1164`). It remembers the
-  commit in which each claimant first appeared, for D5's second rule (the
-  rows' preorder is document order within a commit). With no player nothing
+  `Runner::handlers_of` (`runner/src/runner.rs:1152–1164`).
+- **Mount order is recorded on the commit path, not the state walk.** The
+  walk runs only when the agent asks for `state`, by which time the
+  kernel's `NodeFlags::CREATED` has been cleared in layout
+  (`consume_layout_flags`, `kernel/src/arena.rs:814–824`), and a map filled
+  there would give every claimant first seen on one request the same
+  moment. So `Presenter::after_commit` (`host/linux/src/presenter.rs:750`)
+  bumps a commit counter the presenter owns and, for each `Video` row with
+  a `mediaTitle` prop not yet in its map, records that counter under the
+  row's `NodeKey` (`kernel/src/export.rs:78`), not its `ViewId`: a wire id
+  is unique only among live nodes (`kernel/src/id.rs:44`), and a freed slot
+  is reused with a new generation (`arena.rs:727`). Keys no longer in the
+  tree are dropped. The state request and the `tap` arm read that map; a
+  tie within one commit is the rows' preorder, document order. That walk
+  costs one pass over the rows per commit only while the plan has a
+  claimant (a plan with no `Video` node never runs it). The map and its
+  walk live in a new `host/linux/src/media_session.rs`; `presenter.rs` is
+  1,497 lines and gains one call in `after_commit`. Windows agent mode is
+  this presenter (`host/windows/src/window.rs:98–103`).
+- With no player nothing
   plays, so the owner is the most recently mounted claimant,
   `playbackState` is `"paused"` with a claimant and `"none"` without, there
   is no position, and `published` is `"none"`.
@@ -752,8 +787,17 @@ compiler's step encoding is `{"op":"tap","target":"audio","form":"mediasession",
   `wheel`), does not demand a box (`:341`: podcast's `audio` has none), and
   never becomes a press (`:1123` names the kind). The CLI's `tap` grammar
   parses `mediasession <action> [<seconds>]` where it parses `history`
-  (`:1411`). `scripts/agent.mjs` is 1,478 lines: the early-out stays a few
+  (`:1411`). `scripts/agent.mjs` is 1,478 lines: the early-outs stay a few
   lines, or something moves out first.
+- **That early-out is the web page carrier's.** The native carriers have
+  their own `input`: `openStdio`'s for Linux, Windows and macOS (`:662`),
+  and iOS's (`:779`). Each ends in a fallback that asks `{op: 'type', …}`
+  for any kind it does not list (`:670`, `:802`), and its `guest` object
+  carries no `mediaSession`. So each gains, before that fallback, `kind ===
+  'mediasession'` asking `{op: 'tap', id, mediaSession: opts.mediaSession,
+  seconds: opts.seconds}` and returning; that is the host wire form the
+  Linux `tap` arm (D9), Apple's `Agent.swift` (stage 3) and Windows read.
+  The web path stays the in-page `exact.mediaSession.act` call.
 - `scripts/agent-test.mjs:124` passes `{mediaSession: action, seconds}` for
   this form, not `{[form]: true}`.
 
@@ -960,8 +1004,8 @@ files near the cap gain only call sites.
 | runner | `media_session.rs`; two call sites in `event.rs` (1,461) | — | — |
 | web, both targets | — | the session, the artwork resolution and the visibility latch in `media-glue.js` (83); `exact.assetURL` in `rt.js` (1,393); the six kinds in `host/web-js/src/emit.rs` (1,447); six names and the record in `media.js`; the state overlay on `glue.js:1109` (1,499, no line added) and `agent.js` (390) | — |
 | Apple | — | — | `videoarm/NowPlaying.swift`; `VideoArm.swift` (495) registration, play reports, the artwork loader, `updatesNowPlayingInfoCenter` (macOS and iOS only), `exactPublish`; `VideoModule.swift` (313) events, `mediaArtwork` and the visibility latch; `Agent.swift` (641) state and the trigger; `build.mjs` (1,441) the arm's second source in `arm()`'s key and inputs, `-framework MediaPlayer`, the iOS refusal; `receipt.rs` `mediaSession` |
-| Linux, Windows | `state.mediaSession` from node props, `handlers_of` and mount commits, and the `tap` check before `p.tap`, in `agent.rs` (891) | — | — |
-| driver, tests | `scripts/agent.mjs` (1,478: the `tap` form beside `history`, no reveal, no box check; the CLI grammar); `agent-test.mjs`; `contract/cli/src/lib.rs` (997); difftest's `continue` arm | the web carrier's `exact.mediaSession.act` | Apple's trigger |
+| Linux, Windows | `state.mediaSession` from node props and `handlers_of`, and the `tap` check before `p.tap`, in `agent.rs` (891); the mount-order map by `NodeKey` in `Presenter::after_commit` (`presenter.rs`, 1,497: a call site, the map in a new file) | — | — |
+| driver, tests | `scripts/agent.mjs` (1,478: the `tap` form beside `history`, no reveal, no box check; the native carriers' `input` before their `type` fallback; the CLI grammar); `agent-test.mjs`; `contract/cli/src/lib.rs` (997); difftest's `continue` arm | the web carrier's `exact.mediaSession.act` | Apple's trigger |
 
 ## 5. Tests
 
@@ -1004,14 +1048,18 @@ files near the cap gain only call sites.
   `artworkError`, a dev card its `blob:` URL; the owner keeps the session
   after a pause; with `paused` bound and the element below its
   `playbackVisibilityThreshold`, a remote play plays and stays playing
-  through the app's mirror write, and the app's `paused=true` ends the
-  latch.
+  through the app's mirror write, through a `play` handler that commits
+  without touching `paused`, and through an intersection callback before
+  the mirror lands; the app's later `paused=true` ends the latch.
 - **JS target build.** A program binding all six builds for the JS target
   (`emit.rs`), and a handler taking the record conforms (`shape.js`).
 - **Linux.** Podcast's media-session test under `agent.mjs linux`: the
   owner, metadata and actions from node props and handlers; the six
-  dispatched, never a press; `play` refused `unavailable`; `actions`
-  without `play` and `pause`.
+  dispatched, never a press nor a `type` (the stdio carrier's form, D10);
+  `play` refused `unavailable`; `actions` without `play` and `pause`; two
+  claimants mounted in different commits with no `state` request between
+  them own by mount order, not by tree order; a claimant remounted into a
+  reused slot counts as new.
 - **Apple.**
   - An XCTest (`build.mjs --test`, macOS; `--ios` for the simulator) drives
     the coordinator with publication on: `MPNowPlayingInfoCenter.default()
@@ -1135,7 +1183,22 @@ No question is open in r2.
 
 ## 10. Revisions
 
-- **r2** (2026-10-04, round 1 of 3). It resolves both Grok 4.7 xhigh reviews
+- **r3** (2026-10-04, accepted). Grok 4.7 xhigh's delta review of r2
+  (`llp/reviews/1098-r2.grok.md`, READY WITH CHANGES: every round-1 finding
+  resolved or partly; two MATERIAL, two MINOR, two NIT new). Its fixes are
+  folded, each checked against the code (`scripts/agent.mjs:662–670`,
+  `:802`; `kernel/src/arena.rs:814–824`; `presenter.rs:750`;
+  `VideoModule.swift:171`), with no further review.
+  - **D10:** the native carriers' `input` (`openStdio`'s and iOS's) sends
+    the host wire form before their `type` fallback.
+  - **D9:** mount order is recorded in `Presenter::after_commit` by
+    `NodeKey` and a presenter-owned counter, not in the state walk.
+  - **D3:** the latch is set by the remote play and holds across the
+    `paused` already bound; Apple suppresses the stale overwrite.
+  - **D6:** the JS `exact.assetURL` calls `rel("src", v)`; `mediaOn` makes
+    the two times numbers.
+  - **§2:** extrapolation follows the actual state.
+- **r2** (2026-10-04, `5afd75f6a`, round 1 of 3). It resolves both Grok 4.7 xhigh reviews
   of r1, whose dispositions are in `llp/reviews/1098-r1.grok-{a,b}.md`.
   Each finding was checked against the code; the browser findings stand on
   the reviewers' own probes (Playwright 1.63; Chrome 154, Firefox 155,
