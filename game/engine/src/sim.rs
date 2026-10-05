@@ -143,7 +143,8 @@ pub struct Sim<G: Game> {
     ready_hint: Option<String>,
     asset_mesh_revision: u64,
     asset_sprite_names: Vec<(crate::Entity, String)>,
-    asset_drawn_names: Vec<String>,
+    // The DrawnMesh column's (generation, revision) when its model names were read, and them.
+    asset_drawn_names: ((u64, u64), Vec<String>),
     defer_assets: bool,
     textures: std::collections::BTreeMap<String, crate::asset::TextureData>,
     pub(crate) args: G::Args,
@@ -286,10 +287,13 @@ impl<G: Game> Sim<G> {
         world
     }
     // Presentation runs at a tick boundary and must leave the entity table alone.
+    // A full present rebuilds every row by construction: nothing a previous
+    // present wrote survives, so a restored world and a continuous one present
+    // the same state. A boundary of an advance keeps what `each` derived.
     pub(crate) fn present(world: &mut World, args: &G::Args) {
-        // A rebuild by construction: nothing a previous present wrote survives,
-        // so a restored world and a continuous one present the same state.
-        world.clear_presentation();
+        Self::present_rows(world, args, true);
+    }
+    pub(crate) fn present_rows(world: &mut World, args: &G::Args, full: bool) {
         // Every simulation write panics while presenting (World::sim_writes);
         // these are the records a present could still append to unnoticed.
         let before = (
@@ -299,7 +303,9 @@ impl<G: Game> Sim<G> {
             world.published_pending.get(),
         );
         world.presenting.set(true);
-        G::present(&mut crate::Present::new(world), args);
+        let mut present = crate::Present::begin(world, full);
+        G::present(&mut present, args);
+        present.finish();
         world.presenting.set(false);
         let after = (
             world.entities_revision(),
@@ -578,7 +584,7 @@ impl<G: Game> Sim<G> {
             world,
             asset_mesh_revision: u64::MAX,
             asset_sprite_names: Vec::new(),
-            asset_drawn_names: Vec::new(),
+            asset_drawn_names: ((u64::MAX, 0), Vec::new()),
             defer_assets: false,
             textures: Default::default(),
             args_json: crate::json::to_string(&args).map_err(|e| e.to_string())?,
@@ -1133,7 +1139,7 @@ impl<G: Game> Sim<G> {
             // the rest of a long seek changes nothing; paranoid modes present
             // every tick so their comparison proves that purity.
             if self.paranoid.is_some() || target - self.world.tick() < 2 {
-                Self::present(&mut self.world, &self.args);
+                self.present_boundary();
             }
             // Paranoid modes round-trip at every point an advance can be observed
             // (its last tick), at every tick that received input, and every

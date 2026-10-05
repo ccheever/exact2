@@ -790,51 +790,7 @@ pub fn present(p: &mut Present, smooth: bool) {
             DrawnMesh::model(tree.0).lod(lod(tree.0)),
         );
     }
-    // Lanterns glow from dusk to dawn.
-    let glow = (1.0 - daylight(now) * 1.6).clamp(0.0, 1.0);
-    let fencing = p
-        .resource::<Props>()
-        .map(|s| s.fencing.clone())
-        .unwrap_or_default();
-    for f in fencing {
-        let drawn = match f.prop {
-            Prop::Post => DrawnMesh::model("fence-post.model"),
-            Prop::Rail => DrawnMesh::model("fence-rail.model"),
-            Prop::Lantern => {
-                if glow > 0.0 {
-                    p.insert(
-                        f.entity,
-                        MaterialOverrides(vec![MaterialOverride {
-                            material: 0,
-                            color: None,
-                            emissive: [3.2 * glow, 2.0 * glow, 0.8 * glow],
-                        }]),
-                    );
-                }
-                DrawnMesh::model("lantern.model")
-            }
-            Prop::Lamp => {
-                p.insert(
-                    f.entity,
-                    DrawnLight::Point(PointLight {
-                        color: [1.0, 0.7, 0.38],
-                        intensity: LANTERN,
-                        range: 10.0,
-                    }),
-                );
-                continue;
-            }
-            Prop::Tuft => DrawnMesh::model(TUFTS[f.variant as usize % 4]),
-            Prop::Grass => DrawnMesh::model(
-                ["grass-0.model", "grass-1.model"][f.variant as usize % 2],
-            )
-            .lod(ModelLod {
-                levels: Vec::new(),
-                hide: Some(80.0),
-            }),
-        };
-        p.insert(f.entity, drawn);
-    }
+    fence(p, now);
     crops(p, now, seconds, smooth);
     // The keeper sways, nods and waves every nine seconds.
     let idle = math::sin(seconds * 1.4);
@@ -893,45 +849,108 @@ pub fn present(p: &mut Present, smooth: bool) {
     hide(p, "ambience-storybook");
 }
 
+/// The fence, its lanterns and their lights, and the grass outside it. Kept
+/// per prop: a prop's kind is fixed for its life (a grown garden's fence is
+/// new entities), so a present redraws only the lanterns, which glow from
+/// dusk to dawn.
+fn fence(p: &mut Present, now: u64) {
+    let glow = (1.0 - daylight(now) * 1.6).clamp(0.0, 1.0);
+    // Which prop each fence entity is, read only when one is derived.
+    let mut props: Option<std::collections::BTreeMap<Entity, Fencing>> = None;
+    p.each::<Ambient>(|p, e| {
+        let props = props.get_or_insert_with(|| {
+            let fencing = p.resource::<Props>();
+            let fencing = fencing.iter().flat_map(|s| s.fencing.iter());
+            fencing.map(|f| (f.entity, *f)).collect()
+        });
+        let Some(f) = props.get(&e) else {
+            return Derived::Kept;
+        };
+        let drawn = match f.prop {
+            Prop::Post => DrawnMesh::model("fence-post.model"),
+            Prop::Rail => DrawnMesh::model("fence-rail.model"),
+            Prop::Lantern => {
+                if glow > 0.0 {
+                    p.insert(
+                        e,
+                        MaterialOverrides(vec![MaterialOverride {
+                            material: 0,
+                            color: None,
+                            emissive: [3.2 * glow, 2.0 * glow, 0.8 * glow],
+                        }]),
+                    );
+                }
+                p.insert(e, DrawnMesh::model("lantern.model"));
+                return Derived::Animated;
+            }
+            Prop::Lamp => {
+                p.insert(
+                    e,
+                    DrawnLight::Point(PointLight {
+                        color: [1.0, 0.7, 0.38],
+                        intensity: LANTERN,
+                        range: 10.0,
+                    }),
+                );
+                return Derived::Kept;
+            }
+            Prop::Tuft => DrawnMesh::model(TUFTS[f.variant as usize % 4]),
+            Prop::Grass => DrawnMesh::model(
+                ["grass-0.model", "grass-1.model"][f.variant as usize % 2],
+            )
+            .lod(ModelLod {
+                levels: Vec::new(),
+                hide: Some(80.0),
+            }),
+        };
+        p.insert(e, drawn);
+        Derived::Kept
+    });
+}
+
 /// Each plant's stage model standing on its tile, turned about its stem;
 /// each fruit's model on its branch, with its mutation's look when ripe.
+/// Derived per entity and kept: a present redraws the plants that grew and
+/// the fruit that appeared or ripened, plus what moves with the time (a
+/// growing plant under `smooth`, a gold, rainbow or shocked fruit's shimmer).
 fn crops(p: &mut Present, now: u64, seconds: f32, smooth: bool) {
-    // One model per crop and stage, cloned onto every plant of it; each
-    // plant's tile, by entity index, for its fruit.
+    // One model per crop and stage, cloned onto every plant of it.
     let mut models = std::collections::BTreeMap::new();
-    let mut tiles = Vec::new();
-    let mut plants = Vec::new();
-    p.for_each::<Plant>(|e, pl| {
-        plants.push((e, pl.kind, pl.stage, pl.tile, pl.planted, pl.grow_ms))
-    });
-    for (e, kind, stage, tile, planted, grow_ms) in plants {
+    p.each::<(Plant, Transform)>(|p, e| {
+        let (kind, stage, tile, planted, grow_ms) = {
+            let pl = p.require::<Plant>(e);
+            (pl.kind, pl.stage, pl.tile, pl.planted, pl.grow_ms)
+        };
         let model = models
-            .entry((kind, stage, false))
+            .entry((kind, stage))
             .or_insert_with(|| plant_model(kind, stage));
         p.insert(e, model.clone());
         let mut pose = plant_pose(tile);
-        if smooth && stage < 4 {
+        let growing = smooth && stage < 4;
+        if growing {
             let f = ((now - planted.min(now)) as f32 / grow_ms.max(1) as f32).min(1.0);
             pose.scale = Vec3::splat(0.75 + 0.25 * f);
         }
         place(p, e, pose);
-        let at = e.index() as usize;
-        if tiles.len() <= at {
-            tiles.resize(at + 1, None);
+        if growing {
+            Derived::Animated
+        } else {
+            Derived::Kept
         }
-        tiles[at] = Some((e, tile));
-    }
-    let mut fruits = Vec::new();
-    p.for_each::<Fruit>(|e, f| fruits.push((e, f.kind, f.slot, f.ripe, f.muts, f.plant)));
-    for (e, kind, slot, ripe, muts, plant) in fruits {
+    });
+    let mut models = std::collections::BTreeMap::new();
+    // A fruit reads its plant's tile, which is fixed for the plant's life
+    // (and the fruit's: a removed plant takes its fruit with it).
+    p.each::<(Fruit, Transform)>(|p, e| {
+        let (kind, slot, ripe, plant) = {
+            let f = p.require::<Fruit>(e);
+            (f.kind, f.slot, f.ripe, f.plant)
+        };
         let model = models
-            .entry((kind, ripe as u8, true))
+            .entry((kind, ripe))
             .or_insert_with(|| fruit_model(kind, ripe));
         p.insert(e, model.clone());
-        let tile = plant.and_then(|plant| {
-            let (at, tile) = tiles.get(plant.index() as usize).copied().flatten()?;
-            (at == plant).then_some(tile)
-        });
+        let tile = plant.and_then(|plant| p.get::<Plant>(plant).map(|pl| pl.tile));
         if let (Some(tile), Some(pose)) = (tile, p.get::<Transform>(e).map(|t| *t)) {
             let hung = Transform {
                 position: fruit_position(tile, kind, slot),
@@ -939,19 +958,33 @@ fn crops(p: &mut Present, now: u64, seconds: f32, smooth: bool) {
             };
             place(p, e, hung);
         }
-        if ripe && muts != 0 {
-            let phase = (e.index() % 97) as f32 / 97.0;
-            let flicker = if muts & crops::SHOCKED != 0 {
-                let mut r = p.rng(e.index() as u64);
-                0.4 + 1.2 * r.next_f32()
-            } else {
-                0.0
-            };
-            if let Some(look) = mutation(kind, muts, seconds, phase, flicker) {
-                p.insert(e, MaterialOverrides(vec![look]));
-            }
+        Derived::Kept
+    });
+    // A ripe fruit's mutation, apart: only a shimmer is drawn again each present.
+    p.each::<Fruit>(|p, e| {
+        let (kind, ripe, muts) = {
+            let f = p.require::<Fruit>(e);
+            (f.kind, f.ripe, f.muts)
+        };
+        if !ripe || muts == 0 {
+            return Derived::Kept;
         }
-    }
+        let phase = (e.index() % 97) as f32 / 97.0;
+        let flicker = if muts & crops::SHOCKED != 0 {
+            let mut r = p.rng(e.index() as u64);
+            0.4 + 1.2 * r.next_f32()
+        } else {
+            0.0
+        };
+        if let Some(look) = mutation(kind, muts, seconds, phase, flicker) {
+            p.insert(e, MaterialOverrides(vec![look]));
+        }
+        if muts & (crops::RAINBOW | crops::GOLD | crops::SHOCKED) != 0 {
+            Derived::Animated
+        } else {
+            Derived::Kept
+        }
+    });
 }
 
 /// Plants standing between a near camera and the farmer fade to a dither, with

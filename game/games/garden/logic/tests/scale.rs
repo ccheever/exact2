@@ -8,9 +8,14 @@ use garden_logic::{Garden, Options};
 use std::time::Instant;
 
 fn new(smooth: bool) -> Sim<Garden> {
+    look(smooth, "")
+}
+
+fn look(smooth: bool, art: &str) -> Sim<Garden> {
     Sim::<Garden>::new(Options {
         seed: 1,
         smooth,
+        art: art.into(),
         ..Options::default()
     })
     .unwrap()
@@ -140,6 +145,31 @@ fn entity_ramp() {
             hour / 108_000.0,
             saved.len()
         );
+    }
+}
+
+/// What each look costs a live frame (its presents included) in a grown
+/// garden: the classic look draws the simulation's own models; the others
+/// write presentation per plant and fruit.
+#[test]
+#[ignore]
+fn looks_at_scale() {
+    println!("| plants | entities | look | frame ms mean / max (live) |");
+    for n in sizes() {
+        for art in ["", "pass", "golden", "storybook"] {
+            let mut game = look(false, art);
+            send(&mut game, &format!("fill {n}"));
+            // Most plants mature, fruit on the vine, some ripening.
+            game.run(150_000.0);
+            let entities = game.world().len();
+            frames(&mut game, 120);
+            let live = frames(&mut game, 600);
+            let name = if art.is_empty() { "classic" } else { art };
+            println!(
+                "| {n} | {entities} | {name} | {:.3} / {:.2} |",
+                live.0, live.1
+            );
+        }
     }
 }
 

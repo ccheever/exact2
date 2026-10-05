@@ -67,16 +67,9 @@ fn a_drawn_mesh_replaces_the_simulated_shape_material_and_levels() {
     // The model and its far level: two records for the one entity.
     assert_eq!(r.instances.len(), 2);
     assert!(r.instances.iter().all(|i| i.transform == plant.index()));
-    // Present rewrites the same rows each tick: unchanged content rebatches nothing.
+    // A present writes a row only when its content changes: rows left
+    // alone rebatch nothing.
     r.calls.clear();
-    let rows: Vec<_> = [cube, prop, plant]
-        .iter()
-        .map(|&e| (e, w.get::<DrawnMesh>(e).unwrap().clone()))
-        .collect();
-    for (e, d) in rows {
-        w.remove::<DrawnMesh>(e);
-        w.insert(e, d);
-    }
     f.feed_to(&w, &mut r).unwrap();
     assert!(!r.calls.contains(&Call::Batches), "{:?}", r.calls);
     // Taking the swaps away draws the simulation again.

@@ -243,8 +243,8 @@ a completed tick steps the instances in blocks whose local or propagated poses
 changed since the last step (`World::poses_changed_since`) and those still
 interpolating, so static instances, parented or not, cost nothing per tick or
 frame. Parented global poses are retained and recomputed only in changed blocks.
-A presentation `Offset` whose content changed (present rewrites every row each
-tick; values are compared) re-poses only its entity's drawn subtree: those
+A presentation `Offset` whose content changed (a present writes a row only when
+its value differs, so the feed reads `World::changed`) re-poses only its entity's drawn subtree: those
 instances, those pages, in both transform histories, so a few walkers in a
 forest cost their own subtrees, not the forest. A model batch stays one draw group per view unless an
 instance has a negative scale axis or an attachment.
@@ -339,16 +339,18 @@ themselves.
 included (and adds emission), on one instance: it becomes that material's records'
 tint with a flag that drops the authored factor, so instances in different colours
 still share their batches.
-Present rebuilds these every tick; the feed compares each entity's content, so
-unchanged looks cost nothing and changed ones (a pulsing glow) patch that entity's
+A full present rebuilds these, and a look written at every present (a pulse) moves
+the column's revision; the feed compares each entity's content, so unchanged looks
+cost nothing and changed ones (a pulsing glow) patch that entity's
 records and part looks in place in the instance buffer, without a rebatch. Only a
 look appearing on a merged part that had none (the part-look table changes shape)
 rebatches.
 `DrawnMesh` (presentation) is what an entity draws in place of its `Mesh`, `ModelLod`
 and, when set, `Material`, or on a bare pose without a `Mesh`: primitive batches,
 model records and levels, shadows, primitive dimensions and material floats all
-read the drawn mesh. The feed digests the rows' content, so a present that rewrites
-the same swaps rebatches nothing; a changed swap rebatches like a `Mesh` write. A
+read the drawn mesh. A present writes a row only when its value differs, so the feed
+reads the column's revision: swaps left alone rebatch nothing; a changed swap
+rebatches like a `Mesh` write. A
 swapped model also resets that instance's pose interpolation.
 At load, a model's rigid, non-blended parts that share a material merge into one
 draw: static parts into one mesh pre-transformed into model space (mirrored parts

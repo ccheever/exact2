@@ -242,6 +242,8 @@ pub struct World {
     fresh: Vec<Entity>,
     entities_revision: u64,
     pub(crate) presentation_generation: u64,
+    // What the presents since the last full one wrote; never saved.
+    pub(crate) presented: Presented,
 }
 const MAGIC: &[u8; 8] = b"EXGAME\0\x04";
 
@@ -291,6 +293,7 @@ impl World {
             fresh: vec![],
             entities_revision: 0,
             presentation_generation: 0,
+            presented: Presented::default(),
         };
         world.register_scene();
         world
@@ -1305,6 +1308,7 @@ mod inspect;
 pub(crate) use inspect::ObservationState;
 
 mod presentation;
+pub(crate) use presentation::{Derivation, Presented, NOBODY};
 
 mod save;
 use save::Free;

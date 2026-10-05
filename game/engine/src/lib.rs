@@ -48,7 +48,7 @@ pub use input::{
 };
 pub use particle_look::ParticleLook;
 pub use placed::{CanvasChild, Facing, Placed, PlacedPlane};
-pub use present::{Present, PresentationComponent};
+pub use present::{Derived, Keys, Present, PresentationComponent};
 pub use rng::{RangeValue, Rng};
 pub use scene::*;
 pub use sim::{Clock, Game, Now, Paranoid, Sim};
