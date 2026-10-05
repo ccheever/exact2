@@ -2,6 +2,7 @@
 
 - **Family:** xAI. `grok-4.7`, reasoning effort xhigh, `--no-subagents`, `--always-approve`, read-only by instruction, `--cwd` a detached worktree at each round's commit. It measured UIKit's section insets on a booted simulator in round 1 without writing to the worktree.
 - **Method:** round 1 one brief (sha256 `020c14cf8c2be0a0106f50d77b921ef3328d0ea1cc56f95d0264da978b2ffc60`), shared with astra, blind to the other review; round 2 a brief with this reviewer's own findings and the author's dispositions (sha256 `f886a9041774a92c2d10b50cb7068cf336a6806e0f9b677c1e666bb197bb3684`). The author (Claude) is not a reviewer. A first round-1 run without `--always-approve` stopped after its opening sentence and was run again.
+- **Numbering:** LLP 1084's §6.3 here became §6.4 on landing (main had added its own §6.3); the transcriptions keep the number they saw.
 - **Transcription:** the findings and verdict, unedited (the tool's opening progress sentences are omitted).
 - **Verdict:** r1 LAND WITH FIXES; r2 LAND.
 - **Disposition (r2):** 1, 2, 4, 5 taken (see astra's file for the shared fixes). 3 (the zero-motion pop) argued with HID evidence: vertical drags at x = 10 and x = 150 on a pushed screen without swipe rows scroll and do not pop (LLP 1057.001 §7); round 2 accepted it.

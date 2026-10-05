@@ -2,9 +2,10 @@
 
 - **Family:** OpenAI. `gpt-6-astra` via `codex exec`, reasoning effort xhigh, sandbox read-only, `-C` a detached worktree at each round's commit.
 - **Method:** round 1 one brief (sha256 `020c14cf8c2be0a0106f50d77b921ef3328d0ea1cc56f95d0264da978b2ffc60`), shared with grok, blind to the other review; rounds 2 and 3 a brief with this reviewer's own findings and the author's dispositions (sha256 `844dd1df22ed45daa57dd571e836c8b940d13f37d015c21f045d6d6e17402c31`, `a8e1160294409967808651c183b111bd51b46333d956ef79073af3caec72d476`). The author (Claude) is not a reviewer.
+- **Numbering:** LLP 1084's §6.3 here became §6.4 on landing (main had added its own §6.3); the transcriptions keep the number they saw.
 - **Transcription:** each round's final message, unedited.
 - **Verdict:** r1 DO NOT LAND; r2 LAND WITH FIXES; r3 LAND WITH FIXES.
-- **Disposition (r2):** 1–5 taken: CSS-collapsed space at an authored boundary, above a header as `headerTopPadding`; the sheet's own numbers are UIKit's (no tolerance against UIKit's insets); kernel and UIKit tests; the clone's stale fallback; LLP 1084 §6.3, LLP 1057.001 §7, contract-for-humans.
+- **Disposition (r2):** 1–5 taken: CSS-collapsed space at an authored boundary, above a header as `headerTopPadding`; the sheet's own numbers are UIKit's (no tolerance against UIKit's insets); kernel and UIKit tests; the clone's stale fallback; LLP 1084 §6.4, LLP 1057.001 §7, contract-for-humans.
 - **Disposition (r3):** r2 2 (negative margins), 3 (space under a last footer) and 4 (the direction rule's test, evidence labelled) taken; r2 1 in part (exact numbers; provenance declared, LLP 1084 §7).
 - **Disposition (landing, Charlie's call):** r3 1–3 are DEFERRED, not taken: carrying which margins the author wrote through Contract (a new kernel prop; LLP 1084 §7 Open), a list the author makes `display="flex"` (its margins do not collapse; the kernel assumes block), and a browser-rendered boundary comparison beside the kernel's layout. Fix loops get three rounds (AGENTS.md); landed with these recorded.
 

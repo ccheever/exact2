@@ -284,7 +284,7 @@ fn collapse(a: f32, b: f32) -> f32 {
 }
 
 /// Each boundary the author changed takes the web's space: the margins that
-/// meet there collapsed, as block margins do (§6.3).
+/// meet there collapsed, as block margins do (§6.4).
 fn authored_space(list: &mut GroupedList, shown: &[NodeRef<'_>]) {
     use crate::style::Dimension;
     let plain = list.style == "plain";

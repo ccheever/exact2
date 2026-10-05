@@ -305,7 +305,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             c.showsSeparators = s?.card ?? true
             #endif
             // An authored space above a header is above it: UIKit's top inset
-            // there is the header-to-rows gap (§6.3).
+            // there is the header-to-rows gap (§6.4).
             let space = s?.spaceAbove
             if let space, s?.header != nil { c.headerTopPadding = space }
             // The list's own background stays behind a card-less section's

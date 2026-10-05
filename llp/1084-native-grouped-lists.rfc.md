@@ -298,10 +298,10 @@ gaps, a titled section's header 20 under the card above).
 - **A real touch's identity when a row's control is replaced.** §6.3's `projected: {row, part}` tells rows and parts apart, not the authored control behind one switch: a `when` that replaces a row's control between the aim and the touch passes as the old one (the switch the finger meets is the same one). Carrying the target id needs the host's model in the dispatch log's landing (astra, round 3 of `code-2026-10-04-grouped-platform-tap`, deferred).
 - **A section margin's provenance.** §6.4 reads the sheet's own numbers as
   UIKit's; Contract could carry which margins the author wrote instead.
-- **A grouped list made a flex container.** §6.3 collapses section margins
+- **A grouped list made a flex container.** §6.4 collapses section margins
   as a block list's are; a list the author writes `display="flex"` adds them
   on the web. Contract could refuse it, or the kernel follow the display.
-- **A browser's boundaries.** §6.3's proofs read the kernel's layout and
+- **A browser's boundaries.** §6.4's proofs read the kernel's layout and
   UIKit's; a fixture compared in a browser beside UIKit would close it.
 
 - **`sidebar` and `sidebarPlain`.** These are UIKit's other two appearances. They wait for an iPad or Mac consumer.

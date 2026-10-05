@@ -332,7 +332,7 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(try cell(p, 20).backgroundConfiguration?.backgroundColor, .clear, "and gone again")
     }
 
-    /// LLP 1084 §6.3: an authored space is above the later section, above
+    /// LLP 1084 §6.4: an authored space is above the later section, above
     /// its header when it has one; nil keeps UIKit's gaps.
     func testAnAuthoredSpaceSitsAboveTheSectionAndItsHeader() throws {
         var space: (CGFloat?, CGFloat?) = (nil, nil)
