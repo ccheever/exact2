@@ -22,8 +22,11 @@ sends the picked fruit into the satchel with a short chime. These gestures,
 particles and sounds use the saved game clock and preserve crop timing and prices.
 `game.audio` selects the optional sound output.
 
-The Garden panel's **Look** row starts a new garden in another look; play is
-identical in each. **Art pass** draws baked models from `art.mjs` (run
+The Garden panel's **Look** row switches the look of the garden you have grown;
+play, saves and the world's hash are identical in each. A look is presentation
+only (`art` is a live argument): setup registers every look's generated models and
+places every look's props as bare poses, and `Game::present` draws the chosen look
+(`DrawnMesh`, `DrawnLight`, the camera's `DrawnEnvironment`). **Art pass** draws baked models from `art.mjs` (run
 `bun game/games/garden/art.mjs` to regenerate `art/`; the bake turns it into
 `.model` assets): a model per crop and growth stage with far levels of detail,
 fruit shapes recoloured per mutation, a picket fence with lanterns, a seed
@@ -131,7 +134,8 @@ keyboard controls. It does not change the earlier market playtest policies.
 | File | |
 |---|---|
 | `logic/src/lib.rs` | arguments, setup, the tick |
-| `logic/src/art.rs`, `feedback.rs` | shared models, saved gestures, action particles and sounds |
+| `logic/src/art.rs`, `feedback.rs` | classic models, every look's setup and `present` dispatch, saved gestures, action particles and sounds |
+| `logic/src/looks.rs`, `pass.rs` | the golden and storybook looks, and the art pass: their props, sky and drawn models |
 | `logic/src/garden.rs` | the clock, the schedule, plants, fruit, weather |
 | `logic/src/farm.rs` | tiles, purse, backpack, commands, offline catch-up |
 | `logic/src/shop.rs`, `crops.rs`, `hud.rs` | stock, the catalogue and values, publication |

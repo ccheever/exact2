@@ -440,13 +440,12 @@ fn flower_bank() -> MeshData {
     m.finish()
 }
 
-pub fn setup(w: &mut World, art: &str) {
-    if art == "pass" {
-        return crate::pass::setup(w);
-    }
-    if let Some(style) = crate::looks::style(art) {
-        return crate::looks::setup(w, style);
-    }
+/// Every look's world at once, so the look switches live (`art` is a live
+/// argument). What every look draws (the gardener, crops, ground, meadow,
+/// barrel) keeps the classic look's models in the simulation; a prop only
+/// some looks draw is a bare pose that each look's `present` dresses. Every
+/// look's generated models register here, each under its own names.
+pub fn setup(w: &mut World) {
     let body = w
         .generated("gardener.model", gardener())
         .expect("gardener mesh");
@@ -499,63 +498,124 @@ pub fn setup(w: &mut World, art: &str) {
         w.generated(&format!("fruit-{kind}.model"), fruit(kind))
             .expect("fruit mesh");
     }
-    let trees = w
-        .generated("orchard.model", orchard())
+    w.generated("orchard.model", orchard())
         .expect("orchard mesh");
-    let flowers = w
-        .generated("flowers.model", flower_bank())
+    w.generated("flowers.model", flower_bank())
         .expect("flower mesh");
-    for (name, position, mesh, material) in [
+    w.spawn_named(
+        "meadow",
         (
-            "meadow",
-            Vec3::new(0., -0.10, 0.),
+            Transform::at(0., -0.10, 0.),
             Mesh::plane(1600., 1600.),
             paint([0.49, 0.68, 0.34]),
         ),
-        ("orchard", Vec3::ZERO, trees, Material::default()),
-        (
-            "flowers-west",
-            Vec3::new(-4.0, 0., 1.9),
-            flowers.clone(),
-            Material::default(),
-        ),
-        (
-            "flowers-east",
-            Vec3::new(8.0, 0., 1.9),
-            flowers,
-            Material::default(),
-        ),
-        (
-            "bed-edge",
-            Vec3::ZERO,
-            Mesh::cube(1.),
-            paint([0.51, 0.34, 0.21]),
-        ),
+    );
+    // Classic props: bare poses `classic` dresses.
+    for (name, position) in [
+        ("orchard", Vec3::ZERO),
+        ("flowers-west", Vec3::new(-4.0, 0., 1.9)),
+        ("flowers-east", Vec3::new(8.0, 0., 1.9)),
+        ("bed-edge", Vec3::ZERO),
     ] {
         w.spawn_named(
             name,
-            (
-                Transform::at(position.x, position.y, position.z),
-                mesh,
-                material,
-            ),
+            (Transform::at(position.x, position.y, position.z), Ambient),
         );
+    }
+    // A second directional light after the sun: the art pass's moon, the
+    // other looks' fill. Unlit in the classic look.
+    w.spawn_named("moon", (Transform::default(), Ambient));
+    crate::looks::setup(w);
+    crate::pass::setup(w);
+}
+
+/// What `present` draws for each value of `art`.
+pub fn present(p: &mut Present, args: &crate::Options) {
+    match args.art.as_str() {
+        "pass" => crate::pass::present(p, args.smooth),
+        art => match crate::looks::style(art) {
+            Some(style) => crate::looks::present(p, style),
+            None => classic(p),
+        },
     }
 }
 
-pub fn resize(w: &World, span: f32, mid: f32) {
-    if crate::pass::on(w) {
-        return crate::pass::resize(w, span, mid);
+/// The classic look: the simulation's own models, and its props dressed.
+fn classic(p: &mut Present) {
+    dress(p, "orchard", DrawnMesh::model("orchard.model"));
+    dress(p, "flowers-west", DrawnMesh::model("flowers.model"));
+    dress(p, "flowers-east", DrawnMesh::model("flowers.model"));
+    if let Some(bed) = bed(p) {
+        dress(p, "bed-edge", bed.material(paint([0.51, 0.34, 0.21])));
     }
-    *w.require_mut::<Mesh>("bed-edge") = Mesh::cuboid(Vec3::new(span + 4.2, 0.25, span + 4.2));
+    hide(p, "weather");
+    hide(p, "ambience-golden");
+    hide(p, "ambience-storybook");
+}
+
+/// The raised bed's border box around the garden's plots.
+pub(crate) fn bed(p: &Present) -> Option<DrawnMesh> {
+    let span = p.resource::<crate::farm::Farm>()?.size as f32 * crate::garden::TILE;
+    Some(DrawnMesh::new(Mesh::cuboid(Vec3::new(
+        span + 4.2,
+        0.25,
+        span + 4.2,
+    ))))
+}
+
+/// Draw `drawn` on the named entity, if it is there.
+pub(crate) fn dress(p: &mut Present, name: &str, drawn: DrawnMesh) {
+    if let Some(e) = p.named(name) {
+        p.insert(e, drawn);
+    }
+}
+
+/// The named entity draws nothing in this look (an emitter of another look).
+pub(crate) fn hide(p: &mut Present, name: &str) {
+    if let Some(e) = p.named(name) {
+        p.insert(e, Opacity(0.0));
+    }
+}
+
+/// Draw an entity at `to` in place of its own local pose: the `Offset` that
+/// takes its local pose there.
+pub(crate) fn place(p: &mut Present, e: Entity, to: Transform) {
+    let Some(local) = p.get::<Transform>(e).map(|t| *t) else {
+        return;
+    };
+    // Crops are unturned and uniformly scaled: local⁻¹ · to in closed form.
+    let s = local.scale.x;
+    let offset = if local.rotation == Quat::IDENTITY && local.scale == Vec3::splat(s) && s != 0.0 {
+        Transform {
+            position: (to.position - local.position) / s,
+            rotation: to.rotation,
+            scale: to.scale / s,
+        }
+    } else {
+        let affine = |t: Transform| {
+            Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.position)
+        };
+        let (scale, rotation, position) =
+            (affine(local).inverse() * affine(to)).to_scale_rotation_translation();
+        Transform {
+            position,
+            rotation,
+            scale,
+        }
+    };
+    p.insert(e, Offset(offset));
+}
+
+/// Places every look's props with the garden: the classic and styled borders,
+/// the art pass's trees.
+pub fn resize(w: &World, span: f32, mid: f32) {
     w.require_mut::<Transform>("bed-edge").position = Vec3::new(mid, -0.18, -mid);
     w.require_mut::<Transform>("orchard").position = Vec3::new(0., 0., -span - 2.0);
     crate::looks::resize(w, span, mid);
+    crate::pass::resize(w, span);
 }
 
-/// After the garden grows: the art pass rebuilds its fence around it.
+/// After the garden grows: the art pass's fence is rebuilt around it.
 pub fn regrow(w: &mut World) {
-    if crate::pass::on(w) {
-        crate::pass::build_fence(w);
-    }
+    crate::pass::build_fence(w);
 }
