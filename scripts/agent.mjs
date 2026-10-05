@@ -1458,11 +1458,29 @@ async function main(argv) {
       }
       return [op, r];
   };
+  // A drive that names no scratch store has no storage, and a source's write fails only in the
+  // journal; say so the first time, beside the op that caused it (authoring bench, LLP 1087).
+  // The web carrier only: its journal read is an in-page call, where a native carrier's
+  // could time out and fail the transport for the ops after it.
+  let peek = 0, probes = 0, warned = host !== 'web' || flags.json || flags.storage !== undefined;
+  const storageNote = async () => {
+    if (warned || ++probes > 20) return; // a missing store shows at the first writes
+    try {
+      const j = await s.op({ op: 'logs', since: peek });
+      if (!Array.isArray(j?.lines)) return;
+      peek = j.next;
+      if (j.lines.some((l) => /unavailable in agent mode/.test(typeof l === 'string' ? l : JSON.stringify(l)))) {
+        warned = true;
+        console.error('note: a data source was refused storage: this drive names no scratch store, so writes do nothing; pass --storage <name> (docs/agent-pitfalls.md)');
+      }
+    } catch { warned = true; } // advice only: never fail a drive over it
+  };
   try {
     for (const [k, line] of ops.entries()) {
       at = k + 1;
       const [op, r] = await step(line);
       console.log(flags.json ? JSON.stringify(r) : render(op, r));
+      if (['tap', 'type', 'clock'].includes(op)) await storageNote();
     }
     return 0;
   } catch (e) {
