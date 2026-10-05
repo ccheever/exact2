@@ -943,6 +943,8 @@ pub struct CanvasHost<D: DataSource> {
     /// touch left must not wait on that, or `next_due` asks for a turn at
     /// once until the motion ends.
     painted_once: bool,
+    /// The last frame left its GPU canvases for a device still being made.
+    gpu_waiting: bool,
     /// A touch came: until its frame is out, collection passes build only
     /// the rows that show (a slice of 0); the lead follows that frame.
     responding: bool,
@@ -1031,6 +1033,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             tracks_epoch: 0,
             lead: false,
             painted_once: false,
+            gpu_waiting: false,
             responding: false,
         })
     }
@@ -1079,7 +1082,10 @@ impl<D: DataSource + Default> CanvasHost<D> {
             // GPU canvases follow the tree (made, bound, given their
             // assets) outside a scroll's frame, as the Linux loop does.
             // `lead` turns on at the frame after the first paint.
-            if self.borrowed || !self.lead {
+            // The GPU device still being made (on its own thread, since boot):
+            // the canvases wait a frame rather than this thread waiting for it.
+            self.gpu_waiting = crate::surfaces::gpu_device_pending();
+            if self.borrowed || !self.lead || self.gpu_waiting {
                 // On a booting thread, or the first frame: the canvases come
                 // with the next frame (made then, as a picture arrives after
                 // first content, not before it).
@@ -1361,6 +1367,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
     pub fn next_due(&self) -> Option<f64> {
         // The windows' lead is owed a turn as soon as the first frame is out,
         // and the GPU canvases a booting thread left.
+        if self.owed_surfaces && self.gpu_waiting && self.lead {
+            // Asked again in a few ms, not at once: a turn now would only find
+            // the device still being made.
+            return Some(4.0);
+        }
         if (self.painted_once && !self.lead) || self.owed_surfaces {
             return Some(0.0);
         }

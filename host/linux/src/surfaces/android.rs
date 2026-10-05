@@ -6,6 +6,7 @@
 //! app's `shaders/*.wgsl` under the asset root.
 #![allow(unsafe_code)]
 use super::*;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// The module's native library directory: `current_exe` is the zygote's.
 pub(super) fn library_dir() -> Option<PathBuf> {
@@ -48,26 +49,65 @@ pub(super) fn load(abi: &Abi) -> Result<(), String> {
 /// the host's thread loads the module (`gpu_load`, which takes the device)
 /// without making one. Nothing when the app has no GPU module.
 pub(crate) fn prepare(compat: &'static str) {
-    let _ = std::thread::Builder::new()
+    // Set before the thread runs: no frame may open the module in between.
+    PREPARING.store(true, Ordering::Release);
+    let made = std::thread::Builder::new()
         .name("exact-gpu-open".into())
         .spawn(move || {
+            let done = || PREPARING.store(false, Ordering::Release);
             let Ok(compat) = serde_json::from_str::<Value>(compat) else {
-                return;
+                return done();
             };
             if !gpu_card(&compat, "").is_object() {
-                return;
+                return done();
             }
             let Ok(abi) = Abi::open_as(&compat, "", false) else {
-                return;
+                return done();
             };
             // A module without it was built before it: it loads as it did.
             if unsafe { abi.library.get::<unsafe extern "C" fn()>(b"gpu_prepare") }.is_ok() {
                 unsafe { abi.symbol::<unsafe extern "C" fn()>(b"gpu_prepare")() };
             }
-            // The library stays loaded (the host's own open finds it), and
-            // nothing it made belongs to this thread.
+            match unsafe {
+                abi.library
+                    .get::<unsafe extern "C" fn() -> u32>(b"gpu_prepared")
+            } {
+                Ok(ready) => PREPARED_FN.store(*ready as usize, Ordering::Release),
+                Err(_) => done(),
+            }
+            // The library stays loaded (the host's own open finds it, and
+            // PREPARED_FN stays callable), and nothing it made belongs to this
+            // thread.
             std::mem::forget(abi);
         });
+    if made.is_err() {
+        PREPARING.store(false, Ordering::Release);
+    }
+}
+
+/// [`prepare`] is still opening the module or making its device.
+static PREPARING: AtomicBool = AtomicBool::new(false);
+/// The module's `gpu_prepared`, once [`prepare`] opened it.
+static PREPARED_FN: AtomicUsize = AtomicUsize::new(0);
+
+/// Whether the device [`prepare`] makes is not ready yet: opening the module
+/// now would wait for it. A host skips its canvases for the frame instead.
+pub(crate) fn device_pending() -> bool {
+    if !PREPARING.load(Ordering::Acquire) {
+        return false;
+    }
+    let ready = PREPARED_FN.load(Ordering::Acquire);
+    if ready == 0 {
+        return true;
+    }
+    // SAFETY: the module's own `gpu_prepared`, from a library that is never
+    // unloaded (prepare forgot its handle).
+    let ready: unsafe extern "C" fn() -> u32 = unsafe { std::mem::transmute(ready) };
+    if unsafe { ready() } == 1 {
+        PREPARING.store(false, Ordering::Release);
+        return false;
+    }
+    true
 }
 
 /// A window a reader gave a canvas's view: the `ANativeWindow`, its pixel

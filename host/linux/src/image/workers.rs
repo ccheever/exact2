@@ -362,7 +362,11 @@ impl Workers {
                 let owner = workers.clone();
                 std::thread::Builder::new()
                     .name(format!("exact-png-{n}"))
-                    .spawn(move || owner.run())
+                    .spawn(move || {
+                        #[cfg(target_os = "android")]
+                        crate::android::background_priority();
+                        owner.run()
+                    })
                     .expect("PNG worker");
             }
             workers

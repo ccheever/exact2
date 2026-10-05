@@ -157,6 +157,14 @@ pub fn prepare() {
     }
 }
 
+/// Whether a [`load`] would take its device now: 0 while [`prepare`]'s thread
+/// is still making it (a host skips its canvases for a frame rather than
+/// wait), 1 otherwise.
+pub fn prepared() -> u32 {
+    let slot = PREPARED.0.lock().unwrap_or_else(|e| e.into_inner());
+    u32::from(!matches!(*slot, Prepared::Creating))
+}
+
 /// The active Metal device identity, for filtering host removal notifications.
 pub fn device_registry_id() -> u64 {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -618,6 +626,12 @@ macro_rules! module {
         #[no_mangle]
         pub extern "C" fn gpu_prepare() {
             $crate::native::prepare()
+        }
+
+        /// 1 when `gpu_load` would not wait for a prepared device, 0 while it is made.
+        #[no_mangle]
+        pub extern "C" fn gpu_prepared() -> u32 {
+            $crate::native::prepared()
         }
 
         /// Active Metal registry identity, or zero off Metal.

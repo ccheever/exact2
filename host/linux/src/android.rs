@@ -198,6 +198,17 @@ extern "C" fn on_vsync(_frame_time_nanos: i64, data: *mut c_void) {
     v.arrived.set(true);
 }
 
+/// Run the calling thread at background priority (nice 10, Android's
+/// `THREAD_PRIORITY_BACKGROUND`), as an image loader's decoders run: below
+/// the main thread and RenderThread, whose frames come first. A thread a
+/// reader's own exact2 thread spawns would otherwise inherit its priority.
+pub fn background_priority() {
+    // SAFETY: setpriority on this thread's own id; no memory is passed.
+    unsafe {
+        libc::setpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t, 10);
+    }
+}
+
 /// Run the calling thread only on the cores outside the slowest cluster
 /// (those whose top clock is above the lowest top clock). A thread that does
 /// a frame's work in bursts and sleeps between them looks idle to the
