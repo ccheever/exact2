@@ -440,16 +440,19 @@ impl Lexer {
         let mut chars = text[start + 1..].char_indices();
         while let Some((i, c)) = chars.next() {
             match c {
-                '\\' => match chars.next().and_then(|(_, c)| escaped(c)) {
-                    Some(c) => out.push(c),
-                    None => {
-                        return Err(LexError {
-                            id: "syntax-bad-escape",
-                            message: "unknown escape".into(),
-                            span,
-                        })
+                '\\' => {
+                    let next = chars.next().map(|(_, c)| c);
+                    match next.and_then(escaped) {
+                        Some(c) => out.push(c),
+                        None => {
+                            return Err(LexError {
+                                id: "syntax-bad-escape",
+                                message: bad_escape(next),
+                                span,
+                            })
+                        }
                     }
-                },
+                }
                 c if c == quote => return Ok((out, start + 1 + i + 1)),
                 c => out.push(c),
             }
@@ -459,6 +462,15 @@ impl Lexer {
             message: "string never closes".into(),
             span,
         })
+    }
+}
+
+/// The message for a `\` no escape follows: it names the escapes a string accepts.
+pub(crate) fn bad_escape(next: Option<char>) -> String {
+    let accepted = "a string accepts \\n \\t \\\" \\\\ \\` \\$";
+    match next {
+        Some(c) => format!("unknown escape `\\{c}`; {accepted}"),
+        None => format!("a `\\` with nothing after it; {accepted}"),
     }
 }
 

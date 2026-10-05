@@ -177,7 +177,9 @@ host's wire beneath them: it addresses views by numeric `id`, and it refuses a
 request it would answer by doing nothing (a `target`, an unknown op, a web
 `tap` with no browser input behind it). A reload or a raw browser step goes
 through `s.carrier` (`reset({keep: true})` reloads the current browser route with
-its store and agent launch facts; `evaluate`, and on Chrome `call`, drive raw browser steps).
+its store and agent launch facts; `evaluate`, and on Chrome `call`, drive raw browser steps;
+`evaluate` takes an expression string or a function of no arguments, which runs in the page,
+so it sees none of the script's variables).
 
 Use the existing five repository checks for repository changes. Do not add a
 new global check or fixture framework for an ordinary app edit. For documentation,
