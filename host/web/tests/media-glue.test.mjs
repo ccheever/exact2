@@ -8,10 +8,10 @@ globalThis.IntersectionObserver ??= class { observe() {} disconnect() {} };
 await import('../media-glue.js');
 
 /** An `<audio>` as the glue drives it: seeks, loads and plays are counted. */
-function audio(props, { readyState = 4, error = null } = {}) {
+function audio(props, { readyState = 4, error = null, handlers = ['error', 'seeked', 'loadedmetadata'] } = {}) {
   const listeners = {}, el = {
     localName: 'audio', readyState, error, isConnected: true, paused: true, seeks: [], loads: 0, plays: 0, attrs: new Set(),
-    exactMedia: { props, handlers: ['error', 'seeked', 'loadedmetadata'] }, duration: NaN,
+    exactMedia: { props, handlers }, duration: NaN,
     set currentTime(t) { this.seeks.push(t); }, get currentTime() { return this.seeks.at(-1) ?? 0; },
     addEventListener(name, f) { (listeners[name] ??= []).push(f); },
     toggleAttribute(name, on) { if (on) this.attrs.add(name); else this.attrs.delete(name); },
@@ -63,10 +63,27 @@ test('a source refused before the glue had the element is reported', () => {
 
 test('metadata the glue reported on attaching is not reported again by the event HTML had queued', () => {
   const el = audio({ src: 'a.mp3' });
-  expect(el.sent).toEqual(['loadedmetadata\n']);
+  expect(el.sent).toEqual(['loadedmetadata\n', 'seeked\n']);
   el.fire('loadedmetadata');
-  expect(el.sent).toEqual(['loadedmetadata\n']);
+  el.fire('seeked');
+  expect(el.sent).toEqual(['loadedmetadata\n', 'seeked\n']);
   el.fire('emptied'); // a new load
   el.fire('loadedmetadata');
-  expect(el.sent).toEqual(['loadedmetadata\n', 'loadedmetadata\n']);
+  el.fire('seeked');
+  expect(el.sent).toEqual(['loadedmetadata\n', 'seeked\n', 'loadedmetadata\n', 'seeked\n']);
+});
+
+test('a player that already finished loading reports its seek and canplay once', async () => {
+  // Boot on the wasm host hears the opening seek (synthetic-media: at 0, seeks 1,
+  // ready true, fresh false). Attaching after that load still reports it once,
+  // and does not start a second seek by assigning the time the element holds.
+  const el = audio({ src: 'a.mp3', currentTime: '0' }, { readyState: 4, handlers: ['loadedmetadata', 'seeking', 'timeupdate', 'seeked', 'canplay'] });
+  const once = ['loadedmetadata\n', 'seeking\n', 'timeupdate\n0', 'seeked\n', 'canplay\n'];
+  expect(el.seeks).toEqual([]);
+  expect(el.sent).toEqual(once);
+  el.fire('seeking'); el.fire('timeupdate'); el.fire('seeked'); el.fire('canplay'); el.fire('loadedmetadata');
+  expect(el.sent).toEqual(once);
+  await new Promise(r => setTimeout(r, 0)); // the queued duplicate was swallowed; a later timeupdate still reports
+  el.fire('timeupdate');
+  expect(el.sent).toEqual([...once, 'timeupdate\n0']);
 });

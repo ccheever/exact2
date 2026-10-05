@@ -56,7 +56,8 @@ function update(el) {
     const value = props[name] == null ? fallback : Number(props[name]);
     if (!Number.isFinite(value) || value < min || value > max) { state.error('invalid-value', `Invalid ${name}: ${props[name]}`); continue; }
     if (name === 'currentTime' && !el.readyState) state.seek = value;
-    else { try { el[name] = value; } catch (error) { state.error('invalid-value', error.message); } }
+    // The element is already there: assigning the same time starts another seek.
+    else if (!(name === 'currentTime' && el.currentTime === value)) { try { el[name] = value; } catch (error) { state.error('invalid-value', error.message); } }
   }
   if (changed('preservesPitch')) el.preservesPitch = props.preservesPitch !== 'false';
   el.disablePictureInPicture = props.disablepictureinpicture === 'true' || props.allowsPictureInPicturePlayback === 'false';
@@ -114,6 +115,16 @@ globalThis.exact.installMedia = (el, send) => {
   if (el.readyState) {
     emit('loadedmetadata'); early.add('loadedmetadata');
     if (Number.isFinite(el.duration)) { emit('durationchange', String(el.duration)); early.add('durationchange'); }
+    // A load that already finished its seek has fired these, or has them queued
+    // (readyState moves first). Report the opening seek once. timeupdate repeats,
+    // so its flag only covers the one already queued, not a later seek.
+    if (el.readyState >= 2 && el.seeking !== true) {
+      emit('seeking'); early.add('seeking');
+      if (Number.isFinite(el.currentTime)) { emit('timeupdate', String(el.currentTime)); early.add('timeupdate'); }
+      emit('seeked'); early.add('seeked');
+    }
+    if (el.readyState >= 3) { emit('canplay'); early.add('canplay'); }
+    setTimeout(() => { early.delete('seeking'); early.delete('timeupdate'); early.delete('seeked'); early.delete('canplay'); }, 0);
   }
   // A source refused before the glue had the element (an unknown scheme, a
   // missing `app:/` file) failed while no one listened (podcast F19).

@@ -22,9 +22,20 @@ const Dirty = new Set();
 const send = e => text => e.dispatchEvent(new CustomEvent("exact-media", { detail: text }));
 function flush() {
   const later = [];
-  for (const e of Dirty) if (!e.$media.retired) { if (e.isConnected) Install(e, send(e)); else later.push(e); }
+  for (const e of Dirty) if (!e.$media.retired) { if (e.isConnected) { Install(e, send(e)); holdUntilPlayable(e); } else later.push(e); }
   Dirty.clear();
   if (later.length) requestAnimationFrame(() => { for (const e of later) install(e); });
+}
+// The opening seek finishes after the glue attaches. `clock settle` waits, so a
+// boot snapshot is not taken between `seeking` and `seeked` (synthetic-media).
+function holdUntilPlayable(e) {
+  if (e.$media.hold || e.error || (e.readyState >= 3 && e.seeking !== true)) return;
+  e.$media.hold = true;
+  inflight.n++;
+  const release = () => { if (!e.$media.hold) return; e.$media.hold = false; inflight.n--; for (const n of ['seeked', 'canplay', 'error']) e.removeEventListener(n, check); };
+  const check = () => { if (e.$media.retired || e.error || (e.readyState >= 3 && e.seeking !== true)) release(); };
+  e.$media.release = release;
+  for (const n of ['seeked', 'canplay', 'error']) e.addEventListener(n, check);
 }
 function install(e) {
   if (e.$media.retired) return;
@@ -32,7 +43,7 @@ function install(e) {
   Dirty.add(e);
   if (Glue) return;
   inflight.n++;
-  Glue = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => { globalThis.exact ??= {}; return import("./media-glue.js"); })
+  Glue = new Promise(r => requestAnimationFrame(r)).then(() => { globalThis.exact ??= {}; return import("./media-glue.js"); })
     .then(() => { Install = globalThis.exact.installMedia; flush(); })
     .catch(err => journal.push(`media: unavailable: ${err.message}`)).finally(() => inflight.n--);
 }
@@ -49,6 +60,7 @@ export function media(e, attrs) {
   if (attrs["data-app-poster"]) appPoster(e, attrs["data-app-poster"]);
   onEnd(() => {
     e.$media.retired = true;
+    e.$media.release?.();
     globalThis.exact?.removeMedia?.(e);
     // As the wasm host retires a video: stopped, its source let go.
     e.pause(); e.removeAttribute("src"); e.load();
