@@ -313,6 +313,16 @@ guide's rules don't make obvious.
   simulator's hardware keyboard. (Native fixture's `peek` and bar menu,
   2026-10-05.)
 
+- **The software keyboard never shows on a simulator that drives have used.**
+  A field takes focus (its caret blinks) but no keyboard rises, and
+  `keyboardWillShow` never fires, so a keyboard-riding toolbar cannot be
+  measured. Cause: after agent and `axe` drives the simulator was in
+  hardware-keyboard mode, likely left by the HID input they inject; a
+  headless simulator has no Simulator.app setting to show. Fix: reboot it
+  (`xcrun simctl shutdown <udid>; xcrun simctl boot <udid>`), or toggle
+  Connect Hardware Keyboard where Simulator.app is installed. (Signal Clone
+  keyboard timing, 2026-10-05.)
+
 - **A storage test fails with `storage is busy`, or storage is "unavailable in
   agent mode".** Cause: a drive has no storage unless it names a scratch store, and
   an open SQLite database locks its file, so a mutation and the refresh it triggers
