@@ -329,6 +329,7 @@ pub fn lay_ground(w: &World) {
     // Two metres around the plots keep the barrel wholly on the garden's pad.
     *w.require_mut::<Mesh>("ground") = Mesh::plane(span + 4.0, span + 4.0);
     w.require_mut::<Transform>("ground").position = Vec3::new(mid, 0.0, -mid);
+    crate::art::resize(w, span, mid);
     w.require_mut::<Character>("player").bounds = Some([-span, span]);
     let mut follow = w.require_mut::<Follow>("camera");
     *follow = if overview {

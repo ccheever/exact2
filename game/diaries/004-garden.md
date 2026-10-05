@@ -1438,3 +1438,43 @@ web and that message plus six Blurs on macOS, then zero on both after the next
 normal tick. Both feeding captures were inspected. Artifacts:
 `artifacts/main-input-{web,macos}/`. Gameplay and the closed Jev policies are
 unchanged.
+
+## A visible art pass (2026-10-04, in progress)
+
+Charlie asked whether the games had become more fun and pointed out that the
+art still looked much the same. The honest distinction: today's care,
+compost and progression work added mechanics, but there was no substantial
+visual upgrade and no demonstrated improvement in enjoyment. The existing
+world was a flat brown grid, green cylinders and a capsule player. A fixed
+before capture (`artifacts/art-before-web/`) closes the shop, grows one
+hundred plants and walks east; its actual screenshot is the comparison.
+
+The first art pass replaces the capsule with a straw-hatted gardener, gives
+plants leaves and woody crowns, gives carrots/strawberries/bananas/pumpkins
+different silhouettes, and surrounds the pad with meadow, an orchard, a
+picket fence and flower banks. One generated mesh per crop keeps full fields
+instanced. Scenery adds five constant entities; it does not grow one entity
+per plot. The far fence follows expansion beyond the walking boundary.
+Warm light and ambient occlusion ground the models. Gameplay timings and
+prices are unchanged; new entity IDs can affect the existing entity-seeded
+fruit rolls, so this still needs a new deterministic baseline.
+
+The first logic suite passes, but the first browser drive renders an empty
+surface. Reading the real host log finds the exact cause: the generated GPU
+shell is still primitive-only, and binding `gardener.model` refuses with
+“this module has no model support; declare game.assets”. Garden's small
+app manifest now opts into the existing model-capable module. There is no
+core feature or new executor. This is a useful authoring lesson: passing the
+logic suite cannot prove a game's selected GPU module can present its models.
+The ordinary HUD had empty defaults and the clock had no pending work; the
+actual diagnosis required host logs. No new inspection operation is needed.
+
+The corrected second browser capture passes its harvest/movement drive in
+28.803 s, with no recorded children remaining. Both arrival and grown images
+were inspected: the character, leaves, fruit, flowers, orchard and fence are
+visible. Its mist and fill light were too strong, washing out the palette;
+the next fixed version reduces them and scatters the flower spacing. Artifacts:
+`artifacts/art-second-web/`; logs: `/tmp/exact2-garden-art-{first,second}-web.log`.
+The first failed drive and diagnosis remain in `art-first-web/` and
+`art-diagnose-web/`. This is an in-progress art result, not a fun or accepted
+parity claim.

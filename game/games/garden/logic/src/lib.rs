@@ -1,6 +1,7 @@
-//! Grow a Garden, greybox: buy seeds, plant them, let them grow (in real
+//! Grow a Garden: buy seeds, plant them, let them grow (in real
 //! time, and while you are away), harvest mutated fruit, sell, expand.
 
+mod art;
 pub mod crops;
 pub mod farm;
 pub mod garden;
@@ -68,12 +69,20 @@ impl Game for Garden {
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
         w.insert_resource(Environment {
-            background: Some([0.55, 0.75, 0.9]),
+            zenith: [0.18, 0.38, 0.60],
+            horizon: [0.62, 0.76, 0.67],
+            ground: [0.12, 0.16, 0.07],
+            ambient: 0.45,
+            exposure: 0.9,
             fog: Some(Fog {
-                color: Some([0.55, 0.75, 0.9]),
-                ..Fog::new(0.004, 0.02)
+                color: Some([0.62, 0.76, 0.67]),
+                ..Fog::new(0.0025, 0.04)
             }),
             ..Environment::default()
+        });
+        w.insert_resource(AmbientOcclusion {
+            radius: 0.6,
+            intensity: 0.8,
         });
         w.insert_resource(Schedule::default());
         w.insert_resource(GardenClock::default());
@@ -87,7 +96,7 @@ impl Game for Garden {
             (
                 Transform::default(),
                 Mesh::plane(1.0, 1.0),
-                Material::grid([0.2, 0.11, 0.05], garden::TILE),
+                Material::grid([0.12, 0.065, 0.025], garden::TILE),
             ),
         );
         let player = w.spawn_named(
@@ -111,10 +120,12 @@ impl Game for Garden {
             "sun",
             (
                 Transform::at(10.0, 20.0, 8.0).looking_at(Vec3::ZERO, Vec3::Y),
-                DirectionalLight::default(),
+                DirectionalLight {
+                    color: [1.0, 0.90, 0.72],
+                    ..DirectionalLight::default()
+                },
             ),
         );
-        farm::lay_ground(w);
         farm::create_plot_outline(w);
         w.spawn_named(
             "water-barrel",
@@ -132,6 +143,8 @@ impl Game for Garden {
                 garden::paint([0.2, 0.7, 1.0]),
             ),
         );
+        art::setup(w);
+        farm::lay_ground(w);
         shop::restock(w, 0);
         w.resource_mut::<Schedule>()
             .push(garden::change_after(w), Due::Weather);

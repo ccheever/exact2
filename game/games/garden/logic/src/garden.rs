@@ -211,8 +211,8 @@ pub fn plant(w: &mut World, kind: u8, tile: [u16; 2], at: u64) -> Entity {
     let c = crop(kind);
     let e = w.spawn((
         plant_pose(kind, tile, plant_scale(0)),
-        Mesh::cylinder(0.35, c.height),
-        paint(c.leaf),
+        Mesh::asset(format!("plant-{kind}.model")),
+        Material::default(),
         Plant {
             kind,
             tile,
@@ -256,7 +256,7 @@ pub fn bear(w: &mut World, plant: Entity, kind: u8, slot: u8, at: u64) -> Entity
     pose.position += plant_center(base) + fruit_offset(kind, slot);
     let e = w.spawn((
         pose,
-        Mesh::sphere(c.fruit_size),
+        Mesh::asset(format!("fruit-{kind}.model")),
         paint([0.55, 0.75, 0.35]),
         Fruit {
             kind,
