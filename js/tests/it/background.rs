@@ -574,7 +574,10 @@ fn a_let_go_chain_behind_a_background_write_finishes() {
             }
         }
         let Some(request) = background else { break };
-        let token = request.request.continuation.expect("background continuation");
+        let token = request
+            .request
+            .continuation
+            .expect("background continuation");
         let Dispatch::Run(Work::Now(work)) = host.runner.dispatch_work(token) else {
             panic!("a background round runs");
         };
@@ -587,7 +590,9 @@ fn a_let_go_chain_behind_a_background_write_finishes() {
         "the let-go chain is still in flight after the background rounds"
     );
     for request in later {
-        let Some(token) = request.request.continuation else { continue };
+        let Some(token) = request.request.continuation else {
+            continue;
+        };
         if let Dispatch::Run(Work::Now(work)) = host.runner.dispatch_work(token) {
             let outcome = std::thread::spawn(work).join().unwrap();
             host.runner.fulfill(request.ticket, outcome).unwrap();
