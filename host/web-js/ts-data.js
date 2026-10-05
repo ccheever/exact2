@@ -135,8 +135,8 @@ const native = Object.freeze({
 // `storage-sqlite.js`, beside the page and fetched on first use), under
 // the app's grants and its page's store key — none under the agent unless
 // the drive names a scratch store (`storageKey`) — and the documents the
-// person chose (`documents-glue.js`, the handles its pickers keep). Only
-// where the grants name `fs.` or `sqlite.`.
+// person chose (`documents-glue.js`, the handles its pickers keep). Without
+// storage grants the same interface refuses, without fetching any adapters.
 // A refusal is `{kind: 'Unavailable', code, message}`, with Hermes's codes
 // (js/src/prelude.js `storageCode`; kanban F28): 'agent' for a drive with no
 // scratch store, 'denied' past the grants, the filesystem's POSIX name, else
@@ -149,7 +149,7 @@ const coded = e => {
 };
 let toldAgent = false;
 function storageOf(grants) {
-  if (!['fs-read', 'fs-write', 'sqlite-open'].some(kind => hasGrant(grants, kind))) return undefined;
+  const admitted = ['fs-read', 'fs-write', 'sqlite-open'].some(kind => hasGrant(grants, kind));
   let fs, sqlite;
   const key = () => import('./storage-environment.js').then(({ storageKey, agentStorageRefusal }) => {
     const k = source.appId ? storageKey(source.appId) : null;
@@ -167,6 +167,9 @@ function storageOf(grants) {
   let docs;
   const documents = () => docs ??= ((globalThis.exact ??= {}), import(new URL('./documents-glue.js', import.meta.url).href)).then(() => globalThis.exact.documents.files(grants));
   const isDocument = args => args.slice(0, 2).some(p => typeof p === 'string' && p.startsWith('doc:/'));
+  const denied = (op, document = false) => (document ? Promise.resolve() : key()).then(() => {
+    throw Object.assign(new Error(`denied: ${op}`), { kind: 'Unavailable', code: 'denied' });
+  });
   const databases = () => sqlite ??= key().then(k => import(new URL('./storage-sqlite.js', import.meta.url).href).then(m => m.createSqlite(k, grants)));
   // A database's and a statement's methods refuse as storage's do.
   const wrap = (o, convert) => Object.freeze(Object.fromEntries(Object.entries(convert).map(([m, then]) =>
@@ -176,8 +179,8 @@ function storageOf(grants) {
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
-      ...Object.fromEntries(methods.map(m => [m, (...args) => (isDocument(args) ? documents() : files()).then(f => f[m](...structuredClone(args))).catch(coded)])) }),
-    sqlite: Object.freeze({ open: path => databases().then(d => d.open(path)).then(database, coded) }),
+      ...Object.fromEntries(methods.map(m => [m, (...args) => (admitted ? (isDocument(args) ? documents() : files()).then(f => f[m](...structuredClone(args))) : denied(`fs.${m}`, isDocument(args))).catch(coded)])) }),
+    sqlite: Object.freeze({ open: path => (admitted ? databases().then(d => d.open(path)).then(database) : denied('sqlite.open')).catch(coded) }),
     work: promise => Promise.resolve(promise),
   });
 }
