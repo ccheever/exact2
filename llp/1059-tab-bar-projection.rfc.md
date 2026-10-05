@@ -2,7 +2,7 @@
 
 **Type:** RFC
 **Status:** Implemented 2026-09-26
-**Systems:** iOS host (`SegmentsIOS.swift`)
+**Systems:** iOS host (`SegmentsIOS.swift`); macOS host (`SegmentsMac.swift`, D2a's segmented control only)
 **Author:** Claude (Opus 5.5) for Seth Webster
 **Date:** 2026-09-26
 **Related:** LLP 1035.001 D10 (tablists project to a segmented control); LLP 1035.006 07.03 (application tab bars); LLP 1038 (the router's tabs); grnl's FRICTION.md F12, M10
@@ -53,7 +53,9 @@ A tab bar item has exactly the second shape. A segment cannot show it.
   measured on the iOS 27.1 simulator), so it is measured at any width and a
   resize does not remeasure. Under `box-sizing: border-box` the report adds
   the tablist's vertical padding and border, which is why `box_sizing`
-  crosses to the Apple presenter.
+  crosses to the Apple presenter. macOS's `NSSegmentedControl` does the
+  same (2026-10-05): an unsized row of text tabs had clipped it to 18 pt in
+  Caltrain's window, and the tablist now takes the control's 24.
 - **D4 — The journal says which.** The one-line journal per tablist
   (`tablist #N: …`) now also names `projected to UITabBar`, and the agent
   observation reports `view: UITabBar`. That makes F12's surprise
