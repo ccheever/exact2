@@ -1655,3 +1655,40 @@ world observations, published values and twenty saves agree between hosts.
 This closes the timed-reload implementation and restoration checks. The two
 Jev feedback pairs remain failed attempts to understand the timing cue;
 passing deterministic controls is not a claim that the game became more fun.
+
+## The art pass, ported as a look (2026-10-05)
+
+Branch `art/rivals` (diaried there, never merged) dressed the greybox on an
+engine ~960 commits older. It is back as an option: the setup argument `art`
+(`""` classic, `"pass"` dusk, `"night"`), cycled by a **Look** button on the
+title and pause screens. Changing it starts a new match. The generator
+(`art-src/`) was brought over and now writes shared textures, one set of
+soldier parts and hands on the first-person weapons (2.5 MB of art, was 5.9).
+
+Where the old pass worked around the engine, the port uses what landed since:
+
+| old workaround | now |
+|---|---|
+| textures embedded per model (gunmetal shipped four times) | `art/textures/`, `art/data/` shared by name |
+| eight soldier models for eight colours | one set of parts, `MaterialOverrides` per bot |
+| sky lights the arena but is never seen | `EnvironmentMap { visible: true }`, a 1024 × 512 RGBM sky in `art/data/rgbm/` |
+| trail = an emitter entity per puff; dot particles | pooled `WorldSpace` emitters; `ParticleLook` smoke (soft) and stretched sparks |
+| effects, flashes, bob and flinch as saved state that moved every pin | `Game::present`: `Offset`, `Opacity`, `MaterialOverrides`; the tick saves only when (hit, shot, blast, inspect) |
+| a hidden entity preloading the rocket | `Game::STREAMED` |
+
+Two things could not follow the old design. The engine animates only models in
+`Game::ASSETS`, which every look would then wait for; so soldiers are rigid
+parts posed by `present` (a stride, breathing, flinch, a fall and a fade) and no
+animation state is saved. And the classic first-person viewmodel (f5f4b8a4c)
+keeps posing in the tick: moving it to `present` would move the pins. Its
+sounds and the `Feedback` resource serve both looks; the art pass draws its own
+rifle, launcher and knife with gloved hands.
+
+The fight is the same in every look (`tests/art.rs`, 24 s scripted duel and
+free-for-all compared each second without entity indices), because the pass
+keeps the classic colliders, never draws from the world RNG and spawns no
+entity mid-fight. The classic tick hashes are unchanged from f5f4b8a4c
+(0 `0xf4442d3d72bb04fe`, 1080 `0xa71f898787c4daa1`); note pins.json still holds
+the pre-viewmodel values, so those two pins already failed before this change.
+Dropped: the offscreen frame-time bench (measurement apparatus with a GPU
+dev-dependency) and the per-bot animated `Animator`/`Layers` flinch.

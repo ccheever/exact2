@@ -86,6 +86,50 @@ After searching a last sighting or losing it for five seconds, they choose a
 new search destination. A brain produces the same
 `Intent` the player's input does, so bots move under the player's rules.
 
+## Looks
+
+The title's **Look** button (and the pause menu's) cycles the setup argument
+`art`: `""` **Classic**, the greybox; `"pass"` **Art pass**, a dressed dusk arena;
+`"night"` the art pass at night, lit by moonlight, four 2.5 Mcd floodlights and
+glowing trim. It is a setup argument, so changing it starts a new match. Every look
+fights the same fight: the same inputs give the same fighters, hits, kills and
+rounds (`logic/tests/art.rs`), because the art pass keeps the classic colliders,
+never draws from the world RNG and allocates no entity mid-fight. Only the classic
+look's tick hashes are pinned.
+
+The art pass draws the arena as one model built from `arena.json` (which a test
+holds equal to the collision blocks), with trimmed walls, glowing team lines,
+banners and floodlight pylons under a painted sky that both lights the arena and
+is drawn as its sky. Bots are soldiers in their team's armour, assembled from rigid
+parts that run, flinch when hit, fall when killed and fade out before respawning.
+The first-person rifle, launcher and knife have gloved hands; they bob with your
+stride, kick, tilt and drop the magazine to reload, come to the centre to aim and
+turn over to inspect (**T**). Bullets throw sparks (red off a fighter), rockets fly
+as models with a light and a smoke trail, and blasts are a fireball, smoke and a
+flash of light. The HUD's crosshair, hit marker, score plates, damage vignette and
+round screens are restyled.
+
+`art-src/gen.mjs` (Bun, about 3 s) writes every model, texture and sky under `art/`
+from code; nothing is downloaded. Rerun it after editing `art-src/` or `arena.json`.
+Textures under `art/textures/` and `art/data/` are shared by name, so each bakes
+once however many models sample it. How it is built on the engine:
+
+- What a tick saves is only when something happened: a soldier's last hit and
+  shot, a blast, an inspect (`art.rs`). Everything that follows from that and the
+  clock — weapon motion, which weapon shows, muzzle flashes, the soldiers' gait,
+  facing, flinch and fall, team colours and hit flashes — is rebuilt by
+  `Game::present` (`art_present.rs`) as `Offset`, `Opacity` and
+  `MaterialOverrides`, outside saves and hashes.
+- One set of soldier parts serves every bot: `MaterialOverrides` give the armour
+  each team's colour and the visor its glow.
+- Lingering particles (sparks, fire, smoke, rocket trails) are pooled
+  `WorldSpace` emitters spawned in setup, moved to each impact or rocket and
+  fired there; smoke uses a `ParticleLook` texture and soft particles, sparks
+  stretch along their motion.
+- `Game::STREAMED` fetches the rocket model and the sky and smoke textures
+  without awaiting them; the art models load when the art pass's setup names
+  them. The classic look waits for nothing new.
+
 ## Files
 
 | file | what |
@@ -97,8 +141,12 @@ new search destination. A brain produces the same
 | `logic/src/bots.rs` | sight, aim, strafing, cover |
 | `logic/src/round.rs` | kills, feed, damage numbers, respawn, round win |
 | `logic/src/training.rs` | target order, combo scoring and fixed respawn lanes |
-| `logic/src/arena.rs` | the greybox arena, spawns and cover points |
+| `logic/src/arena.rs` | the arena's colliders (greybox-drawn in the classic look), spawns and cover points |
+| `logic/src/art.rs` | the art pass: sky, lights, models, soldiers, weapons and effect pools |
+| `logic/src/art_present.rs` | the art pass's derived motion, flashes and colours (`Game::present`) |
+| `arena.json`, `art-src/`, `art/` | the dressed layout, the art generator and its output |
 | `logic/tests/sim.rs` | range, duel, replay determinism, mid-fight save |
+| `logic/tests/art.rs` | every look fights the same fight; the art pass saves and draws from saved causes |
 | `logic/tests/limits.rs` | engine limits, measured (`--release -- --ignored` for timings) |
 | `proof.mjs` | the real-host proof |
 
