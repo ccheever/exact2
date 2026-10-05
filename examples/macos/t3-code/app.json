@@ -1,15 +1,22 @@
 {
   "$schema": "../../../scripts/app.schema.json",
-  "name": "T3 Code",
-  "short_name": "T3 Code",
+  "name": "T3 Code (Exact)",
+  "short_name": "T3 Code (Exact)",
   "id": "com.exact.t3code.macos",
   "start_url": "/",
   "display": "standalone",
   "theme_color": "#fafafa",
   "background_color": "#fafafa",
+  "icons": [
+    {
+      "src": "assets/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ],
   "app": {
     "id": "com.exact.t3code.macos",
-    "name": "T3 Code"
+    "name": "T3 Code (Exact)"
   },
   "modules": [
     "t3-key-recorder"
