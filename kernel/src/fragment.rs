@@ -131,6 +131,10 @@ pub(crate) struct Multicol {
     pub columns: Columns,
     /// The boxes this cut placed, so the next cut clears those it does not.
     placed: Vec<u32>,
+    /// The container's border box once its used height applies.
+    size: (f32, f32),
+    /// Its overflow counts absolutely positioned boxes, which move with it.
+    absolutes: bool,
 }
 
 /// The kernel's fragmentation record. Empty, it costs one branch per layout.
@@ -254,7 +258,10 @@ pub(crate) fn kind(arena: &NodeArena, slot: u32) -> Kind {
     let sized = sized(s.height) || floor(s.min_height) || sized(s.max_height);
     match arena.node_type(slot) {
         NodeType::Text if sized => Kind::Monolithic(Some(FragmentRefusal::Height)),
-        NodeType::Text if arena.paragraph(slot).markup == crate::text::Markup::Markdown => {
+        NodeType::Text
+            if crate::text::Markup::from_prop(arena.props(slot).str(crate::PropId::Markup))
+                == crate::text::Markup::Markdown =>
+        {
             Kind::Monolithic(Some(FragmentRefusal::Markdown))
         }
         NodeType::Text => Kind::Paragraph,
@@ -321,10 +328,19 @@ pub(crate) fn settle(
         return Ok(0);
     };
     let mut passes = 0;
+    // After the first cut, a pass that wrote only used heights and overflow
+    // leaves a flow thread as it was (Patch 27: they are no input to the
+    // children), so only a container whose used height appeared or went
+    // (which withdraws or gives a percentage basis), whose box resized, or
+    // that holds a container whose height moved, is cut again.
+    let mut again: Option<SlotSet> = None;
     loop {
         let mut cuts = Vec::new();
         for slot in arena.frag.containers.iter().collect::<Vec<_>>() {
             match laid_out_under(arena, root, slot) {
+                Some(true)
+                    if again.as_ref().is_some_and(|a| !a.contains(slot))
+                        && !resized(arena, tree, slot) => {}
                 Some(true) => cuts.push((slot, cut::container(arena, tree, measurer, slot))),
                 // Hidden under this root: no columns until it shows.
                 Some(false) if arena.frag.multicol.contains_key(&slot) => {
@@ -344,11 +360,25 @@ pub(crate) fn settle(
         // moved from one flow to another is placed by its new container.
         let old: Vec<_> = cuts.iter().map(|(slot, _)| clear(arena, *slot)).collect();
         let mut engine = Vec::new();
+        let mut next = SlotSet::default();
         for ((slot, cut), old) in cuts.into_iter().zip(old) {
+            let flipped = old.record.used_height.is_some() != cut.used_height.is_some();
+            let heights = old.record.used_height != cut.used_height;
             if store(arena, slot, cut, old) {
                 engine.push(slot);
             }
+            if flipped {
+                next.insert(slot);
+            }
+            let mut at = arena.parent(slot).filter(|_| heights);
+            while let Some(s) = at {
+                if arena.frag.containers.contains(s) {
+                    next.insert(s);
+                }
+                at = arena.parent(s);
+            }
         }
+        again = Some(next);
         if engine.is_empty() {
             return Ok(passes);
         }
@@ -364,6 +394,16 @@ pub(crate) fn settle(
         tree.compute(root_node, offer, arena, measurer)?;
         passes += 1;
     }
+}
+
+// Whether a container's box differs from the one its record expects.
+fn resized(arena: &NodeArena, tree: &LayoutTree, slot: u32) -> bool {
+    let size = arena.taffy(slot).map(|n| tree.layout(n).size);
+    arena
+        .frag
+        .multicol
+        .get(&slot)
+        .is_none_or(|m| m.absolutes || size.is_none_or(|s| (s.width, s.height) != m.size))
 }
 
 // Whether `slot` is under `root`, and then whether it was laid out (no
@@ -444,6 +484,8 @@ fn store(arena: &mut NodeArena, slot: u32, cut: cut::Cut, old: Old) -> bool {
             overflow: cut.overflow,
             columns: cut.columns,
             placed,
+            size: cut.size,
+            absolutes: cut.absolutes,
         },
     );
     engine

@@ -162,3 +162,125 @@ fn forced_breaks_set_the_first_guess() {
     let (h, walk) = cutter.balance(2, 80.0);
     assert_eq!((h, walk.starts.len()), (20.0, 4));
 }
+
+// A chapter of `n` paragraphs of two to five lines under a container with
+// `rows`, in a 400px-wide page.
+fn chapter(n: usize, rows: &[(crate::StyleId, crate::StyleValue)]) -> crate::Kernel {
+    use crate::{NodeType, Offer, Op, PropId, StyleId, StyleProps, StyleValue};
+    let mut root = StyleProps::default();
+    root.set_dynamic(StyleId::Width, &StyleValue::Number(400.0))
+        .unwrap();
+    let mut flow = StyleProps::default();
+    for (row, value) in rows {
+        flow.set_dynamic(*row, value).unwrap();
+    }
+    let mut ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(root),
+        },
+        Op::CreateView {
+            id: 2,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 2,
+            patch: Box::new(flow),
+        },
+    ];
+    let mut children = Vec::new();
+    for i in 0..n {
+        let id = 3 + i as u32;
+        let words = "lorem ipsum dolor sit amet ".repeat(2 + i % 4 * 2);
+        ops.push(Op::CreateView {
+            id,
+            node_type: NodeType::Text,
+        });
+        ops.push(Op::SetProp {
+            id,
+            prop: PropId::Text,
+            value: words.trim().into(),
+        });
+        children.push(id);
+    }
+    ops.push(Op::SetChildren { id: 2, children });
+    ops.push(Op::SetChildren {
+        id: 1,
+        children: vec![2],
+    });
+    ops.push(Op::AttachRoot { id: 1 });
+    let mut k = crate::Kernel::with_monospace();
+    k.apply(0, 1, &ops).unwrap();
+    k.compute_layout(1, Offer::definite(400.0, 400.0)).unwrap();
+    k
+}
+
+/// LLP 1093 §3, owed by stage 1: the cut of a 40-column chapter, that
+/// chapter's layout against the same chapter as one column, a balanced
+/// three-column container's walk count, and a one-word edit in the last
+/// column. Printed, never checked.
+#[test]
+#[ignore = "async lane: LLP 1093 §3's multicol probe, ~2 s; bun scripts/async.mjs runs it"]
+fn multicol_probe() {
+    use crate::{StyleId, StyleValue};
+    use std::time::Instant;
+    let n = 400;
+    let paged = [
+        (StyleId::Height, StyleValue::Number(800.0)),
+        (StyleId::ColumnWidth, StyleValue::Number(400.0)),
+        (StyleId::ColumnGap, StyleValue::Number(40.0)),
+        (StyleId::ColumnFill, StyleValue::Text("auto".into())),
+    ];
+    let best = |f: &mut dyn FnMut() -> f64| (0..7).map(|_| f()).fold(f64::INFINITY, f64::min);
+    let single = best(&mut || {
+        let t = Instant::now();
+        chapter(n, &[]);
+        t.elapsed().as_secs_f64() * 1e3
+    });
+    let columns = best(&mut || {
+        let t = Instant::now();
+        chapter(n, &paged);
+        t.elapsed().as_secs_f64() * 1e3
+    });
+    let mut k = chapter(n, &paged);
+    let count = k.columns(k.node(2).unwrap().key).unwrap().columns.len();
+    let cut = best(&mut || {
+        let (arena, tree, measurer) = k.parts();
+        let t = Instant::now();
+        super::cut::container(arena, tree, measurer, arena.slot_of(2).unwrap());
+        t.elapsed().as_secs_f64() * 1e3
+    });
+    let last = 2 + n as u32;
+    let edit = best(&mut || {
+        let ops = [crate::Op::SetProp {
+            id: last,
+            prop: crate::PropId::Text,
+            value: format!("word {}", Instant::now().elapsed().as_nanos()).into(),
+        }];
+        k.apply(0, 2, &ops).unwrap();
+        let t = Instant::now();
+        k.compute_layout(1, crate::Offer::definite(400.0, 400.0))
+            .unwrap();
+        t.elapsed().as_secs_f64() * 1e3
+    });
+    let mut balanced = chapter(
+        n,
+        &[
+            (StyleId::ColumnCount, StyleValue::Number(3.0)),
+            (StyleId::ColumnGap, StyleValue::Number(20.0)),
+        ],
+    );
+    let (arena, tree, measurer) = balanced.parts();
+    let walks = super::cut::container(arena, tree, measurer, arena.slot_of(2).unwrap()).walks;
+    println!("multicol probe: {n} paragraphs, {count} columns");
+    println!(
+        "  layout as one column {single:.2} ms, as columns {columns:.2} ms (+{:.0}%)",
+        (columns / single - 1.0) * 100.0
+    );
+    println!("  one cut {cut:.3} ms; a one-word edit in the last column {edit:.3} ms");
+    println!("  balanced into 3 columns: {walks} walks");
+}

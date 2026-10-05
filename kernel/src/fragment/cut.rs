@@ -26,6 +26,14 @@ pub(crate) struct Cut {
     pub placements: Vec<(u32, Placement)>,
     pub fragments: Vec<(u32, Vec<super::Fragment>)>,
     pub refusals: Vec<(u32, FragmentRefusal)>,
+    /// Walks the cut took (LLP 1093 §3's probe).
+    #[cfg(test)]
+    pub walks: usize,
+    /// The container's border box once its used height applies.
+    pub size: (f32, f32),
+    /// Whether an absolutely positioned box in the flow placed against the
+    /// container's final size counts in its overflow.
+    pub absolutes: bool,
 }
 
 // A unit of the walk: an atom, or one line box of an expanded paragraph.
@@ -59,6 +67,9 @@ pub(super) struct Cutter<'a> {
     measurer: &'a mut dyn TextMeasurer,
     /// The first column's top: the container's content top.
     pub top: f32,
+    /// Walks run, for the probe (LLP 1093 §3).
+    #[cfg(test)]
+    pub walks: usize,
 }
 
 impl<'a> Cutter<'a> {
@@ -73,6 +84,8 @@ impl<'a> Cutter<'a> {
             arena,
             measurer,
             top,
+            #[cfg(test)]
+            walks: 0,
         }
     }
 
@@ -183,6 +196,10 @@ impl<'a> Cutter<'a> {
 
     /// Cut the flow thread into columns of height `h` (D4).
     pub(super) fn walk(&mut self, h: f32) -> Walk {
+        #[cfg(test)]
+        {
+            self.walks += 1;
+        }
         let mut out = Walk::default();
         if self.flow.atoms.is_empty() {
             return out;
@@ -350,11 +367,15 @@ pub(super) fn lines(
         height: AxisOffer::MaxContent,
         exclusions: &[],
     };
-    let metrics = measurer.measure_identified(&stamp, &request);
     if request.paragraph.markup != crate::text::Markup::Markdown {
         measurer.lines(&stamp, &request, &mut bottoms);
     }
-    (metrics.height, bottoms)
+    // The height its lines take, or the measure's when it gives none.
+    let height = match bottoms.last() {
+        Some(&last) => last,
+        None => measurer.measure_identified(&stamp, &request).height,
+    };
+    (height, bottoms)
 }
 
 /// Cut `slot`, a laid-out multi-column container (D3–D7).
@@ -543,6 +564,10 @@ fn publish(
 ) -> Cut {
     let mut cut = Cut {
         used_height: used,
+        #[cfg(test)]
+        walks: cutter.walks,
+        size: (outer.width, outer.height),
+        absolutes: !cutter.flow.absolutes.is_empty(),
         ..Cut::default()
     };
     let flow = &cutter.flow;
