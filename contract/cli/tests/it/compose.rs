@@ -235,3 +235,79 @@ fn position_fixed_says_how_to_pin_a_box() {
         "{error}"
     );
 }
+
+#[test]
+fn an_expression_continued_on_an_indented_line_is_told_to_wrap_it() {
+    let wrap = "an indented line that starts with an operator continues the line above";
+    let derive = "component App\n  state done = false\n  derive label = done\n    ? \"Done\"\n    : \"Open\"\n  view\n    text label\n";
+    let error = contract::compile(derive).unwrap_err();
+    assert_eq!(error.id, "syntax-expected-section");
+    assert!(error.message.starts_with(wrap), "{error}");
+    let top = "fn label(done: bool): string = done\n  ? \"Done\"\n  : \"Open\"\ncomponent App\n  view\n    text label(true)\n";
+    let error = contract::compile(top).unwrap_err();
+    assert_eq!(error.id, "syntax-expected-declaration");
+    assert!(error.message.starts_with(wrap), "{error}");
+    // The form it names compiles.
+    contract::compile("component App\n  state done = false\n  derive label = (done\n    ? \"Done\"\n    : \"Open\")\n  view\n    text label\n").unwrap();
+}
+
+#[test]
+fn a_ternary_broken_before_its_colon_is_told_to_wrap_it() {
+    let src = "component App\n  state done = false\n  state label = \"\"\n  action go\n    let next = done ? \"Done\"\n      : \"Open\"\n    label = next\n  view\n    text label press=go\n";
+    let error = contract::compile(src).unwrap_err();
+    assert_eq!(error.id, "syntax-expected");
+    assert!(
+        error
+            .message
+            .starts_with("the ternary's `:` is on the next line"),
+        "{error}"
+    );
+    // A missing `:` is not told it is on the next line.
+    let missing = "component App\n  state done = false\n  state label = \"\"\n  action go\n    let next = done ? \"Done\"\n    label = next\n  view\n    text label press=go\n";
+    let error = contract::compile(missing).unwrap_err();
+    assert!(!error.message.contains("next line"), "{error}");
+    contract::compile("component App\n  state done = false\n  state label = \"\"\n  action go\n    let next = (done\n      ? \"Done\"\n      : \"Open\")\n    label = next\n  view\n    text label press=go\n").unwrap();
+}
+
+#[test]
+fn a_mistaken_section_word_names_the_section() {
+    let src = "component App\n  view\n    Meter(pct=1)\ncomponent Meter\n  prop pct: number\n  view\n    text \"a\"\n";
+    let error = contract::compile(src).unwrap_err();
+    assert_eq!(
+        (error.id.as_str(), error.message.as_str()),
+        (
+            "syntax-unknown-section",
+            "unknown section `prop`: did you mean `props` (any component but the first in the file declares them)?"
+        )
+    );
+}
+
+#[test]
+fn a_stray_else_and_a_body_on_the_next_line_say_where_they_go() {
+    let deep = "component App\n  state on = false\n  view\n    column\n      when on\n        text \"a\"\n        else\n          text \"b\"\n";
+    let error = contract::compile(deep).unwrap_err();
+    assert!(
+        error.message.ends_with(
+            "an `else` sits at its `when`'s indentation, on the line after the `when`'s block"
+        ),
+        "{error}"
+    );
+    let body = "fn label(done: bool): string =\n  done ? \"Done\" : \"Open\"\ncomponent App\n  view\n    text label(true)\n";
+    let error = contract::compile(body).unwrap_err();
+    assert_eq!(error.id, "syntax-expected-expression");
+    assert!(
+        error
+            .message
+            .starts_with("a fn's expression starts on its `=` line"),
+        "{error}"
+    );
+    let derive = "component App\n  state done = false\n  derive label =\n    done ? \"Done\" : \"Open\"\n  view\n    text label\n";
+    let error = contract::compile(derive).unwrap_err();
+    assert!(
+        error
+            .message
+            .starts_with("a derive's expression starts on its `=` line"),
+        "{error}"
+    );
+    contract::compile("fn label(done: bool): string = (done\n  ? \"Done\"\n  : \"Open\")\ncomponent App\n  view\n    text label(true)\n").unwrap();
+}

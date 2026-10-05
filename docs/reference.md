@@ -380,7 +380,7 @@ on the web and these on Hermes (macOS, iOS, Linux):
 | `AbortController`, `AbortSignal` | `AbortSignal.timeout()` refuses: no timers |
 | `queueMicrotask`, `Promise` | |
 | `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter`, `DisplayNames` or `Locale` (Apple's engine; Linux's is built `--intl`) |
-| `console` | To the runner's logs |
+| `console` | To the runner's logs after each answer and reply, including refused calls; available through the agent's `logs` on native hosts |
 
 Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
 `setInterval`), `performance.now()`, `Date.now()`, `new Date()` without a value
@@ -389,7 +389,9 @@ refuses them by name, with the same message, on first use: Hermes, the web's
 module realm, and the web build, whose bundler gives the app's own modules
 guarded `Date`, `Math`, `Intl`, timers and `performance` in place of the
 page's (LLP 1027.000 D3), so an app that reads the clock fails in the web loop
-as it would on a device. The type check cannot see the difference.
+as it would on a device. The type check cannot see the difference. Development JS builds name a derive
+whose value fails its type check and report failed resource/source dependencies
+that it read.
 ES2024's resizable `ArrayBuffer`, shared memory and the RegExp `v` flag are not
 in Hermes, so they are not in the library.
 
@@ -437,12 +439,16 @@ store}`), and the web's journal says `storage refused (agent): …` the first ti
 a refusal lands. A Rust module's storage request in such a drive is answered
 with the same message, never refused outright (trivia F7).
 
-An answer's storage and `fetch` steps run whether or not it awaits them: a save
-started and not awaited (queued behind the module's own promise chain, say)
-lands on every host. In the browser the answer is given at once and the save
-finishes behind it; on Hermes the answer is given once the steps it started
-have landed (kanban F22). A storage or `fetch` call made when no answer is in
-flight is refused and logged, never silently dropped. An answer the runner
+An answer's storage and `fetch` steps run whether or not it awaits them once
+they have begun. On the JS web target the answer is given at once and a save left
+running finishes behind it; on Hermes the answer is given once the steps it
+started have landed (kanban F22). A save started and not awaited that is still
+queued behind the module's own promise chain when the answer is given has been
+seen lost on iOS (two authoring-bench trials, 2026-10-05; QUEUE): await it before
+answering, or carry it in a request of its own. A storage or `fetch` call that runs
+when no answer is in flight is refused and logged. Native console output reaches
+the agent's `logs` when the runner drains the module after an answer or reply;
+a write that never ran leaves no line. An answer the runner
 lets go between storage steps (a refresh it discards before a mutation lands, a
 read whose arguments changed or that a `refresh` replaced) still runs the steps it began, and the chain
 behind them, to their end before the next answer starts; only its answer is

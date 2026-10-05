@@ -136,3 +136,12 @@ fn every_check_names_its_instructions_pc() {
         }
     }
 }
+
+#[test]
+fn development_derive_checks_name_the_authored_derive() {
+    let plan = contract::compile("component App\n  state value = 1\n  derive doubled = value * 2\n  view\n    text `${doubled}`\n").unwrap();
+    let dev = crate::emit::emit(&plan, true, false).unwrap().js;
+    let production = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(dev.contains(",\"doubled\")"), "{dev}");
+    assert!(!production.contains(",\"doubled\")"), "{production}");
+}

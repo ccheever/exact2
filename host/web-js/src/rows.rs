@@ -519,6 +519,10 @@ impl Em<'_> {
         if attrs.iter().any(|(k, _)| k == "data-hook") {
             let _ = write!(self.out, "{}({e});", self.uses.rt("hk"));
         }
+        // A context menu's popover (LLP 1021 §5.1), named by a literal.
+        if attrs.iter().any(|(k, _)| k == "contextpopover") {
+            let _ = write!(self.out, "{}({e});", self.uses.rt("cp"));
+        }
     }
 
     /// A node's `data-*` words (LLP 1075.003 §3.3): one attribute per word,

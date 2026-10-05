@@ -143,6 +143,7 @@ pub struct Placed<D> {
     stages: HashMap<Key, VecDeque<Stage>>,
     next: u64,
     validation: bool,
+    logs: Vec<String>,
 }
 
 impl<D: DataSource + Send + 'static> Placed<D> {
@@ -183,6 +184,7 @@ impl<D: DataSource + 'static> Placed<D> {
             stages: HashMap::new(),
             next: 0,
             validation: false,
+            logs: Vec::new(),
         }
     }
 
@@ -260,8 +262,7 @@ impl<D: DataSource + 'static> Placed<D> {
         }
         match stage {
             Some(Stage::Turn) => {
-                let mut logs = Vec::new();
-                let answer = envelope::apply(outcome, store, &mut logs);
+                let answer = envelope::apply(outcome, store, &mut self.logs);
                 if let Ok(Answer::Later(_)) = &answer {
                     self.stages.entry(k).or_default().push_back(Stage::Yielded);
                 }
@@ -322,7 +323,8 @@ impl<D: DataSource + 'static> Placed<D> {
                             turn(source, &mut local, target, &name, &args, outcome)
                         }),
                     };
-                    reply.send(envelope::encode(result, &mut local, Vec::new()));
+                    let logs = source.as_mut().map(|s| s.take_logs()).unwrap_or_default();
+                    reply.send(envelope::encode(result, &mut local, logs));
                 }
                 // Retired on its owner, after its last turn.
                 drop(source);
@@ -387,6 +389,15 @@ fn turn<D: DataSource>(
 }
 
 impl<D: DataSource + 'static> DataSource for Placed<D> {
+    fn take_logs(&mut self) -> Vec<String> {
+        if self.inline() {
+            if let Some(source) = &mut self.inner {
+                self.logs.extend(source.take_logs());
+            }
+        }
+        std::mem::take(&mut self.logs)
+    }
+
     fn placement(&self) -> Placement {
         if self.validation {
             Placement::Main

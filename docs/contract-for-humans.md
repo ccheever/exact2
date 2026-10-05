@@ -307,7 +307,8 @@ of its component, an `action` prop or an injected action as a statement:
 they too read the state the action started with. So a helper does not see what
 its caller assigned before the call; the compiler refuses such a read and asks
 for the value to be passed (`arrive(next)`). A name that is a host command, such
-as `focus`, stays the command. A call returns nothing: share calculations through
+as `focus`, stays the command, and calling an action, prop or inject that
+shares a host command's name is refused: rename it. A call returns nothing: share calculations through
 `fn`. The compiler infers the state an action writes, through its calls. Do not
 write a `writes` clause.
 
@@ -772,12 +773,12 @@ call outside them fails. The capabilities are:
   [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
 - *There is no storage or network at build time.* The build bakes each
   resource's first value into the plan, and a storage call then is refused
-  with `code: 'bake'`. Catch that and return a first-frame value, as `books`
-  does: a source that throws during the bake fails the build on native hosts
-  and in the bake-based development producers. (The web's JS build happens to
-  leave it unbaked; don't rely on that.) The app asks again when it runs. A `fetch` at bake is left unbaked instead; to show
-  something better than the type's zero meanwhile, give the resource an
-  `else` placeholder, as `quote` does.
+  with `code: 'bake'`. An uncaught storage refusal leaves the resource unbaked;
+  its placeholder (or the type's zero) shows until the app asks again at launch.
+  Catching that code can also supply a first-frame value, as `books` does.
+  Other source errors still fail the build. A source used as an `else` placeholder
+  must answer at bake without storage. A `fetch` also stays unbaked; an `else`
+  placeholder supplies something better than the type's zero, as `quote` does.
 - *An open database locks its file.* A mutation and the refresh it triggers
   overlap, and the second `open` fails as busy. Queue every open, as
   `withBooks` does.

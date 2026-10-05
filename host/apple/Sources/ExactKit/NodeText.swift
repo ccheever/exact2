@@ -70,20 +70,21 @@ extension NodeView {
         #endif
     }
 
+    /// CSS start/end resolve from direction, for paragraphs and native editors.
+    var textAlignmentCode: Int {
+        let rtl = style["direction"]?.string == "rtl"
+        switch style["text_align"]?.string {
+        case "left": return 0
+        case "center": return 1
+        case "right": return 2
+        case "justify": return 3
+        case "end": return rtl ? 0 : 2
+        default: return rtl ? 2 : 0
+        }
+    }
     func paragraphSpec() -> Spec {
         if let spec = cachedTextSpec { return spec }
-        // Physical, as the kernel's paragraph is: CSS's initial `start` and
-        // `end` follow `direction` (LLP 1053).
-        let rtl = style["direction"]?.string == "rtl"
-        let align: Int
-        switch style["text_align"]?.string {
-        case "left": align = 0
-        case "center": align = 1
-        case "right": align = 2
-        case "justify": align = 3
-        case "end": align = rtl ? 0 : 2
-        default: align = rtl ? 2 : 0 // `start`
-        }
+        let align = textAlignmentCode, rtl = style["direction"]?.string == "rtl"
         var runs: [Run] = []
         // An inline run is not in the view hierarchy — its paragraph owns it
         // and it was removed from any superview — so it has no appearance of

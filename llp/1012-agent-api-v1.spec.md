@@ -437,7 +437,9 @@ live node with that id`), a root `navigationKey` that names no route (once
 per key), a back gesture refused for want of an enabled `navigationBack`
 control, and a modal route refused because the owner already presents
 (once per route); the web page journals a `focus` whose element is missing.
-Nothing a host refuses is silent.
+Nothing a host refuses is silent. Native data modules drain their console lines
+into this journal after each answer and reply, including refused turns; storage,
+mixed composition and worker placement forward those lines exactly once.
 
 `logs` replies `{"next":N,"from":M,"lines":[…]}` with `from = clamp(since,
 journal_start, next)`: a reader whose cursor the ring has passed gets the

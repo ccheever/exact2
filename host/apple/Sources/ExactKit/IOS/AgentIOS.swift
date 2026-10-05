@@ -540,8 +540,16 @@ extension Agent {
             let event = req["contextmenu"] as? Bool == true ? "contextmenu" : "dblclick"
             var next: UIView? = hit
             while let node = next {
-                if let target = node as? NodeView, target.handlers.contains(event), !target.disabled {
-                    if event == "contextmenu" { presenter.contextmenu(target.id) } else { presenter.dblclick(target.id) }
+                // A context menu's popover (LLP 1021 §5.1) answers it too: the
+                // node's own action first, then the popover opens painted.
+                if let target = node as? NodeView, !target.disabled, target.handlers.contains(event)
+                    || (event == "contextmenu" && target.props["contextPopover"]?.isEmpty == false) {
+                    if event == "contextmenu" {
+                        let handled = target.handlers.contains(event)
+                        if handled { presenter.contextmenu(target.id) }
+                        // A node with only a popover that cannot open it is not the target.
+                        if !presenter.menus.agentContext(target) && !handled { next = node.superview; continue }
+                    } else { presenter.dblclick(target.id) }
                     return ["tapped": Int(target.id), "event": event, "injected": true, "at": at]
                 }
                 next = node.superview
@@ -758,7 +766,7 @@ extension Agent {
                     f.heard = name
                     if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = focus.textFieldShouldReturn(f) } else if types { f.insertText(name) }
                     f.heard = nil
-                } else if focus.handlers.contains("press"), name == "Enter" || name == " " { presenter.press(focus.id) }
+                } else if focus.handlers.contains("press") || focus.defaultLink != nil, name == "Enter" || (name == " " && focus.props["href"] == nil) { presenter.press(focus.id) }
             }
             return ["typed": Int(v.id), "key": key, "value": v.textArea?.text ?? v.field?.text ?? "", "delivery": "recognized"]
         }

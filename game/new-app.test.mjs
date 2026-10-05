@@ -232,3 +232,23 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     assert.ok(existsSync(resolve(dir, 'AGENTS.md')) && existsSync(resolve(dir, 'CLAUDE.md')));
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000);
+
+// Authoring bench (LLP 1087): an app copied into a folder of another name kept its `todo-list-*` crates,
+// and `update` wrote an exact.mjs that asked Cargo for `todo-apple`.
+test('update names the app by its crates, not its folder', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const made = resolve(parent, 'todo-list'), moved = resolve(parent, 'todo');
+    createApp(made);
+    spawnSync('mv', [made, moved]);
+    // A hand-edited manifest: a comment after the package name.
+    const web = resolve(moved, 'web/Cargo.toml');
+    writeFileSync(web, readFileSync(web, 'utf8').replace(/^name = "todo-list-web"$/m, 'name = "todo-list-web" # formerly "old-web"'));
+    createApp(moved, { update: true });
+    const commands = readFileSync(resolve(moved, 'exact.mjs'), 'utf8');
+    assert.match(commands, /'todo-list-apple'/);
+    assert.doesNotMatch(commands, /'todo-apple'/);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});

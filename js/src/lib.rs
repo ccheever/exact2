@@ -757,8 +757,13 @@ impl Module {
         })
     }
 
-    /// Dispatch a decoded reply, restoring captured strings before shape checking.
-    fn step(sig: &Sig, engine: &mut Engine, source: &str, decoded: exact_js_value::Reply) -> Step {
+    fn step(
+        sig: &Sig,
+        engine: &mut Engine,
+        source: &str,
+        decoded: exact_js_value::Reply,
+        baking: bool,
+    ) -> Step {
         let exact_js_value::Reply {
             fields: mut reply,
             mut value,
@@ -797,6 +802,11 @@ impl Module {
                 Step::Done(Err(match reply.get("kind").and_then(Json::as_str) {
                     Some("UnknownSource") => DataError::UnknownSource(message),
                     Some("BadArguments") => DataError::BadArguments(message),
+                    Some("Unavailable")
+                        if baking && reply.get("code").and_then(Json::as_str) == Some("bake") =>
+                    {
+                        DataError::DeferredAtBake(message)
+                    }
                     _ => DataError::Unavailable(message),
                 }))
             }
@@ -806,7 +816,6 @@ impl Module {
         }
     }
 
-    /// The request the prelude recorded for `ticket`, if `fetch` was called.
     fn take_request(&mut self, ticket: u64) -> Option<Request> {
         let pos = self.host.requests.iter().position(|(t, _)| *t == ticket)?;
         Some(self.host.requests.remove(pos).1)
@@ -900,7 +909,7 @@ impl Module {
                     .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
                 reply = Module::decode_reply(sig, engine, source, &text)?;
             }
-            Ok(Module::step(sig, engine, source, reply))
+            Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
@@ -1022,7 +1031,7 @@ impl Module {
                 return Err(DataError::UnknownSource(source.to_string()));
             };
             let reply = Module::decode_reply(sig, engine, source, &text)?;
-            Ok(Module::step(sig, engine, source, reply))
+            Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
@@ -1104,7 +1113,7 @@ impl Module {
                 return Err(DataError::UnknownSource(source.to_string()));
             };
             let reply = Module::decode_reply(sig, engine, source, &text)?;
-            Ok(Module::step(sig, engine, source, reply))
+            Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
         if ended {
@@ -1135,6 +1144,10 @@ impl Module {
 }
 
 impl DataSource for Module {
+    fn take_logs(&mut self) -> Vec<String> {
+        Module::take_logs(self)
+    }
+
     fn configure_storage(
         &mut self,
         data: std::path::PathBuf,

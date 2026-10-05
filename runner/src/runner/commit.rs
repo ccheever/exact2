@@ -501,7 +501,11 @@ impl<D: DataSource> Runner<D> {
             let mrow = self.plan.mutations[m].clone();
             let name = self.plan.str(mrow.name).to_string();
             let target = Target::Mutation(m);
-            let answer = match self.data.answer_for(target, &mut self.store, source, sargs) {
+            let answer = self.data.answer_for(target, &mut self.store, source, sargs);
+            for line in self.data.take_logs() {
+                self.log(line);
+            }
+            let answer = match answer {
                 Ok(answer) => answer,
                 Err(error) => {
                     self.discard_later(&later);
@@ -1020,6 +1024,9 @@ impl<D: DataSource> Runner<D> {
         let parsed = self
             .data
             .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);
+        for line in self.data.take_logs() {
+            self.log(line);
+        }
         // What this reply's turn watched joins the resource's topics whatever
         // the reply says: a turn that yields another request (a long native
         // call) watched them as much as the one that answers.

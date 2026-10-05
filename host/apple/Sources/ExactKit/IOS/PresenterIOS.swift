@@ -580,7 +580,11 @@ final class Presenter {
 
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     private(set) var pressHeld = ""
-    func press(_ id: UInt32, held: String = "") { pressHeld = held; defer { pressHeld = "" }; onPress?(id) }
+    func press(_ id: UInt32, held: String = "") {
+        pressHeld = held; defer { pressHeld = "" }
+        if let node = views[id], let url = node.defaultLink, node.activateLink(url) { return }
+        onPress?(id)
+    }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
     /// A text field typed into since it took the focus: its `change` fires
     /// when the editing ends or Enter commits it, HTML's `change` (LLP
@@ -1040,6 +1044,7 @@ final class Presenter {
             v.web?.frame = v.bounds
             v.fitScroll()
             v.applyTransform()
+            menus.framed(v)
         case .content:
             v.content = CGSize(width: op.w, height: op.h)
             v.fitScroll()

@@ -27,6 +27,38 @@ const END: f64 = 1000.0;
 struct Flight {
     view: ViewId,
     node: u64,
+    /// When a spring flight lands (engine seconds): as UIKit's spring
+    /// animators finish, not at the engine's rest.
+    lands_at: Option<f64>,
+}
+
+/// Where a spring flight is done: within 1/1000 of its travel and moving
+/// under 1/20 of it a second, about where UIKit's spring animators finish
+/// (`CASpringAnimation.settlingDuration`: 0.40 s for a critically damped
+/// response-0.25 spring; this gives 0.37 s). The engine's own rest
+/// (`REST_THRESHOLD`, absolute, in the progress's 1000ths) ran a flight to
+/// 1e-6 of its travel, 0.78 s for that spring, and until it landed the
+/// flying view covered what lies above its slot (Signal Clone: a photo's
+/// footer came back 0.4 s late).
+const LAND_DISPLACEMENT: f64 = 1e-3;
+const LAND_SPEED: f64 = 0.05;
+
+/// Seconds from the start until a unit spring flight lands: the first time
+/// on a 240 Hz grid from which it stays within those bounds (so a slow
+/// crossing of an underdamped spring is not taken for its end), up to the
+/// engine's 10 s cap; `None` past it (the engine's rest decides).
+fn land_after(config: &exact_motion::SpringConfig) -> Option<f64> {
+    let rate = 240.0;
+    let samples = rate as usize * 10;
+    let within = |n: usize| {
+        let s = config.sample(1.0, 0.0, n as f64 / rate);
+        s.displacement.abs() < LAND_DISPLACEMENT && s.velocity.abs() < LAND_SPEED
+    };
+    if !within(samples) {
+        return None;
+    }
+    let last_out = (0..samples).rev().find(|&n| !within(n));
+    Some(last_out.map_or(0.0, |n| (n + 1) as f64 / rate))
 }
 
 /// The flights the host is running.
@@ -72,7 +104,17 @@ impl<D: DataSource> Host<D> {
                 });
                 debug_assert!(observed.is_ok(), "progress is finite");
             }
-            self.flights.running.push(Flight { view: to, node });
+            let lands_at = match &h.transition.timing {
+                exact_motion::TimingFunction::Spring(config) => {
+                    land_after(config).map(|t| self.engine.now() + h.transition.delay.max(0.0) + t)
+                }
+                _ => None,
+            };
+            self.flights.running.push(Flight {
+                view: to,
+                node,
+                lands_at,
+            });
         }
     }
 
@@ -103,8 +145,10 @@ impl<D: DataSource> Host<D> {
     /// Flights whose curve has settled land.
     pub(super) fn land_flights(&mut self, batch: &mut Batch) {
         let engine = &mut self.engine;
+        let now = engine.now();
         self.flights.running.retain(|f| {
-            let flying = engine.is_active(f.node, Property::Layout);
+            let flying =
+                engine.is_active(f.node, Property::Layout) && f.lands_at.is_none_or(|at| now < at);
             if !flying {
                 engine.remove(f.node);
                 batch.land(f.view);

@@ -241,7 +241,9 @@ pub fn symbols_json(path: &Path, name: Option<&str>) -> Result<String, CompileEr
     } else {
         let strings = crate::strings::load(&root, path).map_err(|mut all| all.swap_remove(0))?;
         let checked = contract_types::check_all(&file, false, contract_lower::tags::style, strings)
-            .map_err(|mut all| sources.resolve(all.swap_remove(0).into()))?;
+            .map_err(|mut all| {
+                sources.resolve(authored_action_hint(&file, all.swap_remove(0).into()))
+            })?;
         (checked.types, Some(checked.expanded))
     };
     let mut r = Resolver {
@@ -911,6 +913,18 @@ impl<'a> Resolver<'a> {
 // can say which action spellings the author can use at a failing handler.
 // Walk it on refusal only; successful compilation does no diagnostic work.
 pub(crate) fn authored_action_hint(file: &File, mut error: CompileError) -> CompileError {
+    // An ambiguous call (LLP 1089 D1): the declaration it collides with.
+    if error.id == contract_syntax::inline::calls::Ambiguous::ID {
+        let found = contract_syntax::inline::calls::ambiguous(file);
+        if let Some(a) = found.into_iter().find(|a| a.span == error.span) {
+            error.related = Box::new([RelatedLocation {
+                span: a.declared,
+                file: None,
+                note: format!("the {} `{}` is declared here", a.what, a.name),
+            }]);
+        }
+        return error;
+    }
     if !matches!(
         error.id.as_str(),
         "type-unknown-name" | "type-unknown-function" | "analyze-unknown-action"

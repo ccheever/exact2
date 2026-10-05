@@ -152,7 +152,10 @@ is `{ roots, nodes: [{ id, type, depth, props: { testId, text, value, … }, chi
 every node in one preorder list (`depth` and `children` give the nesting), and `s.state()` is `{ slots, derives, resources,
 pending, … }`. `app` is the app's name; an app outside the exact2
 checkout is found through `EXACT_APP_DIR` (its directory), as its own `exact.mjs agent`
-sets it, and `webDist` alone does not select an app. `s.op(request)` is the
+sets it, so a script run with plain `bun` sets it to the app's directory too
+(`EXACT_APP_DIR=/path/to/app bun ../verify.mjs`, the script kept outside the app
+folder, where it would count as a build input); the working directory alone does
+not select the app, and `webDist` alone does not select an app. `s.op(request)` is the
 host's wire beneath them: it addresses views by numeric `id`, and it refuses a
 request it would answer by doing nothing (a `target`, an unknown op, a web
 `tap` with no browser input behind it). A reload or a raw browser step goes
@@ -244,10 +247,17 @@ at CSS.
 - Two strings compare with `<`, `<=`, `>`, `>=` in UTF-16 code-unit order, as on
   the web (`end > start` for `"HH:MM"` times). `slice(s, 0, -1)`,
   `replaceAll(s, find, with)` and `toLowerCase(s)` are the web's string methods.
+- Numbers have `floor`, `min`, `max`, `%` and `formatNumber`, and no text-to-number parse, `ceil`,
+  `round` or fixed-decimal format: a typed amount is parsed (and money formatted)
+  in a source, which takes the field's text and answers the number.
+- There is no general list append and no nonempty list literal: add an item to
+  resource-backed data in its source and answer the updated list (a mutation that
+  `refreshes` the list's resource, or its own answer).
 - Standard calls are free functions, not methods: `trim(s)`, `includes(s, q)`.
   There are no nonempty list literals, object literals, general lambdas, array
   indexing, assignment expressions, or JavaScript built-ins by implication.
-- `fn` parameters and return types are explicit. Its body is one expression over
+- `fn label(done: bool): string = done ? "Done" : "Open"` is a function: parameters
+  and the return type are explicit, after `:` (not `->`). Its body is one expression over
   its parameters and standard calls (including `now()`), without component-state
   capture or recursion. Pass an app value in; do not invent an ambient reference.
 - Named arguments belong to component uses, record constructors,
@@ -297,7 +307,10 @@ An action calls an action of its own component, an `action` prop or an injected
 action by name, as a statement, anywhere a statement goes (LLP 1089). The call is
 the callee's statements run where it stands, in the same commit: one rollback,
 and the callee reads the state the action started with, as every statement does.
-A name that is a host command stays the command. A call gives no value; compute
+A name that is a host command stays the command. Never give an action, an `action`
+prop or an inject a host command's name (`close`, `reload`, `setScheme`, `focus`, …)
+if you will call it: the call is refused, `syntax-call-ambiguous`, so a host command
+added later can't silently take it over. Binding such a name is allowed. A call gives no value; compute
 values with `fn`. Write a repeated sequence once and call it:
 
 ```contract
@@ -362,6 +375,43 @@ Children may hold state, derives, and actions. They cannot declare resources,
 mutations, or tasks. Lift shared data requests to the root and pass values and
 actions. A child used under `each` owns row state keyed to that row's identity.
 Stable keys matter when content is inserted, removed, filtered, or reordered.
+
+A state cannot start from a resource, but a child's state can start from a prop.
+So a form that edits a saved record is a child made once the record is in: the
+source answers `loaded: true`, the placeholder says `false`, and the child's
+states take the record's fields when it is made. The initializer runs once per
+child: a later `draft` (a refresh, a normalized answer) does not reset the form,
+and while a refresh is out `saved` keeps its value, so the editor stays.
+
+```contract
+shape Draft
+  name: string
+  loaded: bool
+
+component App
+  resource saved = loadDraft() as shape Draft else empty(name="", loaded=false)
+  mutation stored as shape Draft refreshes saved
+  action keep(name: string)
+    send stored = saveDraft(name)
+  view
+    main
+      when saved.loaded
+        Editor(draft=saved, keep=keep)
+
+component Editor
+  props
+    draft: Draft
+    keep: action
+  state name = draft.name
+  action edit(value: string)
+    name = value
+  action save
+    keep(name)
+  view
+    column
+      input value=name input=edit aria-label="Name" testId="name"
+      button "Save" press=save testId="save"
+```
 
 A component `provide` section lists `name = expr` or bare `name` entries. A
 descendant declares `inject` with typed fields. The nearest provider in the
@@ -455,7 +505,13 @@ or authenticated network session is available while baking. See
 ## Views, layout, and interaction
 
 The view forms are element, component use, `when`/`else`, keyed `each`, exhaustive
-option `match`, and `children`. Wrap root regions in a stable element. A component
+option `match`, and `children`. Wrap root regions in a stable element.
+HTML names Contract spells otherwise (the compiler names each): `div` is `column`,
+`row` or `view`; `span`, `p`, `strong`, `em`, `b` and `i` are `text`; `h1`–`h6` are
+`text role="heading" aria-level=N`; `label` is `text` beside its field, which
+`aria-label` (or `aria-labelledby`) names; `img` is `image`; `a` is `link`; `ul`,
+`ol` and `li` are a `list` or a `column` of rows; `title` and `meta` are `head
+title=… description=…`. A component
 call uses parentheses; a built-in element uses space-separated attributes.
 `button "Save" press=save` is text-child sugar; an explicit text child is useful
 when that label needs its own styling or driver id. A `button` is the web's
@@ -517,7 +573,7 @@ drawn title bar) is a bug. On iOS:
 | `select` of `option`s | a pop-up button with its menu |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` | `UIMenu` (LLP 1021) |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl` (LLP 1059) |
-| a route whose first child is a `header` holding one heading and its buttons | the navigation bar; an `h1` is a large title |
+| a route whose first child is a `header` holding one heading and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title |
 | a route with `navigationPresentation="modal"` | a sheet |
 
 `contract vocab <name>` lists each one's props. A route does not scroll by
@@ -597,7 +653,10 @@ Every route (a node with a `navigationKey` under the root) is a direct child of 
 root or of a `role="tabpanel"` in it — through `each` and `when`, never another
 element: the compiler refuses one behind a wrapper (`lower-route-place`). Make each
 route `position="absolute" inset=0`: the hosts hide a covered route, as
-`visibility: hidden` does, so an in-flow route still takes its room.
+`visibility: hidden` does, so an in-flow route still takes its room. A covered
+route stays mounted (its nodes are in `tree`, marked `inactive`), so a `testId`
+two screens share names two nodes: give each screen its own (`list-error`,
+`detail-error`).
 
 A route does not scroll by itself, as a `div` does not: content taller than it is
 never seen. A fixed shell (a map, a camera, a chat whose composer stays put) is
@@ -658,7 +717,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   route under it is dimmed.
 - Without tabs, the routes are the root's own children, laid out the same way.
 - Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
-  1038 D11), which calls the root's `navigate`.
+  1038 D11), which calls the root's `navigate`. On the web a CLI drive goes back as
+  the browser's back button does with `tap <root> history -1`, `<root>` being the
+  navigation root (the node with `navigationBack`); native hosts refuse it, and a
+  test file has no such step yet.
 
 A `head` node supplies document metadata. The innermost active value wins for
 each field. `head edited=dirty` marks a document with unsaved changes (the dot in
@@ -684,10 +746,18 @@ A root task has one `every(ms, action)`, `after(ms, action)`, or
  The action is parameterless. Millisecond intervals
 are whole-number literals of at least 1. The frame form has no delta-time argument and does not
 catch up missed display frames. For deterministic tests, use the driver's clock.
+The clock moves in advances, and one advance commits at most 4,096 timer actions
+and `then`s (`TIMER_FIRE_LIMIT`), those that change nothing included; the rest is
+refused, what committed is kept, and the clock stays at the last one's time. A
+fast `every` under a long `clock +N` can reach it: tick slower or move the clock in steps.
 
 `now()` is the runner's clock in milliseconds since boot (the driver's clock under
 the agent), not a date. For the date, read the reserved `exactTime` source and add
-`time.epochAtZero + now()`. A read does not itself schedule a future render. Use a timer if a displayed value must keep changing without other
+`time.epochAtZero + now()`. Its fields, which a shape declares as it reads them:
+`epochAtZero` (Unix milliseconds when `now()` read zero), `utcOffset` (minutes east
+of UTC), `locale` (BCP 47), `timeZone` (IANA), `resolvedLocale` (the language of
+the string table the app shows, `""` with no tables) and `seed` (a whole number
+drawn once per launch). A read does not itself schedule a future render. Use a timer if a displayed value must keep changing without other
 input. Prefer `clock settle` to waiting for a transition in real time.
 `time.utcOffset` is the zone's offset *now*: every host answers it again when the
 offset at the clock's instant changes (a DST change, a new zone), checked before a
@@ -715,8 +785,19 @@ the scroll from happening; `drop` hands a `DragEvent` whose `files` are `doc:`
 handles of the types `file_handlers` declares. See
 [Pointer](contract-grammar.md#pointer).
 
+A long-press or right-click menu is a `popover` the node names with
+`contextPopover="<id>"`: its `button` rows (with `popovertarget="<id>"
+popovertargetaction="hide"`) and `hr` separators are the menu, and one row with
+`contextPreview=true` is the preview, whose `press` is what tapping the preview
+does (open the conversation). iOS presents UIKit's context menu, with the row
+lifting and the preview popping into the screen its press pushes; macOS an
+`NSMenu` without the preview; the web and the agent open the popover anchored to
+the node. The node's own `contextmenu` action runs first, so one popover can
+serve every row of a list. The agent opens it with `tap <node> contextmenu`
+([LLP 1021](../llp/1021-menus.rfc.md) §5.1).
+
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
-`Geometry`. Handle `unavailable` and `provisional`. `frame` reads the last layout's border box
+`Geometry` (`x`, `y`, `width`, `height`, `provisional`, `unavailable`). Handle `unavailable` and `provisional`. `frame` reads the last layout's border box
 where the viewer sees it, as `getBoundingClientRect` does: in the viewport, with every
 scroll offset above it (the page's too) applied, but untransformed, so a drop target
 needs no scroll bookkeeping; `measure` reads an auto-height hypothetical layout at
@@ -807,15 +888,20 @@ text is the rest of the op's words, joined by one space, quotes included:
 `"type new-task buy milk"`;
 in a test file each value is one quoted string, a checkbox's `"true"` too); `change` comes as a
 person's would, when the field commits (`type <id> key Enter` on a field, or the
-focus leaving it), so an edit saved on `change` needs one of those.
+focus leaving it), so an edit saved on `change` needs one of those. A CLI drive's
+input does not wait for a request its action sends; `clock data` lands it.
 `tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
 move, with the finger still down, before the hold. Under `--touch platform` the
 lift is scripted, so the reads run inside the hold and `during` needs one
 (`hold 300 during "state"`). `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
 first); its reply says what is still in flight (`inflight`, on every host), and `clock settle` lands it.
+`clock settle` also runs the clock to where the last running finite, unpaused
+transition or animation ends, firing the timers due on the way, so a test on a timer's grid moves with it.
 `clock data` lands it without moving the clock: the data module's activation and
-every request in flight, each answer's `then` with it, no timer fired.
+every request in flight, each answer's `then` with it, no timer fired. A CLI drive's
+first operation runs at boot and may come before that has landed (an authored test
+lands it before its first step), so a drive that reads or taps data starts with `clock data`.
 A playing `video` or `audio` is on real time too: the clock never seeks or holds it, so
 between operations it moves only as far as the drive took. `clock +N real` lets
 N ms of real time pass with the clock moving beside it, a step at a time: a
@@ -862,7 +948,8 @@ above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
 what is in flight lands, with each answer's `then`, the clock unmoved), `resize
 800x600` (the window, mid-test), `reload`
 (the app restarts on the store it had, its state and clock starting over, so a
-test shows what persists),
+test shows what persists; it opens at the launch URL, not the route the test had
+reached, so a deep link after a reload is a `type <root> "/path"` after it),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text; a control's value, so a `select` reads its chosen value, not its
 options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and
@@ -873,7 +960,10 @@ on real time). An input step ends with what it settled: an answer the data
 module gave in the input's turn, and its mutation's `then`, are there for the
 next step. Otherwise the clock stands still between steps: a reply on real time
 (a store's, the network's) or a transition an input started lands at a `clock`
-step, so `clock settle` before the `expect` that depends on it. A timer
+step, so `clock settle` before the `expect` that depends on it. Storage work that
+has answered by the end of a web input may still be pending on iOS, macOS or
+Linux: before a later step depends on its reply or its mutation's `then`, use
+`clock data` (or `clock settle`, if motion should finish too). A timer
 (`after`, `every(ms)`) fires when the clock reaches or passes its time: `clock
 settle` fires it only if it reaches it while advancing to a motion's end, so
 move to it with `clock +N` (a `task … after(1, restore)` needs `clock +1`).

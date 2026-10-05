@@ -146,7 +146,12 @@ shape Greeting
 component ${title.replaceAll(' ', '')}
   resource greeting = greeting("${title}") as shape Greeting
   view
-    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=24 background-color="light-dark(#ffffff, #111111)"
+    main testId="root"
+      width="100%"
+      height="100%"
+      box-sizing="border-box"
+      padding=24
+      background-color="light-dark(#ffffff, #111111)"
       text greeting.text font-size=28 color="light-dark(#111111, #eeeeee)" testId="greeting"
 `,
     'app.test.contract': `test "the greeting loads"
@@ -489,6 +494,10 @@ function resolveOffline(dir, deferrable = false) {
 
 function updateApp(dir, name) {
   if (!existsSync(resolve(dir, 'app.contract')) || !existsSync(resolve(dir, 'Cargo.toml'))) throw new Error(`${dir}: no app workspace here to update (no app.contract or Cargo.toml)`);
+  // The app's crates name it, not its folder: a renamed folder keeps `<name>-web`, `<name>-apple`
+  // (authoring bench: `exact.mjs ios` asked Cargo for `todo-apple` in a `todo/` holding `todo-list-*`).
+  name = ['web', 'apple', 'linux'].map(kind => resolve(dir, kind, 'Cargo.toml')).filter(existsSync)
+    .map(path => String(Bun.TOML.parse(readFileSync(path, 'utf8')).package?.name ?? '').match(/^(.+)-(?:web|apple|linux)$/)?.[1]).find(Boolean) ?? name;
   const manifest = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
   const block = `[patch.crates-io]\n${patchLines(dir).join('\n')}\n`;
   // The table runs from its header to the next header; its trailing blank line stays.

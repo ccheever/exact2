@@ -492,11 +492,27 @@ impl Parser {
                         let (mut name, _) = self.ident()?;
                         // A field of a record, at any depth (feed F10).
                         while self.eat_punct(".") {
+                            // A list position (authoring bench: five builders tried `cards.0.id`).
+                            if matches!(self.peek_kind(), TokenKind::Number(_)) {
+                                return self.err(
+                                    "syntax-expected-name",
+                                    "a test's state path names fields, not list positions: assert a \
+                                     list's order through a derive (`derive order = join(map(cards, \
+                                     c => c.id), \",\")`, then `expect state order == \"a,b\"`)",
+                                );
+                            }
                             name.push('.');
                             name.push_str(&self.ident()?.0);
                         }
                         self.expect_punct("==")?;
-                        let value = self.expr()?;
+                        let value = match self.expr()? {
+                            // A negative number is a number (authoring bench: `== -1`).
+                            Expr::Unary(UnOp::Neg, n, s) if matches!(*n, Expr::Number(..)) => {
+                                let Expr::Number(n, _) = *n else { unreachable!() };
+                                Expr::Number(-n, s)
+                            }
+                            value => value,
+                        };
                         if !matches!(
                             value,
                             Expr::Number(..)

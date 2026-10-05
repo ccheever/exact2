@@ -34,7 +34,108 @@ pub(super) fn reserved_message(w: &str) -> String {
     format!("`{w}` is reserved in Contract ({why}); choose another name")
 }
 
+/// The section a mistaken section word means, as a refusal's tail (authoring
+/// bench: `prop pct: number` in a child component).
+pub(super) fn section_hint(word: &str) -> String {
+    let section = match word {
+        "prop" => "props",
+        "states" => "state",
+        "derives" => "derive",
+        "resources" => "resource",
+        "mutations" => "mutation",
+        "actions" => "action",
+        "tasks" => "task",
+        "views" => "view",
+        "slots" => "slot",
+        "provides" => "provide",
+        "injects" => "inject",
+        _ => return String::new(),
+    };
+    let place = match section {
+        "props" => " (any component but the first in the file declares them)",
+        "resource" | "mutation" | "task" => " (only the root component declares one)",
+        _ => "",
+    };
+    format!(": did you mean `{section}`{place}?")
+}
+
+/// A view's `else` or `case` with nothing to belong to, and where it goes (authoring
+/// bench: an `else` indented one level under its `when`).
+pub(super) fn stray(word: &str) -> String {
+    let goes = if word == "else" {
+        "an `else` sits at its `when`'s indentation, on the line after the `when`'s block"
+    } else {
+        "a `case` arm sits indented under its `match`"
+    };
+    format!("`{word}` without a matching construct: {goes}")
+}
+
 impl Parser {
+    /// An expression continued on an indented line (`? …`, `: …`, `+ …`, `and …`):
+    /// a declaration is one line unless parentheses hold it (authoring bench: a
+    /// multi-line ternary in a `fn` or a `derive`).
+    pub(super) fn continued_expression<T>(&self, id: &'static str) -> Option<R<T>> {
+        let continues = matches!(self.peek_kind(), TokenKind::Indent)
+            && match self.peek2() {
+                TokenKind::Punct(p) => matches!(
+                    *p,
+                    "?" | ":"
+                        | "+"
+                        | "-"
+                        | "*"
+                        | "/"
+                        | "%"
+                        | "&&"
+                        | "||"
+                        | "=="
+                        | "!="
+                        | "<"
+                        | "<="
+                        | ">"
+                        | ">="
+                ),
+                TokenKind::Ident(w) => matches!(w.as_str(), "and" | "or"),
+                _ => false,
+            };
+        continues.then(|| {
+            self.err(
+                id,
+                "an indented line that starts with an operator continues the line above, and \
+                 a declaration is one line: if the line above is an expression, wrap the whole \
+                 expression in parentheses, as in `derive label = (done\n    ? \"Done\"\n    : \"Open\")`",
+            )
+        })
+    }
+
+    /// The end of an `else` line: there is no `else if` or `else when` (authoring
+    /// bench), so the next choice goes on its own line under the `else`.
+    pub(super) fn after_else(&mut self, choice: &str) -> R<()> {
+        if self.at_ident("if") || self.at_ident("when") {
+            return self.err(
+                "syntax-expected-newline",
+                format!(
+                    "there is no `else {choice}`: end the line at `else` and write the `{choice}` \
+                     indented under it"
+                ),
+            );
+        }
+        self.newline()
+    }
+
+    /// A declaration whose expression starts on the line after its `=` (authoring bench).
+    pub(super) fn on_its_line(&self, what: &str) -> R<()> {
+        if matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Indent) {
+            return self.err(
+                "syntax-expected-expression",
+                format!(
+                    "a {what}'s expression starts on its `=` line; a long one is wrapped in \
+                     parentheses opened there, `= (…`, with the rest of it on the lines under it"
+                ),
+            );
+        }
+        Ok(())
+    }
+
     /// A TypeScript-style `: T` before a state's or derive's `=`, or `as T` after its
     /// initializer (`form` "as none" when that initializer is `none`; authoring bench):
     /// its type is inferred.

@@ -583,7 +583,7 @@ impl<D: DataSource> Runner<D> {
                                     progress = true;
                                     continue;
                                 }
-                                answer => answer?,
+                                answer => answer,
                             };
                             force.retain(|forced| *forced != i);
                             if self.store.reads() > reads_before {
@@ -596,7 +596,23 @@ impl<D: DataSource> Runner<D> {
                             // last one did; its reply's parse may add more.
                             self.watching[i] = self.store.take_topics();
                             match answer {
-                                Answer::Now(v) => {
+                                Err(RunnerError::Data {
+                                    error: DataError::DeferredAtBake(_),
+                                    ..
+                                }) => {
+                                    // Storage belongs to the launched app. A bake has no
+                                    // request to dispatch: activation asks this source again.
+                                    let Some(value) = self.placeholder(i, &row, &resources) else {
+                                        return Err(self.unanswerable(i));
+                                    };
+                                    self.stale[i] = true;
+                                    pending_res[i] = true;
+                                    awaiting[i] = true;
+                                    placeholder = true;
+                                    Held::new(value)
+                                }
+                                Err(error) => return Err(error),
+                                Ok(Answer::Now(v)) => {
                                     // A re-read shows the source's answer and
                                     // leaves a request in flight to land.
                                     if (pending_res[i] || self.streaming(i)) && !reread {
@@ -610,7 +626,7 @@ impl<D: DataSource> Runner<D> {
                                     self.keep_answer(i, &args, &v);
                                     Held::new(v)
                                 }
-                                Answer::Later(request) if reread => {
+                                Ok(Answer::Later(request)) if reread => {
                                     // Nothing newer to show before the write
                                     // lands; the reply's refresh asks the host.
                                     // A source that parks calls hears what is
@@ -622,7 +638,7 @@ impl<D: DataSource> Runner<D> {
                                     value_args = state.args.clone();
                                     state.value.clone()
                                 }
-                                Answer::Later(request) => {
+                                Ok(Answer::Later(request)) => {
                                     // The host will run it. Meanwhile the resource
                                     // keeps the value it had — its last answer, or
                                     // its compiled boot value (LLP 1016 D3).

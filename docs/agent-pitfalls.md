@@ -10,6 +10,13 @@ guide's rules don't make obvious.
 
 ## Layout
 
+- **A heading's lines are a screen apart with `line-height=28`.** Cause: a bare
+  number is CSS's unitless `line-height`, a multiple of the font size (at 22 px,
+  28 × 22 = 616 px), unlike a bare number on a length row such as `font-size` or
+  `width`, which means pixels. Fix: write `line-height="28px"`, or a ratio such as
+  `line-height=1.3` (28.6 px at 22 px). (Authoring bench,
+  LLP 1087: three Codex builders, caught only by a screenshot, 2026-10-05.)
+
 - **An image tile grows to its picture's size.** An album tile in a flex row became
   900×1200 pt. Cause: a flex item's automatic minimum is its content size (CSS), and
   an image's content size is its intrinsic size. Fix: give the image or its flex
@@ -177,6 +184,13 @@ guide's rules don't make obvious.
   the old one. (Spreadsheet F21 and Files F27 diaries, where a copied block was
   the workaround.)
 
+- **A delete or save is lost when the page reloads right after it.** An action that
+  `send`s a write and navigates away in the same commit passes every test, but a
+  browser reload in the next ~100 ms comes back without the write. Cause: the write
+  is the data module's, and it is done only when its mutation answers; the reload
+  ends the page first. Fix: navigate in the mutation's `then`, which runs once the
+  write has answered. (Authoring bench, LLP 1087, a2-contacts and t2-todo, 2026-10-05.)
+
 ## Input
 
 - **A hold's `pointerup` never arrives.** Cause: the press started on a node that a
@@ -213,16 +227,6 @@ guide's rules don't make obvious.
   bench, LLP 1087, t4-kanban: about 15 minutes, 2026-10-04.) **Candidate
   diagnostic:** the compiler could warn on a `pan` without `touch-action`.
 
-- **A native build stops at the bake with a source's storage error.** `exact.mjs ios`
-  (or `mac`) panics in `apple/build.rs`: `bake …: Data { resource: "tasks", error:
-  Unavailable("storage is unavailable during bake") }`, while the web build asks the
-  source again at launch, as [the human guide](contract-for-humans.md#writing-the-data-module)
-  says. Cause: the native bake treats a source that throws at bake as a failure; an
-  `else` placeholder does not change that. Fix: in the source, catch the storage error
-  whose `code` is `'bake'` and answer a default: `catch (e) { if (e.code === 'bake')
-  return []; throw e; }` ([the reference](reference.md#what-a-data-module-can-use)).
-  (Authoring bench, LLP 1087, t2-todo on iOS, 2026-10-04.)
-
 - **There is no `swipeleft` for swipe-to-delete.** A row built from `pan`,
   `panrelease` and `translate` reveals its Delete button, but by hand on every host.
   Cause: `swiperight` is the reply gesture (a message bubble), not a direction pair;
@@ -242,7 +246,42 @@ guide's rules don't make obvious.
   request of its own that the view sends (a `flush` source called with the change).
   (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
 
+- **Two quick sends to one mutation lost the first write on iOS.** Two adds in a
+  row (`send changed = addTask(…)` from consecutive inputs) kept only the second:
+  the log said `forget request 11 (changed)`, and the first insert, queued behind
+  a storage turn still open, never landed; the web finished it. Cause: a second `send` to a mutation
+  forgets the request in flight (its reply is dropped by design); the native
+  executor finishes a forgotten request already in a storage step, but drops one
+  that has not reached its first (QUEUE). Fix until then: give each write that can
+  be in flight at once a mutation of its own, or keep the edits in Contract state and
+  send the whole of it each time, from the value assigned (`let next = …`, then
+  `tasks = next` and `send saved = saveTasks(next)`: a statement reads the state the
+  action started with), so a later request that supersedes an earlier one already
+  carries every change. (Authoring
+  bench, LLP 1087, t2-todo on iOS, 2026-10-05.)
+
 ## Driving and testing
+
+- **A drive script kept in the app folder makes the build stale.** Editing
+  `verify.mjs` beside `app.contract` made the driver refuse the next drive until
+  `bun exact.mjs web-build`. Cause: a file in the app folder counts as a build input
+  unless it is an output (a screenshot, a log) or git-ignored outside the input trees
+  (`data/`, `web/`, `assets/` and the like count even when ignored). Fix: keep drive
+  scripts outside the app folder. (Authoring
+  bench, LLP 1087: five builders, 2026-10-05.)
+
+- **An iOS screenshot right after a tap shows a segmented control on its old
+  segment.** The tree says the new one is selected. Cause: UIKit animates the
+  selection on real time, and `clock +N` does not move it. Fix: `clock +1000 real`
+  before the screenshot (it moves the app's clock that second too, so a timer due in
+  it fires). (Authoring bench, t1-tip on iOS, 2026-10-05.)
+
+- **The same test passes on the web and fails on iOS at a date past `max`.** Cause:
+  the runner refuses a date, time or datetime outside `min`/`max` (the agent says the
+  date was refused) on iOS, macOS, Linux and the wasm web; the JS web target keeps the
+  value as a browser's date input does. Fix: test values inside the range, or the
+  bound itself. (Authoring bench, t7-wizard on iOS,
+  2026-10-05.)
 
 - **The agent taps the simulator by screen coordinates** (`axe tap -x -y`,
   `simctl`), and the drive breaks whenever layout moves. Cause: the controls have
@@ -274,6 +313,16 @@ guide's rules don't make obvious.
   `axe tap -x <x> -y <y> --tap-style physical`, or
   `axe touch -x <x> -y <y> --down --up`; or the agent's `tap <testId>`.
   (Signal Clone Privacy, 2026-10-04.)
+
+- **The software keyboard never shows on a simulator that drives have used.**
+  A field takes focus (its caret blinks) but no keyboard rises, and
+  `keyboardWillShow` never fires, so a keyboard-riding toolbar cannot be
+  measured. Cause: after agent and `axe` drives the simulator was in
+  hardware-keyboard mode, likely left by the HID input they inject; a
+  headless simulator has no Simulator.app setting to show. Fix: reboot it
+  (`xcrun simctl shutdown <udid>; xcrun simctl boot <udid>`), or toggle
+  Connect Hardware Keyboard where Simulator.app is installed. (Signal Clone
+  keyboard timing, 2026-10-05.)
 
 - **A storage test fails with `storage is busy`, or storage is "unavailable in
   agent mode".** Cause: a drive has no storage unless it names a scratch store, and

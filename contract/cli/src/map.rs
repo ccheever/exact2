@@ -102,7 +102,7 @@ impl SourceMap {
     pub fn bake_error(&self, error: &BakeError) -> CompileError {
         let (id, message, site) = match error {
             BakeError::Lint { id, message, site } => (*id, message.clone(), *site),
-            BakeError::Runner(error) => ("bake-runner", format!("{error:?}"), None),
+            BakeError::Runner(_) => ("bake-runner", error.to_string(), None),
         };
         let node = site.and_then(|site| self.sites.nodes.get(site.0 as usize));
         let mut related = Vec::new();

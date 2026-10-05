@@ -725,3 +725,23 @@ fn an_agent_drive_without_a_store_answers_with_the_webs_refusal() {
         .answer(&mut Store::default(), "operation", &[])
         .is_err());
 }
+
+#[test]
+fn storage_forwards_source_console_lines_once() {
+    struct Logging(Vec<String>);
+    impl DataSource for Logging {
+        fn query(
+            &mut self,
+            _: &str,
+            _: &[exact_plan::Value],
+        ) -> Result<exact_plan::Value, DataError> {
+            Ok(exact_plan::Value::Unit)
+        }
+        fn take_logs(&mut self) -> Vec<String> {
+            std::mem::take(&mut self.0)
+        }
+    }
+    let mut source = Storage::new(Logging(vec!["console error".into()]));
+    assert_eq!(source.take_logs(), ["console error"]);
+    assert!(source.take_logs().is_empty());
+}

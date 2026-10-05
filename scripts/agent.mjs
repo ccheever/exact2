@@ -142,7 +142,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
   const kept = storage === undefined ? null : driveStore(selected.id, storage, env);
   if (kept && fresh) await removeBrowserProfile(kept.profile);
   await new Promise((ok, fail) => { server.once('error', fail); server.listen(kept && !pageURL ? kept.port : 0, '127.0.0.1', ok); }).catch((e) => {
-    throw e.code === 'EADDRINUSE' ? new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open, and a store is one drive's at a time`) : e;
+    throw e.code === 'EADDRINUSE' ? new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open (a store is one drive's at a time), or another program holds the port: try another store name`) : e;
   });
   const port = server.address().port;
   const chrome = chromium().executable;
@@ -289,7 +289,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       }
       // A settle runs up to the page's 20 s deadline twice (requests, then rounds).
       const timeout = req.op === 'clock' && (req.settle || req.data) ? 60000 : undefined;
-      return JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`, timeout));
+      return JSON.parse(await evaluate(`(typeof globalThis.exact?.agentSettled === 'function' ? exact.agentSettled(${JSON.stringify(req)}) : Promise.reject(new Error('the page has no agent adapter: a production build has none, and in a development build a raw reload after the router rewrote the URL drops ?agent=1; use a test file\\'s reload, or load the drive\\'s launch URL again as a new page'))).then((r) => JSON.stringify(r))`, timeout));
     };
     return {
       host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, call, launchFacts: facts,

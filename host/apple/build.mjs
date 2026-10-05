@@ -1336,7 +1336,7 @@ async function main(args) {
       run('xcrun', ['devicectl', 'device', 'install', 'app', '--device', ph.udid, placed]);
     } else install(dev, placed, app, host);
   }
-  console.log(`host/apple: ${paths.bundle} on ${dev.name} (${timing()}); GPU: ${gpuNote}${ios && !svgFilterBuilt ? '; no SVG filter kernels (no Metal toolchain)' : ''}; web arm: ${hasWeb ? webLoadName : 'none'}${modulesBuilt ? `; modules: ${modulesLoadName} (Frameworks, signed)` : ''}`);
+  console.log(`host/apple: ${paths.bundle} on ${dev.name}${dev.udid ? ` ${dev.udid}` : ''} (${timing()}); GPU: ${gpuNote}${ios && !svgFilterBuilt ? '; no SVG filter kernels (no Metal toolchain)' : ''}; web arm: ${hasWeb ? webLoadName : 'none'}${modulesBuilt ? `; modules: ${modulesLoadName} (Frameworks, signed)` : ''}`);
   if (args.includes('--run')) {
     if (device) run('xcrun', deviceLaunchArgs(ph.udid, app.id, launchEnv));
     else {

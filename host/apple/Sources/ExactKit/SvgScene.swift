@@ -169,7 +169,7 @@ enum CssAnimations {
         a.duration = duration
         a.repeatCount = repeatCount < 0 ? .infinity : Float(repeatCount)
         let fill = Int(num(spec["fill"]))
-        let backwards = fill == 2 || fill == 3
+        let backwards = fill == 2 || fill == 3, forwards = fill == 1 || fill == 3
         a.fillMode = [CAMediaTimingFillMode.removed, .forwards, .backwards, .both][min(max(fill, 0), 3)]
         a.isRemovedOnCompletion = false
         let start = num(spec["s"]), delay = num(spec["dl"])
@@ -180,6 +180,9 @@ enum CssAnimations {
             // At or past a finite end CA wraps to the next cycle's start; CSS
             // holds the last frame (with a forwards fill), so stay a hair inside.
             let total = repeatCount < 0 ? Double.infinity : duration * repeatCount
+            // Ended without a forwards fill: no effect, as CSS (the property
+            // shows its own value; a held last frame hid every later change).
+            if active >= total && !forwards { return nil }
             let at = min(max(0, active), total - 1e-6)
             if offscreen {
                 a.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) - at

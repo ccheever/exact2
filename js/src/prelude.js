@@ -718,7 +718,7 @@
     var kind = e && typeof e === "object" ? e.kind : undefined;
     if (kind !== "UnknownSource" && kind !== "BadArguments" && kind !== "Unavailable") kind = "Unavailable";
     var message = e && typeof e === "object" && e.message !== undefined ? e.message : e;
-    return JSON.stringify({ tag: 2, kind: kind, message: String(message) });
+    return JSON.stringify({ tag: 2, kind: kind, code: e && e.code, message: String(message) });
   }
   // Natively, liveness is the module's, as a browser's event loop has it
   // (LLP 1027.003.000 §13; hn-reader F7): an answer awaiting a promise

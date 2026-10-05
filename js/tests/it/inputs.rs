@@ -237,12 +237,22 @@ fn runner_cache_refresh_clock_and_reload_observe_only_the_declared_inputs() {
     );
     runner.act("refreshValue", vec![]).unwrap();
     assert_eq!(runner.resource("value"), Some(&initial));
-    assert_eq!(runner.data().take_logs(), ["explicit 0 7"]);
+    assert!(runner.journal().any(|line| line.ends_with("explicit 0 7")));
+    assert!(
+        runner.data().take_logs().is_empty(),
+        "the runner drained the module"
+    );
 
     runner.act("tick", vec![]).unwrap();
     let at_1000 = Value::str("1970-01-01T00:00:01.000Z/1025555898");
     assert_eq!(runner.resource("value"), Some(&at_1000));
-    assert_eq!(runner.data().take_logs(), ["explicit 1000 7"]);
+    assert!(runner
+        .journal()
+        .any(|line| line.ends_with("explicit 1000 7")));
+    assert!(
+        runner.data().take_logs().is_empty(),
+        "the runner drained the module"
+    );
     runner.act("tick", vec![]).unwrap();
     assert!(
         runner.data().take_logs().is_empty(),
@@ -270,7 +280,13 @@ fn runner_cache_refresh_clock_and_reload_observe_only_the_declared_inputs() {
         runner.resource("value"),
         Some(&Value::str("1970-01-01T00:00:01.000Z/1027220423"))
     );
-    assert_eq!(runner.data().take_logs(), ["explicit 1000 8"]);
+    assert!(runner
+        .journal()
+        .any(|line| line.ends_with("explicit 1000 8")));
+    assert!(
+        runner.data().take_logs().is_empty(),
+        "the runner drained the module"
+    );
 }
 
 #[test]
@@ -293,6 +309,10 @@ fn newer_explicit_arguments_and_reload_do_not_accept_stale_async_results() {
     assert!(runner.fulfill(old, response()).unwrap().is_none());
     assert_eq!(runner.slot("result"), Some(&Value::NONE));
     runner.fulfill(current, response()).unwrap();
+    assert!(runner
+        .journal()
+        .any(|line| line.ends_with("explicitLater 1000 7")));
+    assert!(runner.data().take_logs().is_empty());
     let expected = Value::some(Value::str("1970-01-01T00:00:01.000Z/1025555898"));
     assert_eq!(runner.slot("result"), Some(&expected));
 

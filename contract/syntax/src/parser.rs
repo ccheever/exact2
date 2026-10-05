@@ -347,7 +347,10 @@ impl Parser {
                 TokenKind::Ident(w) if w == "font" => file.fonts.push(self.font_decl()?),
                 TokenKind::Ident(w) if w == "routes" => {
                     if file.routes.is_some() {
-                        return self.err("route-duplicate", "an app declares exactly one `routes` table");
+                        return self.err(
+                            "route-duplicate",
+                            "an app declares exactly one `routes` table",
+                        );
                     }
                     file.routes = Some(self.routes_decl()?);
                 }
@@ -381,7 +384,12 @@ impl Parser {
                 TokenKind::Ident(w) if LAUNCH.contains(&w.as_str()) => {
                     let line = self.step()?;
                     if let Some(first) = file.launch.iter().find(|s| same_launch(s, &line)) {
-                        return duplicate("launch line", launch_word(&line), line.span(), first.span());
+                        return duplicate(
+                            "launch line",
+                            launch_word(&line),
+                            line.span(),
+                            first.span(),
+                        );
                     }
                     file.launch.push(line);
                 }
@@ -398,13 +406,16 @@ impl Parser {
                 }
                 TokenKind::Ident(w) if w == "use" => file.uses.push(self.use_decl()?),
                 other => {
+                    if let Some(e) = self.continued_expression("syntax-expected-declaration") {
+                        return e;
+                    }
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
                         "expected `routes`, `font`, `shape`, `style`, `keyframes`, `timeline`, `color-profile`, `fn`, `use`, or `component`, found {}",
                         describe(other)
                     ),
-                    )
+                    );
                 }
             }
         }
@@ -495,6 +506,7 @@ impl Parser {
         self.expect_punct(":")?;
         let ret = self.type_expr()?;
         self.expect_punct("=")?;
+        self.on_its_line("fn")?;
         let body = self.expr()?;
         self.newline()?;
         Ok(FnDecl {
@@ -726,6 +738,7 @@ impl Parser {
                             let name = self.named_ident(t.span)?;
                             self.type_annotation(&w, &name, ":")?;
                             self.expect_punct("=")?;
+                            self.on_its_line(&w)?;
                             let expr = self.expr()?;
                             let none = matches!(expr, Expr::None(_));
                             self.type_annotation(&w, &name, if none { "as none" } else { "as" })?;
@@ -763,7 +776,7 @@ impl Parser {
                         other => {
                             return self.err(
                                 "syntax-unknown-section",
-                                format!("unknown section `{other}`"),
+                                format!("unknown section `{other}`{}", names::section_hint(other)),
                             )
                         }
                     }
@@ -791,10 +804,13 @@ impl Parser {
                     );
                 }
                 other => {
+                    if let Some(e) = self.continued_expression("syntax-expected-section") {
+                        return e;
+                    }
                     return self.err(
                         "syntax-expected-section",
                         format!("expected a section, found {}", describe(&other)),
-                    )
+                    );
                 }
             }
         }
@@ -938,7 +954,7 @@ impl Parser {
             let mut otherwise = Vec::new();
             if self.at_ident("else") {
                 self.next();
-                self.newline()?;
+                self.after_else("if")?;
                 otherwise = self.required_block(span, "else", |p| p.stmt())?;
             }
             return Ok(Stmt::If {
@@ -1178,7 +1194,7 @@ impl Parser {
                 let mut otherwise = Vec::new();
                 if self.at_ident("else") {
                     self.next();
-                    self.newline()?;
+                    self.after_else("when")?;
                     otherwise = self.required_block(span, "else", |p| p.node())?;
                 }
                 Ok(Node::When {
@@ -1263,7 +1279,7 @@ impl Parser {
             }
             "else" | "case" => self.err(
                 "syntax-stray-keyword",
-                format!("`{word}` without a matching construct"),
+                names::stray(&word),
             ),
             "map" | "filter" if matches!(self.peek2(), TokenKind::Punct("(")) => self.err(
                 "syntax-map-view",

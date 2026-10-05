@@ -189,3 +189,43 @@ test('an argument or a write past MAX_STRING is refused by name, and a trapping 
   put.t(() => ['x'])();
   expect(last()).toBe('refused action: the runner is poisoned; reload');
 });
+
+
+test('a refused derive names itself and only the failed resources it reads', async () => {
+  const { memo, res, data } = await import(resolve(dir, 'rt.js') + '?derive-refusal');
+  data.answer = () => { throw new Error('ambient Date is refused'); };
+  const failed = res('profile', 'loadProfile', () => [], undefined, undefined, 's', '');
+  const unrelated = res('other', 'loadOther', () => [], undefined, undefined, 's', '');
+  expect(unrelated).toThrow("loadOther");
+  const intermediate = memo(() => failed());
+  const derive = memo(() => intermediate(), 's', 'displayName');
+  expect(derive).toThrow('derive "displayName": resource "profile" (source "loadProfile"): value does not conform to its type; source failed: ambient Date is refused');
+  try { derive(); } catch (error) { expect(error.message).not.toContain('loadOther'); }
+  expect(memo(() => 1, 's', 'plain')).toThrow('derive "plain": value does not conform to its type');
+});
+
+
+test('a refused derive traces only failed resources it read through retained values', async () => {
+  const { memo, res, data } = await import(resolve(dir, 'rt.js') + '?retained-derive-refusal');
+  data.answer = () => { throw new Error('storage unavailable'); };
+  const unrelated = res('other', 'loadOther', () => [], 1, [], 'n', 0);
+  unrelated();
+  const count = res('count', 'loadCount', () => [], 0, [], 'n', 0);
+  const intermediate = memo(() => count());
+  const invalid = memo(() => 1 / intermediate(), 'n', 'inverse');
+  expect(invalid).toThrow(/derive "inverse".*resource "count".*source "loadCount".*storage unavailable/);
+  expect(invalid).not.toThrow(/loadOther/);
+});
+
+
+test('an async source failure remains named when its retained value breaks a derive', async () => {
+  const { memo, res, data, commit, journal } = await import(resolve(dir, 'rt.js') + '?async-derive-refusal');
+  let reject;
+  data.answer = () => new Promise((_, fail) => { reject = fail; });
+  const count = res('count', 'loadCount', () => [], 0, [], 'n', 0);
+  const invalid = memo(() => count.f() ? 1 / count() : 0, 'n', 'inverse');
+  expect(commit(() => invalid())).not.toBe(false);
+  reject(new Error('database refused'));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(journal.some(line => /derive "inverse".*resource "count".*source "loadCount".*database refused/.test(line))).toBe(true);
+});

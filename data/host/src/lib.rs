@@ -180,6 +180,10 @@ fn unavailable(s: impl Into<String>) -> DataError {
     DataError::Unavailable(s.into())
 }
 impl<D: DataSource> DataSource for Storage<D> {
+    fn take_logs(&mut self) -> Vec<String> {
+        self.source.take_logs()
+    }
+
     fn preload(&self) -> Result<bool, DataError> {
         self.source.preload()
     }

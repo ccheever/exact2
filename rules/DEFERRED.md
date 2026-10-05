@@ -483,7 +483,10 @@ its parent. Take: none offered; waived by Charlie's approval.
 **Expanded (LLP 1089; waived by the orchestrator under Charlie's 2026-10-04
 delegation, "make decisions without me"):** a call anywhere a statement may
 stand, to an action of the same component, an `action` prop, or an injected
-action, expanded into that commit; a host command keeps its name. Consumers:
+action, expanded into that commit; a host command keeps its name, and a
+call naming both a host command and an action in its component's scope is
+refused (`syntax-call-ambiguous`, amended 2026-10-05 with Charlie's approval:
+a new host command must never silently rebind an app's call). Consumers:
 Files' four copies of "open" (F27) and the spreadsheet's close-the-editor and
 move copies (F21); Mail's swipe (F18) is the tail call, once the docs say so.
 Take: none offered. Still refused: recursion, a return value, and an action
@@ -498,6 +501,19 @@ the web. Gestures are in as follow-and-release: the platform recognizes, the
 engine holds a value and springs it back with the release velocity. The seekable
 clock is in, and it is the reason motion is testable: an agent advances time to
 `settle_time()` and reads; it never waits.
+
+**Expanded (Charlie, 2026-10-05, via the lead: approved LLP 1099's design,
+"move to code"):** `spring()` takes UIKit's parameterisations: duration and
+damping ratio, duration and bounce, response, and a labelled `velocity` and an
+end time on the physical spring, each lowered to the spring UIKit builds and
+cut where Core Animation cuts it. One implementation in `exact-motion`; the
+web plays its frames. Unblocks porting UIKit apps' springs by their own
+numbers (the Signal clone's menu, reply icon and photo viewer, now
+hand-sampled `linear()` curves). Take: the clone's hand-sampled curves are
+deleted when stage 1 lands. A take off the doing-list, or a waiver in
+Charlie's words, is still to be recorded here. Still out: SwiftUI's own
+spring evaluator, vector initial velocities, and per-iOS-version behaviour
+(LLP 1099 pins iOS 27.0).
 
 Moved off this list 2026-08-28 (LLP 1002 D6): **delegation to CSS on the web** — it
 unblocks a web host that ships zero motion bytes and a parity corpus with the

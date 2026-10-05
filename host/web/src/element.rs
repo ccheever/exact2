@@ -866,6 +866,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Popover => "popover",
             PropId::Popovertarget => "popovertarget",
             PropId::Popovertargetaction => "popovertargetaction",
+            // LLP 1021 §5.1: the context menu's popover and its preview row,
+            // which the glue opens on `contextmenu` (glue.js).
+            PropId::ContextPopover => "contextpopover",
+            PropId::ContextPreview => "data-context-preview",
             PropId::Commandfor => "commandfor",
             PropId::Command => "command",
             PropId::AccessibilityChecked => "aria-checked",

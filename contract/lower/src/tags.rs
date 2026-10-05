@@ -488,6 +488,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "closedby" => AttrTarget::Prop(p("closedby")),
         "contextTarget" => AttrTarget::Prop(p("contextTarget")),
         "contextMagnify" => AttrTarget::Prop(p("contextMagnify")),
+        // @ref LLP 1021 §5.1 — the popover a node's context menu shows, and its preview row.
+        "contextPopover" | "contextPreview" => AttrTarget::Prop(p(name)),
         "emojiPicker" => AttrTarget::Prop(p("emojiPicker")),
         "backgroundMaterial" => AttrTarget::Prop(p("backgroundMaterial")),
         "glassGroup" => AttrTarget::Prop(p("glassGroup")),

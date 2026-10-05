@@ -139,7 +139,10 @@ fn producer_bakes_the_bytecode_keeps_sources_untouched_and_refuses_bad_candidate
         Some(&Value::str("new: 1")),
         "same arguments must not reuse old logic's answer"
     );
-    assert_eq!(changed.data().take_logs(), ["message called"]);
+    assert!(changed
+        .journal()
+        .any(|line| line.ends_with("message called")));
+    assert!(changed.data().take_logs().is_empty());
     let mut same = paired(&second);
     same.module.load().unwrap();
     let mut reloaded = Runner::boot_carrying(
@@ -458,6 +461,90 @@ fn storage_types_are_checked_by_the_actual_bake_without_granting_bake_io() {
         .err()
         .expect("wrong storage parameters must fail tsc");
     assert!(error.contains("error TS"), "{error}");
+}
+
+#[test]
+fn bake_defers_uncaught_storage_but_keeps_source_errors_fatal() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    let original =
+        "message: ([count]) => { console.log('message called'); return prefix + count; }";
+    let storage = "await storage.sqlite.open('app:/data/notes.db')";
+    let source = SOURCE.replace(
+        original,
+        &format!(
+            "message: async ([count], store, storage) => {{ {storage}; return prefix + count; }}"
+        ),
+    );
+    f.write("app.ts", &source);
+    let baked = f.bake();
+    let candidate = paired(&baked);
+    assert_eq!(candidate.plan.resources[0].initial.len, 0);
+    let mut live = Runner::boot(
+        candidate.plan,
+        candidate.module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("")));
+    assert!(
+        live.take_requests().is_empty(),
+        "bake deferral creates no fabricated request"
+    );
+    live.data().load().unwrap();
+    let error = live.data_ready().unwrap_err();
+    assert!(
+        format!("{error:?}").contains("Unavailable"),
+        "runtime storage refusal remains a failure: {error:?}"
+    );
+    f.write(
+        "app.contract",
+        &CONTRACT.replace("as shape string", "as shape string else fallback()"),
+    );
+    f.write(
+        "app.ts",
+        &source.replace(
+            "const sources: Sources = {",
+            "const sources: Sources = { fallback: () => 'loading',",
+        ),
+    );
+    let fallback = f.bake();
+    let candidate = paired(&fallback);
+    let live = Runner::boot(
+        candidate.plan,
+        candidate.module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("loading")));
+    f.write("app.ts", &source.replace("const sources: Sources = {", &format!("const sources: Sources = {{ fallback: async (_, store, storage) => {{ {storage}; return 'loading'; }},")));
+    let error = bake(&f.0, &Tools::default())
+        .err()
+        .expect("a storage-dependent placeholder cannot answer at bake");
+    assert!(error.contains("placeholder answers later"), "{error}");
+    f.write("app.contract", CONTRACT);
+    for body in [
+        "throw new Error('ordinary bug');".to_string(),
+        format!("try {{ {storage}; }} catch (_) {{}} throw new Error('ordinary bug');"),
+    ] {
+        f.write(
+            "app.ts",
+            &SOURCE.replace(
+                original,
+                &format!("message: async ([count], store, storage) => {{ {body} }}"),
+            ),
+        );
+        let error = bake(&f.0, &Tools::default())
+            .err()
+            .expect("ordinary source bugs must refuse baking");
+        assert!(error.contains("ordinary bug"), "{error}");
+    }
 }
 
 #[test]

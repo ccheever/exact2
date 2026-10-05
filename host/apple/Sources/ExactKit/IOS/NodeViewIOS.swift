@@ -217,7 +217,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // Where the press is, as a touch's `PointerEvent` (studio diary R22).
         let point = gesture.location(in: self), box = contentBox()
         let sample = PointerSample(x: Double(point.x - box.minX), y: Double(point.y - box.minY), buttons: 1, pressure: 0.5, type: "touch", id: 2)
-        presenter?.contextmenu(id, line: sample.line)
+        presenter?.contextmenu(id, line: sample.line); presenter?.menus.agentContext(self) // then, under the agent, its popover (LLP 1021 §5.1)
     }
     @objc func doubleClicked(_ gesture: UITapGestureRecognizer) {
         guard gesture.state == .ended, !disabled else { return } // then after this touch's own press
@@ -295,7 +295,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         guard !formDisabled, !inert else { return false }
         let ok = super.becomeFirstResponder()
         if ok { presenter?.collections.pinsChanged() }
-        if ok, handlers.contains("focus") { presenter?.focus(id) }
+        if ok, handlers.contains("focus"), presenter?.menus.focus.quiet != true { presenter?.focus(id) } // a menu's set-aside focus returns quietly (MenuFocusIOS)
         return ok
     }
     override func resignFirstResponder() -> Bool {
@@ -303,7 +303,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if ok { showFocusRing(false) }
         if ok { presenter?.collections.pinsChanged() }
         if ok { inputCanvas?.canvasInput?.blur() }
-        if ok, handlers.contains("blur") { presenter?.blur(id) }
+        if ok, handlers.contains("blur"), presenter?.menus.focus.quiet != true { presenter?.blur(id) }
         return ok
     }
     /// A hardware keyboard's Tab and Shift-Tab move the focus through the
@@ -355,7 +355,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let name = presses.first?.key.map(NodeView.keyName)
         let held = presses.first?.key.map { KeyCodes.held($0.modifierFlags) } ?? ""
         if !formDisabled, isFirstResponder, let name, presenter?.keyDown(at: self, name, held: held) == true { return }
-        if !disabled, handlers.contains("press"), let name, ["Enter", " "].contains(name) { presenter?.press(id); return }
+        if !disabled, handlers.contains("press") || defaultLink != nil, let name, name == "Enter" || (name == " " && props["href"] == nil) { presenter?.press(id); return }
         super.pressesBegan(presses, with: event)
     }
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -1181,7 +1181,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // A box styled before it joined its parent learns its material now.
         if superview != nil { syncVibrancy() }
     }
-
     func updateKeyboardDismissal() {
         switch props["keyboardDismissMode"] {
         case "interactive": scroll?.keyboardDismissMode = .interactive
@@ -1204,6 +1203,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         syncScroll()
         applyAffordances()
         styleTextArea()
+        field?.textAlignment = NSTextAlignment(rawValue: textAlignmentCode) ?? .left
         if let f = field, let t = text {
             f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
             f.textColor = color("text_color", SystemColor.canvasText)
@@ -1426,7 +1426,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if let touch = touches.first, let run = inlineActivationTarget(at: local(touch.location(in: nil))) {
             inlinePressed = run.id; return
         }
-        if handlers.contains("press") { pressed = true } else { super.touchesBegan(touches, with: event) }
+        if handlers.contains("press") || defaultLink != nil { pressed = true } else { super.touchesBegan(touches, with: event) }
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         inlinePressed = nil
@@ -1483,7 +1483,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         var v: UIView? = self
         while let cur = v {
             if let n = cur as? NodeView, n.disabled { return nil }
-            if let n = cur as? NodeView, (n.handlers.contains("press") || n.isSurfaceControl) {
+            if let n = cur as? NodeView, (n.handlers.contains("press") || n.defaultLink != nil || n.isSurfaceControl) {
                 guard n.bounds.contains(n.local(windowPoint)) else { return nil }
                 return n
             }

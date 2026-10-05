@@ -91,11 +91,29 @@ const tooLong = name => new Refusal(`StringTooLong { name: ${JSON.stringify(name
 const Settle = [];
 /** A derive: lazy, cached, equal results keep their object; settled at
  * every commit before the tree; its value conforms to its type. */
-export function memo(fn, t) {
+export function memo(fn, t, name) {
   // Against its last value, which conformed: an unchanged part is not checked again.
-  const n = node(t ? last => { const v = fn(); if (!conforms(v, t, [0], last)) throw new Refusal("a derive's value does not conform to its type"); return v; } : fn);
+  const n = node(t ? last => {
+    let v;
+    try { v = fn(); } catch (e) { if (name && e?.typeRefusal) e.message = `derive ${JSON.stringify(name)}: ${e.message}`; throw e; }
+    if (!conforms(v, t, [0], last)) {
+      const r = n.resource;
+      const error = new Refusal(`${r ? `resource ${JSON.stringify(r.name)} (source ${JSON.stringify(r.source)})` : `derive${name ? ` ${JSON.stringify(name)}` : ""}`}: value does not conform to its type${r?.error ? `; source failed: ${r.error}` : ""}`);
+      if (!r && name) {
+        const seen = new Set(), visit = s => {
+          if (seen.has(s)) return; seen.add(s);
+          const upstream = s.resource;
+          if (upstream?.error) error.message += `; read resource ${JSON.stringify(upstream.name)} (source ${JSON.stringify(upstream.source)}) failed: ${upstream.error}`;
+          for (const input of s.src) visit(input);
+        };
+        for (const input of n.src) visit(input);
+      }
+      error.typeRefusal = true; throw error;
+    }
+    return v;
+  } : fn);
   Settle.push(n);
-  return () => read(n);
+  const g = () => read(n); g.n = n; return g;
 }
 export function effect(fn) { const n = node(fn, undefined, 1); if (Mask) n.m = Mask; fresh(n); return n; }
 /** A scope whose effects `dispose` ends, owned by `parent` (a region's
@@ -409,7 +427,7 @@ function reply(t, name, source, held, f, next, gone) {
       f(p, o);
     }, `${o.more ? "message" : "reply"} ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed) || !held()) return;
     say(`request ${t.id} (${name}) failed and is no longer pending: ${next}`);
-    gone(); commit(() => {}, "a failed request");
+    gone(Refused.message); commit(() => {}, "a failed request");
   };
 }
 const revalidated = (name, same) => `${name} answered: ${same ? "equal to its build-time answer" : "replaces its build-time answer"}`; // runner lines.rs
@@ -437,16 +455,16 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   // that re-asks (a cursor across a gap) is a new ticket, the old one closed with the commit (`Open`).
   const land = t => reply(t, name, source, () => r.ticket === t, (p, o) => {
     if (p.req) { if (o.more) { const n = { id: ++Ticket, args: t.args, req: p.req, r }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
-    if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args); r.failed = null; if (!o.more) r.ticket = null;
+    if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args); r.failed = null; r.error = undefined; if (!o.more) r.ticket = null;
     W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
-  }, "it keeps its last value", () => { r.ticket = null; r.failed = t.args; write(pend.n, false); write(fail.n, t.args); });
+  }, "it keeps its last value", error => { r.ticket = null; r.failed = t.args; r.error = error; write(pend.n, false); write(fail.n, t.args); });
   const m = memo(() => {
     ver();
     const a = args();
     const forced = r.forced, reread = r.reread, rev = r.rev;
     r.forced = r.reread = r.rev = false;
     // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs). `fail` follows.
-    if (r.failed && (forced || !equal(a, r.failed))) r.failed = null;
+    if (r.failed && (forced || !equal(a, r.failed))) { r.failed = null; r.error = undefined; }
     flag(fail, r.failed);
     if (r.failed) return r.value;
     const baked = r.baked; r.baked = false;
@@ -460,7 +478,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     catch (e) {
       if (e instanceof Refusal) throw e;
       if (e.refuse) throw new Failed(`resource ${name}: ${e.message}`);
-      r.failed = a; flag(fail, a); say(`resource ${name} failed: ${e.message}`); return r.value;
+      r.failed = a; r.error = e.message; flag(fail, a); say(`resource ${name} failed: ${e.message}`); return r.value;
     }
     if (ans && ans.store) r.store = true;
     if (ans && "v" in ans) {
@@ -491,8 +509,8 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     return r.value;
   }, type);
   Object.assign(r, {
-    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked],
-    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) r.ticket.args = x[3]; r.store = x[4]; r.failed = x[5]; r.baked = x[6]; },
+    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error],
+    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) r.ticket.args = x[3]; r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; },
     force: undo => { r.forced = true; flag(ver, ver.n.v + 1, undo); },
     reread_: undo => { r.reread = true; flag(ver, ver.n.v + 1, undo); },
     revise: undo => { r.rev = true; flag(ver, ver.n.v + 1, undo); },
@@ -501,6 +519,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   Resources.push(r);
   m.p = () => (m(), pend());
   m.f = () => (m(), fail() != null);
+  m.n.resource = r;
   m.r = r;
   return m;
 }
@@ -721,6 +740,11 @@ export function c2(e, name, values, types, names) {
 /** When native code may load (LLP 1024 D7): after the browser's first paint entry, or two frames and 250 ms where it records none (glue.js `afterNativePaint`). */
 let Painted = null, Native = null;
 export const painted = () => Painted ??= new Promise(r => { let o; const done = () => { o?.disconnect(); r(); }; try { o = new PerformanceObserver(() => requestAnimationFrame(done)); o.observe({ type: "paint", buffered: true }); } catch {} requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 250))); });
+/** A context menu's popover (LLP 1021 §5.1): after the node's own `contextmenu` (both fire), the popover its `contextpopover` names opens anchored to it,
+ * the browser's own menu prevented and no ancestor hearing the event (macOS consumes the click too); a field's edit menu stays the browser's, and a disabled or inert node opens nothing. */
+export function cp(e) {
+  e.addEventListener("contextmenu", ev => { if (ev.$cp || !e.getAttribute("contextpopover") || ev.target.closest("input,textarea,[contenteditable]") || e.matches(":disabled") || e.closest("[inert]")) return; ev.$cp = 1; ev.preventDefault(); ev.stopPropagation(); setTimeout(() => { if (!e.isConnected || e.matches(":disabled") || e.closest("[inert]")) return; const p = document.getElementById(e.getAttribute("contextpopover") ?? ""); try { if (p && !p.matches(":popover-open")) p.showPopover({ source: e }); } catch {} }); });
+}
 /** A native module's element (LLP 1024 D3): the real custom element, empty until the web host's adapter (`native.js`)
  * and the app's module artifact load (`painted`); the module renders into it, its events reaching the handlers as `exact-native` events (`on`). */
 export function nm(e) {

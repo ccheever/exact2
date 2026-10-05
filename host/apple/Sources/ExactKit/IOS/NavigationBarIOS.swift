@@ -360,6 +360,9 @@ extension NavigationHost {
     /// the stack out (LLP 1075.003 §3.2, §3.5 "projected defaults").
     func prepareRoutes(_ routes: [RouteController], in nav: UINavigationController) {
         hookNavigation(nav)
+        #if os(iOS)
+        presenter.menus.focus.watch(nav.navigationBar) // a bar item's menu (MenuFocusIOS), every stack, rebuilt or not
+        #endif
         projectBack(routes, in: nav)
         followTablist(routes, in: nav)
         for (index, c) in routes.enumerated() {

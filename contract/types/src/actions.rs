@@ -185,6 +185,10 @@ impl Cx<'_, '_> {
                         return calls::prop_args(name, params, args, scope, shapes, *span);
                     }
                 }
+                // Refused as ambiguous (LLP 1089 D1): not a host command's too.
+                if shapes.ambiguous.contains(span) {
+                    return Ok(());
+                }
                 return checks::check_command(name, args, scope, shapes, &c.name, *span);
             }
             Stmt::Call { .. } => return calls::check(stmt, self.lifted, c, scope, shapes),

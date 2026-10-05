@@ -5,6 +5,7 @@
 **Systems:** Kernel (a top layer; the popover's box anchored to its invoker), Contract (HTML popover and dialog declarations), Web host (the Popover API by identity), Apple host (menu-shaped popovers presented as UIMenu/NSMenu), Linux host (a kernel-painted top layer), Agent API (no ninth operation), Weird Castle (the account switcher, first consumer)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
+**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval).
 **Related:** LLP 1017 §8.1 (literal HTML/CSS names, no aliases — the rule that names every row here), LLP 1001 (where a deviation from the bare element is declared), LLP 1008 (host state that never enters the plan — scroll offset — and the native text field, the one native control so far), LLP 1012 (the eight operations; `tap` is a journal entry into the runner, never OS input), LLP 1014 (the canvas capture the top layer sits outside of), LLP 1018 (the `EXACT_AGENT` presentation-swap precedent: `MemoryStore` for the keychain), weird-castle e644c82 (the hand-rolled switcher overlay this replaces). Platform record: the HTML Popover API and invoker attributes; the WAI-ARIA menu pattern; Apple HIG "Menus" and "Pull-down buttons"; `UIMenu`/`UIButton.menu`/`showsMenuAsPrimaryAction` (iOS 14+), `NSMenu` (macOS).
 
 ## 1. Summary
@@ -617,12 +618,254 @@ agent flow and the seeded-book CDP recipe keep working unchanged.
   focus management) — Escape works (D2, the spec's dismissal); the rest
   arrives with the events lane (QUEUE §2), which owns keys generally.
 - **The long-press context menu** (`UIContextMenuInteraction`) — content
-  actions, not navigation; per the HIG never the sole path. The first
-  content surface (the deck list?) earns the trigger, as a second way to
-  open the same declared menu.
+  actions, not navigation; per the HIG never the sole path. **Earned back
+  2026-10-05** (§5.1) by the Signal clone's chat list, whose long press
+  Signal-iOS presents as the system menu with the conversation as its
+  preview, and whose tap opens the same conversation (the other path).
 - **A `select`-shaped value picker** — the customizable `<select>` is the
   web's other native-menu door; it is a form control with a value, a
   different contract. Its own line when a form needs one.
+
+## 5.1 The context menu, its preview and its commit (2026-10-05)
+
+**The consumer.** The Signal clone draws its chat-list long press: a
+hand-built card of the conversation's latest messages over a blur, with
+`contextTarget` morphing a copy out of the row (its DIARY, 2026-10-04:
+"No native UIContextMenu preview for list rows (LLP 1021 §5 defers it)").
+Signal-iOS does not draw it. `CLVTableDataSource.tableView(_:contextMenuConfigurationForRowAt:point:)`
+returns a `UIContextMenuConfiguration` whose `previewProvider` is a
+`ConversationViewController` in preview mode (`createPreviewController`) and
+whose `actionProvider` is the row's actions as a `UIMenu`;
+`willPerformPreviewActionForMenuWith` calls
+`presentThread(animated: false)` inside `animator.addAnimations`, at the
+default `.pop` commit style; `previewForDismissingContextMenuWithConfiguration`
+targets the row's cell. The system lifts the row, places the menu, and
+grows the preview into the conversation when it is tapped. None of that is
+in the app's pixels, so none of it should be in the clone's.
+
+Before this section exact2 had no context menu: `contextmenu=` on iOS was
+a long-press recognizer that fired an action (`NodeViewIOS.openContext`),
+and D3's native arm served only a button's pull-down.
+
+**The web's names, and where they stop.** HTML's own declaration, the global
+`contextmenu` attribute naming a `<menu type="context">`, was removed from
+the standard (Firefox alone shipped it, and later removed it), and `contextmenu` here is
+already the event (D1, LLP 1005). The Popover API supplies the rest: a
+`popover` whose rows are `button`s and `hr` (D3's grammar) is the menu,
+and a popover shown with a `source` element is anchored to it (the
+implicit anchor `position-area` already uses). HTML's interest invokers
+(`interestfor`) also open a popover on a long press. They do not fit,
+because on a pointer they open on hover, which is not a context menu, and
+macOS's menu comes from the secondary click. Two non-web rows join the
+schema, beside `contextTarget` and `contextMagnify`:
+
+- **`contextPopover="<id>"`** on any node (props 238): the popover its
+  context menu shows.
+- **`contextPreview=true`** on one row of that popover (prop 239): that row
+  is the menu's preview, not an item. Its `press` is the **commit**, what
+  tapping the preview does.
+
+```
+button press=open(t.id) contextmenu=menuFor(t.id) contextPopover="chat-menu" …
+column id="chat-menu" popover="auto" role="menu" position="absolute" width=360
+  button contextPreview=true press=open(menuChat) popovertarget="chat-menu" popovertargetaction="hide" height=420 …
+    …the conversation's latest messages…
+  button press=op("pin") popovertarget="chat-menu" popovertargetaction="hide"
+    image "symbol:sf/pin"
+    text "Pin"
+  hr
+  button press=op("delete") destructive=true popovertarget="chat-menu" popovertargetaction="hide"
+    text "Delete"
+```
+
+The node's own `contextmenu` action fires first, then the popover is read:
+D1's "both fire", in D6's order (an invoker's press refreshes its menu).
+That ordering lets one popover serve every row of a list: `menuFor(t.id)`
+records which row was pressed, and the popover's rows and preview are of
+that row. The rows' `popovertargetaction="hide"`, the preview's included,
+is the spec's way to close on a choice; the native arms ignore it, as D6's
+switcher does.
+
+**iOS.** A node carrying `contextPopover` gets a `UIContextMenuInteraction`
+(`ContextMenusIOS.swift`), and its plain long press (the recognizer that
+fired `contextmenu`) is disabled while it has one. UIKit owns the gesture
+and its arbitration with scrolling, the lift, the haptic, placement, the
+menu's glass and the dismissal. In the delegate:
+
+- `configurationForMenuAtLocation` answers a configuration when the node is
+  eligible (live, enabled, not inert, in the active route: the
+  confirmation's test) and some popover has that id. It reads nothing else,
+  because UIKit asks before the press has become a long press, and a tap
+  must not fire `contextmenu`.
+- The `actionProvider` and `previewProvider` run only when the menu is
+  going to show. Whichever runs first fires the node's `contextmenu`, once,
+  synchronously through the session (`Session.press`'s path), then reads
+  the popover as that batch left it.
+- The **menu** is D3's extraction, `MenuHost.items(of:)`, skipping the
+  preview row: titles, item images, `aria-checked`, `disabled`,
+  `destructive`, and `hr` as an inline section. The popover's `aria-label`
+  titles it, as D3's pull-down. A chosen item presses its row by view id.
+- The **preview** is the `contextPreview` row itself. It moves out of the
+  hidden popover into a plain `UIViewController`'s view, at the origin,
+  with `preferredContentSize` set to its laid-out box, the way the agent's
+  painted popover moves into its top layer (D4). It is the kernel's box, and
+  it is never re-rendered or snapshotted: an answer that lands while it
+  shows updates it in place. Any frame a batch gives it (one at the origin
+  too) is taken as its new home, and it is put back at the controller's
+  origin. A children op keeps it out of the tree while it shows
+  (`MenuHost.lifted`): one that keeps it records its index, one that drops
+  it leaves it out, and one that moves it to another parent becomes its
+  home. When the menu has ended (`willEndFor` for its own configuration,
+  after its animator completes) it goes back there: into its popover's
+  container as it is then, which a material change may have replaced, and
+  hidden with the popover. A source that is unmounted or stops naming the
+  popover while the menu shows ends it (`dismissMenu`), and the row goes
+  back at once, without waiting for `willEndFor`. During a commit the row
+  and the interaction stay until the commit is done. A press that did not
+  navigate returns the row as it returns; a navigating one returns it in
+  its animator's completion. A hidden row, or no row,
+  means no preview, and UIKit's own lifted node is the preview. Two rows
+  are refused, logged as `context menu <id> refused a preview: …`.
+- The **targeted preview** (highlight and dismissal) is the node itself
+  (`UITargetedPreview(view:)`), with a `visiblePath` for its
+  `border-radius`, so the lift and the morph are Apple's. After a commit
+  that navigated, the dismissal has no target: the node is under the new
+  screen, as Signal's is under the conversation. After a press that
+  stayed, the dismissal returns to the node.
+- **The commit** (`willPerformPreviewActionForMenuWith`): if the preview row
+  is still the popover's, enabled and has a `press`, it is pressed by view
+  id, synchronously, with the navigation stack's own push animation off for
+  that one batch (`NavigationHost.unanimated`, held until the stack applies
+  the push when a transition already in progress defers it). The row must
+  still be a row of the popover its source names, and the source still
+  eligible. Neither may be disabled or inert in the authored tree: the
+  lifted row is not in that tree, so its popover's ancestry is checked. If
+  the batch changed the
+  selected route (`activeKey`), the commit style is `.pop`, with an animation
+  added (the pushed screen's layout): UIKit grows the preview into the screen
+  the press pushed, as Signal's `presentThread(animated: false)` inside
+  `addAnimations` gives it. At `.pop` with no animation added, UIKit shrinks
+  the preview away as `.dismiss` would; the first build did that, and a
+  recording on iOS 27 showed it. Otherwise the style is `.dismiss`.
+  The style is read off the outcome. An author writes no
+  `pop`/`dismiss` row, and a press that sometimes navigates gets the right
+  one each time.
+- **The focus while the menu shows** (`MenuFocusIOS.swift`). UIKit's menus
+  take typing for type-to-select: as one shows, its key input
+  (`_UITypeSelectKeyInput`) takes the place of a first responder that is not
+  text. With no hardware keyboard attached, that raises the software
+  keyboard over the menu's lower rows. Exact always has such a responder:
+  `ExactView` holds the focus for key commands, and a pressed node takes
+  it. A bare UIKit app on the same iOS 27 simulator shows its context menu
+  with no keyboard, and shows the keyboard as soon as a plain `UIView` is
+  first responder. Setting that responder aside as the menu shows removes
+  the keyboard (measured both ways). So a context menu
+  (`willDisplayMenuFor`) and an invoker's pull-down (`MenuButton`) set the
+  session's focus aside as they show, with no `blur`, and return it with no
+  `focus` once they have ended, unless something else has taken it. A text
+  field's focus stays where it is. A bar item's pull-down
+  (`NavigationBarIOS`) gives no hook early enough: UIKit decides from the
+  focus it saw as the menu began, and setting the focus aside in the
+  menu's rows provider is too late (measured). So a touch on a navigation
+  bar whose items hold a menu sets the focus aside as it begins
+  (`BarTouch`, a recognizer that recognizes nothing). The menu says nothing
+  when it ends, and a focus returned while it shows lets its input take it
+  again, raising the keyboard (measured: returned 5 s after the touch, the
+  keyboard rose). So the view's own focus comes back at the next touch on
+  the page (a recognizer on the viewport, which a presentation carries
+  along), and a focused node is blurred, `blur` dispatched, as a touch on a
+  page's chrome blurs an element on the web, the view then taking the focus
+  at the next touch on the page. A node that resigns hands the focus to
+  `ExactView`, its nearest ancestor that takes it (UIKit's fallback,
+  measured), so every set-aside releases the view too. Which bar item was touched is
+  not known (UIKit exposes no bar item's view), so any touch on such a bar
+  does this. The bar's recognizer is installed as each stack is prepared,
+  rebuilt stacks included. A bare UIKit app's
+  bar item behaves the same way: no keyboard without a first responder,
+  the keyboard with one.
+- `state.navigation.popover` is `{kind: "contextmenu", source, popover,
+  preview, phase}` once the menu is showing (a provider has run), with
+  `phase` `commit` after a commit. A configuration UIKit asked for that
+  ended as a tap is never reported.
+- A row with a context menu is not parked in the node pool (`NodePoolIOS`):
+  the pool refuses a view with interactions or gesture recognizers, as it
+  refused the `contextmenu` recognizer before. A list of such rows builds
+  each row it shows. QUEUE has this.
+
+**macOS.** A secondary click on the node fires its `contextmenu` (as it
+did), then, on the next turn, pops up the popover's menu rows as an
+`NSMenu` at the click (`MenuHost.context`, `menu(of:)`), the preview row
+skipped. A Mac's context menu has no preview, and the HIG offers none. A
+picked item presses on the next turn, once, by the button menu's rules (no
+invoker to recheck). `isMenuShaped` ignores the preview row.
+
+**Web (both targets).** The node's `contextpopover` attribute is wired
+(`rt.js` `cp`, `glue.js`). Its `contextmenu` prevents the browser's menu,
+and after the node's own action the popover opens with
+`showPopover({source: node})` (not for a disabled or inert node, and no
+ancestor hears the event, as macOS consumes the click): anchored to the node and placed by its
+`position-area` (D2's table), with light dismiss and Escape. The preview
+row is an ordinary row (`data-context-preview`), drawn as a card above the
+items, and tapping it presses it. That is the fallback the clone drew by
+hand. Chrome on Android sends `contextmenu` for a long press, so the same
+path serves a phone there; Safari on iOS has not been tried. A field's own
+edit menu stays the browser's. The popover is resolved in a timeout after
+the node's action. A bound `contextPopover` that the action itself changes
+therefore opens the popover it named before when that page defers its
+commit: a view transition on the JS target (`shared.commit`), or the
+presence module still loading on the wasm host. QUEUE has this.
+
+**Linux** has no popover presentation (`POPOVER_UNSUPPORTED`, §4), so
+`contextPopover` shows nothing there and the node's `contextmenu` still
+fires.
+
+**The agent (D4).** Under `EXACT_AGENT=1` there is no interaction. `tap
+<node> contextmenu` fires the node's action and opens the popover painted
+in the top layer, anchored to the node (`MenuHost.agentContext` on iOS,
+`show` on macOS, the browser's own on the web). It works on a node with
+no `contextmenu` action too. `tree` reports it `{open}`, with the preview
+row and the items as nodes the agent reads, `screenshot` composes it, and
+`tap peek-preview` commits: it presses the preview's row, which navigates,
+and its `hide` closes the popover. The eight operations stay eight.
+
+**Evidence.** The native fixture's `peek` row (Home): a context menu whose
+`contextmenu` counts openings, a 300×180 preview whose press pushes Detail,
+then Bump, an `hr`, and a destructive Clear. `ContextMenuIOSTests` (UIKit,
+on a simulator, calling the delegate as UIKit would): the interaction
+replaces the recognizer; nothing fires at configuration; `contextmenu`
+fires once, from whichever provider runs first; the preview row is the
+controller's view at its laid-out size; the menu is Bump | Clear with the
+destructive attribute; the highlight targets the node; the commit
+presses, pushes, and answers `.pop` with one animation and no dismissal
+target; a press that stays answers `.dismiss` and returns to the node; a
+dismissal returns the row to its hidden popover.
+`ContextMenuLifetimeIOSTests`: a frame op while lifted (origin unchanged,
+height changed) resizes the preview and is where the row returns; a source
+that stops naming the popover ends the menu and returns the row at once; a
+configuration that never shows reports no menu; a row dropped from its
+popover and given to another parent returns there; an inert popover
+refuses the commit. `ContextMenuMacTests`: the `NSMenu` omits the preview
+row and presses a picked item on the next turn. On the simulator (iOS 27,
+real touches through `axe`): the row lifts, morphs into the preview with
+Bump and Clear below, and tapping the preview grows it into Detail. After
+the focus fix, no keyboard rises over the context menu or the "Open in
+Maps" pull-down, and `ExactView` is first responder again after each
+(read with lldb). The
+agent opens, reads and commits the painted popover on iOS and in Chrome
+(`tap peek contextmenu`, `tap peek-preview`: `peeks 1`, then Detail's
+route). `MenuHost.context` and the right-mouse path on macOS were not
+driven: `popUp` tracks the menu modally, and no test reaches it.
+
+**Still deferred.** The preview's own interactivity: UIKit takes every touch
+on a preview as the commit, as QUEUE's reaction-picker note found, so
+the Signal message menu's reaction bar is not a preview, and stays
+authored (a reaction bar beside the menu is its own work). Submenus (as §5). A preview for a node that does not name a
+popover. macOS's preview (none exists). Linux's popover presentation. The
+keyboard route to a context menu (Shift+F10, the context-menu key; QUEUE's
+"Keyboard access to a message's context menu"). Compile-time checks: a
+literal `contextPopover` naming no popover, or two `contextPreview` rows,
+is not refused by the compiler. iOS logs both at the press, macOS logs a
+missing popover, and the web logs neither.
 
 ## 6. Delivery
 

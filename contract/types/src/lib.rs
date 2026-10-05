@@ -294,6 +294,9 @@ pub struct Shapes {
     /// Shape name → how deep its values can nest (LLP 1090 D2), once every
     /// shape's fields are known.
     pub depths: BTreeMap<String, u32>,
+    /// Call statements refused as ambiguous (LLP 1089 D1): never checked as
+    /// host commands too, so their refusal is the only one.
+    pub ambiguous: std::collections::BTreeSet<Span>,
 }
 
 impl Shapes {
@@ -1235,6 +1238,10 @@ fn check_with_sites(
     let mut shapes = check_declarations(file).map_err(|e| vec![e])?;
     shapes.style_attr = Some(style_attr);
     shapes.strings = strings;
+    // A call naming both a host command and an action in its component's
+    // scope, refused before anything expands (LLP 1089 D1).
+    let ambiguous = contract_syntax::inline::calls::ambiguous(file);
+    shapes.ambiguous = ambiguous.iter().map(|a| a.span).collect();
     let mut types = Types {
         shapes,
         components: Vec::new(),
@@ -1256,7 +1263,14 @@ fn check_with_sites(
         ..ComponentTypes::default()
     });
     let mut sink = Sink::default();
-    posts::check_targets(file, &mut sink);
+    for a in &ambiguous {
+        sink.push(TypeError {
+            id: contract_syntax::inline::calls::Ambiguous::ID,
+            message: a.message(),
+            span: a.span,
+        });
+    }
+    posts::check_targets(file, &types.shapes.ambiguous, &mut sink);
     // Each component's calls of its own actions, expanded in its own scope
     // before any body is checked (LLP 1089 D7): a child's body holds them.
     let (called, refused) = contract_syntax::inline::calls::expand_file(file);

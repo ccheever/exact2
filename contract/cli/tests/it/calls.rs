@@ -664,8 +664,8 @@ fn an_untyped_helper_is_typed_by_its_calls() {
 }
 
 #[test]
-fn a_host_command_keeps_its_name_inside_an_action_of_that_name() {
-    // Caltrain's `setScheme` wraps the command of its name.
+fn a_call_naming_a_host_command_and_an_action_is_refused_even_in_its_wrapper() {
+    // Caltrain's old `setScheme` wrapper: no self-wrapper exemption (LLP 1089 D1).
     let src = r#"component App
   state scheme = "light"
   action setScheme(s: string)
@@ -674,6 +674,123 @@ fn a_host_command_keeps_its_name_inside_an_action_of_that_name() {
   view
     button press=setScheme("dark") testId="dark"
       text scheme
+"#;
+    let e = refused(src);
+    assert_eq!(e.id, "syntax-call-ambiguous", "{e}");
+    assert_eq!(
+        e.message,
+        "`setScheme()` names both a host command and action `App.setScheme`. Rename the action and update its bindings. Call the renamed action to invoke it; keep `setScheme()` to invoke the host command"
+    );
+    assert_eq!((e.span.line, e.span.col), (5, 5));
+    let related: Vec<_> = e
+        .related
+        .iter()
+        .map(|r| (r.span.line, r.note.as_str()))
+        .collect();
+    assert_eq!(related, [(3, "the action `setScheme` is declared here")]);
+}
+
+#[test]
+fn a_renamed_wrapper_calls_the_host_command() {
+    // Caltrain's wrapper as it is now: `chooseScheme` wraps `setScheme`.
+    let src = r#"component App
+  state scheme = "light"
+  action chooseScheme(s: string)
+    scheme = s
+    setScheme(s)
+  view
+    button press=chooseScheme("dark") testId="dark"
+      text scheme testId="scheme"
+"#;
+    let mut r = boot(src);
+    press(&mut r, "dark");
+    assert_eq!(text_of(&r, "scheme"), "dark");
+}
+
+#[test]
+fn a_call_naming_a_host_command_and_an_action_prop_or_inject_is_refused_anywhere() {
+    // The Signal Clone's viewer: an `action` prop named like `close()`,
+    // called inside an arm, with and without arguments.
+    let prop = r#"component App
+  state open = true
+  action dismiss
+    open = false
+  view
+    Viewer(close=dismiss)
+
+component Viewer
+  props
+    close: action
+  state n = 0
+  action swiped(far: bool)
+    if far
+      close()
+    else
+      n = n + 1
+  view
+    button press=swiped(true) testId="swipe"
+      text "x"
+"#;
+    let e = refused(prop);
+    assert_eq!(e.id, "syntax-call-ambiguous", "{e}");
+    assert_eq!(
+        e.message,
+        "`close()` names both a host command and action prop `Viewer.close`. Rename the prop and update its bindings. Call the renamed action prop to invoke it; keep `close()` to invoke the host command"
+    );
+    assert_eq!(e.related.first().map(|r| r.span.line), Some(10));
+    let inject = r#"component App
+  state n = 0
+  action again
+    n = n + 1
+  provide
+    reload = again
+  view
+    Row()
+
+component Row
+  inject
+    reload: action
+  action go
+    match some(1)
+      case some(x)
+        reload()
+      case none
+        reload()
+  view
+    button press=go testId="go"
+      text "go"
+"#;
+    let e = refused(inject);
+    assert_eq!(e.id, "syntax-call-ambiguous", "{e}");
+    assert!(e.message.contains("injected action `Row.reload`"), "{e}");
+}
+
+#[test]
+fn binding_such_a_name_or_calling_the_command_elsewhere_compiles() {
+    // Declared and bound, never called: legal. Another component's action
+    // of the name does not make `close()` here ambiguous.
+    let src = r#"component App
+  state open = true
+  action close
+    open = false
+  view
+    column
+      Viewer(close=close)
+      Quit()
+
+component Viewer
+  props
+    close: action
+  view
+    button press=close testId="close"
+      text "x"
+
+component Quit
+  action leave
+    close()
+  view
+    button press=leave testId="leave"
+      text "quit"
 "#;
     contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
 }
@@ -824,4 +941,90 @@ fn a_mutation_sent_twice_through_calls_names_the_calls() {
         "analyze-then-self-send",
         "`after` cannot send `saved` (it calls `commit` at line 6, which sends it): it runs when that mutation answers",
     );
+}
+
+#[test]
+fn an_ambiguous_call_is_refused_once_and_a_shape_named_action_is_no_action() {
+    // Checked as the host command too, `close("swiped")` would also be told
+    // `close()` takes no arguments; the ambiguity alone is reported.
+    let src = r#"component App
+  state open = true
+  action dismiss(why: string)
+    open = false
+  view
+    Viewer(close=dismiss)
+
+component Viewer
+  props
+    close: action
+  action swiped
+    close("swiped")
+  view
+    button press=swiped testId="swipe"
+      text "x"
+"#;
+    let dir = std::env::temp_dir().join(format!("contract-ambiguous-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(&path, src).unwrap();
+    let all = contract::compile_path_all(&path, false)
+        .map(|_| ())
+        .expect_err("refused");
+    let ids: Vec<&str> = all.iter().map(|e| e.id.as_str()).collect();
+    assert_eq!(ids, ["syntax-call-ambiguous"], "{all:?}");
+    // Nor checked as the command where it checks the arguments themselves
+    // (`share`'s named arguments, `postMessage`'s surface), in a child and
+    // in the root.
+    let argued = r#"component App
+  state n = 0
+  action share(v: number)
+    n = v
+  action go
+    share(1)
+  view
+    column
+      button press=go testId="go"
+        text "go"
+      Viewer(close=go, postMessage=go, value=1)
+
+component Viewer
+  props
+    close: action
+    value: number
+    postMessage: action
+  action swiped
+    close("swiped")
+    postMessage("hi", "nowhere")
+  view
+    button press=swiped testId="swipe"
+      text `${value + 1}`
+"#;
+    std::fs::write(&path, argued).unwrap();
+    let all = contract::compile_path_all(&path, false)
+        .map(|_| ())
+        .expect_err("refused");
+    std::fs::remove_dir_all(&dir).unwrap();
+    let ids: Vec<&str> = all.iter().map(|e| e.id.as_str()).collect();
+    assert_eq!(
+        ids, ["syntax-call-ambiguous"; 3],
+        "share, close and postMessage, and nothing else: {all:#?}"
+    );
+    // A prop whose type is a shape the file names `action` is a record.
+    let record = r#"shape action
+  value: number
+
+component App
+  view
+    Child(close=action(value=1))
+
+component Child
+  props
+    close: action
+  action leave
+    close()
+  view
+    button press=leave testId="leave"
+      text "quit"
+"#;
+    contract::compile(record).unwrap_or_else(|e| panic!("{e}"));
 }

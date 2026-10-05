@@ -551,47 +551,75 @@ fn origin(root: &Path, mounts: &[(String, PathBuf)], name: &Path) -> PathBuf {
     }
 }
 
-/// The Contract packages the app's sources use (LLP 1091 D10), staged as
-/// `node_modules/<name>/…`: each one's `package.json` and the `.contract`
-/// files the compiler read from it, so the staged compile resolves them as the
-/// original did. Returns the files and, per package, its staged directory and
-/// where it lives, for mapping diagnostics and the source map back.
-type Packages = (BTreeMap<PathBuf, Vec<u8>>, Vec<(PathBuf, PathBuf)>);
-fn packages(app: &Path) -> Result<Packages, String> {
-    let graph = contract::source_graph(&app.join("app.contract"));
-    let mut files = BTreeMap::new();
-    let mut roots: Vec<(PathBuf, PathBuf)> = Vec::new();
-    // Each name a package was reached by is staged: one directory installed
-    // under two names resolves under both in the stage as it did outside.
-    for package in &graph.packages {
-        let staged = Path::new("node_modules").join(&package.name);
-        match roots.iter().find(|(at, _)| *at == staged) {
-            Some((_, other)) if *other != package.root => {
+/// The Contract packages the app's sources use (LLP 1091 D10), by each name
+/// they were reached by: the stage links `node_modules/<name>` to each, so
+/// the staged compile reads the very files the original did, by the paths
+/// it did — an export that is a link, a relative use, one directory under
+/// two names all resolve as they did outside.
+fn packages(app: &Path) -> Result<Vec<(String, PathBuf)>, String> {
+    let mut out: Vec<(String, PathBuf)> = Vec::new();
+    for package in contract::source_graph(&app.join("app.contract")).packages {
+        match out.iter().find(|(name, _)| *name == package.name) {
+            Some((_, root)) if *root != package.root => {
                 return Err(format!(
-                    "two copies of the package `{}` ({} and {}) are used; the bake stages one",
-                    package.name,
-                    other.display(),
-                    package.root.display()
-                ))
+                "two copies of the package `{}` ({} and {}) are used; the bake links one per name",
+                package.name,
+                root.display(),
+                package.root.display()
+            ))
             }
-            Some(_) => continue,
-            None => roots.push((staged.clone(), package.root.clone())),
-        }
-        let read = graph
-            .sources
-            .iter()
-            .filter(|source| matches!(&source.origin, contract::Origin::Package { root, .. } if *root == package.root))
-            .map(|source| &source.path)
-            .chain([&package.manifest]);
-        for path in read {
-            let relative = path
-                .strip_prefix(&package.root)
-                .map_err(|e| e.to_string())?;
-            let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-            files.insert(staged.join(relative), bytes);
+            Some(_) => {}
+            None => out.push((package.name, package.root)),
         }
     }
-    Ok((files, roots))
+    Ok(out)
+}
+
+/// Link each package into the stage's `node_modules`, replacing what the
+/// last bake linked (the stage holds no other `node_modules`: the capture
+/// skips it). A package the capture copied — a directory of the app outside
+/// its `node_modules`, a workspace beside it — is linked to that staged copy,
+/// the one the stage's relative uses reach, so both ways to it are one file.
+fn link_packages(stage: &Path, app: &Path, packages: &[(String, PathBuf)]) -> Result<(), String> {
+    let modules = stage.join("node_modules");
+    match std::fs::remove_dir_all(&modules) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            return Err(format!("{}: {e}", modules.display()))
+        }
+        _ => {}
+    }
+    for (name, root) in packages {
+        let target = match root.strip_prefix(app) {
+            Ok(inside) if !inside.components().any(|c| c.as_os_str() == "node_modules") => {
+                stage.join(inside)
+            }
+            _ => root.clone(),
+        };
+        let link = modules.join(name);
+        std::fs::create_dir_all(link.parent().unwrap()).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, &link)
+            .map_err(|e| format!("{}: {e}", link.display()))?;
+        // A junction needs no privilege where a symbolic link does. A copy
+        // would make one declaration two, so there is none.
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_dir(&target, &link).is_err() {
+            let junction = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(&link)
+                .arg(&target)
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !junction.status.success() {
+                return Err(format!(
+                    "cannot link the package `{name}` into the stage ({}): {}",
+                    link.display(),
+                    String::from_utf8_lossy(&junction.stderr).trim()
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Capture the app-local source graph, and the directories the manifest
@@ -773,9 +801,8 @@ fn bake_in(
     }
     tools.check_engine()?;
     let app = app.canonicalize().map_err(|e| e.to_string())?;
-    let mut captured = sources(&app)?;
-    let (package_files, package_roots) = packages(&app)?;
-    captured.extend(package_files.clone());
+    let captured = sources(&app)?;
+    let package_roots = packages(&app)?;
     if !captured.contains_key(Path::new("app.ts"))
         || !captured.contains_key(Path::new("app.contract"))
     {
@@ -816,16 +843,20 @@ fn bake_in(
         }
     }
     *previous = captured.clone();
+    link_packages(stage, &app, &package_roots)?;
     // A changed graph (including a newly added import) is a refused capture.
-    let mut again = sources(&app)?;
-    again.extend(packages(&app)?.0);
-    if again != captured {
+    if sources(&app)? != captured || packages(&app)? != package_roots {
         return Err("app sources changed during capture; retry the build".into());
     }
-    // Staged packages first: the stage holds them too.
+    // A package's sources are read where they live; the app's, in the stage.
+    let staged_copy = |root: &PathBuf| {
+        root.strip_prefix(&app)
+            .is_ok_and(|inside| !inside.components().any(|c| c.as_os_str() == "node_modules"))
+    };
     let moves: Vec<(PathBuf, PathBuf)> = package_roots
         .iter()
-        .map(|(staged, root)| (stage.join(staged), root.clone()))
+        .filter(|(_, root)| !staged_copy(root))
+        .map(|(_, root)| (root.clone(), root.clone()))
         .chain([(stage.to_path_buf(), app.clone())])
         .collect();
     // Every independent refusal, one after another as `contract build`

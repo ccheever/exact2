@@ -624,3 +624,30 @@ component Row
     let tap = definition(&graph, "action", "tap", None);
     assert_eq!(tap["writes"], serde_json::json!(["taps"]));
 }
+
+#[test]
+fn an_ambiguous_call_in_an_imported_component_is_refused_alike_with_its_declaration() {
+    // LLP 1089 D1: build and navigation report the same refusal, its
+    // related location in the imported file where the prop is declared.
+    let f = Fixture::new("ambiguous");
+    let viewer = f.write(
+        "viewer.contract",
+        "component Viewer\n  props\n    close: action\n  action swiped\n    close()\n  view\n    button press=swiped testId=\"swipe\"\n      text \"x\"\n",
+    );
+    let root = f.write(
+        "app.contract",
+        "use Viewer from \"./viewer.contract\"\ncomponent App\n  state open = true\n  action dismiss\n    open = false\n  view\n    Viewer(close=dismiss)\n",
+    );
+    let build = contract::compile_path(&root).unwrap_err();
+    let query = contract::symbols_json(&root, None).unwrap_err();
+    assert_eq!(build, query);
+    assert_eq!(build.id, "syntax-call-ambiguous", "{build}");
+    let viewer = viewer.canonicalize().unwrap();
+    assert_eq!(build.file.as_deref(), Some(viewer.as_path()));
+    assert_eq!(build.span.line, 5);
+    let related = build.related.first().expect("the declaration");
+    assert_eq!(
+        (related.file.as_deref(), related.span.line),
+        (Some(viewer.as_path()), 3)
+    );
+}
