@@ -399,6 +399,18 @@ export function webInputDigests(app, js) {
 /** Inputs whose content changed since the build in `dist`. Modification times only
  * nominate candidates; a checkout that rewrote a file with its own bytes is not a
  * change. A marker without digests (an older build) trusts the times. */
+/** The URL of a live dev loop serving `dist` for `app` (host/web/dev.mjs
+ * records itself there while it runs), else null. Its compiler rewrites the
+ * dist's plan on every edit, so the loop, not the files, is the current build. */
+export function devLoopURL(dist, app) {
+  try {
+    const loop = JSON.parse(readFileSync(resolve(dist, '.exact-dev.json'), 'utf8'));
+    if (loop.app !== app.id || typeof loop.url !== 'string') return null;
+    process.kill(loop.pid, 0);
+    return loop.url;
+  } catch { return null; }
+}
+
 export function webChanges(dist, app) {
   const marker = resolve(dist, '.exact-build.json');
   if (!existsSync(marker)) return { app: [], shared: [], all: [] };

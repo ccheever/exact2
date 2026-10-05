@@ -4,7 +4,9 @@
 /artifacts/
 /.shells/
 /app.contract.d.ts
-# The bake writes assets/; the fonts are authored.
-/assets/*
-!/assets/fonts/
+# What the bake writes into assets/ (models, textures, sounds); the fonts
+# beside them are authored.
+/assets/**/*.model
+/assets/**/*.tex
+/assets/**/*.sound
 /.baked-assets.json
