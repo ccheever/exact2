@@ -1503,3 +1503,25 @@ the matrix run also records publications and its third session. No broader
 before/after snapshot equality is claimed. All fixture cleanup audits are
 available and empty. The unrelated failures are queued and its pins remain
 unchanged. Comparison: `/tmp/exact2-canvas-orientation-comparison.json`.
+
+Periodic main integration: `a1cf446e7` merges nine commits through
+`e1b1ca868`, covering iOS scroll corrections and the media-session admission,
+without conflicts. The root checks pass in 71.918 s, exceeding the 60 s
+budget: 2,436 tests pass across 81 binaries, nine ignored, zero failures.
+The test command takes 69.000 s while its reported execution totals 40.55 s;
+no game proof overlaps it. This remains part of the queued root timing
+variance, not evidence that the budget is repaired. The merged macOS suite
+executes 684 tests with two skipped and zero failures in 41.224 s, including
+the final text/image orientation regression. Logs:
+`/tmp/exact2-canvas-main-{checks.json,apple-tests.log}`.
+
+Each game then rebuilds and runs on the merged macOS host. Garden plants,
+harvests and opens its one-fruit backpack; Forest selects the food compass;
+Rivals fires and spends ammunition. All three advance the clock, move, pause
+and resume, with zero assertion failures and available, empty cleanup audits.
+Their build-and-drive durations are 14.862/14.470/14.469 s. The inspected
+images are each game's `artifacts/canvas-main-macos/main-check.png`. These
+short drives are deliberately `UNVERIFIED` partial runs; the complete paired
+proofs above precede the merge. The placement fixture is also rebuilt with
+the fixed renderer restored after its original-renderer comparison; its
+queued proof failures remain open.
