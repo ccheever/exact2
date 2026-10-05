@@ -4,7 +4,6 @@ use std::fmt;
 
 pub mod bin;
 pub(crate) mod columns;
-pub(crate) mod defaults;
 pub mod hash;
 mod impls;
 pub(crate) mod limits;
@@ -95,6 +94,27 @@ pub trait Data: Sized + Default + 'static {
     fn write(&self, w: &mut dyn Writer);
     /// Read according to the record-patch and container-replacement rule above.
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError>;
+    /// Whether `other` writes what `self` does: floats compare bit for bit (one
+    /// NaN, and -0.0 is not 0.0), transient fields not at all. Derives compare
+    /// field by field. The default answers false, so a hand-written value is
+    /// always written (comparing two encodings could cost a physics snapshot);
+    /// implement it to let a record leave the value out when it is the default.
+    fn same(&self, other: &Self) -> bool {
+        let _ = other;
+        false
+    }
+    /// Write what a read starting from `base` needs to arrive at `self`. A derived
+    /// record leaves out each field `same` as `base`'s and writes the rest over
+    /// `base`'s; an enum arm with named fields writes over `base`'s payload, or
+    /// over the arm built from its fields' defaults (what `read` builds) when
+    /// `base` is another arm. Kept fields are introduced with [`Writer::key`],
+    /// so a hash covers their names. Containers, tuples and everything else are
+    /// written whole. Saves and hashes write component rows and resources over
+    /// their type's `Default`, so a field added with a default moves neither.
+    fn write_over(&self, base: &Self, w: &mut dyn Writer) {
+        let _ = base;
+        self.write(w);
+    }
 }
 
 /// A codec failure with a path from the root value to the offending field.

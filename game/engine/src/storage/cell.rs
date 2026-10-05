@@ -16,8 +16,8 @@ pub(crate) struct Singleton<C> {
     name: &'static str,
     revision: Cell<u64>,
     instance: u64,
-    // Digests of the default value's top-level fields, which saves and hashes omit.
-    defaults: std::cell::OnceCell<Option<Box<[u64]>>>,
+    // `C::default()`, which saves and hashes write the value over.
+    base: std::cell::OnceCell<Box<C>>,
 }
 impl<C: Data> Singleton<C> {
     pub fn new(name: &'static str, epoch: Rc<Cell<u64>>) -> Self {
@@ -28,7 +28,7 @@ impl<C: Data> Singleton<C> {
             name,
             revision: Cell::new(0),
             instance: super::instance(),
-            defaults: Default::default(),
+            base: Default::default(),
         }
     }
     fn edited(&self) {
@@ -166,14 +166,11 @@ impl<C: Data> Erased for Singleton<C> {
         }
         false
     }
-    // Fields equal to the default's are left out: a field added with a default
-    // moves no save or hash. Hashes read this too, never the full value.
+    // Written over the default, so a field added with a default moves no save
+    // or hash. Hashes read this too, never the full value.
     fn write_save(&self, w: &mut dyn Writer) {
         if let Some(value) = self.value() {
-            let defaults = self
-                .defaults
-                .get_or_init(|| crate::data::defaults::fields(&C::default()).map(Into::into));
-            crate::data::defaults::write_changed(value, defaults.as_deref(), w);
+            value.write_over(self.base.get_or_init(Box::default), w);
         }
     }
     fn read_save(&mut self, r: &mut dyn Reader, _: &dyn Fn(u32) -> bool) -> Result<(), DataError> {

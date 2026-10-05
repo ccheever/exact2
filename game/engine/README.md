@@ -324,9 +324,9 @@ what changed rather than the world (0.1 ms at 216k entities, against ~90 ms).
 The hash is a stream over page digests in type-name and page order; it is the
 same on every host and for a world freshly loaded from the same save. It measures
 state, not history or schema: a registered type with no rows (or a storage since
-emptied) contributes nothing, and a resource contributes only its top-level fields
-that differ from its `Default`, so an engine resource gaining a defaulted field
-moves no pin.
+emptied) contributes nothing, and a component row or resource hashes as it saves,
+written over its type's `Default` (below), so a built-in component or resource
+gaining a defaulted field (`Material`, `Mesh`, `Camera`, a light) moves no pin.
 
 Visual-only state belongs in `#[derive(Presentation)]` components (presentation
 resources are not supported; a world-wide look, such as the sky, goes on the camera
@@ -431,9 +431,18 @@ storage store their rows' shape (tags, field and variant names, sequence lengths
 once and their scalars as run-length or dictionary-coded columns, so repeated
 values cost nothing per entity and no name or entity key is repeated per row.
 Grow a Garden's scale world saves in about 9 bytes per entity, against 247 in v3.
-Resources save as their values, without the top-level fields equal to their
-type's `Default` (a load reads the record over `Default`); empty storages are not
-saved. The encoding is byte-identical on every host.
+Component rows and resources are written over their type's `Default`
+(`Data::write_over`): a derived record leaves out each field equal to the
+default's, bit for bit, and writes the rest the same way, so nested records do
+too; an enum arm with named fields writes over the default's payload when the
+default is that arm, else over the arm built from its fields' `Default`s, as a
+load builds it. A load reads each row over `Default`, so a field left out reads
+back as it was. Kept fields carry their names into the hash. Containers, tuples
+and hand-written `Data` are written whole, and a hand-written field is left out
+only if its type implements `Data::same` (`Spring` and `Tween` do). Rows that
+leave out different fields are different shapes: Grow a Garden's 12,100-plant
+save is 2% larger for it. Empty storages are not saved. The encoding is
+byte-identical on every host.
 
 Loads allow at most 16 Mi entity slots, 64 MiB per string, and 2 GiB of input and
 accounted allocations. Custom `Data` readers must account allocations with

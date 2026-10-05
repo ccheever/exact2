@@ -182,18 +182,22 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
     {
         return Err("Data does not support generics or lifetimes".into());
     }
-    let (write, read, moving, settle) = if kind == "struct" {
+    let (write, read, moving, settle, same, over) = if kind == "struct" {
         let b = body(tokens.get(2))?;
-        let access: Vec<_> = b
-            .fields
-            .iter()
-            .map(|f| format!("self.{}", f.name))
-            .collect();
+        let on = |of: &str| -> Vec<_> {
+            b.fields
+                .iter()
+                .map(|f| format!("{of}.{}", f.name))
+                .collect()
+        };
+        let access = on("self");
         (
             write_body(&b, &access),
             read_body(&b, &access),
             moving_body(&b, &access),
             settle_body(&b, &access),
+            same_body(&b, &access, &on("other")),
+            over_body(&b, &access, &on("base")),
         )
     } else {
         let Some(TokenTree::Group(g)) = tokens.get(2) else {
@@ -215,6 +219,8 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
             });
         }
         let mut write = String::from("match self {");
+        let mut same = String::from("match (self, other) {");
+        let mut over = String::from("match self {");
         let mut moving = String::from("match self {");
         let mut settle = String::from("match self {");
         let mut read = String::from("let arm = r.variant()?; match arm.as_str() {");
@@ -229,6 +235,52 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
                 .map(|(v, f)| if f.skip { "_".into() } else { v.clone() })
                 .collect();
             let write_pat = pattern(&arm.name, b, &write_vars);
+            // `other` and `base` bind o0.. and b0..; transient fields bind nothing.
+            let bound = |prefix: &str| -> (String, Vec<String>) {
+                let vars: Vec<_> = (0..b.fields.len())
+                    .map(|i| format!("{prefix}{i}"))
+                    .collect();
+                let bind: Vec<_> = vars
+                    .iter()
+                    .zip(&b.fields)
+                    .map(|(v, f)| if f.skip { "_".into() } else { v.clone() })
+                    .collect();
+                (
+                    pattern(&arm.name, b, &bind),
+                    vars.iter().map(|v| format!("*{v}")).collect(),
+                )
+            };
+            let (other_pat, others) = bound("o");
+            same += &format!(
+                "({write_pat}, {other_pat}) => {},",
+                same_body(b, &refs, &others)
+            );
+            let (base_pat, bases) = bound("b");
+            let body = if b.shape == Shape::Named {
+                // Over base's payload when base is this arm, else over the arm
+                // `read` builds from its fields' defaults.
+                let bind = if arms.len() == 1 {
+                    format!("let {base_pat} = b;")
+                } else {
+                    format!("let {base_pat} = b else {{ ::core::unreachable!() }};")
+                };
+                format!(
+                    "let fresh; let b = if ::core::matches!(base, {}) {{ base }} else {{ fresh = {}; &fresh }}; {bind} {}",
+                    pattern(&arm.name, b, &vec!["_".to_owned(); b.fields.len()]),
+                    pattern(
+                        &arm.name,
+                        b,
+                        &vec!["::core::default::Default::default()".to_owned(); b.fields.len()]
+                    ),
+                    over_body(b, &refs, &bases)
+                )
+            } else {
+                write_body(b, &refs)
+            };
+            over += &format!(
+                "{write_pat} => {{ w.variant({:?}, {index}); {body} w.end_variant(); }},",
+                clean(&arm.name)
+            );
             moving += &format!("{write_pat} => {},", moving_body(b, &refs));
             settle += &format!("{write_pat} => {},", settle_body(b, &refs));
             write += &format!(
@@ -251,12 +303,14 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
             );
         }
         write += "}";
+        same += "_ => false, }";
+        over += "}";
         read += "_ => return ::core::result::Result::Err(::exact_game::DataError::new(::std::format!(\"unknown variant {}\", arm))), } r.end_variant()?;";
         moving += "}";
         settle += "}";
-        (write, read, moving, settle)
+        (write, read, moving, settle, same, over)
     };
-    let mut out = format!("impl ::exact_game::Data for {name} {{ fn moving(&self, now: ::exact_game::Now) -> ::core::primitive::bool {{ let _ = now; {moving} }} fn settle_tick(&self, now: ::exact_game::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_game::Writer) {{ {write} }} fn read(&mut self, r: &mut dyn ::exact_game::Reader) -> ::core::result::Result<(), ::exact_game::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
+    let mut out = format!("impl ::exact_game::Data for {name} {{ fn moving(&self, now: ::exact_game::Now) -> ::core::primitive::bool {{ let _ = now; {moving} }} fn settle_tick(&self, now: ::exact_game::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_game::Writer) {{ {write} }} #[allow(unreachable_patterns)] fn same(&self, other: &Self) -> ::core::primitive::bool {{ {same} }} #[allow(unreachable_patterns)] fn write_over(&self, base: &Self, w: &mut dyn ::exact_game::Writer) {{ let _ = base; {over} }} fn read(&mut self, r: &mut dyn ::exact_game::Reader) -> ::core::result::Result<(), ::exact_game::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
         let (marker, extra) = if marker == "Presentation" {
             (
@@ -325,6 +379,40 @@ fn write_body(b: &Body, access: &[String]) -> String {
         "w.end_seq();"
     };
     s
+}
+fn same_body(b: &Body, access: &[String], other: &[String]) -> String {
+    let parts: Vec<_> = b
+        .fields
+        .iter()
+        .zip(access.iter().zip(other))
+        .filter(|(f, _)| !f.skip)
+        .map(|(_, (a, o))| format!("::exact_game::Data::same(&{a}, &{o})"))
+        .collect();
+    if parts.is_empty() {
+        "true".into()
+    } else {
+        parts.join(" && ")
+    }
+}
+// A record's fields that differ from base's, each written over base's; a tuple
+// body is read by position over defaults, so it is written whole.
+fn over_body(b: &Body, access: &[String], base: &[String]) -> String {
+    if b.shape != Shape::Named {
+        return write_body(b, access);
+    }
+    let mut s = String::from("w.begin_struct();");
+    for (f, (a, o)) in b
+        .fields
+        .iter()
+        .zip(access.iter().zip(base))
+        .filter(|(f, _)| !f.skip)
+    {
+        s += &format!(
+            "if !::exact_game::Data::same(&{a}, &{o}) {{ w.key({:?}); ::exact_game::Data::write_over(&{a}, &{o}, w); }}",
+            clean(&f.name)
+        );
+    }
+    s + "w.end_struct();"
 }
 fn read_body(b: &Body, access: &[String]) -> String {
     let named = b.shape != Shape::Tuple;

@@ -1,6 +1,7 @@
 //! A portable, noncryptographic 64-bit streaming hash. Eight-byte little-endian
 //! lanes use SplitMix64's published avalanche multipliers (Vigna, 2015).
-//! Tags frame values; record/field names are absent, enum ordinals are present.
+//! Tags frame values; record field names are absent (map keys, and the fields a
+//! record written over its default keeps, are present), enum ordinals are present.
 //! NaNs use IEEE's positive quiet NaN; negative zero retains its sign bit.
 use super::{f32_bits, f64_bits, Data, Number, Writer};
 

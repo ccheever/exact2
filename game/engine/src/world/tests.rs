@@ -516,3 +516,204 @@ fn a_resource_field_added_with_a_default_moves_no_hash_or_save() {
         assert_ne!(after.hash(), hash);
     }
 }
+
+// A component before and after an engine adds a defaulted field at every level:
+// to the row (`layer`), to a nested record (`sheen`) and to an enum's arms
+// (`bevel`, `segments`), the way `Material`, `Camera` or `Mesh` grow.
+mod grown {
+    use crate::{Component, Data};
+    #[derive(Clone, Data)]
+    pub struct Surface {
+        pub roughness: f32,
+    }
+    impl Default for Surface {
+        fn default() -> Self {
+            Self { roughness: 0.5 }
+        }
+    }
+    #[derive(Clone, Data)]
+    pub enum Shape {
+        Cube { size: f32 },
+        Ball { radius: f32 },
+    }
+    impl Default for Shape {
+        fn default() -> Self {
+            Self::Cube { size: 1.0 }
+        }
+    }
+    #[derive(Clone, Data)]
+    pub struct Look {
+        pub shape: Shape,
+        pub surface: Surface,
+        pub opacity: f32,
+    }
+    impl Default for Look {
+        fn default() -> Self {
+            Self {
+                shape: Shape::default(),
+                surface: Surface::default(),
+                opacity: 1.0,
+            }
+        }
+    }
+    impl Component for Look {
+        const NAME: &'static str = "Look";
+    }
+    pub mod after {
+        use crate::{Component, Data};
+        #[derive(Clone, Data)]
+        pub struct Surface {
+            pub roughness: f32,
+            pub sheen: f32,
+        }
+        impl Default for Surface {
+            fn default() -> Self {
+                Self {
+                    roughness: 0.5,
+                    sheen: 0.0,
+                }
+            }
+        }
+        // An added arm field defaults as `read` builds the arm: to its type's
+        // `Default`, or to the type default's value when that is this arm.
+        #[derive(Clone, Data)]
+        pub enum Shape {
+            Cube { size: f32, bevel: f32 },
+            Ball { radius: f32, segments: u32 },
+        }
+        impl Default for Shape {
+            fn default() -> Self {
+                Self::Cube {
+                    size: 1.0,
+                    bevel: 0.0,
+                }
+            }
+        }
+        #[derive(Clone, Data)]
+        pub struct Look {
+            pub shape: Shape,
+            pub surface: Surface,
+            pub opacity: f32,
+            pub layer: u8,
+        }
+        impl Default for Look {
+            fn default() -> Self {
+                Self {
+                    shape: Shape::default(),
+                    surface: Surface::default(),
+                    opacity: 1.0,
+                    layer: 3,
+                }
+            }
+        }
+        impl Component for Look {
+            const NAME: &'static str = "Look";
+        }
+    }
+}
+
+#[test]
+fn a_component_field_added_with_a_default_moves_no_hash_or_save() {
+    use grown::after;
+    let mut before = World::new(60, 0);
+    let mut grown = World::new(60, 0);
+    for i in 0..40u32 {
+        let x = i as f32;
+        let (shape, shape_after) = match i % 3 {
+            0 => (grown::Shape::default(), after::Shape::default()),
+            1 => (
+                grown::Shape::Cube { size: x },
+                after::Shape::Cube {
+                    size: x,
+                    bevel: 0.0,
+                },
+            ),
+            _ => (
+                grown::Shape::Ball { radius: x },
+                after::Shape::Ball {
+                    radius: x,
+                    segments: 0,
+                },
+            ),
+        };
+        let roughness = if i % 2 == 0 { 0.5 } else { x };
+        let opacity = if i % 5 == 0 { 1.0 } else { 0.5 };
+        before.spawn((
+            Transform::at(x, 0.0, 0.0),
+            grown::Look {
+                shape,
+                surface: grown::Surface { roughness },
+                opacity,
+            },
+        ));
+        grown.spawn((
+            Transform::at(x, 0.0, 0.0),
+            after::Look {
+                shape: shape_after,
+                surface: after::Surface {
+                    roughness,
+                    ..after::Surface::default()
+                },
+                opacity,
+                ..after::Look::default()
+            },
+        ));
+    }
+    assert_eq!(grown.hash(), before.hash());
+    assert_eq!(grown.save(), before.save());
+    let e = grown.spawn(after::Look::default());
+    // Each real change moves the hash and the save, -0.0 against 0.0 included,
+    // and a load fills what the save left out from the defaults.
+    let changes: [fn(&mut after::Look); 6] = [
+        |l| l.layer = 4,
+        |l| l.surface.sheen = -0.0,
+        |l| l.opacity = -1.0,
+        |l| {
+            l.shape = after::Shape::Ball {
+                radius: 0.0,
+                segments: 0,
+            }
+        },
+        |l| {
+            l.shape = after::Shape::Cube {
+                size: 1.0,
+                bevel: 0.1,
+            }
+        },
+        |l| {
+            l.shape = after::Shape::Ball {
+                radius: 0.0,
+                segments: 8,
+            }
+        },
+    ];
+    for change in changes {
+        let mut changed = grown.registered_scratch();
+        changed.load(&grown.save()).unwrap();
+        assert_eq!(changed.hash(), grown.hash());
+        change(&mut changed.get_mut::<after::Look>(e).unwrap());
+        assert_ne!(changed.hash(), grown.hash());
+        assert_ne!(changed.save(), grown.save());
+        let mut loaded = World::new(60, 0);
+        loaded.register::<after::Look>();
+        loaded.load(&changed.save()).unwrap();
+        assert_eq!(loaded.hash(), changed.hash());
+        assert_eq!(loaded.save(), changed.save());
+    }
+    // The old type's save reads back with every added field at its default.
+    let mut loaded = World::new(60, 0);
+    loaded.register::<after::Look>();
+    loaded.load(&before.save()).unwrap();
+    assert_eq!(loaded.hash(), before.hash());
+    let mut looks = Vec::new();
+    for (_, l) in loaded.query::<&after::Look>().iter() {
+        let (size, added) = match l.shape {
+            after::Shape::Cube { size, bevel } => (size, bevel.to_bits()),
+            after::Shape::Ball { radius, segments } => (radius, segments),
+        };
+        looks.push((size, added, l.surface.sheen.to_bits(), l.layer));
+    }
+    assert_eq!(looks.len(), 40);
+    assert_eq!(looks[2].0, 2.0);
+    assert!(looks.iter().all(|l| (l.1, l.2, l.3) == (0, 0, 3)));
+}

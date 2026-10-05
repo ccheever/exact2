@@ -16,6 +16,7 @@ struct Descriptor {
     swap: unsafe fn(*mut u8, *mut u8),
     drop_in_place: unsafe fn(*mut u8),
     write: unsafe fn(*mut u8, &mut dyn Writer),
+    write_over: unsafe fn(*mut u8, *mut u8, &mut dyn Writer),
     read_new: unsafe fn(*mut u8, &mut dyn Reader) -> Result<(), DataError>,
     moving: unsafe fn(*mut u8, Now) -> bool,
     settle: unsafe fn(*mut u8, Now) -> Option<u64>,
@@ -32,6 +33,9 @@ impl Descriptor {
             },
             drop_in_place: |p| unsafe { p.cast::<C>().drop_in_place() },
             write: |p, w| unsafe { &*p.cast::<C>() }.write(w),
+            write_over: |p, base, w| {
+                unsafe { &*p.cast::<C>() }.write_over(unsafe { &*base.cast::<C>() }, w)
+            },
             read_new: |p, r| {
                 let mut value = C::default();
                 value.read(r)?;
@@ -105,12 +109,24 @@ pub(crate) struct RawStorage {
     membership: u64,
     epoch: Rc<Cell<u64>>,
     instance: u64,
+    // `C::default()`: saves and hashes write each row over it, so a field
+    // added with a default moves neither.
+    base: Value,
 }
 impl RawStorage {
     pub(super) fn new<C: Data>(name: &'static str, epoch: Rc<Cell<u64>>) -> Self {
+        let desc = &const { Descriptor::of::<C>() };
+        let mut base = Value {
+            bytes: Bytes::new(desc.layout),
+            desc,
+            live: false,
+        };
+        // SAFETY: vacant, aligned storage for C.
+        unsafe { base.bytes.get().cast::<C>().write(C::default()) };
+        base.live = true;
         Self {
             name,
-            desc: &const { Descriptor::of::<C>() },
+            desc,
             page_layout: Layout::array::<C>(PAGE).expect("component page layout"),
             pages: vec![],
             counts: vec![],
@@ -124,6 +140,7 @@ impl RawStorage {
             membership: 0,
             epoch,
             instance: super::instance(),
+            base,
         }
     }
     /// Process-unique identity of this storage, for caches keyed by page generation.
@@ -402,7 +419,7 @@ impl RawStorage {
                 bits &= bits - 1;
                 let mut w = crate::hash::Hasher::default();
                 // SAFETY: presence proves initialization; no exclusive lease is live.
-                unsafe { (self.desc.write)(self.ptr(i), &mut w) };
+                unsafe { (self.desc.write_over)(self.ptr(i), self.base.bytes.get(), &mut w) };
                 each(i, w.finish());
             }
         }
@@ -442,14 +459,15 @@ impl RawStorage {
         Some(at)
     }
     /// The columnar save payload: runs of present indices, then the rows'
-    /// shapes and scalar columns. Generations live in the entity table.
+    /// shapes and scalar columns, each row written over `C::default()`.
+    /// Generations live in the entity table.
     pub(super) fn write_save(&self, w: &mut dyn Writer) {
         self.reading();
         let mut columns = crate::data::columns::Columns::default();
         for index in self.indices(None) {
             // SAFETY: the bit proves initialization; no exclusive lease is live.
             columns.row_at(index as u32, |w| unsafe {
-                (self.desc.write)(self.ptr(index), w)
+                (self.desc.write_over)(self.ptr(index), self.base.bytes.get(), w)
             });
         }
         w.bytes(crate::data::Bulk::U8(&columns.finish()));
@@ -579,9 +597,10 @@ mod tests {
         w.insert(e, Guard);
         let saved = w.save();
         w.load(&saved).unwrap();
-        assert_eq!(DROPS.get(), 3, "load drops the old world");
+        // Each storage also owns its type's default, which rows save over.
+        assert_eq!(DROPS.get(), 4, "load drops the old world and its default");
         drop(w);
-        assert_eq!(DROPS.get(), 4);
+        assert_eq!(DROPS.get(), 6);
     }
 
     // An actual ZST cannot store an identity. This companion locks OLD-vs-NEW
@@ -615,10 +634,11 @@ mod tests {
         w.insert(e, Owner::new(3));
         let bytes = w.save();
         w.load(&bytes).unwrap();
-        DROPPED.with_borrow(|ids| assert_eq!(ids, &[1, 2, 3]));
+        // The storage's default (id 0), which rows save over, drops with it.
+        DROPPED.with_borrow(|ids| assert_eq!(ids, &[1, 2, 3, 0]));
         assert_eq!(w.get::<Owner>(e).unwrap().id, 3);
         drop(w);
-        DROPPED.with_borrow(|ids| assert_eq!(ids, &[1, 2, 3, 3]));
+        DROPPED.with_borrow(|ids| assert_eq!(ids, &[1, 2, 3, 0, 3, 0]));
     }
 
     #[test]
@@ -717,7 +737,8 @@ mod tests {
         assert_eq!(DROPS.get(), 1, "escaped rows release leases, not values");
         assert!(w.get_mut::<Guard>(a).is_some());
         drop(w);
-        assert_eq!(DROPS.get(), 4);
+        // Three rows and the storage's default.
+        assert_eq!(DROPS.get(), 5);
     }
 
     #[test]

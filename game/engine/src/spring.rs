@@ -2,6 +2,11 @@ use crate::{Data, DataError, Now, Reader, SpringConfig, Writer};
 use exact_motion::spring::SpringSample;
 
 impl Data for SpringConfig {
+    fn same(&self, other: &Self) -> bool {
+        self.stiffness.same(&other.stiffness)
+            && self.damping.same(&other.damping)
+            && self.mass.same(&other.mass)
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.begin_struct();
         w.field("stiffness");
@@ -111,6 +116,13 @@ impl Data for Spring {
     }
     fn moving(&self, now: Now) -> bool {
         !self.at_rest(now)
+    }
+    fn same(&self, other: &Self) -> bool {
+        self.target.same(&other.target)
+            && self.start_value.same(&other.start_value)
+            && self.start_velocity.same(&other.start_velocity)
+            && self.start_tick == other.start_tick
+            && self.config.same(&other.config)
     }
     fn write(&self, w: &mut dyn Writer) {
         w.begin_struct();

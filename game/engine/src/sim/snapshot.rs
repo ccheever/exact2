@@ -66,8 +66,7 @@ impl<G: Game> Sim<G> {
         // record over `G::Args::default()`), so adding a defaulted argument to
         // a game moves none of its saves.
         let mut args = crate::json::Encoder::default();
-        let defaults = crate::data::defaults::fields(&G::Args::default());
-        crate::data::defaults::write_changed(&self.args, defaults.as_deref(), &mut args);
+        self.args.write_over(&G::Args::default(), &mut args);
         let saved = Saved {
             game: G::ID.into(),
             world: self.world.save(),
