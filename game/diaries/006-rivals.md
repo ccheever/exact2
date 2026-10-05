@@ -1555,3 +1555,60 @@ reads the visible reload caption, can wait 100 ms or press R again, and records
 successful/missed reloads beside score. The earlier duel, recovery and Mayhem
 batches remain closed. The seekable clock pauses during the model decision;
 this can test understanding of feedback, not human reflex difficulty.
+
+### Main checkpoint and closed Jev reload pair
+
+Merge `4155aa65b` integrates two main commits through `1811a9c98`: the
+scripted driver's window size accepts the CLI string as well as an array,
+and its guide names both. The QUEUE insertion conflict preserves both sides.
+The root suite passes build, 2,436 tests (nine ignored, 81 binaries), strict
+Clippy, formatting and boot in a 43.889 s batch. Caps initially fails because
+main's `scripts/agent.mjs` is three lines over the limit. Comment shortening
+in `fa5556b77` restores the cap without changing behavior; staged caps then
+passes. Logs: `/tmp/exact2-reload-main-*.log`. This warm passing time does not
+resolve the already recorded first-launch variance.
+
+A real browser probe opens Rivals at 960×540 with both `size: '960x540'` and
+`size: [960,540]`, verifies the reported viewport, and checks that malformed
+text names both accepted forms. The two screenshots were captured and the
+string-size image inspected. The first partial probe accidentally requested a
+complete pin inventory: its three driver assertions passed, but seven absent
+pin checks failed. The correctly designated partial rerun passes all three
+assertions in 37.758 s, remains UNVERIFIED as intended, and leaves no recorded
+children. Artifacts: `artifacts/main-size-check-web/`; log:
+`/tmp/exact2-main-size-check.log`. The twelve pre-existing Rivals checkpoints
+also retain all their prior published fields and ticks on both hosts after
+excluding only the four newly added reload fields; comparison:
+`/tmp/exact2-rivals-reload-previous-publications.json`.
+
+The fixed Jev reload pair is closed at 96 decisions per host. Both web and
+macOS finish with 7,250 points, fifteen targets, full health, zero quick
+reloads and five missed attempts; neither reaches the drill's thirty-second
+end. Each performs 16.2 s of actions after the initial 100 ms. Both first
+reload with 21/30 rounds, immediately press again while the caption says
+“R again in green · 1.6s”, then make another ineffective press after “Missed”.
+That pattern repeats. Web chooses ten timing presses and 66 short waits;
+macOS chooses nine and 67. No policy or prompt was retuned during this pair.
+The wording may sound like an immediate instruction, but this is a hypothesis,
+not a demonstrated human usability failure. The deterministic proof separately
+shows that a press in the actual window works. Do not count the model's
+latency as gameplay time or this authored aim motor as visual perception.
+
+Median/p95 gateway latency is 301/670 ms on web and 311/680 ms on macOS.
+Usage is 96,128/96,118 input tokens and 3,965 output tokens each; wall times
+including builds are 76.801/82.270 s. Both process audits are available with
+zero recorded children remaining. Both tenth-decision PNGs were inspected:
+the missed caption and marker are visible on each host. Artifacts:
+`artifacts/jev-quick-reload-{web,macos}/`; summaries:
+`/tmp/exact2-jev-quick-reload-summary.json`. The gameplay mechanic passes;
+understanding the timing cue remains unresolved in this pair.
+
+Before accepting the new baseline, one bounded product follow-up changes the
+pre-window caption to “Wait for green” with time until that window. After it,
+“Window passed · wait …” names the remaining normal delay; a spent attempt
+reads “Missed · wait …”. The timing, penalty, controller, choices and prompt
+stay unchanged. A separate pair will test this wording once; the previous
+pair remains closed. No further wording loop is assumed from its outcome.
+The first baseline collection had already mixed two driver revisions because
+I launched it before reading the caps failure; it must be rejected and rerun
+with all source fixed, regardless of this caption change.

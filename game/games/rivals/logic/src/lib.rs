@@ -633,14 +633,15 @@ pub fn publish(w: &World, args: &Options, viewport: Vec2) {
                 "Press R now · quick reload".into()
             } else {
                 let left = exact_game::math::ceil((me.reload_until - now).max(0.0) * 10.0) / 10.0;
-                format!(
-                    "{} · {left:.1}s",
-                    if me.reload_missed {
-                        "Missed"
-                    } else {
-                        "R again in green"
-                    }
-                )
+                if me.reload_missed {
+                    format!("Missed · wait {left:.1}s")
+                } else if me.reload_progress(now) < 0.45 {
+                    let until_green = (0.45 - me.reload_progress(now)) * me.weapon.reload_time();
+                    let until_green = exact_game::math::ceil(until_green * 10.0) / 10.0;
+                    format!("Wait for green · {until_green:.1}s")
+                } else {
+                    format!("Window passed · wait {left:.1}s")
+                }
             }
         } else if now < me.quick_reload_until {
             "Quick reload!".into()
