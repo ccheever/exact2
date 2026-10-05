@@ -124,4 +124,10 @@ pub const HOST_COMMANDS: &[&str] = &[
     // changes?" is answered. As every host command keeps its name (LLP 1089
     // D1), an action prop named `close` is bound, never called.
     "close",
+    // @ref LLP 1096 D2 — `playSound(src, at=, gain=, group=)`,
+    // `playSounds(hits)` and `stopSounds(group=)`: the runner keeps the voice
+    // table, so every host skips them as the runner's own.
+    "playSound",
+    "playSounds",
+    "stopSounds",
 ];

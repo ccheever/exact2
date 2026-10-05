@@ -779,15 +779,8 @@ function apply(batch) {
         }
         else if (op.name === "format") { const owner = incarnation, run = () => { const el = [...views.values()].find(el => el.id === op.args?.[0]); if (inputReady && incarnation === owner) el?.exactMarkup?.format(op.args[1], op.args[2] ?? ''); }; if (markupModule) markupModule.then(run); else run(); }
         else if (op.name === "openURL") {
-          if (op.args?.length !== 1 || typeof op.args[0] !== "string") {
-            console.error("exact: openURL requires one string");
-          } else {
-            try {
-              const target = navigableURL(new URL(op.args[0]).href);
-              if (!target) throw Error("unsupported external URL scheme");
-              window.open(target, "_blank", "noopener,noreferrer");
-            } catch (error) { console.error("exact: openURL refused", String(error)); }
-          }
+          if (op.args?.length !== 1 || typeof op.args[0] !== "string") console.error("exact: openURL requires one string");
+          else try { const target = navigableURL(new URL(op.args[0]).href); if (!target) throw Error("unsupported external URL scheme"); window.open(target, "_blank", "noopener,noreferrer"); } catch (error) { console.error("exact: openURL refused", String(error)); }
         }
         else if (op.name === "copyText") {
           if (op.args?.length !== 1 || typeof op.args[0] !== "string") {
@@ -819,7 +812,7 @@ function apply(batch) {
         else if (op.name === "showNotification" || op.name === "closeNotification") { // the runner rules (refused, or listed for the agent: runner/src/notify.rs); notify-glue.js posts
           const [title, body, tag, showTrigger] = op.args ?? [], close = op.name === "closeNotification", ruling = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify(close ? { command: op.name, tag: title, agent: agentMode } : { command: op.name, title, body, tag, showTrigger, agent: agentMode })))));
           if (ruling.present) (notifyModule ??= loadAfterPaint('./notify-glue.js', 'notifications')).then(n => close ? n.close(title) : n.show({ title, body, tag, showTrigger }, log)); }
-        else console.warn(`exact: unknown command ${op.name}`);
+        else if (!/^(playSound|playSounds|stopSounds)$/.test(op.name)) console.warn(`exact: unknown command ${op.name}`); // the voice table's are the runner's own, played from its `sound` op (LLP 1096 D7)
         break;
       }
       case "destroy": {

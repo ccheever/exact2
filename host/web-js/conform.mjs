@@ -117,6 +117,10 @@ function serve(dir) {
 // is asked again at each report, and the Linux host reports a settling list more often than a page does.
 const BOUND = /Instance\(Trap\((?:IterationLimit|StringTooLong|ValueTooLarge|ValueTooDeep) \{ pc: \d+ \}\)\)|Trap\((?:IterationLimit|StringTooLong|ValueTooLarge|ValueTooDeep) \{ pc: \d+ \}\)|StringTooLong \{ name: "(?:[^"\\]|\\.)*" \}/;
 const boundReasons = async S => (await S.logs()).lines.flatMap(l => BOUND.exec(l)?.[0] ?? []).filter((r, i, all) => r !== all[i - 1]);
+// The voice table's journal (LLP 1096 D5): every `sound …` and `sounds …` line, stamped, the same on every target; the
+// JS target never refuses one of its three commands (they are the runtime's own, not a host's).
+const SOUND = /^t=\S+ sounds? .*$|refused: (?:playSound|playSounds|stopSounds) .*$/;
+const soundLines = async S => (await S.logs()).lines.flatMap(l => SOUND.exec(l)?.[0] ?? []);
 const norm = t => t.nodes.map(n => [n.depth ?? 0, n.type, n.props?.testId ?? '', n.props?.text ?? '', n.props?.value ?? '', n.props?.accessibilityLabel ?? '', (n.handlers ?? []).join(' '), n.focused === true ? 'focused' : ''].join('|'));
 function diffLists(a, b, what, other = 'js', reference = 'wasm') {
   const out = [];
@@ -180,7 +184,7 @@ function diffPng(a, b, sideBySide, masks = []) {
   return share;
 }
 // The document's head too: the active head's fields, as every runner reports them (runner/src/head.rs).
-const STATE_KEYS = ['slots', 'derives', 'resources', 'head'];
+const STATE_KEYS = ['slots', 'derives', 'resources', 'head', 'sounds'];
 
 // The wasm page's route stack carries the browser's location; the Linux
 // host has none. So, and only in a route stack (entries shaped { id, name,
@@ -357,7 +361,12 @@ async function drive(t, report, fail, dir, ws, js) {
       const [rw, rj] = await pair(() => boundReasons(W), () => boundReasons(J));
       const say = r => r.join(' | ') || '—';
       if (say(rw) !== say(rj)) fail(step, `bound refusals: ${reference} «${say(rw)}» ${other} «${say(rj)}»`);
-      await onLinux(step, async L => { const rl = await boundReasons(L); if (say(rl) !== say(rw)) fail(step, `linux bound refusals: ${reference} «${say(rw)}» linux «${say(rl)}»`); });
+      const [sw, sj] = await pair(() => soundLines(W), () => soundLines(J));
+      if (say(sw) !== say(sj)) fail(step, `sound lines: ${reference} «${say(sw).slice(-400)}» ${other} «${say(sj).slice(-400)}»`);
+      await onLinux(step, async L => {
+        const rl = await boundReasons(L); if (say(rl) !== say(rw)) fail(step, `linux bound refusals: ${reference} «${say(rw)}» linux «${say(rl)}»`);
+        const sl = await soundLines(L); if (say(sl) !== say(sw)) fail(step, `linux sound lines: ${reference} «${say(sw).slice(-400)}» linux «${say(sl).slice(-400)}»`);
+      });
     };
     await bounds('boot');
     let tree = await compare('boot');

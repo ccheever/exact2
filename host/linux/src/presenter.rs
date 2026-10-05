@@ -473,6 +473,8 @@ impl<D: DataSource> Presenter<D> {
                 }),
                 // No haptic engine here (LLP 1077 D14): nothing to feel.
                 "haptic" => {}
+                // The runner's own (LLP 1096 D9): its table is the record; no output here.
+                "playSound" | "playSounds" | "stopSounds" => {}
                 // Outside a `key` event (`key_event` takes a key's), nothing to prevent or stop.
                 "preventDefault" | "stopPropagation" => {}
                 // No share sheet here: refused into the journal, or held for

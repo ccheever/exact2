@@ -534,6 +534,32 @@
       ]
     },
     {
+      "name": "sounds",
+      "_comment": "@ref LLP 1096 D1: each declared sound, a WAV the compiler read: its app-relative path (what `playSound` names), its length in frames at its own rate, its channels, and the SHA-256 of its bytes as hex. The runner reads a voice's natural length, frames / rate; the hosts read which files to decode.",
+      "fields": [
+        {
+          "name": "src",
+          "codec": "str"
+        },
+        {
+          "name": "frames",
+          "codec": "u32"
+        },
+        {
+          "name": "rate",
+          "codec": "u32"
+        },
+        {
+          "name": "channels",
+          "codec": "u8"
+        },
+        {
+          "name": "digest",
+          "codec": "str"
+        }
+      ]
+    },
+    {
       "name": "texts",
       "_comment": "@ref LLP 1060 D3: one localized text, `{name}` placeholders unfilled. Within a locale, sorted by key.",
       "fields": [

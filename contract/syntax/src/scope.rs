@@ -105,6 +105,7 @@ pub fn rescope(file: &mut File, scope: &Scope) -> Result<(), SyntaxError> {
         routes,
         uses: _,
         fonts: _,
+        sounds: _,
         shapes,
         styles,
         keyframes,

@@ -127,6 +127,8 @@ const asks = Object.keys(sources).some(name => !/^exact[A-Z]/.test(name));
 const files = existsSync(resolve(gen, 'files.flag'));
 // `showNotification` or `closeNotification` (notify.js), linked by use.
 const notifies = existsSync(resolve(gen, 'notify.flag'));
+// A declared sound or a sound command (sounds.js, LLP 1096 D5): the flag is the plan's table.
+const soundTable = existsSync(resolve(gen, 'sounds.flag')) ? readFileSync(resolve(gen, 'sounds.flag'), 'utf8') : null;
 // App generation may create files imported by app.ts. Run it before reading
 // the declaration, as the wasm build does.
 const webScript = resolve(appDir, 'web/build.rs');
@@ -228,6 +230,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   ...(devReload ? ["import { prepareDev } from './checkpoint.js';", "const finishDev = prepareDev();"] : []),
   ...(files ? ["import './files.js';"] : []),
   ...(notifies ? ["import './notify.js';"] : []),
+  ...(soundTable ? [`import { install as sounds } from './sounds.js'; sounds(${soundTable});`] : []),
   "import { data, journal, clock, advance, commit, inflight, Views, viewId, After, Clocked, R, resolvedLocale, Resources } from './rt.js';",
   ...(production ? [] : ["import { develop } from './perf.js';"]),
   // A data module's answers, watched from before the app asks (seam.js).
@@ -265,7 +268,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   ...(containerHooks ? ["requestAnimationFrame(() => requestAnimationFrame(() => import('./hooks.js').then(m => m.containers())));"] : []),
 ].join('\n'));
 for (const f of ['agent.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hooks.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
-// The web host's own pieces, loaded after first paint (motion.js, a pan, `select`, text flow, rt.js `pr`, native.js, rt.js `geo`, media.js, notify.js).
+// The web host's own pieces, loaded after first paint (motion.js, a pan, `select`, text flow, rt.js `pr`, native.js, rt.js `geo`, media.js, notify.js, sounds.js).
 for (const f of ['frames.js', 'motion-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js', 'presence-glue.js', 'native-glue.js', 'geometry-glue.js', 'media-glue.js', 'notify-glue.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
 // Virtualized lists' browser half, the web host's own, loaded after first paint.
 cpSync(resolve(root, 'host/web/collection-glue.js'), resolve(gen, 'collection-glue.js'));
@@ -290,6 +293,7 @@ cpSync(resolve(here, 'ts-stream.js'), resolve(gen, 'ts-stream.js'));
 cpSync(resolve(here, 'auth.js'), resolve(gen, 'auth.js'));
 cpSync(resolve(here, 'files.js'), resolve(gen, 'files.js'));
 cpSync(resolve(here, 'notify.js'), resolve(gen, 'notify.js'));
+cpSync(resolve(here, 'sounds.js'), resolve(gen, 'sounds.js'));
 // The server bundle a JavaScript render runs (render.mjs), one script per VM context.
 writeFileSync(resolve(gen, 'main-server.js'), [
   `import app${rust ? ', { sources }' : ''} from './app.js';`,

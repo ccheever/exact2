@@ -170,6 +170,21 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               if (JSON.stringify(got) !== JSON.stringify(st.value)) await fail(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
               break;
             }
+            // The runner's voice table, the whole record (LLP 1096 D10): a voice of that
+            // source matching every clause given, or none; a dropped call is not a voice.
+            case 'expect-sound': {
+              const sounds = (await s.state(undefined, undefined, false, false, { sounds: 'all' })).sounds;
+              const clauses = ['at', 'gain', 'ends', 'by'].filter((k) => st[k] != null), said = clauses.map((k) => ` ${k} ${st[k]}`).join('');
+              if (!sounds) { failures.push(`${at}: the app declares no sound, so the runner keeps no voice table`); break; }
+              const first = sounds.voices[0]?.at ?? Infinity;
+              if (sounds.evicted > 0 && (st.at != null ? st.at < first : !st.present)) { failures.push(`${at}: voices before t=${first} are no longer recorded (the record keeps the last ${sounds.recorded})`); break; }
+              const found = sounds.voices.some((v) => v.src === st.src && clauses.every((k) => v[k] === st[k]));
+              if (found !== st.present) {
+                const of = sounds.voices.filter((v) => v.src === st.src).slice(-8).map((v) => `#${v.id} at ${v.at} gain ${v.gain} ends ${v.ends} by ${v.by}`);
+                await fail(`${at}: expected ${st.present ? 'a' : 'no'} voice of "${st.src}"${said}; ${of.length ? `its voices: ${of.join('; ')}` : 'it has no voice'}`);
+              }
+              break;
+            }
             default: failures.push(`${at}: unknown step ${st.op}`);
           }
         } catch (e) {

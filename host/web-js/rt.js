@@ -183,7 +183,7 @@ export function commit(f, what = "commit") {
     try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
     settled(); if (!ok) return false;
     clock.epoch++; Store.persist();
-    for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c);
+    for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds);
     // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
     for (const m of landed) if (m.then) { m.due = clock.now; if (!clock.agent) drive(); }
     return true;
@@ -238,9 +238,12 @@ export const Hosts = {
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), /* LLP 1077 D14: vibration where the browser has it */ scrollIntoView: (id, block, inline, behavior) => { const e = document.getElementById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, // an element's, by id (minesweeper F3); list.js takes a row's
 };
 let KeyEvent = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { if (KeyEvent) KeyEvent.$stopped = true; }; // the keydown, wheel or beforeunload whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
+/** The voice table's commands (LLP 1096 D5): the runtime's own, never a host's; sounds.js applies a commit's once it stood. */
+export const Sounds = { apply: null, own: new Set(["playSound", "playSounds", "stopSounds"]) };
 function command(name, args) {
   const f = Hosts[name];
   say(`command ${name}`);
+  if (Sounds.own.has(name)) return;
   if (f) f(...args); else say(`refused: ${name} is not a command this runtime carries`);
 }
 // ---------------------------------------------------------------- the clock and timers

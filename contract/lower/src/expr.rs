@@ -36,11 +36,21 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
         }
         return out;
     }
-    // The Web Share API's members, and the Notification API's title and
-    // options, in a fixed order, `none` where the author gave none.
+    // @ref LLP 1096 D2 — the sound first, then `at`, `gain` and `group`,
+    // `none` where the author left the default (now, 1, no group).
+    if name == "playSound" {
+        let src = args.iter().find(|a| !matches!(a, Expr::NamedArg(..)));
+        return std::iter::once(src)
+            .chain(["at", "gain", "group"].map(named))
+            .collect();
+    }
+    // The Web Share API's members, the Notification API's title and
+    // options, and `stopSounds`' group, in a fixed order, `none` where the
+    // author gave none.
     let order: &[&str] = match name {
         "share" => &["title", "text", "url"],
         "showNotification" => &["title", "body", "tag", "showTrigger"],
+        "stopSounds" => &["group"],
         _ => return args.iter().map(Some).collect(),
     };
     order

@@ -20,6 +20,8 @@ use exact_kernel::{Color, ColorValue, Dimension, Edge, NodeRef, PropValue, RowVa
 use exact_plan::{BindingKind, Plan, TypeKind, TypesId, Value};
 use std::fmt::Write as _;
 
+mod sound;
+
 /// Answer one request: `{"op":"tree"}`, `{"op":"state"}`,
 /// `{"op":"logs","since":N}`, `{"op":"node","id":V}` — the runner's half
 /// of `layout <node>` (LLP 1035.002 D1) — or `{"op":"tags"}`, the identity
@@ -28,7 +30,7 @@ use std::fmt::Write as _;
 pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     match field_str(request, "op").as_deref() {
         Some("tree") => tree_request(runner, request),
-        Some("state") => state(runner),
+        Some("state") => state_with(runner, request),
         Some("tags") => tags(runner),
         Some("frames") => frames(runner, request, &|_| false),
         Some("holds") => holds(runner),
@@ -768,6 +770,11 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
 /// requests in flight; the names the store holds (LLP 1018); the active
 /// head's fields (LLP 1048.003 D1).
 pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
+    state_with(runner, "{}")
+}
+
+/// [`state`] for a request, which may ask `"sounds":"all"` (LLP 1096 D10).
+fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     let plan = runner.plan();
     let mut s = String::new();
     let _ = write!(
@@ -917,8 +924,10 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         }
         n.summary(&mut s);
     }
+    s.push(']');
+    sound::state(runner, request, &mut s);
     // The store's names, never its values (LLP 1018 D5).
-    s.push_str("],\"store\":[");
+    s.push_str(",\"store\":[");
     for (i, name) in runner.store_names().iter().enumerate() {
         if i > 0 {
             s.push(',');

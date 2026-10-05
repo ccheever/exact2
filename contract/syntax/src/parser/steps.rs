@@ -451,7 +451,7 @@ impl Parser {
                         return self.err(
                             "syntax-expected-step",
                             format!(
-                                "`expect` reads `tree`, `text`, or `state`, found {}",
+                                "`expect` reads `tree`, `text`, `state`, or `sound`, found {}",
                                 describe(&other)
                             ),
                         )
@@ -488,6 +488,7 @@ impl Parser {
                             span,
                         }
                     }
+                    "sound" => self.expect_sound(span)?,
                     "state" => {
                         let (mut name, _) = self.ident()?;
                         // A field of a record, at any depth (feed F10).
@@ -516,7 +517,7 @@ impl Parser {
                     other => {
                         return self.err(
                             "syntax-expected-step",
-                            format!("`expect` reads `tree`, `text`, or `state`, not `{other}`"),
+                            format!("`expect` reads `tree`, `text`, `state`, or `sound`, not `{other}`"),
                         )
                     }
                 }

@@ -294,6 +294,9 @@ pub struct Shapes {
     /// Shape name → how deep its values can nest (LLP 1090 D2), once every
     /// shape's fields are known.
     pub depths: BTreeMap<String, u32>,
+    /// The sounds the app declares, by path (LLP 1096 D1): a literal
+    /// `playSound` source names one.
+    pub sounds: std::collections::BTreeSet<String>,
 }
 
 impl Shapes {
@@ -1099,6 +1102,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
                 .or_insert_with(|| c.name.clone());
         }
     }
+    shapes.sounds = file.sounds.iter().map(|s| s.source.clone()).collect();
     routes::declare(file, &mut shapes)?;
     selection::declare(&mut shapes);
     geometry::declare(&mut shapes);

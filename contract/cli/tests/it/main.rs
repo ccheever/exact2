@@ -78,6 +78,7 @@ mod segments;
 mod shadow_and_case;
 mod shape_cycles;
 mod share;
+mod sound;
 mod source_locations;
 mod source_map;
 mod strings;

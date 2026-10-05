@@ -275,6 +275,9 @@ impl<D: DataSource> Host<D> {
     /// The commands the last commits' actions asked for, in order (LLP 1005
     /// §3): `deliveryCheck`, `deliveryActivate`, `setScheme`.
     pub fn take_commands(&mut self) -> Vec<exact_runner::Command> {
+        // The voice table's ops are drained with them and play nothing: this
+        // host keeps the record and has no output (LLP 1096 D9).
+        drop(self.runner.take_sounds());
         self.runner.take_commands()
     }
 

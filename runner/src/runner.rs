@@ -424,6 +424,8 @@ pub struct Runner<D: DataSource> {
     /// Notifications the app posted under the agent (`state.notifications`):
     /// the agent's substitute for the system's (`crate::notify`).
     notifications: Vec<crate::notify::Notice>,
+    /// The voice table (LLP 1096 D5): what the app's sounds scheduled.
+    sounds: crate::sound::Sounds,
     /// Auth sessions (LLP 1069.006): live ones, and answers to deliver.
     auth: crate::auth::Sessions,
     /// The device capabilities linked (LLP 1047 D3): [`DeviceLinks`].
@@ -776,6 +778,7 @@ impl<D: DataSource> Runner<D> {
             presenting: false,
             batch: 0,
             commands: Vec::new(),
+            sounds: Default::default(),
             into_view: Vec::new(),
             scrolled: Default::default(),
             into_view_refused: Default::default(),
@@ -1107,6 +1110,28 @@ impl<D: DataSource> Runner<D> {
 
     pub(crate) fn notifications_mut(&mut self) -> &mut Vec<crate::notify::Notice> {
         &mut self.notifications
+    }
+
+    /// The voice table (LLP 1096 D5), for `state.sounds` and a test.
+    pub fn sounds(&self) -> &crate::sound::Sounds {
+        &self.sounds
+    }
+
+    /// What the output plays since the last take: a `Play` per new voice,
+    /// an `End` per voice that now ends earlier (LLP 1096 D5).
+    pub fn take_sounds(&mut self) -> Vec<crate::sound::SoundOp> {
+        self.sounds.take()
+    }
+
+    /// End every live voice before this runner is replaced (a dev reload,
+    /// LLP 1096 D5); the host drains `take_sounds` before the restart.
+    pub fn end_sounds(&mut self) {
+        if self.plan.sounds.is_empty() {
+            return;
+        }
+        let mut lines = Vec::new();
+        self.sounds.reload(self.now_ms, &mut lines);
+        lines.into_iter().for_each(|l| self.log(l));
     }
 
     /// Current value of a slot by name.

@@ -531,6 +531,7 @@ impl<D: DataSource> Host<D> {
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args, c.source);
         }
+        batch.sound(host.runner.take_sounds(), Some(host.runner.plan()));
         for w in host.runner.take_store_writes() {
             batch.store(&w);
         }
@@ -998,6 +999,7 @@ impl<D: DataSource> Host<D> {
         for c in self.runner.take_commands() {
             batch.command(&c.name, &c.args, c.source);
         }
+        batch.sound(self.runner.take_sounds(), None);
         // What the commit kept or forgot (LLP 1018 D1), for the page to persist.
         for w in self.runner.take_store_writes() {
             batch.store(&w);

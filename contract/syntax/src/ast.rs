@@ -32,6 +32,8 @@ pub struct File {
     pub uses: Vec<UseDecl>,
     /// `font "Name"` declarations, in order (LLP 1019 D1).
     pub fonts: Vec<FontDecl>,
+    /// `sound "assets/…wav"` declarations, in order (LLP 1096 D1).
+    pub sounds: Vec<SoundDecl>,
     /// `shape` declarations, in order.
     pub shapes: Vec<ShapeDecl>,
     /// `style` declarations, in order (LLP 1017 P6).
@@ -112,6 +114,16 @@ pub struct FontDecl {
     pub name: String,
     /// Its static faces.
     pub faces: Vec<FontFaceDecl>,
+    /// Where.
+    pub span: Span,
+}
+
+/// A declared sound (LLP 1096 D1): a WAV under the app's `assets/`, which
+/// `playSound` and `playSounds` name by its path.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SoundDecl {
+    /// App-relative WAV source, as `playSound` names it.
+    pub source: String,
     /// Where.
     pub span: Span,
 }
@@ -333,6 +345,25 @@ pub enum Step {
         name: String,
         /// The literal.
         value: Expr,
+        /// Where.
+        span: Span,
+    },
+    /// `expect sound has|missing "src" [at N] [gain N] [ends N] [by word]`
+    /// (LLP 1096 D10): a voice in the runner's record of that source that
+    /// matches every clause given, or none that does.
+    ExpectSound {
+        /// The declared sound, by its path.
+        src: String,
+        /// `has`, or `missing`.
+        present: bool,
+        /// Its effective start, in runner milliseconds.
+        at: Option<f64>,
+        /// Its gain.
+        gain: Option<f64>,
+        /// Its end, in runner milliseconds.
+        ends: Option<f64>,
+        /// How it ended: `end`, `group`, `cut`, `stop` or `cancelled` (D4).
+        by: Option<String>,
         /// Where.
         span: Span,
     },
@@ -1195,7 +1226,8 @@ impl Step {
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }
             | Step::ExpectText { span, .. }
-            | Step::ExpectState { span, .. } => *span,
+            | Step::ExpectState { span, .. }
+            | Step::ExpectSound { span, .. } => *span,
         }
     }
 }

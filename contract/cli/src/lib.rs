@@ -618,6 +618,28 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     s.push_str(",\"value\":");
                     q(value, &mut s);
                 }
+                Step::ExpectSound {
+                    src,
+                    present,
+                    at,
+                    gain,
+                    ends,
+                    by,
+                    ..
+                } => {
+                    s.push_str("{\"op\":\"expect-sound\",\"src\":");
+                    q(src, &mut s);
+                    s.push_str(&format!(",\"present\":{present}"));
+                    for (key, n) in [("at", at), ("gain", gain), ("ends", ends)] {
+                        if let Some(n) = n {
+                            s.push_str(&format!(",\"{key}\":{n}"));
+                        }
+                    }
+                    if let Some(by) = by {
+                        s.push_str(",\"by\":");
+                        q(by, &mut s);
+                    }
+                }
                 Step::ExpectState { name, value, .. } => {
                     s.push_str("{\"op\":\"expect-state\",\"name\":");
                     q(name, &mut s);

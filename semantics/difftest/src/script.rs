@@ -166,6 +166,10 @@ pub fn test_case(
             Step::ExpectTree {
                 target, present, ..
             } => Item::Expect(Expect::Tree(target.clone(), *present)),
+            // The voice table is not in Lean (LLP 1096 D11): its commands
+            // are, and those are compared; a step that reads the table is
+            // the runner's tests' and conformance's.
+            Step::ExpectSound { .. } => continue,
             other => {
                 return Err(format!(
                     "{file}: test {:?}: a step the differential run does not deliver: {other:?}",
