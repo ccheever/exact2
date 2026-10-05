@@ -62,6 +62,9 @@ struct Row {
     /// Something in it changed: recorded again before it draws, and kept
     /// as it was when the new recording is the same.
     stale: bool,
+    /// What its subtree lets escape into its list's painting, while nothing
+    /// in it changed ([`Painter::refresh_ranks`]).
+    order: Option<exact_kernel::paint_order::Potentials>,
 }
 
 /// A row being recorded.
@@ -93,6 +96,19 @@ pub(super) struct Rows {
     /// The container whose children are its scroller's rows, while it is
     /// walked (see [`Painter::wraps_rows`]).
     wrapper: Option<NodeKey>,
+}
+
+impl Rows {
+    /// Whether the last walk kept rows.
+    pub(super) fn active(&self) -> bool {
+        self.active
+    }
+
+    /// The potentials of the kept row at `key` while nothing in it changed.
+    pub(super) fn order(&self, key: NodeKey) -> Option<exact_kernel::paint_order::Potentials> {
+        let row = self.kept.get(&key)?;
+        row.order.filter(|_| !row.stale)
+    }
 }
 
 /// Room around a row's boxes for what paints outside them (shadows).
@@ -406,7 +422,15 @@ impl Painter {
             }
             return;
         }
-        let previous = self.rows.kept.remove(&node.key).map(|old| old.id);
+        let old = self.rows.kept.remove(&node.key);
+        // Potentials found this epoch, else the old recording's when its
+        // subtree is unchanged (recorded again for its size or a picture).
+        let order = self
+            .fresh_order
+            .get(&id)
+            .copied()
+            .or_else(|| old.as_ref().filter(|o| !o.stale).and_then(|o| o.order));
+        let previous = old.map(|old| old.id);
         self.rows.next += 1;
         let start = walk.boxes.len();
         let unsupported = std::mem::replace(&mut self.damage.unsupported, false);
@@ -485,6 +509,7 @@ impl Painter {
                 bounds,
                 seen: frame,
                 stale: false,
+                order,
             },
         );
     }

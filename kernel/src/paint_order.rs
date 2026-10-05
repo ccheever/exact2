@@ -324,6 +324,76 @@ impl Kernel {
     }
 }
 
+impl Kernel {
+    /// [`Kernel::paint_order`] for a caller that kept earlier answers:
+    /// `known(view)` is a node's potentials when nothing under it changed
+    /// since they were found. Such a node is decided among its siblings
+    /// from them and its own facts, and not walked: its descendants are
+    /// left out, their answers being as they were. Each answer comes with
+    /// the node's potentials, for the caller to keep.
+    pub fn paint_order_reusing(
+        &self,
+        known: &mut dyn FnMut(ViewId) -> Option<Potentials>,
+    ) -> Vec<(ViewId, Placed, Potentials)> {
+        let arena = self.arena();
+        let mut out = Vec::new();
+        for &root in arena.roots() {
+            let own_root = own(arena, root);
+            let pot = walk_reusing(arena, root, &mut out, known);
+            out.push((
+                arena.local_id(root),
+                Placed {
+                    isolated: false,
+                    rank: rank(&own_root, false),
+                    policy: own_root.policy,
+                },
+                pot,
+            ));
+        }
+        out
+    }
+}
+
+/// [`walk`], taking a child's potentials from `known` instead of walking it.
+fn walk_reusing(
+    arena: &NodeArena,
+    slot: u32,
+    out: &mut Vec<(ViewId, Placed, Potentials)>,
+    known: &mut dyn FnMut(ViewId) -> Option<Potentials>,
+) -> Potentials {
+    let children = arena.children(slot);
+    let beside = beside_exclusion(arena, slot);
+    let records: Vec<(Own, Potentials)> = children
+        .iter()
+        .map(|&c| {
+            let pot = match known(arena.local_id(c)) {
+                Some(pot) => pot,
+                None => walk_reusing(arena, c, out, known),
+            };
+            (own_beside(arena, c, beside), pot)
+        })
+        .collect();
+    let isolated = decide(&records);
+    let mut list = Vec::with_capacity(children.len());
+    for ((&c, &(own, pot)), iso) in children.iter().zip(&records).zip(isolated) {
+        out.push((
+            arena.local_id(c),
+            Placed {
+                isolated: iso,
+                rank: rank(&own, iso),
+                policy: own.policy,
+            },
+            pot,
+        ));
+        list.push(Child {
+            own,
+            isolated: iso,
+            potentials: pot,
+        });
+    }
+    potentials(&list)
+}
+
 /// Decides `slot`'s children, records them, and returns `slot`'s potentials.
 fn walk(arena: &NodeArena, slot: u32, out: &mut Vec<(ViewId, Placed)>) -> Potentials {
     let children = arena.children(slot);
@@ -358,6 +428,76 @@ mod tests {
 
     std::thread_local! {
         pub(super) static EXCLUSION_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    #[test]
+    fn reusing_a_subtree_s_potentials_answers_the_rest_as_a_full_pass() {
+        use crate::{Op, StyleProps, StyleValue};
+        let style = |id: u32, rows: &[(StyleId, StyleValue)]| {
+            let mut patch = StyleProps::default();
+            for (row, value) in rows {
+                patch.set_dynamic(*row, value).unwrap();
+            }
+            Op::SetStyle {
+                id,
+                patch: Box::new(patch),
+            }
+        };
+        // 1 > [2 > [3 > [4 abs z2], 5], 6 > [7 opacity .5, 8 relative], 9]
+        let mut ops: Vec<_> = (1..=9)
+            .map(|id| Op::CreateView {
+                id,
+                node_type: NodeType::View,
+            })
+            .collect();
+        for (id, children) in [
+            (1, vec![2, 6, 9]),
+            (2, vec![3, 5]),
+            (3, vec![4]),
+            (6, vec![7, 8]),
+        ] {
+            ops.push(Op::SetChildren { id, children });
+        }
+        let text = |s: &str| StyleValue::Text(s.into());
+        ops.push(style(
+            4,
+            &[
+                (StyleId::PositionType, text("absolute")),
+                (StyleId::ZIndex, StyleValue::Number(2.0)),
+            ],
+        ));
+        ops.push(style(7, &[(StyleId::Opacity, StyleValue::Number(0.5))]));
+        ops.push(style(8, &[(StyleId::PositionType, text("relative"))]));
+        ops.push(Op::AttachRoot { id: 1 });
+        let mut kernel = Kernel::with_monospace();
+        kernel.apply(0, 1, &ops).unwrap();
+        let full = kernel.paint_order();
+        assert!(
+            full.iter().any(|(_, p)| p.rank != 0 && p.rank != 1),
+            "a z-index is ranked"
+        );
+        let fresh = kernel.paint_order_reusing(&mut |_| None);
+        assert_eq!(
+            fresh.iter().map(|(v, p, _)| (*v, *p)).collect::<Vec<_>>(),
+            full
+        );
+        // Subtrees 2 and 6 known: their own places are answered again, their
+        // descendants are not, and every answer equals the full pass's.
+        let pot = |v: ViewId| fresh.iter().find(|(id, ..)| *id == v).map(|(.., p)| *p);
+        let known = [
+            kernel.arena().local_id(kernel.arena().slot_of(2).unwrap()),
+            kernel.arena().local_id(kernel.arena().slot_of(6).unwrap()),
+        ];
+        let reused =
+            kernel.paint_order_reusing(&mut |v| known.contains(&v).then(|| pot(v)).flatten());
+        let listed: Vec<ViewId> = reused.iter().map(|(v, ..)| *v).collect();
+        assert_eq!(listed.len(), 4, "1, 2, 6 and 9: {listed:?}");
+        for (v, placed, _) in &reused {
+            assert_eq!(
+                Some(placed),
+                full.iter().find(|(id, _)| id == v).map(|(_, p)| p)
+            );
+        }
     }
 
     #[test]
