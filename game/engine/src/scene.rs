@@ -523,8 +523,10 @@ pub struct Offset(pub Transform);
 /// fade with it. 1 or absent draws as before. Fades occluders, such as a crown
 /// between the camera and the player, without a pop. It multiplies down the
 /// Parent chain, so a multipart unit fades as one; it never reveals a child of a
-/// hidden ancestor. Presentation state: write it from `Game::present`; it is
-/// never saved or hashed.
+/// hidden ancestor. Values are clamped to [0, 1] when drawn and NaN draws as
+/// opaque ([`opacity`], which `World::drawn` and the renderer share); nothing is
+/// refused, because presentation state is never validated like a save.
+/// Presentation state: write it from `Game::present`; it is never saved or hashed.
 #[derive(Clone, Copy, Debug, PartialEq, crate::Presentation)]
 pub struct Opacity(pub f32);
 impl Default for Opacity {
@@ -794,7 +796,7 @@ impl World {
 mod hierarchy;
 mod visibility;
 pub(crate) use hierarchy::Hierarchy;
-pub use visibility::Drawn;
+pub use visibility::{opacity, Drawn};
 
 #[cfg(test)]
 mod tests {

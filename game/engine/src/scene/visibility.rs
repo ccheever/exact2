@@ -50,7 +50,7 @@ impl World {
                 None => {
                     let opacity = chain
                         .iter()
-                        .map(|&e| self.get::<Opacity>(e).map_or(1.0, |o| o.0))
+                        .map(|&e| self.get::<Opacity>(e).map_or(1.0, |o| opacity(o.0)))
                         .product();
                     // Above the root-most offset the pose is the propagated
                     // global exactly (no recomposition, so no rounding drift);
@@ -84,6 +84,15 @@ impl World {
     pub fn drawn_local_offset(&self, entity: Entity) -> Transform {
         self.get::<Offset>(entity)
             .map_or_else(Transform::default, |o| o.0)
+    }
+}
+
+/// An authored opacity as drawn: clamped to [0, 1]; NaN draws as opaque.
+pub fn opacity(value: f32) -> f32 {
+    if value.is_nan() {
+        1.0
+    } else {
+        value.clamp(0.0, 1.0)
     }
 }
 
@@ -285,5 +294,18 @@ mod tests {
         let e = w.spawn(Transform::default());
         w.begin_tick();
         let _ = w.drawn(e);
+    }
+
+    #[test]
+    fn drawn_opacity_is_clamped_and_nan_is_opaque() {
+        use crate::Opacity;
+        let mut w = World::new(60, 0);
+        let root = w.spawn((Transform::default(), Opacity(2.0)));
+        let child = w.spawn((Transform::default(), Parent(root), Opacity(-1.0)));
+        let odd = w.spawn((Transform::default(), Opacity(f32::NAN)));
+        w.propagate();
+        assert_eq!(w.drawn(root).unwrap().opacity, 1.0);
+        assert_eq!(w.drawn(child).unwrap().opacity, 0.0);
+        assert_eq!(w.drawn(odd).unwrap().opacity, 1.0);
     }
 }
