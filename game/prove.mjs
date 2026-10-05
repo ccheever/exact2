@@ -1,9 +1,11 @@
 #!/usr/bin/env bun
 // Orchestrate the game's existing proof; every drive still uses the eight operations.
 import {spawn, spawnSync} from 'node:child_process';
-import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
-import {basename, isAbsolute, resolve} from 'node:path';
-import {equal, agreePins, nativeProofHost, pinInputs, pinRevision, webUnavailable, paranoidRuns, proofCommand} from './proof.mjs';
+import {createHash} from 'node:crypto';
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {basename, isAbsolute, relative, resolve} from 'node:path';
+import {equal, agreePins, nativeProofHost, pinInputs, pinRevision, webUnavailable, paranoidRuns, proofCommand, LOOKS, compareLook, formatLook} from './proof.mjs';
+import {decodePng} from '../scripts/png.mjs';
 import {gameDefaults, lintGame, prepareGame} from './app/shells.mjs';
 
 const [destination, ...args] = process.argv.slice(2);
@@ -19,6 +21,7 @@ if (!/^[a-z][a-z0-9-]*$/.test(name ?? '') || !Number.isSafeInteger(repeat) || re
 }
 const app = local ? resolve(destination) : resolve(import.meta.dir, 'games', name), script = resolve(app, 'proof.mjs');
 if (!existsSync(script)) throw new Error(`No proof for ${name}`);
+if (args.includes('--looks')) process.exit(await looks());
 const pinFile = resolve(app, 'pins.json');
 const previous = JSON.parse(readFileSync(pinFile, 'utf8'));
 // A first baseline is accepted only after the same all-mode/host agreement as repin.
@@ -143,4 +146,61 @@ if (status === 'UNVERIFIED') console.log(`No complete tick/save baseline was che
 writeFileSync(resolve(root, 'summary.json'), JSON.stringify({status, rows}, null, 2)+'\n');
 process.exitCode = status === 'PASS' ? 0 : 1;
 
+}
+
+// Look references (README, "Look references"): compare each look's frames with
+// looks/, or retake them, which needs a reason and two captures that agree.
+async function looks() {
+  const retake = args.includes('--retake'), reason = option('--reason', '');
+  if (retake && (!reason.trim() || reason.startsWith('--'))) throw new Error('--retake needs --reason "<why the pictures changed>"');
+  const dir = resolve(app, 'looks'), file = resolve(dir, 'looks.json');
+  mkdirSync(resolve(app, 'artifacts/prove'), {recursive:true});
+  const root = mkdtempSync(resolve(app, 'artifacts/prove', 'looks-'));
+  console.log(`ARTIFACTS ${root}`);
+  const runs = [];
+  for (let index = 1; index <= (retake ? 2 : repeat); index++) {
+    const out = resolve(root, `web-${index}`);
+    // The game's own dist and build receipt: an unchanged build is not rebuilt.
+    const {status:code} = spawnSync(process.execPath, ['./proof.mjs', 'web', '--looks'], {cwd:app, stdio:['ignore', 'inherit', 'inherit'],
+      env:{...process.env, EXACT_PROOF_OUT:out, EXACT_LOOKS_COLLECT:retake ? '1' : '0', EXACT_GAME_PARANOID:'0'}});
+    const summary = existsSync(resolve(out, 'summary.json')) ? JSON.parse(readFileSync(resolve(out, 'summary.json'), 'utf8')) : null;
+    runs.push({index, out, code, summary});
+  }
+  if (!retake) {
+    console.log('| Run | Frame | Beyond band | Mean | Result |');
+    console.log('|---:|---|---:|---:|---|');
+    for (const {index, summary} of runs) for (const f of summary?.looks ?? [])
+      console.log(`| ${index} | ${f.key} | ${f.missing ? '-' : `${(f.differing * 100).toFixed(2)}%`} | ${f.missing ? '-' : f.mean.toFixed(2)} | ${f.missing ? 'no reference' : f.ok ? 'match' : 'FAIL'} |`);
+    const status = runs.every(r => r.code === 0 && r.summary?.status === 'PASS') ? 'PASS' : 'FAIL';
+    console.log(`LOOKS ${status} ${name}: ${runs.length} run(s) against ${relative(process.cwd(), dir)}`);
+    return status === 'PASS' ? 0 : 1;
+  }
+  const failed = runs.filter(r => r.code !== 0 || r.summary?.status !== 'UNVERIFIED' || !r.summary?.looks?.length);
+  if (failed.length) { console.error(`retake refused: run ${failed.map(r => r.index).join(', ')} failed; looks/ unchanged; inspect ${root}`); return 1; }
+  const [a, b] = runs, keys = a.summary.looks.map(f => f.key), read = (run, key) => decodePng(readFileSync(resolve(run.out, 'looks', `${key}.png`)));
+  const unstable = [];
+  if (JSON.stringify(keys) !== JSON.stringify(b.summary.looks.map(f => f.key))) unstable.push('the two runs took different frames');
+  else for (const key of keys) {
+    const d = compareLook(read(a, key), read(b, key));
+    if (!d.ok) unstable.push(`${key} differs between two captures: ${formatLook(d)}`);
+  }
+  if (unstable.length) { console.error(`retake refused: a reference must be the same picture twice; looks/ unchanged\n${unstable.join('\n')}`); return 1; }
+  const before = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {frames:{}};
+  mkdirSync(dir, {recursive:true});
+  const frames = {};
+  for (const key of keys) {
+    const bytes = readFileSync(resolve(a.out, 'looks', `${key}.png`)), path = resolve(dir, `${key}.png`);
+    const was = existsSync(path) ? compareLook(decodePng(readFileSync(path)), decodePng(bytes)) : null;
+    console.log(`look ${key}: ${was ? `${formatLook(was)} from the previous reference` : '(new)'}`);
+    writeFileSync(path, bytes);
+    frames[key] = {bytes:bytes.length, sha256:createHash('sha256').update(bytes).digest('hex')};
+  }
+  // Delete a reference no frame takes any more.
+  for (const key of Object.keys(before.frames ?? {})) if (!frames[key]) { rmSync(resolve(dir, `${key}.png`), {force:true}); console.log(`look ${key}: removed`); }
+  const inputs = a.summary.inputs, bytes = Object.values(frames).reduce((n, f) => n + f.bytes, 0);
+  writeFileSync(file, JSON.stringify({game:before.game ?? name, host:'web', viewport:[1280, 720], ...LOOKS, frames, bytes,
+    reason, inputs, at:pinRevision(app, inputs),
+    generated:proofCommand(import.meta.path, local ? app : name, '--looks', '--retake', '--reason', reason)}, null, 2) + '\n');
+  console.log(`LOOKS RETAKEN ${name}: ${keys.length} frames, ${bytes} bytes in ${relative(process.cwd(), dir)}`);
+  return 0;
 }

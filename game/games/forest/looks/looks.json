@@ -1,0 +1,36 @@
+{
+  "game": "forest",
+  "host": "web",
+  "viewport": [
+    1280,
+    720
+  ],
+  "scale": 8,
+  "step": 4,
+  "band": 24,
+  "off": 0.01,
+  "mean": 2,
+  "frames": {
+    "greybox-day": {
+      "bytes": 9720,
+      "sha256": "1bca4f6214fa68152a0d2977b256bdb68aa25135acb9aaca21daceae0641f69b"
+    },
+    "greybox-night": {
+      "bytes": 7489,
+      "sha256": "5502ab69a40ee07c3eafa3e9544dec00e6385dc09bdbdda5b5296f60f0fb35df"
+    },
+    "pass-day": {
+      "bytes": 14464,
+      "sha256": "b6064bc4f267b309655107707cf6e447eee69342fcb21ec1d366cbe1744dc509"
+    },
+    "pass-night": {
+      "bytes": 10879,
+      "sha256": "473e4caffa85b549ecdf50e4b3e20c10f4620544915fb78e130f95e6a2853249"
+    }
+  },
+  "bytes": 42552,
+  "reason": "first references: greybox and art pass, day at camp and night with the flashlight",
+  "inputs": "b0dbb20f2c57d92e9c76351dfb026f73ebfa6c0af323ece6a7e7694047c5a68c",
+  "at": "013dac629edfbbe634431f1dd31ef15286449d4e",
+  "generated": "bun game/prove.mjs forest --looks --retake --reason 'first references: greybox and art pass, day at camp and night with the flashlight'"
+}

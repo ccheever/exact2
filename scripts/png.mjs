@@ -56,15 +56,41 @@ function scanlines({ width, height, data }) {
   return deflateSync(raw);
 }
 const SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-function header(width, height) {
+function header(width, height, color = 6) {
   const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4); ihdr[8] = 8; ihdr[9] = 6; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+  ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4); ihdr[8] = 8; ihdr[9] = color; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
   return chunk('IHDR', ihdr);
 }
 
-/** A PNG buffer from {width, height, data: RGBA bytes}. */
-export function encodePng(image) {
-  return Buffer.concat([SIGNATURE, header(image.width, image.height), chunk('IDAT', scanlines(image)), chunk('IEND', Buffer.alloc(0))]);
+/** An image's RGB scanlines, each with the filter whose bytes sum smallest (the usual heuristic), compressed. */
+function filteredRgb({ width, height, data }) {
+  const stride = width * 3, raw = Buffer.alloc((stride + 1) * height), best = new Uint8Array(stride), trial = new Uint8Array(stride);
+  let prev = new Uint8Array(stride), cur = new Uint8Array(stride);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) for (let c = 0; c < 3; c++) cur[x * 3 + c] = data[(y * width + x) * 4 + c];
+    let least = Infinity;
+    for (let f = 0; f < 5; f++) {
+      let sum = 0;
+      for (let i = 0; i < stride; i++) {
+        const a = i >= 3 ? cur[i - 3] : 0, b = prev[i], c = i >= 3 ? prev[i - 3] : 0;
+        const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+        const predicted = f === 0 ? 0 : f === 1 ? a : f === 2 ? b : f === 3 ? (a + b) >> 1 : pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+        const v = (cur[i] - predicted) & 255;
+        trial[i] = v; sum += v < 128 ? v : 256 - v;
+      }
+      if (sum < least) { least = sum; raw[y * (stride + 1)] = f; best.set(trial); }
+    }
+    raw.set(best, y * (stride + 1) + 1);
+    [prev, cur] = [cur, prev];
+  }
+  return deflateSync(raw, { level: 9 });
+}
+
+/** A PNG buffer from {width, height, data: RGBA bytes}. `rgb` drops the alpha and
+ * filters each row: a smaller file, for a picture kept in the repository. */
+export function encodePng(image, { rgb = false } = {}) {
+  const pixels = rgb ? filteredRgb(image) : scanlines(image);
+  return Buffer.concat([SIGNATURE, header(image.width, image.height, rgb ? 2 : 6), chunk('IDAT', pixels), chunk('IEND', Buffer.alloc(0))]);
 }
 
 /** An animated PNG of equal-size RGBA frames, each shown `delayMs`, looping. A viewer without APNG shows the first. */
@@ -108,6 +134,34 @@ export function contactSheet(frames, { columns = 6, maxWidth = 2048 } = {}) {
     }
   });
   return { width, height, data };
+}
+
+/** An image shrunk by a whole factor `k`: each pixel the box average of k × k (an edge short of k is dropped). */
+export function shrink({ width, height, data }, k) {
+  const w = Math.floor(width / k), h = Math.floor(height / k), out = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) for (let c = 0; c < 4; c++) {
+    let sum = 0;
+    for (let dy = 0; dy < k; dy++) for (let dx = 0; dx < k; dx++) sum += data[((y * k + dy) * width + x * k + dx) * 4 + c];
+    out[(y * w + x) * 4 + c] = Math.round(sum / (k * k));
+  }
+  return { width: w, height: h, data: out };
+}
+
+/** Two images of one size side by side, then their difference: the reference
+ * dimmed to gray, each pixel whose largest channel differs by more than `band`
+ * in red, brighter for a larger difference. */
+export function diffPicture(reference, actual, band = 8) {
+  const { width: w, height: h } = reference, out = new Uint8Array(w * 3 * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = (y * w + x) * 4, row = y * w * 3;
+    out.set(reference.data.subarray(i, i + 4), (row + x) * 4);
+    out.set(actual.data.subarray(i, i + 4), (row + w + x) * 4);
+    let m = 0;
+    for (let c = 0; c < 3; c++) m = Math.max(m, Math.abs(reference.data[i + c] - actual.data[i + c]));
+    const gray = (reference.data[i] + reference.data[i + 1] + reference.data[i + 2]) / 9;
+    out.set(m > band ? [128 + Math.min(127, m), 0, 0, 255] : [gray, gray, gray, 255], (row + 2 * w + x) * 4);
+  }
+  return { width: w * 3, height: h, data: out };
 }
 
 /** The RGBA bytes of a rectangle of an image, as an image. */

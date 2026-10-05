@@ -16,9 +16,23 @@ async function checkNameplates(s, check, label) {
     plates.slice(i + 1).every(q => p.x + p.w + 6 <= q.x || q.x + q.w + 6 <= p.x || p.y + p.h + 6 <= q.y || q.y + q.h + 6 <= p.y)),
     plates.map(({testId, x, y, w, h}) => ({id:testId, x, y, w, h})));
 }
-if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say}) => {
+if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say, look}) => {
   if (process.argv.includes('--playtest')) return process.argv.includes('--motor-check')
     ? motorCheck({open, out, check}) : playtest({open, out, say});
+  if (process.argv.includes('--looks')) {
+    // The title's Look button cycles classic → art pass → night: the title in
+    // each look, then six seconds into a free-for-all.
+    for (const [presses, name] of ['classic', 'pass', 'night'].entries()) await look(name, async frame => {
+      const s = await open();
+      for (let i = 0; i < presses; i++) await s.tap('look');
+      await frame('title', s);
+      await s.tap('ffa');
+      await s.world('world').run(6000);
+      await frame('ffa', s);
+      await s.close();
+    });
+    return;
+  }
   if (process.argv.includes('--screenshot-only')) {
     const s = await open();
     check('screenshot uses web', host === 'web');

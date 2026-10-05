@@ -45,9 +45,33 @@ const at = (plot, x, z) => plot.tile?.[0] === x && plot.tile?.[1] === z;
 // The crop the current market order asks for, by its published name.
 const ordered = (h, id) => !!seed(h, id) && (h.order ?? '').includes(seed(h, id).name);
 
-if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say}) => {
+// The looks the Garden panel offers, by the button that chooses each.
+const LOOKS = {classic:'look-classic', golden:'look-golden', storybook:'look-storybook', pass:'look-pass'};
+
+if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say, look}) => {
   const log = say ?? console.log;
   if (process.argv.includes('--playtest')) return playtest({open, out, log});
+  if (process.argv.includes('--looks')) {
+    // Each look chosen as a player chooses it, on a fresh garden at a fixed
+    // epoch: the plot by the stall a second in, then a filled garden grown.
+    for (const [name, button] of Object.entries(LOOKS)) await look(name, async frame => {
+      const s = await open({epoch:EPOCH});
+      await s.tap('play');
+      const game = s.world('world');
+      await s.tap('tools-tab');
+      await s.tap(button);
+      await s.tap('tools-tab');
+      await game.run(1000);
+      await frame('start', s);
+      await s.tap('tools-tab');
+      await s.tap('fill-100');
+      await s.tap('tools-tab');
+      await game.run(150_000);
+      await frame('grown', s);
+      await s.close();
+    });
+    return;
+  }
   if (process.argv.includes('--screenshot-only')) {
     check('screenshot uses web', host === 'web');
     const s = await open({epoch:EPOCH});

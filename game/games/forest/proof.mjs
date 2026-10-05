@@ -6,8 +6,26 @@ import {readFileSync, writeFileSync} from 'node:fs';
 import { proof, axNames, decide } from '../../proof.mjs';
 
 const DAY = 80, DAWN = 8;
-if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say}) => {
+if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say, look}) => {
   const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
+  if (process.argv.includes('--looks')) {
+    // Each look chosen on the title: the camp by day, then night at the fire
+    // with the flashlight raised.
+    for (const [name, button] of [['greybox', 'look-greybox'], ['pass', 'look-pass']]) await look(name, async frame => {
+      const s = await open(), game = s.world('world');
+      await s.tap(button);
+      await s.tap('play');
+      await game.run(1500);
+      await frame('day', s);
+      await game.run((DAY - DAWN + 2) * 1000);
+      await game.hold('KeyW', 700);
+      await game.tap('KeyF');
+      await game.run(300);
+      await frame('night', s);
+      await s.close();
+    });
+    return;
+  }
   const s = await open();
   const text = async id => node(await s.tree(), id)?.props?.text;
   const game = s.world('world');

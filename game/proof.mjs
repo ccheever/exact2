@@ -10,6 +10,25 @@ import { cdpFailureContext, gameNonInput } from '../scripts/agent-launch.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, resolveApp } from '../scripts/app.mjs';
 import { closeFilesystemReader } from '../scripts/filesystem.mjs';
+import { decodePng, diff, diffPicture, encodePng, shrink } from '../scripts/png.mjs';
+
+/** Look references (README, "Look references"): a frame is the web window shrunk
+ * by `scale` (box average, which absorbs anti-aliasing and sub-pixel noise) with
+ * each channel rounded to a multiple of `step` (a smaller file, on both sides of
+ * the comparison), and matches its reference while at most `off` of its pixels
+ * differ by more than `band` in a channel (a model, a light or a sky gone) and
+ * the mean difference is at most `mean` (the picture washed out or darkened). */
+export const LOOKS = {scale:8, step:4, band:24, off:0.01, mean:2};
+export function lookImage(window) {
+  const image = shrink(window, LOOKS.scale);
+  for (let i = 0; i < image.data.length; i++) image.data[i] = Math.min(255, Math.round(image.data[i] / LOOKS.step) * LOOKS.step);
+  return image;
+}
+export function compareLook(reference, actual, tolerance = LOOKS) {
+  const d = diff(reference, actual, tolerance.band);
+  return {...d, ok:d.differing <= tolerance.off && d.mean <= tolerance.mean};
+}
+export const formatLook = d => `${(d.differing * 100).toFixed(2)}% of pixels beyond ${LOOKS.band}, mean ${d.mean.toFixed(2)} (${d.size}; at most ${LOOKS.off * 100}% and ${LOOKS.mean})`;
 
 /** Let Jev choose among game-authored actions on a paused agent clock.
  * The caller owns observation, input delivery and the number of decisions.
@@ -768,6 +787,8 @@ export function worldObservations(observations, session) {
   };
 }
 
+// Runs that check something other than the pinned simulation.
+const PARTIAL = ['--build-only', '--screenshot-only', '--capture40', '--playtest', '--looks'];
 export async function proof(meta, script) {
   const app = fileURLToPath(new URL('.', meta.url)), name = basename(app);
   const root = fileURLToPath(new URL('..', import.meta.url));
@@ -821,6 +842,35 @@ export async function proof(meta, script) {
     return ok;
   };
   const {pins, pin, pinSave} = pinRecorder(previousPins, app, check, collecting);
+  // `--looks`: the script calls look(name, body) per look; body calls frame(id, session).
+  const looksRun = args.includes('--looks'), lookCollect = process.env.EXACT_LOOKS_COLLECT === '1';
+  const lookDir = resolve(app, 'looks'), lookOut = resolve(out, 'looks'), lookFrames = [];
+  const lookRefs = looksRun && existsSync(resolve(lookDir, 'looks.json')) ? JSON.parse(readFileSync(resolve(lookDir, 'looks.json'), 'utf8')) : {frames:{}};
+  const retakeLooks = proofCommand(resolve(import.meta.dir, 'prove.mjs'), app, '--looks', '--retake', '--reason', '<why the pictures changed>');
+  const lookFrame = async (key, session) => {
+    mkdirSync(lookOut, {recursive:true});
+    const window = resolve(lookOut, `${key}.window.png`);
+    await session.screenshot(window);
+    const image = lookImage(decodePng(readFileSync(window))), path = resolve(lookOut, `${key}.png`);
+    writeFileSync(path, encodePng(image, {rgb:true}));
+    if (lookCollect) { lookFrames.push({key}); say(`LOOK ${key} captured`); return; }
+    const reference = resolve(lookDir, `${key}.png`);
+    if (!existsSync(reference)) { lookFrames.push({key, missing:true}); check(`look ${key} has a reference; ${retakeLooks}`, false); return; }
+    const bytes = readFileSync(reference), sha256 = createHash('sha256').update(bytes).digest('hex');
+    // A reference changes only by a retake, which records it.
+    if (lookRefs.frames?.[key]?.sha256 !== sha256) check(`look ${key}'s reference is not the one looks.json records; retake rather than replace it: ${retakeLooks}`, false);
+    const was = decodePng(bytes), d = compareLook(was, image);
+    lookFrames.push({key, ...d});
+    const picture = resolve(lookOut, `${key}.diff.png`);
+    if (!d.ok && was.width === image.width && was.height === image.height) writeFileSync(picture, encodePng(diffPicture(was, image, LOOKS.band)));
+    check(d.ok ? `look ${key} matches its reference: ${formatLook(d)}`
+      : `look ${key} differs from its reference: ${formatLook(d)}; reference | now | difference: ${relative(process.cwd(), picture)}; if intended: ${retakeLooks}`, d.ok);
+  };
+  const look = async (name, body) => {
+    if (!looksRun) throw new Error('look() runs under --looks');
+    try { await body((id, session) => lookFrame(`${name}-${id}`, session)); }
+    catch (error) { check(`look ${name} ran to its last frame`, false, formatProofError(error)); }
+  };
   // The GPU-less host has no process tree to discover: retain the process
   // handles from the carrier and await them. Global ps can block indefinitely
   // on this Mac; an optional web descendant audit is bounded and never delays
@@ -942,9 +992,13 @@ export async function proof(meta, script) {
     }});
     if (!built) say(`BUILD cached ${name} ${destination}`);
     if (!process.argv.includes('--build-only')) {
-      await script({open, check, equal, out, host, say, pin, pinSave});
+      if (looksRun && host !== 'web') throw new Error('--looks compares the web host\'s pictures; run it on web');
+      await script({open, check, equal, out, host, say, pin, pinSave, look});
       finished = true;
-      if (!process.argv.some(arg => ['--screenshot-only','--capture40','--playtest'].includes(arg)))
+      if (looksRun && !lookFrames.length) check('the proof takes its looks\' frames (look(name, body) under --looks)', false);
+      if (looksRun && !lookCollect) for (const key of Object.keys(lookRefs.frames ?? {}))
+        check(`look ${key} captured; if intentionally removed, retake: ${retakeLooks}`, lookFrames.some(f => f.key === key));
+      if (!process.argv.some(arg => PARTIAL.includes(arg)))
         for (const section of ['ticks','saves']) for (const key of Object.keys(previousPins[section] ?? {}))
           check(`pin ${key} observed; if intentionally removed, update the proof and pins.json together`, key in pins[section]);
     }
@@ -992,17 +1046,19 @@ export async function proof(meta, script) {
       const name = basename(path), bytes = readFileSync(path);
       return {name, bytes:bytes.length, sha256:createHash('sha256').update(bytes).digest('hex')};
     });
-    const partial = process.argv.some(arg => ['--build-only','--screenshot-only','--capture40','--playtest'].includes(arg));
-    const status = proofStatus({failures, expected:previousPins, pins, collecting, partial});
+    const partial = process.argv.some(arg => PARTIAL.includes(arg));
+    // A looks run verifies its pictures, not the simulation: PASS is every reference matched.
+    const status = looksRun && !process.argv.includes('--build-only') ? (failures.length ? 'FAIL' : lookCollect ? 'UNVERIFIED' : 'PASS')
+      : proofStatus({failures, expected:previousPins, pins, collecting, partial});
     if (!compareParanoid && process.env.EXACT_PROOF_COMPARE !== '1') finalWorlds.push(...observations.values());
-    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), args, status, inputs:inputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
+    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), args, status, inputs:inputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable, ...(looksRun ? {looks:lookFrames} : {})}, null, 2)+'\n');
     if (process.argv.includes('--report')) for (const hint of facilityReport(replies)) say(`REPORT ${hint}`);
-    say(`PROOF ${status} ${name} ${destination}: ${failures.length} failures; ${((performance.now()-started)/1000).toFixed(3)} s`);
+    say(`PROOF ${status} ${name} ${destination}${looksRun ? ` looks (${lookFrames.length} frames${lookCollect ? ' captured, not compared' : ''})` : ''}: ${failures.length} failures; ${((performance.now()-started)/1000).toFixed(3)} s`);
     if (status === 'PASS' && host === 'linux') say(`Capture the PNG: ${proofCommand(fileURLToPath(meta.url), 'web')}`);
     if (status === 'UNVERIFIED' && !collecting && !partial)
       say(`UNVERIFIED: no pins — run ${proofCommand(resolve(import.meta.dir, 'prove.mjs'), app)}`);
     writeFileSync(resolve(out,'proof.txt'),transcript.join('\n')+'\n');
     writeFileSync(resolve(out,'replies.json'),JSON.stringify(replies,null,2)+'\n');
   }
-  process.exit(failures.length || (!collecting && !process.argv.some(arg => ['--build-only','--screenshot-only','--capture40','--playtest'].includes(arg)) && proofStatus({failures, expected:previousPins, pins}) !== 'PASS') ? 1 : 0);
+  process.exit(failures.length || (!collecting && !process.argv.some(arg => PARTIAL.includes(arg)) && proofStatus({failures, expected:previousPins, pins}) !== 'PASS') ? 1 : 0);
 }

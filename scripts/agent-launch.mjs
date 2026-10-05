@@ -374,11 +374,11 @@ export function receiptChanges(receipt, app) {
  * Both are build inputs and both refuse a drive; the split makes diagnostics
  * and tests able to say which side changed without weakening that rule. */
 /** Whether a path inside a game (relative to its directory) is not a build input:
- * its proof, pins, documents, tests, and helper scripts outside the built trees.
+ * its proof, pins, look references, documents, tests, and helper scripts outside the built trees.
  * The proof's input digest (game/proof.mjs) and host staleness checks share it. */
 export function gameNonInput(path) {
   path = path.replaceAll('\\', '/');
-  return /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.md)$/.test(path)
+  return /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.md)$/.test(path) || path.startsWith('looks/')
     || (/\.m?js$/.test(path) && !/^(logic|data|gpu|render|art|assets|deck)\//.test(path));
 }
 /** What a web build of `app` reads, modified after `since` (every file by default):
