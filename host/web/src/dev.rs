@@ -53,8 +53,15 @@ fn stamp_of(path: &Path) -> Option<(SystemTime, u64)> {
         use std::os::unix::fs::MetadataExt;
         meta.len() ^ meta.ino().rotate_left(32) ^ meta.dev()
     };
+    // Off Unix, the creation time: a retargeted junction leads to another
+    // file, made at another time, even when a copy kept the modified time.
     #[cfg(not(unix))]
-    let len = meta.len();
+    let len = meta.len()
+        ^ meta
+            .created()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_nanos() as u64);
     Some((meta.modified().ok()?, len))
 }
 

@@ -411,7 +411,15 @@ impl Loader<'_> {
                                     .enumerate()
                                     .any(|(other, names)| other != index && names.contains(name)))
                     };
-                    while taken.contains(&(kind, unique.clone())) || roster(&unique) {
+                    // A generated name is no binding's in any file either, or
+                    // the binding's calls (in its own file too) would reach it.
+                    let bound_anywhere = |unique: &str| {
+                        unique != name && bound.iter().any(|names| names.contains(unique))
+                    };
+                    while taken.contains(&(kind, unique.clone()))
+                        || roster(&unique)
+                        || bound_anywhere(&unique)
+                    {
                         n += 1;
                         unique = if n == 2 {
                             format!("{name}__{stem}")

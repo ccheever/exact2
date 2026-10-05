@@ -669,3 +669,59 @@ fn a_nearer_install_and_the_offered_export_path_are_watched() {
         );
     }
 }
+
+// Round 8 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_component_argument_is_a_value_not_a_style_row() {
+    let dir = Dir::new("arg-value");
+    let root = dir.write(
+        "app.contract",
+        "use Activity as Shared from \"exact:motion\"\ntimeline Activity\ncomponent App\n  view\n    Label(animationTimeline=\"clock(Shared)\")\ncomponent Label\n  props\n    animationTimeline: string\n  view\n    text animationTimeline\n",
+    );
+    let text = plan(&root);
+    assert!(text.contains("clock(Shared)"), "{text}");
+}
+
+#[test]
+fn a_generated_name_is_never_a_binding_of_its_own_file() {
+    let dir = Dir::new("generated-own");
+    dir.write(
+        "ui.contract",
+        "fn val(s: string): string = s\ncomponent Card\n  state n = 0\n  action val__ui(x: number)\n    n = x\n  view\n    button press=val__ui(1) testId=\"b\"\n      text `${val(\"x\")}`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nfn val(s: string): string = s\ncomponent App\n  view\n    column\n      Card()\n      text `${val(\"y\")}`\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(e.as_ref().is_none_or(|e| e.id != "type-argument"), "{e:?}");
+}
+
+#[test]
+fn a_relative_use_is_watched_by_the_path_written() {
+    let dir = Dir::new("relative-written");
+    dir.write(
+        "lib/v1.contract",
+        "component Card\n  view\n    text \"v1\"\n",
+    );
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(
+        dir.0.join("lib/v1.contract"),
+        dir.0.join("lib/entry.contract"),
+    )
+    .unwrap();
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./lib/entry.contract\"\ncomponent App\n  view\n    Card()\n",
+    );
+    #[cfg(unix)]
+    {
+        let graph = contract::source_graph(&root);
+        assert!(
+            graph.consulted.contains(&dir.0.join("lib/entry.contract")),
+            "{:?}",
+            graph.consulted
+        );
+    }
+}

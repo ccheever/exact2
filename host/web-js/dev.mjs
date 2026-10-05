@@ -96,14 +96,16 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   };
   // A build reading a tree (the assets it copies) is reported too on macOS:
   // a path not modified since the last build started is no edit.
-  const changed = (base, skip = skipped) => (_, name) => {
+  const changed = (base, skip = skipped, fresh = true) => (_, name) => {
     if (name && skip.test(String(name))) return;
     // The declarations a build writes beside app.ts, for an editor.
     if (base === app.dir && String(name) === 'app.contract.d.ts') return;
     // A screenshot, film, log or note written into the app folder, outside the input trees and not named by
     // app.json, does not reload a page under a test (authoring bench).
     if (base === app.dir && OUTPUT.test(String(name)) && !INPUT_TREE.test(String(name)) && !JSON.stringify(app.manifest ?? {}).includes(String(name))) return;
-    try { if (name && statSync(resolve(base, String(name))).mtimeMs < since) return; } catch { /* removed: an edit */ }
+    // A package's events are all edits: a link replaced by one to an older
+    // file is newer than nothing, and its target's time says nothing of it.
+    try { if (fresh && name && statSync(resolve(base, String(name))).mtimeMs < since) return; } catch { /* removed: an edit */ }
     if (!timer) saved = Date.now();
     clearTimeout(timer);
     // An editor's save is one burst of events, well inside 5 ms; an event
@@ -121,13 +123,15 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       packages.add(dir);
       // A package's dot directories are its sources too; only its own
       // node_modules is not.
-      watchers.push(watch(dir, { recursive: true }, changed(dir, /(^|\/)node_modules(\/|$)/)));
+      watchers.push(watch(dir, { recursive: true }, changed(dir, /(^|\/)node_modules(\/|$)/, false)));
     }
-    // A node_modules not made yet: its making (an install) is an edit.
-    for (const dir of shallow) {
-      if (packages.has(`shallow:${dir}`) || !existsSync(dir)) continue;
-      packages.add(`shallow:${dir}`);
-      watchers.push(watch(dir, (_, name) => { if (String(name) === 'node_modules') changed(dir, /^$/)(_, name); }));
+    // One entry of a directory: a node_modules not made yet, or an install
+    // that is a link. Its making, or its retargeting, is an edit.
+    for (const [dir, entry] of shallow) {
+      const key = `shallow:${dir}:${entry}`;
+      if (packages.has(key) || !existsSync(dir)) continue;
+      packages.add(key);
+      watchers.push(watch(dir, (_, name) => { if (String(name) === entry) changed(dir, /^$/, false)(_, name); }));
     }
   };
   watchPackages(built.packages);

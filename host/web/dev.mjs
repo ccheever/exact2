@@ -37,7 +37,7 @@ import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/
 import { filesystem } from '../../scripts/filesystem.mjs';
 import { allowHostArgs, developmentGate, installBrowserOrigins, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, unwatchFile, watch, watchFile } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { gpuModules, shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
 import { webDist, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
@@ -476,21 +476,30 @@ function contractGraph() {
     // only inside a package or a node_modules — never the app or above it.
     // A consulted manifest's directory is a package even when resolution
     // then refused it.
-    const inside = d => graph.packages.some(p => d === p.root || d.startsWith(p.root + '/')) || /(^|\/)node_modules(\/|$)/.test(d)
-      || graph.consulted.some(c => c.endsWith('/package.json') && dirname(c) === d);
+    // Either separator: `contract sources` prints the platform's paths.
+    const under = (d, root) => { const r = relative(root, d); return r === '' || (!r.startsWith('..') && !isAbsolute(r)); };
+    const inside = d => graph.packages.some(p => under(d, p.root)) || /(^|[\\/])node_modules([\\/]|$)/.test(d)
+      || graph.consulted.some(c => basename(c) === 'package.json' && dirname(c) === d);
     // Watched where they really are: a watch root that is a link is refused.
     const real = d => { try { return realpathSync(d); } catch { return d; } };
     const dirs = new Set([...graph.packages.map(p => p.root), ...graph.consulted.map(c => nearest(dirname(c))).filter(inside)].map(real));
-    // Where a node_modules not made yet would be: its making is an install.
-    const shallow = new Set(graph.consulted.flatMap(c => {
-      // Either separator: `contract sources` prints the platform's paths.
+    // One entry of a directory: where a node_modules not made yet would be
+    // (its making is an install), and an install that is a link (its
+    // retargeting is an edit no file inside sees).
+    const shallow = new Map();
+    for (const c of graph.consulted) {
       const match = [...c.matchAll(/[\\/]node_modules[\\/]/g)].pop();
-      if (!match) return [];
-      const parent = c.slice(0, match.index);
-      return !existsSync(resolve(parent, 'node_modules')) && existsSync(parent) ? [parent] : [];
-    }));
-    return { files, dirs, shallow };
-  } catch { return { files: new Set(), dirs: new Set(), shallow: new Set() }; }
+      if (match) {
+        const parent = c.slice(0, match.index);
+        if (!existsSync(resolve(parent, 'node_modules')) && existsSync(parent)) shallow.set(`${parent}\0node_modules`, [parent, 'node_modules']);
+      }
+      if (basename(c) === 'package.json') {
+        const install = dirname(c);
+        try { if (lstatSync(install).isSymbolicLink()) shallow.set(`${dirname(install)}\0${basename(install)}`, [dirname(install), basename(install)]); } catch {}
+      }
+    }
+    return { files, dirs, shallow: [...shallow.values()] };
+  } catch { return { files: new Set(), dirs: new Set(), shallow: [] }; }
 }
 
 function startModuleCompiler() {
@@ -584,11 +593,12 @@ function startModuleCompiler() {
         else watches.push(handle);
       } catch (error) { console.error(`cannot watch ${dir}: ${error.message}`); }
     }
-    for (const dir of graph.shallow) {
-      if (packageDirs.has(`shallow:${dir}`)) continue;
-      packageDirs.add(`shallow:${dir}`);
+    for (const [dir, entry] of graph.shallow) {
+      const key = `shallow:${dir}:${entry}`;
+      if (packageDirs.has(key)) continue;
+      packageDirs.add(key);
       try {
-        const handle = watch(dir, (_event, name) => { if (String(name) === 'node_modules') moduleChanged(); });
+        const handle = watch(dir, (_event, name) => { if (String(name) === entry) moduleChanged(); });
         watches.push({ error: null, close: () => handle.close() });
       } catch (error) { console.error(`cannot watch ${dir}: ${error.message}`); }
     }

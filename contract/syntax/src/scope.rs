@@ -390,7 +390,11 @@ impl Rewriter<'_> {
                     span,
                 } => {
                     self.scope.rename(Kind::Component, name, *span)?;
-                    self.attrs(args)?;
+                    // A component's argument is a value: `class`, `animation`
+                    // and the like are the child's props, not its style rows.
+                    for arg in args.iter_mut() {
+                        self.expr(&mut arg.value)?;
+                    }
                     self.nodes(children)?;
                 }
                 Node::Children { .. } => {}

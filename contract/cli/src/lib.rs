@@ -374,6 +374,22 @@ pub fn rerun_if_changed(path: &Path) {
     for consulted in graph.consulted.iter().filter(|path| path.exists()) {
         println!("cargo:rerun-if-changed={}", consulted.display());
     }
+    // A nearer `node_modules` an install could create or fill: installing
+    // edits the `package.json` and lockfile beside it, which exist.
+    for consulted in graph.consulted.iter().filter(|path| !path.exists()) {
+        let Some(modules) = consulted
+            .ancestors()
+            .find(|a| a.file_name().is_some_and(|n| n == "node_modules"))
+        else {
+            continue;
+        };
+        for file in ["package.json", "bun.lock", "package-lock.json"] {
+            let beside = modules.with_file_name(file);
+            if beside.is_file() {
+                println!("cargo:rerun-if-changed={}", beside.display());
+            }
+        }
+    }
 }
 
 fn compile_path_output(

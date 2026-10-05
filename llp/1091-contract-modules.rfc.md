@@ -443,6 +443,7 @@ stage 1 lands, and stage 2 waits on them.
 - r7 (2026-10-05): the code review's fifth round (§14).
 - r8 (2026-10-05): round 6; the bake compiles in place (§15).
 - r9 (2026-10-05): round 7 (§16).
+- r10 (2026-10-05): round 8 (§17).
 
 ## 9. Review dispositions (round 1)
 
@@ -704,4 +705,22 @@ round 6's inputs fixed. Every finding is taken; every plan stays byte-identical.
 | Astra 5: a nearer install than the one resolved went unseen | Every nearer candidate is watched even when a farther one resolves |
 | Grok 3: the TypeScript producer's missing-`node_modules` watch assumed `/` | Either separator |
 | Found while verifying: the nearer candidates reached `build.rs` as `rerun-if-changed` paths that did not exist, so Cargo reran every build and the driver called it stale | `contract::rerun_if_changed` lists only paths that exist (a failed build reruns its script anyway); the dev loops still watch the candidates. Driven: a second macOS build is a no-op (1.8 s) |
+
+## 17. Code review round 8 dispositions
+
+Round 8 (`llp/reviews/code-2026-10-05-1091-r8.{astra,grok}.md`): both UNSOUND. Both found that
+round 7's nearer-install candidates broke deploy: the closure check `realpath`ed them and threw, so
+deploying `markdown` or `llp` (whose `@exact/reading` is hoisted) failed on main. Every finding is
+taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1 / Grok 1: deploy's closure check threw on a consulted path that does not exist | It checks only consulted paths that exist (a missing one is where resolution found nothing); `scripts/deploy-paths.test.mjs`, which had required the throw, now requires the opposite |
+| Astra 2: component arguments went through the style rows' `class`, `animation` and timeline rewriting | A component argument is a value: only its expression is rewritten |
+| Astra 3: a generated name (`val__ui`) could be an action's in its own file | A generated name avoids every binding in every file |
+| Astra 4: dropping missing paths from Cargo lost a nearer install | Cargo watches the `package.json` and lockfile beside a nearer `node_modules`, which an install edits |
+| Astra 5: a relative use through a link was watched only by its target | Watched by the path written too |
+| Astra 6 / Grok 2: a link retargeted at an older file, or an install link retargeted, went unseen by the JS loop and the TypeScript producer | A package's events are edits whatever their time; both loops watch an install that is a link as one entry of its directory |
+| Astra 7 / Grok 3: the TypeScript producer's graph filter assumed `/` | Path tests by `path.relative`, separators either way |
+| Astra 8 / Grok 4: off Unix, a stamp had no file identity | It carries the file's creation time |
 

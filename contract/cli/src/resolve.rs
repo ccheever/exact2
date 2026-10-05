@@ -133,9 +133,10 @@ fn relative(
         ));
     }
     let target = dir.join(spec);
+    // Watched by the path written: creating it, or retargeting a link
+    // there, builds again.
+    consulted.push(target.clone());
     let key = target.canonicalize().map_err(|e| {
-        // Watched, so creating it builds again.
-        consulted.push(target.clone());
         (
             "contract-use-unreadable",
             format!("{}: {e}", target.display()),

@@ -90,17 +90,34 @@ fn main() -> ExitCode {
         roots.dedup();
         // Where a `node_modules` that is not there yet would be made: the
         // loop watches these directories (not their trees) for its creation.
-        let mut shallow: Vec<String> = graph
-            .consulted
-            .iter()
-            .filter_map(|consulted| {
-                let modules = consulted
-                    .ancestors()
-                    .find(|a| a.file_name().is_some_and(|n| n == "node_modules"))?;
-                let parent = modules.parent()?;
-                (!modules.exists() && parent.is_dir()).then(|| parent.display().to_string())
-            })
-            .collect();
+        // Entries to watch in a directory without its tree: a `node_modules`
+        // not made yet (an install makes it), and an install that is a link
+        // (retargeting it is an edit no file inside sees).
+        let mut shallow: Vec<(String, String)> = Vec::new();
+        for consulted in &graph.consulted {
+            if let Some(modules) = consulted
+                .ancestors()
+                .find(|a| a.file_name().is_some_and(|n| n == "node_modules"))
+            {
+                if let Some(parent) = modules.parent().filter(|p| !modules.exists() && p.is_dir()) {
+                    shallow.push((parent.display().to_string(), "node_modules".into()));
+                }
+            }
+            if consulted.file_name().is_some_and(|n| n == "package.json") {
+                if let Some(install) = consulted.parent() {
+                    let link = std::fs::symlink_metadata(install)
+                        .is_ok_and(|m| m.file_type().is_symlink());
+                    if let (true, Some(parent), Some(name)) =
+                        (link, install.parent(), install.file_name())
+                    {
+                        shallow.push((
+                            parent.display().to_string(),
+                            name.to_string_lossy().into_owned(),
+                        ));
+                    }
+                }
+            }
+        }
         shallow.sort();
         shallow.dedup();
         let list = |dirs: &[String]| {
@@ -109,10 +126,15 @@ fn main() -> ExitCode {
                 .collect::<Vec<_>>()
                 .join(",")
         };
+        let pairs = shallow
+            .iter()
+            .map(|(dir, name)| format!("[{dir:?},{name:?}]"))
+            .collect::<Vec<_>>()
+            .join(",");
         let json = format!(
             "{{\"packages\":[{}],\"shallow\":[{}]}}\n",
             list(&roots),
-            list(&shallow)
+            pairs
         );
         let _ = std::fs::create_dir_all(out);
         let _ = std::fs::write(std::path::Path::new(out).join("dev-sources.json"), json);
