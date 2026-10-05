@@ -25,6 +25,8 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   if (moves && over <= 0) throw new Error('drag: a drag that moves needs over > 0');
   for (const k of ['press', 'over', 'hold']) if (drag[k] > DRAG_BOUNDS[k]) throw new Error(`drag: ${k} ${drag[k]} ms is past its bound, ${DRAG_BOUNDS[k]} ms`);
   if (press + hold + (moves ? over : 0) > DRAG_BOUNDS.total) throw new Error(`drag: the gesture lasts past ${DRAG_BOUNDS.total} ms`);
+  // The touch runner lifts at the end of its scripted hold, and its ops start after the press and the move: without a hold they would find the finger lifted.
+  if (carrier.touches && during.length && !(hold > 0)) throw new Error('drag: under --touch platform, during runs after the press and the move, inside the scripted hold: give hold <ms>, the time the ops run in');
   if (s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
   const layout = await s.layout(), b = layout.nodes.find((n) => n.id === node.id), vp = layout.viewport;
   if (!b) throw new Error(`view ${node.id} has no box on screen`);

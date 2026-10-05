@@ -1,6 +1,12 @@
 struct ModelInstance {
     transform: u32, material: u32, geometry: u32, palette: u32,
     local: mat4x4<f32>, normal: mat4x4<f32>,
+    // NodeMaterials: base-colour multiplier and added emission; glow.w's low
+    // 31 bits are 1 + the first per-part look of a merged draw (0: none), and
+    // its top bit makes the tint replace the material's base colour factor
+    // (MaterialOverrides). In a part look entry, glow.w's bits are the part's
+    // first vertex.
+    tint: vec4<f32>, glow: vec4<f32>,
 }
 @group(3) @binding(0) var<storage, read> instances: array<ModelInstance>;
 @group(3) @binding(1) var<storage, read> skin_palette: array<mat4x4<f32>>;
@@ -42,6 +48,7 @@ struct ModelVarying {
     @location(0) world: vec3<f32>, @location(1) normal: vec3<f32>,
     @location(4) color: vec4<f32>,
     @location(2) uv: vec2<f32>, @location(3) @interpolate(flat) slot: u32,
+    @location(5) @interpolate(flat) tint: vec4<f32>, @location(6) @interpolate(flat) glow: vec4<f32>,
 }
 fn model_transform(position: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instance: u32, vertex:u32, color:vec4<f32>) -> ModelVarying {
     let draw = instances[slots[instance] - 2147483648u];
@@ -55,17 +62,30 @@ fn model_transform(position: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instan
     let q=qm*inverseSqrt(max(dot(qm,qm),1e-12));
     let s=mix(vec3(prev[i+7u],prev[i+8u],prev[i+9u]),vec3(curr[i+7u],curr[i+8u],curr[i+9u]),a);
     let skin=skinned(draw,vertex,position,normal);
+    var tint=draw.tint;
+    var glow=draw.glow.xyz;
+    let word=bitcast<u32>(draw.glow.w);
+    let looks=word & 2147483647u;
+    if looks!=0u {
+        // A merged part's look: the last part starting at or before this vertex
+        // (a run ends at a u32::MAX start).
+        var at=looks-1u;
+        while bitcast<u32>(instances[at+1u].glow.w)<=vertex { at+=1u; }
+        let look=instances[at];
+        tint*=look.tint;
+        glow+=look.glow.xyz;
+    }
     let local=(draw.local*vec4(skin[0],1.0)).xyz;
     if attached(slot) {
         let affine=attachment_matrices[slot];
         let world=(affine*vec4(local,1.0)).xyz;
         let n=affine_normal(affine,(draw.normal*vec4(skin[1],0.0)).xyz);
-        return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,color,uv,slot);
+        return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,color,uv,slot,tint,vec4(glow,f32(word>>31u)));
     }
     let world=p+rotate(q,s*local);
     let safe=select(max(abs(s),vec3(0.000001)),-max(abs(s),vec3(0.000001)),s<vec3(0.0));
     let n=rotate(q,(draw.normal*vec4(skin[1],0.0)).xyz/safe);
-    return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,color,uv,slot);
+    return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,color,uv,slot,tint,vec4(glow,f32(word>>31u)));
 }
 @vertex fn model_vs(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32>, @location(3) color:vec4<f32>, @builtin(instance_index) instance:u32, @builtin(vertex_index) vertex:u32) -> ModelVarying {
     return model_transform(position,normal,uv,instance,vertex,color);
@@ -76,7 +96,7 @@ fn material_uv(uv: vec2<f32>, index:u32) -> vec2<f32> {
 }
 fn model_base(input:ModelVarying) -> vec4<f32> {
     let i=input.slot*12u;
-    return textureSample(base_texture,base_sampler,material_uv(input.uv,0u))*baked.base*input.color*vec4(materials[i],materials[i+1u],materials[i+2u],select(materials[i+3u],1.0,materials[i+3u]<0.0));
+    return textureSample(base_texture,base_sampler,material_uv(input.uv,0u))*select(baked.base,vec4(1.0),input.glow.w>0.5)*input.color*vec4(materials[i],materials[i+1u],materials[i+2u],select(materials[i+3u],1.0,materials[i+3u]<0.0))*input.tint;
 }
 fn mapped_normal(input:ModelVarying, front:bool) -> vec3<f32> {
     let n=normalize(input.normal)*select(-1.0,1.0,front);
@@ -95,6 +115,8 @@ fn mapped_normal(input:ModelVarying, front:bool) -> vec3<f32> {
 }
 @diagnostic(off, derivative_uniformity)
 fn model_shade(input:ModelVarying, front:bool, visibility:f32) -> vec4<f32> {
+    // Opaque materials fade by dither; blended ones multiply alpha below.
+    if baked.flags.x!=2.0 && faded(input.slot,input.clip.xy) { discard; }
     let base=model_base(input);
     let mr=textureSample(mr_texture,mr_sampler,material_uv(input.uv,2u));
     let emission=textureSample(emission_texture,emission_sampler,material_uv(input.uv,3u)).rgb;
@@ -106,14 +128,14 @@ fn model_shade(input:ModelVarying, front:bool, visibility:f32) -> vec4<f32> {
     let v=normalize(frame.camera_alpha.xyz-input.world);
     let i=input.slot*12u;
     let glow=vec3(materials[i+6u],materials[i+7u],materials[i+8u]);
-    var color=ambient(n,v,base.rgb,metallic,roughness)*ao+emission*baked.emission_cutoff.rgb*materials[i+9u]+glow;
+    var color=ambient(n,v,base.rgb,metallic,roughness)*ao+emission*baked.emission_cutoff.rgb*materials[i+9u]+glow+input.glow.xyz;
     if frame.sun_direction_illuminance.w>0.0 {
         color+=brdf(n,v,normalize(-frame.sun_direction_illuminance.xyz),base.rgb,metallic,roughness)*frame.sun_color_count.xyz*frame.sun_direction_illuminance.w*visibility;
     }
     if frame.fill_direction_illuminance.w>0.0 { color+=fill_light(n,v,base.rgb,metallic,roughness); }
     add_local_lights(&color,input.clip.xy,input.world,n,v,base.rgb,metallic,roughness,true);
     if FOG { color=height_fog(color,input.world); }
-    return vec4(color,select(1.0,base.a,baked.flags.x==2.0));
+    return vec4(color,select(1.0,base.a*(1.0-fade_of(input.slot)),baked.flags.x==2.0));
 }
 @fragment fn model_fs(input:ModelVarying,@builtin(front_facing) front:bool)->@location(0) vec4<f32> {return model_shade(input,front,1.0);}
 @fragment fn model_fs_shadow(input:ModelVarying,@builtin(front_facing) front:bool)->@location(0) vec4<f32> {return model_shade(input,front,sun_visibility(input.world,normalize(input.normal)));}

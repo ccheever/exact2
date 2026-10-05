@@ -2,13 +2,13 @@
 import {checkSteadyResidency} from '../../render/tests/residency.mjs';
 import { proof } from '../../proof.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
-import {residencyProbe, checkResidency, checkTextureFamily} from '../../render/tests/residency.mjs';
+import {residencyProbe, checkResidency, checkTextureFamily, bakedTexture} from '../../render/tests/residency.mjs';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) => {
   const web = host === 'web';
-  const residency = residencyProbe('crate.model','crate/0-srgb-straight.tex','extra.model');
+  const residency = residencyProbe('crate.model',() => bakedTexture(import.meta.dir),'extra.model');
   let gate, server, fail = false, lossDone;
   let textureRequests = 0;
   const next = () => {
@@ -167,7 +167,7 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
     check('declared model supplies layout bounds',!!layout.entity?.bounds,layout);
     await restored.screenshot(resolve(out,`crate-${host}.png`));
     if(host==='macos' || host==='ios') say('SKIP physical Metal removal: this integrated device cannot be removed; native recovery ABI and replacement-device pixels run in the GPU tests.');
-    say(`model bytes: ${readFileSync(resolve(import.meta.dir,'assets/crate.model')).length}; texture bytes: ${readFileSync(resolve(import.meta.dir,'assets/crate/0-srgb-straight.tex')).length}`);
+    say(`model bytes: ${readFileSync(resolve(import.meta.dir,'assets/crate.model')).length}; texture bytes: ${readFileSync(resolve(import.meta.dir,'assets',bakedTexture(import.meta.dir))).length}`);
     if(host==='ios') say('SKIP browser transport gates and residency reload probe: simulator uses bundled files; asset readiness, failure, restore, GPU counters and pins still run.');
     if(host==='linux') say('Headless host: simulation restore/pins verified; GPU residency requires the web/device proof.');
     await restored.close();

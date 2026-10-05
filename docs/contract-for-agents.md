@@ -390,7 +390,7 @@ Choose the mechanism from its lifetime:
 | Refresh reads around a mutation | `mutation … refreshes resourceA, resourceB` |
 | React once to a settled mutation | `mutation … then actionName` |
 | Pending indicator | `pending(resourceOrMutationName)` |
-| Resource request failed without an answer | `failed(resourceName)` |
+| Resource request failed without an answer | `failed(resourceName)` (a resource only: a mutation answers its failure as a domain result, such as `ok: false`) |
 | Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
 
 Resources read as their declared type. Mutations read as `option<T>` and start at
@@ -569,6 +569,25 @@ root or of a `role="tabpanel"` in it — through `each` and `when`, never anothe
 element: the compiler refuses one behind a wrapper (`lower-route-place`). Make each
 route `position="absolute" inset=0`: the hosts hide a covered route, as
 `visibility: hidden` does, so an in-flow route still takes its room.
+
+A route does not scroll by itself, as a `div` does not: content taller than it is
+never seen. A fixed shell (a map, a camera, a chat whose composer stays put) is
+fine; anything else puts its content in a `scroll` or `list` with `flex=1
+min-height=0` right after its `header`, and names it with `navigationScroll`:
+
+```text
+column navigationKey=`${e.id}` navigationScroll="feed" position="absolute" inset=0 display="flex" flex-direction="column"
+  header
+    text "Inbox"
+  scroll id="feed" flex=1 min-height=0
+    …
+```
+
+`navigationScroll` names an element of the route by its `id`; on iOS that scroller
+goes under the bar and collapses a large title, which happens only when it is the
+route's child right after its `header`. The compiler refuses a literal name that no
+element of the route carries, or one whose element is a box that never scrolls on y
+(`lower-route-scroll`).
 
 ## Tabs and stacks
 
@@ -753,7 +772,9 @@ On a text field or textarea `type` inserts the text, one `input`; `change` comes
 person's would, when the field commits (`type <id> key Enter` on a field, or the
 focus leaving it), so an edit saved on `change` needs one of those.
 `tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
-move, with the finger still down. `clock +N` moves the virtual clock without
+move, with the finger still down, before the hold. Under `--touch platform` the
+lift is scripted, so the reads run inside the hold and `during` needs one
+(`hold 300 during "state"`). `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
 first); its reply says what is still in flight (`inflight`, on every host), and `clock settle` lands it.
 `clock data` lands it without moving the clock: the data module's activation and
@@ -807,7 +828,7 @@ what is in flight lands, with each answer's `then`, the clock unmoved), `resize
 test shows what persists),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text; a control's value, so a `select` reads its chosen value, not its
-options; else its descendants' — a button's label — else a field's value), and
+options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and
 `expect state name == <number|string|bool|none|[]>`, where `name` may go on into
 a record's fields (`board.active.present`). A failed expect with no input before
 it names the requests still in flight (the boot's own, or what a `clock +N` left

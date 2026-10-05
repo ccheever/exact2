@@ -1,10 +1,8 @@
 //! Nonblocking timestamp readback, only while a canvas's perf is armed.
-use super::Needs;
 use crate::{perf::Ring, GPU_PASS_COUNT, GPU_PASS_NAMES};
 use exact_gpu::wgpu;
 use std::sync::{Arc, Mutex};
-// Forward, hook stages, then the shadow cascades and culling.
-const PAIRS: [u32; 12] = [3, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 24];
+const PAIRS: usize = GPU_PASS_COUNT as usize;
 const BYTES: u64 = GPU_PASS_COUNT as u64 * 16;
 type Completion = Arc<Mutex<Option<Result<(), String>>>>;
 pub(crate) struct GpuTiming {
@@ -13,10 +11,13 @@ pub(crate) struct GpuTiming {
     read: wgpu::Buffer,
     done: Completion,
     phase: u8,
-    mask: [bool; 12],
-    rings: [Ring; 12],
+    // The pairs the frame awaiting readback wrote; every pass is reported.
+    mask: u64,
+    rings: [Ring; PAIRS],
+    // Bloom from its first level's start to its last level's end (pairs 4-14):
+    // passes overlap on a tiler, so their own intervals do not sum.
+    bloom: Ring,
     period: f64,
-    features: wgpu::Features,
     error: Option<String>,
 }
 impl GpuTiming {
@@ -38,20 +39,22 @@ impl GpuTiming {
                 mapped_at_creation: false,
             })
         };
-        let mut rings: [Ring; 12] = Default::default();
+        let mut rings: [Ring; PAIRS] = std::array::from_fn(|_| Ring::default());
         for r in &mut rings {
             r.arm(false);
         }
+        let mut bloom = Ring::default();
+        bloom.arm(false);
         Some(Self {
             set,
             resolve: buffer(wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC),
             read: buffer(wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ),
             done: Default::default(),
             phase: 0,
-            mask: [false; 12],
+            mask: 0,
             rings,
+            bloom,
             period: f64::from(queue.get_timestamp_period()) / 1_000_000.,
-            features,
             error: None,
         })
     }
@@ -59,7 +62,8 @@ impl GpuTiming {
         for r in &mut self.rings {
             r.arm(true);
         }
-        self.mask = [false; 12];
+        self.bloom.arm(true);
+        self.mask = 0;
     }
     pub fn poll(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         #[cfg(not(target_arch = "wasm32"))]
@@ -92,16 +96,25 @@ impl GpuTiming {
                 .slice(..)
                 .get_mapped_range()
                 .expect("completed timing map");
-            for (i, pair) in PAIRS.iter().enumerate() {
-                if !self.mask[i] {
+            let mut bloom: Option<(u64, u64)> = None;
+            for pair in 0..PAIRS {
+                if self.mask & 1 << pair == 0 {
                     continue;
                 }
-                let at = *pair as usize * 16;
+                let at = pair * 16;
                 let a = u64::from_ne_bytes(data[at..at + 8].try_into().unwrap());
                 let b = u64::from_ne_bytes(data[at + 8..at + 16].try_into().unwrap());
                 if a > 0 && b >= a {
-                    self.rings[i].push((b - a) as f64 * self.period);
+                    let ms = (b - a) as f64 * self.period;
+                    self.rings[pair].push(ms);
+                    if (4..=14).contains(&pair) {
+                        let span = bloom.get_or_insert((a, b));
+                        *span = (span.0.min(a), span.1.max(b));
+                    }
                 }
+            }
+            if let Some((a, b)) = bloom {
+                self.bloom.push((b - a) as f64 * self.period);
             }
             drop(data);
             self.read.unmap();
@@ -111,63 +124,28 @@ impl GpuTiming {
     pub fn query(&self) -> Option<&wgpu::QuerySet> {
         (self.phase == 0 && self.error.is_none()).then_some(&self.set)
     }
-    /// `passes`: shadow cascades drawn and whether the culling pass ran.
-    pub fn submitted(
-        &mut self,
-        queue: &wgpu::Queue,
-        needs: Needs,
-        drawable: bool,
-        (shadows, culled): (u32, bool),
-    ) {
+    /// `timed`: the timestamp pairs the submitted frame wrote.
+    pub fn submitted(&mut self, queue: &wgpu::Queue, timed: u64) {
         if self.phase != 0 || self.error.is_some() {
             return;
         }
-        let enc = self
-            .features
-            .contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS);
-        let pass = self
-            .features
-            .contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES);
-        self.mask = [
-            true,
-            drawable && enc,
-            drawable && pass,
-            drawable && pass,
-            drawable && needs.contains(Needs::SCENE_COPY),
-            drawable && enc && needs.contains(Needs::HDR_POST),
-            drawable && needs.contains(Needs::SCENE_COPY),
-            drawable && needs.contains(Needs::FINAL_DEPTH),
-            shadows > 0,
-            shadows > 1,
-            shadows > 2,
-            culled,
-        ];
+        self.mask = timed;
         let done = self.done.clone();
         queue.on_submitted_work_done(move || *done.lock().unwrap() = Some(Ok(())));
         self.phase = 1;
     }
+    /// Every pass, by name; a pass that never ran (or that this device cannot
+    /// time inside a pass or encoder) reports an empty ring. `bloom` spans its
+    /// levels. Intervals overlap on tiled GPUs: do not sum them.
     pub fn append(&self, out: &mut String) {
         out.push_str(",\"gpuMs\":{");
-        for (i, pair) in PAIRS.iter().enumerate() {
-            if i > 0 {
-                out.push(',');
-            }
-            out.push_str(&format!("\"{}\":", GPU_PASS_NAMES[*pair as usize]));
-            let supported = match i {
-                1 | 5 => self
-                    .features
-                    .contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS),
-                2 | 3 => self
-                    .features
-                    .contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES),
-                _ => true,
-            };
-            if supported {
-                self.rings[i].json(out);
-            } else {
-                out.push_str("null");
-            }
+        for (pair, ring) in self.rings.iter().enumerate() {
+            out.push_str(&format!("\"{}\":", GPU_PASS_NAMES[pair]));
+            ring.json(out);
+            out.push(',');
         }
+        out.push_str("\"bloom\":");
+        self.bloom.json(out);
         out.push_str("},\"gpuTimingError\":");
         out.push_str(&self.error.as_ref().map_or_else(
             || "null".into(),

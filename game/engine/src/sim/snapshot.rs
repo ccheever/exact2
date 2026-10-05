@@ -1,8 +1,8 @@
 use super::*;
 
 impl<G: Game> Sim<G> {
-    /// Save world time and relative pending input, independent of the host epoch.
-    pub fn save(&self) -> Result<Vec<u8>, DataError> {
+    /// Why no save can be taken now: a shown asset still in flight.
+    pub(crate) fn assets_unready(&self) -> Option<String> {
         {
             let assets = &self.world.assets;
             let mut meshes = self.world.query::<&crate::Mesh>();
@@ -36,13 +36,17 @@ impl<G: Game> Sim<G> {
                     )
                 })
                 .collect();
-            if self.is_loading() || !pending.is_empty() {
-                return Err(DataError::new(format!(
-                    "save refused: assets are not ready: {:?}; {}; inspect untargeted `state`: world[0].loading and world[0].assets before saving again",
-                    pending,
-                    assets.state_json()
-                )));
-            }
+            (self.is_loading() || !pending.is_empty()).then(|| format!(
+                "save refused: assets are not ready: {:?}; {}; inspect untargeted `state`: world[0].loading and world[0].assets before saving again",
+                pending,
+                assets.state_json()
+            ))
+        }
+    }
+    /// Save world time and relative pending input, independent of the host epoch.
+    pub fn save(&self) -> Result<Vec<u8>, DataError> {
+        if let Some(reason) = self.assets_unready() {
+            return Err(DataError::new(reason));
         }
         let world_us = self.exact_world_us();
         let mut queue: Vec<_> = self.queue.iter().cloned().collect();
@@ -143,9 +147,26 @@ impl<G: Game> Sim<G> {
         // A pending Follow must see the next game tick's target, exactly as
         // the saved world would. Restore does not perform scene work early.
         next.world.propagate();
+        // Every input present may read is installed first: a present reading a
+        // publication sees the restored one.
         next.world.restore_journal(s.journal, s.journal_next);
         next.world.restore_publications(s.published);
         next.world.published_pending.set(true);
+        // The restored world is untrusted input: a present that fails on it is
+        // a refused restore, not a crashed host (where unwinding is available).
+        let presented = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            Self::present(&mut next.world, &next.args)
+        }));
+        if let Err(panic) = presented {
+            let reason = panic
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| panic.downcast_ref::<&str>().copied())
+                .unwrap_or("panicked");
+            return Err(DataError::new(format!(
+                "restore refused: Game::present failed on the restored world: {reason}"
+            )));
+        }
         next.world_us = s.world_us;
         next.world.unobserve();
         next.restored_from = Some(s.args);

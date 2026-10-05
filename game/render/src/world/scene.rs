@@ -9,8 +9,49 @@ use glam::{Mat4, Vec3};
 /// radiance of 3. Exposure applies after.
 pub const PHOTOMETRIC_SCALE: f32 = 0.0003;
 
+/// The displayed global: drawn(parent) · local · offset. Presentation offsets
+/// (exact_game::Offset) move an entity and everything under it; without one on
+/// the chain this is the simulated global, exactly.
+pub(crate) fn drawn(w: &World, e: Entity) -> Option<glam::Affine3A> {
+    let affine = |t: Transform| {
+        glam::Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.position)
+    };
+    let offset = |e: Entity| w.get::<exact_game::Offset>(e).map(|o| affine(o.0));
+    // Most chains carry no offset: no allocation for them.
+    let mut at = e;
+    let mut any = false;
+    for _ in 0..=w.len() {
+        any |= w.has::<exact_game::Offset>(at);
+        match w.get::<Parent>(at) {
+            Some(p) if !any => at = p.0,
+            _ => break,
+        }
+    }
+    if !any {
+        return w.global(e);
+    }
+    // The parent chain, bounded even if tools edit a cycle.
+    let mut chain = vec![e];
+    while let Some(p) = w.get::<Parent>(*chain.last().unwrap()) {
+        if chain.len() > w.len() {
+            break;
+        }
+        chain.push(p.0);
+    }
+    // The offset nearest the root: above it the simulated global holds.
+    let Some(first) = (0..chain.len()).rev().find(|&i| offset(chain[i]).is_some()) else {
+        return w.global(e);
+    };
+    let mut global = w.global(chain[first])? * offset(chain[first]).unwrap();
+    for &below in chain[..first].iter().rev() {
+        let local = affine(*w.get::<Transform>(below)?);
+        global = global * local * offset(below).unwrap_or(glam::Affine3A::IDENTITY);
+    }
+    Some(global)
+}
 pub(crate) fn pose(w: &World, e: Entity) -> Option<Transform> {
-    let (scale, rotation, position) = w.global(e)?.to_scale_rotation_translation();
+    let global = drawn(w, e)?;
+    let (scale, rotation, position) = global.to_scale_rotation_translation();
     Some(Transform {
         position,
         rotation: glam::Quat::from_vec4(
@@ -517,6 +558,8 @@ impl Scene {
                 texture: &m.texture,
                 intensity: m.intensity,
                 rgbm: m.rgbm,
+                visible: m.visible,
+                rotation: m.rotation,
             }),
             ambient_occlusion: w
                 .try_resource::<exact_game::AmbientOcclusion>()
@@ -562,12 +605,21 @@ struct Owner {
     // First valid follower this feed; emits the owner override in item order.
     first_attachment: Option<u32>,
     chain: Vec<History>,
+    // Each chain link's presentation Offset, leaf to root: socketed props
+    // follow the drawn rig, drawn(parent) · local · offset at every link.
+    offsets: Vec<History>,
+}
+/// An entity's presentation offset, or the identity.
+fn offset_of(w: &World, e: Entity) -> Transform {
+    w.get::<exact_game::Offset>(e)
+        .map_or_else(Transform::default, |o| o.0)
 }
 impl Owner {
     fn new(w: &World, entity: Entity) -> Self {
         let mut owner = Self {
             first_attachment: None,
             chain: Vec::new(),
+            offsets: Vec::new(),
         };
         owner.update(w, entity, false, true);
         owner
@@ -582,20 +634,23 @@ impl Owner {
                 .as_deref()
                 .copied()
                 .unwrap_or_default();
-            if self.chain.get(length).is_none_or(|h| h.entity != at) {
-                if let Some(found) = self.chain[length..].iter().position(|h| h.entity == at) {
-                    self.chain.swap(length, length + found);
-                } else {
-                    self.chain.insert(length, History::new(at, curr));
+            let offset = offset_of(w, at);
+            for (list, value) in [(&mut self.chain, curr), (&mut self.offsets, offset)] {
+                if list.get(length).is_none_or(|h| h.entity != at) {
+                    if let Some(found) = list[length..].iter().position(|h| h.entity == at) {
+                        list.swap(length, length + found);
+                    } else {
+                        list.insert(length, History::new(at, value));
+                    }
                 }
-            }
-            let h = &mut self.chain[length];
-            if next_tick {
-                h.prev = h.curr;
-            }
-            h.curr = curr;
-            if snap(w, at, parent_changed) {
-                h.prev = curr;
+                let h = &mut list[length];
+                if next_tick {
+                    h.prev = h.curr;
+                }
+                h.curr = value;
+                if snap(w, at, parent_changed) {
+                    h.prev = value;
+                }
             }
             length += 1;
             let Some(parent) = w.get::<Parent>(at).map(|p| p.0).filter(|e| w.contains(*e)) else {
@@ -604,6 +659,7 @@ impl Owner {
             at = parent;
         }
         self.chain.truncate(length);
+        self.offsets.truncate(length);
     }
 }
 #[derive(Default)]
@@ -640,6 +696,8 @@ struct Attachment {
     owner: Entity,
     chain: Vec<[Transform; 2]>,
     offset: Transform,
+    // The follower's own presentation Offset, after the socket's.
+    drawn: History,
     model_digest: u64,
 }
 #[derive(Default)]
@@ -754,6 +812,7 @@ impl Attachments {
                         owner: target,
                         chain: vec![],
                         offset: follow.offset,
+                        drawn: History::new(e, offset_of(w, e)),
                         model_digest: self
                             .model_digests
                             .get(name)
@@ -765,6 +824,8 @@ impl Attachments {
             let item = &mut self.items[at];
             item.history
                 .update_to(home, next_tick, snap(w, e, parent_changed));
+            item.drawn
+                .update_to(offset_of(w, e), next_tick, snap(w, e, parent_changed));
             self.owners
                 .entry(target)
                 .or_insert_with(|| Owner::new(w, target))
@@ -833,14 +894,17 @@ impl Attachments {
         item.chain.iter().fold(owner, |m, pair| {
             m * crate::skinning::interpolated_local(*pair, alpha)
         }) * matrix(item.offset)
+            * matrix(item.drawn.at(alpha))
     }
     fn owner_matrix(&self, owner: &Owner, alpha: f32, remaining: usize) -> Mat4 {
-        owner.chain.iter().rev().fold(Mat4::IDENTITY, |m, h| {
+        // A link that is itself a follower is already drawn, offset included.
+        let links = owner.chain.iter().zip(&owner.offsets).rev();
+        links.fold(Mat4::IDENTITY, |m, (h, offset)| {
             self.items
                 .binary_search_by_key(&h.entity, |v| v.history.entity)
                 .ok()
                 .map_or_else(
-                    || m * matrix(h.at(alpha)),
+                    || m * matrix(h.at(alpha)) * matrix(offset.at(alpha)),
                     |i| self.matrix(i, alpha, remaining - 1),
                 )
         })

@@ -73,18 +73,31 @@ fn json_lists_everything_and_one_entry() {
     );
 }
 
-/// The listed contextual restrictions are the compiler's: each is refused
-/// on a tag outside its list.
+/// The listed contextual restrictions are the compiler's: every entry of
+/// `CONTEXTUAL` is refused on a tag outside its list, so a new entry needs a
+/// case here, and a restriction the compiler drops fails this test.
 #[test]
 fn contextual_attributes_are_refused_elsewhere() {
-    for (tag, attr) in [
-        ("view", "sandbox=\"allow-scripts\""),
-        ("view", "src=\"https://example.com\""),
-        ("view", "document=true"),
-        ("input", "text-transform=\"uppercase\""),
-        ("view", "robots=\"x\""),
-    ] {
-        let source = format!("component App\n  view\n    {tag} {attr}\n");
+    let cases = [
+        ("sandbox", "view", "sandbox=\"allow-scripts\""),
+        ("src", "view", "src=\"https://example.com\""),
+        ("load", "view", "load=done"),
+        ("message", "view", "message=got"),
+        ("document", "view", "document=true"),
+        ("reachstart", "view", "reachstart=done"),
+        ("reachend", "view", "reachend=done"),
+        ("text-transform", "input", "text-transform=\"uppercase\""),
+        ("selectionchange", "view", "selectionchange=done"),
+    ];
+    let listed: Vec<&str> = contract_lower::vocab::CONTEXTUAL
+        .iter()
+        .map(|(n, _)| *n)
+        .collect();
+    let tested: Vec<&str> = cases.iter().map(|(n, _, _)| *n).collect();
+    assert_eq!(listed, tested, "every CONTEXTUAL entry needs a case");
+    for (_, tag, attr) in cases.iter().chain([&("robots", "view", "robots=\"x\"")]) {
+        let source =
+            format!("component App\n  action done\n    let x = 1\n  action got(data: string)\n    let y = data\n  view\n    {tag} {attr}\n");
         let error = contract::compile(&source).unwrap_err();
         assert_eq!(error.id, "lower-attr-tag", "{tag} {attr}: {error}");
     }

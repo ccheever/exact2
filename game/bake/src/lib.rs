@@ -23,6 +23,19 @@ pub fn model(path: impl AsRef<Path>) -> Result<Model, String> {
 pub fn assets(
     path: &Path,
 ) -> Result<(Model, std::collections::BTreeMap<String, TextureData>), String> {
+    let (model, sources) = sources(path)?;
+    let mut textures = std::collections::BTreeMap::new();
+    for (name, (full, channels)) in sources {
+        textures.extend(compress::variants(&name, &full, channels, false)?);
+    }
+    Ok((model, textures))
+}
+
+/// A model's full-resolution texture chains by authored name, with the
+/// channels their slots read, before block compression.
+type ModelSources = std::collections::BTreeMap<String, (TextureData, compress::Channels)>;
+
+fn sources(path: &Path) -> Result<(Model, ModelSources), String> {
     let stem = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -90,12 +103,18 @@ pub fn assets(
                 .collect::<Vec<_>>()
         })
         .collect();
-    let sources = textures::materials(&doc, &images, &mut model, stem, &used_materials)?;
-    let mut textures = std::collections::BTreeMap::new();
-    for (name, (full, slots, cut)) in sources {
-        let channels = textures::channels(slots, cut);
-        textures.extend(compress::variants(&name, &full, channels, false)?);
-    }
+    let sources = textures::materials(
+        &doc,
+        &images,
+        &mut model,
+        stem,
+        path.parent().unwrap_or(Path::new(".")),
+        &used_materials,
+    )?;
+    let textures: ModelSources = sources
+        .into_iter()
+        .map(|(name, (full, slots, cut))| (name, (full, textures::channels(slots, cut))))
+        .collect();
     let skin_map: std::collections::BTreeMap<_, _> = doc
         .nodes()
         .filter(|n| reached.contains(&n.index()))
@@ -332,8 +351,26 @@ pub fn assets(
         return Err("model contains no mesh nodes".into());
     }
     model.bounds = [lo.x, lo.y, lo.z, hi.x, hi.y, hi.z];
+    // Name each texture by its content, so identical images are one asset
+    // across models (and within one) and no model's names depend on another's.
+    let mut renamed = std::collections::BTreeMap::new();
+    let mut named = ModelSources::new();
+    for (name, (full, channels)) in textures {
+        let shared = texture_name(&full, channels);
+        renamed.insert(name, shared.clone());
+        named.entry(shared).or_insert((full, channels));
+    }
+    share_textures(&mut model, &renamed);
     model.validate()?;
-    Ok((model, textures))
+    Ok((model, named))
+}
+
+/// `textures/<digest>.tex`: the digest of the full RGBA8 chain, sampler included,
+/// and of the channels the material reads (which choose the block formats).
+fn texture_name(full: &TextureData, channels: compress::Channels) -> String {
+    let mut bytes = exact_game::bin::to_vec(full);
+    bytes.extend(format!("{channels:?}").bytes());
+    format!("textures/{}.tex", &digest(&bytes)[..16])
 }
 
 /// A sprite's authored RGBA8 name and its per-family payloads. Block formats
@@ -343,6 +380,61 @@ pub fn sprite_variants(
     path: impl AsRef<Path>,
 ) -> Result<Vec<(String, TextureData)>, String> {
     compress::variants(name, &sprite(path)?, compress::Channels::ColorAlpha, true)
+}
+
+/// How a standalone PNG is sampled, from the `art/` folder it sits in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PngKind {
+    /// Anywhere else: a pixel-exact sprite (sRGB, clamped, nearest).
+    Sprite,
+    /// Under `art/textures/`: a material colour texture shared by any model or
+    /// generated mesh: sRGB, repeating, linearly filtered, box-filtered mips.
+    Color,
+    /// Under `art/data/`: the same, but linear values (normal maps, masks).
+    Data,
+    /// Under `art/data/rgbm/`: an RGBM environment map, linear, its mips
+    /// box-filtered as radiance (decoded, averaged, re-encoded), not per channel.
+    Rgbm,
+}
+impl PngKind {
+    /// The kind a PNG's path inside `art/` selects.
+    pub fn of(art: &Path, path: &Path) -> Self {
+        let mut parts = path
+            .strip_prefix(art)
+            .ok()
+            .into_iter()
+            .flat_map(|p| p.components())
+            .map(|c| c.as_os_str().to_str());
+        let (first, second) = (parts.next().flatten(), parts.next().flatten());
+        let nested = path.parent() != Some(art);
+        match (first, second) {
+            (Some("textures"), _) if nested => Self::Color,
+            (Some("data"), Some("rgbm")) if path.parent() != Some(&art.join("data")) => Self::Rgbm,
+            (Some("data"), _) if nested => Self::Data,
+            _ => Self::Sprite,
+        }
+    }
+}
+/// A material texture's authored RGBA8 name and its per-family payloads,
+/// block-compressed within the usual quality bound.
+pub fn material_texture_variants(
+    name: &str,
+    path: impl AsRef<Path>,
+    kind: PngKind,
+) -> Result<Vec<(String, TextureData)>, String> {
+    let mut texture = sprite(path)?;
+    let color = kind == PngKind::Color;
+    texture.srgb = color;
+    texture.wrap = [Wrap::Repeat; 2];
+    texture.filter = [Filter::Linear; 3];
+    let top = texture.mips.swap_remove(0);
+    texture.mips = if kind == PngKind::Rgbm {
+        textures::rgbm_mips(texture.width, texture.height, top)
+    } else {
+        textures::mips(texture.width, texture.height, top, color, true, None)
+    };
+    texture.validate()?;
+    compress::variants(name, &texture, compress::Channels::ColorAlpha, false)
 }
 
 /// Bake a standalone PNG sprite: sRGB, straight alpha, nearest min/mag/mips,
@@ -452,7 +544,11 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
             if !asset_name(&name) {
                 return Err(format!("invalid sprite asset name `{name}`"));
             }
-            for (name, texture) in sprite_variants(&name, &path)? {
+            let variants = match PngKind::of(&art, &path) {
+                PngKind::Sprite => sprite_variants(&name, &path)?,
+                kind => material_texture_variants(&name, &path, kind)?,
+            };
+            for (name, texture) in variants {
                 if outputs
                     .insert(name.clone(), encode(&name, &texture)?)
                     .is_some()
@@ -462,17 +558,23 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
             }
             continue;
         }
-        let (model, textures) = assets(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let (model, textures) = sources(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let name = format!("{}.model", art_stem(&path)?);
+        // Content-named: a texture another model already baked is the same file.
+        for (texture, (full, channels)) in textures {
+            if outputs.contains_key(&texture) {
+                continue;
+            }
+            for (name, texture) in compress::variants(&texture, &full, channels, false)? {
+                let bytes = encode(&name, &texture)?;
+                outputs.insert(name, bytes);
+            }
+        }
         if outputs
             .insert(name.clone(), encode(&name, &model)?)
             .is_some()
         {
             return Err(format!("duplicate art stem {name}"));
-        }
-        for (name, texture) in textures {
-            let bytes = encode(&name, &texture)?;
-            outputs.insert(name, bytes);
         }
     }
     let root = app.join("assets");
@@ -516,6 +618,42 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
     write_changed(&manifest, &bytes)
 }
 
+/// Point a model's textures at the names `renamed` gives them, merging any
+/// that become the same name so each is listed once.
+fn share_textures(model: &mut Model, renamed: &std::collections::BTreeMap<String, String>) {
+    if renamed.is_empty() {
+        return;
+    }
+    let mut names: Vec<String> = Vec::new();
+    let index: Vec<u32> = model
+        .textures
+        .iter()
+        .map(|name| {
+            let name = renamed.get(name).unwrap_or(name);
+            let at = names.iter().position(|n| n == name).unwrap_or_else(|| {
+                names.push(name.clone());
+                names.len() - 1
+            });
+            at as u32
+        })
+        .collect();
+    for m in &mut model.materials {
+        for i in [
+            &mut m.base_color_texture,
+            &mut m.normal_texture,
+            &mut m.metallic_roughness_texture,
+            &mut m.emissive_texture,
+            &mut m.occlusion_texture,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            *i = index[*i as usize];
+        }
+    }
+    model.textures = names;
+}
+
 fn digest(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     format!("{:x}", Sha256::digest(bytes))
@@ -539,5 +677,60 @@ mod stem_tests {
         use std::os::unix::ffi::OsStrExt;
         let path = std::path::Path::new(std::ffi::OsStr::from_bytes(b"bad\xff.png"));
         assert_eq!(super::art_stem(path).unwrap_err(), "invalid art stem");
+    }
+}
+
+#[cfg(test)]
+mod png_kind_tests {
+    use super::*;
+    #[test]
+    fn pngs_under_textures_and_data_bake_as_filtered_repeating_material_textures() {
+        let art = Path::new("/game/art");
+        assert_eq!(PngKind::of(art, &art.join("strip.png")), PngKind::Sprite);
+        assert_eq!(PngKind::of(art, &art.join("ui/strip.png")), PngKind::Sprite);
+        assert_eq!(
+            PngKind::of(art, &art.join("textures/soil.png")),
+            PngKind::Color
+        );
+        assert_eq!(PngKind::of(art, &art.join("data/sky.png")), PngKind::Data);
+        assert_eq!(
+            PngKind::of(art, &art.join("data/rgbm/sky.png")),
+            PngKind::Rgbm
+        );
+        assert_eq!(PngKind::of(art, &art.join("data/rgbm.png")), PngKind::Data);
+        let dir = std::env::temp_dir().join(format!("exact-bake-png-kind-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("soil.png");
+        let mut image = image::RgbaImage::new(8, 8);
+        for (x, _, p) in image.enumerate_pixels_mut() {
+            *p = image::Rgba(if x < 4 {
+                [255, 0, 0, 255]
+            } else {
+                [0, 0, 255, 255]
+            });
+        }
+        image.save(&path).unwrap();
+        for kind in [PngKind::Color, PngKind::Data] {
+            let variants = material_texture_variants("soil.tex", &path, kind).unwrap();
+            let (name, texture) = &variants[0];
+            assert_eq!(name, "soil.tex");
+            assert_eq!(texture.srgb, kind == PngKind::Color);
+            assert_eq!(texture.wrap, [Wrap::Repeat; 2]);
+            assert_eq!(texture.filter, [Filter::Linear; 3]);
+            // Box-filtered: the 1x1 level averages both halves.
+            let last = texture.mips.last().unwrap();
+            assert!(last[0] > 100 && last[2] > 100, "{last:?}");
+            assert_eq!(variants.len(), 3, "RGBA8, BC and ASTC families");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
+    fn rgbm_mips_average_radiance_not_channels() {
+        // A dim texel (rgb 1.0 under multiplier 0.2) beside black at full multiplier.
+        let mips = textures::rgbm_mips(2, 1, vec![255, 255, 255, 51, 0, 0, 0, 255]);
+        let p = &mips[1];
+        let radiance = f32::from(p[0]) / 255. * f32::from(p[3]) / 255.;
+        // Per-channel averaging would give rgb 0.5 under 0.6: 0.3.
+        assert!((radiance - 0.1).abs() < 0.005, "{radiance} from {p:?}");
     }
 }

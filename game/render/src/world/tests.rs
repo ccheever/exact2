@@ -10,6 +10,7 @@ enum Call {
     Material(u32, usize),
     Previous(u32, usize),
     Batches,
+    Opacity(usize),
 }
 struct Recording {
     calls: Vec<Call>,
@@ -23,6 +24,7 @@ struct Recording {
     record: bool,
     models: Vec<crate::models::ModelNode>,
     instances: Vec<crate::DrawInstance>,
+    custom: std::collections::BTreeSet<crate::MaterialId>,
 }
 impl Default for Recording {
     fn default() -> Self {
@@ -38,6 +40,7 @@ impl Default for Recording {
             record: true,
             models: Vec::new(),
             instances: Vec::new(),
+            custom: Default::default(),
         }
     }
 }
@@ -60,8 +63,16 @@ impl Writes for Recording {
     fn assets_revision(&self) -> u64 {
         u64::from(!self.models.is_empty())
     }
-    fn model(&self, _: &str) -> Option<&[crate::models::ModelNode]> {
-        Some(&self.models)
+    fn model(&self, _: &str) -> Option<crate::models::Draws<'_>> {
+        Some(crate::models::Draws {
+            nodes: &self.models,
+            names: &[],
+            merged: &[],
+            members: &[],
+            starts: &[],
+            materials: &[],
+            custom: &self.custom,
+        })
     }
     fn instances(&mut self, records: &[crate::DrawInstance]) -> Result<(), RenderError> {
         self.instances = records.to_vec();
@@ -114,6 +125,9 @@ impl Writes for Recording {
         let id = MeshId(self.meshes.len());
         self.meshes.push((v.to_vec(), i.to_vec()));
         id
+    }
+    fn opacity(&mut self, values: &[(u32, f32)]) {
+        self.call(Call::Opacity(values.len()));
     }
     fn batches(&mut self, b: &[Batch], s: &[u32]) -> Result<(), RenderError> {
         self.call(Call::Batches);
@@ -254,6 +268,38 @@ fn structure_and_visibility_rebuild_but_movement_does_not() {
     w.remove::<Transform>(b);
     f.feed_to(&w, &mut r).unwrap();
     assert!(r.slots.is_empty());
+}
+#[test]
+fn presentation_looks_rebuilt_unchanged_neither_rebatch_nor_refade() {
+    let mut w = World::new(60, 0);
+    let e = w.spawn((Transform::default(), Mesh::cube(1.0)));
+    let looks = || {
+        exact_game::NodeMaterials(vec![exact_game::NodeMaterial {
+            node: "visor".into(),
+            ..Default::default()
+        }])
+    };
+    w.insert(e, looks());
+    w.insert(e, exact_game::Opacity(0.5));
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(&w, &mut r).unwrap();
+    // Game::present erases and rewrites presentation rows every tick.
+    r.calls.clear();
+    w.remove::<exact_game::NodeMaterials>(e);
+    w.remove::<exact_game::Opacity>(e);
+    w.insert(e, looks());
+    w.insert(e, exact_game::Opacity(0.5));
+    f.feed_to(&w, &mut r).unwrap();
+    assert!(!r.calls.contains(&Call::Batches), "{:?}", r.calls);
+    assert!(!r.calls.contains(&Call::Opacity(1)), "{:?}", r.calls);
+    w.insert(e, exact_game::Opacity(0.25));
+    let mut changed = looks();
+    changed.0[0].color = [1., 0., 0., 1.];
+    w.insert(e, changed);
+    f.feed_to(&w, &mut r).unwrap();
+    // Changed looks patch records in place; fades re-upload.
+    assert!(!r.calls.contains(&Call::Batches) && r.calls.contains(&Call::Opacity(1)));
 }
 #[test]
 fn materials_repack_pages_only_on_revision_and_default_missing_values() {
@@ -1206,5 +1252,59 @@ fn a_socket_followers_child_in_another_block_draws_at_its_tick_end_global() {
     assert!(
         xs.windows(2).all(|p| p[1] > p[0]),
         "the child moves: {xs:?}"
+    );
+}
+
+#[test]
+fn rewriting_the_same_offsets_is_not_a_pose_change() {
+    // Game::present rewrites every Offset row each tick; only content counts.
+    let mut w = World::new(60, 1);
+    let e = w.spawn(Transform::default());
+    w.insert(e, exact_game::Offset(Transform::at(1., 0., 0.)));
+    let before = offsets(&w);
+    w.remove::<exact_game::Offset>(e);
+    w.insert(e, exact_game::Offset(Transform::at(1., 0., 0.)));
+    assert_eq!(offsets(&w), before);
+    w.insert(e, exact_game::Offset(Transform::at(1.5, 0., 0.)));
+    assert_ne!(offsets(&w), before);
+}
+
+// Present rewrites every Offset row each tick; with nothing moving, the feed
+// writes no transform page after the first, parented ones included.
+struct Bobbing;
+impl Game for Bobbing {
+    type Args = ();
+    const ID: &'static str = "feed-offset";
+    fn setup(w: &mut World, _: &Self::Args) {
+        let root = w.spawn_named("root", (Transform::default(), Mesh::cube(1.0)));
+        w.spawn((
+            Transform::at(0., 2., 0.),
+            exact_game::Parent(root),
+            Mesh::cube(1.0),
+        ));
+    }
+    fn tick(_: &mut World, _: &Input, _: &Self::Args) {}
+    fn present(w: &mut exact_game::Present<'_>, _: &Self::Args) {
+        let root = w.named("root").unwrap();
+        w.insert(root, exact_game::Offset(Transform::at(0., 0.5, 0.)));
+    }
+}
+#[test]
+fn a_static_offset_writes_no_pages_per_tick() {
+    let mut sim = Sim::<Bobbing>::new(()).unwrap();
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    sim.advance(0., Clock::Seekable);
+    f.feed_to(sim.world(), &mut r).unwrap();
+    let root = sim.world().named("root").unwrap();
+    assert_eq!(r.position(root, false).y, 0.5, "the offset is drawn");
+    // Two ticks settle the history buffers; later ticks write nothing.
+    sim.advance_with(34., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
+    r.calls.clear();
+    sim.advance_with(500., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
+    assert!(
+        !r.calls.iter().any(|c| matches!(c, Call::Transform(..))),
+        "{:?}",
+        r.calls
     );
 }

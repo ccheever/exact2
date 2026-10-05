@@ -46,8 +46,8 @@ for (const timing of ['agent', 'platform']) {
       check(r.delivery === 'platform' && r.landed?.session === 'main' && r.touch?.type === 'direct', `${timing}: tap ${target} was not a real touch: ${JSON.stringify(r)}`);
       return r;
     };
-    // A still press (§11): the finger down 300 ms, then up, presses as a tap does.
-    const still = await s.tap('change-station', { drag: { dx: 0, dy: 0, press: 300, during: [async () => (await s.tree()).nodes.length] } });
+    // A still press (§11): the finger down 300 ms, a read inside that hold, then up, presses as a tap does.
+    const still = await s.tap('change-station', { drag: { dx: 0, dy: 0, hold: 300, during: [async () => (await s.tree()).nodes.length] } });
     check(still.delivery === 'platform' && still.touch?.moved === 0 && still.during?.[0] > 0, `${timing}: a still press was not one real touch with a read while down: ${JSON.stringify(still)}`);
     if (timing === 'platform') await s.clock('settle');
     let tree = await s.tree();

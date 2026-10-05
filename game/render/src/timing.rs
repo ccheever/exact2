@@ -1,7 +1,7 @@
 use exact_gpu::wgpu;
 
 /// Number of optional GPU timestamp pairs reserved for a frame.
-pub const GPU_PASS_COUNT: u32 = 25;
+pub const GPU_PASS_COUNT: u32 = 30;
 /// Timestamp slots: inactive passes leave their pair untouched.
 pub const GPU_PASS_NAMES: [&str; GPU_PASS_COUNT as usize] = [
     "shadow 0",
@@ -29,9 +29,34 @@ pub const GPU_PASS_NAMES: [&str; GPU_PASS_COUNT as usize] = [
     "opaque depth resolve",
     "final depth resolve",
     "cull",
+    "ssao occlusion",
+    "local shadows",
+    "environment prefilter",
+    "translucent + particles (inside forward)",
+    "ssao upsample",
 ];
 /// Timestamp pair of the frustum-culling compute pass.
 pub(crate) const CULL: u32 = 24;
+pub(crate) const SSAO: u32 = 25;
+pub(crate) const LOCAL_SHADOWS: u32 = 26;
+pub(crate) const ENVIRONMENT: u32 = 27;
+pub(crate) const TRANSLUCENT: u32 = 28;
+pub(crate) const SSAO_APPLY: u32 = 29;
+
+/// One pair spanning several passes: the first begins it, the last ends it.
+pub(crate) fn span(
+    set: Option<&wgpu::QuerySet>,
+    pass: u32,
+    first: bool,
+    last: bool,
+) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
+    set.filter(|_| first || last)
+        .map(|query_set| wgpu::RenderPassTimestampWrites {
+            query_set,
+            beginning_of_pass_write_index: first.then_some(pass * 2),
+            end_of_pass_write_index: last.then_some(pass * 2 + 1),
+        })
+}
 
 pub(crate) fn writes(
     set: Option<&wgpu::QuerySet>,
@@ -50,15 +75,17 @@ pub(crate) fn encoder_stamp(
     set: Option<&wgpu::QuerySet>,
     pair: u32,
     end: bool,
-) {
+) -> bool {
     if device
         .features()
         .contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS)
     {
         if let Some(set) = set {
             encoder.write_timestamp(set, pair * 2 + u32::from(end));
+            return true;
         }
     }
+    false
 }
 pub(crate) fn pass_stamp(
     device: &wgpu::Device,
@@ -66,13 +93,15 @@ pub(crate) fn pass_stamp(
     set: Option<&wgpu::QuerySet>,
     pair: u32,
     end: bool,
-) {
+) -> bool {
     if device
         .features()
         .contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES)
     {
         if let Some(set) = set {
             pass.write_timestamp(set, pair * 2 + u32::from(end));
+            return true;
         }
     }
+    false
 }

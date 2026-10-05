@@ -84,6 +84,7 @@ impl Game for Garden {
         w.insert_resource(AmbientOcclusion {
             radius: 0.6,
             intensity: 0.8,
+            ..AmbientOcclusion::default()
         });
         w.insert_resource(Schedule::default());
         w.insert_resource(GardenClock::default());

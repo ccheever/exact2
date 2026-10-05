@@ -1,0 +1,13 @@
+component WindGame
+  state playing = false
+  action play
+    playing = true
+  view
+    main width="100%" height="100%" background-color="#101725" color="#ffffff"
+      when playing
+        canvas surface=world() testId="world" width="100%" height="100%"
+      else
+        column height="100%" align-items="center" justify-content="center" gap=24
+          text "Reeds in the wind" font-size=40
+          button press=play autofocus aria-label="Play" testId="play" padding=16 background-color="#e8ad61"
+            text "Play" color="#202731"

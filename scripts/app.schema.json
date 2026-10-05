@@ -46,7 +46,7 @@
         },
         "shaderPreludes": {
           "type": "object",
-          "description": "Ordered WGSL library paths relative to app.json, prepended to the named shader stem before reflection and packaging.",
+          "description": "Ordered WGSL library paths relative to app.json, prepended to the named shader stem before reflection and packaging. A game may also name the renderer's own sets: exact-game-render:frame, exact-game-render:material and exact-game-render:material_shadows.",
           "additionalProperties": {
             "type": "array",
             "items": {
@@ -77,14 +77,14 @@
         "audio": { "type": "boolean" },
         "assets": { "type": "boolean" },
         "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-logic$" },
-        "presentation": {
+        "render": {
           "type": "object",
-          "description": "Optional GPU-only render hooks in presentation/. The crate may read game logic resources; logic and host metadata must not depend on it. Shader files use gpu.shaderRoots and gpu.shaderPreludes.",
-          "required": ["crate", "type"],
+          "description": "Optional GPU-only render hooks in render/ (formerly game.presentation, LLP 1046.008 amendment). The crate may read game logic types; logic and host metadata must not depend on it. hooks names its exact_game_render::Hooks type; shaders names its reflected registry symbol, a Rust path, not shader files: those come from gpu.shaderRoots and gpu.shaderPreludes.",
+          "required": ["crate", "hooks"],
           "additionalProperties": false,
           "properties": {
-            "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-presentation$" },
-            "type": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" },
+            "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-render$" },
+            "hooks": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" },
             "shaders": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" }
           }
         },

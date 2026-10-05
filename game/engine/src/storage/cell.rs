@@ -134,6 +134,9 @@ impl<C: Data> Erased for Singleton<C> {
             *self.value.get_mut() = None;
         }
     }
+    fn clear(&mut self) {
+        self.remove(0);
+    }
     fn instance(&self) -> u64 {
         self.instance
     }

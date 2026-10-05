@@ -69,9 +69,27 @@ function shaderPath(app,path) {
   if (isAbsolute(path)) throw new Error('shader paths must be relative to app.json so source snapshots remain relocatable');
   return resolve(app.dir,path);
 }
+/** The game renderer's WGSL a shader may name as a prelude, by the constant
+ * `exact_game_render::hooks` exports for the same files (FRAME_WGSL,
+ * MATERIAL_WGSL, MATERIAL_SHADOWS_WGSL), so a game outside this repository
+ * never names the SDK's source paths. */
+export const ENGINE_PRELUDES = {
+  'exact-game-render:frame': ['frame.wgsl'],
+  'exact-game-render:material': ['frame.wgsl', 'transform.wgsl', 'custom_instance.wgsl'],
+  'exact-game-render:material_shadows': ['shadow_sample.wgsl', 'lights.wgsl', 'material_shadows.wgsl'],
+};
+/** One declared prelude entry's files: an engine set, or a path relative to app.json. */
+function preludePaths(app, path) {
+  if (path.startsWith('exact-game-render:')) {
+    const files = ENGINE_PRELUDES[path];
+    if (!files) throw new Error(`unknown engine prelude ${path}; one of ${Object.keys(ENGINE_PRELUDES).join(', ')}`);
+    return files.map(file => resolve(ROOT, 'game/render/src/shaders', file));
+  }
+  return [shaderPath(app, path)];
+}
 /** Shared WGSL libraries prepended to a named shader, in declared order. */
 export function shaderPreludeFiles(app) {
-  return [...new Set(Object.values(shaderConfig(app).shaderPreludes ?? {}).flat())].map(path => shaderPath(app,path));
+  return [...new Set(Object.values(shaderConfig(app).shaderPreludes ?? {}).flat().flatMap(path => preludePaths(app, path)))];
 }
 /** Directory watches also cover edits to shared prelude files. */
 export function shaderWatchRoots(app) {
@@ -91,10 +109,8 @@ export function shaderFiles(app) {
   for (const [stem, paths] of Object.entries(shaderConfig(app).shaderPreludes ?? {})) {
     const name = `${stem}.wgsl`;
     if (!files.has(name)) throw new Error(`shader prelude names missing shader ${name}`);
-    const parts = paths.map(path => {
-      const full = shaderPath(app,path);
-      return Buffer.from(filesystem({op:'get',root:dirname(full),path:basename(full)}),'base64');
-    });
+    const parts = paths.flatMap(path => preludePaths(app, path)).map(full =>
+      Buffer.from(filesystem({op:'get',root:dirname(full),path:basename(full)}),'base64'));
     files.set(name, Buffer.concat([...parts.flatMap(bytes => [bytes,Buffer.from('\n')]),files.get(name)]));
   }
   return files;
@@ -387,7 +403,8 @@ export function webGpuArtifacts(app, stage, { cargo = false, env = process.env }
     if (wb.error?.code === 'ENOENT') throw new Error('wasm-bindgen not on PATH; run bun scripts/exact.mjs setup in the SDK checkout');
     if (wb.status !== 0) throw new Error(`wasm-bindgen ${crate} failed`);
     const bg = resolve(stage, `${stem}_bg.wasm`);
-    const o = spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', bg, bg], { stdio: 'inherit' });
+    // `EXACT_WEB_NAMES=1` keeps the name section, as host/web/build.mjs does for app.wasm: a profile then names GPU functions.
+    const o = spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', env.EXACT_WEB_NAMES === '1' ? '-g' : '--strip-debug', '--strip-producers', '-o', bg, bg], { stdio: 'inherit' });
     const bytes = readFileSync(bg);
     note += `${note ? '; ' : ''}${stem}_bg.wasm ${kib(bytes.length)} (${kib(gzipSync(bytes, { level: 9 }).length)} gzip${o.status === 0 ? ', wasm-opt' : ''}), ${stem}.js ${kib(readFileSync(resolve(stage, `${stem}.js`)).length)}`;
   }
@@ -570,7 +587,11 @@ export function readManifest(dir, name) {
   try { parsed = game ?? JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`${path}: ${e.message}`); }
   // LLP 1069.008 D4: a device's usage text is derived from its grant, never hand-written.
   const problems = validate(parsed, schema(), '', schema()).map((p) => /^host\.(ios|macos)\.permissions: /.test(p)
-    ? `${p.split(':')[0]}: deleted (LLP 1069.008); declare the device in the source's grants as \`device.<name> <strings key>\` (e.g. \`device.microphone purpose.microphone\`) and put the text in strings/<locale>.json` : p);
+    ? `${p.split(':')[0]}: deleted (LLP 1069.008); declare the device in the source's grants as \`device.<name> <strings key>\` (e.g. \`device.microphone purpose.microphone\`) and put the text in strings/<locale>.json`
+    // LLP 1046.008 amendment (2026-10-04): the GPU hooks crate was renamed.
+    : /^game\.presentation: /.test(p)
+      ? 'game.presentation is now game.render: rename the key, move presentation/ to render/, name the crate <name>-render and rename its "type" to "hooks" (LLP 1046.008, amendment of 2026-10-04)'
+      : p);
   if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed), ...documentTypeProblems(parsed), ...appleIconProblems(parsed, dir));
   if (problems.length) throw new Error(`${path} does not conform to scripts/app.schema.json:\n  ${problems.join('\n  ')}`);
   return { host: {}, deploy: {}, ...parsed };
@@ -770,7 +791,6 @@ export function verifyBakeFiles(receipt, plan, assets) {
     throw new Error('the packaged static files differ from the binary bake receipt');
   }
 }
-
 
 // The compiler owns both the loaded files and the bundle requirements. This
 // outer receipt is completed after Cargo succeeds; it is not embedded in the
@@ -1117,10 +1137,10 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   // Shell selection observes art's presence. Track absence for the dev watcher
   // without giving Cargo a missing path that forces every build dirty.
   if (app.manifest.game) add(resolve(app.dir, 'art'), true);
-  if (app.manifest.game?.presentation && graph.surface) {
-    add(resolve(app.dir, 'presentation/Cargo.toml'));
-    add(resolve(app.dir, 'presentation/src'), true);
-    add(resolve(app.dir, 'presentation/build.rs'), true);
+  if (app.manifest.game?.render && graph.surface) {
+    add(resolve(app.dir, 'render/Cargo.toml'));
+    add(resolve(app.dir, 'render/src'), true);
+    add(resolve(app.dir, 'render/build.rs'), true);
   }
   if (platform === 'macos' || platform === 'ios') {
     const packageRoot=resolve(ROOT,'host/apple');

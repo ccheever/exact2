@@ -40,6 +40,12 @@ impl<'a> RenderWorld<'a> {
             visit(entity, value);
         }
     }
+    /// Whether the stock renderer draws `entity`: `World::is_visible`, false
+    /// when it or any Parent ancestor is `Visible(false)`. Hooks that draw on
+    /// behalf of entities should skip hidden ones the same way.
+    pub fn is_visible(&self, entity: Entity) -> bool {
+        self.0.is_visible(entity)
+    }
     /// Resolve a named entity, including its generation.
     pub fn named(&self, name: &str) -> Option<Entity> {
         self.0.named(name)

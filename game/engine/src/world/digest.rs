@@ -147,7 +147,9 @@ impl World {
         );
         d.components
             .retain(|name, _| self.components.contains_key(name));
-        for (&name, storage) in &self.components {
+        let presentation = |name: &str| self.registry[name].presentation;
+        d.components.retain(|name, _| !presentation(name));
+        for (&name, storage) in self.components.iter().filter(|(n, _)| !presentation(n)) {
             let (instance, pages) = d.components.entry(name).or_default();
             if *instance != storage.instance() {
                 *instance = storage.instance();

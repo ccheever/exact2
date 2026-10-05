@@ -642,3 +642,18 @@ test('a game whose type would shadow an engine export or a template item is refu
   for (const name of ['world','camera','beacon']) assert.throws(()=>createGame(resolve(tmpdir(),`zz-${process.pid}`,name)),/would collide/);
   assert.ok(!taken.has('Garden'));
 });
+
+test('--render scaffolds a render crate with an explicit shader root', async () => {
+  const {gameDefaults, gameShells} = await import('./app/shells.mjs');
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'render-scaffold-'))), app = resolve(root, 'my-game');
+  try {
+    createGame(app, undefined, {render:true});
+    const manifest = JSON.parse(readFileSync(resolve(app, 'app.json'), 'utf8'));
+    assert.deepEqual(manifest, {game:{render:{crate:'my-game-render', hooks:'Passes', shaders:'shaders::SHADERS'}}, gpu:{shaderRoots:['render/shaders']}});
+    for (const file of ['render/Cargo.toml', 'render/build.rs', 'render/src/lib.rs']) assert.ok(existsSync(resolve(app, file)), file);
+    assert.ok(statSync(resolve(app, 'render/shaders')).isDirectory());
+    gameShells(app, gameDefaults(app).game, import.meta.dir);
+    assert.equal(readFileSync(resolve(app, '.shells/gpu/src/lib.rs'), 'utf8'),
+      'exact_game_render::module!(game_logic::MyGame, hooks = game_render::Passes, shaders = game_render::shaders::SHADERS);\n');
+  } finally { rmSync(root, {recursive:true, force:true}); }
+});

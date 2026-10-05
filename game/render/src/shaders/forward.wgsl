@@ -9,6 +9,7 @@ override FOG: bool = false;
 }
 @diagnostic(off, derivative_uniformity)
 fn shade(input: Varying, visibility: f32) -> vec4<f32> {
+    if faded(input.slot, input.clip.xy) { discard; }
     let i = input.slot * 12u;
     var base = vec3(materials[i], materials[i+1u], materials[i+2u]) * input.color.rgb;
     // Opaque materials reuse alpha as a negative grid-spacing flag: no wider uploads.

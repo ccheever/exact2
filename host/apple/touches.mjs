@@ -279,7 +279,7 @@ export async function realTap({ ask, touches, id, at, drag, abandon }) {
       const r = await Promise.race([promise, gestureEnd]);
       if (r === over) {
         // The runner is done; the app has not answered a second after: its carrier is spent.
-        const why = `${what}: the ops during it outlasted the gesture by a second; the app's carrier was stopped (lengthen press or hold)`;
+        const why = `${what}: the ops during it outlasted the gesture by a second; the app's carrier was stopped (lengthen hold)`;
         abandon?.(why);
         throw transport(why);
       }
@@ -304,14 +304,14 @@ export async function realTap({ ask, touches, id, at, drag, abandon }) {
     const early = `${what}: the touch lifted before the ops during it`;
     try {
       for (let touch; !(touch = ours(await entries()));) {
-        if (finished) throw new Error(ours(await entries())?.lifted ? `${early} began; lengthen press or hold` : `${what}: the runner finished and no touch had begun`);
+        if (finished) throw new Error(ours(await entries())?.lifted ? `${early} began; lengthen hold` : `${what}: the runner finished and no touch had begun`);
         await new Promise((r) => setTimeout(r, 50));
       }
-      if (ours(await entries()).lifted) throw new Error(`${early} began; lengthen press or hold`);
+      if (ours(await entries()).lifted) throw new Error(`${early} began; lengthen hold`);
       // The ops run after the move, as the carriers' own phases run them (kanban F14): the runner presses and drags on real time.
       await new Promise((r) => setTimeout(r, drag.press + (moves ? drag.over : 0)));
       for (const op of drag.during) during.push(await raced(op()));
-      if (ours(await entries()).lifted) throw new Error(`${early} finished; lengthen press or hold`);
+      if (ours(await entries()).lifted) throw new Error(`${early} finished; lengthen hold`);
     } catch (error) {
       const done = await injecting;
       if (done.error) throw transport(`${what}: the touch runner: ${done.error}`);

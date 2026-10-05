@@ -37,6 +37,13 @@ ASTC, both only in this crate. Their bytes can differ bit-wise between SIMD
 variants of one machine family and another; tests pin quality (top level above
 40 dB PSNR against RGBA8 on the sampled channels), not encoded bytes.
 
+Model textures are named by their content, `textures/<digest>.tex`: the digest of
+the full RGBA8 chain (texels, sampler, mips) and of the channels the material reads.
+Identical textures are one asset across models and within one, and adding, renaming or
+removing a model never renames another's files. Nothing is authored for this; a shared
+palette or material image costs one download and one GPU texture however many models
+use it.
+
 ## Sprites
 
 Put a sprite strip at `art/strip.png`; the ordinary app bake produces
@@ -51,6 +58,20 @@ which writes the family files beside it. Dimensions must be 1..=2048. The sprite
 fixture keeps its original `.tex` only as a test golden; production bytes come from
 its PNG. Generated-output ownership, collision refusal and pruning are the same as
 for models.
+
+A PNG under `art/textures/` is a material texture instead, shared by name with any
+model or generated mesh (`textures/soil.png` bakes as `soil.tex`): sRGB colour,
+repeating on both axes, linear min/mag/mip filtering, a box-filtered mip chain in
+linear light, block-compressed within the usual quality bound. Under `art/data/` the
+same, but linear values: normal maps, masks. Under `art/data/rgbm/` an RGBM
+environment map: linear, its mips box-filtered as radiance (decoded, averaged and
+re-encoded per texel) rather than per channel.
+A glTF whose image `uri` points at such a PNG (`"../textures/soil.png"`) samples
+that one `soil.tex` instead of embedding a copy, so many models share it; a colour
+slot (base, emission) must point into `art/textures/` and a data slot into
+`art/data/`, or the bake refuses by name. A MASK material embeds its own copy
+instead, with mips that preserve its cutout's coverage (models sharing that image
+and cutoff still ship it once, by content).
 
 Put sounds at `art/<name>.wav` or `art/<name>.ogg`; the bake writes `assets/<name>.sound`
 (a stem may have one source). WAV may be 8/16/24/32-bit integer PCM or 32/64-bit float,

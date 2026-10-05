@@ -86,25 +86,37 @@ impl World {
     /// retain its content identity, never vertices; changed generators refuse by name.
     /// Repeating an identical registration reuses the existing shared allocation.
     pub fn generated(&mut self, name: &str, mesh: MeshData) -> Result<Mesh, String> {
+        self.generated_model(
+            name,
+            Model {
+                bounds: mesh.bounds,
+                meshes: vec![mesh],
+                materials: vec![MaterialData {
+                    metallic: 0.,
+                    ..Default::default()
+                }],
+                nodes: vec![Node {
+                    mesh: Some(0),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        )
+    }
+    /// `generated` for a whole model: several meshes, nodes and materials, which
+    /// may sample textures by name (`model.textures`, indexed by each material's
+    /// texture slots) — shared `.tex` assets such as `art/textures/soil.png`, which
+    /// are requested as the model's dependencies. The model is drawable once they
+    /// arrive; declare them in `Game::ASSETS` to have them before setup.
+    /// Skinned rigs and clips ([`crate::rig`]) register the same way.
+    pub fn generated_model(&mut self, name: &str, model: Model) -> Result<Mesh, String> {
+        self.sim_writes(format_args!("generated `{name}`"));
         if self.tick() != 0 {
             return Err(format!("generated `{name}`: register during setup"));
         }
         if !super::asset_name(name) || !name.ends_with(".model") {
             return Err(format!("generated `{name}`: expected a .model asset name"));
         }
-        let model = Model {
-            bounds: mesh.bounds,
-            meshes: vec![mesh],
-            materials: vec![MaterialData {
-                metallic: 0.,
-                ..Default::default()
-            }],
-            nodes: vec![Node {
-                mesh: Some(0),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
         model
             .validate()
             .map_err(|e| format!("generated `{name}`: {e}"))?;
@@ -120,11 +132,25 @@ impl World {
             return Ok(Mesh::asset(name));
         }
         self.assets.request(name);
+        for texture in &model.textures {
+            self.assets.request(texture);
+            self.assets.required.insert(texture.clone());
+        }
+        let ready = model
+            .textures
+            .iter()
+            .all(|t| self.assets.states.get(t) == Some(&AssetState::Loaded));
         self.assets.identify(name, digest);
         self.assets.declared.insert(name.into());
+        let model_textures = model.textures.clone();
         self.assets.models.insert(name.into(), model.into());
-        self.assets.dependencies.insert(name.into(), Vec::new());
-        self.assets.states.insert(name.into(), AssetState::Loaded);
+        self.assets.set_dependencies(name, model_textures);
+        let state = if ready {
+            AssetState::Loaded
+        } else {
+            AssetState::Pending
+        };
+        self.assets.states.insert(name.into(), state);
         Ok(Mesh::asset(name))
     }
 }

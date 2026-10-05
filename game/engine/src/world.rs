@@ -80,6 +80,9 @@ impl Target for &String {
 pub trait Component: Data {
     /// Stable save-file and agent spelling.
     const NAME: &'static str;
+    /// Presentation only (`#[derive(Presentation)]`): never saved, hashed or
+    /// observed for rest. `Game::present` rebuilds it after every tick and restore.
+    const PRESENTATION: bool = false;
     /// Register data this component produces, before restoring a saved world.
     fn register(_world: &mut World) {}
     /// Refuse a component combination before changing the entity.
@@ -157,6 +160,8 @@ struct Registration {
     resource_size: usize,
     make_resource: Option<StorageFactory>,
     ambient: bool,
+    // A presentation component: outside saves, hashes and observation.
+    presentation: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -198,6 +203,8 @@ pub struct World {
     pub(crate) changing: Vec<String>,
     pub(crate) observation: ObservationState,
     epoch: std::rc::Rc<std::cell::Cell<u64>>,
+    // Presentation storages' own epoch: rebuilding them is not a mutation.
+    presentation_epoch: std::rc::Rc<std::cell::Cell<u64>>,
     observed_epoch: u64,
     hash_cache: std::cell::Cell<Option<(u64, u64)>>,
     // Paged digests behind hash and observation; never saved.
@@ -205,6 +212,10 @@ pub struct World {
     // Executor phase, never saved: audio authored in a tick starts at its end.
     pub(crate) in_tick: bool,
     pub(crate) followed: std::cell::Cell<bool>,
+    // Whether this tick's emitters have stepped (emitter::step or the Sim's own).
+    pub(crate) emitted: std::cell::Cell<bool>,
+    // Inside Game::present: only presentation components may change.
+    pub(crate) presenting: std::cell::Cell<bool>,
     pub(crate) attachments: Option<Attachments>,
     pub(crate) detach: Option<fn(&World, Entity)>,
     state: State,
@@ -244,6 +255,7 @@ impl World {
         let mut world = Self {
             assets: Default::default(),
             epoch,
+            presentation_epoch: Default::default(),
             observed_epoch: 0,
             hash_cache: std::cell::Cell::new(None),
             digests: RefCell::default(),
@@ -251,6 +263,8 @@ impl World {
             observation: ObservationState::Unknown,
             in_tick: false,
             followed: std::cell::Cell::new(false),
+            presenting: std::cell::Cell::new(false),
+            emitted: std::cell::Cell::new(false),
             attachments: None,
             detach: None,
             state: State {
@@ -296,12 +310,21 @@ impl World {
             .register::<SpotLight>()
             .register::<LightShadows>()
             .register::<ViewModel>()
+            .register::<Opacity>()
+            .register::<NodeMaterials>()
+            .register::<MaterialOverrides>()
+            .register::<ModelLod>()
+            .register::<crate::ParticleLook>()
+            .register::<crate::Offset>()
+            .register::<crate::Opacity>()
+            .register::<crate::Tint>()
             .register::<MouseLook>()
             .register::<Visible>()
             .register::<Ambient>()
             .register::<Follow>()
             .register::<Glow>()
-            .register::<Lit>();
+            .register::<Lit>()
+            .register::<crate::emitter::WorldSpace>();
     }
     /// Identity of this world instance, excluded from saves and hashes.
     pub fn id(&self) -> WorldId {
@@ -315,7 +338,9 @@ impl World {
     /// Register a component before loading. Registration itself is not state.
     pub fn register<C: Component>(&mut self) -> &mut Self {
         C::register(self);
-        self.registration::<C>(C::NAME).make = Some(storage::make::<C>);
+        let reg = self.registration::<C>(C::NAME);
+        reg.make = Some(storage::make::<C>);
+        reg.presentation = C::PRESENTATION;
         self
     }
     /// Register singleton data before loading a save.
@@ -334,6 +359,7 @@ impl World {
             make_resource: None,
             resource_size: 0,
             ambient: false,
+            presentation: false,
         });
         assert_eq!(reg.id, id, "duplicate component name {}", name);
         reg
@@ -350,6 +376,7 @@ impl World {
         self.spawn_inner(Some(name.as_ref().into()), bundle)
     }
     fn spawn_inner(&mut self, name: Option<String>, bundle: impl Bundle) -> Entity {
+        self.sim_writes(format_args!("spawned an entity"));
         self.mutated();
         let index = if self.state.free.0.is_empty() {
             let i = u32::try_from(self.state.slots.len()).expect("entity slots exhausted");
@@ -383,6 +410,7 @@ impl World {
     /// Remove this entity only; descendants leave at the end of the tick.
     /// A panicking component destructor leaves the slot alive until a later retry.
     pub fn despawn(&mut self, e: Entity) -> bool {
+        self.sim_writes(format_args!("despawned #{}", e.index));
         if !self.contains(e) {
             return false;
         }
@@ -536,6 +564,10 @@ impl World {
     }
     /// Insert or replace a component, returning false if the entity is gone.
     pub fn insert<C: Component>(&mut self, e: Entity, c: C) -> bool {
+        self.sim_reads::<C>();
+        if !C::PRESENTATION {
+            self.sim_writes(format_args!("inserted component `{}`", C::NAME));
+        }
         if !self.contains(e) {
             return false;
         }
@@ -553,7 +585,16 @@ impl World {
         self.leases.restructure();
         self.components
             .entry(C::NAME)
-            .or_insert_with(|| storage::make::<C>(C::NAME, self.epoch.clone()))
+            // Presentation rows have an epoch of their own: rebuilding them never
+            // counts as a simulation mutation (settling, observation).
+            .or_insert_with(|| {
+                let epoch = if C::PRESENTATION {
+                    self.presentation_epoch.clone()
+                } else {
+                    self.epoch.clone()
+                };
+                storage::make::<C>(C::NAME, epoch)
+            })
             .any_mut()
             .downcast_mut::<Storage<C>>()
             .unwrap()
@@ -583,6 +624,10 @@ impl World {
     }
     /// Remove storage only when replacing a controller while preserving its sampled Pose.
     pub(crate) fn remove_component<C: Component>(&mut self, e: Entity) -> Option<C> {
+        self.sim_reads::<C>();
+        if !C::PRESENTATION {
+            self.sim_writes(format_args!("removed component `{}`", C::NAME));
+        }
         if !self.contains(e) {
             return None;
         }
@@ -595,6 +640,7 @@ impl World {
     }
     /// Test membership without borrowing the component's values.
     pub fn has<C: Component>(&self, e: Entity) -> bool {
+        self.sim_reads::<C>();
         self.contains(e) && self.storage::<C>().is_some_and(|s| s.has(e.index as usize))
     }
     /// Borrow one component row immutably. Other rows of C stay free; a conflict
@@ -610,6 +656,7 @@ impl World {
         self.get_mut_at(target, Location::caller())
     }
     pub(crate) fn get_at<C: Component>(&self, target: impl Target, at: At) -> Option<Ref<'_, C>> {
+        self.sim_reads::<C>();
         let e = target.entity(self)?;
         if !self.contains(e) {
             return None;
@@ -623,6 +670,10 @@ impl World {
         target: impl Target,
         at: At,
     ) -> Option<RefMut<'_, C>> {
+        self.sim_reads::<C>();
+        if !C::PRESENTATION {
+            self.sim_writes(format_args!("wrote component `{}`", C::NAME));
+        }
         let e = target.entity(self)?;
         if !self.contains(e) {
             return None;
@@ -633,6 +684,7 @@ impl World {
     }
     /// Copy one row out, refusing only a live exclusive lease on it.
     pub(crate) fn copied_at<C: Component + Copy>(&self, e: Entity, at: At) -> Option<C> {
+        self.sim_reads::<C>();
         if !self.contains(e) {
             return None;
         }
@@ -829,11 +881,13 @@ impl World {
     /// Exclusive borrows of any row of C are refused while the pages are held.
     #[track_caller]
     pub fn pages<C: Component>(&self) -> Pages<'_, C> {
+        self.sim_reads::<C>();
         Pages::new(self.storage::<C>(), &self.leases, Location::caller())
             .unwrap_or_else(|conflict| self.refuse(conflict))
     }
     /// Mutation generation, including repeated edits within one tick. Not saved or hashed.
     pub fn revision<C: Component>(&self) -> u64 {
+        self.sim_reads::<C>();
         self.storage::<C>().map_or(0, |s| s.revision())
     }
     /// Slots whose C row was handed out mutably, inserted or removed after `since`,
@@ -842,6 +896,7 @@ impl World {
     /// the slot's current incarnation, which may be dead after a despawn; callers
     /// keyed by entity look the index up in their own records. Not saved or hashed.
     pub fn changed<C: Component>(&self, since: u64) -> impl Iterator<Item = Entity> + '_ {
+        self.sim_reads::<C>();
         self.storage::<C>()
             .into_iter()
             .flat_map(move |s| s.changed(since))
@@ -849,6 +904,7 @@ impl World {
     }
     /// Component membership generation; changing an existing value leaves it alone.
     pub fn membership<C: Component>(&self) -> u64 {
+        self.sim_reads::<C>();
         self.storage::<C>().map_or(0, |s| s.membership())
     }
     /// Spawn/despawn generation, including equal-count slot recycling. Not simulation state.
@@ -874,6 +930,7 @@ impl World {
     }
     /// Insert or replace named singleton state.
     pub fn insert_resource<R: Resource>(&mut self, r: R) {
+        self.sim_writes(format_args!("inserted resource `{}`", R::NAME));
         self.register_resource::<R>();
         self.resources
             .entry(R::NAME)
@@ -907,6 +964,7 @@ impl World {
     /// Borrow a resource exclusively; absence panics with its name.
     #[track_caller]
     pub fn resource_mut<R: Resource>(&self) -> RefMut<'_, R> {
+        self.sim_writes(format_args!("wrote resource `{}`", R::NAME));
         let at = Location::caller();
         self.resource_storage::<R>().get_mut(at).unwrap()
     }
@@ -936,6 +994,7 @@ impl World {
     /// The world's only source of simulation randomness.
     #[track_caller]
     pub fn rng(&self) -> RefMut<'_, Rng> {
+        self.sim_writes(format_args!("drew from World::rng; use presentation_rng"));
         self.rng.get_mut(Location::caller()).unwrap()
     }
     /// Draw one value and release the random column before returning.
@@ -960,6 +1019,7 @@ impl World {
         self.log_args(format_args!("{line}"));
     }
     fn log_args(&self, line: std::fmt::Arguments<'_>) {
+        self.sim_writes(format_args!("journaled `{line}`"));
         let mut j = self.journal.borrow_mut();
         if j.len() == 4096 {
             j.pop_front();
@@ -986,6 +1046,7 @@ impl World {
         self.publish_value(key, value.into().0);
     }
     pub(crate) fn publish_value(&self, key: &str, value: crate::values::Incoming<'_>) {
+        self.sim_writes(format_args!("published `{key}`"));
         let mut p = self.published.borrow_mut();
         let stored = p.get_mut(key);
         if stored
@@ -1015,6 +1076,7 @@ impl World {
     }
     /// Queue a string event for the canvas's `message=` handler, in order, once.
     pub fn emit(&self, text: impl Into<String>) {
+        self.sim_writes(format_args!("emitted a message"));
         self.messages.borrow_mut().push(text.into());
     }
     /// Last scalar, list or positional Contract value published under a key.
@@ -1050,6 +1112,9 @@ impl World {
             w.field(kind);
             w.begin_struct();
             for (name, s) in storages {
+                if self.registry[name].presentation {
+                    continue;
+                }
                 w.key(name);
                 s.write_save(w);
             }
@@ -1078,6 +1143,7 @@ impl World {
         next.read(&mut r).map_err(|e| e.at("World"))?;
         r.finish()?;
         next.validate_hierarchy(&mut r)?;
+        crate::emitter::rehydrate(&next).map_err(|e| e.at("World"))?;
         next.presentation_generation = self
             .presentation_generation
             .checked_add(1)
@@ -1180,6 +1246,11 @@ impl World {
                                 ))
                             })?;
                         let resource = field == "resources";
+                        if !resource && reg.presentation {
+                            return Err(DataError::new(format!(
+                                "save carries presentation component `{name}`; presentation state is rebuilt by Game::present, never loaded"
+                            )));
+                        }
                         let make = if resource {
                             r.claim(reg.resource_size).map_err(|e| e.at(&name))?;
                             reg.make_resource
@@ -1227,6 +1298,8 @@ mod tests;
 
 mod inspect;
 pub(crate) use inspect::ObservationState;
+
+mod presentation;
 
 mod save;
 use save::Free;

@@ -4,12 +4,12 @@
 //!  -p garden-logic --test render -- --ignored --nocapture --test-threads 1`
 use exact_game::{Args, Value};
 use exact_game_render::exact_gpu::{fixture, Frame, InputEvent, Surface};
-use exact_game_render::{ModelPresentation, WorldSurface};
+use exact_game_render::{ModelExecutor, WorldSurface};
 use garden_logic::{Garden, Options};
 use std::time::Instant;
 
 // Match the game's model-capable GPU module (`game.assets` in app.json).
-type GardenSurface = WorldSurface<Garden, ModelPresentation, true>;
+type GardenSurface = WorldSurface<Garden, ModelExecutor, true>;
 
 fn bind(surface: &mut GardenSurface) {
     let o = Options {

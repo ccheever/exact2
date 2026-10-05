@@ -177,7 +177,19 @@ unnecessary.
 the saved local transform. `animation::socket(w, target, joint)` reads the current
 world-space tick endpoint; displayed attachments use the interpolated local chain.
 
-Emitters form local clouds: moving the emitter moves particles already born.
+Emitters form local clouds: moving the emitter moves particles already born. Add
+`emitter::WorldSpace::default()` beside an `Emitter` and each birth batch stays
+where it was born instead, at the emitter's pose and scale that tick (a rocket's
+trail is one emitter). `WorldSpace` saves those birth poses, so a restored trail
+draws where the continuous one does. `Shape::Box(size)` emits over an
+area (rain, snow).
+`ParticleLook` beside an `Emitter` textures its particles from a `.tex` atlas
+(`atlas: [columns, rows]`, a flipbook at `fps`, or the frames spread over each
+lifetime) and stretches them along their motion (`stretch`: seconds of velocity
+added to the length), for sparks and streaks. `Emitter.additive` picks additive or
+straight-alpha blending for both. `soft` (metres) fades particles where they meet
+the opaque scene, so smoke does not cut a line into the ground; a frame with soft
+particles splits the forward pass to read its depth (off by default).
 For sound, `w.sounds([..])` registers synthesized (`Synth`) or sampled (`Sample`)
 definitions in setup; a sample names a `.sound` asset declared in `Game::ASSETS`, and
 registration saves its frames, rate and channels. `w.play("chime").start()` creates
@@ -186,6 +198,37 @@ builder does nothing. A looping definition plays until `audio::stop` or
 `audio::fade`. Call `audio::step(w)` after game logic. Voices and definitions are
 saved and hashed; PCM is delivery, outside both. Playback, PCM generation and the
 budgets belong to the separate [audio executor](../audio/README.md).
+
+### Procedural characters
+
+`exact_game::rig` builds a skinned, animated model from code: bones with lengths and
+radii become smooth-weighted capsules plus their skeleton, and clips come from gait
+parameters. `Rig::humanoid(height)` and `Rig::quadruped(length)` are presets;
+`Rig::new().bone(..).limb(..).spine(..)` builds any other. Register the model with
+`w.generated_model` (identity-checked like `w.generated`), then drive it like a baked one:
+
+```rust
+let r = rig::Rig::humanoid(1.8);
+let hero = w.generated_model("hero.model", r.model([
+    r.idle("idle"),
+    r.walk("walk", rig::Gait::walk(1.4)), // authored at 1.4 m/s
+    r.walk("run", rig::Gait::run(4.)),
+    r.flinch("flinch"),                   // an additive one-shot
+]))?;
+w.spawn_named("hero", (Transform::default(), hero,
+    Animator::new([rig::locomotion("move", "idle", [(1.4, "walk"), (4., "run")])]),
+    Layers(vec![Layer::new(Animation::play("flinch").once()).additive().weight(0.)])));
+w.spawn((Mesh::cuboid(Vec3::new(0.04, 0.04, 0.9)), SocketFollow::new("hero", "hand_r")));
+// Each tick, with the ground speed the body actually moves at:
+rig::drive(w, "hero", "move", speed);
+```
+
+Gaits blend by ground speed with a shared phase. `drive` picks the blend and the
+playback rate so planted feet stay planted at every speed: below the slowest gait it
+plays that gait slower (idle blends in under 5 cm/s), between gaits it corrects for
+the blended stride, and above the fastest it plays faster. Zero or negative speeds idle. Walk clips
+mark each footfall `step`. Every number comes from the engine's portable math, so
+the generated model's identity is the same on every host and saves restore.
 
 ## Saves and assets
 
@@ -204,6 +247,10 @@ declared `.sound` assets, which the primitive module also decodes; a save record
 their content identity, as it does a level's.
 `sim.save()?` checks current mesh roots even before requests are drained and
 reports pending or failed declarations by name. Failed cosmetics do not block saves.
+Declared (`Game::ASSETS`) and streamed (`Game::STREAMED`) assets stay resident
+when nothing shows them, so one that returns is Loaded at once and never gates a
+save. Undeclared cosmetics still retire when unshown, which bounds their memory. A paranoid
+round trip that falls while a mid-game request is in flight waits for the next sample.
 
 Declare a data-authored level with
 `const LEVEL: Option<asset::Level> = Some(asset::Level::of::<Island>("island.level.json"))`.
@@ -213,7 +260,10 @@ JSON levels need no `game.assets` setting. Agent asset state includes their valu
 malformed fields report their path.
 
 `w.generated("island.model", mesh_data)` registers immutable geometry during setup.
-Clone the returned `Mesh` for repeated props. Saves store names and content identities,
+Clone the returned `Mesh` for repeated props. `w.generated_model(name, model)` takes a
+whole `asset::Model` (several meshes, nodes and materials); its materials may sample
+textures named in `model.textures`, such as a shared `art/textures/` PNG, which become
+the model's dependencies and are requested like a baked model's. Saves store names and content identities,
 not vertices, so reconstruct from the same level and seed before restoring. Changed
 level bytes or generated output refuse restore by name. Keep other generator inputs
 in the level or saved setup arguments; identity checks cannot prove a generator is
@@ -232,6 +282,51 @@ despawn touched, and resources whose revision moved, so an observed tick costs
 what changed rather than the world (0.1 ms at 216k entities, against ~90 ms).
 The hash is a stream over page digests in type-name and page order; it is the
 same on every host and for a world freshly loaded from the same save.
+
+Visual-only state belongs in `#[derive(Presentation)]` components (presentation
+resources are not supported): they are excluded from saves, hashes and the
+simulation, so a bob, a flash or a sway phase cannot move a pin; agents can still read
+them (diagnostics). `Game::present(p, args)` rebuilds them from nothing after setup,
+after a restore (once its journal and publications are back), after a live-argument
+change or a `world_mut` edit, and at the boundaries an advance shows: its last two
+ticks, which the renderer interpolates between. A long seek does not present every
+tick; paranoid modes do, and compare, which proves present is pure. `p: Present` reads
+the simulation (`get`, `require`, `for_each`, `resource`, `global`, `is_visible`,
+`published`, the tick and seed) and writes only presentation components on existing
+entities (`insert`, `get_mut`); `p.rng(salt)` is a stream hashed from the seed, tick and
+salt, never the world's. It has no simulation RNG, events, spawning, publications or
+busy reasons. Behind that type, any simulation write while presenting panics naming
+it, and the guard stays armed after a caught panic; a tick reading or writing a
+presentation component panics too. Rebuilding presentation is not a simulation
+mutation (it does not reset settling). A save carrying presentation rows is refused,
+and a present that fails on a restored world refuses the restore.
+The stock renderer draws these built-in presentation components without a shader:
+`Offset(Transform)` (drawn pose `drawn(parent)·local·offset`, so an offset on a root
+moves its displayed hierarchy, and socketed props follow the drawn rig), `Opacity`
+(dithered coverage fading, multiplied down the Parent chain; it never reveals a child
+of a hidden ancestor), `Tint` (a primitive's colour multiply and added emission) and,
+for models, `NodeMaterials`/`MaterialOverrides`. `World::drawn(e)` is the displayed
+pose and opacity, in the same walk as `World::is_visible`. Picking, layout, physics
+and gameplay use the simulated pose.
+
+**The authoring rule: save the cause, derive the appearance.** Anything later
+gameplay reads stays simulation state; only its look is presentation. Examples:
+
+- Rivals' aim recoil: the shot (its tick and spread, drawn from the world RNG
+  because it changes where the bullet goes) is simulation; the gun kick is an
+  `Offset` derived in `present` from ticks since `last_shot_tick`, with any jitter
+  from `p.rng(salt)`.
+- Garden's mutation: the roll and the weight it sets are simulation (they change
+  sale price and growth); the shimmer of a mutated fruit is a `NodeMaterials` or
+  `Tint` derived from that saved mutation.
+- Tracers and explosions that gameplay never queries may be emitters; entities a
+  tick creates or despawns (a projectile, a crater that blocks movement) stay
+  simulation, because `present` cannot spawn and keeps no state of its own.
+- A purely cosmetic blink belongs in `Opacity` written by `present`, not in a
+  `Visible` toggled each tick (which moves pins).
+
+`present` holds no state between calls: a flash or a decay derives from a simulated
+timestamp, never from its previous output.
 
 Mark cosmetic entities `Ambient`. Declare `ambient_resource::<T>()` and
 `derived_publication(name)` in setup/register when appropriate; these policies
