@@ -1043,9 +1043,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     /** For a miss: the requests still in flight, whose answers may bring the view (authoring bench: a drive's first op ran before a stored list loaded). */
     async inFlight() {
+      if (host !== 'web') return ''; // a native read on the error path could time out and close the transport
       const st = await s.op({ op: 'state' }).catch(() => null);
       const pending = (st?.pending ?? []).map((p) => p.name).filter(Boolean);
-      return pending.length ? `; ${pending.length} request${pending.length === 1 ? ' is' : 's are'} still in flight (${[...new Set(pending)].join(', ')}): \`clock data\` lands them` : '';
+      return pending.length ? `; ${pending.length} request${pending.length === 1 ? ' is' : 's are'} still in flight (${[...new Set(pending)].join(', ')}): \`clock data\` waits for data, and \`state\` shows what is still pending` : '';
     },
     /**
      * What this carrier's input actually is (LLP 1035.003 D2/D3): whether it
