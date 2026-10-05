@@ -1159,7 +1159,7 @@ impl Parser {
             "if" => self.err(
                 "syntax-stray-keyword",
                 "`if` is an action's statement: a view chooses with `when <condition>`, \
-                 and an `else` under it",
+                 and an `else` after its block at the same indent",
             ),
             "when" => {
                 self.next();

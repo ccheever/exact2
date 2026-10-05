@@ -200,7 +200,7 @@ fn a_view_if_and_a_state_as_name_the_contract_form() {
     let error = contract::compile(view_if).unwrap_err();
     assert_eq!(
         (error.id.as_str(), error.message.as_str()),
-        ("syntax-stray-keyword", "`if` is an action's statement: a view chooses with `when <condition>`, and an `else` under it")
+        ("syntax-stray-keyword", "`if` is an action's statement: a view chooses with `when <condition>`, and an `else` after its block at the same indent")
     );
     let state_as =
         "component App\n  state draft = none as option<string>\n  view\n    text \"a\"\n";
