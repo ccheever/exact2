@@ -126,7 +126,8 @@ values are already CSS spellings), with the exceptions a table names
 `backdrop_blur`→`backdrop-filter: blur()`). Units by rule: dimensions and
 lengths in `px`, percentages, `auto`; unitless where CSS is (`flex-grow`,
 `opacity`, `z-index`, `font-weight`, `scale`); `rotate` in `deg`;
-`translate` as two lengths. Rows the host does not lower are returned as
+`translate` as two lengths or percentages (a `calc()` of the two where an
+axis has both). Rows the host does not lower are returned as
 `Skipped { row, reason }`: gradients and grid rows in v1. `line_clamp`
 uses the browser's legacy box only for
 non-scrolling blocks. On flex, grid, `display:none`, or either scrolling axis,

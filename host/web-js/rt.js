@@ -951,7 +951,12 @@ export function onTRelease(e, f, t, c) { e.$trelease = f; motion(m => m.transfor
  * over the list's preview (list.js) and the motion piece (arrange.js). The
  * grip names its view (`data-view`): the list's browser half pins the row
  * a contact on it holds by that name (collection-glue.js `liveView`). */
-export function onReorder(e, l) { e.$reorderList = l; e.dataset.view = viewId(e); motion(m => m.reorderHandle(e)); }
+export function onReorder(e, l) {
+  const id = viewId(e);
+  e.$reorderList = l; e.dataset.view = id;
+  onEnd(() => motion(m => m.gone(id)));
+  motion(m => m.reorderHandle(e));
+}
 export function onDrop(e, f) { e.$reorderdrop = f; motion(() => {}); }
 /** `pan`: the web host's input piece's (input-glue.js), after first paint. */
 export function onPan(e, f) {
@@ -978,6 +983,18 @@ export function wf(e, f) {
     .then(m => m.flow({ views: Views, viewId, wraps: Wraps, clock, wall: () => performance.now() - start, say }))
     .then(m => { Fl = m; Before.push(() => Fl.before()); After.push(() => Fl.after()); (globalThis.exact ??= {}).flowSettle = () => Fl.settle(); Fl.after(); })
     .catch(err => say(`text flow: ${err.message}`)).finally(() => inflight.n--);
+}
+/** `resize=action`, the element resize event: the browser's ResizeObserver
+ * (the web host's own resize-glue.js, fetched after first paint by a plan
+ * with one), the action hearing the content box's width and height, then
+ * its `DOMRectReadOnly` record. */
+let Resizes = null;
+export function onResize(e, f) {
+  if (typeof ResizeObserver !== "function" || globalThis.__exactRender) return;
+  inflight.n++;
+  (Resizes ??= new Promise(r => requestAnimationFrame(() => r())).then(() => import("./resize-glue.js")))
+    .then(m => m.observeResize(e, r => { if (e.isConnected) f(r.width, r.height, [r.x, r.y, r.width, r.height, r.top, r.right, r.bottom, r.left]); }))
+    .catch(err => say(`resize: ${err.message}`)).finally(() => inflight.n--);
 }
 /** `frame(id)` and `measure(id)` (LLP 1051.000): the page's answers, from
  * the web host's own geometry-glue.js, fetched after first paint by a plan

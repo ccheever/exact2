@@ -135,7 +135,7 @@ impl Em<'_> {
             // @ref LLP 1077 D8 — the `rotate` and `translate` attributes bind
             // these with the same value: the angle's and xy's declaration
             // writes the author's whole text.
-            StyleId::RotateAxis | StyleId::TranslateZ => {
+            StyleId::RotateAxis | StyleId::TranslateZ | StyleId::TranslatePercent => {
                 let pair = if id == StyleId::RotateAxis { StyleId::Rotate } else { StyleId::Translate };
                 if binding(pair).is_some_and(|o| plan.code(o.expr) == plan.code(b.expr)) {
                     return Ok(());

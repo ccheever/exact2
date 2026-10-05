@@ -1239,6 +1239,7 @@ impl Em<'_> {
                 | EventKind::Refresh
                 | EventKind::Pan
                 | EventKind::Cancel
+                | EventKind::Resize
                 | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.
                 EventKind::Swiperight
@@ -1277,6 +1278,7 @@ impl Em<'_> {
                 EventKind::Transformgeometry => Some("onTGeom"),
                 EventKind::Transformrelease => Some("onTRelease"),
                 EventKind::Reorderdrop => Some("onDrop"),
+                EventKind::Resize => Some("onResize"),
                 _ => None,
             };
             if let Some(piece) = piece {

@@ -15,6 +15,8 @@ mod pointer;
 pub use pointer::{DropEvent, PointerEvent, WheelEvent};
 mod reorder;
 mod reorder_codec;
+mod resize;
+pub use resize::{ResizeRect, UNDELIVERED as RESIZE_UNDELIVERED};
 mod root_font;
 pub use event::{
     ActionBinding, ActionBindingError, ActionBindingRefusal, ControlValue, Event, KeyModifiers,
@@ -319,6 +321,8 @@ pub struct Runner<D: DataSource> {
     into_view: Vec<crate::instance::collection::IntoView>,
     /// Where the host last showed each scroller (`frame`, LLP 1051.000 D1).
     scrolled: crate::geometry::Scrolled,
+    /// Each `resize` handler's node and the content box last delivered.
+    resized: resize::Resized,
     /// Refused requests, for `state` (LLP 1070.000 §2.2).
     into_view_refused: std::collections::VecDeque<String>,
     surfaces: Vec<SurfaceUpdate>,
@@ -781,6 +785,7 @@ impl<D: DataSource> Runner<D> {
             commands: Vec::new(),
             into_view: Vec::new(),
             scrolled: Default::default(),
+            resized: Vec::new(),
             into_view_refused: Default::default(),
             surfaces: Vec::new(),
             canvases: links.canvas.map(|engine| engine()),

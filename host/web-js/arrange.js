@@ -124,7 +124,11 @@ export function arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatc
     reconcile() {
       if (!L()) return;
       for (const [id, h] of handles) {
-        if (!h.el.isConnected) { handles.delete(id); continue; }
+        // A virtualized row is built detached and inserted after: its grip
+        // waits for the document, and leaves only by `gone` (stocks diary
+        // #1: a grip registered while its row was detached was dropped here
+        // and never heard of again, so no listener ever reached it).
+        if (!h.el.isConnected) continue;
         const b = L().binding(id);
         if (same(b, h.published, KEYS) || !b && h.published === null) continue;
         h.published = b ?? null;
@@ -139,6 +143,6 @@ export function arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatc
       controller.commit();
     },
     handle(el) { handles.set(viewId(el), { el, published: undefined }); },
-    gone(id) { controller.destroy(id); },
+    gone(id) { handles.delete(id); controller.destroy(id); },
   };
 }

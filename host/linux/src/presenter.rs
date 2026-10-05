@@ -772,7 +772,8 @@ impl<D: DataSource> Presenter<D> {
         self.queue_collections();
         let refined = self.refine_collections();
         let geometry = self.refresh_transform_geometry();
-        error.or(refined).or(geometry)
+        let resized = self.deliver_resizes();
+        error.or(refined).or(geometry).or(resized)
     }
 
     // Collection feedback calls this directly: never recurse through refinement.

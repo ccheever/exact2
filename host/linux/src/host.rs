@@ -1172,7 +1172,10 @@ impl<D: DataSource> Host<D> {
             let base = self.presented(view);
             let entry = self.presented.entry(view).or_insert(base);
             match p.property {
-                Property::Translate => entry.translate = (p.value.x as f32, p.value.y as f32),
+                Property::Translate => {
+                    entry.translate = (p.value.x as f32, p.value.y as f32);
+                    entry.translate_percent = (p.value.z as f32, p.value.w as f32);
+                }
                 Property::Layout => {
                     entry.layout = layout_presented(&self.engine, p.node, p.value).map(|v| v as f32)
                 }

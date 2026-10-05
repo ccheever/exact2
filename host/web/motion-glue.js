@@ -95,7 +95,10 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   const cssProperty=(el,property)=>property==='scale'&&el?.style.getPropertyValue('--exact-press')?'--exact-scale':property;
   // CSS height clamps negative interpolated lengths. Keep every spring sample
   // and its timing; only its displayed length changes, not the engine curve.
-  const css=(property,value)=>property==='translate'?`${value[0]}px ${value[1]}px`:property==='rotate'?`${value[0]}deg`:property==='height'?`${Math.max(0,value[0])}px`:String(value[0]);
+  // A translate frame is `[x,y]` lengths, or `[x,y,px,py]` with percentages
+  // of the box, which the browser resolves (chess diary #4).
+  const axis=(l,p)=>p?(l?`calc(${l}px + ${p}%)`:`${p}%`):`${l}px`;
+  const css=(property,value)=>property==='translate'?`${axis(value[0],value[2])} ${axis(value[1],value[3])}`:property==='rotate'?`${value[0]}deg`:property==='height'?`${Math.max(0,value[0])}px`:String(value[0]);
   const call=(op,h,value=[0,0],t=now())=>request({op,view:h.view,property:h.property,token:h.token??0,x:value[0],y:value[1],now:t});
   const local=h=>h && h.generation===generation() && views.get(h.view)===h.el && h.el.isConnected && held.get(key(h.view,h.property))===h;
   const eligible=el=>el?.isConnected&&!el.closest('[disabled]')&&!el.matches(':disabled')&&!inert(el)&&el.getClientRects().length>0&&getComputedStyle(el).visibility==='visible';

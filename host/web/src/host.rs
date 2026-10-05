@@ -1302,7 +1302,8 @@ impl<D: DataSource> Host<D> {
                     duration,
                     values,
                 } => {
-                    let pairs: Vec<(f64, f64)> = values.iter().map(|v| (v.x, v.y)).collect();
+                    let pairs: Vec<[f64; 4]> =
+                        values.iter().map(|v| [v.x, v.y, v.z, v.w]).collect();
                     batch.spring(
                         at * 1000.0,
                         view,

@@ -459,7 +459,7 @@ Signatures are authored forms; localization's internal lowered signature differs
 | `params(router, parameterName)` | `list<string>` |
 | `searchParam(entry, name)` | String |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders |
-| `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it: in the viewport, every scroll offset applied, transforms not |
+| `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied |
 | `measure("id")` | `Geometry`, actions only; literal id, height-auto measurement |
 
 The router functions (`open` through `searchParam`) and `encodeRouteSegment`
@@ -611,7 +611,7 @@ link sheet.
 ## Events
 
 An event binding is an action reference or partially applied action. Captured
-arguments precede the event payload. The table contains all 50 handler names.
+arguments precede the event payload. The table contains all 51 handler names.
 Numeric multi-argument payload ordering should be copied from the feature's
 working fixture, not inferred from JavaScript's Event interface.
 
@@ -620,6 +620,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | One string | `change`, `input` (text field, textarea, `select`), `message`, `error` |
 | A string, then optionally a `KeyboardEvent` | `key`: the key's name; an action taking one more parameter also hears the [modifiers](#keys) |
 | Two numbers, then optionally a `ScrollEvent` | `scroll`: left and top; an action taking one more parameter also hears the scroller's extents (below) |
+| Two numbers, then optionally a `DOMRectReadOnly` | `resize` given an action: the content box's width and height; an action taking one more parameter also hears its `contentRect` (below). A string `resize` is CSS's property |
 | One boolean | `hover`; `change`, `input` on a checkbox or `switch` |
 | One number | `timeupdate`, `durationchange`; `change`, `input` on `type="range"` |
 | One `list<Picked>` | `change`, `input` on `type="file"` |
@@ -663,7 +664,28 @@ list virtualized=true scroll-start="end" scrollFollowEnd=true scroll=moved …
 
 As on the web, the event comes when the offset changes (a follow of the end
 moves it); content that grows below a reader who is not following it changes
-no offset and sends none. `panrelease` appends x/y release velocity;
+no offset and sends none.
+
+`resize` is two things, told apart by its value, as nowhere else: a string
+(`resize="none"`) is CSS's `resize` property, and an action is the element
+resize event, `ResizeObserver`'s. Its action hears the content box's width
+and height after layout: once the element is first laid out, then whenever
+its content box changes size (a commit that leaves it alone says nothing; one
+under `display: none` reads 0 by 0). One more parameter hears the entry's
+`contentRect`, a `DOMRectReadOnly`: `x` and `y` the padding's left and top,
+`width`, `height`, `top`, `right`, `bottom`, `left`. The web observes with
+the browser's `ResizeObserver`; a native host delivers after its layout and
+lays out again before the next round, each round only to elements deeper than
+the shallowest the last one reached, as the browser's loop does, so a handler
+that keeps growing its own box cannot spin: what is left is delivered after
+the next layout and the log says `ResizeObserver loop completed with
+undelivered notifications`. Geometry inside the action is `frame(id)`:
+
+```text
+action fit(w: number, h: number)
+  columns = floor(w / 240)
+column resize=fit …
+``` `panrelease` appends x/y release velocity;
 `heightrelease` appends height and velocity. A `pan` hears a drag that starts
 anywhere inside it, a nested `button` or `press` node included: past the slop
 the pan takes the contact and the press does not fire, while a tap still

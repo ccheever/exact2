@@ -54,7 +54,8 @@ impl Reader<'_> {
                 for _ in 0..n {
                     let p = Property::from_wire(self.u8()?).ok_or(DecodeError::BadAnimation)?;
                     // Each value carries its property's components: one,
-                    // two for `translate`, four for a colour.
+                    // four for `translate` (lengths, then percentages),
+                    // four for a colour.
                     let mut c = [0.0f64; 4];
                     for slot in c.iter_mut().take(p.components()) {
                         *slot = self.f32()? as f64;

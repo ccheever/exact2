@@ -95,9 +95,10 @@ fn reach(
             };
             let q = (walk.scene.presented)(id);
             let (cx, cy, cw, ch) = paint_rect(child.frame, offset);
+            let (tx, ty) = q.translate_at(cw, ch);
             let (mx, my) = (
-                cx + cw / 2.0 + q.translate.0 + q.layout[0],
-                cy + ch / 2.0 + q.translate.1 + q.layout[1],
+                cx + cw / 2.0 + tx + q.layout[0],
+                cy + ch / 2.0 + ty + q.layout[1],
             );
             let k = (q.scale * q.press).abs().max(1.0);
             let turned = q.rotate % 360.0 != 0.0
@@ -182,11 +183,8 @@ impl Painter {
         let (ox, oy) = s.transform_origin.resolve(w, h);
         let (cx, cy) = (x + ox, y + oy);
         let [dx, dy, ..] = p.layout;
-        let mut m = translate(
-            cx + dx + p.translate.0,
-            cy + dy + p.translate.1,
-            s.translate_z,
-        );
+        let (tx, ty) = p.translate_at(w, h);
+        let mut m = translate(cx + dx + tx, cy + dy + ty, s.translate_z);
         m = mul(&m, &rotate(axis, p.rotate));
         m = mul(&m, &scale(p.scale * p.press));
         m = mul(&m, &translate(-cx, -cy, 0.0));

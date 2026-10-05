@@ -497,7 +497,7 @@ impl<D: DataSource> Bridge<D> {
             // up and move with its record (LLP 1005 §3; LLP 1056 §3 stage 3),
             // the clipboard's three, a text's selectionchange, and
             // beforeunload, wheel and drop (`Event::of_host_kind`).
-            10 | 13 | 19 | 20 | 21 | 28..=38 => match Event::of_host_kind(kind, &payload) {
+            10 | 13 | 19 | 20 | 21 | 28..=39 => match Event::of_host_kind(kind, &payload) {
                 Ok(event) => event,
                 Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
             },

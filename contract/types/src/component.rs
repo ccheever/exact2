@@ -518,6 +518,7 @@ fn refine_params_from_view(
                             | "canplay"
                             | "navigate"
                             | "cancel"
+                            | "resize"
                     ) {
                         let (name, args): (&str, &[Expr]) = match &a.value {
                             Expr::Ident(n, _) => (n, &[]),
@@ -569,7 +570,9 @@ fn refine_params_from_view(
                                 "timeupdate" | "durationchange" => vec![Ty::Number],
                                 "hover" => vec![Ty::Bool],
                                 "select" => vec![Ty::Record("MarkdownSelection".into())],
-                                "scroll" | "panrelease" => vec![Ty::Number, Ty::Number],
+                                "scroll" | "panrelease" | "resize" => {
+                                    vec![Ty::Number, Ty::Number]
+                                }
                                 _ => vec![],
                             };
                             // Then the event's record, when the action
