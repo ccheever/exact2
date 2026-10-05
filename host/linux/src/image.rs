@@ -5,7 +5,7 @@ use exact_raster::{
     Demand, Gate, PixelSize, Priority, RasterKey, RasterLease, Refusal, RequestId, RequestStatus,
     Stats, ViewKey, SESSION_BYTES, SUBSCRIPTIONS,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -146,7 +146,7 @@ impl Images {
         visible: impl Fn(ViewId) -> bool,
     ) -> Vec<Report> {
         let mut reports = Vec::new();
-        let mut seen = BTreeSet::new();
+        let mut seen = std::collections::HashSet::with_capacity(live.len().min(SUBSCRIPTIONS));
         self.deferred = 0;
         for id in live {
             let Some(node) = kernel.node(*id) else {
@@ -184,7 +184,6 @@ impl Images {
                 symbol_size: None,
             });
             view.desired = (node.frame.width * scale, node.frame.height * scale);
-            view.visible = visible(*id);
             // LLP 1035.004.000: a symbol is an em square no file fills (the
             // paint walk strokes a portable role's path into it, `symbol`),
             // never a file request and never the previously accepted raster.
@@ -207,6 +206,8 @@ impl Images {
                 }
                 continue;
             }
+            // Only a picture loads by whether it shows: a symbol's never asked.
+            view.visible = visible(*id);
             if view.symbol_size.take().is_some() {
                 reports.push((*id, None));
             }
