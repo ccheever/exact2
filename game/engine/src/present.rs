@@ -12,7 +12,17 @@ pub trait PresentationComponent: Component {}
 /// present so each one rebuilds them from nothing. It has no simulation RNG,
 /// events, entity allocation, publications or busy reasons: those are
 /// simulation state a restore would replay. Writes outside it panic (a second,
-/// unrecoverable layer behind this type):
+/// unrecoverable layer behind this type). Interior mutability inside a
+/// component (a `Cell` or `RefCell` field, typically `#[data(skip)]`) is outside
+/// this guarantee: a present that writes through one is not refused.
+///
+/// What a present does, and the two things it cannot:
+///
+/// ```
+/// fn present(p: &mut exact_game::Present<'_>, e: exact_game::Entity) {
+///     p.insert(e, exact_game::Offset(exact_game::Transform::at(0., 0.1, 0.)));
+/// }
+/// ```
 ///
 /// ```compile_fail
 /// fn present(p: &mut exact_game::Present<'_>, _: &()) {
@@ -20,10 +30,28 @@ pub trait PresentationComponent: Component {}
 /// }
 /// ```
 ///
+/// ```
+/// fn present(p: &mut exact_game::Present<'_>, e: exact_game::Entity) {
+///     p.insert(e, exact_game::Tint::default()); // a presentation component
+/// }
+/// ```
+///
 /// ```compile_fail
 /// fn present(p: &mut exact_game::Present<'_>, e: exact_game::Entity) {
 ///     p.insert(e, exact_game::Transform::default()); // not a presentation component
 /// }
+/// ```
+///
+/// A hand-written marker on a simulation component does not get through either:
+///
+/// ```compile_fail
+/// #[derive(Default, exact_game::Component)]
+/// struct Hp(u32);
+/// impl exact_game::PresentationComponent for Hp {}
+/// fn present(p: &mut exact_game::Present<'_>, e: exact_game::Entity) {
+///     p.insert(e, Hp(1));
+/// }
+/// let _reachable: fn(&mut exact_game::Present<'_>, exact_game::Entity) = present;
 /// ```
 pub struct Present<'w> {
     world: &'w mut World,
@@ -98,11 +126,15 @@ impl<'w> Present<'w> {
     /// Insert or replace a presentation component on a living entity; false if
     /// the entity is gone.
     pub fn insert<C: PresentationComponent>(&mut self, e: Entity, value: C) -> bool {
+        // Sealed by value as well as by trait: a hand-written impl on a
+        // simulation component does not compile here.
+        const { assert!(C::PRESENTATION, "only #[derive(Presentation)] components") };
         self.world.insert(e, value)
     }
     /// Change a presentation component written earlier in this present.
     #[track_caller]
     pub fn get_mut<C: PresentationComponent>(&self, target: impl Target) -> Option<RefMut<'_, C>> {
+        const { assert!(C::PRESENTATION, "only #[derive(Presentation)] components") };
         self.world.get_mut(target)
     }
 }
