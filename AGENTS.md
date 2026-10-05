@@ -48,11 +48,6 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   random sweep), then `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
   the platforms that ride on another host's code: tvOS on the UIKit presenter. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
-  The gate never builds a member outside `default-members` (the hosts: `exact-web`,
-  `exact-web-js`, `exact-linux`, `exact-apple`, …), and the async lane reports only
-  after the push. So a change under one, or to what its tests read (`exact-web` holds
-  `contract/lower`'s reserved `data-*` words to the host's), also runs that crate's
-  tests before landing: `cargo test -p exact-web --lib --tests --no-fail-fast`.
 - A green `--workspace` build proves the apps compile, not that they work: their Apple
   crates are rlibs to Cargo, and the archive an app links is built only by
   `host/apple/build.mjs`, when the app is built to run. When a change can affect how an
@@ -96,6 +91,14 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   contract-difftest -- quick` before landing. It checks the semantics on what you changed,
   takes about 10 s warm, and is advice, not a check (`semantics/README.md`, "Using it day to
   day"; `contract verify <app>` is the app author's version).
+- The gate tests only `default-members`. The host crates (`exact-web`, `exact-web-js`,
+  `exact-linux`, `exact-apple`, `exact-windows`, `exact-render`, …), `js/`, `gpu/` and
+  most apps are neither built nor tested by it unless a member depends on them, and the
+  async lane reports them only after the push. When you touch one, or what its tests
+  read (`exact-web`'s dataset test fails when the web host writes a `data-*` name that
+  `contract/lower` does not reserve), run its tests before landing: `cargo test -p
+  exact-web --lib --tests --no-fail-fast`, or `--bins` for a bin-only crate such as
+  `exact-web-js`. Advice, not a check.
 - Verify by running, never by grepping. Fix loops get three rounds, then stop and say so.
 - To see a change work, drive the app: `bun scripts/agent.mjs <web|macos|ios|linux> tree
   "tap change-station" "type station-search Palo" "clock +60000" state logs "screenshot
