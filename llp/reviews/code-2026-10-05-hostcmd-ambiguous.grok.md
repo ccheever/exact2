@@ -64,3 +64,7 @@ I'll review the round-3 fixes read-only: the delta from `25a4539ca` to `2cdc57f8
 No remaining findings.
 
 Verdict: LAND
+
+---
+
+**Landed** (rebased onto origin/main): 38b6fddf9 → 68c581357 97e3c1ee5 30723eea3 , 25a4539ca → , 2cdc57f87 → .

@@ -46,3 +46,6 @@ Verdict: LAND WITH FIXES
 No new actionable findings in the full diff. Verified by code inspection; no builds or tests run.
 
 Verdict: LAND
+---
+
+**Landed** (rebased onto origin/main): 38b6fddf9 → 68c581357 97e3c1ee5 30723eea3 , 25a4539ca → , 2cdc57f87 → .
