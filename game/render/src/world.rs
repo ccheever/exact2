@@ -277,6 +277,8 @@ struct Versions {
     pose: u64,
     // Presentation offsets (exact_game::Offset) patch drawn poses like parents do.
     offset: u64,
+    // Presentation tints (exact_game::Tint), by content for the same reason.
+    tint: u64,
     live: u64,
     membership: u64,
 }
@@ -336,6 +338,30 @@ fn offsets(w: &World) -> u64 {
     }
     h
 }
+/// Content of every presentation `Tint`.
+fn tints(w: &World) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for (e, t) in w.query::<&exact_game::Tint>().iter() {
+        let words = (t.color.iter().chain(&t.emissive))
+            .map(|v| v.to_bits())
+            .chain([e.index(), e.generation()]);
+        for word in words {
+            h = (h ^ u64::from(word)).wrapping_mul(0x100_0000_01b3);
+        }
+    }
+    h
+}
+/// A primitive's material floats under its `Tint`: base colour (not a grid's
+/// spacing) multiplied, emission added.
+fn tinted(out: &mut [f32], t: &exact_game::Tint) {
+    for c in 0..3 {
+        out[c] *= t.color[c];
+        out[6 + c] += t.emissive[c];
+    }
+    if out[3] >= 0. {
+        out[3] *= t.color[3];
+    }
+}
 impl Versions {
     fn of(w: &World, assets: u64) -> Self {
         Self {
@@ -353,6 +379,7 @@ impl Versions {
             lod: w.revision::<exact_game::ModelLod>(),
             pose: w.revision::<exact_game::Pose>(),
             offset: offsets(w),
+            tint: tints(w),
             live: w.entities_revision(),
             membership: w.membership::<Transform>(),
         }
@@ -397,6 +424,8 @@ pub struct Feed {
     changed_pages: Vec<usize>,
     fades: Vec<(u32, f32)>,
     fades_next: Vec<(u32, f32)>,
+    // Each tinted slot's Tint, rebuilt when their content changes.
+    tints: BTreeMap<u32, exact_game::Tint>,
     scene: Scene,
     glows: Vec<crate::GlowInput>,
 }
@@ -429,6 +458,7 @@ impl Default for Feed {
             changed_pages: Vec::new(),
             fades: Vec::new(),
             fades_next: Vec::new(),
+            tints: BTreeMap::new(),
             scene: Scene::default(),
             glows: Vec::new(),
         }
@@ -529,6 +559,7 @@ impl Feed {
             || next.offset != old.offset;
         let material = initial
             || next.material != old.material
+            || next.tint != old.tint
             || next.glow != old.glow
             || next.membership != old.membership
             || next.mesh != old.mesh;
@@ -789,6 +820,14 @@ impl Feed {
             }
         }
         if material {
+            if initial || next.tint != old.tint {
+                self.tints = w
+                    .query::<&exact_game::Tint>()
+                    .iter()
+                    .filter(|(e, _)| w.is_visible(*e))
+                    .map(|(e, t)| (e.index(), *t))
+                    .collect();
+            }
             // Frame-time Glow writes bypass page fingerprints. Restore authored
             // values when a tween disappears, including model emission. Retargeting
             // an existing tween needs only its next frame-time write.
@@ -828,6 +867,7 @@ impl Feed {
                 if !initial
                     && next.mesh == old.mesh
                     && next.glow == old.glow
+                    && next.tint == old.tint
                     && next.membership == old.membership
                     && !self.materials.needs_check(index, generation)
                 {
@@ -852,6 +892,9 @@ impl Feed {
                     out[9..12].copy_from_slice(
                         self.dimensions.get(first as usize + i).unwrap_or(&[1.0; 3]),
                     );
+                    if let Some(t) = self.tints.get(&(first + i as u32)) {
+                        tinted(out, t);
+                    }
                 }
                 let values = &self.page_scratch[..len * 12];
                 if self.materials.dirty(index, generation, values, true) {
@@ -915,6 +958,9 @@ impl Feed {
             for (entity, glow) in w.query::<&exact_game::Glow>().iter() {
                 let mut values =
                     material_floats(w.get::<Material>(entity).map(|m| *m).unwrap_or_default());
+                if let Some(t) = w.get::<exact_game::Tint>(entity) {
+                    tinted(&mut values, &t);
+                }
                 values[9..12].copy_from_slice(
                     self.dimensions
                         .get(entity.index() as usize)

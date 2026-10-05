@@ -208,3 +208,57 @@ fn a_hidden_ancestor_overrides_opacity_and_levels_of_detail() {
     assert_eq!(hidden, 0, "a hidden ancestor hides it");
 }
 
+#[derive(Default, Args)]
+struct TintArgs {
+    tinted: bool,
+}
+struct Tinted;
+impl Game for Tinted {
+    const ID: &'static str = "presentation-tint";
+    type Args = TintArgs;
+    fn setup(w: &mut World, _: &TintArgs) {
+        w.insert_resource(Environment {
+            fog: None,
+            bloom: None,
+            background: Some([0.; 3]),
+            ..Default::default()
+        });
+        w.spawn((Transform::at(0., 0., 4.), Camera::default()));
+        w.spawn_named("block", (Transform::default(), Mesh::cube(1.5)));
+    }
+    fn tick(_: &mut World, _: &Input, _: &TintArgs) {}
+    fn present(p: &mut Present<'_>, args: &TintArgs) {
+        if args.tinted {
+            let e = p.named("block").unwrap();
+            p.insert(
+                e,
+                Tint {
+                    color: [1., 0.1, 0.1, 1.],
+                    emissive: [0., 0., 0.5],
+                },
+            );
+        }
+    }
+}
+
+#[test]
+fn a_primitive_tint_multiplies_its_colour_and_adds_emission() {
+    let Some(gpu) = test_device::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let centre = |tinted: bool| {
+        let mut s = WorldSurface::<Tinted>::default();
+        s.bind(&[Value::Bool(tinted)], None).unwrap();
+        let (p, _) = fixture::render(&gpu, &mut s, &frame()).unwrap();
+        assert!(s.error().is_none(), "{:?}", s.error());
+        p.at(64, 64)
+    };
+    let (plain, tinted) = (centre(false), centre(true));
+    eprintln!("plain {plain:?}, tinted {tinted:?}");
+    assert!(
+        tinted[1] < plain[1] / 2,
+        "green multiplied down: {tinted:?}"
+    );
+    assert!(tinted[2] > plain[2] + 20, "blue emission added: {tinted:?}");
+    assert!(tinted[0].abs_diff(plain[0]) < 10, "red kept: {tinted:?}");
+}
