@@ -215,5 +215,53 @@ final class NativeButtonsIOSTests: XCTestCase {
         try button(p, 2).layoutIfNeeded()
         XCTAssertGreaterThan(try button(p, 2).naturalSize.height, regular.height)
     }
+
+    func testNativeWorldLayoutFollowsAnEqualBoundsChildsAncestor() {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        let ancestor = UIView(frame: CGRect(x: 20, y: 100, width: 200, height: 100))
+        let child = NativeWorldLayoutProbe(frame: CGRect(x: 10, y: 20, width: 14, height: 14))
+        window.addSubview(ancestor); ancestor.addSubview(child)
+        child.layoutIfNeeded()
+        var geometry = NativeWorldLayout()
+        geometry.refresh(child); child.layoutIfNeeded()
+        let before = child.layouts.count, bounds = child.bounds
+        geometry.refresh(child); child.layoutIfNeeded()
+        XCTAssertEqual(child.layouts.count, before, "unchanged geometry does no layout work")
+        ancestor.frame.origin.y += 1.0 / 6.0
+        child.layoutIfNeeded()
+        XCTAssertEqual(child.bounds, bounds)
+        XCTAssertEqual(child.layouts.count, before, "UIKit does not lay out the fixed child for an ancestor move")
+        geometry.refresh(child); child.layoutIfNeeded()
+        XCTAssertEqual(child.layouts.count, before + 1)
+        XCTAssertEqual(child.layouts.last?.minY ?? 0, 120 + 1.0 / 6.0, accuracy: 0.0001)
+    }
+
+    func testNativeWorldLayoutRearmsAfterDetachAndDoesNotRetainAWindow() {
+        var geometry = NativeWorldLayout()
+        let child = NativeWorldLayoutProbe(frame: CGRect(x: 10, y: 20, width: 14, height: 14))
+        weak var released: UIWindow?
+        autoreleasepool {
+            let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+            released = window
+            window.addSubview(child)
+            geometry.refresh(child); child.layoutIfNeeded()
+            child.removeFromSuperview()
+            geometry.refresh(child)
+            window.addSubview(child); child.layoutIfNeeded()
+            let before = child.layouts.count
+            geometry.refresh(child); child.layoutIfNeeded()
+            XCTAssertEqual(child.layouts.count, before + 1, "same coordinates after a detach are a fresh layout")
+            child.removeFromSuperview()
+        }
+        XCTAssertNil(released, "the cached window identity must not retain the window")
+    }
+}
+
+private final class NativeWorldLayoutProbe: UIView {
+    var layouts: [CGRect] = []
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layouts.append(convert(bounds, to: window))
+    }
 }
 #endif

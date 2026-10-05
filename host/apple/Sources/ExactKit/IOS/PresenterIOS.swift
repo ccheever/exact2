@@ -758,6 +758,7 @@ final class Presenter {
                 for (id, f) in q where id.map({ textHost($0) != nil }) ?? true { f() }
                 scrollPump.batchApplied()
                 leaves.batchApplied(moved: moved)
+                if moved { session?.natives.refreshWorldGeometry() }
                 flushPendingFocus()
             }
         }
