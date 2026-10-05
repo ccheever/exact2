@@ -134,8 +134,12 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   (`~/.cache/exact/apple-modules`, `host/apple/modules.mjs`), and, into a
   `target/` that has compiled nothing, the registry crates another build
   compiled, which Cargo then accepts or not by its own fingerprints
-  (`~/.cache/exact/apple-crates`, `host/apple/crates.mjs`). Deleting either
-  directory only costs the next first build its time.
+  (`~/.cache/exact/apple-crates`, `host/apple/crates.mjs`). A development web
+  build takes the compiler and the leaf wasm modules the same way
+  (`~/.cache/exact/web-modules`, `host/web-js/module.mjs`; `bun
+  host/web-js/module.mjs --prebuild` warms a builder for its checkout's
+  sources). Deleting any of these directories only costs the next first build
+  its time.
 - Never `git stash`. Kill only PIDs you recorded. Agents remove apparatus freely and add
   none without a human saying so.
 - Optional capability is a separate artifact loaded on demand (the GPU module) or another

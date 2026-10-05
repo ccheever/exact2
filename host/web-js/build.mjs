@@ -19,7 +19,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync,
 import { dirname, isAbsolute, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'rolldown/utils';
-import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants } from './module.mjs';
+import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler } from './module.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -98,11 +98,12 @@ const containerHooks = pageExports.exports.some(n => ['navigation', 'route', 'ro
 const gpuLib = resolve(appDir, 'gpu/src/lib.rs');
 const gpuSurfaces = existsSync(gpuLib) ? [...readFileSync(gpuLib, 'utf8').matchAll(/\("([a-z][a-z0-9-]*)", \d+, [a-z_:]+\)/g)].map(m => m[1]) : [];
 // The compiler, run as its built binary when nothing it was built from
-// changed (module.mjs `fresh`; `cargo run`'s own check costs ~0.4 s an edit).
-const compiler = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'debug/exact-web-js');
-const [cmd, pre] = fresh(compiler, `${compiler}.d`) ? [compiler, []] : ['cargo', ['run', '-q', '-p', 'exact-web-js', '--']];
-const cargo = spawnSync(cmd, [...pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
+// changed (module.mjs `fresh`; `cargo run`'s own check costs ~0.4 s an edit),
+// or as the one another checkout of this machine built from these sources.
+const compiler = webCompiler();
+const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
+compiler.done();
 for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js']) cpSync(resolve(here, f), resolve(gen, f));
 // Canvas 2D surfaces (a loaded chunk: this runtime's engine over the web
 // host's own replayer) are drawn by the Rust data module, or by a
@@ -193,7 +194,7 @@ async function typecheck() {
 const normalizeGrants = (label, spec, stem) => {
   const file = resolve(gen, `${stem}.grants`);
   writeFileSync(file, spec);
-  const result = spawnSync(cmd, [...pre, 'normalize-grants', file], { cwd: root, encoding: 'utf8' });
+  const result = spawnSync(compiler.cmd, [...compiler.pre, 'normalize-grants', file], { cwd: root, encoding: 'utf8' });
   if (result.status !== 0) { console.error(result.stderr); process.exit(result.status ?? 1); }
   const set = JSON.parse(result.stdout);
   if (set.error) throw new Error(`grant-parse: ${label}: ${set.error}`);
@@ -436,13 +437,12 @@ if (auth) {
   const docs = authClientMetadata({ origin: manifest.app?.origin ?? null, displayName: manifest.app?.name ?? manifest.name, manifest }, callbacks);
   for (const [name, doc] of Object.entries(docs)) writeFileSync(resolve(out, `.exact/auth/${name}.json`), JSON.stringify(doc, null, 2) + '\n');
 }
-if (existsSync(resolve(gen, 'markdown.flag'))) cpSync(buildMarkdown(), resolve(out, 'markdown.wasm'));
-// The motion engine (host/web-js/motion), only for a plan that uses motion.
-if (existsSync(resolve(gen, 'motion.flag'))) cpSync(buildMotion(), resolve(out, 'motion.wasm'));
-// The Markdown editor's rules (exact-markdown-editor), beside its chunk.
-if (existsSync(resolve(gen, 'editor.flag'))) cpSync(buildEditor(), resolve(out, 'markup-editor.wasm'));
-// The exclusions walker (exact-textflow's `textflow-web`), beside its chunk.
-if (existsSync(resolve(gen, 'flow.flag'))) cpSync(buildFlow(), resolve(out, 'textflow.wasm'));
+// The leaf modules the plan uses, built at once: Markdown's pieces, the
+// motion engine (host/web-js/motion), the Markdown editor's rules
+// (exact-markdown-editor) and the exclusions walker (exact-textflow's
+// `textflow-web`), each beside its chunk.
+await Promise.all([['markdown', buildMarkdown, 'markdown.wasm'], ['motion', buildMotion, 'motion.wasm'], ['editor', buildEditor, 'markup-editor.wasm'], ['flow', buildFlow, 'textflow.wasm']]
+  .filter(([flag]) => existsSync(resolve(gen, `${flag}.flag`))).map(async ([, build, name]) => cpSync(await build(), resolve(out, name))));
 // The app's GPU module (LLP 1009 D2), built here as the wasm target's build
 // makes it, with the web host's glue: a loaded capability.
 // Built again only when something a module was built from changed (Cargo's
