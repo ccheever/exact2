@@ -56,6 +56,9 @@ enum TouchLog {
         var at = view
         while let v = at, !(v is NodeView) { at = v.superview }
         out["node"] = (at as? NodeView).map { Int($0.id) } ?? NSNull()
+        // In a grouped list's cell, which row and which part of it: the
+        // node alone is the list's for every row (LLP 1084).
+        if let projected = GroupedListHost.part(view) { out["projected"] = projected }
         if let v = view {
             for (label, session) in Agent.routes where v.isDescendant(of: session.presenter.viewport) || session.view.map({ v.isDescendant(of: $0) }) == true {
                 out["session"] = label
@@ -199,6 +202,8 @@ extension Agent {
             "viewport": [Agent.r2(vp.bounds.width), Agent.r2(vp.bounds.height)], // where a drag must end
             // The Exact node the window's hit test finds there: where the dispatch log must see the touch land.
             "hit": TouchLog.landing(seen)["node"] ?? NSNull(),
+            // In a grouped list, the row and part it must land on too.
+            "projected": TouchLog.landing(seen)["projected"] ?? NSNull(),
         ] as [String: Any]]
     }
 }

@@ -152,6 +152,23 @@ final class GroupedListHost {
         return .view(control, port: list.collection)
     }
 
+    /// The row and part of a grouped list's cell that `view` is in: the
+    /// cell, its switch, or its detail button; nil outside every list cell.
+    static func part(_ view: UIView?) -> [String: Any]? {
+        var at = view, control: UIView?
+        while let v = at, !(v is GroupedCell) {
+            if v is UIControl { control = v }
+            at = v.superview
+        }
+        guard let cell = at as? GroupedCell, let row = cell.row else { return nil }
+        #if os(tvOS)
+        let part = control == nil ? "cell" : "detail"
+        #else
+        let part = control == nil ? "cell" : control is UISwitch ? "switch" : "detail"
+        #endif
+        return ["row": Int(row), "part": part]
+    }
+
     /// The agent's `tap` on a row UIKit draws: the cell's own selection, as a
     /// finger's; on a toggle's control, its switch's flip; on a detail
     /// button, its accessory's action. Refused, having done nothing, when

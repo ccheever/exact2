@@ -4,7 +4,7 @@
 - **Method:** one brief (sha256 `d18d483ee75699a738492915d2e9103cbf5788ac67d4c646730cc01096f41ce0`), shared with astra. Round 1, blind to the other review. The author (Claude) is not a reviewer.
 - **Transcription:** the final message, unedited (the CLI's running narration before it is omitted).
 - **Verdict:** LAND WITH FIXES.
-- **Disposition (r2):** 1 taken: for a projected target the hit must be that view or a descendant, and a point outside the collection view's bounds is refused with the port error; real nodes keep the ancestor clause. 2 taken: a missing accessory is refused, never the cell. 3 taken: the LLP note no longer claims parity with host activation, and says a disabled row or control is not refused (the finger lands, UIKit declines); the unit test covers the missing accessory. DEFERRED as in astra's 3: an aim-level XCTest.
+- **Disposition (r2):** 1 taken: for a projected target the hit must be that view or a descendant, and a point outside the collection view's bounds is refused (the port error, or "covers its middle" when the covering check finds another view there first); real nodes keep the ancestor clause. 2 taken: a missing accessory is refused, never the cell. 3 taken: the LLP note no longer claims parity with host activation, and says a disabled row or control is not refused (the finger lands, UIKit declines); the unit test covers the missing accessory. DEFERRED as in astra's 3: an aim-level XCTest.
 
 ---
 

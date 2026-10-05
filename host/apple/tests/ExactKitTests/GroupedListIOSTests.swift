@@ -174,6 +174,11 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertTrue(try aimed(13) === s, "the toggle's control: its switch")
         XCTAssertTrue(try aimed(10) === (try cell(p, 10)), "a row: its cell")
         XCTAssertNil(p.groupedLists.shown(try XCTUnwrap(p.views[4])), "a node no list draws: the ordinary aim")
+        // The dispatch log tells one row's switch from another's, and from
+        // its cell: the node alone is the list's for all of them.
+        XCTAssertEqual(GroupedListHost.part(s.subviews.first ?? s) as? [String: AnyHashable], ["row": 12, "part": "switch"])
+        XCTAssertEqual(GroupedListHost.part(toggle.contentView) as? [String: AnyHashable], ["row": 12, "part": "cell"])
+        XCTAssertNil(GroupedListHost.part(l.collection))
         // A switch not shown is refused, never the row in its place.
         s.removeFromSuperview()
         XCTAssertEqual(try refusal(13), "its switch is not shown")

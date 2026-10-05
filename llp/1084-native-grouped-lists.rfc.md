@@ -244,7 +244,9 @@ It is refused when the cell is outside the list's port, when the point is,
 when anything but that view (an ancestor beside a clipped cell included) is
 hit there, and when the switch or detail button is not shown: never the row
 in its place. The node the dispatch log must see the touch land on is the
-list's. Unlike host activation it does not refuse a disabled row or control:
+list's for every row, so the log and the aim also carry `projected: {row,
+part}` (`cell`, `switch` or `detail`) and the driver refuses a touch that
+landed on another row or part. Unlike host activation it does not refuse a disabled row or control:
 the finger lands, and UIKit declines it, as on a device. A custom row needs
 nothing: its views are carried into the cell.
 
