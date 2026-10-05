@@ -36,7 +36,8 @@ pub(super) fn reserved_message(w: &str) -> String {
 
 impl Parser {
     /// A TypeScript-style `: T` before a state's or derive's `=`, or `as T` after its
-    /// initializer (authoring bench): its type is inferred.
+    /// initializer (`form` "as none" when that initializer is `none`; authoring bench):
+    /// its type is inferred.
     pub(super) fn type_annotation(&self, w: &str, name: &str, form: &str) -> R<()> {
         let state = w == "state";
         if form == ":" && self.at_punct(":") {
@@ -53,14 +54,14 @@ impl Parser {
                 ),
             );
         }
-        if form == "as" && self.at_ident("as") {
-            let from = if state {
-                format!(
+        if form.starts_with("as") && self.at_ident("as") {
+            let from = match (state, form == "as none") {
+                (true, true) => format!(
                     "its initializer and the writes to it (a `none` takes its type from a write \
                      such as `{name} = some(…)`)"
-                )
-            } else {
-                "its expression".to_string()
+                ),
+                (true, false) => "its initializer and the writes to it".to_string(),
+                _ => "its expression".to_string(),
             };
             return self.err(
                 "syntax-expected-newline",

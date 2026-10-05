@@ -719,7 +719,8 @@ impl Parser {
                             self.type_annotation(&w, &name, ":")?;
                             self.expect_punct("=")?;
                             let expr = self.expr()?;
-                            self.type_annotation(&w, &name, "as")?;
+                            let none = matches!(expr, Expr::None(_));
+                            self.type_annotation(&w, &name, if none { "as none" } else { "as" })?;
                             self.newline()?;
                             let b = Binding {
                                 name,
