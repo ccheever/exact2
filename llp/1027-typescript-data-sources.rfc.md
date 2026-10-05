@@ -528,6 +528,18 @@ one listing at launch, and the app's own secrets stay in the Keychain
 itself; the app still cannot read a kept answer. The web keeps them in
 page storage as before; Linux keeps nothing.
 
+**Written off the commit (2026-10-05).** Each kept answer was written in
+the commit that kept it (a file, a rename, a sync), on the owner thread,
+while the main thread waited on the commit: on the Signal clone opening a
+chat fulfilled a dozen requests and their writes held the opening frame
+for 62 ms. Apple now hands kept writes to one writer thread: what waits
+is the last value per key, so a store that changes faster than the disk
+holds no more than its keys, and the last kept is the last written; a
+launch's snapshot and an orderly exit wait for the writer; a failed
+write is journaled at a later commit, by the successor of a host a reload
+replaced; an answer a crash (or macOS's sudden termination) loses is
+fetched again. The app's secrets stay synchronous (LLP 1018).
+
 **Storage readers (2026-09-07):** the same `resources.reader` marker covers
 filesystem and SQLite access. A storage call records an external read even when
 bake refuses it; it does not invent a secret read or key. Storage-backed resources
