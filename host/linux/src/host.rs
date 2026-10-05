@@ -548,21 +548,12 @@ impl<D: DataSource> Host<D> {
 
     fn configure_storage(&mut self) -> Result<(), exact_runner::DataError> {
         let app_id = self.runner.data().app_id().to_string();
-        let Some(([data, cache, temporary], fresh)) = crate::picker::app_dirs(&app_id)? else {
+        let Some(([data, cache, temporary], _)) = crate::picker::app_dirs(&app_id)? else {
             return Ok(());
         };
-        // An authored test's store starts empty every run (`agent --test`).
-        if let Some(tree) = fresh {
-            match std::fs::remove_dir_all(&tree) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(exact_runner::DataError::Unavailable(format!(
-                        "EXACT_AGENT_STORAGE_FRESH: could not empty {}: {e}",
-                        tree.display()
-                    )));
-                }
-                _ => {}
-            }
-        }
+        // An authored test's store starts empty every run (`agent --test`):
+        // emptied at the boot that read it, so this is a no-op unless that failed.
+        crate::picker::empty_fresh_tree(&app_id)?;
         // What `app:/` names for the picker and an image's source (LLP
         // 1069.002 D4, D7); the last launch's picks go.
         crate::picker::set_roots(data.clone(), cache.clone(), temporary.clone());
@@ -1225,19 +1216,17 @@ impl<D: DataSource> Host<D> {
 const KEPT: &str = "exact.kept";
 
 /// What a named agent drive has kept, for the runner's boot snapshot.
-/// A carried launch and a nameless drive contribute nothing. A fresh launch
-/// empties the scratch secrets first, so leftovers do not return.
+/// A carried launch and a nameless drive contribute nothing. A fresh drive's
+/// tree is emptied first, once a process and before anything is written there
+/// (`picker::empty_fresh_tree`; a failure there is the activation's to report).
 fn agent_store_snapshot(app_id: &str, carried: bool) -> Vec<(String, String)> {
     if carried {
         return Vec::new();
     }
-    crate::picker::forget_fresh_agent_secrets(app_id);
+    let _ = crate::picker::empty_fresh_tree(app_id);
     let Some(root) = crate::picker::agent_secret_root(app_id) else {
         return Vec::new();
     };
-    if std::env::var_os("EXACT_AGENT_STORAGE_FRESH").is_some() {
-        return Vec::new();
-    }
     let secrets = ibex2::secrets::FileStore::new(root.join("secrets"));
     let kv = ibex2::kv::FileStore::new(root.join("kv"));
     // A leading dot is the store's temporary file, not a secret.
@@ -1380,6 +1369,11 @@ mod tests {
             "a fresh launch reads nothing"
         );
         assert!(!file.exists());
+        // A commit after that boot outlives the activation's storage
+        // configuration and a second boot here: the tree is emptied once.
+        assert!(persist_agent_writes(app, &[write("platformer.best", Some("7"))]).is_empty());
+        crate::picker::empty_fresh_tree(app).unwrap();
+        assert!(agent_store_snapshot(app, false).contains(&("platformer.best".into(), "7".into())));
         std::env::remove_var("EXACT_AGENT_STORAGE_FRESH");
         assert!(persist_agent_writes(app, &[write("platformer.best", Some("22050"))]).is_empty());
         std::env::remove_var("EXACT_AGENT_STORAGE");

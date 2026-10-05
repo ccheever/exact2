@@ -56,11 +56,14 @@ pub fn endow_for(grants: &str, app_id: &str) -> Result<Bindings, String> {
     endow_in(host, grants)
 }
 
-/// [`endow_for`], wiping a named agent's leftover secrets first when `fresh`.
-/// A reload passes false and keeps what the last drive wrote (platformer R10).
+/// [`endow_for`] for a boot. One that reads the store (`fresh`, not a
+/// reload carrying memory) first empties a fresh drive's scratch tree, once
+/// a process and before anything is written there (`picker::empty_fresh_tree`).
 pub fn endow_bound(grants: &str, app_id: &str, fresh: bool) -> (Option<Bindings>, Option<String>) {
     if fresh {
-        crate::picker::forget_fresh_agent_secrets(app_id);
+        if let Err(e) = crate::picker::empty_fresh_tree(app_id) {
+            return (None, Some(format!("{e:?}")));
+        }
     }
     match endow_for(grants, app_id) {
         Ok(b) => (Some(b), None),

@@ -89,22 +89,39 @@ pub(crate) fn agent_secret_root(app_id: &str) -> Option<PathBuf> {
         return None;
     }
     // `roots[0]` is `<scratch>/data`. Secrets live in the scratch tree, so
-    // the fresh-launch removal of that tree deletes them too.
+    // a fresh drive's emptying of that tree ([`empty_fresh_tree`]) takes them too.
     let (roots, _) = app_dirs(app_id).ok().flatten()?;
     roots[0].parent().map(|path| path.to_path_buf())
 }
 
-/// Drop leftover secrets before a fresh launch's snapshot
-/// (`EXACT_AGENT_STORAGE_FRESH`). Called only when the launch reads the
-/// store, not on a reload that carries memory (platformer R10).
-pub(crate) fn forget_fresh_agent_secrets(app_id: &str) {
-    let Some(root) = agent_secret_root(app_id) else {
-        return;
+/// The scratch trees a fresh drive has emptied in this process.
+static EMPTIED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+/// Empty a fresh drive's scratch tree (`EXACT_AGENT_STORAGE_FRESH`) once a
+/// process: at the first boot that reads its store, before the snapshot and
+/// before any commit can write a secret or a kept answer into it. The
+/// post-pixel activation and any later boot here leave it as it is; emptying
+/// it again there removed what a commit in between had written while memory
+/// still held it, so a relaunch read nothing back.
+pub(crate) fn empty_fresh_tree(app_id: &str) -> Result<(), DataError> {
+    let Some((_, Some(tree))) = app_dirs(app_id)? else {
+        return Ok(());
     };
-    if std::env::var_os("EXACT_AGENT_STORAGE_FRESH").is_some() {
-        let _ = std::fs::remove_dir_all(root.join("secrets"));
-        let _ = std::fs::remove_dir_all(root.join("kv"));
+    let mut emptied = EMPTIED.lock().unwrap_or_else(|e| e.into_inner());
+    if emptied.contains(&tree) {
+        return Ok(());
     }
+    match std::fs::remove_dir_all(&tree) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            return Err(DataError::Unavailable(format!(
+                "EXACT_AGENT_STORAGE_FRESH: could not empty {}: {e}",
+                tree.display()
+            )));
+        }
+        _ => {}
+    }
+    emptied.push(tree);
+    Ok(())
 }
 
 /// A scripted drive's scratch storage (`EXACT_AGENT_STORAGE=<name>`): a tree
