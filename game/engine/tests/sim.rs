@@ -1423,6 +1423,9 @@ fn posted_messages_reach_one_tick_each_in_order_and_are_saved_only_while_pending
     assert!(full
         .agent(r#"{"op":"state"}"#)
         .contains(r#""refusedPosts":76"#));
+    assert!(full.agent(r#"{"op":"state"}"#).contains(
+        r#""pending":{"total":1024,"key":0,"pointer":0,"control":0,"wheel":0,"blur":0,"message":1024}"#
+    ));
     full.bind(&[Value::Bool(false)], None).unwrap();
     full.run(1000. / 60.);
     let got: Vec<_> = log(&full).into_iter().map(|(_, m)| m).collect();

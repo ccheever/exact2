@@ -3,6 +3,9 @@ struct Scene;
 impl Game for Scene {
     type Args = ();
     const ID: &'static str = "Scene";
+    fn actions() -> Actions {
+        Actions::new().button("act", &["KeyE"])
+    }
     fn setup(w: &mut World, _: &Self::Args) {
         let child = w.spawn_named("child", Transform::at(0.0, 1.0, 0.0));
         let root = w.spawn_named("root", Transform::at(2.0, 0.0, 0.0));
@@ -10,6 +13,101 @@ impl Game for Scene {
         w.spawn_named("camera", (Transform::at(0.0, 0.0, 10.0), Camera::default()));
     }
     fn tick(_: &mut World, _: &Input, _: &Self::Args) {}
+}
+
+fn assert_pending(s: &mut Sim<Scene>, counts: [usize; 6]) {
+    let saved = s.save().unwrap();
+    let [key, pointer, control, wheel, blur, message] = counts;
+    let total: usize = counts.iter().sum();
+    let expected = format!(
+        r#""pending":{{"total":{total},"key":{key},"pointer":{pointer},"control":{control},"wheel":{wheel},"blur":{blur},"message":{message}}}"#
+    );
+    let reply = s.agent(r#"{"op":"state"}"#);
+    assert!(reply.contains(&expected), "{reply}");
+    assert!(reply.len() < 4096, "pending payloads must not expand state");
+    assert_eq!(
+        s.save().unwrap(),
+        saved,
+        "inspection preserves the full save"
+    );
+}
+
+#[test]
+fn pending_blurs_explain_different_saves_at_the_same_world_hash() {
+    let mut s = Sim::<Scene>::new(()).unwrap();
+    s.advance(1000., Clock::Seekable);
+    let before = s.save().unwrap();
+    let hash = s.world().hash();
+    assert_pending(&mut s, [0; 6]);
+    for _ in 0..3 {
+        s.input(InputEvent::Blur { at_ms: 1000. });
+    }
+    assert_eq!(s.world().hash(), hash);
+    let saved = s.save().unwrap();
+    assert_ne!(saved, before);
+    assert_pending(&mut s, [0, 0, 0, 0, 3, 0]);
+    let mut restored = Sim::<Scene>::new(()).unwrap();
+    restored.restore(&saved).unwrap();
+    assert_pending(&mut restored, [0, 0, 0, 0, 3, 0]);
+    restored.advance(7000., Clock::Seekable);
+    assert_pending(&mut restored, [0, 0, 0, 0, 3, 0]);
+    restored.advance(7100., Clock::Seekable);
+    s.advance(1100., Clock::Seekable);
+    assert_pending(&mut s, [0; 6]);
+    assert_pending(&mut restored, [0; 6]);
+    assert_eq!(restored.save().unwrap(), s.save().unwrap());
+}
+
+#[test]
+fn pending_counts_describe_retained_events_without_copying_their_payloads() {
+    let mut s = Sim::<Scene>::new(()).unwrap();
+    s.advance(0., Clock::Seekable);
+    for _ in 0..2 {
+        s.input(InputEvent::Key {
+            code: "KeyE".into(),
+            down: true,
+            at_ms: 1.,
+        });
+    }
+    for _ in 0..2 {
+        s.input(InputEvent::Pointer {
+            id: 1,
+            phase: PointerPhase::Move,
+            x: 1.,
+            y: 2.,
+            dx: 1.,
+            dy: 2.,
+            buttons: 0,
+            at_ms: 1.,
+        });
+        s.input(InputEvent::Wheel {
+            dx: 1.,
+            dy: 2.,
+            at_ms: 1.,
+        });
+    }
+    s.input(InputEvent::Control {
+        name: "act".into(),
+        id: 2,
+        phase: PointerPhase::Down,
+        x: 0.,
+        y: 0.,
+        at_ms: 1.,
+    });
+    for _ in 0..2 {
+        s.input(InputEvent::Blur { at_ms: 1. });
+    }
+    for _ in 0..3 {
+        s.post("x".repeat(64 * 1024));
+    }
+    assert_pending(&mut s, [1, 1, 1, 1, 2, 3]);
+    let saved = s.save().unwrap();
+    s.restore(&saved).unwrap();
+    assert_pending(&mut s, [1, 1, 1, 1, 2, 3]);
+    s.advance(3000., Clock::Seekable);
+    assert_pending(&mut s, [1, 1, 1, 1, 2, 3]);
+    s.advance(3100., Clock::Seekable);
+    assert_pending(&mut s, [0; 6]);
 }
 #[test]
 fn hierarchy_preorder_under_and_cap() {

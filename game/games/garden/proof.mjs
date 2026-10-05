@@ -399,7 +399,11 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await compost.tap('bag-tab');
   check('a harvested fruit offers a named compost trade', node(await compost.tree(),'compost-0')?.props?.accessibilityLabel?.includes('one plant food'));
   const cash = purseOf(await compost.tree());
-  await compost.tap('compost-0'); await fg.run(100);
+  await compost.tap('compost-0');
+  const pendingCompost = (await compost.state()).world?.find(w => w.name === 'world')?.input?.pending;
+  check('state exposes the compost message waiting for a tick', pendingCompost?.message === 1, pendingCompost);
+  await fg.run(100);
+  check('normal ticks consume the pending compost input', (await compost.state()).world?.find(w => w.name === 'world')?.input?.pending?.total === 0);
   check('compost trades that fruit for one dose without selling it', text(await compost.tree(),'food-count') === 'Plant food · 1/3'
     && label(await compost.tree(),'bag-tab') === 'Backpack 0' && purseOf(await compost.tree()) === cash);
   await fg.tap('KeyF'); await fg.run(100);

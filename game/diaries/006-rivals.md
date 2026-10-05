@@ -1461,3 +1461,14 @@ entry; the agent uses a temporary store. Its screenshot still shows the
 macOS canvas text-flip defect already tracked in QUEUE; this is no claim of
 clean Caltrain pixels. Logs: `/tmp/exact2-owner-caltrain-{build,smoke,delivery}.log`;
 capture: `/tmp/exact2-owner-caltrain.png`. The game captures are unaffected.
+
+## Pending-input inspection and main integration (2026-10-04)
+
+Merge `8a0bd86c9` brings main through `b83acf98a`; Garden diary 004 records
+the queued-input summary added to `state` and the passing root/engine checks.
+Rivals passes complete web/macOS proofs in 107.838/71.565 s including builds.
+Source inputs, pins, twelve final world observations, published values and
+seventeen saves agree across hosts; worlds and saves retain the prior `owner`
+results. Both bandaging captures were inspected, and both process audits leave
+no recorded children. Artifacts: `artifacts/pending-{web,macos}/`. No pin,
+gameplay or Jev-policy changes.

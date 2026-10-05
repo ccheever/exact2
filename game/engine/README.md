@@ -193,7 +193,11 @@ budgets belong to the separate [audio executor](../audio/README.md).
 registered types and assets before replacing anything. Failed restores leave the
 receiver intact. Restore reinstates the saved input queue, held keys and touch
 viewport; a later host resize replaces the viewport. Agent inspection does not
-consume input.
+consume input. Untargeted world `state` reports `input.pending`: `total` and
+per-kind counts (`key`, `pointer`, `control`, `wheel`, `blur`, `message`) of the
+events still queued after coalescing and refusals. Equal world hashes may hide
+different queues; equal counts still omit event payloads, order and timestamps.
+Only the full save establishes byte equality.
 
 `sim.load_assets(|name| std::fs::read(name))?` loads headless dependencies, including
 declared `.sound` assets, which the primitive module also decodes; a save records

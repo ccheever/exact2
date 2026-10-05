@@ -1365,3 +1365,63 @@ A read-only fetch after acceptance work began finds main through `b83acf98a`,
 ten commits beyond the previous integration, chiefly grouped-list cardless
 sections and reviewed sound/storage designs. Those fetched changes are not
 in this feature's accepted source; integrate them at the next work boundary.
+
+## Pending input is visible at the save boundary (2026-10-04)
+
+Merge `8a0bd86c9` integrates the ten fetched main commits through `b83acf98a`
+at the next clean boundary. Formatting also normalizes the two grouped-list
+Rust files brought by that merge; their behavior is unchanged by formatting.
+
+The compost continuation's earlier debugging needed a private EXSIM decode to
+find three native Blur events. World `state` now reports `input.pending`, a
+fixed seven-number summary: total and the six input-event kinds. It counts the
+current retained queue after coalescing/refusals; it copies no event payload,
+consumes no input and adds no historical trace or operation. The existing game
+and engine guides explain that counts can diagnose this difference but cannot
+establish equal saves: payloads, order and timestamps still matter. The matching
+QUEUE entry is removed.
+
+The engine's 408 tests pass in 29 binaries, with seven ignored. New regression
+coverage distinguishes three queued Blurs at an unchanged world hash, verifies
+save bytes do not change during inspection, preserves the counts across restore
+and a different host epoch, and drains them through ordinary simulation. A mixed
+queue covers key-repeat rejection, pointer/wheel coalescing, controls and 64 KiB
+messages; the full-queue test reports 1,024 retained messages alongside 76 refused
+posts. Strict all-target Clippy and formatting pass. The first compile used
+`usize`, which the portable Data format deliberately does not support; the
+bounded counts now use `u32`. Logs: `/tmp/exact2-pending-engine-*.log`.
+
+All root checks pass in 192.375 s, with no game proof running concurrently:
+build 37.308, tests 128.534, Clippy 24.340, formatting 2.089, caps 0.087 and
+boot 0.015 s. The 81 test binaries pass 2,388 cases with nine ignored and
+report 39.83 s of execution. The 60 s local target is missed again; this
+integration does not claim to fix the previously recorded launch variance.
+Logs: `/tmp/exact2-pending-root-*.log`.
+
+The first Garden web/macOS drives fail only the two new assertions: the proof
+read the host's `world` array as one object. Their actual state replies already
+show the feature working. Immediately after Compost, web reports one message;
+macOS reports one message and six Blur events. After the shared 100 ms step,
+both report zero. Both runs retain all accepted pins, eleven final world samples
+and all fifteen saved files byte-for-byte against `compost-settled-{web,macos}`;
+all children exit and both Fed-harvest captures were inspected. The proof now
+finds the named world in untargeted state before checking its queue. The engine
+implementation is unchanged by this assertion fix. Initial artifacts:
+`artifacts/pending-{web,macos}/` (99.264/57.463 s including build and drive).
+
+The corrected Garden proofs pass on web/macOS in 85.457/41.987 s. Their
+message/Blur counts reproduce the earlier observation and become zero at the
+next tick. Source inputs, pins, eleven final world observations, published
+values and fifteen saves agree across hosts; pins, worlds and saves also match
+`compost-settled-{web,macos}`. Both final feeding captures were inspected and
+both process audits leave no recorded children. Artifacts:
+`artifacts/pending-checked-{web,macos}/`. Forest and Rivals also pass their full
+web/macOS sweeps (diaries 005/006); the three games' fifty distinct saved files
+are unchanged on both hosts. Comparison: `/tmp/exact2-pending-game-comparison.json`.
+No pins change and the completed Jev batches stay closed.
+
+A periodic read-only fetch during the sweep finds main at `d2cb661eb`, another
+72 commits (312 files), including host input/focus and driver changes. Those
+changes are outside this verified checkpoint; integrate at the next clean
+boundary. Its DEFERRED change admits local notifications, unrelated to this
+queue inspection; RULES is unchanged.

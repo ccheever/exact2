@@ -1406,6 +1406,34 @@ impl<G: Game> Sim<G> {
         }
         now.saturating_add(next.saturating_sub(self.world_us)) as f64 / 1000.0
     }
+    /// A fixed-size summary of the current queue, after coalescing and refusals.
+    pub(crate) fn pending_input(&self) -> impl Data {
+        #[derive(Default, Data)]
+        struct Pending {
+            total: u32,
+            key: u32,
+            pointer: u32,
+            control: u32,
+            wheel: u32,
+            blur: u32,
+            message: u32,
+        }
+        let mut pending = Pending {
+            total: self.queue.len() as u32,
+            ..Pending::default()
+        };
+        for queued in &self.queue {
+            *match &queued.event {
+                InputEvent::Key { .. } => &mut pending.key,
+                InputEvent::Pointer { .. } => &mut pending.pointer,
+                InputEvent::Control { .. } => &mut pending.control,
+                InputEvent::Wheel { .. } => &mut pending.wheel,
+                InputEvent::Blur { .. } => &mut pending.blur,
+                InputEvent::Message { .. } => &mut pending.message,
+            } += 1;
+        }
+        pending
+    }
     /// Device state at the host boundary, including events waiting for a tick.
     pub(crate) fn host_input(&self) -> std::borrow::Cow<'_, Input> {
         if self.queue.is_empty() {

@@ -313,6 +313,15 @@ the UI setup before the shared continuation steps so those inputs are consumed,
 or deliberately compare the same queued input on both sides. Do not discard
 pending input just to make saves agree.
 
+Untargeted `state` exposes each world's `input.pending`: `total` and counts by
+event kind (`key`, `pointer`, `control`, `wheel`, `blur`, `message`). These count
+events currently retained after coalescing and refusals, not input history.
+For example, `total: 3, blur: 3` identifies three focus-loss events waiting for
+a tick even if `held` and `forwarded` are empty. Inspection consumes nothing;
+the summary survives save/restore and clears when normal simulation consumes
+the queue. Counts omit payloads, order and timestamps, so equal counts alone
+do not prove equal saves. Compare the complete save bytes for that.
+
 Commands go the other way as messages: an action calls
 `postMessage("buy carrot", "world")` and the next tick reads every message posted
 since, in order, from `input.messages()`. Nothing is coalesced, nothing needs an

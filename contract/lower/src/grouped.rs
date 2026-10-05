@@ -399,7 +399,12 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
             );
         }
     }
-    sheet.extend(attrs.iter().filter(|a| a.name != "background-color").cloned());
+    sheet.extend(
+        attrs
+            .iter()
+            .filter(|a| a.name != "background-color")
+            .cloned(),
+    );
     let label = |node: &Node, footer: bool| -> Node {
         let Node::Element {
             tag,
@@ -434,7 +439,11 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
             instance: *instance,
         }
     };
-    let mut group = vec![s("background-color", if cardless { "transparent" } else { CELL }, span)];
+    let mut group = vec![s(
+        "background-color",
+        if cardless { "transparent" } else { CELL },
+        span,
+    )];
     if style == "grouped" && !cardless {
         group.extend([
             n("border-top-width", 1.0, span),
@@ -620,7 +629,11 @@ fn row(node: &Node, separated: bool) -> Node {
         ),
         n("padding-right", 16.0, span),
         // A card-less section's rows draw no separator (§6.2).
-        n("border-bottom-width", if separated { 1.0 } else { 0.0 }, span),
+        n(
+            "border-bottom-width",
+            if separated { 1.0 } else { 0.0 },
+            span,
+        ),
         s("border-bottom-style", "solid", span),
         s("border-bottom-color", SEPARATOR, span),
         n("margin-bottom", if separated { -1.0 } else { 0.0 }, span),

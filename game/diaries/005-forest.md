@@ -1216,3 +1216,16 @@ The existing `EXACT_PROOF_COMPARE=1` option retains the close-time public
 state. Both process audits pass with no recorded children remaining, and
 both windbreak captures were inspected. Artifacts:
 `artifacts/owner-{web,macos}/`. No gameplay or Jev-policy changes.
+
+## Pending-input inspection and the next main boundary (2026-10-04)
+
+Merge `8a0bd86c9` integrates main through `b83acf98a`. Garden diary 004
+records the new read-only `state` summary of queued game input and the root
+checks (all pass, 192.375 s; the local timing target remains missed).
+Forest passes complete web/macOS proofs in 171.527/191.513 s including builds.
+Source inputs, pins, eleven final world observations, published values and
+eighteen saves agree across hosts. World observations, pins and saves match
+the prior `owner` results.
+Both windbreak captures were inspected; both process audits leave no recorded
+children. Artifacts: `artifacts/pending-{web,macos}/`. Gameplay, pins and
+Jev's closed playtest policy are unchanged.
