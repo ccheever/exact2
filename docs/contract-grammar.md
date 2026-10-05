@@ -436,7 +436,7 @@ never breaks an app that declared it first.
 
 | Call | Result / restriction |
 | --- | --- |
-| `now()` | Milliseconds on the runner's clock since boot (the driver's clock under the agent), not a date: the date is `exactTime().epochAtZero + now()`. A read does not schedule a render |
+| `now()` | Milliseconds on the runner's clock since boot (the driver's clock under the agent), not a date: the date is `exactTime().epochAtZero + now()`. A read does not schedule a render: a derive that reads it is read again at the next commit (any state change), not as time passes, so a value that follows the clock is written by a timer's action (`task … every`) |
 | `formatTime(ms, offsetMinutes, "short")` | String; fixed offset east of UTC, en-US formatting (`exactTime().utcOffset` is the zone's offset now, answered again when it changes) |
 | `formatDate(ms, offsetMinutes, "medium" or "month-year")` | String; format is a literal choice, not an expression containing `or` |
 | `formatNumber(n, "compact")` | String; admitted deterministic compact format |
