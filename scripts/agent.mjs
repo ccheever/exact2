@@ -285,8 +285,9 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         return { resized: pair, viewport: await evaluate('[innerWidth, innerHeight]'), delivery: 'browser-viewport' };
       }
       if (req.op === 'tap' && req.close !== undefined) return closePage(req, { cdp, sessionId, call, frame });
-      // A settle runs up to the page's 20 s deadline twice (requests, then rounds).
-      const timeout = req.op === 'clock' && (req.settle || req.data) ? 60000 : req.op === 'perf' && req.live > 0 ? req.live + 30000 : undefined;
+      // A clock op runs up to the page's 20 s deadline (a jump waits that long for a request in flight; a settle,
+      // twice: requests, then rounds), past CDP's default 15 s (ios21 t3: a request that never answered).
+      const timeout = req.op === 'clock' ? 60000 : req.op === 'perf' && req.live > 0 ? req.live + 30000 : undefined;
       return JSON.parse(await evaluate(`(typeof globalThis.exact?.agentSettled === 'function' ? exact.agentSettled(${JSON.stringify(req)}) : Promise.reject(new Error('the page has no agent adapter: open a development build with ?agent=1'))).then((r) => JSON.stringify(r))`, timeout));
     };
     return {
