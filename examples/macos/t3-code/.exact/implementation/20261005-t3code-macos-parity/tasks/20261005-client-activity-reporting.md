@@ -193,3 +193,22 @@ Coordinator integrates the shared root/module/source-registration seams, runs th
 build and checks, then hands off to `verify`. Required real-time cadence/server-effect,
 attended pointer, agent-clock retry and desktop-oracle traces remain unverified. Reconcile
 main migration and common dependency records before claiming verification or publication.
+
+## Combined integration, 2026-10-06
+
+Integrated in `daehyeon/t3code-parallel-features` with shared root/native registrations.
+Combined validation: 1,197 Bun tests, strict TypeScript, Contract compilation, 10 app
+Rust tests, formatting, staged caps and boot passed. The tab Contract hooks use the
+pinned compiler's supported vocabulary; timeline activity fields satisfy generated
+Contract types. Independent code reviews completed. No pixel-fidelity loop was run.
+Main migration, newer oracle runtime and live feature acceptance remain pending;
+this evidence does not close the task's verification gate.
+
+Integrated native bundle build passed (app Rust bake and full Swift module). The
+isolated macOS driver launched the app and read its disconnected tree. The bounded
+interaction check did not pass: the first requested welcome target was absent; the
+actual Open Connections target was outside the default viewport, then reported hidden
+or inert at 1280×900. Stopped after three attempts without UI adjustment. App interaction
+acceptance remains unverified. Local evidence: `/tmp/t3-parallel-final-native.log`,
+`/tmp/t3-parallel-final-native-tests.log`, `/tmp/t3-parallel-final-bun.log`, and
+`/tmp/t3-parallel-final-smoke.log`. No push or PR publication performed.

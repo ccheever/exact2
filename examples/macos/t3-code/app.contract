@@ -54,13 +54,21 @@ use SidebarOverlays from "./sidebar-overlays.contract"
 use SettingsModals from "./app-settings.contract"
 use WindowOverlays from "./app-overlays.contract"
 
+shape WorkspaceDiscovery
+  key: string
+  needed: bool
+shape WorkspaceRefresh
+  key: string
+  retry: bool
+shape TimelineReadsResult
+  complete: bool
 shape Time
   epochAtZero: number
 component T3Code
   state elapsed = 0
   resource wallTime = exactTime() as shape Time
   resource data = snapshot(wallTime.epochAtZero + elapsed) as shape Snapshot
-  resource markdown = renderMarkdown(data.messages) as shape TranscriptMarkdown
+  resource markdown = renderMarkdown(data.messages, data.markdownSkills) as shape TranscriptMarkdown
   resource attachmentUrls = timelineAttachments(data.threadId, wallTime.epochAtZero + elapsed, data.revision) as shape TimelineAttachmentUrls // Signed preview URLs for the thread's sent images (timeline-attachments.ts).
   resource home = pagesHome(data.revision) as shape PagesHome // Lane pages: the empty main view, the utility pages and the sidebar footer route.
   state utilityPage = ""
@@ -181,8 +189,24 @@ component T3Code
     elapsed = now()
   task clock mount
     every(60000, tick)
+  mutation timelineReadsRefreshed as shape TimelineReadsResult refreshes data
   state liveNow = 0 // The timeline's "Working for 12s" ticks each second while a run is live.
+  resource workspaceDiscovery = composerWorkspace(data.revision) as shape WorkspaceDiscovery
+  mutation workspaceRefreshed as shape WorkspaceRefresh refreshes workspaceDiscovery, data then workspaceRefreshFinished
+  state workspaceRetryKey = ""
+  state workspaceRetryAt = 0
+  action workspaceRefreshFinished
+    match workspaceRefreshed
+      case some(result)
+        workspaceRetryKey = result.key
+        workspaceRetryAt = result.retry ? now() + 10000 : 0
+      case none
+        workspaceRetryAt = now() + 10000
   action liveTick
+    if data.timelineReadsNeeded and not pending(timelineReadsRefreshed)
+      send timelineReadsRefreshed = refreshTimelineReads(wallTime.epochAtZero + now())
+    if workspaceDiscovery.needed and not pending(workspaceRefreshed) and (workspaceRetryKey != workspaceDiscovery.key or now() >= workspaceRetryAt)
+      send workspaceRefreshed = refreshComposerWorkspace(workspaceDiscovery.key)
     if data.running or data.sidebar.ticking or data.sidebar.undoUntil > wallTime.epochAtZero + liveNow
       liveNow = now()
   task liveClock mount
@@ -1142,6 +1166,8 @@ component T3Code
   action chatLocal(op: string, id: string, value: string)
     if op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir"
       foldHold = true
+    if op == "surface-menu" or op == "surface-close" or op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all"
+      rightPanel = false
     send localChanged = command(`chatlocal:${op}`, id, op == "table-menu" ? `${frame(`table-copy-${id}`).x}|${frame(`table-copy-${id}`).y}|${frame(`table-copy-${id}`).width}|${frame(`table-copy-${id}`).height}|${viewport.width}|${viewport.height}|${value}` : value, 0) // lane r8-keys: a table popup's trigger frame
   // Opening a fold keeps the reading position (T3 pauses follow-end while it settles); reaching the end resumes following.
   state foldHold = false

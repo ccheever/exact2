@@ -5,7 +5,7 @@ import { T3Client } from './client';
 import { snapshot, modelCatalog } from './presentation';
 import { arr, obj, str, type Obj } from './domain';
 import type { Native, Files } from './protocol';
-import { resolveDispatchMode, withDispatchMode, submissionIntent, resolvePlanSubmission, proposedPlanTitle, decodeComposerControls, latestProposedPlan, resumeState } from './composer-controls';
+import { noteNow, composerNow, resolveDispatchMode, withDispatchMode, submissionIntent, resolvePlanSubmission, proposedPlanTitle, decodeComposerControls, latestProposedPlan, resumeState } from './composer-controls';
 import { applyOptionChoice, providerLock, wokeAt } from './composer-controls-commands';
 import { footerLayout, textWidth, traitsDisplay, presentBackgroundWork, tasksProgress } from './composer-controls-view';
 import { traitsMenu } from './composer-presentation';
@@ -340,4 +340,15 @@ describe('usage limits', () => {
     Object.assign(client.shell.threads[0]!, { limitRecovery: { runId: 'r9', resetAt: reset, autoResume: true } });
     expect(snapshot(client, Date.now()).composer.notices[0]!.actionLabel).toBe('Cancel auto-resume');
   });
+});
+
+test('older resource arguments cannot rewind the shared client clock', () => {
+  const client = {};
+  noteNow(client, 2000);
+  noteNow(client, 1000);
+  noteNow(client, Number.NaN);
+  expect(composerNow(client)).toBe(2000);
+  noteNow(client, 3000);
+  expect(composerNow(client)).toBe(3000);
+  expect(composerNow({})).toBe(0);
 });

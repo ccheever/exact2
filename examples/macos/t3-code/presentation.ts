@@ -1,3 +1,7 @@
+import { timelineReadsNeeded } from './timeline-prepare';
+import { markdownSkills } from './r4-timeline-chips';
+import { workspaceValues } from './composer-workspace-snapshots';
+import { workspaceCwd } from './composer-editor';
 import { snapshotDraftTiles } from './snapshot-settings';
 import { arr, obj, str, num, type Message, type Obj } from './domain';
 import { activeRun, providerAvailable } from './protocol';
@@ -148,6 +152,8 @@ export function snapshot(client: T3Client, now = 0) {
     ...diffSnapshot(client, now),
     projects: client.shell.projects.map(project => ({ id: str(project.id), name: str(project.title), path: str(project.workspaceRoot), selected: project.id === client.projectId })),
     ...sidebarSnapshot(client, now, { projectIdentity, providerBadge }),
+    timelineReadsNeeded: timelineReadsNeeded(client),
+    markdownSkills: markdownSkills(workspaceValues(provider ?? {}, workspaceCwd(client), 'skills').map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) }))),
     messages: timelineMessages(client, transcript, now), ...timelineSnapshot(client),
     providers: providers.map(provider => ({ id: str(provider.instanceId), name: str(provider.displayName, str(provider.driver)), available: providerAvailable(provider) })),
     models: providers.flatMap(provider => arr(provider.models).map(model => ({ id: str(model.slug), name: str(model.name, str(model.slug)),

@@ -17,9 +17,7 @@ import { configEventSideEffects } from './r3-protocol-config';
 import { beginRead, traceRpc, statusTicket, settleTraces } from './r3-protocol-reader';
 import { compatibilityProblem } from './r3-protocol-outdated';
 import { composerNow, type ComposerControlsPrefs, emptyComposerControls, decodeComposerControls, applySticky, applyStaged, stagesChanges, stage, rememberModel, rememberOptions, stagedFor, clearStaged, nextTurnCommands, resolveDispatchMode, followUpBehavior, withDispatchMode, planFollowUp, resolvePlanSubmission } from './composer-controls';
-import { compactBeforeSend, compactTurn } from './r3-composer-controls-resume';
 import { additiveGesture, fanoutSelections, sendFanout, setFanout, toggleFanout } from './r3-composer-controls-fanout';
-import { contextSnapshot } from './composer-controls-view';
 import { composerCommand, composerLocal, acknowledgeWoke, lockedProviderReason, applyOptionChoice, backgroundStarted } from './composer-controls-commands';
 import { queuedEdit, saveQueuedEdit } from './composer-controls-queue';
 import { fanoutBase, workspaceStrategy } from './composer-controls-branch';
@@ -908,14 +906,7 @@ export class T3Client {
         assertOwner();
         await this.dispatch(native, storage, { ...command, commandId: modeCommandId, threadId: selection.threadId }, 'Change mode', assertOwner);
       }
-      // a976f8c74c: sending past "Resume with less context" compacts first; the message queues behind that run.
-      const compactFirst = !submission && compactBeforeSend(this, composerNow(this), contextSnapshot(this.projection), text);
-      if (compactFirst) {
-        const [compactCommandId, compactMessageId] = await this.ids(native, 2);
-        assertOwner();
-        await this.dispatch(native, storage, compactTurn(compactCommandId, selection.threadId, compactMessageId, modelSelection(selection.providerId, selection.modelId, JSON.parse(selection.options))), 'Compact context', assertOwner);
-      }
-      const mode = submission ? 'auto' : compactFirst ? 'queue' : resolveDispatchMode(running, followUpBehavior(this), intent === 'alternate');
+      const mode = submission ? 'auto' : resolveDispatchMode(running, followUpBehavior(this), intent === 'alternate');
       const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, text, attachments), text), mode,
         modelSelection(selection.providerId, selection.modelId, JSON.parse(selection.options)));
       if (submission?.interactionMode === 'default' && plan) payload.sourcePlanRef = { threadId: selection.threadId, planId: plan.planId };

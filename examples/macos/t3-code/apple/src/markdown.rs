@@ -895,10 +895,9 @@ mod tests {
         assert_eq!(chips.len(), 1);
         assert_eq!(chips[0][1].as_str(), Some("Review code"));
         assert_eq!(chips[0][5].as_str(), Some("t3-skill:$review-code"));
-        assert!(
-            runs.iter()
-                .any(|r| r[1].as_str() == Some("$review-code") && r[4] == Value::Bool(true))
-        );
+        assert!(runs
+            .iter()
+            .any(|r| r[1].as_str() == Some("$review-code") && r[4] == Value::Bool(true)));
         assert!(runs.iter().any(|r| r[1].as_str() == Some("$review-code")
             && r[5].as_str() == Some("https://example.com")));
         let parsed = markdown_parse::parse("Use $review-code now", &|href| href.into());
@@ -908,11 +907,9 @@ mod tests {
         );
         assert_eq!(cell_markdown(&runs), "Use $review-code now");
         assert_eq!(cell_plain(&runs), "Use $review-code now");
-        assert!(
-            !document_runs(&document(Value::str("m"), "$review-code"))
-                .iter()
-                .any(|r| r[6].as_str() == Some("context-skill"))
-        );
+        assert!(!document_runs(&document(Value::str("m"), "$review-code"))
+            .iter()
+            .any(|r| r[6].as_str() == Some("context-skill")));
     }
 
     #[test]

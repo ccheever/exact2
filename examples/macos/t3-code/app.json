@@ -11,7 +11,9 @@
     "id": "com.exact.t3code.macos",
     "name": "T3 Code"
   },
-  "modules": ["t3-key-recorder"],
+  "modules": [
+    "t3-key-recorder"
+  ],
   "hooks": [
     "t3-composer",
     "t3-send",
@@ -27,7 +29,9 @@
     "t3-launcher",
     "t3-measure",
     "t3-select-on-open",
-    "t3-rehover"
+    "t3-rehover",
+    "t3-tool-icon",
+    "t3-timeline-tip"
   ],
   "rust": {
     "placement": "worker"
@@ -66,6 +70,8 @@
     "device-host",
     "device-view",
     "device-ax",
-    "surface-launcher-keys"
+    "surface-launcher-keys",
+    "tool-icon-light",
+    "tool-icon-dark"
   ]
 }

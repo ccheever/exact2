@@ -28,7 +28,8 @@ import { obj, str, type Obj } from './domain';
 import { nativeFiles, type Native, type Files } from './protocol';
 import { paletteView } from './palette-view';
 import { attachmentUrls } from './timeline-attachments';
-import { prepareTimeline } from './timeline-prepare';
+import { noteNow } from './composer-controls';
+import { prepareTimeline, refreshTimelineReads } from './timeline-prepare';
 import { paletteCommand } from './palette-commands';
 import { shellView } from './shell';
 import { shellDetails } from './shell-details';
@@ -43,11 +44,17 @@ const client = new T3Client();
 export async function answer(source: string, args: unknown[], _store: unknown, _storage: Files, native: Native | null | undefined) {
   const storage = native?.available ? nativeFiles(native) : _storage;
   if (source === 'snapshot') {
+    noteNow(client, Number(args[0]) || 0);
     await client.refresh(native, storage);
     await prepareTimeline(client, native); // Mermaid layouts and the worktree setup stream (timeline-prepare.ts).
     return snapshot(client, Number(args[0]) || 0);
   }
   if (source === 'composerBranches') return composerBranches(client, native, args[0] === true, String(args[1] || ''));
+  if (source === 'refreshTimelineReads') {
+    noteNow(client, Number(args[0]) || 0);
+    await refreshTimelineReads(client, native);
+    return { complete: true };
+  }
   if (source === 'composerWorkspace') return composerWorkspaceView(client);
   if (source === 'refreshComposerWorkspace') return refreshComposerWorkspace(client, native, String(args[0] || ''));
   if (source === 'composerEditor') return composerEditorView(client, native, Number(args[1]) || 0);

@@ -1,22 +1,29 @@
 # T3 Code agent handoff
 
-Current as of the round-11 integration, 2026-10-05 (KST, about 10:50). Replaces the round-10
-handoff; `UI-PARITY-TODO.tmp.md` is history only.
+Current as of the parallel feature integration, 2026-10-06 (KST).
 
 ## Start here
 
-Read `CLAUDE.md`, `rules/RULES.md`, `rules/DEFERRED.md`, then `README.md` in this
-directory. The app is untracked in git: never delete, reset or recreate it wholesale.
-No framework changes (kernel, runner, host, contract, scripts, js, plan); the app's own
-`apple/` crate and `modules/apple/` are app code.
+Read `rules/RULES.md`, `rules/DEFERRED.md`, then this app's `README.md` and
+`.exact/implementation/20261005-t3code-macos-parity/plan.md`.
+The round-12 source is now tracked and preserved in commit `1c6b4a12a`.
+No framework changes are included in this feature wave.
 
 | Role | Location |
 |---|---|
-| Writable checkout | `/Users/daehyeonmun/Documents/work/0.projects/exact2-worktrees/mc-orch-e88043b25805` (the app is `examples/macos/t3-code`) |
-| Root checkout | `/Users/daehyeonmun/Documents/work/0.projects/exact2`, read-only |
-| Reference source | `/Users/daehyeonmun/Documents/work/3.open-source/t3code` at `f870c419fc`, read-only |
-| Oracle runtime | `target/t3-ref/runtime-f870c41` (Nightly `0.0.46-nightly.20261005.1`). `lane-backend.sh`'s default still points at `runtime-f90b77d8`: export `T3_RUNTIME=$PWD/target/t3-ref/runtime-f870c41` for every lane backend |
-| Pinned tools | Bun at `~/.bun-1.4.2/bin`; Hermes at the root checkout's `target/t3-tools/hermes-6badada76212` (`EXACT_HERMES_DIR=…/engine`, `EXACT_HERMESC=…/hermesc`) |
+| Integration | `/Users/daehyeonmun/orca/workspaces/exact2/t3-code`, branch `daehyeon/t3code-parallel-features` |
+| Activity task | sibling `t3code-client-activity-reporting`, matching `daehyeon/` branch |
+| Tab task | sibling `t3code-right-panel-tab-menu`, matching `daehyeon/` branch |
+| Timeline task | sibling `t3code-upstream-timeline-markdown`, matching `daehyeon/` branch |
+| Preserved original | branch `daehyeon/t3-code`; old `mc-orch-e88043b25805` worktree untouched |
+| Reference source | `/Users/daehyeonmun/Documents/work/3.open-source/t3code`, pin `1e2ecbd9758830669684b494d4398f626b0576e0`, read-only |
+| Pinned tools | Bun `~/.bun-1.4.2/bin`; this worktree's own `target/t3-tools/hermes-6badada76212` |
+
+The main migration and updated desktop oracle remain pending. The older f870 runtime
+cannot validate the new `getTurnItem` RPC. Do not claim full live acceptance from unit tests.
+The user explicitly stopped pixel-perfect UI testing/fix loops; use bounded functional checks.
+
+The remaining sections are historical round-11 evidence, not current task status.
 
 ## Checks on the integrated tree (round 11)
 

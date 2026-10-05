@@ -334,8 +334,9 @@ function present(row: Row, context: PresentContext): Message {
   }
 }
 
-const blankActivity = (activity: Activity): Activity & Required<Pick<Activity, 'tone' | 'ok' | 'reasoning' | 'expandable' | 'detail' | 'status' | 'targetId' | 'answer' | 'retryRunId'>> & { timeTip: string } => ({
-  tone: '', ok: true, reasoning: false, expandable: true, detail: '', status: '', targetId: '', answer: '', retryRunId: '', timeTip: '', outputState: '', detailOpen: false, iconLight: '', iconDark: '', ...activity });
+const blankActivity = (activity: Activity): Activity & Required<Pick<Activity, 'tone' | 'ok' | 'reasoning' | 'expandable' | 'detail' | 'status' | 'targetId' | 'answer' | 'retryRunId' | 'outputState' | 'detailOpen' | 'iconLight' | 'iconDark'>> & { timeTip: string } => ({
+  tone: '', ok: true, reasoning: false, expandable: true, detail: '', status: '', targetId: '', answer: '', retryRunId: '', timeTip: '', ...activity,
+  outputState: activity.outputState ?? '', detailOpen: activity.detailOpen ?? false, iconLight: activity.iconLight ?? '', iconDark: activity.iconDark ?? '' });
 
 /**
  * Timeline rows as Contract draws them, every Message field present. T3 shows

@@ -55,7 +55,7 @@ export function decodeComposerControls(saved: unknown): ComposerControlsPrefs {
 }
 // Data sources have no Date.now(): the snapshot's wall time (wallTime + elapsed) is the composer's clock.
 const clocks = new WeakMap<object, number>();
-export function noteNow(client: object, now: number): void { if (Number.isFinite(now) && now > 0) clocks.set(client, now); }
+export function noteNow(client: object, now: number): void { if (Number.isFinite(now) && now > 0) clocks.set(client, Math.max(clocks.get(client) ?? 0, now)); }
 /** The newest wall time a snapshot saw for this client (0 before the first). */
 export function composerNow(client: object): number { return clocks.get(client) ?? 0; }
 function prefs(client: T3Client): ComposerControlsPrefs {

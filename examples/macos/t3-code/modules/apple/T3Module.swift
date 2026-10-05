@@ -5,6 +5,10 @@ import AppKit
 
 final class T3Module: ExactModule {
     private let transport: T3Transport
+    private let activity: T3ActivityReporter
+    private let panelTabs = RightPanelTabsInput()
+    private let toolIcons = T3ToolActivityIcon()
+    private let timelineTips = T3TimelineTooltip()
     private let fleet: T3Fleet // Background environments (T3Fleet.swift).
     private let ssh: T3Ssh // Add Environment → SSH: discovery, ssh -G, tunnels (T3Ssh.swift).
     private let composer: T3Composer
@@ -50,8 +54,9 @@ final class T3Module: ExactModule {
         video = T3ComposerVideo(dataRoot: T3Storage.dataRoot(agent: context.agent, contextData: context.data), muted: context.agent)
         media = R6MediaPreview(agent: context.agent)
         let credentials = T3Credentials(persistent: !context.agent), saved = T3SavedEnvironments(persistent: !context.agent)
-        transport = T3Transport(persistent: !context.agent, dataDirectory: T3Storage.dataRoot(agent: context.agent, contextData: context.data), credentials: credentials, savedEnvironments: saved, changed: gated)
-        fleet = T3Fleet(persistent: !context.agent, credentials: credentials, saved: saved, changed: gated)
+        activity = T3ActivityReporter(persistent: !context.agent, dataDirectory: T3Storage.dataRoot(agent: context.agent, contextData: context.data))
+        transport = T3Transport(persistent: !context.agent, dataDirectory: T3Storage.dataRoot(agent: context.agent, contextData: context.data), credentials: credentials, savedEnvironments: saved, activity: activity, changed: gated)
+        fleet = T3Fleet(persistent: !context.agent, credentials: credentials, saved: saved, activity: activity, changed: gated)
         devices = R6DeviceStreams(access: { [transport] done in transport.deviceHubAccess(done) }, changed: gated)
         ssh = T3Ssh(agent: context.agent)
         r9 = R9Input(agent: context.agent)
@@ -146,6 +151,7 @@ final class T3Module: ExactModule {
         }
     }
     override func element(_ element: ExactElement) {
+        panelTabs.install(element); toolIcons.install(element); timelineTips.install(element)
         frames.install(element); scrollEnds.install(element)
         composer.install(element); chrome.install(element); timeline.install(element); menus.install(element); turns.install(element); video.install(element); media.install(element); devices.install(element)
         launcher.install(element); measure.install(element); r9.install(element); r10.install(element)
@@ -154,12 +160,13 @@ final class T3Module: ExactModule {
         if element.hook == .t3SnapshotTile, let view = element.view { snapShot.installTile(id: element.data[.snapshotId] ?? "", view: view) }
     }
     override func elementEnded(_ element: ExactElement) {
+        panelTabs.remove(element); toolIcons.remove(element); timelineTips.remove(element)
         frames.remove(element); scrollEnds.remove(element)
         composer.remove(element); launcher.remove(element); measure.remove(element); r9.remove(element); r10.remove(element); timeline.remove(element); turns.remove(element); video.remove(element); media.remove(element); devices.remove(element)
         if element.hook == .t3SnapshotTile, let view = element.view { snapShot.removeTile(view: view) }
         if element.hook == .t3Composer { snapShot.removeComposer(key: ObjectIdentifier(element)) }
     }
-    override func destroy() { r10.destroy(); r9.destroy(); sidebar.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); video.destroy(); media.destroy(); devices.destroy(); intent.destroy(); frames.destroy(); scrollEnds.destroy(); chrome.destroy(); menus.destroy(); timeline.destroy(); turns.destroy(); transport.destroy(); fleet.destroy(); ssh.destroy() }
+    override func destroy() { activity.destroy(); panelTabs.destroy(); toolIcons.destroy(); timelineTips.destroy(); r10.destroy(); r9.destroy(); sidebar.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); video.destroy(); media.destroy(); devices.destroy(); intent.destroy(); frames.destroy(); scrollEnds.destroy(); chrome.destroy(); menus.destroy(); timeline.destroy(); turns.destroy(); transport.destroy(); fleet.destroy(); ssh.destroy() }
 }
 
 let exactModule: ExactModule.Type = T3Module.self

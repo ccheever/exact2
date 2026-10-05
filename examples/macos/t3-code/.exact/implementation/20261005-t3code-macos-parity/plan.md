@@ -37,11 +37,22 @@ registration files and plan indexes. Library revision: `20261005-platforms-v3`, 
 checkout's code as framework authority. Agents inherit the current host model and reasoning.
 No scheduler, external publication or pixel-fidelity loop is part of this request.
 
+The three implementation commits are integrated locally: activity `d8c6f1241`, tabs
+`da446560d` plus Contract compatibility fixes, and timeline `0816bec75` plus concrete
+activity-field defaults. Shared root mutations, native hook lifecycle, skill projection,
+and monotonic source time are wired in the integration branch. Independent reviews
+covered request/cache identity, async close races and native ownership.
+
+Combined checks: 1,197 Bun tests, strict TypeScript, Contract compilation (2,146 slots,
+42 resources), 10 app Rust tests, formatting, staged caps and boot pass. Root Cargo
+build and clippy passed; root tests' pinned-Bun failures passed when the affected
+packages were rerun with Bun 1.4.2. Full live backend acceptance remains unverified.
+
 ## Implementation order
 
 Groups run in order; tickets inside a group may run in parallel (the user's execution
 decision: one workflow per phase with at most 8 lanes + 1 integrator, so a large group runs
-in waves). Every PR targets `daehyeon/t3-code`; dependent work starts from the updated
+in waves). Future PRs target the task-named integration branch `daehyeon/t3code-parallel-features`; dependent work starts from the updated
 integration branch after its prerequisites merge (no stacks).
 
 Common prerequisites, not repeated per row: every feature ticket (group 2 and later) needs
@@ -294,3 +305,12 @@ All records are local and uncommitted in the t3-code worktree
 available to remote contributors until committed and pushed to `daehyeon/t3-code` (after
 `20261005-clone-on-exact2-main` creates the integration branch, or earlier with the user's
 approval). Next stage after the user approves: `prepare` for `20261005-round12-wrapup`.
+
+Integrated native bundle build passed (app Rust bake and full Swift module). The
+isolated macOS driver launched the app and read its disconnected tree. The bounded
+interaction check did not pass: the first requested welcome target was absent; the
+actual Open Connections target was outside the default viewport, then reported hidden
+or inert at 1280×900. Stopped after three attempts without UI adjustment. App interaction
+acceptance remains unverified. Local evidence: `/tmp/t3-parallel-final-native.log`,
+`/tmp/t3-parallel-final-native-tests.log`, `/tmp/t3-parallel-final-bun.log`, and
+`/tmp/t3-parallel-final-smoke.log`. No push or PR publication performed.
