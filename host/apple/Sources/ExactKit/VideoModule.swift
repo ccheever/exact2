@@ -13,7 +13,7 @@ private final class VideoModule {
     typealias View = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
     typealias Update = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> Void
     typealias Handle = @convention(c) (UnsafeMutableRawPointer?) -> Void
-    let create: Create, view: View, update: Update, destroy: Handle, state: Handle, fullscreen: Handle
+    let create: Create, view: View, update: Update, destroy: Handle, state: Handle, fullscreen: Handle, toggle: Handle
     private init(_ library: UnsafeMutableRawPointer) {
         func symbol<T>(_ name: String, _: T.Type) -> T { unsafeBitCast(dlsym(library, name)!, to: T.self) }
         create = symbol("exact_video_create", Create.self)
@@ -22,6 +22,7 @@ private final class VideoModule {
         destroy = symbol("exact_video_destroy", Handle.self)
         state = symbol("exact_video_state", Handle.self)
         fullscreen = symbol("exact_video_fullscreen", Handle.self)
+        toggle = symbol("exact_video_toggle", Handle.self)
     }
     static let shared: VideoModule? = {
         #if os(macOS)
@@ -32,7 +33,7 @@ private final class VideoModule {
         guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
             FileHandle.standardError.write(Data("exact video: \(String(cString: dlerror()))\n".utf8)); return nil
         }
-        let exports = ["create", "view", "update", "destroy", "state", "fullscreen"]
+        let exports = ["create", "view", "update", "destroy", "state", "fullscreen", "toggle"]
         guard exports.allSatisfy({ dlsym(library, "exact_video_" + $0) != nil }) else {
             dlclose(library); return nil
         }
@@ -255,6 +256,10 @@ final class VideoView {
     /// `requestFullscreen`: the arm presents it.
     func requestFullscreen() {
         if let handle { VideoModule.shared?.fullscreen(handle) }
+    }
+    /// The remote's Play/Pause (tvOS's `PlayPauseKey`).
+    func togglePlayPause() {
+        if let handle { VideoModule.shared?.toggle(handle) }
     }
     func state() -> [String: Any] {
         if let handle { VideoModule.shared?.state(handle) }

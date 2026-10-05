@@ -101,6 +101,7 @@ final class Presenter {
     #if os(tvOS)
     lazy var menuKey = MenuKey(presenter: self)
     lazy var focusGuides = FocusGuides(presenter: self)
+    lazy var playPauseKey = PlayPauseKey(presenter: self)
     /// The `testId` of the node that last held the remote's focus.
     var focusKey: String?
     #endif
@@ -957,6 +958,7 @@ final class Presenter {
         #if os(tvOS)
         menuKey.sync()
         focusGuides.sync()
+        playPauseKey.sync()
         #endif
         segments.sync()
         controls.sync(contents: batch.controls, touched: touchedIDs)

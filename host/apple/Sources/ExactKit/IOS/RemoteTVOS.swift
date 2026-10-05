@@ -108,6 +108,34 @@ final class FocusGuides {
     }
 }
 
+/// The remote's Play/Pause: the first video on screen plays or pauses, as
+/// its own controls would. Present only while a video is mounted.
+final class PlayPauseKey: NSObject {
+    unowned let presenter: Presenter
+    private var tap: UITapGestureRecognizer?
+
+    init(presenter: Presenter) { self.presenter = presenter }
+
+    private var video: VideoView? {
+        presenter.views.values.filter { $0.video != nil && $0.window != nil }.min { $0.id < $1.id }?.video
+    }
+
+    func sync() {
+        let wanted = video != nil
+        if wanted, tap == nil, let view = presenter.session?.view {
+            let recognizer = UITapGestureRecognizer(target: self, action: #selector(playPause))
+            recognizer.allowedPressTypes = [NSNumber(value: UIPress.PressType.playPause.rawValue)]
+            view.addGestureRecognizer(recognizer)
+            tap = recognizer
+        } else if !wanted, let recognizer = tap {
+            recognizer.view?.removeGestureRecognizer(recognizer)
+            tap = nil
+        }
+    }
+
+    @objc private func playPause() { video?.togglePlayPause() }
+}
+
 /// The Menu recognizer, present only while Menu goes back.
 final class MenuKey: NSObject {
     unowned let presenter: Presenter

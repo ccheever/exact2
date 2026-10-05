@@ -422,6 +422,12 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         if atEnd { atEnd = false; seek(0) }
         player.play()
     }
+    /// The remote's Play/Pause (tvOS): play when paused, else pause, as a
+    /// native control does; `play` and `pause` report it to the app.
+    func togglePlayPause() {
+        guard !invalidated, player.currentItem != nil else { return }
+        if player.timeControlStatus == .paused { wantsPlay = true; play() } else { wantsPlay = false; player.pause() }
+    }
     func seek(_ time: Double) {
         guard player.currentItem?.status == .readyToPlay else { pendingSeek = time; return }
         poster.isHidden = true
@@ -515,12 +521,19 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         // An `audio` has no picture to take full screen or to picture in
         // picture: only its `controls` ask for AVKit (LLP 1042 §8).
         let audio = props["semanticTag"] == "audio"
+        #if os(tvOS)
+        // tvOS shows AVKit's controls only full screen (`requestFullscreen`):
+        // an inline controller takes the remote's Play/Pause into a full
+        // screen of its own, which the app never hears about.
+        let needsController = false
+        #else
         let needsController = bool("controls") || !audio && (
             (!bool("disablepictureinpicture") && props["allowsPictureInPicturePlayback"] == "true")
             || bool("canStartPictureInPictureAutomaticallyFromInline")
             || bool("entersFullScreenWhenPlaybackBegins", !bool("playsinline"))
             || bool("exitsFullScreenWhenPlaybackEnds") || bool("requiresLinearPlayback")
             || props["allowsVideoFrameAnalysis"] == "true")
+        #endif
         if controller == nil && needsController {
             let native = AVPlayerViewController()
             native.player = player
@@ -675,6 +688,8 @@ public func videoUpdate(_ raw: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<
 }
 @_cdecl("exact_video_fullscreen")
 public func videoFullscreen(_ raw: UnsafeMutableRawPointer?) { arm(raw)?.enterFullscreen() }
+@_cdecl("exact_video_toggle")
+public func videoToggle(_ raw: UnsafeMutableRawPointer?) { arm(raw)?.togglePlayPause() }
 @_cdecl("exact_video_state")
 public func videoState(_ raw: UnsafeMutableRawPointer?) { arm(raw)?.emit() }
 @_cdecl("exact_video_destroy")
