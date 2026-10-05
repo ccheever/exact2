@@ -19,6 +19,7 @@ pub mod math;
 pub mod motion;
 mod particle_look;
 mod placed;
+mod present;
 mod rng;
 pub mod scene;
 mod sim;
@@ -46,6 +47,7 @@ pub use input::{
 };
 pub use particle_look::ParticleLook;
 pub use placed::{CanvasChild, Facing, Placed, PlacedPlane};
+pub use present::{Present, PresentationComponent};
 pub use rng::{RangeValue, Rng};
 pub use scene::*;
 pub use sim::{Clock, Game, Now, Paranoid, Sim};

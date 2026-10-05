@@ -1165,7 +1165,7 @@ impl Game for Socketed {
     fn paused(_: &SocketLook) -> bool {
         true
     }
-    fn present(w: &mut World, look: &SocketLook) {
+    fn present(w: &mut exact_game::Present<'_>, look: &SocketLook) {
         let rig = w.named("rig").unwrap();
         w.insert(
             rig,

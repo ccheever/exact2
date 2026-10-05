@@ -1284,7 +1284,7 @@ impl Game for Bobbing {
         ));
     }
     fn tick(_: &mut World, _: &Input, _: &Self::Args) {}
-    fn present(w: &mut World, _: &Self::Args) {
+    fn present(w: &mut exact_game::Present<'_>, _: &Self::Args) {
         let root = w.named("root").unwrap();
         w.insert(root, exact_game::Offset(Transform::at(0., 0.5, 0.)));
     }

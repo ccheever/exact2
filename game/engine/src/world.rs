@@ -203,6 +203,8 @@ pub struct World {
     pub(crate) changing: Vec<String>,
     pub(crate) observation: ObservationState,
     epoch: std::rc::Rc<std::cell::Cell<u64>>,
+    // Presentation storages' own epoch: rebuilding them is not a mutation.
+    presentation_epoch: std::rc::Rc<std::cell::Cell<u64>>,
     observed_epoch: u64,
     hash_cache: std::cell::Cell<Option<(u64, u64)>>,
     // Paged digests behind hash and observation; never saved.
@@ -253,6 +255,7 @@ impl World {
         let mut world = Self {
             assets: Default::default(),
             epoch,
+            presentation_epoch: Default::default(),
             observed_epoch: 0,
             hash_cache: std::cell::Cell::new(None),
             digests: RefCell::default(),
@@ -313,6 +316,8 @@ impl World {
             .register::<ModelLod>()
             .register::<crate::ParticleLook>()
             .register::<crate::Offset>()
+            .register::<crate::Opacity>()
+            .register::<crate::Tint>()
             .register::<MouseLook>()
             .register::<Visible>()
             .register::<Ambient>()
@@ -580,7 +585,16 @@ impl World {
         self.leases.restructure();
         self.components
             .entry(C::NAME)
-            .or_insert_with(|| storage::make::<C>(C::NAME, self.epoch.clone()))
+            // Presentation rows have an epoch of their own: rebuilding them never
+            // counts as a simulation mutation (settling, observation).
+            .or_insert_with(|| {
+                let epoch = if C::PRESENTATION {
+                    self.presentation_epoch.clone()
+                } else {
+                    self.epoch.clone()
+                };
+                storage::make::<C>(C::NAME, epoch)
+            })
             .any_mut()
             .downcast_mut::<Storage<C>>()
             .unwrap()
@@ -651,11 +665,21 @@ impl World {
     }
     /// Erase every presentation row, so `Game::present` rebuilds them all.
     pub(crate) fn clear_presentation(&mut self) {
+        // Fast path: a game that writes no presentation rows pays one scan of
+        // the registry and nothing else.
+        let written: Vec<&'static str> = self
+            .registry
+            .iter()
+            .filter(|(name, registration)| {
+                registration.presentation && self.components.get(*name).is_some_and(|s| s.len() > 0)
+            })
+            .map(|(name, _)| *name)
+            .collect();
+        if written.is_empty() {
+            return;
+        }
         self.leases.restructure();
-        for (name, registration) in &self.registry {
-            if !registration.presentation {
-                continue;
-            }
+        for name in written {
             if let Some(storage) = self.components.get_mut(name) {
                 storage.clear();
             }
@@ -665,8 +689,9 @@ impl World {
     /// changed would be simulation state a restore runs it over again.
     #[inline]
     pub(crate) fn sim_writes(&self, what: std::fmt::Arguments<'_>) {
+        // Never cleared here: a caught panic leaves the guard armed, so a
+        // present that failed cannot write simulation state on a retry.
         if self.presenting.get() {
-            self.presenting.set(false);
             panic!("Game::present changed simulation state ({what}); present may only insert, change or remove presentation components");
         }
     }

@@ -1,19 +1,6 @@
 // A dusk sky drawn in the background stage, over the engine's: violet overhead,
-// rose, then gold at the horizon. A shader pack asset, so an edit reloads it live.
-// The engine's frame uniform, as far as this shader reads it (FRAME_WGSL).
-struct Frame {
-    view_proj: mat4x4<f32>,
-    camera_alpha: vec4<f32>,
-    sun_direction_illuminance: vec4<f32>,
-    sun_color_count: vec4<f32>,
-    zenith_ambient: vec4<f32>,
-    ground_exposure: vec4<f32>,
-    fill_direction_illuminance: vec4<f32>,
-    fill_color: vec4<f32>,
-    lights_info: vec4<f32>,
-    inverse_view_proj: mat4x4<f32>,
-}
-@group(0) @binding(0) var<uniform> frame: Frame;
+// rose, then gold at the horizon. A shader asset, so an edit reloads it live; the
+// engine's frame uniform comes from its prelude (gpu.shaderPreludes in app.json).
 struct Sky {
     @builtin(position) clip: vec4<f32>,
     @location(0) ndc: vec2<f32>,

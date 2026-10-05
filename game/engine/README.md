@@ -246,20 +246,50 @@ what changed rather than the world (0.1 ms at 216k entities, against ~90 ms).
 The hash is a stream over page digests in type-name and page order; it is the
 same on every host and for a world freshly loaded from the same save.
 
-Visual-only state belongs in `#[derive(Presentation)]` components: they are excluded
-from saves, hashes and the simulation, so a bob, a flash or a sway phase cannot move a
-pin; agents can still read them (diagnostics). `Game::present(w, args)` rebuilds them
-from nothing at every boundary (after each tick, setup, restore, a paranoid rebuild,
-a live-argument change and a `world_mut` edit), drawing randomness from
-`w.presentation_rng(salt)`, a stream hashed from the seed, tick and salt, never the
-world's. Present may write presentation components only: any simulation write there
-(a component, spawn, `w.rng()`, emit, publish, log) panics naming it, as does a tick
-reading or writing a presentation component. A save carrying presentation rows is
-refused, and a present that fails on a restored world refuses the restore.
-`Offset(Transform)` is the built-in one: the renderer draws an entity at its pose
-times its offset, composed down the Parent hierarchy (drawn(parent) · local ·
-offset), so children and props on a rigged entity's sockets move with it;
-`Opacity` multiplies down the same chain. Picking, layout and physics use the simulated pose.
+Visual-only state belongs in `#[derive(Presentation)]` components (presentation
+resources are not supported): they are excluded from saves, hashes and the
+simulation, so a bob, a flash or a sway phase cannot move a pin; agents can still read
+them (diagnostics). `Game::present(p, args)` rebuilds them from nothing after setup,
+after a restore (once its journal and publications are back), after a live-argument
+change or a `world_mut` edit, and at the boundaries an advance shows: its last two
+ticks, which the renderer interpolates between. A long seek does not present every
+tick; paranoid modes do, and compare, which proves present is pure. `p: Present` reads
+the simulation (`get`, `require`, `for_each`, `resource`, `global`, `is_visible`,
+`published`, the tick and seed) and writes only presentation components on existing
+entities (`insert`, `get_mut`); `p.rng(salt)` is a stream hashed from the seed, tick and
+salt, never the world's. It has no simulation RNG, events, spawning, publications or
+busy reasons. Behind that type, any simulation write while presenting panics naming
+it, and the guard stays armed after a caught panic; a tick reading or writing a
+presentation component panics too. Rebuilding presentation is not a simulation
+mutation (it does not reset settling). A save carrying presentation rows is refused,
+and a present that fails on a restored world refuses the restore.
+The stock renderer draws these built-in presentation components without a shader:
+`Offset(Transform)` (drawn pose `drawn(parent)·local·offset`, so an offset on a root
+moves its displayed hierarchy, and socketed props follow the drawn rig), `Opacity`
+(dithered coverage fading, multiplied down the Parent chain; it never reveals a child
+of a hidden ancestor), `Tint` (a primitive's colour multiply and added emission) and,
+for models, `NodeMaterials`/`MaterialOverrides`. `World::drawn(e)` is the displayed
+pose and opacity, in the same walk as `World::is_visible`. Picking, layout, physics
+and gameplay use the simulated pose.
+
+**The authoring rule: save the cause, derive the appearance.** Anything later
+gameplay reads stays simulation state; only its look is presentation. Examples:
+
+- Rivals' aim recoil: the shot (its tick and spread, drawn from the world RNG
+  because it changes where the bullet goes) is simulation; the gun kick is an
+  `Offset` derived in `present` from ticks since `last_shot_tick`, with any jitter
+  from `p.rng(salt)`.
+- Garden's mutation: the roll and the weight it sets are simulation (they change
+  sale price and growth); the shimmer of a mutated fruit is a `NodeMaterials` or
+  `Tint` derived from that saved mutation.
+- Tracers and explosions that gameplay never queries may be emitters; entities a
+  tick creates or despawns (a projectile, a crater that blocks movement) stay
+  simulation, because `present` cannot spawn and keeps no state of its own.
+- A purely cosmetic blink belongs in `Opacity` written by `present`, not in a
+  `Visible` toggled each tick (which moves pins).
+
+`present` holds no state between calls: a flash or a decay derives from a simulated
+timestamp, never from its previous output.
 
 Mark cosmetic entities `Ambient`. Declare `ambient_resource::<T>()` and
 `derived_publication(name)` in setup/register when appropriate; these policies

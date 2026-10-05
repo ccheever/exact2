@@ -1,6 +1,6 @@
-// Appended to exact_game_render::hooks::MATERIAL_WGSL: the engine places each
-// reed (instance_transform); the wind bends it by height, after placement, so
-// every reed sways in the same world-space gust at its own phase.
+// A prelude after the engine's material WGSL (frame, transform, custom_instance):
+// the engine places each reed (instance_transform); the wind bends it by height,
+// after placement, so every reed sways in the same world-space gust at its own phase.
 struct Wind { time: f32, strength: f32, unused: vec2<f32> }
 @group(2) @binding(0) var<uniform> wind: Wind;
 fn sway(p: vec3f, n: vec3f, i: u32, color: vec4f) -> Varying {

@@ -508,21 +508,6 @@ impl Default for SpotLight {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Component)]
 pub struct ViewModel;
 
-/// Screen-door opacity in [0, 1] for this entity's draws, primitive or model:
-/// opaque surfaces drop pixels in an ordered 4 × 4 dither (no sorting, depth
-/// stays exact) and blended model materials multiply their alpha. Model shadows
-/// fade with it. 1 or absent draws as before. Fades occluders, such as a crown
-/// between the camera and the player, without a pop. It multiplies down the
-/// Parent chain, so a multipart unit fades as one. Presentation state:
-/// write it from `Game::present`; it is never saved or hashed.
-#[derive(Clone, Copy, Debug, PartialEq, crate::Presentation)]
-pub struct Opacity(pub f32);
-impl Default for Opacity {
-    fn default() -> Self {
-        Self(1.0)
-    }
-}
-
 /// One model node's look on one instance: see `NodeMaterials`.
 #[derive(Clone, Debug, PartialEq, crate::Data)]
 pub struct NodeMaterial {
@@ -592,14 +577,50 @@ pub struct ModelLod {
     pub hide: Option<f32>,
 }
 
-/// A drawn-only pose change: the renderer draws this entity at its drawn
-/// parent's pose times its local pose times the offset, so its children and
-/// the props on a rigged entity's sockets move with it.
-/// Picking, layout and physics use the simulated pose, never the offset.
-/// Presentation state, written by `Game::present`: a bob, a recoil kick or a
-/// sway that never moves the simulation, its saves or its hash.
+/// A drawn-only pose change: the entity is drawn at drawn(parent)·local·offset,
+/// so an offset on a root moves its whole displayed hierarchy, and props on a
+/// rigged entity's sockets follow it. Picking, layout and physics use the
+/// simulated pose, never the offset. Presentation state, written by
+/// `Game::present`: a bob, a recoil kick or a sway that never moves the
+/// simulation, its saves or its hash. See [`World::drawn`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, crate::Presentation)]
 pub struct Offset(pub Transform);
+
+/// Screen-door opacity in [0, 1] for this entity's draws, primitive or model:
+/// opaque surfaces drop pixels in an ordered 4 × 4 dither (no sorting, depth
+/// stays exact) and blended model materials multiply their alpha. Model shadows
+/// fade with it. 1 or absent draws as before. Fades occluders, such as a crown
+/// between the camera and the player, without a pop. It multiplies down the
+/// Parent chain, so a multipart unit fades as one; it never reveals a child of a
+/// hidden ancestor. Presentation state: write it from `Game::present`; it is
+/// never saved or hashed.
+#[derive(Clone, Copy, Debug, PartialEq, crate::Presentation)]
+pub struct Opacity(pub f32);
+impl Default for Opacity {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
+/// A primitive's drawn look on top of its `Material`: linear RGBA multiplying
+/// its base colour and linear emission added, for this entity only (not
+/// inherited). A hit flash, a team tint, a pulse. Presentation state, written
+/// by `Game::present`; never saved or hashed. Models use `NodeMaterials`.
+#[derive(Clone, Copy, Debug, PartialEq, crate::Presentation)]
+pub struct Tint {
+    /// Linear RGBA multiplying the base colour.
+    pub color: [f32; 4],
+    /// Linear emission added.
+    pub emissive: [f32; 3],
+}
+impl Default for Tint {
+    fn default() -> Self {
+        Self {
+            color: [1.0; 4],
+            emissive: [0.0; 3],
+        }
+    }
+}
 
 /// Local visibility; a hidden Parent ancestor also hides this entity.
 /// An absent row is true. SocketFollow alone does not inherit visibility.
@@ -842,6 +863,7 @@ impl World {
 mod hierarchy;
 mod visibility;
 pub(crate) use hierarchy::Hierarchy;
+pub use visibility::Drawn;
 
 #[cfg(test)]
 mod tests {

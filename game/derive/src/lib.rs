@@ -17,7 +17,8 @@ pub fn component(input: TokenStream) -> TokenStream {
     derive(input, Some("Component"))
 }
 
-/// A presentation-only component: excluded from saves, hashes and rest observation.
+/// A presentation-only component: excluded from saves, hashes and rest observation,
+/// written only by `Game::present`. Presentation resources are not supported.
 #[proc_macro_derive(Presentation, attributes(data))]
 pub fn presentation(input: TokenStream) -> TokenStream {
     derive(input, Some("Presentation"))
@@ -269,6 +270,9 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
             "impl ::exact_game::{marker} for {name} {{ const NAME: &'static ::core::primitive::str = {:?};{extra} }}",
             clean(&name)
         );
+        if !extra.is_empty() {
+            out += &format!("impl ::exact_game::PresentationComponent for {name} {{}}");
+        }
     }
     Ok(out)
 }

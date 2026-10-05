@@ -56,11 +56,14 @@ pub trait Game: 'static {
     /// One fixed step, called after inputs and before transform propagation.
     fn tick(world: &mut World, input: &Input, args: &Self::Args);
     /// Rebuild presentation-only state (`#[derive(Presentation)]` components) from
-    /// the simulation at each tick boundary: after every tick, after setup and after
-    /// a restore. Nothing written here is saved or hashed, so visual-only changes
-    /// never move a pin; draw randomness from `world.presentation_rng(salt)`, never
-    /// the world's. It may not spawn or despawn: entities are simulation state.
-    fn present(_world: &mut World, _args: &Self::Args) {}
+    /// the simulation: after setup, after a restore, after an argument change or a
+    /// tool edit, and at each boundary an advance shows (its last two ticks; every
+    /// tick under a paranoid mode, which compares). Rows start cleared each time,
+    /// so present is a pure function of the simulation, the args and the tick.
+    /// Nothing written here is saved or hashed, so visual-only changes never move
+    /// a pin. [`Present`](crate::Present) reads the simulation and writes only
+    /// presentation components; draw randomness from `p.rng(salt)`.
+    fn present(_present: &mut crate::Present<'_>, _args: &Self::Args) {}
     /// Fixed steps per second.
     const HZ: u32 = 60;
 }
@@ -291,7 +294,7 @@ impl<G: Game> Sim<G> {
             world.published_pending.get(),
         );
         world.presenting.set(true);
-        G::present(world, args);
+        G::present(&mut crate::Present::new(world), args);
         world.presenting.set(false);
         let after = (
             world.entities_revision(),
@@ -1143,7 +1146,13 @@ impl<G: Game> Sim<G> {
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
-            Self::present(&mut self.world, &self.args);
+            // Present only what can be observed: the last two ticks of an advance
+            // (the renderer interpolates between them). It is pure, so skipping
+            // the rest of a long seek changes nothing; paranoid modes present
+            // every tick so their comparison proves that purity.
+            if self.paranoid.is_some() || target - self.world.tick() < 2 {
+                Self::present(&mut self.world, &self.args);
+            }
             // Paranoid modes round-trip at every point an advance can be observed
             // (its last tick), at every tick that received input, and every
             // PARANOID_EVERY-th tick inside an advance.

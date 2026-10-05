@@ -67,7 +67,7 @@ impl Game for Fade {
         }
     }
     fn tick(_: &mut World, _: &Input, _: &FadeArgs) {}
-    fn present(w: &mut World, args: &FadeArgs) {
+    fn present(w: &mut Present<'_>, args: &FadeArgs) {
         if args.opacity < 1. {
             let e = w.named("panel").unwrap();
             w.insert(e, Opacity(args.opacity));
@@ -825,7 +825,7 @@ impl Game for Shade {
         ));
     }
     fn tick(_: &mut World, _: &Input, _: &ShadeArgs) {}
-    fn present(w: &mut World, args: &ShadeArgs) {
+    fn present(w: &mut Present<'_>, args: &ShadeArgs) {
         if args.opacity < 1. {
             let e = w.named("block").unwrap();
             w.insert(e, Opacity(args.opacity));

@@ -1,91 +1,95 @@
-//! The wind fixture's render hooks (app.json `game.presentation`): reeds sway in a
+//! The wind fixture's render hooks (app.json `game.render`): reeds sway in a
 //! custom vertex material and a dusk sky replaces the engine's. Presentation
 //! only: the hooks read the world and never step or change it.
-use exact_game_render::hooks::{CustomMaterial, Pipelines, MATERIAL_SHADOWS_WGSL, MATERIAL_WGSL};
+use exact_game_render::hooks::{CustomMaterial, Pipelines};
 use exact_game_render::{FrameView, HookGpu, Hooks, Needs, RenderError, RenderWorld};
 use exact_gpu::wgpu;
 
-/// The shader pack under `shaders/` (game.presentation.shaders), reflected at build.
-/// Its text travels as assets and reloads live; `sky::module()` reads it.
+/// The shader inventory (game.render.shaders): every shader under `shaders/`
+/// after its declared preludes (app.json gpu.shaderPreludes), reflected at
+/// build. The text travels as assets and reloads live; `<name>::module()`
+/// reads the registered text, so nothing is assembled at run time.
 pub mod shaders {
     include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
 }
 
-/// Where the shader pack lives in the source tree, for tests that register it.
+/// The assembled inventory as the hosts register it, for tests that load it.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn shader_dir() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders")
+    std::path::Path::new(env!("OUT_DIR")).join("shaders")
 }
-
-/// The reed material composes with the engine's WGSL prelude, so it is compiled
-/// in rather than shipped in the pack: the pack's shaders validate on their own.
-const WIND: &str = include_str!("wind.wgsl");
-const FORWARD: &str = include_str!("wind_forward.wgsl");
-const SHADOW: &str = include_str!("wind_shadow.wgsl");
 
 #[derive(Default)]
 pub struct Wind {
-    materials: Vec<CustomMaterial>,
+    reeds: Pipelines<Vec<CustomMaterial>>,
     uniform: Option<wgpu::Buffer>,
     sky: Pipelines<wgpu::RenderPipeline>,
     frame: Option<wgpu::BindGroup>,
 }
 
 impl Wind {
-    fn reeds(&mut self, gpu: &HookGpu<'_>) {
+    /// The reed material over the registered wind_forward/wind_shadow modules,
+    /// validated as one candidate and replaced on each shader generation.
+    fn reeds(&mut self, gpu: &HookGpu<'_>, generation: u32) {
         let Some(materials) = gpu.materials.as_ref() else {
             return;
         };
         let Some(material) = materials.material("reed.model", 0) else {
             return;
         };
-        let layout = gpu
-            .device
-            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("wind"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-        let uniform = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("wind"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let module = |label, text: String| {
-            gpu.device
-                .create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: Some(label),
-                    source: wgpu::ShaderSource::Wgsl(text.into()),
+        let ready = [shaders::wind_forward::NAME, shaders::wind_shadow::NAME]
+            .iter()
+            .all(|name| exact_gpu::shaders::shader_source(name).is_some());
+        if !ready {
+            return;
+        }
+        let uniform = self
+            .uniform
+            .get_or_insert_with(|| {
+                gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("wind"),
+                    size: 16,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
                 })
-        };
-        let forward = module(
-            "wind forward",
-            format!("{MATERIAL_WGSL}\n{MATERIAL_SHADOWS_WGSL}\n{WIND}\n{FORWARD}"),
-        );
-        let shadow = module("wind shadow", format!("{MATERIAL_WGSL}\n{WIND}\n{SHADOW}"));
-        self.materials.push(CustomMaterial {
-            material,
-            forward: materials.pipeline(&forward, &layout, "wind_vs", Some("wind_fs"), false),
-            shadow: materials.pipeline(&shadow, &layout, "wind_shadow", None, true),
-            resources: gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("wind"),
-                layout: &layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform.as_entire_binding(),
-                }],
-            }),
+            })
+            .clone();
+        self.reeds.update(gpu.device, generation, || {
+            let layout = gpu
+                .device
+                .create_bind_group_layout(&shaders::wind_forward::GROUP_2);
+            let forward = gpu
+                .device
+                .create_shader_module(shaders::wind_forward::module());
+            let shadow = gpu
+                .device
+                .create_shader_module(shaders::wind_shadow::module());
+            vec![CustomMaterial {
+                material,
+                forward: materials.pipeline(
+                    &forward,
+                    &layout,
+                    shaders::wind_forward::entry::WIND_VS,
+                    Some(shaders::wind_forward::entry::WIND_FS),
+                    false,
+                ),
+                shadow: materials.pipeline(
+                    &shadow,
+                    &layout,
+                    shaders::wind_shadow::entry::WIND_SHADOW,
+                    None,
+                    true,
+                ),
+                resources: gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("wind"),
+                    layout: &layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: uniform.as_entire_binding(),
+                    }],
+                }),
+            }]
         });
-        self.uniform = Some(uniform);
     }
 }
 
@@ -96,9 +100,7 @@ impl Hooks for Wind {
         view: &FrameView<'_>,
         world: &RenderWorld<'_>,
     ) -> Result<(), RenderError> {
-        if self.materials.is_empty() {
-            self.reeds(gpu);
-        }
+        self.reeds(gpu, view.time.shader_generation);
         if let Some(uniform) = &self.uniform {
             // Simulation time, interpolated: the same frame always shows the same gust.
             let time = (world.tick() as f32 + view.frame.alpha) / world.hz() as f32;
@@ -127,20 +129,20 @@ impl Hooks for Wind {
     }
     fn needs(&self) -> Needs {
         // The wind blows while the simulation rests.
-        if self.sky.pending() {
+        if self.sky.pending() || self.reeds.pending() {
             Needs::ANIMATE | Needs::PENDING
         } else {
             Needs::ANIMATE
         }
     }
     fn pending_reason(&self) -> &str {
-        "dusk sky pipeline validating"
+        "wind and sky pipelines validating"
     }
     fn error(&self) -> Option<&str> {
-        self.sky.error()
+        self.sky.error().or(self.reeds.error())
     }
     fn materials(&self) -> &[CustomMaterial] {
-        &self.materials
+        self.reeds.get().map_or(&[], Vec::as_slice)
     }
     fn background(
         &mut self,

@@ -53,7 +53,7 @@ impl Game for Unit {
         ));
     }
     fn tick(_: &mut World, _: &Input, _: &UnitArgs) {}
-    fn present(w: &mut World, args: &UnitArgs) {
+    fn present(w: &mut Present<'_>, args: &UnitArgs) {
         let root = w.named("root").unwrap();
         if args.bob != 0. {
             w.insert(root, Offset(Transform::at(0., args.bob, 0.)));
@@ -175,7 +175,7 @@ impl Game for Hidden {
         );
     }
     fn tick(_: &mut World, _: &Input, _: &HiddenArgs) {}
-    fn present(w: &mut World, _: &HiddenArgs) {
+    fn present(w: &mut Present<'_>, _: &HiddenArgs) {
         // Neither a fade nor a level of detail reveals it.
         let child = w.named("child").unwrap();
         w.insert(child, Opacity(0.5));
@@ -207,3 +207,4 @@ fn a_hidden_ancestor_overrides_opacity_and_levels_of_detail() {
     assert!(shown > 500, "the faded child draws: {shown}");
     assert_eq!(hidden, 0, "a hidden ancestor hides it");
 }
+

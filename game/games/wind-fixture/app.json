@@ -1,13 +1,35 @@
 {
   "game": {
     "assets": true,
-    "presentation": {
-      "crate": "wind-fixture-presentation",
-      "type": "Wind",
+    "render": {
+      "crate": "wind-fixture-render",
+      "hooks": "Wind",
       "shaders": "shaders::SHADERS"
     }
   },
   "gpu": {
-    "shaderRoots": ["presentation/shaders"]
+    "shaderRoots": [
+      "render/shaders"
+    ],
+    "shaderPreludes": {
+      "sky": [
+        "../../render/src/shaders/frame.wgsl"
+      ],
+      "wind_forward": [
+        "../../render/src/shaders/frame.wgsl",
+        "../../render/src/shaders/transform.wgsl",
+        "../../render/src/shaders/custom_instance.wgsl",
+        "../../render/src/shaders/shadow_sample.wgsl",
+        "../../render/src/shaders/lights.wgsl",
+        "../../render/src/shaders/material_shadows.wgsl",
+        "render/wgsl/wind.wgsl"
+      ],
+      "wind_shadow": [
+        "../../render/src/shaders/frame.wgsl",
+        "../../render/src/shaders/transform.wgsl",
+        "../../render/src/shaders/custom_instance.wgsl",
+        "render/wgsl/wind.wgsl"
+      ]
+    }
   }
 }

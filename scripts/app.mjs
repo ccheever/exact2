@@ -1084,10 +1084,10 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   // Shell selection observes art's presence. Track absence for the dev watcher
   // without giving Cargo a missing path that forces every build dirty.
   if (app.manifest.game) add(resolve(app.dir, 'art'), true);
-  if (app.manifest.game?.presentation && graph.surface) {
-    add(resolve(app.dir, 'presentation/Cargo.toml'));
-    add(resolve(app.dir, 'presentation/src'), true);
-    add(resolve(app.dir, 'presentation/build.rs'), true);
+  if (app.manifest.game?.render && graph.surface) {
+    add(resolve(app.dir, 'render/Cargo.toml'));
+    add(resolve(app.dir, 'render/src'), true);
+    add(resolve(app.dir, 'render/build.rs'), true);
   }
   if (platform === 'macos' || platform === 'ios') {
     const packageRoot=resolve(ROOT,'host/apple');

@@ -19,7 +19,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
   const local = destination === '.' || /[\\/]/.test(destination ?? '');
   const name = local ? basename(resolve(destination)) : destination;
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name ?? '') || /-(web|apple|linux|windows|gpu)$/.test(name)) {
-    throw new Error('Usage: bun game/new.mjs <name|path> [--assets] (lowercase-hyphenated name, no host suffix)');
+    throw new Error('Usage: bun game/new.mjs <name|path> [--assets] [--render] (lowercase-hyphenated name, no host suffix)');
   }
   // The type is `use exact_game::*;`'s neighbour: it may not shadow an engine export
   // (World, Camera…) or another of the template's items (Beacon, Options).
@@ -49,7 +49,24 @@ export function createGame(destination, directory = import.meta.dir, options = {
   if (existsSync(proofPath)) writeFileSync(proofPath,readFileSync(proofPath,'utf8').replace("'../../proof.mjs'",JSON.stringify(relative(destination,resolve(directory,'proof.mjs')))));
   // Identity derives from the directory and Game::ID; app.json holds authored keys only.
   if (!gameDefaults(destination)) throw new Error(`${destination}/logic/src/lib.rs: the template's Game declaration was not found`);
-  if (options.assets === true) writeFileSync(resolve(destination, 'app.json'), JSON.stringify({game:{assets:true}}, null, 2) + "\n");
+  const manifest = {game:{...(options.assets === true ? {assets:true} : {})}};
+  if (options.render === true) {
+    // The GPU-only hooks crate (LLP 1046.008, game.render): an empty pass set and
+    // an explicitly declared shader root, reflected at build.
+    const files = {
+      'render/Cargo.toml': `# Render hooks (app.json game.render): what the GPU module draws beyond the\n# engine's frame. Only the GPU shell links this crate; the simulation never does.\n[package]\nname = "${name}-render"\nversion = "0.1.0"\nedition = "2021"\nlicense = "MIT"\nworkspace = "../.shells"\n\n[dependencies]\nexact-game-render.workspace = true\nexact-gpu.workspace = true\n\n[build-dependencies]\nexact-gpu-reflect.workspace = true\n`,
+      'render/build.rs': `//! Reflect render/shaders (gpu.shaderRoots in app.json): naga validates each\n//! shader at build, and \`shaders::SHADERS\` names their interfaces.\nfn main() {\n    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders");\n    println!("cargo:rerun-if-changed={}", dir.display());\n    let generated = exact_gpu_reflect::generate(&dir).unwrap_or_else(|e| panic!("{e}"));\n    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("shaders.rs");\n    std::fs::write(out, generated.rust).unwrap();\n}\n`,
+      'render/src/lib.rs': `//! ${title}'s render hooks: implement exact_game_render::Hooks stages here.\n\n/// The reflected shader registry of render/shaders.\npub mod shaders {\n    include!(concat!(env!("OUT_DIR"), "/shaders.rs"));\n}\n\n/// The game's passes; every stage defaults to drawing nothing.\n#[derive(Default)]\npub struct Passes;\nimpl exact_game_render::Hooks for Passes {}\n`,
+    };
+    for (const [file, text] of Object.entries(files)) {
+      mkdirSync(dirname(resolve(destination, file)), {recursive:true});
+      writeFileSync(resolve(destination, file), text);
+    }
+    mkdirSync(resolve(destination, 'render/shaders'), {recursive:true});
+    manifest.game.render = {crate:`${name}-render`, hooks:'Passes', shaders:'shaders::SHADERS'};
+    manifest.gpu = {shaderRoots:['render/shaders']};
+  }
+  if (Object.keys(manifest.game).length) writeFileSync(resolve(destination, 'app.json'), JSON.stringify(manifest, null, 2) + "\n");
 
   const argument = local ? quote(destination === process.cwd() ? '.' : destination) : name;
   const proof = quote(relative(process.cwd(), resolve(destination, 'proof.mjs')));
@@ -469,5 +486,5 @@ test "the app opens"
 if (import.meta.main) {
   const args = process.argv.slice(2);
   if (args[0] === '--app') console.log(createApp(args.find((a, i) => i > 0 && !a.startsWith('--')), { update: args.includes('--update') }));
-  else console.log(createGame(args[0], undefined, {assets:args.includes("--assets")}));
+  else console.log(createGame(args[0], undefined, {assets:args.includes("--assets"), render:args.includes("--render")}));
 }

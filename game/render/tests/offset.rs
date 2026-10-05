@@ -39,7 +39,7 @@ impl Game for Shifted {
     fn paused(_: &Look) -> bool {
         true
     }
-    fn present(w: &mut World, look: &Look) {
+    fn present(w: &mut exact_game::Present<'_>, look: &Look) {
         let e = w.named("box").unwrap();
         w.insert(e, Offset(Transform::at(look.shift as f32, 0., 0.)));
     }

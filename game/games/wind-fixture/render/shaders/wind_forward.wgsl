@@ -1,5 +1,6 @@
-// After MATERIAL_SHADOWS_WGSL and wind.wgsl: the forward pass, lit by the
-// engine's sky light and sun, in the engine's sun shadows.
+// The reeds' forward pass, lit by the engine's sky light and sun, in its sun
+// shadows. Preludes (app.json): the engine's material and shadow WGSL, then
+// render/wgsl/wind.wgsl.
 @vertex fn wind_vs(@location(0) p: vec3f, @location(1) n: vec3f, @location(3) color: vec4f,
         @builtin(instance_index) i: u32) -> Varying {
     return sway(p, n, i, color);
