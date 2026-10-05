@@ -277,7 +277,7 @@ fn a_mistaken_section_word_names_the_section() {
         (error.id.as_str(), error.message.as_str()),
         (
             "syntax-unknown-section",
-            "unknown section `prop`: did you mean `props` (a component another one uses declares them)?"
+            "unknown section `prop`: did you mean `props` (any component but the first in the file declares them)?"
         )
     );
 }

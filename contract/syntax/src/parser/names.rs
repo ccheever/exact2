@@ -38,9 +38,9 @@ pub(super) fn reserved_message(w: &str) -> String {
 /// bench: `prop pct: number` in a child component).
 pub(super) fn section_hint(word: &str) -> String {
     let section = match word {
-        "prop" | "properties" | "property" | "params" => "props",
+        "prop" => "props",
         "states" => "state",
-        "derives" | "derived" => "derive",
+        "derives" => "derive",
         "resources" => "resource",
         "mutations" => "mutation",
         "actions" => "action",
@@ -52,7 +52,7 @@ pub(super) fn section_hint(word: &str) -> String {
         _ => return String::new(),
     };
     let place = match section {
-        "props" => " (a component another one uses declares them)",
+        "props" => " (any component but the first in the file declares them)",
         "resource" | "mutation" | "task" => " (only the root component declares one)",
         _ => "",
     };
