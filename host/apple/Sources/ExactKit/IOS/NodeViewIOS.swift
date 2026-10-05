@@ -64,7 +64,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             // Writing back "hidden" that only CSS's `display: none` made is not
             // the host's word (a save of `isHidden` restored; review B1): a
             // projection that means it hides again on its next pass.
-            let css = style["display"]?.string == "none" || style["visibility"]?.string == "hidden" // CSS visibility too (LLP 1094 D6)
+            // CSS visibility too (LLP 1094 D6), but not a paragraph's: its runs
+            // hide their own ink, so an explicitly visible inline descendant
+            // still paints (`InlineText.run`).
+            let css = style["display"]?.string == "none" || style["visibility"]?.string == "hidden" && kind != "text"
             if !(newValue && css && !hostHidden && super.isHidden) { hostHidden = newValue }
             super.isHidden = hostHidden || css
         }
