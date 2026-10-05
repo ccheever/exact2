@@ -1710,3 +1710,28 @@ Both attempts remain in `artifacts/encounter-live-web/`. This proves the
 live input/audio path; neither audio quality nor human enjoyment was judged.
 The optional GPU module grows from 2,273/922 KiB raw/gzip to 2,387/963;
 application wasm stays 811/361 KiB. No frame-rate gain is claimed.
+
+### Accepted encounter baseline (2026-10-05)
+
+The strict seven-run refresh at `0803820fb` is accepted in
+`artifacts/prove/run-HkgPZB/`. Linux continuous/Save/FreshGame take
+12.669/27.669/27.812 s, web takes 180.473/221.626/212.774 s, and native
+release takes 48.211 s, including builds where needed. All seven have zero
+failures, one source-input digest (`ce1a293a…`), equal tick/save pins, and
+available, empty process audits. Each finishes sixteen world observations
+and 26 saved files. The preceding full web/macOS candidate pair has exactly
+these accepted inputs and pins; its complete worlds/publications and saved
+files agree too. No second full pair is needed for unchanged runtime sources.
+Acceptance: `/tmp/exact2-forest-encounter-acceptance.json`; build/drive log:
+`/tmp/exact2-forest-encounter-repin.log`.
+
+The before/after Jev pair stays closed. This checkpoint accepts deterministic
+continuation and the intended warning behavior; human preference remains
+unmeasured. Reviewing the captures again confirms a changed Deer silhouette,
+not a changed whole-scene art direction. The playtest loop still needs real-time
+human comparisons: the existing Garden policy can jump twenty seconds per
+wait, and its goal supplies a recipe. That tests task completion, not boredom
+or unaided discovery. The next candidate is Rivals' firing feedback, with a
+fixed-input baseline captured before modifying it. A shared mesh-builder
+follow-up from Garden/Forest's duplicate assembly code is recorded in QUEUE;
+no new engine abstraction is introduced in this encounter change.

@@ -1,26 +1,27 @@
 {
   "ticks": {
-    "0": "0x1d9aa1cadf1b2729",
-    "4500": "0x1795c82ff747fc4b",
-    "7378": "0xf04f5d9a791ffe97"
+    "0": "0xd1bb72b7e5990bc6",
+    "4500": "0x52c04fed9e10418f",
+    "7378": "0x711538bd6f8f3782"
   },
   "saves": {
-    "chopping": "9a3010f42d9d4fd40e4e7d9b1a1e7afb24ecb57c197cb9e4b9bb6b09dfc5e636",
-    "night": "38d7c8e39d80010abbfc7c277de17b5526b4b3ae6b04646e959741f7b71f7f11",
-    "rescue": "3680add0e1172705dff81ed922698e62e37696030713b95269373cd8452fe56a",
-    "supplies": "734f5de211ede5769e7dbf3e6e4fea66363fa4eab6922ed17173d7b852396bca",
-    "dawn": "512807add70fa19731a4e447d1991cc4383d8e7d0e45f3600adb68fd26238d75",
-    "windbreak": "37b4319b011de1ed89cb5557517198d43d57e7cd3e9163a3057e6b0095385777",
-    "windbreak-dawn": "1831deb318301f82bedc69ee96802fcaeec464134b2d031fbf1b17a794ae06db",
-    "cached-supply": "f533d85ba2f89386e6248e2e5682fac718de7ed065ee898a5faa5af528991b4c"
+    "chopping": "5740161ab7bbef5c5e43fa4e63a9493a7005ed716aef608728bf4fc567288206",
+    "night": "b8bc5bd8903fdc433ac51be5710901b92c8fd143dee39586ed9293b31ccaca13",
+    "rescue": "3437f0f10ce7aed1d8e16d21a9e395a345aaec701396c851056b60e0ae69681f",
+    "supplies": "74e4200bb43d6f4cb4f966230e73eeeafda5a214fe7ab79f0881a70aece7d401",
+    "dawn": "9dd8c1c1d3dcf3c116d7d48ab972c50824d32be071261538381c70daceceff22",
+    "windbreak": "2e058a23f837b1cf1a94603a0452333462377feab542d553312a26bba1a0f98e",
+    "windbreak-dawn": "05c415d7c99a4af5c4d351585910bf010a10071d04b287eb9633414c72399651",
+    "cached-supply": "141c16ea09a65bba015d02c3b11052759daea2f7122d46af76a2a650d0b8f14c",
+    "deer-warning": "43a9ee20fa3ad3f78b35373792cd9f8bb1ecdcee2541d6796dde8559508602fa"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "e165371e4ddc8bf7837634dfea6c3f51552a588328d9792fce7f0a660062ff6c",
+  "inputs": "ce1a293adbd2f72e185524b3b8ea6743d42f7d4eb9b1399495577242dd9ad58c",
   "game": "forest",
   "generated": "bun game/prove.mjs forest --repin --hosts 'linux,web'",
-  "at": "ad53b271bf0abae6739b38c1ed2209f65ffafe67",
-  "reason": "Feed only whole supplies that fit and allow dropping and retrieving saved supplies through G or the HUD"
+  "at": "0803820fbf6777fffa23f1e1370ae755323fd0e5",
+  "reason": "Readable Deer model, interruptible charge warning and positional cues; mid-warning continuation verified"
 }
