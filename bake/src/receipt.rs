@@ -531,8 +531,9 @@ fn artifact_graph(
     // tier), deferred templates and branches included, each by the rule its
     // host loads it by: the Canvas 2D GPU module for a `Canvas`, the SVG
     // island module where `svg_islands` holds, the video arm for a `Video`,
-    // the web arm for a `WebView`. A build whose plan is fixed leaves out
-    // the rest.
+    // the web arm for a `WebView`, and the sound arm for a declared sound
+    // (LLP 1096 D8: a `sound` declaration is not a node). A build whose plan
+    // is fixed leaves out the rest.
     let makes = |wanted: exact_kernel::NodeType| {
         plan.nodes
             .iter()
@@ -543,6 +544,7 @@ fn artifact_graph(
         ("svg", exact_runner::svg_islands(plan)),
         ("video", makes(exact_kernel::NodeType::Video)),
         ("web", makes(exact_kernel::NodeType::WebView)),
+        ("sound", !plan.sounds.is_empty()),
     ]
     .into_iter()
     .filter_map(|(module, reached)| reached.then_some(module))
@@ -674,6 +676,22 @@ mod tests {
         source_map("development", &app, &out, &other, &other.encode());
         assert!(!map.exists(), "a map for other nodes is never written");
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// LLP 1096 D8: a declared sound is not a node, so the plan's `sounds`
+    /// table is what says a fixed build carries the sound arm.
+    #[test]
+    fn a_plan_with_a_sound_loads_the_sound_arm() {
+        let without = exact_plan::builder::PlanBuilder::new(0, 0)
+            .finish()
+            .unwrap();
+        let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+        b.sound("assets/kick.wav", 4_800, 48_000, 1, "00");
+        let with = b.finish().unwrap();
+        for (plan, loads) in [(without, json!([])), (with, json!(["sound"]))] {
+            let graph = artifact_graph(&plan, &json!({}), &[], "aarch64-apple-darwin").unwrap();
+            assert_eq!(graph["loads"], loads);
+        }
     }
 
     #[test]

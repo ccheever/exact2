@@ -111,6 +111,9 @@ final class VideoView {
         if blocked != visibilityBlocked { update() }
     }
 
+    #if os(iOS) || os(tvOS)
+    nonisolated(unsafe) private static var sessionAsked = false
+    #endif
     init(owner: NodeView) {
         self.owner = owner
         guard let module = VideoModule.shared else { return }
@@ -198,6 +201,13 @@ final class VideoView {
         if !listeners.isEmpty { props["exactListeners"] = listeners.sorted().joined(separator: " ") }
         guard props != last else { return }
         last = props
+        #if os(iOS) || os(tvOS)
+        // The first video with sound plays in the app's session (LLP 1096 D8).
+        if !Self.sessionAsked, !ExactEnv.agentMode, props["muted"] != "true", props["src"]?.isEmpty == false {
+            Self.sessionAsked = true
+            do { try AudioSession.activate() } catch { fputs("exact audio session: \(error)\n", stderr) }
+        }
+        #endif
         guard let data = try? JSONSerialization.data(withJSONObject: props) else { return }
         data.withUnsafeBytes { module.update(handle, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
     }

@@ -382,6 +382,8 @@ public final class ExactSession {
     let natives = NativeViews()
     /// The file picker (LLP 1069.002).
     lazy var picker = Picker(session: self)
+    /// The voice table's output (LLP 1096 D8), made at the first `sound` op.
+    lazy var sound = SoundOutput(self)
     let frames: Frames
     /// A development session's presented frames (LLP 1079 D3); a production bake has none.
     private(set) var sampler: FrameSampler?
@@ -969,6 +971,7 @@ public final class ExactSession {
         regions.prepare(batch)
         #endif
         for op in batch.ops where op.op == .surfaceWork { pendingSurfaceWork.append((op.payload, generation)) }
+        if !ExactEnv.agentMode { for op in batch.ops where op.op == .sound { sound.apply(op.payload) } } // LLP 1096 D8: the voice table's ops, never under the agent's clock
         // Opened once the batch is applied, off this session's window (LLP 1069.006 D3).
         for op in batch.ops where op.op == .auth {
             let payload = op.payload

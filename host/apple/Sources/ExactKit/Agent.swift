@@ -232,6 +232,8 @@ public final class Agent {
             let world = session.canvases.worlds(["op": "state"])
             nativeSections = session.canvases.restoreReply(nativeSections)
             if !world.isEmpty { nativeSections["world"] = world }
+            // A session that plays fills in its output (LLP 1096 D10); under the agent none plays.
+            if !ExactEnv.agentMode, let output = try? JSONSerialization.data(withJSONObject: session.sound.state) { reply = reply.replacingOccurrences(of: "\"output\":\"agent\"", with: "\"output\":" + String(decoding: output, as: UTF8.self)) }
             if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),
                let sections = try? JSONSerialization.data(withJSONObject: nativeSections) {
                 reply.removeLast()

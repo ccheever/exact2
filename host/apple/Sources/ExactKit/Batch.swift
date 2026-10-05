@@ -80,6 +80,7 @@ public struct BatchOp {
         case flight, land // LLP 1013.000 D4: a shared element's flight, and its end
         case rank // LLP 1083.000: twice the sibling paint rank
         case sticky // LLP 1083: a sticky box's constraint, or none
+        case sound // LLP 1096 D8: the voice table's ops, and a boot's files
     }
     let op: Kind
     var nodeID: UInt32?

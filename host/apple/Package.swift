@@ -47,7 +47,10 @@ let executables: [Target] = [
 // as a decision rather than a drawn frame, so it needs no window, no run
 // loop, and no clock (LLP 1033 D4a).
 let tests: [Target] = [
-    .testTarget(name: "ExactKitTests", dependencies: ["ExactKit"], path: "Tests/ExactKitTests"),
+    // The sound arm's C mixer (LLP 1096 D8), rendered offline by the tests;
+    // the arm itself is a dylib build.mjs makes, never a package product.
+    .target(name: "ExactSoundRender", path: "soundarm", exclude: ["SoundArm.swift"], sources: ["sound_render.c"], publicHeadersPath: "."),
+    .testTarget(name: "ExactKitTests", dependencies: ["ExactKit", "ExactSoundRender"], path: "Tests/ExactKitTests"),
 ]
 
 let package = Package(
