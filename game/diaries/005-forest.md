@@ -1592,3 +1592,33 @@ were inspected; all cleanup audits are available and empty. These are
 `UNVERIFIED` partial runs, with durations 10.894/10.294/10.357 s including
 builds, overlapping the strict fixture's web build. They add no frame-time
 claim and do not replace the earlier full game proofs or Jev trials.
+
+
+## Main integration before the encounter experiment (2026-10-04)
+
+The preceding goal turn made concrete progress in Garden: saved care/harvest
+feedback, actual web/Mac captures, a live browser audio signal, equal gameplay
+outcomes and an accepted strict baseline (diary 004). Enjoyment is still unproven.
+At the next boundary, merge `ed1209416` integrates nine main commits through
+`e55e2c27b`, including Windows TypeScript and bounded CDP failure context. The
+two import conflicts preserve both sides. Windows's pinned CRLF C++ probe and
+patch-context whitespace are preserved deliberately; an ordinary diff whitespace
+check flags those imported bytes, which their receipts require unchanged.
+
+The five root checks take 57.840 s. Build, all 2,436 tests across 81 binaries
+(nine ignored), Clippy, caps and boot pass. Formatting alone flags the new
+Windows document tests; `cargo fmt` changes only that test's import ordering
+and assertion layout, and the repeated format check passes. The tooling and
+proof regression files pass 126 tests with eight platform skips and 807
+assertions in 84.46 s. Logs: `/tmp/exact2-forest-next-main-*` and
+`/tmp/exact2-forest-next-tooling-tests.log`. Windows execution is not claimed
+from this Mac.
+
+Next hypothesis: a recognizable Deer silhouette and a brief warning before
+its rush will make the first night encounter readable enough to react to.
+The current capture uses normal keys: wait at camp until night, walk east,
+then observe the first rush. At tick 4,680 the Deer is already chasing; three
+seconds of standing still costs 35 health, with no preceding charge pose.
+The baseline is `artifacts/encounter-before-web/` (54.783 s, zero failures,
+no recorded child remaining). This is a curated encounter, not evidence of
+player discovery or enjoyment. Earlier camp/survival Jev batches stay closed.
