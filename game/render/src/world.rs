@@ -289,7 +289,7 @@ fn effective_opacity(w: &World, out: &mut Vec<(u32, f32)>) {
     out.clear();
     for (e, o) in w.query::<&Opacity>().iter() {
         // Start at the topmost faded entity of each chain; its walk covers the rest.
-        let mut product = o.0;
+        let mut product = exact_game::opacity(o.0);
         let mut at = e;
         let mut top = true;
         for _ in 0..=w.len() {
@@ -312,7 +312,7 @@ fn effective_opacity(w: &World, out: &mut Vec<(u32, f32)>) {
                 break;
             }
             for c in w.children(x) {
-                let own = w.get::<Opacity>(c).map_or(1., |o| o.0);
+                let own = w.get::<Opacity>(c).map_or(1., |o| exact_game::opacity(o.0));
                 stack.push((c, f * own));
             }
         }
