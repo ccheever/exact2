@@ -18,7 +18,7 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
+import { Cdp, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -84,6 +84,9 @@ export const VIEWPORT = [420, 900];
 
 export { LAUNCH_MEDIA, PREFERENCES, PAGE_FACTS, FOLD_FACTS, displayFeatures } from './agent-prefer.mjs'; // `prefer`'s tables and the web carrier's CDP path
 /** An app made by `exact new` builds itself: its own `exact.mjs web-build`, when the dist is its default one. */
+/** An `exact new` app's own command for a native build (`mac`, `ios`), else null. */
+const ownAppleBuild = (app, verb) => app.dir && !resolve(app.dir).startsWith(ROOT + '/') && existsSync(resolve(app.dir, 'exact.mjs'))
+  ? `(cd '${String(app.dir).replaceAll("'", "'\\''")}' && bun exact.mjs ${verb})` : null;
 const ownWebBuild = (app, dist) => app.dir && app.target && existsSync(resolve(app.dir, 'exact.mjs')) && resolve(dist) === resolve(app.target, 'web-dist')
   ? `(cd '${String(app.dir).replaceAll("'", "'\\''")}' && bun exact.mjs web-build)` : null;
 /** Refuse to drive anything but a complete, authenticated build of the
@@ -200,7 +203,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       await waitAtMost(stdioClosed, 1000);
       const said = [...launchTail, ...(partial ? [partial] : [])].slice(-6).map(l => '  chrome: ' + l).join('\n'); // and an unterminated last line
       const alive = child.exitCode === null && child.signalCode === null;
-      throw new Error(`Chrome ${alive ? 'did not answer' : 'did not start'} (${error.message}); CHROME=${chrome}\n${said || '  (it printed nothing)'}${alive ? '' : '\nSet CHROME to a browser that runs here.'}`);
+      throw copyCdpFailureContext(error, new Error(`Chrome ${alive ? 'did not answer' : 'did not start'} (${error.message}); CHROME=${chrome}\n${said || '  (it printed nothing)'}${alive ? '' : '\nSet CHROME to a browser that runs here.'}`));
     });
     const target = targetInfos.find((t) => t.type === 'page') ?? (await cdp.send('Target.createTarget', { url: 'about:blank' }));
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
@@ -576,7 +579,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
   const deviceBundle = artifacts?.bundle;
   const bin = windows ? (process.env.EXACT_WINDOWS_BIN ?? resolve(a.dir, `dist-windows/${a.crate('windows')}.exe`))
     : linux ? (process.env.EXACT_LINUX_BIN ?? linuxBinary(a)) : (process.env.EXACT_MAC_BIN ?? artifacts.binary);
-  if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run bun host/apple/build.mjs --device first' : windows ? 'run bun host/windows/build.mjs first' : linux ? `run ${linuxBuild(a).join(' ')} first` : sample ? 'run bun host/apple/build.mjs --host first' : 'run bun host/apple/build.mjs first');
+  if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run bun host/apple/build.mjs --device first' : windows ? 'run bun host/windows/build.mjs first' : linux ? `run ${linuxBuild(a).join(' ')} first` : sample ? 'run bun host/apple/build.mjs --host first' : `run ${ownAppleBuild(a, 'mac') ?? `bun host/apple/build.mjs ${a.crate('apple')}`} first`);
   if (!portable) assertAppleIdentity(a, device ? resolve(deviceBundle, 'ExactIOS') : bin);
   if (windows && process.env.EXACT_WINDOWS_BIN) unchecked('windows', 'EXACT_WINDOWS_BIN');
   else if (windows) {
@@ -588,7 +591,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
   else if (!device && process.env.EXACT_MAC_BIN) unchecked(host, 'EXACT_MAC_BIN');
   else if (!device) {
     const receipt = [resolve(bin, '..', 'receipt.json'), resolve(deviceBundle, 'Contents/Resources/receipt.json')].find(existsSync);
-    if (receipt) refuseStale(sample ? 'sample host' : 'macos', receipt, receiptChanges(receipt, a), `bun host/apple/build.mjs ${a.crate('apple')}${sample ? ' --host' : ''}`);
+    if (receipt) refuseStale(sample ? 'sample host' : 'macos', receipt, receiptChanges(receipt, a), (!sample && ownAppleBuild(a, 'mac')) || `bun host/apple/build.mjs ${a.crate('apple')}${sample ? ' --host' : ''}`);
   }
   if (device && (plan || extra.EXACT_PLAN || extra.EXACT_ASSETS)) throw new Error('a phone cannot read host-local plan/assets paths; use --url or its embedded app');
   const ph = device ? phone(pick) : null;
@@ -700,8 +703,8 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
   const a = resolveApp(app);
   const bundle = appleArtifacts(a, { destination: 'ios-simulator', host: hostFixture }).bundle;
   const id = hostFixture ? `${a.id}.host` : a.id;
-  if (!existsSync(bundle)) throw new Error(hostFixture ? 'run bun host/apple/build.mjs --ios --host first' : 'run bun host/apple/build.mjs --ios first');
-  refuseStale('ios', resolve(bundle, 'receipt.json'), receiptChanges(resolve(bundle, 'receipt.json'), a), `bun host/apple/build.mjs --ios ${a.crate('apple')}${hostFixture ? ' --host' : ''}`);
+  if (!existsSync(bundle)) throw new Error(hostFixture ? 'run bun host/apple/build.mjs --ios --host first' : `run ${ownAppleBuild(a, 'ios') ?? `bun host/apple/build.mjs --ios ${a.crate('apple')}`} first`);
+  refuseStale('ios', resolve(bundle, 'receipt.json'), receiptChanges(resolve(bundle, 'receipt.json'), a), (!hostFixture && ownAppleBuild(a, 'ios')) || `bun host/apple/build.mjs --ios ${a.crate('apple')}${hostFixture ? ' --host' : ''}`);
   const dev = simulator();
   showSimulator(dev, true); // a person watching sees what is driven, and keeps the focus
   // Real touches (LLP 1080.000, `--touch platform`): the runner starts first, so its own launch never backgrounds the app.
@@ -1029,7 +1032,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const text = String(target), colon = text.indexOf(':');
       const node = await s.find(target, false);
       if (node) return { id: node.id };
-      if (colon < 0) throw new Error(`no view matches ${target}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)`);
+      if (colon < 0) throw new Error(`no view matches ${target}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)${await s.inFlight()}`);
       return { id: (await s.find(text.slice(0, colon))).id, entity: text.slice(colon + 1) };
     },
     /** The node for a target: a testId (first in preorder on a selected route; a covered screen's copy only when no active one carries it) or a view id. */
@@ -1038,18 +1041,21 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const t = await s.op(required ? {op:'tree', target, shallow:true} : {op:'tree'});
       const matches = typeof target === 'number' || /^\d+$/.test(String(target)) ? t.nodes.filter((n) => n.id === Number(target)) : t.nodes.filter((n) => n.props.testId === target);
       const node = matches.find((n) => !n.inactive) ?? matches[0];
-      if (!node && required) throw new Error(`no view matches ${target}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)`);
+      if (!node && required) throw new Error(`no view matches ${target}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)${await s.inFlight()}`);
       return node;
     },
-    /**
-     * What this carrier's input actually is (LLP 1035.003 D2/D3): whether it
-     * can hold a contact across requests, and how each form is delivered —
-     * `platform` (a real input event through the platform's own path),
-     * `recognized` (an already-recognized event injected), `activation` (a
-     * hit-test and a direct call), `presenter` (seekable native recognition
-     * without OS input injection), or `unsupported`. iOS activates and
-     * injects; it synthesizes no touch (LLP 1008 §9).
-     */
+    /** For a miss: the requests still in flight, whose answers may bring the view (authoring bench: a drive's first op ran before a stored list loaded). */
+    async inFlight() {
+      if (host !== 'web') return ''; // a native read on the error path could time out and close the transport
+      const st = await s.op({ op: 'state' }).catch(() => null);
+      const pending = (st?.pending ?? []).map((p) => p.name).filter(Boolean);
+      return pending.length ? `; ${pending.length} request${pending.length === 1 ? ' is' : 's are'} still in flight (${[...new Set(pending)].join(', ')}): \`clock data\` waits for data, and \`state\` shows what is still pending` : '';
+    },
+    /** What this carrier's input actually is (LLP 1035.003 D2/D3): whether it can hold a contact across requests,
+     * and how each form is delivered — `platform` (a real input event through the platform's own path),
+     * `recognized` (an already-recognized event injected), `activation` (a hit-test and a direct call),
+     * `presenter` (seekable native recognition without OS input injection), or `unsupported`. iOS activates and
+     * injects; it synthesizes no touch (LLP 1008 §9). */
     input: host === 'ios' || host === 'host-ios'
       ? { contact: false, hold: false, delivery: (kind) => (['contextmenu', 'dblclick', 'hover', 'pinch'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : ['press', 'drag'].includes(kind) && carrier.touches ? 'platform' : kind === 'drag' ? 'unsupported' : 'activation') }
       : host === 'linux' || host === 'windows'
@@ -1144,14 +1150,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (r.error) throw new Error(r.error);
       return r.scrolled ? { from: r.from, to: r.to } : null;
     },
-    /**
-     * The held contact's next phase (LLP 1035.003 D1): `move` to `{x, y}` in
-     * the viewport or `by` `{dx, dy}`, over `ms` of real time on platform
-     * carriers or seekable time on Linux's presenter; `hold` for `ms`; `up`; `cancel`.
-     * The platform owns hit-testing, recognition, scrolling and animation:
-     * the app receives whatever it delivers, and a carrier that cannot hold
-     * a contact answers `delivery: "unsupported"` rather than faking one.
-     */
+    /** The held contact's next phase (LLP 1035.003 D1): `move` to `{x, y}` in the viewport or `by` `{dx, dy}`,
+     * over `ms` of real time on platform carriers or seekable time on Linux's presenter; `hold` for `ms`; `up`; `cancel`.
+     * The platform owns hit-testing, recognition, scrolling and animation: the app receives whatever it delivers,
+     * and a carrier that cannot hold a contact answers `delivery: "unsupported"` rather than faking one. */
     async pointer(phase, opts = {}) {
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       if (!['move', 'hold', 'up', 'cancel'].includes(phase)) throw new Error(`pointer: not a phase: ${phase} (move, hold, up, cancel)`);
@@ -1324,13 +1326,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const { screenshot, ...tags } = last;
       return { ...tags, screenshot: out, frames, every, over, at, dir, form: animated ? 'animated' : 'sheet' };
     },
-    /**
-     * An input's end (LLP 1012 §2): the `then` of each answer the input
-     * settled lands before the reply, as a click handler's state is there for
-     * a test's next line — the clock unmoved and no timer fired (trivia F3,
-     * kanban F19). A reply still on real time (a store's, the network's)
-     * stays for a `clock` step. The reply's tags are read after it.
-     */
+    /** An input's end (LLP 1012 §2): the `then` of each answer the input settled lands before the reply, as a click
+     * handler's state is there for a test's next line — the clock unmoved and no timer fired (trivia F3, kanban F19).
+     * A reply still on real time (a store's, the network's) stays for a `clock` step. The reply's tags are read after it. */
     async landed(r) {
       if (r == null || r.error != null || r.delivery === 'unsupported') return s.tagged(r);
       const l = await carrier.ask({ op: 'clock', land: true });
@@ -1338,13 +1336,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       delete r.epoch; delete r.incarnation; delete r.clock;
       return s.tagged(r);
     },
-    /**
-     * Every reply carries the runner's `epoch`, `incarnation` and `clock`
-     * (LLP 1035.002 D3). A host that answered the operation itself stamps
-     * them; the web carrier's input and capture are the driver's own (CDP),
-     * so the driver reads the tags after the operation and adds what the
-     * reply lacks. An error is left alone.
-     */
+    /** Every reply carries the runner's `epoch`, `incarnation` and `clock` (LLP 1035.002 D3). A host that answered
+     * the operation itself stamps them; the web carrier's input and capture are the driver's own (CDP), so the driver
+     * reads the tags after the operation and adds what the reply lacks. An error is left alone. */
     async tagged(r) {
       if (r == null || r.error != null || r.epoch != null) return r;
       const tags = await s.op({ op: 'tags' });

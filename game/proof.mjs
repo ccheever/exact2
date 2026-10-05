@@ -5,7 +5,7 @@ import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { open as openSession, render } from '../scripts/agent.mjs';
-import { gameNonInput } from '../scripts/agent-launch.mjs';
+import { cdpFailureContext, gameNonInput } from '../scripts/agent-launch.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, resolveApp } from '../scripts/app.mjs';
 import { closeFilesystemReader } from '../scripts/filesystem.mjs';
@@ -13,9 +13,17 @@ import { closeFilesystemReader } from '../scripts/filesystem.mjs';
 /** Some runtime-created stacks omit the informative Error message. */
 export function formatProofError(error) {
   const message = String(error), stack = error?.stack;
-  return typeof stack === 'string' && stack.length
+  const rendered = typeof stack === 'string' && stack.length
     ? stack.includes(message) ? stack : `${message}\n${stack}`
     : message;
+  const context = cdpFailureContext(error);
+  return context ? `${rendered}\nCDP ${JSON.stringify(context)}` : rendered;
+}
+
+/** The failed operation's report row; never serialize the Error or its handles. */
+export function proofFailureRow(session, method, args, clock, error) {
+  const context = cdpFailureContext(error);
+  return {session, method, args, clock, error:error.message, steps:error.steps, ...(context ? {cdp:context} : {})};
 }
 
 // Offline diagnostics over existing state reads (LLP 1012; LLP 1046.001 D2/D5).
@@ -568,7 +576,7 @@ export async function proof(meta, script) {
           replies.push({session:id, method, args, reply, clock:target.now});
           return reply;
         } catch (error) {
-          replies.push({session:id, method, args, clock:target.now, error:error.message, steps:error.steps}); if (error.steps) say(render('type', {steps:error.steps})); throw error;
+          replies.push(proofFailureRow(id, method, args, target.now, error)); if (error.steps) say(render('type', {steps:error.steps})); throw error;
         }
       };
     }});

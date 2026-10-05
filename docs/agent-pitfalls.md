@@ -25,6 +25,14 @@ guide's rules don't make obvious.
   `overlays-content` with a `role="toolbar" toolbarPlacement="keyboard"` for a
   toolbar that rides the keyboard without relayout (LLP 1008 §9.1). (Signal Clone.)
 
+- **The app is wider than the window, and its tests still pass.** A root with
+  `width="100%"` and `padding=24` is 48 points too wide: sizes are `content-box`, as
+  on the web, so padding adds to the width. Buttons at the right edge are cut off,
+  and an `expect` never sees it. Fix: `box-sizing="border-box"` on any box sized in
+  percent that also has padding or a border (`exact new`'s template does), and
+  `min-width=0` on a `flex=1` input in a row. Look at a screenshot on each host.
+  (Fresh-agent README trial, 2026-10-04.)
+
 - **A raised `z-index` leaves a dragged card under the next column.** A card at
   `position="relative" z-index=10`, dragged over a neighbouring column, paints
   beneath it. Cause: `z-index` orders siblings, not a whole stacking context as in
@@ -96,6 +104,16 @@ guide's rules don't make obvious.
   on the root and an `id="back"` button on every pushed screen (LLP 1038 §6).
   **Candidate diagnostic:** the compiler could warn on a stacked route with no
   control of that id.
+- **A pushed screen's content is cut off and never scrolls, or its large title never
+  collapses.** Cause: a route is a box, not a scroller, and `navigationScroll` only
+  names one; a title collapses only with the scroller right after the route's
+  `header`. Fix: a `scroll id="feed" flex=1 min-height=0` right after the `header`
+  and `navigationScroll="feed"` on the route (docs/contract-for-agents.md, "Routes and
+  web documents"). The compiler refuses a name nothing in the route carries, or one
+  on a box that never scrolls (`lower-route-scroll`). **Candidate diagnostics:** the
+  compiler could refuse a named scroller that is not right after the `header` (an
+  iOS-only rule today, so not refused); the hosts could journal a route whose
+  content overflows with nothing to scroll it (QUEUE.md).
 - **The agent's screenshots and tree don't show the native bars.** Under
   `scripts/agent.mjs` the navigation bar, tab bar, `UIMenu`s and header search are
   not presented; the authored header, tablist and popover paint instead, by design.
@@ -200,6 +218,15 @@ guide's rules don't make obvious.
   which the web scrolls and iOS turns into UIKit's own swipe actions. Fix: copy
   `apps/messages/app.contract`'s inbox row (`thread-swipe-…`). (Ledger2 DIARY, "Needed:
   swipe gesture", about 15 minutes, 2026-10-04.)
+
+- **A write left running after a source answers can be lost on iOS or macOS.** The
+  web kept it; the native host did not, and a list was empty after a relaunch. Cause:
+  the native data executor runs a source's promises while a request waits on them,
+  one request at a time, so a `promise` started and not awaited (a fire-and-forget
+  SQLite write) can stay unfinished, and an answer queues behind a request still in
+  flight. Fix: await the write before answering, or carry it in a
+  request of its own that the view sends (a `flush` source called with the change).
+  (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
 
 ## Driving and testing
 

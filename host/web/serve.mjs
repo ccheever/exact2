@@ -593,9 +593,10 @@ export function buildTreeFile(dist, pathname) {
   if (!path.startsWith('/') || path.includes('\\') || path.includes('\0') || (!INSTALL_PUBLIC.includes(path) && path.replace(/^\/\.exact\/auth\//, '/').split('/').some((part) => part.startsWith('.')))) return null;
   let root;
   try { root = realpathSync(dist); } catch { try { root = realpathSync(`${dist}.previous`); } catch { return null; } }
+  const prefix = root.endsWith(sep) ? root : root + sep;
   for (const route of [path, path.replace(/\/?$/, '/index.html'), ...(appDocumentPath(pathname) ? ['/index.html'] : [])]) {
     const file = resolve(root, '.' + route);
-    try { if (file.startsWith(root + '/') && realpathSync(file) === file && statSync(file).isFile()) return { path: file, route }; } catch { /* next */ }
+    try { if (file.startsWith(prefix) && realpathSync(file) === file && statSync(file).isFile()) return { path: file, route }; } catch { /* next */ }
   }
   return null;
 }

@@ -23,7 +23,7 @@
 // the derived defaults it had before the manifest existed.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep, toNamespacedPath } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
@@ -870,12 +870,20 @@ export function contractLast(build) {
 }
 /** The lean iOS Hermes archives js/build.rs links: EXACT_HERMES_IOS_DIR's, or
  * the per-pin cache every checkout shares, which host/apple/build.mjs fills
- * (`cached`). The pin is js/build.rs's HERMES_PIN. @ref LLP 1036.001 D5 */
+ * (`cached`). The pin is js/hermes.rs's HERMES_PIN. @ref LLP 1036.001 D5 */
 export function hermesIos(env = process.env) {
-  const pin = /const HERMES_PIN: &str = "([0-9a-f]{40})";/.exec(readFileSync(resolve(ROOT, 'js/build.rs'), 'utf8'))?.[1];
-  if (!pin) throw new Error('js/build.rs names no HERMES_PIN');
+  const pin = /const HERMES_PIN: &str = "([0-9a-f]{40})";/.exec(readFileSync(resolve(ROOT, 'js/hermes.rs'), 'utf8'))?.[1];
+  if (!pin) throw new Error('js/hermes.rs names no HERMES_PIN');
   if (env.EXACT_HERMES_IOS_DIR) return { pin, root: resolve(env.EXACT_HERMES_IOS_DIR), cached: false };
   return { pin, root: resolve(env.HOME ?? homedir(), '.cache/exact/hermes', `${pin.slice(0, 12)}-lean-ios`), cached: true };
+}
+/** Classification roots for the validated Windows install's Cargo inputs.
+ * Rust emits canonical paths; an override may reach that install through a junction. */
+export function hermesWindowsRoots(env = process.env) {
+  if (process.platform !== 'win32') return [];
+  const requested = resolve(env.EXACT_HERMES_DIR ?? resolve(env.LOCALAPPDATA ?? '', 'Exact/hermes', `${hermesIos(env).pin.slice(0,12)}-lean-windows-x64-icu76-intl1`));
+  const roots = [requested, ...(existsSync(requested) ? [realpathSync.native(requested)] : [])];
+  return [...new Set(roots.flatMap(path => [path,toNamespacedPath(path)]))];
 }
 /** The profile a development native build compiles with (Cargo.toml): an
  * Apple app through host/apple/build.mjs, the Linux host by `linuxBuild`.
@@ -1055,6 +1063,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const packages = [...graph.roles.keys()].map((id) => graph.packages.get(id));
   const locations = packages.map((p) => ({ path: dirname(p.manifest_path), name:`crate:${p.name}@${p.version}` })).sort((a,b) => b.path.length-a.path.length);
   const hermes = hermesIos(env).root;
+  const windowsHermesc = process.platform === 'win32' && env.EXACT_HERMESC ? resolve(env.EXACT_HERMESC) : null;
+  const windowsRoots = hermesWindowsRoots(env);
   // The longest root a path is under is the first of its own ancestors, itself included, that is one: what
   // `find` over the roots longest first answers, without a path comparison per root for each of 3,700 inputs
   // (0.2 s of every build). Of two roots at one path the first stands, as it did.
@@ -1068,6 +1078,9 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     const pkg = rootOf(locatedAt, path);
     if (pkg) return `${pkg.name}/${relative(pkg.path,path)}`;
     if (under(hermes,path)) return `hermes-ios/${relative(hermes,path)}`; // wherever the archives live
+    const windowsRoot = windowsRoots.find(root => under(root,path));
+    if (windowsRoot) return `hermes-windows/${relative(windowsRoot,path)}`;
+    if (windowsHermesc && [windowsHermesc,toNamespacedPath(windowsHermesc)].includes(path)) return 'hermes-windows/compiler-override.exe';
     if (under(app.dir,path)) return `app/${relative(app.dir,path)}`;
     if (under(ROOT,path)) return `exact/${relative(ROOT,path)}`;
     if (under(graph.metadata.workspace_root,path)) return `workspace/${relative(graph.metadata.workspace_root,path)}`;

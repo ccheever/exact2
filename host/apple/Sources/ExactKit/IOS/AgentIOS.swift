@@ -627,8 +627,9 @@ extension Agent {
     /// something else, or nil: the software keyboard is a window of its own,
     /// which the app's hit test never sees; any other view is named. A node
     /// ancestor taking the touch is how a finger reaches a node that takes
-    /// none itself.
-    func obscured(_ v: NodeView, at p: CGPoint, hit: UIView) -> String? {
+    /// none itself. `v` may be a native view standing for a node (a
+    /// grouped list's cell or accessory).
+    func obscured(_ v: UIView, at p: CGPoint, hit: UIView) -> String? {
         if let container = presenter.modals.coordinateView ?? presenter.session?.view,
            let top = presenter.keyboardGuideTop(in: container), p.y >= container.convert(CGPoint(x: 0, y: top), to: nil).y {
             return "its middle is under the software keyboard; dismiss it or scroll the target above it first (state shows keyboard.top)"

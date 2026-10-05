@@ -56,6 +56,9 @@ enum TouchLog {
         var at = view
         while let v = at, !(v is NodeView) { at = v.superview }
         out["node"] = (at as? NodeView).map { Int($0.id) } ?? NSNull()
+        // In a grouped list's cell, which row and which part of it: the
+        // node alone is the list's for every row (LLP 1084).
+        if let projected = GroupedListHost.part(view) { out["projected"] = projected }
         if let v = view {
             for (label, session) in Agent.routes where v.isDescendant(of: session.presenter.viewport) || session.view.map({ v.isDescendant(of: $0) }) == true {
                 out["session"] = label
@@ -148,14 +151,36 @@ extension Agent {
             }
             at["x"] = offset["x"]; at["y"] = offset["y"]
         }
-        guard let local = tapPoint(at, node: v) else { return ["error": "tap #\(req["id"] ?? v.id): no visible text fragment; scroll it into view first"] }
+        // A row a grouped list draws, or its toggle's or detail button's
+        // control (LLP 1084 D5): the finger aims at UIKit's cell or
+        // accessory, never the hidden authored node beneath it.
+        var target: UIView = v, port: UIScrollView?
+        switch presenter.groupedLists.shown(v) {
+        case .refused(let why): return ["error": "tap #\(v.id): \(why)"]
+        case .view(let drawn, let list): target = drawn; port = list
+        case nil: break
+        }
+        let drawnBox = target === v ? nil : box(target)
+        guard let local = drawnBox.map({ CGPoint(x: at["x"] as? Double ?? $0.midX, y: at["y"] as? Double ?? $0.midY) }) ?? tapPoint(at, node: v) else {
+            return ["error": "tap #\(req["id"] ?? v.id): no visible text fragment; scroll it into view first"]
+        }
         let vp = presenter.viewport
         let p = vp.convert(CGPoint(x: local.x + vp.contentOffset.x, y: local.y + vp.contentOffset.y), to: nil)
         let seen = win.hitTest(p, with: nil)
         if !CGRect(origin: .zero, size: vp.bounds.size).contains(local) || seen == nil {
             return ["error": "tap #\(v.id): the point is outside the viewport; scroll it into view first"]
         }
-        if let why = obscured(v, at: p, hit: seen!) { return ["error": "tap #\(v.id): \(why)"] }
+        if let why = obscured(target, at: p, hit: seen!) { return ["error": "tap #\(v.id): \(why)"] }
+        // What a list draws is hit itself, in the list's port: never an
+        // ancestor beside a clipped cell, which the landing check would pass.
+        if let port {
+            guard port.convert(port.bounds, to: nil).contains(p) else {
+                return ["error": "tap #\(v.id): the point is outside the list's port; scroll it into view first"]
+            }
+            guard seen === target || seen!.isDescendant(of: target) else {
+                return ["error": "tap #\(v.id): \((seen as? NodeView).map { "node #\($0.id)" } ?? String(describing: Swift.type(of: seen!))) covers its middle"]
+            }
+        }
         // Stage 3's boundary, over the target, every node enclosing it (an
         // invoker around a label) and every node enclosing what the finger
         // would hit.
@@ -177,6 +202,8 @@ extension Agent {
             "viewport": [Agent.r2(vp.bounds.width), Agent.r2(vp.bounds.height)], // where a drag must end
             // The Exact node the window's hit test finds there: where the dispatch log must see the touch land.
             "hit": TouchLog.landing(seen)["node"] ?? NSNull(),
+            // In a grouped list, the row and part it must land on too.
+            "projected": TouchLog.landing(seen)["projected"] ?? NSNull(),
         ] as [String: Any]]
     }
 }

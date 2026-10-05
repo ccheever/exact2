@@ -8,6 +8,35 @@ use exact_runner::DataError;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+#[cfg(windows)]
+#[path = "picker_windows.rs"]
+mod windows;
+
+fn identity(name: &str) -> bool {
+    !matches!(name, "" | "." | "..")
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b))
+        && leaf(name)
+}
+
+fn leaf(name: &str) -> bool {
+    if name.is_empty() || matches!(name, "." | "..") || name.contains('\0') {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        let mut parts = Path::new(name).components();
+        if ibex2::grant::WindowsPath::validate_component(name).is_err()
+            || !matches!(parts.next(), Some(std::path::Component::Normal(_)))
+            || parts.next().is_some()
+        {
+            return false;
+        }
+    }
+    true
+}
+
 /// Whether a `showPicker` is held for the agent: `EXACT_AGENT=1`, which a
 /// production bake has already dropped (LLP 1069.007 D2).
 pub fn agent() -> bool {
@@ -25,7 +54,7 @@ pub fn set_roots(data: PathBuf, cache: PathBuf, temporary: PathBuf) {
 }
 
 /// The app's `app:/data`, `app:/cache` and `app:/tmp` (LLP 1027.001): under
-/// the XDG bases, or a scripted drive's scratch tree (`--storage`), apart
+/// the XDG bases (Windows: the user's LocalAppData), or a scripted drive's scratch tree (`--storage`), apart
 /// from the app's real files, with that tree when an authored test starts it
 /// empty (`EXACT_AGENT_STORAGE_FRESH`). `None`: an app with no id, or a
 /// drive with no scratch store, which has no storage.
@@ -43,27 +72,30 @@ pub(crate) fn app_dirs(app_id: &str) -> Result<Option<([PathBuf; 3], Option<Path
     if app_id.is_empty() {
         return Ok(None);
     }
-    if matches!(app_id, "." | "..")
-        || !app_id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b))
-    {
+    if !identity(app_id) {
         return Err(DataError::Unavailable("unsafe app storage identity".into()));
     }
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))?;
-    let base = |variable: &str, fallback: &str| {
-        std::env::var_os(variable)
+    #[cfg(windows)]
+    let (mut data, mut cache) = windows::bases(&windows::local_app_data()?, app_id)?;
+    #[cfg(not(windows))]
+    let (mut data, mut cache) = {
+        let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .filter(|p| p.is_absolute())
-            .unwrap_or_else(|| home.join(fallback))
-            .join("exact")
-            .join(app_id)
+            .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))?;
+        let base = |variable: &str, fallback: &str| {
+            std::env::var_os(variable)
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .unwrap_or_else(|| home.join(fallback))
+                .join("exact")
+                .join(app_id)
+        };
+        (
+            base("XDG_DATA_HOME", ".local/share").join("data"),
+            base("XDG_CACHE_HOME", ".cache"),
+        )
     };
-    let mut data = base("XDG_DATA_HOME", ".local/share").join("data");
-    let mut cache = base("XDG_CACHE_HOME", ".cache");
     let mut fresh = None;
     if let Some(name) = scratch {
         cache = cache.join("agent").join(name);
@@ -88,14 +120,7 @@ fn agent_scratch() -> Result<Option<String>, DataError> {
         return Ok(None);
     };
     match name.to_str() {
-        Some(name)
-            if !matches!(name, "" | "." | "..")
-                && name
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b)) =>
-        {
-            Ok(Some(name.to_owned()))
-        }
+        Some(name) if identity(name) => Ok(Some(name.to_owned())),
         _ => Err(DataError::Unavailable(
             "EXACT_AGENT_STORAGE: one name of letters, digits, '.', '-' or '_'".into(),
         )),
@@ -131,22 +156,23 @@ fn roots() -> [PathBuf; 3] {
 /// The file an `app:/data|cache|tmp/…` path names (D7): `None` for any
 /// other scheme, root, or a `..`.
 pub fn resolve(path: &str) -> Option<PathBuf> {
+    resolve_from(path, roots)
+}
+
+fn resolve_from(path: &str, roots: impl FnOnce() -> [PathBuf; 3]) -> Option<PathBuf> {
     let rest = path.strip_prefix("app:/")?;
     let (dir, rest) = rest.split_once('/')?;
-    let [data, cache, temporary] = roots();
-    let root = match dir {
-        "data" => data,
-        "cache" => cache,
-        "tmp" => temporary,
+    let index = match dir {
+        "data" => 0,
+        "cache" => 1,
+        "tmp" => 2,
         _ => return None,
     };
     let parts: Vec<&str> = rest.split('/').collect();
-    if parts
-        .iter()
-        .any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains('\0'))
-    {
+    if parts.iter().any(|p| !leaf(p)) {
         return None;
     }
+    let root = roots().into_iter().nth(index)?;
     Some(parts.iter().fold(root, |p, part| p.join(part)))
 }
 
@@ -326,10 +352,18 @@ mod tests {
         }
         know_roots("test.exact.roots");
         let file = resolve("app:/data/photos/a.jpg").unwrap();
+        #[cfg(not(windows))]
         assert!(
             file.ends_with(".cache/exact/test.exact.roots/agent/s1/data/photos/a.jpg"),
             "{}",
             file.display()
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            file,
+            windows::local_app_data()
+                .unwrap()
+                .join("exact/test.exact.roots/agent/s1/data/photos/a.jpg")
         );
     }
 }
