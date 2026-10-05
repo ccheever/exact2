@@ -249,6 +249,16 @@ guide's rules don't make obvious.
   request of its own that the view sends (a `flush` source called with the change).
   (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
 
+- **Two quick sends to one mutation lost the first write on iOS.** Two adds in a
+  row (`send changed = addTask(…)` from consecutive inputs) kept only the second:
+  the log said `forget request 11 (changed)`, and the first insert, still waiting on
+  SQLite, never landed; the web finished it. Cause: a second `send` to a mutation
+  forgets the request in flight (its reply is dropped by design), and the native
+  executor did not finish the forgotten request's write (QUEUE). Fix until then:
+  answer the change from memory at once and persist in a request of its own, or
+  give each write a mutation of its own. (Authoring bench, LLP 1087, t2-todo on
+  iOS, 2026-10-05.)
+
 ## Driving and testing
 
 - **The agent taps the simulator by screen coordinates** (`axe tap -x -y`,

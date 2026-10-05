@@ -701,7 +701,9 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   route under it is dimmed.
 - Without tabs, the routes are the root's own children, laid out the same way.
 - Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
-  1038 D11), which calls the root's `navigate`.
+  1038 D11), which calls the root's `navigate`. A CLI drive goes back as the
+  browser's back button does with `tap <root> history -1`; a test file has no such
+  step yet.
 
 A `head` node supplies document metadata. The innermost active value wins for
 each field. `head edited=dirty` marks a document with unsaved changes (the dot in
@@ -774,7 +776,7 @@ serve every row of a list. The agent opens it with `tap <node> contextmenu`
 ([LLP 1021](../llp/1021-menus.rfc.md) §5.1).
 
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
-`Geometry`. Handle `unavailable` and `provisional`. `frame` reads the last layout's border box
+`Geometry` (`x`, `y`, `width`, `height`, `provisional`, `unavailable`). Handle `unavailable` and `provisional`. `frame` reads the last layout's border box
 where the viewer sees it, as `getBoundingClientRect` does: in the viewport, with every
 scroll offset above it (the page's too) applied, but untransformed, so a drop target
 needs no scroll bookkeeping; `measure` reads an auto-height hypothetical layout at
