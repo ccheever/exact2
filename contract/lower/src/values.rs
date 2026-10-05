@@ -711,6 +711,17 @@ pub(crate) fn check_style_value(
                                 .map(|n| format!("; write `{}={n}` (a number is pixels)", a.name)),
                             _ => None,
                         };
+                        // A viewport-pinned box (authoring bench, t6-todo-more).
+                        let hint = pixels.or_else(|| {
+                            (a.name == "position"
+                                && matches!(value, Expr::Str(t, _) if t.trim() == "fixed"))
+                            .then(|| {
+                                "; `fixed` is not a row (LLP 1001): pin a box to the viewport \
+                                 with `absolute` in a root that does not scroll, or `sticky` \
+                                 in the scroller"
+                                    .to_string()
+                            })
+                        });
                         return err(
                             "lower-attr-value",
                             format!(
@@ -719,7 +730,7 @@ pub(crate) fn check_style_value(
                                 literal_text(value),
                                 a.name,
                                 named(&e, &v).map_or_else(|| describe(&e), String::from),
-                                pixels.unwrap_or_default()
+                                hint.unwrap_or_default()
                             ),
                             span,
                         );

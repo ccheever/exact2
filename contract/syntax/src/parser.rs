@@ -733,6 +733,23 @@ impl Parser {
                             }
                             self.expect_punct("=")?;
                             let expr = self.expr()?;
+                            // A TypeScript-style `as` on the initializer (authoring bench).
+                            if self.at_ident("as") {
+                                let from = if w == "state" {
+                                    format!(
+                                        "its initializer and the writes to it (`{name} = some(…)` \
+                                         makes a `none` an option of that)"
+                                    )
+                                } else {
+                                    "its expression".to_string()
+                                };
+                                return self.err(
+                                    "syntax-expected-newline",
+                                    format!(
+                                        "a {w} takes no `as`: its type is inferred from {from}"
+                                    ),
+                                );
+                            }
                             self.newline()?;
                             let b = Binding {
                                 name,
@@ -1168,6 +1185,12 @@ impl Parser {
                 self.newline()?;
                 Ok(Node::Children { span })
             }
+            // An action's `if` written in a view (authoring bench).
+            "if" => self.err(
+                "syntax-stray-keyword",
+                "`if` is an action's statement: a view chooses with `when <condition>`, \
+                 and an `else` under it",
+            ),
             "when" => {
                 self.next();
                 let cond = self.expr()?;

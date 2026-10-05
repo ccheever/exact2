@@ -179,17 +179,40 @@ fn an_annotated_state_or_derive_is_told_its_type_is_inferred() {
     assert_eq!(
         error.message,
         "a derive's type is inferred, so `derive n` takes no `: type`: write `derive n = …`, which is its expression's"
+fn a_view_if_and_a_state_as_name_the_contract_form() {
+    let view_if = "component App\n  state on = false\n  view\n    column\n      if on\n        text \"a\"\n      else\n        text \"b\"\n";
+    let error = contract::compile(view_if).unwrap_err();
+    assert_eq!(
+        (error.id.as_str(), error.message.as_str()),
+        ("syntax-stray-keyword", "`if` is an action's statement: a view chooses with `when <condition>`, and an `else` under it")
+    );
+    let state_as =
+        "component App\n  state draft = none as option<string>\n  view\n    text \"a\"\n";
+    let error = contract::compile(state_as).unwrap_err();
+    assert_eq!(
+        (error.id.as_str(), error.message.as_str()),
+        ("syntax-expected-newline", "a state takes no `as`: its type is inferred from its initializer and the writes to it (`draft = some(…)` makes a `none` an option of that)")
+    );
+    let derive_as = "component App\n  derive n = 2 as number\n  view\n    text \"a\"\n";
+    let error = contract::compile(derive_as).unwrap_err();
+    assert_eq!(
+        error.message,
+        "a derive takes no `as`: its type is inferred from its expression"
     );
 }
 
 #[test]
 fn an_html_label_names_the_text_and_the_field_name() {
     let src = "component App\n  view\n    label \"Name\"\n";
+fn position_fixed_says_how_to_pin_a_box() {
+    let src =
+        "component App\n  view\n    column\n      text \"toast\" position=\"fixed\" bottom=0\n";
     let error = contract::compile(src).unwrap_err();
     assert!(
         error
             .message
             .contains("a label is `text` beside its field, and the field is named by `aria-label`"),
+            .ends_with("; `fixed` is not a row (LLP 1001): pin a box to the viewport with `absolute` in a root that does not scroll, or `sticky` in the scroller"),
         "{error}"
     );
 }

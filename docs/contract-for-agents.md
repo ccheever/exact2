@@ -558,7 +558,9 @@ component Ding
 Keep `id` and `testId` separate:
 
 - `id`: host command target, geometry, cross-node references.
-- `testId`: driver/test target and stable inspection name.
+- `testId`: driver/test target and stable inspection name. On the web it is
+  `data-testid`, not the DOM `id`: a brief that asks for element ids wants `id=`
+  (and `testId=` too where tests target the node).
 - `each` key: data identity for row lifetime, not either node id.
 
 Events bind actions (`press=save`, `input=edit(item.id)`). Captured arguments come
@@ -800,7 +802,10 @@ ancestor that would take the press itself included.
 `change`: a `select` takes an option's value or its label, a date, time or
 `datetime-local` input its HTML value (`2026-10-09`, `14:00`,
 `2026-10-09T14:30`), a range a number, a checkbox `true` or `false`.
-On a text field or textarea `type` inserts the text, one `input`; `change` comes as a
+On a text field or textarea `type` inserts the text, one `input` (in a CLI op the
+text is the rest of the op's words, joined by one space, quotes included:
+`"type new-task buy milk"`;
+in a test file each value is one quoted string, a checkbox's `"true"` too); `change` comes as a
 person's would, when the field commits (`type <id> key Enter` on a field, or the
 focus leaving it), so an edit saved on `change` needs one of those.
 `tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
