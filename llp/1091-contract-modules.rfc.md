@@ -440,6 +440,7 @@ stage 1 lands, and stage 2 waits on them.
 - r4 (2026-10-05): the code review's second round (§11).
 - r5 (2026-10-05): the code review's third round (§12).
 - r6 (2026-10-05): the code review's fourth round (§13).
+- r7 (2026-10-05): the code review's fifth and last round (§14).
 
 ## 9. Review dispositions (round 1)
 
@@ -651,4 +652,21 @@ UNSOUND, both confirming every round-3 input fixed. Every finding is taken, with
 | Astra 7 / Grok 4: a missing directory crashed the JS loop's watcher | Only existing directories inside a package or `node_modules` are watched for a missing file |
 | Astra 8: installing a missing package did not rebuild the wasm session | Where an install would put its manifest is watched |
 | Grok 5: a package's dot directories did not live-reload | A package watcher skips only its `node_modules` |
+
+## 14. Code review round 5 dispositions
+
+The last round Charlie allowed (`llp/reviews/code-2026-10-05-1091-r5.{astra,grok}.md`), both
+UNSOUND. Astra 1 was a regression of round 4's own fix; every finding is taken, with compiler cases
+in `scope_review.rs` and the bake's cases driven end to end on macOS. No sixth round was run: what
+round 5's fixes themselves introduce is unreviewed.
+
+| Finding | Fix |
+|---|---|
+| Astra 1: round 4 linked a package installed under the app's own `node_modules` to itself in the stage | Only a package the capture copied (in the app, outside its `node_modules`) is linked to the staged copy; an installed one is linked where it lives. Driven: an app whose library is a real directory in its `node_modules` bakes and runs |
+| Astra 2 / Grok 1: Windows' copy fallback made one declaration two again | No copy: a junction, which needs no privilege, else a refusal that names the package |
+| Astra 3 / Grok 2: `t(…)` was decided by the component's bindings, not the innermost one | Each binding records whether it is an action, prop or inject; the innermost `t` decides. Bindings enter scope in the checker's order (props and injects, each state, then the rest); a state initializer naming an action is the checker's refusal (`type-initializer-scope`) |
+| Astra 7: a third time made `motion` refuse a shorthand the rename then made valid | The reader refuses exactly where `motion` does (a third time, a second name, a word that fills nothing), and a refused shorthand is not rewritten |
+| Astra 4: a failed TypeScript generation installed no package watcher | The producer re-reads the graph after every generation, failed or not |
+| Astra 5: a linked package whose manifest refused was not watched | A consulted manifest's directory is watched as a package |
+| Astra 6 / Grok 3: a missing package was looked for at four ancestors; a fresh app with no `node_modules` did not see its install | Every ancestor is recorded; the JS loop watches the directory where a missing `node_modules` would be made |
 

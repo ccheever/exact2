@@ -577,8 +577,9 @@ fn packages(app: &Path) -> Result<Vec<(String, PathBuf)>, String> {
 
 /// Link each package into the stage's `node_modules`, replacing what the
 /// last bake linked (the stage holds no other `node_modules`: the capture
-/// skips it). A package inside the app is linked to its staged copy, the
-/// one the stage's relative uses reach, so both ways to it are one file.
+/// skips it). A package the capture copied — a directory of the app outside
+/// its `node_modules`, a workspace beside it — is linked to that staged copy,
+/// the one the stage's relative uses reach, so both ways to it are one file.
 fn link_packages(stage: &Path, app: &Path, packages: &[(String, PathBuf)]) -> Result<(), String> {
     let modules = stage.join("node_modules");
     match std::fs::remove_dir_all(&modules) {
@@ -589,37 +590,33 @@ fn link_packages(stage: &Path, app: &Path, packages: &[(String, PathBuf)]) -> Re
     }
     for (name, root) in packages {
         let target = match root.strip_prefix(app) {
-            Ok(inside) => stage.join(inside),
-            Err(_) => root.clone(),
+            Ok(inside) if !inside.components().any(|c| c.as_os_str() == "node_modules") => {
+                stage.join(inside)
+            }
+            _ => root.clone(),
         };
         let link = modules.join(name);
         std::fs::create_dir_all(link.parent().unwrap()).map_err(|e| e.to_string())?;
         #[cfg(unix)]
         std::os::unix::fs::symlink(&target, &link)
             .map_err(|e| format!("{}: {e}", link.display()))?;
-        // Without the privilege a link needs, a copy of the package's
-        // Contract files and manifest.
+        // A junction needs no privilege where a symbolic link does. A copy
+        // would make one declaration two, so there is none.
         #[cfg(windows)]
         if std::os::windows::fs::symlink_dir(&target, &link).is_err() {
-            copy_package(&target, &link)?;
-        }
-    }
-    Ok(())
-}
-
-#[cfg(windows)]
-fn copy_package(from: &Path, to: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(to).map_err(|e| e.to_string())?;
-    for entry in std::fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))? {
-        let path = entry.map_err(|e| e.to_string())?.path();
-        let name = path.file_name().unwrap_or_default();
-        if name == "node_modules" || name == ".git" {
-            continue;
-        }
-        if path.is_dir() {
-            copy_package(&path, &to.join(name))?;
-        } else if path.extension().is_some_and(|e| e == "contract") || name == "package.json" {
-            std::fs::copy(&path, to.join(name)).map_err(|e| format!("{}: {e}", path.display()))?;
+            let junction = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(&link)
+                .arg(&target)
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !junction.status.success() {
+                return Err(format!(
+                    "cannot link the package `{name}` into the stage ({}): {}",
+                    link.display(),
+                    String::from_utf8_lossy(&junction.stderr).trim()
+                ));
+            }
         }
     }
     Ok(())
@@ -852,9 +849,13 @@ fn bake_in(
         return Err("app sources changed during capture; retry the build".into());
     }
     // A package's sources are read where they live; the app's, in the stage.
+    let staged_copy = |root: &PathBuf| {
+        root.strip_prefix(&app)
+            .is_ok_and(|inside| !inside.components().any(|c| c.as_os_str() == "node_modules"))
+    };
     let moves: Vec<(PathBuf, PathBuf)> = package_roots
         .iter()
-        .filter(|(_, root)| !root.starts_with(&app))
+        .filter(|(_, root)| !staged_copy(root))
         .map(|(_, root)| (root.clone(), root.clone()))
         .chain([(stage.to_path_buf(), app.clone())])
         .collect();

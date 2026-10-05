@@ -468,7 +468,10 @@ function contractGraph() {
     const files = new Set([...graph.sources.filter(s => s.origin === 'package').map(s => s.path), ...graph.consulted]);
     // A file looked for and not found: its nearest existing directory, but
     // only inside a package or a node_modules — never the app or above it.
-    const inside = d => graph.packages.some(p => d === p.root || d.startsWith(p.root + '/')) || /(^|\/)node_modules(\/|$)/.test(d);
+    // A consulted manifest's directory is a package even when resolution
+    // then refused it.
+    const inside = d => graph.packages.some(p => d === p.root || d.startsWith(p.root + '/')) || /(^|\/)node_modules(\/|$)/.test(d)
+      || graph.consulted.some(c => c.endsWith('/package.json') && dirname(c) === d);
     const dirs = new Set([...graph.packages.map(p => p.root), ...graph.consulted.map(c => nearest(dirname(c))).filter(inside)]);
     return { files, dirs };
   } catch { return { files: new Set(), dirs: new Set() }; }
@@ -519,11 +522,12 @@ function startModuleCompiler() {
         seq++;
         try { captureGeneration(true); } catch (error) { currentModule = previous; throw error; }
         if (previous) pending.set(seq, { saved: request.saved, ready: Date.now() });
-        watchPackages();
         console.log(`module generation ready in ${Date.now() - request.started} ms (producer ${produced-request.started} ms, publish ${Date.now()-produced} ms); restart with carry, no native rebuild`);
         push(announcement());
       } catch (error) { console.error(error.message); push({ error: error.message }); }
       finally {
+        // A failed generation still names the packages to watch for its fix.
+        watchPackages();
         if (request) rmSync(request.stage, { recursive: true, force: true });
         active = null; moduleStage = null;
         if (request && request.id !== moduleRun) produce();

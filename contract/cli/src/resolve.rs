@@ -194,7 +194,6 @@ fn package(spec: &str, dir: &Path, consulted: &mut Vec<PathBuf>) -> Result<Resol
             // installing it builds again.
             consulted.extend(
                 dir.ancestors()
-                    .take(4)
                     .map(|a| a.join("node_modules").join(&name).join("package.json")),
             );
             (

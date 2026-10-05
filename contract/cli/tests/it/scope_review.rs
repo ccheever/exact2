@@ -470,3 +470,60 @@ fn a_package_not_installed_is_watched_where_it_would_be() {
         graph.consulted
     );
 }
+
+// Round 5 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn t_follows_its_innermost_binding() {
+    let dir = Dir::new("t-innermost");
+    dir.write(
+        "ui.contract",
+        "fn helper(k: string): string = \"wrong\"\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    dir.write("strings/en.json", r#"{"hi":"Hello"}"#);
+    // A `match` binder of `t` is nearer than the action: the call is the
+    // strings intrinsic.
+    let root = dir.write(
+        "app.contract",
+        "use helper as t, Card from \"./ui.contract\"\ncomponent App\n  state n = 0\n  action t\n    n = 1\n  view\n    column\n      Card()\n      text (match some(1) { case some(t) => t(\"hi\"), case none => \"\" })\n",
+    );
+    let text = plan(&root);
+    assert!(!text.contains("wrong"), "{text}");
+}
+
+#[test]
+fn a_shorthand_motion_refuses_is_not_rewritten_into_one_it_plays() {
+    let dir = Dir::new("third-time");
+    dir.write(
+        "ui.contract",
+        "keyframes infs\n  to opacity=0\ncomponent Card\n  props\n    a: string\n  view\n    view animation=a\n",
+    );
+    // The literal reaches the library's attribute only through a prop, so it
+    // is checked where it lands; here the rewrite itself is what is tested.
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes infs\n  to opacity=1\ncomponent App\n  view\n    column\n      Card(a=\"x\")\n      view animation=\"1s 1s infs\"\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(
+        e.as_ref().is_some_and(|e| e.id != "contract-use-missing"),
+        "a refused shorthand stays refused: {e:?}"
+    );
+}
+
+#[test]
+fn a_missing_package_is_watched_at_every_ancestor() {
+    let dir = Dir::new("hoisted");
+    let root = dir.write(
+        "repo/a/b/c/d/app.contract",
+        "use Card from \"ui\"\ncomponent App\n  view\n    Card()\n",
+    );
+    let graph = contract::source_graph(&root);
+    assert!(
+        graph
+            .consulted
+            .contains(&dir.0.join("repo/node_modules/ui/package.json")),
+        "{:?}",
+        graph.consulted
+    );
+}

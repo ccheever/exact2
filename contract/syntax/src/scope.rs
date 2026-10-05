@@ -127,7 +127,7 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
     let mut r = Rewriter {
         scope,
         locals: Vec::new(),
-        callables: Vec::new(),
+        callable: Vec::new(),
         seen,
     };
     let File {
@@ -169,7 +169,7 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         r.ty(&mut f.ret)?;
         let mark = r.bind(f.params.iter().map(|p| p.name.clone()));
         r.expr(&mut f.body)?;
-        r.locals.truncate(mark);
+        r.unbind(mark);
     }
     if let Some(routes) = routes {
         for row in &mut routes.rows {
@@ -195,9 +195,10 @@ struct Rewriter<'a> {
     /// members, an action's or `fn`'s parameters, `each`, `match`, arrow and
     /// `let` binders. A call of one is the binding's, never a top-level name.
     locals: Vec<String>,
-    /// The component's actions, props and injects: only these stop `t(…)`
-    /// being the strings intrinsic, as the type checker reads it.
-    callables: Vec<String>,
+    /// For each of `locals`, whether it is an action, prop or inject: the
+    /// innermost binding of `t` being one stops `t(…)` being the strings
+    /// intrinsic, as the type checker reads it.
+    callable: Vec<bool>,
     /// Every binding seen, when collecting them.
     seen: Option<&'a mut Seen>,
 }
@@ -225,26 +226,25 @@ impl Rewriter<'_> {
             span,
         } = c;
         self.scope.rename(Kind::Component, name, *span)?;
-        let members: Vec<String> = (props.iter().chain(injects.iter()).map(|p| p.name.clone()))
-            .chain(
-                provides
-                    .iter()
-                    .chain(&*states)
-                    .chain(&*derives)
-                    .map(|b| b.name.clone()),
-            )
-            .chain(resources.iter().map(|r| r.name.clone()))
-            .chain(mutations.iter().map(|m| m.name.clone()))
-            .chain(actions.iter().map(|a| a.name.clone()))
-            .chain(tasks.iter().map(|t| t.name.clone()))
-            .collect();
-        let mark = self.bind(members);
-        self.callables = (props.iter().chain(injects.iter()).map(|p| p.name.clone()))
-            .chain(actions.iter().map(|a| a.name.clone()))
-            .collect();
+        // In the order the type checker brings them into scope: props and
+        // injects; each state, seen by those after it; then the rest.
+        let mark = self.bind_callable(props.iter().chain(injects.iter()).map(|p| p.name.clone()));
         self.params(props)?;
         self.params(injects)?;
-        for b in provides.iter_mut().chain(states).chain(derives) {
+        for b in states.iter_mut() {
+            self.expr(&mut b.expr)?;
+            self.bind([b.name.clone()]);
+        }
+        self.bind(
+            derives
+                .iter()
+                .map(|b| b.name.clone())
+                .chain(resources.iter().map(|r| r.name.clone()))
+                .chain(mutations.iter().map(|m| m.name.clone()))
+                .chain(tasks.iter().map(|t| t.name.clone())),
+        );
+        self.bind_callable(actions.iter().map(|a| a.name.clone()));
+        for b in provides.iter_mut().chain(derives) {
             self.expr(&mut b.expr)?;
         }
         for res in resources {
@@ -261,21 +261,43 @@ impl Rewriter<'_> {
             self.params(&mut a.params)?;
             let inner = self.bind(a.params.iter().map(|p| p.name.clone()));
             self.stmts(&mut a.body)?;
-            self.locals.truncate(inner);
+            self.unbind(inner);
         }
         for t in tasks {
             self.expr(&mut t.timer.0)?;
         }
         self.nodes(view)?;
-        self.locals.truncate(mark);
-        self.callables.clear();
+        self.unbind(mark);
         Ok(())
     }
 
-    /// Bring `names` into scope; returns the mark to truncate back to.
+    /// Bring `names` into scope; returns the mark to unbind back to.
     fn bind(&mut self, names: impl IntoIterator<Item = String>) -> usize {
+        self.bind_as(names, false)
+    }
+
+    /// Bring actions, props or injects into scope.
+    fn bind_callable(&mut self, names: impl IntoIterator<Item = String>) -> usize {
+        self.bind_as(names, true)
+    }
+
+    fn unbind(&mut self, mark: usize) {
+        self.locals.truncate(mark);
+        self.callable.truncate(mark);
+    }
+
+    /// Whether the innermost binding of `t` is an action, prop or inject.
+    fn callable_t(&self) -> bool {
+        self.locals
+            .iter()
+            .rposition(|l| l == "t")
+            .is_some_and(|i| self.callable[i])
+    }
+
+    fn bind_as(&mut self, names: impl IntoIterator<Item = String>, callable: bool) -> usize {
         let mark = self.locals.len();
         self.locals.extend(names);
+        self.callable.resize(self.locals.len(), callable);
         if let Some(seen) = self.seen.as_deref_mut() {
             seen.bound.extend(self.locals[mark..].iter().cloned());
         }
@@ -333,7 +355,7 @@ impl Rewriter<'_> {
                     self.expr(subject)?;
                     let inner = self.bind([some.0.clone()]);
                     self.stmts(&mut some.1)?;
-                    self.locals.truncate(inner);
+                    self.unbind(inner);
                     self.stmts(none)?;
                 }
                 // The parser never makes a call (LLP 1089); expansion does,
@@ -344,7 +366,7 @@ impl Rewriter<'_> {
                 }
             }
         }
-        self.locals.truncate(mark);
+        self.unbind(mark);
         Ok(())
     }
 
@@ -394,7 +416,7 @@ impl Rewriter<'_> {
                     let mark = self.bind(std::iter::once(var.clone()).chain(index.clone()));
                     self.expr(key)?;
                     self.nodes(body)?;
-                    self.locals.truncate(mark);
+                    self.unbind(mark);
                 }
                 Node::Match {
                     subject,
@@ -405,7 +427,7 @@ impl Rewriter<'_> {
                     self.expr(subject)?;
                     let mark = self.bind([some.0.clone()]);
                     self.nodes(&mut some.1)?;
-                    self.locals.truncate(mark);
+                    self.unbind(mark);
                     self.nodes(none)?;
                 }
             }
@@ -504,14 +526,22 @@ impl Rewriter<'_> {
                 .collect();
             let name = if shorthand {
                 let mut slots = Shorthand::default();
-                tokens.into_iter().find(|(_, t)| {
+                let mut name = None;
+                let mut valid = true;
+                for (at, t) in tokens {
                     if t.contains(HOLE) {
                         slots.computed(t);
-                        false
-                    } else {
-                        slots.name(t)
+                        continue;
                     }
-                })
+                    match slots.take(t) {
+                        Some(true) => name = Some((at, t)),
+                        Some(false) => {}
+                        None => valid = false,
+                    }
+                }
+                // A shorthand `motion` refuses stays refused: no rename
+                // makes it play.
+                name.filter(|_| valid)
             } else {
                 tokens.into_iter().next().filter(|(_, t)| !t.contains(HOLE))
             };
@@ -640,7 +670,7 @@ impl Rewriter<'_> {
                 // `pending` and `failed` are read before any `fn`, and `t`
                 // before any but an action or prop of its name.
                 let intrinsic = matches!(name.as_str(), "pending" | "failed")
-                    || (name == "t" && !self.callables.iter().any(|c| c == "t"));
+                    || (name == "t" && !self.callable_t());
                 if !intrinsic && (declared || !(self.local(name) || roster)) {
                     self.scope.rename(Kind::Call, name, *span)?;
                 }
@@ -665,13 +695,13 @@ impl Rewriter<'_> {
                 self.expr(subject)?;
                 let mark = self.bind([var.clone()]);
                 self.expr(some)?;
-                self.locals.truncate(mark);
+                self.unbind(mark);
                 self.expr(none)
             }
             Expr::Arrow { params, body, .. } => {
                 let mark = self.bind(params.iter().cloned());
                 self.expr(body)?;
-                self.locals.truncate(mark);
+                self.unbind(mark);
                 Ok(())
             }
             Expr::Let {
@@ -680,7 +710,7 @@ impl Rewriter<'_> {
                 self.expr(value)?;
                 let mark = self.bind([name.clone()]);
                 self.expr(body)?;
-                self.locals.truncate(mark);
+                self.unbind(mark);
                 Ok(())
             }
             Expr::Typed(inner, ty, _) => {
@@ -700,6 +730,7 @@ enum Part<'a> {
 /// One animation's slots, filled in the order `motion` fills them.
 #[derive(Default)]
 struct Shorthand {
+    named: bool,
     times: u8,
     eased: bool,
     counted: bool,
@@ -725,7 +756,10 @@ impl Shorthand {
 
     /// Whether `part` is the animation's name: it fills no free slot before
     /// the name's, as `motion`'s grammar takes it.
-    fn name(&mut self, part: &str) -> bool {
+    /// Fill `part` in as `motion` does: `Some(true)` for the name,
+    /// `Some(false)` for a slot, `None` where `motion` refuses the shorthand
+    /// (a third time, a second name, a word that is nothing).
+    fn take(&mut self, part: &str) -> Option<bool> {
         // `motion` parses numbers as Rust does: `inf` and `nan` are numbers.
         let number = |n: &str| n.parse::<f64>().ok();
         let time = part
@@ -733,9 +767,9 @@ impl Shorthand {
             .or_else(|| part.strip_suffix('s'))
             .and_then(number)
             .is_some();
-        if time && self.times < 2 {
+        if time {
             self.times += 1;
-            return false;
+            return (self.times <= 2).then_some(false);
         }
         let easing = matches!(
             part,
@@ -743,27 +777,31 @@ impl Shorthand {
         ) || ["cubic-bezier(", "steps(", "linear(", "spring("]
             .iter()
             .any(|f| part.starts_with(f));
-        let slot = if easing {
-            &mut self.eased
-        } else if part == "infinite" || number(part).is_some_and(|n| n >= 0.0) {
-            &mut self.counted
-        } else if matches!(
+        let free = |slot: &mut bool| !std::mem::replace(slot, true);
+        if easing && free(&mut self.eased) {
+            return Some(false);
+        }
+        if (part == "infinite" || number(part).is_some_and(|n| n >= 0.0)) && free(&mut self.counted)
+        {
+            return Some(false);
+        }
+        if matches!(
             part,
             "normal" | "reverse" | "alternate" | "alternate-reverse"
-        ) {
-            &mut self.directed
-        } else if matches!(part, "none" | "forwards" | "backwards" | "both") {
-            &mut self.filled
-        } else if matches!(part, "running" | "paused") {
-            &mut self.stated
-        } else {
-            return is_name(part);
-        };
-        if *slot {
-            return is_name(part);
+        ) && free(&mut self.directed)
+        {
+            return Some(false);
         }
-        *slot = true;
-        false
+        if matches!(part, "none" | "forwards" | "backwards" | "both") && free(&mut self.filled) {
+            return Some(false);
+        }
+        if matches!(part, "running" | "paused") && free(&mut self.stated) {
+            return Some(false);
+        }
+        if is_name(part) && free(&mut self.named) {
+            return Some(true);
+        }
+        None
     }
 }
 

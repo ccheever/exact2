@@ -29,7 +29,10 @@ let building = null; // the build in flight, stopped with the server
 /** The Contract packages a build read (LLP 1091 D10), outside the app and
  * its skipped `node_modules`: the dev loop watches them too. */
 function devPackages(stage) {
-  try { return JSON.parse(readFileSync(resolve(stage, '.gen', 'dev-sources.json'), 'utf8')).packages ?? []; } catch { return []; }
+  try {
+    const sources = JSON.parse(readFileSync(resolve(stage, '.gen', 'dev-sources.json'), 'utf8'));
+    return { trees: sources.packages ?? [], shallow: sources.shallow ?? [] };
+  } catch { return { trees: [], shallow: [] }; }
 }
 
 /** One build of `app` into `dist` through a stage under the app's ignored
@@ -108,13 +111,19 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   for (const f of ['navigation.js', 'index.html']) watchers.push(watch(resolve(root, 'host/web', f), changed(resolve(root, 'host/web'))));
   // Each Contract package the app uses, wherever it is installed or linked.
   const packages = new Set();
-  const watchPackages = (roots = []) => {
-    for (const dir of roots) {
+  const watchPackages = ({ trees = [], shallow = [] } = {}) => {
+    for (const dir of trees) {
       if (packages.has(dir) || !existsSync(dir)) continue;
       packages.add(dir);
       // A package's dot directories are its sources too; only its own
       // node_modules is not.
       watchers.push(watch(dir, { recursive: true }, changed(dir, /(^|\/)node_modules(\/|$)/)));
+    }
+    // A node_modules not made yet: its making (an install) is an edit.
+    for (const dir of shallow) {
+      if (packages.has(`shallow:${dir}`) || !existsSync(dir)) continue;
+      packages.add(`shallow:${dir}`);
+      watchers.push(watch(dir, (_, name) => { if (String(name) === 'node_modules') changed(dir, /^$/)(_, name); }));
     }
   };
   watchPackages(built.packages);
