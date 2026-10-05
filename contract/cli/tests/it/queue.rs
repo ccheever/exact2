@@ -633,7 +633,10 @@ impl DataSource for Shelf {
             "save" => Ok(Answer::Now(ack(args[0].as_str().unwrap_or(""), 0))),
             "items" => {
                 self.lists += 1;
-                Ok(Answer::Later(Request::post_json("https://desk.test/items", "")))
+                Ok(Answer::Later(Request::post_json(
+                    "https://desk.test/items",
+                    "",
+                )))
             }
             other => Err(DataError::UnknownSource(other.into())),
         }
@@ -671,4 +674,75 @@ fn a_next_answered_at_once_forces_what_it_refreshes() {
         1,
         "the queued send's landing asks items again"
     );
+}
+
+/// A module its host loads after first pixel: not ready until `loaded`.
+struct Late {
+    loaded: std::rc::Rc<std::cell::Cell<bool>>,
+}
+
+impl DataSource for Late {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+    fn answer(
+        &mut self,
+        _: &mut exact_runner::Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        match source {
+            "readDoc" => Ok(Answer::Now(ack(args[0].as_str().unwrap_or(""), 0))),
+            other => Err(DataError::UnknownSource(other.into())),
+        }
+    }
+    fn ready(&self) -> bool {
+        self.loaded.get()
+    }
+}
+
+/// b6 review A2: `data_ready`'s commit, which sends what waited for the
+/// module, runs the gate step as every commit does (LLP 1092 D8): a gate
+/// its answer opens arms the task, and a key that is no key refuses it.
+#[test]
+fn data_ready_s_sends_open_a_gate_and_a_bad_key_refuses_them() {
+    let src = |task: &str| {
+        format!("shape Ack\n  op: string\n  n: number\ncomponent App\n  state ticks = 0\n  mutation loaded as shape Ack\n  action open\n    send loaded = readDoc(\"doc\")\n  action tick\n    ticks = ticks + 1\n{task}  view\n    text \"x\"\n")
+    };
+    let boot = |src: &str| {
+        let loaded = std::rc::Rc::new(std::cell::Cell::new(false));
+        let r = Runner::boot(
+            contract::compile(src).unwrap(),
+            Late {
+                loaded: loaded.clone(),
+            },
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        (r, loaded)
+    };
+    let (mut r, loaded) = boot(&src(
+        "  task poll when loaded != none\n    every(1000, tick)\n",
+    ));
+    r.act("open", vec![]).unwrap();
+    assert_eq!(
+        r.timer_due_ms(),
+        None,
+        "the gate is shut while the send waits"
+    );
+    loaded.set(true);
+    r.data_ready().unwrap();
+    assert_eq!(r.timer_due_ms(), Some(1000.0), "its answer opens the gate");
+    let (mut r, loaded) = boot(&src(
+        "  task poll key=(loaded != none ? 0 / 0 : 1)\n    every(1000, tick)\n",
+    ));
+    r.act("open", vec![]).unwrap();
+    loaded.set(true);
+    assert!(matches!(
+        r.data_ready(),
+        Err(RunnerError::TaskKey { task }) if task == "poll"
+    ));
+    assert_eq!(r.slot("loaded"), Some(&Value::NONE), "the commit as it was");
 }

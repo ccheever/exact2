@@ -168,7 +168,14 @@ impl<D: DataSource> Runner<D> {
             Err(RunnerError::Poisoned)
         } else {
             let later = self.send_unsent();
-            match self.router_change().and_then(|_| self.settle(false)) {
+            // The gate step joins this settlement as every commit's (LLP
+            // 1092 D8; b6 review A2): a gate the sent answers open arms its
+            // task, and a key that is no key refuses this commit.
+            match self
+                .router_change()
+                .and_then(|_| self.settle(false))
+                .and_then(|_| self.gate_step())
+            {
                 Ok(()) => {
                     for (m, source, args, request) in later {
                         self.enqueue(super::Target::Mutation(m), source, args, request, false);
