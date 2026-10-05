@@ -435,3 +435,52 @@ export async function tapRefusal(session, target, error) {
   } catch { /* Preserve the original refusal if the diagnostic target also vanished. */ }
   return error;
 }
+
+/** A convenience over state, screenshot and type; wire replies keep all tags. */
+export function worldView(session, name) {
+  return {
+    /** The first page of entities (512), or every page with {all:true}, read at one tick and hash. */
+    async snapshot({all = false} = {}) {
+      const page = {limit:5000};
+      const first = all ? await session.state(`${name}:*`, undefined, false, false, page) : await session.state(`${name}:*`);
+      const {tick, hash} = first, entities = [...first.entities];
+      for (let r = first; all && r.truncated;) {
+        r = await session.state(`${name}:*`, undefined, false, false, {...page, from:r.next});
+        if (r.tick !== tick || r.hash !== hash) throw new Error('world changed while paging; capture on the agent clock with no concurrent drive');
+        entities.push(...r.entities);
+      }
+      return {tick, hash, entities, truncated: all ? false : first.truncated};
+    },
+    /** Every resource's value, as `state world:* resources` reads them. */
+    async resources() { return (await session.state(`${name}:*`, undefined, false, false, {limit:1, resources:true})).resources; },
+    state: entity => session.state(`${name}:${entity}`),
+    save: path => session.screenshot(path, name, 'save'),
+    run: ms => {
+      if (!Number.isFinite(ms) || ms < 0) throw new Error('run duration must be finite and nonnegative');
+      // Like Sim::run, establish the current epoch after deferred assets settle
+      // before moving time. Otherwise a newly ready world can eat the first seek.
+      return session.clock('+0').then(() => session.clock(`+${ms}`));
+    },
+    settle: async () => (await session.clock('settle')).settled === true,
+    tap: code => session.type(name, {key:code}),
+    key_down: code => session.type(name, {key:code, phase:'down'}),
+    key_up: code => session.type(name, {key:code, phase:'up'}),
+    async local_position(entity) { return (await this.get(entity, 'Transform'))?.position; },
+    async global_position(entity) {
+      try { return (await session.layout(`${name}:${entity}`)).entity?.world?.position; }
+      catch (error) {
+        if ((error.reply?.error === `no entity named \`${entity}\`` || error.reply?.error?.startsWith(`no entity named \`${entity}\`; `))) return undefined;
+        throw error;
+      }
+    },
+    async get(entity, component) {
+      try {
+        return (await session.state(`${name}:${entity}`)).entity?.components?.[component];
+      } catch (error) {
+        if ((error.reply?.error === `no entity named \`${entity}\`` || error.reply?.error?.startsWith(`no entity named \`${entity}\`; `))) return undefined;
+        throw error;
+      }
+    },
+    hold: (code, ms) => session.type(name, {key:code, for:ms}),
+  };
+}

@@ -606,15 +606,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // A smooth correction's driver ends its own motion (`OffsetDriver`);
         // a UIKit animation's end is not its end.
         if let c = presenter?.collections, c.offsetDrivers[id] != nil || c.startOwed.contains(id) { return }
-        // Whether it ended at the running animation's target, clamped to
-        // the content as it is now (`CollectionHost.animationEnded`).
-        let atTarget = presenter?.collections.animationTargets[id].map { t -> Bool in
-            let o = scrollView.contentOffset, i = scrollView.adjustedContentInset
-            let x = min(max(t.x, -i.left), max(-i.left, scrollView.contentSize.width + i.right - scrollView.bounds.width))
-            let y = min(max(t.y, -i.top), max(-i.top, scrollView.contentSize.height + i.bottom - scrollView.bounds.height))
-            return abs(o.x - x) + abs(o.y - y) <= 1
-        }
-        presenter?.collections.animationEnded(id, atTarget: atTarget)
+        presenter?.collections.animationEnded(id, atTarget: endedAtTarget(scrollView))
     }
     private func followEndIfOwed() {
         guard followsEndAfterInteraction, let sv = scroll else { return }

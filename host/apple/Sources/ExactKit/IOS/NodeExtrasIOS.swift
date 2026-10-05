@@ -198,4 +198,17 @@ extension NodeView {
     /// plus that inset fixed while the title collapses) — else 0.
     func scrollTopInset(_ sv: UIScrollView) -> CGFloat { scrollOrigin > 0 ? sv.adjustedContentInset.top : 0 }
 }
+extension NodeView {
+    /// Whether a scroll animation ended at the running animation's target,
+    /// clamped to the content as it is now (`CollectionHost.animationEnded`);
+    /// nil with no target.
+    func endedAtTarget(_ scrollView: UIScrollView) -> Bool? {
+        presenter?.collections.animationTargets[id].map { t -> Bool in
+            let o = scrollView.contentOffset, i = scrollView.adjustedContentInset
+            let x = min(max(t.x, -i.left), max(-i.left, scrollView.contentSize.width + i.right - scrollView.bounds.width))
+            let y = min(max(t.y, -i.top), max(-i.top, scrollView.contentSize.height + i.bottom - scrollView.bounds.height))
+            return abs(o.x - x) + abs(o.y - y) <= 1
+        }
+    }
+}
 #endif

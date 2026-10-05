@@ -164,27 +164,6 @@ impl<D: DataSource> Runner<D> {
 /// What the runner keeps: each observed node's last delivered rect.
 pub type Resized = Vec<(NodeKey, ResizeRect)>;
 
-#[cfg(test)]
-mod tests {
-    use super::ResizeRect;
-
-    #[test]
-    fn a_payload_is_four_finite_numbers_and_a_size_not_negative() {
-        assert_eq!(
-            ResizeRect::parse("4,2,100,50.5"),
-            Some(ResizeRect {
-                x: 4.0,
-                y: 2.0,
-                width: 100.0,
-                height: 50.5
-            })
-        );
-        for refused in ["", "1,2,3", "1,2,3,4,5", "0,0,-1,4", "0,0,NaN,1", "a,0,1,1"] {
-            assert_eq!(ResizeRect::parse(refused), None, "{refused}");
-        }
-    }
-}
-
 /// ResizeObserver's `contentRect` of `node` (b6 review B2): `x` and `y` the
 /// used padding's left and top — the border is outside the padding box the
 /// rect is placed in — and the size the border box less padding and border.
@@ -216,5 +195,26 @@ fn content_rect(node: &exact_kernel::NodeRef<'_>, block: f32) -> ResizeRect {
         y: top.into(),
         width: width.max(0.0).into(),
         height: height.max(0.0).into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ResizeRect;
+
+    #[test]
+    fn a_payload_is_four_finite_numbers_and_a_size_not_negative() {
+        assert_eq!(
+            ResizeRect::parse("4,2,100,50.5"),
+            Some(ResizeRect {
+                x: 4.0,
+                y: 2.0,
+                width: 100.0,
+                height: 50.5
+            })
+        );
+        for refused in ["", "1,2,3", "1,2,3,4,5", "0,0,-1,4", "0,0,NaN,1", "a,0,1,1"] {
+            assert_eq!(ResizeRect::parse(refused), None, "{refused}");
+        }
     }
 }
