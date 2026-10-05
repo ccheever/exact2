@@ -1,0 +1,108 @@
+   Compiling macos-t3-code-apple v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/t3-code/examples/macos/t3-code/apple)
+    Finished `apple-dev` profile [optimized] target(s) in 27.63s
+host/apple: baked L=0; Swift embedded composition
+Building for production...
+[2 / 8] ExactKit
+[4 / 9] ExactKit
+[9 / 13] ExactComposition
+[16 / 19] ExactMac-product
+[17 / 20] ExactMac-product
+[19 / 20] ExactMac-product
+[20 / 20] ExactMac-product
+Build complete! (40.49 sec)
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/Canvas2DImage.swift:194:43: warning: cast from '(any CALayerDelegate)?' to unrelated type 'NodeView' always fails
+192 |             // Replaced content paints over its box: above the box's own
+193 |             // sublayers where AppKit's box is layers (`BoxLayerMac.swift`).
+194 |             if let node = parent.delegate as? NodeView, let top = node.boxSublayersTop { parent.insertSublayer(layer, above: top) }
+    |                                           `- warning: cast from '(any CALayerDelegate)?' to unrelated type 'NodeView' always fails
+195 |             else { parent.insertSublayer(layer, at: 0) }
+196 |             #else
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/Mac/MouseTransformDragMac.swift:136:99: warning: 'defer' statement at end of scope always executes immediately; replace with 'do' statement to silence this warning
+134 |             // The fling after a zoomed pan belongs to the pan: it neither
+135 |             // scrolls the page nor moves the photo (no decay driver).
+136 |             if event.momentumPhase.contains(.ended) || event.momentumPhase.contains(.cancelled) { defer { momentum = false } }
+    |                                                                                                   `- warning: 'defer' statement at end of scope always executes immediately; replace with 'do' statement to silence this warning
+137 |             return momentum
+138 |         }
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/Mac/NodeViewMac.swift:329:15: warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 327 |     /// A control is a leaf, as UIKit makes one: VoiceOver reads its name.
+ 328 |     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+ 329 |         super.accessibilityAttributeNames() + [NSAccessibility.Attribute(rawValue: "AXLanguage")]
+     |               `- warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 330 |     }
+ 331 |     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/Mac/NodeViewMac.swift:336:22: warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 334 |             return language.isEmpty ? nil : language
+ 335 |         }
+ 336 |         return super.accessibilityAttributeValue(attribute)
+     |                      `- warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 337 |     }
+ 338 |     override func accessibilityChildren() -> [Any]? {
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/Picker.swift:151:30: warning: 'tracks(withMediaType:)' was deprecated in macOS 13.0: Use loadTracks(withMediaType:) instead [#DeprecatedDeclaration]
+149 |         let asset = AVURLAsset(url: url)
+150 |         var out = ["", "", ""]
+151 |         if let track = asset.tracks(withMediaType: .video).first {
+    |                              `- warning: 'tracks(withMediaType:)' was deprecated in macOS 13.0: Use loadTracks(withMediaType:) instead [#DeprecatedDeclaration]
+152 |             let s = track.naturalSize.applying(track.preferredTransform)
+153 |             out[0] = "\(Int(abs(s.width).rounded()))"; out[1] = "\(Int(abs(s.height).rounded()))"
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/Picker.swift:152:27: warning: 'naturalSize' was deprecated in macOS 13.0: Use load(.naturalSize) instead [#DeprecatedDeclaration]
+150 |         var out = ["", "", ""]
+151 |         if let track = asset.tracks(withMediaType: .video).first {
+152 |             let s = track.naturalSize.applying(track.preferredTransform)
+    |                           `- warning: 'naturalSize' was deprecated in macOS 13.0: Use load(.naturalSize) instead [#DeprecatedDeclaration]
+153 |             out[0] = "\(Int(abs(s.width).rounded()))"; out[1] = "\(Int(abs(s.height).rounded()))"
+154 |         }
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/Picker.swift:152:54: warning: 'preferredTransform' was deprecated in macOS 13.0: Use load(.preferredTransform) instead [#DeprecatedDeclaration]
+150 |         var out = ["", "", ""]
+151 |         if let track = asset.tracks(withMediaType: .video).first {
+152 |             let s = track.naturalSize.applying(track.preferredTransform)
+    |                                                      `- warning: 'preferredTransform' was deprecated in macOS 13.0: Use load(.preferredTransform) instead [#DeprecatedDeclaration]
+153 |             out[0] = "\(Int(abs(s.width).rounded()))"; out[1] = "\(Int(abs(s.height).rounded()))"
+154 |         }
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/Picker.swift:155:46: warning: 'duration' was deprecated in macOS 13.0: Use load(.duration) instead [#DeprecatedDeclaration]
+153 |             out[0] = "\(Int(abs(s.width).rounded()))"; out[1] = "\(Int(abs(s.height).rounded()))"
+154 |         }
+155 |         let seconds = CMTimeGetSeconds(asset.duration)
+    |                                              `- warning: 'duration' was deprecated in macOS 13.0: Use load(.duration) instead [#DeprecatedDeclaration]
+156 |         if seconds.isFinite { out[2] = "\(seconds)" }
+157 |         return out
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/TextInteraction.swift:102:15: warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+100 |     }
+101 |     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+102 |         super.accessibilityAttributeNames() + [NSAccessibility.Attribute(rawValue: "AXLanguage")]
+    |               `- warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+103 |     }
+104 |     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/TextInteraction.swift:106:22: warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+104 |     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+105 |         if attribute.rawValue == "AXLanguage" { return owner?.presenter?.documentLanguage }
+106 |         return super.accessibilityAttributeValue(attribute)
+    |                      `- warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+107 |     }
+108 |     override func accessibilityFrame() -> NSRect {
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactMac/main.swift:529:109: warning: expression implicitly coerced from 'Any?' to 'Any'
+527 |     guard agentReadable, !readySent else { return }
+528 |     readySent = true
+529 |     Agent.reply(["ready": true, "boot": session.bootMs, "views": session.viewCount, "error": planRefusal ?? session.bootError ?? NSNull()])
+    |                                                                                                             |                 |- note: provide a default value to avoid this warning
+    |                                                                                                             |                 |- note: force-unwrap the value to avoid this warning
+    |                                                                                                             |                 `- note: explicitly cast to 'Any' with 'as Any' to silence this warning
+    |                                                                                                             `- warning: expression implicitly coerced from 'Any?' to 'Any'
+530 |     Agent.startStdio(sessions: [("main", session)])
+531 | }
+    Finished `release` profile [optimized] target(s) in 0.11s
+    Finished `release` profile [optimized] target(s) in 0.10s
+local client: /Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/clients/ce94f4294e3770442fa84099/com.exact.t3code.macos/macos/T3 Code (Exact).app
+  No development opening link: build with --url <dev server URL> to register one.
+host/apple: target/clients/ce94f4294e3770442fa84099/com.exact.t3code.macos/macos/aarch64-apple-darwin/embedded/development/standalone/ExactMac (cargo 28.6 s, swift 42.3 s; signed 0F0D033A); GPU: no GPU crate; web arm: libexact_web.dylib; modules: libexact_modules.dylib

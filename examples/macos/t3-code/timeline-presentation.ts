@@ -76,7 +76,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // r4-surfaces: the right panel's surfaces (window chatLocal)
   if (op.startsWith('git-')) return gitChatLocal(client, native, op.slice(4), id, value); // lane r4-git (r4-git-route.ts)
   const view = timelineView(client);
-  if (op === 'item-detail') { await setTurnItemOpen(client, native, id, value === 'open'); return ''; }
+  if (op === 'item-detail') { setTurnItemOpen(client, id, value === 'open'); return ''; }
   if (op === 'history') {
     const threadId = client.threadId;
     view.historyError.delete(threadId);

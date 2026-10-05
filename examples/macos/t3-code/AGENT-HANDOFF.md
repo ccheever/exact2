@@ -1,6 +1,6 @@
 # T3 Code agent handoff
 
-Current as of the parallel feature integration, 2026-10-06 (KST).
+Current as of the functional repair verification, 2026-10-06 (KST).
 
 ## Start here
 
@@ -18,9 +18,26 @@ No framework changes are included in this feature wave.
 | Preserved original | branch `daehyeon/t3-code`; old `mc-orch-e88043b25805` worktree untouched |
 | Reference source | `/Users/daehyeonmun/Documents/work/3.open-source/t3code`, pin `1e2ecbd9758830669684b494d4398f626b0576e0`, read-only |
 | Pinned tools | Bun `~/.bun-1.4.2/bin`; this worktree's own `target/t3-tools/hermes-6badada76212` |
+| Current native app | `target/clients/ce94f4294e3770442fa84099/com.exact.t3code.macos/macos/T3 Code (Exact).app` in the integration worktree |
 
-The main migration and updated desktop oracle remain pending. The older f870 runtime
-cannot validate the new `getTurnItem` RPC. Do not claim full live acceptance from unit tests.
+Use `T3 Code (Exact).app` for current verification. Its bundle id is
+`com.exact.t3code.macos`, and its executable is `Contents/MacOS/ExactMac`.
+The manifest already sets this name; `bun host/apple/build.mjs macos-t3-code-apple --bundle`
+refreshes this bundle. Launch it by path. For `scripts/agent.mjs`, set `EXACT_MAC_BIN`
+to that executable after rebuilding and checking the bundle receipt against the sources.
+That override skips the driver's automatic stale-build check.
+
+The main migration and updated Electron desktop oracle remain pending. An isolated server
+runtime at `1e2ecbd975` is now built under `target/t3-ref/src-1e2ecbd975`; real
+`getTurnItem` and activity checks use that runtime. The older f870 runtime cannot validate
+that RPC. Do not claim full live acceptance from unit tests.
+
+The current repair wave fixes native tool-icon loading under the pinned Hermes compiler,
+keyboard access and output scroll bounds, and independently owned output reads. Real-time
+overlap remains unverified because the frozen agent clock cannot advance the second
+disclosure callback while awaiting the first request. The latest static check packet is `.exact/implementation/20261005-t3code-macos-parity/evidence/parallel/20261006-repair-verification/checks-frame-ids/`.
+Task records and the dated independent review carry the final runtime verdicts. Tasks remain
+active until all their required acceptance checks are satisfied.
 The user explicitly stopped pixel-perfect UI testing/fix loops; use bounded functional checks.
 
 The remaining sections are historical round-11 evidence, not current task status.
@@ -149,7 +166,8 @@ Keychain was touched. Last real-input results:
 Recipe (one session, one lane copy; the tools are in `lanes/r9-input/tools` and
 `lanes/r8-integrate/tools`, retargeted copies in `lanes/r10-integrate-in/tools`):
 
-1. Preconditions: the screen is unlocked; no other T3 Code app runs (`pgrep -fl "T3 Code"`);
+1. Preconditions: the screen is unlocked; use the current `T3 Code (Exact).app` bundle
+   listed above and identify any other running copies by executable path;
    the desktop has been idle 60 s (`ioreg -c IOHIDSystem | grep HIDIdleTime`). Take the lock:
    `mkdir target/t3-ui-parity/lanes/.realinput-lock` (if it exists, another lane holds it:
    wait). Remove it as soon as the input is sent.
@@ -157,8 +175,9 @@ Recipe (one session, one lane copy; the tools are in `lanes/r9-input/tools` and
    and `defaults export com.exact.t3code.macos <backup>.plist`; note the input source.
 3. `bun target/t3-ui-parity/lane-build.mjs <lane>`; `T3_RUNTIME=$PWD/target/t3-ref/runtime-f870c41
    sh target/t3-ui-parity/lane-backend.sh <lane> <port>` (a fresh port); for R7 also a second
-   backend with its own `home/userdata/environment-id`. Launch the lane copy by path
-   (`open -n "<lane>/T3 Code.app"`, never by bundle id), record its pid, start
+   backend with its own `home/userdata/environment-id`. For a current run, launch the app by path
+   (`open -n "target/clients/ce94f4294e3770442fa84099/com.exact.t3code.macos/macos/T3 Code (Exact).app"`
+   from the integration worktree, never by bundle id), record its pid, start
    `stray-watch.sh` (widened to every lane copy but yours).
 4. Pair by typing the pairing URL into Add environment's Host with Orca `type-text
    --text-stdin` after an HID click (never printed). Gate every input with `gate.sh <pid>`
@@ -207,8 +226,9 @@ Recipe (one session, one lane copy; the tools are in `lanes/r9-input/tools` and
 
 ## Lane tooling (`target/t3-ui-parity/`, ignored apparatus)
 
-- `lane-build.mjs <lane>` builds and snapshots the bundle to `lanes/<lane>/T3 Code.app`.
-  Rebuilding swaps that copy, so never rebuild a lane while one of its drives runs.
+- Historical `lane-build.mjs <lane>` built and snapshotted a lane-local app bundle.
+  Those ignored tools are absent from the integration worktree. Current verification
+  uses the `T3 Code (Exact).app` bundle listed above; do not rebuild it during a drive.
 - `lane-backend.sh <lane> <port>` starts (or reuses) an isolated fixture server (HOME,
   CODEX_HOME, CLAUDE_CONFIG_DIR, XDG all lane-local) and writes single-use
   `pairing.json` / `browser-pairing.json`. A restarted server loses pending approvals

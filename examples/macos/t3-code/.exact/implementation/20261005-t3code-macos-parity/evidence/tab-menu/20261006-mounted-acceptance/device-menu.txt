@@ -1,0 +1,8 @@
+	166 menu
+		167 menu item Rename
+		168 menu item Close
+		169 menu item Close others
+		170 menu item Close to the right
+		171 menu item Close all
+
+The focused UI element is 95 button Fixture iPhone A.

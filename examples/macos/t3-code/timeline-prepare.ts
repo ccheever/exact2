@@ -1,6 +1,6 @@
 // The timeline's native work before each snapshot: Mermaid layouts
 // (timeline-mermaid.ts) and the worktree setup stream (timeline-worktree.ts).
-import { refreshOpenTurnItemDetails, turnItemDetailsNeeded } from './timeline-item-fetch';
+import { refreshNextOpenTurnItemDetail, turnItemDetailsNeeded } from './timeline-item-fetch';
 import { syncToolActivityIcons, toolActivityIconsNeeded } from './timeline-tool-icons';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
@@ -18,5 +18,5 @@ export function timelineReadsNeeded(client: T3Client): boolean {
 }
 export async function refreshTimelineReads(client: T3Client, native: Native | null | undefined): Promise<void> {
   if (!native?.available) return;
-  await Promise.all([refreshOpenTurnItemDetails(client, native), syncToolActivityIcons(client, native)]);
+  if (!await refreshNextOpenTurnItemDetail(client, native)) await syncToolActivityIcons(client, native);
 }

@@ -1,0 +1,615 @@
+[
+  {
+    "at": "2026-10-05T16:47:00.193Z",
+    "connection": 1,
+    "direction": "client-to-server",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "payload": {
+        "revision": "2026-10-05T16:42:54.489Z",
+        "threadId": "verify-timeline",
+        "itemId": "fixture-command"
+      },
+      "_tag": "Request",
+      "tag": "orchestration.getTurnItem",
+      "id": "2-16",
+      "headers": "[REDACTED]"
+    }
+  },
+  {
+    "at": "2026-10-05T16:47:00.195Z",
+    "connection": 1,
+    "direction": "server-to-client",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Exit",
+      "requestId": "2-16",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-command",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 1,
+            "status": "completed",
+            "title": "Verification command",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "command_execution",
+            "input": "printf \"verified output\"",
+            "output": "verified output\nsecond result line",
+            "exitCode": 0
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T16:47:00.282Z",
+    "connection": 1,
+    "direction": "client-to-server",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "payload": {
+        "revision": "2026-10-05T16:42:54.489Z",
+        "threadId": "verify-timeline",
+        "itemId": "fixture-exit"
+      },
+      "_tag": "Request",
+      "tag": "orchestration.getTurnItem",
+      "id": "2-17",
+      "headers": "[REDACTED]"
+    }
+  },
+  {
+    "at": "2026-10-05T16:47:00.283Z",
+    "connection": 1,
+    "direction": "server-to-client",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Exit",
+      "requestId": "2-17",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-exit",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 2,
+            "status": "completed",
+            "title": "Failing command",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "command_execution",
+            "input": "exit 2",
+            "output": "verification failure result",
+            "exitCode": 2
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T16:47:00.354Z",
+    "connection": 1,
+    "direction": "client-to-server",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Request",
+      "tag": "orchestration.getTurnItem",
+      "id": "2-18",
+      "payload": {
+        "revision": "2026-10-05T16:42:54.489Z",
+        "threadId": "verify-timeline",
+        "itemId": "fixture-read"
+      },
+      "headers": "[REDACTED]"
+    }
+  },
+  {
+    "at": "2026-10-05T16:47:00.355Z",
+    "connection": 1,
+    "direction": "server-to-client",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Exit",
+      "requestId": "2-18",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-read",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 3,
+            "status": "completed",
+            "title": "Read fixture.txt",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "read",
+            "input": {
+              "file_path": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project/fixture.txt"
+            },
+            "output": "Timeline verification fixture\n"
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:15:46.827Z",
+    "connection": 1,
+    "direction": "client-to-server",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "payload": {
+        "revision": "2026-10-05T16:42:54.489Z",
+        "threadId": "verify-timeline",
+        "itemId": "fixture-command"
+      },
+      "tag": "orchestration.getTurnItem",
+      "headers": "[REDACTED]",
+      "_tag": "Request",
+      "id": "1-48"
+    }
+  },
+  {
+    "at": "2026-10-05T17:15:46.829Z",
+    "connection": 1,
+    "direction": "server-to-client",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Exit",
+      "requestId": "1-48",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-command",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 1,
+            "status": "completed",
+            "title": "Verification command",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "command_execution",
+            "input": "printf \"verified output\"",
+            "output": "verified output\nsecond result line",
+            "exitCode": 0
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:15:46.829Z",
+    "connection": 1,
+    "event": "verification-fault",
+    "itemId": "fixture-command",
+    "rule": {
+      "delayMs": 3500
+    },
+    "original": {
+      "_tag": "Exit",
+      "requestId": "1-48",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-command",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 1,
+            "status": "completed",
+            "title": "Verification command",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "command_execution",
+            "input": "printf \"verified output\"",
+            "output": "verified output\nsecond result line",
+            "exitCode": 0
+          }
+        }
+      }
+    },
+    "delivered": {
+      "_tag": "Exit",
+      "requestId": "1-48",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-command",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 1,
+            "status": "completed",
+            "title": "Verification command",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "command_execution",
+            "input": "printf \"verified output\"",
+            "output": "verified output\nsecond result line",
+            "exitCode": 0
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:16:37.210Z",
+    "connection": 1,
+    "direction": "client-to-server",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Request",
+      "tag": "orchestration.getTurnItem",
+      "id": "1-51",
+      "headers": "[REDACTED]",
+      "payload": {
+        "revision": "2026-10-05T16:42:54.489Z",
+        "threadId": "verify-timeline",
+        "itemId": "fixture-read"
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:16:37.211Z",
+    "connection": 1,
+    "direction": "server-to-client",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Exit",
+      "requestId": "1-51",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-read",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 3,
+            "status": "completed",
+            "title": "Read fixture.txt",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "read",
+            "input": {
+              "file_path": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project/fixture.txt"
+            },
+            "output": "Timeline verification fixture\n"
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:16:37.211Z",
+    "connection": 1,
+    "event": "verification-fault",
+    "itemId": "fixture-read",
+    "rule": {
+      "delayMs": 1000
+    },
+    "original": {
+      "_tag": "Exit",
+      "requestId": "1-51",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-read",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 3,
+            "status": "completed",
+            "title": "Read fixture.txt",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "read",
+            "input": {
+              "file_path": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project/fixture.txt"
+            },
+            "output": "Timeline verification fixture\n"
+          }
+        }
+      }
+    },
+    "delivered": {
+      "_tag": "Exit",
+      "requestId": "1-51",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-read",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 3,
+            "status": "completed",
+            "title": "Read fixture.txt",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "read",
+            "input": {
+              "file_path": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project/fixture.txt"
+            },
+            "output": "Timeline verification fixture\n"
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:16:38.308Z",
+    "connection": 1,
+    "direction": "client-to-server",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "tag": "orchestration.getTurnItem",
+      "_tag": "Request",
+      "id": "1-52",
+      "headers": "[REDACTED]",
+      "payload": {
+        "revision": "2026-10-05T16:42:54.489Z",
+        "threadId": "verify-timeline",
+        "itemId": "fixture-skill"
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:16:38.309Z",
+    "connection": 1,
+    "direction": "server-to-client",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Exit",
+      "requestId": "1-52",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-skill",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 4,
+            "status": "completed",
+            "title": "Run verification skill",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "skill",
+            "input": {
+              "name": "verify"
+            },
+            "output": "Skill fixture output"
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:16:38.309Z",
+    "connection": 1,
+    "event": "verification-fault",
+    "itemId": "fixture-skill",
+    "rule": {
+      "mode": "error"
+    },
+    "original": {
+      "_tag": "Exit",
+      "requestId": "1-52",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-skill",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 4,
+            "status": "completed",
+            "title": "Run verification skill",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "skill",
+            "input": {
+              "name": "verify"
+            },
+            "output": "Skill fixture output"
+          }
+        }
+      }
+    },
+    "delivered": {
+      "_tag": "Exit",
+      "requestId": "1-52",
+      "exit": {
+        "_tag": "Failure",
+        "cause": [
+          {
+            "_tag": "Die",
+            "defect": "Isolated verification forced detail failure"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:17:22.167Z",
+    "connection": 1,
+    "direction": "client-to-server",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "headers": "[REDACTED]",
+      "id": "1-55",
+      "tag": "orchestration.getTurnItem",
+      "payload": {
+        "revision": "2026-10-05T16:42:54.489Z",
+        "threadId": "verify-timeline",
+        "itemId": "fixture-dynamic"
+      },
+      "_tag": "Request"
+    }
+  },
+  {
+    "at": "2026-10-05T17:17:22.170Z",
+    "connection": 1,
+    "direction": "server-to-client",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Exit",
+      "requestId": "1-55",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-dynamic",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 12,
+            "status": "completed",
+            "title": "Independent dynamic output",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "lookup",
+            "input": {
+              "query": "fixture"
+            },
+            "output": "Independent dynamic detail\nLong output line 0\nLong output line 1\nLong output line 2\nLong output line 3\nLong output line 4\nLong output line 5\nLong output line 6\nLong output line 7\nLong output line 8\nLong output line 9\nLong output line 10\nLong output line 11\nLong output line 12\nLong output line 13\nLong output line 14\nLong output line 15\nLong output line 16\nLong output line 17\nLong output line 18\nLong output line 19\nLong output line 20\nLong output line 21\nLong output line 22\nLong output line 23\nLong output line 24\nLong output line 25\nLong output line 26\nLong output line 27\nLong output line 28\nLong output line 29"
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:17:22.171Z",
+    "connection": 1,
+    "event": "verification-fault",
+    "itemId": "fixture-dynamic",
+    "rule": {
+      "mode": "missing"
+    },
+    "original": {
+      "_tag": "Exit",
+      "requestId": "1-55",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-dynamic",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 12,
+            "status": "completed",
+            "title": "Independent dynamic output",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "lookup",
+            "input": {
+              "query": "fixture"
+            },
+            "output": "Independent dynamic detail\nLong output line 0\nLong output line 1\nLong output line 2\nLong output line 3\nLong output line 4\nLong output line 5\nLong output line 6\nLong output line 7\nLong output line 8\nLong output line 9\nLong output line 10\nLong output line 11\nLong output line 12\nLong output line 13\nLong output line 14\nLong output line 15\nLong output line 16\nLong output line 17\nLong output line 18\nLong output line 19\nLong output line 20\nLong output line 21\nLong output line 22\nLong output line 23\nLong output line 24\nLong output line 25\nLong output line 26\nLong output line 27\nLong output line 28\nLong output line 29"
+          }
+        }
+      }
+    },
+    "delivered": {
+      "_tag": "Exit",
+      "requestId": "1-55",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": null
+        }
+      }
+    }
+  }
+]

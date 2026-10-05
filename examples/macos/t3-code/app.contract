@@ -189,7 +189,14 @@ component T3Code
     elapsed = now()
   task clock mount
     every(60000, tick)
+  mutation timelineDisclosureChanged as shape Change refreshes data then dispatchTimelineReads
   mutation timelineReadsRefreshed as shape TimelineReadsResult refreshes data
+  mutation timelineReadsRefreshedNext as shape TimelineReadsResult refreshes data
+  action dispatchTimelineReads
+    if not pending(timelineReadsRefreshed)
+      send timelineReadsRefreshed = refreshTimelineReads(wallTime.epochAtZero + now())
+    if not pending(timelineReadsRefreshedNext)
+      send timelineReadsRefreshedNext = refreshTimelineReads(wallTime.epochAtZero + now())
   state liveNow = 0 // The timeline's "Working for 12s" ticks each second while a run is live.
   resource workspaceDiscovery = composerWorkspace(data.revision) as shape WorkspaceDiscovery
   mutation workspaceRefreshed as shape WorkspaceRefresh refreshes workspaceDiscovery, data then workspaceRefreshFinished
@@ -203,8 +210,11 @@ component T3Code
       case none
         workspaceRetryAt = now() + 10000
   action liveTick
-    if data.timelineReadsNeeded and not pending(timelineReadsRefreshed)
-      send timelineReadsRefreshed = refreshTimelineReads(wallTime.epochAtZero + now())
+    if data.timelineReadsNeeded
+      if not pending(timelineReadsRefreshed)
+        send timelineReadsRefreshed = refreshTimelineReads(wallTime.epochAtZero + now())
+      if not pending(timelineReadsRefreshedNext)
+        send timelineReadsRefreshedNext = refreshTimelineReads(wallTime.epochAtZero + now())
     if workspaceDiscovery.needed and not pending(workspaceRefreshed) and (workspaceRetryKey != workspaceDiscovery.key or now() >= workspaceRetryAt)
       send workspaceRefreshed = refreshComposerWorkspace(workspaceDiscovery.key)
     if data.running or data.sidebar.ticking or data.sidebar.undoUntil > wallTime.epochAtZero + liveNow
@@ -617,12 +627,15 @@ component T3Code
     pendingModal = ""
     commandPending = false
   action command(op: string, id: string, value: string, n: number)
-    if op == "draft" or op == "search" or op == "sidebar" or op == "answer" or op == "choice" or op == "dismiss-error" or op == "close-diff" or op == "diff-view" or op == "favorite-model"
-      send localChanged = command(op, id, value, n)
+    if op == "chatlocal:item-detail"
+      send timelineDisclosureChanged = command(op, id, value, n)
     else
-      if not commandPending
-        commandPending = true
-        send changed = command(op, id, value, n)
+      if op == "draft" or op == "search" or op == "sidebar" or op == "answer" or op == "choice" or op == "dismiss-error" or op == "close-diff" or op == "diff-view" or op == "favorite-model"
+        send localChanged = command(op, id, value, n)
+      else
+        if not commandPending
+          commandPending = true
+          send changed = command(op, id, value, n)
   action editKeybindingQuery(value: string)
     keybindingQuery = value
   action newKeybinding

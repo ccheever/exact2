@@ -1,0 +1,21 @@
+{
+  "source_sha256": "a868b4534cdfac00c96b97c626a2c3472ea8033244ec268d7d2293fdfb2d6bb8",
+  "fixture_sha256": "2ef8f1c5ea0a55ff470d891c1e7439376242ba95cc44df798af3c1657f7803f1",
+  "checks": [
+    {
+      "mode": "select",
+      "exit_code": 0,
+      "output": "1.050 open\n2.471 reply [\"ok\": true, \"value\": [\"clicked\": \"copy\"], \"generation\": 1]\n2.473 main-queue continuation\n"
+    },
+    {
+      "mode": "escape",
+      "exit_code": 0,
+      "output": "1.049 open\n2.358 reply [\"ok\": true, \"value\": [\"clicked\": <null>], \"generation\": 1]\n2.359 main-queue continuation\n"
+    },
+    {
+      "mode": "settle",
+      "exit_code": 0,
+      "output": "1.047 open\n2.118 settle enter\n5.135 settle exit complete=false\n5.457 reply [\"ok\": true, \"generation\": 1, \"value\": [\"clicked\": \"copy\"]]\n5.461 main-queue continuation\n"
+    }
+  ]
+}

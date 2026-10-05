@@ -1,0 +1,22 @@
+{
+  "at": "2026-10-05T17:43:24.489Z",
+  "request": {
+    "type": "thread.model-selection.set",
+    "commandId": "6d1a37ae-123d-4fc8-9b62-db9ac3f2dd10",
+    "threadId": "verify-timeline",
+    "modelSelection": {
+      "instanceId": "codex",
+      "model": "gpt-5.4"
+    }
+  },
+  "response": {
+    "_tag": "Exit",
+    "requestId": "37bda461-1402-44c2-a32b-6c3144731fa5",
+    "exit": {
+      "_tag": "Success",
+      "value": {
+        "sequence": 4
+      }
+    }
+  }
+}

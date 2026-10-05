@@ -30,14 +30,13 @@ function prune(value: Cache, now: number): void {
   for (const [key, detail] of value.details) if (!detail.pending && now - detail.touched >= TTL) value.details.delete(key);
 }
 
-/** A close keeps the successful result warm for sixty seconds without polling it. */
-export async function setTurnItemOpen(client: T3Client, native: Native, id: string, open: boolean, now = composerNow(client)): Promise<void> {
+/** Disclosure settles immediately; the root read mutation owns all native work. */
+export function setTurnItemOpen(client: T3Client, id: string, open: boolean): void {
   const value = cache(client), scope = identity(client.environmentId, client.threadId, id);
   if (!open) { value.open.delete(scope); return; }
-  const row = rowFor(client, id), item = obj(row?.item);
+  const row = rowFor(client, id);
   if (!row) return;
   value.open.set(scope, { environment: client.environmentId, thread: client.threadId, id, sourceThread: str(row.sourceThreadId) || client.threadId });
-  await fetchDetail(client, native, item, now, id);
 }
 async function fetchDetail(client: T3Client, native: Native, item: Obj, now: number, rowId: string): Promise<void> {
   if (!turnItemNeedsDetailFetch(item)) return;
@@ -68,17 +67,22 @@ async function fetchDetail(client: T3Client, native: Native, item: Obj, now: num
   return detail.pending;
 }
 
-/** Call after projection refresh: an open live item refetches once it reaches its final revision. */
-export async function refreshOpenTurnItemDetails(client: T3Client, native: Native, now = composerNow(client)): Promise<void> {
+/** Each independent root read slot claims one eligible row before awaiting it. */
+export async function refreshNextOpenTurnItemDetail(client: T3Client, native: Native, now = composerNow(client)): Promise<boolean> {
   const value = cache(client); prune(value, now);
-  const pending: Promise<void>[] = [];
   for (const [scope, open] of value.open) {
     if (open.environment !== client.environmentId || open.thread !== client.threadId) { value.open.delete(scope); continue; }
-    const row = rowFor(client, open.id);
+    const row = rowFor(client, open.id), item = obj(row?.item);
     if (!row) { value.open.delete(scope); continue; }
-    pending.push(fetchDetail(client, native, obj(row.item), now, open.id));
+    if (!turnItemNeedsDetailFetch(item)) continue;
+    const found = value.details.get(`${keyFor(client, item, open.id)}\u0000${turnItemDetailRevision(item)}`);
+    if (found && (found.pending || now - found.fetched < TTL)) continue;
+    // fetchDetail installs pending synchronously, so another root slot skips
+    // this row. Its native request stays owned by this invocation until done.
+    await fetchDetail(client, native, item, now, open.id);
+    return true;
   }
-  await Promise.all(pending);
+  return false;
 }
 
 export interface TurnItemDetailView { item: Obj; text: string; state: '' | 'loading' | 'error' | 'empty' | 'missing' }

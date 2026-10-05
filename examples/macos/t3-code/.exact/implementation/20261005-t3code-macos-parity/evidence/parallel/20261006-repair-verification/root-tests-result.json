@@ -1,0 +1,15 @@
+{
+  "argv": [
+    "cargo",
+    "test",
+    "--lib",
+    "--bins",
+    "--tests",
+    "--no-fail-fast"
+  ],
+  "exit_code": 0,
+  "bun": "1.4.2",
+  "log": "root-tests.log",
+  "scope": "root default-members",
+  "note": "Executed with pinned Bun on PATH; source change is app Contract only."
+}

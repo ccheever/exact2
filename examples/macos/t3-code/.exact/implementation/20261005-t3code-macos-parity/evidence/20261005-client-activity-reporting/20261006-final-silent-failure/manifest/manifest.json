@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "task": "20261005-client-activity-reporting",
+  "captured_at": "2026-10-05T18:03:08.183966+00:00",
+  "source": {
+    "algorithm": "sha256",
+    "digest": "956a247ad66fef8d5032f36eb0f96b32b9f122cf43b602a91f2d5ebe3449b923",
+    "entries": [
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-final-silent-failure/acceptance-exact-deadline.mjs",
+        "kind": "file",
+        "executable": false,
+        "sha256": "6f00acc7d79744d39d1ba6ac00ca3825139fb8fd78701282b8905909f68f0680"
+      },
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-final-silent-failure/assert-capture.py",
+        "kind": "file",
+        "executable": false,
+        "sha256": "8e1d882f1096171a98c609123540b7d6fe4bcc1df82f559b7fc6fd47e4f2c185"
+      },
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-final-silent-failure/bundle-receipt-check.json",
+        "kind": "file",
+        "executable": false,
+        "sha256": "efa8a59b1ffc08c5314290aeaeafadeacf005be8691b0d6c1a4dfa1ba3f0ef84"
+      },
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-final-silent-failure/captured-source.json",
+        "kind": "file",
+        "executable": false,
+        "sha256": "46970e016902b4630ca566aefa2314f6ca7231195a7ddc71713359cb164a497d"
+      },
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-final-silent-failure/silent-after.json",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c5e8d431e2162ceff5d6201fe856185c3017a208ce3301c75ae061470e00107c"
+      },
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-final-silent-failure/silent-before.json",
+        "kind": "file",
+        "executable": false,
+        "sha256": "1b96f090a6a588ed8dce6cd06fe5391919ac55a2a9bdcc080b18cffa475de7a0"
+      },
+      {
+        "path": "examples/macos/t3-code/app.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "563515a23eb3e6ef411526c05fe8eb5b876f136d6377c55675645148f1270535"
+      },
+      {
+        "path": "examples/macos/t3-code/app.json",
+        "kind": "file",
+        "executable": false,
+        "sha256": "9d480fc025db0f68a9da16a24198b2480133ca3b04095c37a03681b1ffe9e18a"
+      },
+      {
+        "path": "examples/macos/t3-code/app.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c39b8ab5182635595c383b34e9319f9f8a72563dc5d13a0273dd089b37955495"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3ActivityReporter.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "144edcd8e69a2d0eb0a85d781311c81247d7901da16e3721f1a67401a8cee08b"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3Fleet.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "28c8c59aead1e4503be754de02ecca340cc5c991d3ac10d95c89645c11e93f1d"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3Module.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "535822e8f1daaf37caf3a3ac2047667e58a8ed555f41260d2e0cf960afc0cc5e"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3Transport.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "3a22d19c22dc364dbdcb047e9c2a5631b7d53c3f66ec79abe4fc23f364e52fb6"
+      }
+    ]
+  },
+  "source_report_sha256": "7983e1cb5b01bafeb1e53e15d3112007096b27b7d8abcf70caa4a5349ec5e595",
+  "verification_status": "passed",
+  "notice": "Artifact integrity only; behavior requires independent acceptance assertions.",
+  "artifacts": [
+    {
+      "path": "evidence/20261005-client-activity-reporting/20261006-final-silent-failure/silent-before.json",
+      "bytes": 106800,
+      "sha256": "1b96f090a6a588ed8dce6cd06fe5391919ac55a2a9bdcc080b18cffa475de7a0"
+    },
+    {
+      "path": "evidence/20261005-client-activity-reporting/20261006-final-silent-failure/silent-after.json",
+      "bytes": 12755,
+      "sha256": "c5e8d431e2162ceff5d6201fe856185c3017a208ce3301c75ae061470e00107c"
+    },
+    {
+      "path": "evidence/20261005-client-activity-reporting/20261006-final-silent-failure/silent-after-tree.json",
+      "bytes": 173209,
+      "sha256": "96f4dd4bb6d4b70eb2754b59fda4ede592142d43eb4cc2327c1250242e7b42ec"
+    },
+    {
+      "path": "evidence/20261005-client-activity-reporting/20261006-final-silent-failure/attempt.md",
+      "bytes": 2269,
+      "sha256": "492d101d31635559161c8b0b5031d191020abaa6b2bc5ca0c120d69b9476581e"
+    }
+  ]
+}

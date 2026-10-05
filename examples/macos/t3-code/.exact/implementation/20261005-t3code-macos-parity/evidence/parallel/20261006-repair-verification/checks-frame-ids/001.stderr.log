@@ -1,0 +1,1439 @@
+
+examples/macos/t3-code/settings-b-icons.test.ts:
+(pass) the icon grid is the popular set, else every Lucide name containing the query (60 at most) [0.44ms]
+(pass) pasted emoji keep their first grapheme; text is not an emoji [0.93ms]
+(pass) monograms follow ProjectMonogramText and project identity matches the sidebar [0.30ms]
+(pass) overrides decode a lucide monogram and encode monograms for older peers [0.06ms]
+(pass) the picker seeds from the current override and searches image files [0.46ms]
+(pass) saving fans the icon out to every member and validates first [0.70ms]
+(pass) the settings row shows the override, else the server favicon, else the automatic monogram [0.28ms]
+
+examples/macos/t3-code/shell.test.ts:
+(pass) toast queue > newest is in front, timers run only while visible and unhovered [0.30ms]
+(pass) toast queue > a stale clock never expires a fresh toast at once, and loading toasts wait [0.07ms]
+(pass) toast queue > only the front three count down [0.04ms]
+(pass) toast queue > dismissals: the orb runs onClose once, an action only closes [0.08ms]
+(pass) toast queue > stacked layout needs an action; leading glyphs and providers replace the kind icon [0.03ms]
+(pass) toast queue > a keyed toast replaces its predecessor [0.01ms]
+(pass) header and panels > shortcut labels follow the last binding for the command [0.15ms]
+(pass) header and panels > the launcher lists every surface; diff needs a connected thread [0.15ms]
+(pass) header and panels > the title menu follows buildThreadActionMenuItems with capability gating [2.58ms]
+(pass) header and panels > offsets skip submenu children [0.01ms]
+(pass) thread notifications > completion and attention transitions; the first shell only records [0.18ms]
+(pass) thread notifications > focused: an in-app toast for another thread only; unfocused: a system notification; sound either way [0.34ms]
+(pass) thread notifications > off and in-app off: nothing tracked or raised [0.05ms]
+(pass) provider update notification > candidates, key and copy follow ProviderUpdateLaunchNotification.logic [0.11ms]
+(pass) shell commands and routed failures > thread actions dispatch the V2 commands [0.38ms]
+(pass) shell commands and routed failures > archive refuses a running thread; editor and provider update use their RPCs [0.06ms]
+(pass) shell commands and routed failures > copies toast with the copied value [0.18ms]
+(pass) shell commands and routed failures > failures route to the reference toast titles instead of the banner [0.06ms]
+(pass) shell commands and routed failures > settings failures toast with the reference titles [0.15ms]
+(pass) shell commands and routed failures > resolveRenameCommit
+
+examples/macos/t3-code/r6-pr.test.ts:
+(pass) the row's one action (resolveThreadPanelPullRequestAction, trailingAction) > Resolve on conflicts, Ready on a draft, Fix under failing checks, Merge once clean; nothing while checks run [0.11ms]
+(pass) the row's one action (resolveThreadPanelPullRequestAction, trailingAction) > labels, pending labels, tones and the measured widths [0.04ms]
+(pass) the checks (describePullRequestChecks, summarizePullRequestChecks, ChecksBody) > words as the reference says them [0.07ms]
+(pass) the checks (describePullRequestChecks, summarizePullRequestChecks, ChecksBody) > attention, then running; completed behind "Show all" when either exists [0.08ms]
+(pass) the checks (describePullRequestChecks, summarizePullRequestChecks, ChecksBody) > the popover lands end-aligned through its tail unless it fits start-aligned [0.03ms]
+(pass) hand-off prompts and the action payloads > buildResolveConflictsPrompt, exactly as the reference composer received it [0.03ms]
+(pass) hand-off prompts and the action payloads > buildFixFindingsHandoff with the failing checks alone [0.07ms]
+(pass) hand-off prompts and the action payloads > handoffPrompt keeps the reader's words and replaces only the last hand-off [0.02ms]
+(pass) hand-off prompts and the action payloads > readableFailure prefers the host's sentence [0.07ms]
+(pass) hand-off prompts and the action payloads > PullRequestActionInput and GitPreparePullRequestThreadInput [0.04ms]
+(pass) host effects (usePullRequestActionRunner, usePullRequestHandoffs) > Merge asks first, then runs the method it named and re-reads the pull request [0.41ms]
+(pass) host effects (usePullRequestActionRunner, usePullRequestHandoffs) > a refused action toasts what the host said, under the reference's title [0.10ms]
+(pass) host effects (usePullRequestActionRunner, usePullRequestHandoffs) > Resolve opens the project's draft, prepares a worktree, points the draft at it and leaves the task unsent [0.30ms]
+(pass) host effects (usePullRequestActionRunner, usePullRequestHandoffs) > a failed checkout says so and writes nothing into the draft [0.12ms]
+(pass) host effects (usePullRequestActionRunner, usePullRequestHandoffs) > the checks alone refresh every 45 s while runs are pending, the detail every 10 minutes [0.08ms]
+(pass) host effects (usePullRequestActionRunner, usePullRequestHandoffs) > an answer never awaits a read another answer started (only resolved values are shared) [0.08ms]
+(pass) the split row, its card and the tab icon > #104 reads as the reference draws it [0.82ms]
+(pass) the split row, its card and the tab icon > a hand-off draft shows its branch's pull request, as the reference card does after Resolve [0.15ms]
+(pass) the split row, its card and the tab icon > the card flips to end-aligned where it would cross the window [0.28ms]
+(pass) the split row, its card and the tab icon > a tab without a linked snapshot takes its icon from the loaded detail [0.10ms]
+
+examples/macos/t3-code/r9-device-duo.test.ts:
+(pass) iPhone Duo stands > two groups, the reference labels and tooltips, the open shape chosen [0.08ms]
+(pass) iPhone Duo stands > shape follows the angle; a stance only its own pose [0.02ms]
+(pass) iPhone Duo stands > only beside the 3D Duo the hub can hinge; disabled without input; the error shows [0.03ms]
+(pass) Android fold controls > Fold and Unfold, the posture pressed, in 3D or flat [0.03ms]
+(pass) Android fold controls > hidden until the emulator folds; disabled while pending or not streaming [0.01ms]
+(pass) Android fold controls > press values [0.02ms]
+
+examples/macos/t3-code/r4-git.test.ts:
+(pass) quick action (resolveQuickAction) > changes commit, push and open a PR unless on the default ref or without a remote [0.09ms]
+(pass) quick action (resolveQuickAction) > GitLab says MR; the icon follows the action [0.04ms]
+(pass) options menu (buildMenuItems, getMenuActionDisabledReason) > a dirty default ref: Commit enabled, Push and Create PR explain themselves [0.10ms]
+(pass) options menu (buildMenuItems, getMenuActionDisabledReason) > notes: detached HEAD and behind upstream [0.02ms]
+(pass) options menu (buildMenuItems, getMenuActionDisabledReason) > default-branch confirmation copy [0.03ms]
+(pass) options menu (buildMenuItems, getMenuActionDisabledReason) > progress and elapsed [0.04ms]
+(pass) options menu (buildMenuItems, getMenuActionDisabledReason) > publish readiness [0.20ms]
+(pass) the action stream (vcsAction.ts) > a commit streams its phases, then the inline success [0.81ms]
+(pass) the action stream (vcsAction.ts) > a result seen before the card clock moves still shows its success [0.11ms]
+(pass) the action stream (vcsAction.ts) > a default-ref push asks first; a failure toasts "Action failed" [0.14ms]
+(pass) the action stream (vcsAction.ts) > pull reports inline [0.11ms]
+(pass) branch picker (BranchToolbarBranchSelector) > filtering matches sanitized names; opening starts a fresh search [0.06ms]
+(pass) branch picker (BranchToolbarBranchSelector) > a new worktree starts from origin by default, and the label says so [0.06ms]
+(pass) Run on (BranchToolbarEnvironmentSelector, logicalProjectEnvironments) > projects group by repository identity; a path without one stays on its machine [0.04ms]
+(pass) Run on (BranchToolbarEnvironmentSelector, logicalProjectEnvironments) > a draft lists both machines, this one selected, and moves with its text and workspace choice [0.32ms]
+(pass) Run on (BranchToolbarEnvironmentSelector, logicalProjectEnvironments) > a started thread keeps its machine; the strip shows the machine only when there is a choice [0.06ms]
+
+examples/macos/t3-code/timeline-worktree.test.ts:
+(pass) worktree setup card (3a7058d) > stages read like work rows: labels, the checkout percentage, pending rows dimmed by status [0.12ms]
+(pass) worktree setup card (3a7058d) > the script tail appears with its first line, four fixed slots, and stays after a failure [0.09ms]
+(pass) worktree setup card (3a7058d) > only a failed or cancelled setup brings its own header; a handed-off one collapses [0.04ms]
+(pass) worktree setup card (3a7058d) > visibility: running always, a clean finish leaves once the turn is live, a follow-up retires every outcome [0.04ms]
+(pass) worktree setup card (3a7058d) > the stream keeps the newest snapshot for the subscribed thread [0.08ms]
+(pass) worktree setup card (3a7058d) > a stream event for another subscription or an older sequence is ignored [0.03ms]
+(pass) the setup card in the timeline > a running setup sits under "Setting up worktree…" in the working slot, with no Thinking row [1.09ms]
+(pass) the setup card in the timeline > a finished setup keeps the slot until the run starts, then leaves [0.21ms]
+(pass) the setup card in the timeline > a failed script outlives the handoff as one collapsed row under the send [0.09ms]
+
+examples/macos/t3-code/request-latency.test.ts:
+(pass) requestLatencyState > marks unary requests as slow when the ack threshold is exceeded [0.10ms]
+(pass) requestLatencyState > clears the slow request once the server acknowledges it [0.04ms]
+(pass) requestLatencyState > ignores long-lived subscribe requests
+(pass) requestLatencyState > ignores the long-lived preview automation connection
+(pass) requestLatencyState > ignores usage summary requests
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.list
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.listStats
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.summary
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.routing
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.routingIdentity
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.stack
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.linkedThreads
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.detail
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.preview
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.checks
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.activity
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.threadComments
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.diffFileContents
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.filesViewed
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.setFilesViewed
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.runAction
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.update
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.comment
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.updateComment
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.submitReview
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.replyToThread
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.setThreadResolution
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.setReaction
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.invalidate
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.subscribeRefreshes
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.reviewerCandidates
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.requestReviewers
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.labelCandidates
+(pass) requestLatencyState > ignores pull request workspace request pullRequests.setLabels
+(pass) requestLatencyState > keeps ignoring untracked methods when a display tag is supplied
+(pass) requestLatencyState > gives provider updates a longer threshold before warning [0.02ms]
+(pass) requestLatencyState > gives provider refreshes and server updates the same longer threshold [0.03ms]
+(pass) requestLatencyState > evicts the oldest pending requests once the tracker reaches capacity [0.36ms]
+(pass) requestLatencyState > reports slow requests in the order their timers would fire [0.02ms]
+
+examples/macos/t3-code/r5-panels.test.ts:
+(pass) details card pull request rows (ThreadDetailsPrRows) > a link with no snapshot is "#72" behind the muted pull request glyph, opening beside the thread [0.22ms]
+(pass) details card pull request rows (ThreadDetailsPrRows) > a snapshot names the pull request and tints its glyph; other links fold behind "Show N more" [0.42ms]
+(pass) details card pull request rows (ThreadDetailsPrRows) > without links the branch's own pull request shows, only while the status reports that branch [0.14ms]
+(pass) details card pull request rows (ThreadDetailsPrRows) > with the host's detail the row splits: state glyph, the checks, and Ready on a draft [0.23ms]
+(pass) details card pull request rows (ThreadDetailsPrRows) > resolveThreadPanelPullRequestAction and the checks rollup [0.04ms]
+(pass) details card pull request rows (ThreadDetailsPrRows) > a link no project here can read stays an ordinary link [0.03ms]
+(pass) the sidebar pull request badge (resolveThreadPullRequestBadge) > one link, several unrelated links, a stack, and tombstones [0.09ms]
+(pass) the Pull request (P) surface > the chooser enables it with a panel target and opens "#72" as a tab keyed by its reference [0.90ms]
+(pass) the Pull request (P) surface > a pull request tab wears its linked snapshot's lifecycle [0.06ms]
+(pass) the Pull request (P) surface > without the environment's pull request reads the row stays unavailable with the reference hint [0.02ms]
+(pass) sent attachment preview (AttachmentFilePreview) > filePreviewKind and the delimiter follow the MIME type, then the name [0.25ms]
+(pass) sent attachment preview (AttachmentFilePreview) > a chip opens its own tab, replacing the standalone explorer; the text renders as Markdown first [9.68ms]
+(pass) sent attachment preview (AttachmentFilePreview) > a CSV renders as a table; a file with no preview offers Save; an unknown id fails plainly [0.27ms]
+(pass) sent attachment preview (AttachmentFilePreview) > a read failure shows the message and Try again reads afresh [0.17ms]
+(pass) Files preferences persist (FilePreviewPanel localStorage keys) > defaults: explorer open, Markdown as source, tables rendered; toggles land in the saved record [0.33ms]
+
+examples/macos/t3-code/r3-settings-outdated.test.ts:
+(pass) protocol compatibility by direction > older servers name the host to update; newer ones ask for a client update [0.04ms]
+(pass) protocol compatibility by direction > the row reads Update, then progress, then Retry update after a failure [0.04ms]
+(pass) Connections: an outdated saved host > a switched-off host is probed; it reads Client not supported with Update before its switch [0.78ms]
+(pass) Connections: an outdated saved host > Update starts one background job toward this client release and the row follows it [0.86ms]
+(pass) Connections: an outdated saved host > finished jobs toast once: success acknowledges, failure leaves Retry update [0.30ms]
+(pass) Connections: an outdated saved host > pairing an outdated self-updating host saves it; any other mismatch keeps the direction message [1.14ms]
+
+examples/macos/t3-code/settings-b-ssh.test.ts:
+(pass) manual SSH targets parse like parseManualDesktopSshTarget [0.15ms]
+(pass) host suggestions put alias prefixes first, then substrings [0.03ms]
+(pass) the autocomplete hides saved hosts, numbers the first nine and says when nothing matches [0.28ms]
+(pass) adding over SSH tunnels, pairs beside the focused environment and toasts [0.26ms]
+(pass) an SSH environment is listed as "SSH user@host" beside the paired loopback one (r9-connect: no "This machine") [0.06ms]
+
+examples/macos/t3-code/r6-polish.test.ts:
+(pass) repository display names (deriveProjectGroupLabel) > a shared title that is only the repository name reads as the display name [0.05ms]
+(pass) repository display names (deriveProjectGroupLabel) > checkouts group across the focused environment and connected background environments [0.14ms]
+(pass) repository display names (deriveProjectGroupLabel) > the hero lists each logical project once, under its group name [0.06ms]
+(pass) measured placements > the AlertStack wrapper is clipped to its banners, and not before both are laid out [0.06ms]
+(pass) measured placements > row tooltips place by the probed label widths once they report [0.10ms]
+(pass) the card script row (ProjectScriptsControl, panel) > the primary script is the first that is not a setup script; setup scripts read "(setup)" in the menu [0.07ms]
+(pass) Markdown source colour > list markers take the heading ink; bold and code spans after them keep theirs [0.47ms]
+
+examples/macos/t3-code/snapshot-settings.test.ts:
+(pass) main row status and setup button follow the reference macOS state machine [0.08ms]
+(pass) shortcut status chain: recording, keybinding conflict, availability, saved [0.08ms]
+(pass) macOS key labels, accessible names, system conflicts and command labels match the reference [0.28ms]
+(pass) recorded candidate: keybinding conflict blocks without a native probe; a free chord is probed and saveable [0.81ms]
+(pass) missing grants keep the saved choice On, report attention, and never surface as a red error [0.08ms]
+(pass) attachment frames carry app, title, initial and verified accessibility contents [0.14ms]
+(pass) setup wizard: Allow asks native only; continue tests capture before saving On; refusal changes nothing [3.22ms]
+
+examples/macos/t3-code/composer-editor-stash.test.ts:
+(pass) prompt stash > ⌘S saves newest first and clears; an empty composer restores the only entry or toggles the menu [0.06ms]
+(pass) prompt stash > holds 20 entries and reports the eviction [0.04ms]
+(pass) prompt stash > restore appends after a blank line and removes the entry; delete removes [0.05ms]
+(pass) prompt stash > menu rows: one-line snippet, relative time, restore label; persisted shape decodes [0.10ms]
+
+examples/macos/t3-code/requests.test.ts:
+(pass) approvals > shows the first pending approval with reference labels, default decisions and count [0.24ms]
+(pass) approvals > labels every request kind and keeps provider order, warnings and app names [0.09ms]
+(pass) approvals > a provider process that is gone replaces the detail and disables decisions [0.28ms]
+(pass) approvals > approve dispatches only advertised decisions and blocks composer sends [0.31ms]
+(pass) approvals > a live request stays pressable while reconnecting and the press names the reconnect [0.18ms]
+(pass) questions > one active question with shortcuts, position and composer placeholder state [3.02ms]
+(pass) questions > single choice advances; the last single choice submits every answer [0.35ms]
+(pass) questions > the composer types the custom answer, which outranks a selection and is submitted on Return [0.48ms]
+(pass) questions > choosing an option returns displaced custom text to the thread draft [0.08ms]
+(pass) questions > validation names the unanswered question and multiple selection toggles exact values [0.17ms]
+(pass) questions > dismissible questions dismiss through the server; required ones refuse [0.10ms]
+(pass) questions > approvals take precedence over questions, which return when approvals resolve [0.04ms]
+(pass) request history rows > approval rows lead with their title and answered questions with their questions and answers [0.10ms]
+(pass) connection and thread errors > the composer stack names the environment while reconnecting or offline [0.04ms]
+(pass) connection and thread errors > a failed root run or provider session error shows until dismissed for that message [1.46ms]
+(pass) request rows in the work log > a pending approval is the running turn's live activity, after its earlier tools [2.44ms]
+
+examples/macos/t3-code/timeline-tree.test.ts:
+(pass) changed files tree > directories come first, compacted while they hold a single directory, with summed stats [0.13ms]
+(pass) changed files tree > folders start collapsed; expand-all opens every folder and an override wins over it [0.15ms]
+(pass) changed files tree > counts compact like DiffStatLabel [0.04ms]
+
+examples/macos/t3-code/r11-upstream-usage.test.ts:
+(pass) mergeUsage derives model token shares independently of their cost shares [0.28ms]
+(pass) modelShare follows the selected metric; an unknown cost keeps its token share [0.03ms]
+(pass) the Breakdown table orders and shares rows by the selected metric [0.84ms]
+
+examples/macos/t3-code/r5-composer.test.ts:
+(pass) composer labels compact at the reference widths (resolveRestingComposerControlsLayout) > blocks: picker 143.22 at -10, traits 99.89, mode 142.05 / icon-only 63, gaps 4 [0.07ms]
+(pass) composer labels compact at the reference widths (resolveRestingComposerControlsLayout) > the Files panel at 1280: the reference keeps "Medium" with "Full access" as its icon (host 336)
+(pass) composer labels compact at the reference widths (resolveRestingComposerControlsLayout) > a promotion back to labels needs a point of slack over the last layout [0.03ms]
+(pass) composer labels compact at the reference widths (resolveRestingComposerControlsLayout) > unmeasured labels fall back to the estimate; an unmeasured host never compacts [0.01ms]
+(pass) content-sized menus from measured texts (MenuPopup min-w-40) > the probes list each text once at its size and weight [0.04ms]
+(pass) content-sized menus from measured texts (MenuPopup min-w-40) > the effort menu grows past 160 for a description (capped at 224) and fits its widest row [0.02ms]
+(pass) content-sized menus from measured texts (MenuPopup min-w-40) > the runtime Select and Run on take their widest row [0.04ms]
+(pass) ref pages (usePaginatedBranches, shouldLoadNextBranchPageAfterScroll) > pages merge by name, keep the last cursor and the largest total [0.05ms]
+(pass) ref pages (usePaginatedBranches, shouldLoadNextBranchPageAfterScroll) > each new scroll signal loads one page while a cursor remains [0.15ms]
+(pass) the strip and card pickers page past 100 refs > a strip scroll signal loads the next page into the open picker [2.53ms]
+
+examples/macos/t3-code/composer-editor-send.test.ts:
+(pass) send gestures through the server keybindings > ⌥⌘↩ on an existing thread sends there, then opens a fresh composer in its project [1.48ms]
+(pass) send gestures through the server keybindings > ⌥⌘↩ while the thread runs follows the follow-up behaviour (queue), then opens the fresh composer [0.33ms]
+(pass) send gestures through the server keybindings > a plain send or ⌘↩ on an idle thread stays on it [0.25ms]
+(pass) send gestures through the server keybindings > ⌘↩ in a draft starts the thread in the background (a HEAD server binds it) [0.25ms]
+(pass) send gestures through the server keybindings > an older server that binds only ⌥⌘↩ keeps ⌘↩ in a draft a foreground send [0.21ms]
+(pass) send gestures through the server keybindings > the send button takes ⌥⌘↩ on an existing thread [1.29ms]
+(pass) send gestures through the server keybindings > a new thread is titled from its prose, not its chips [0.34ms]
+
+examples/macos/t3-code/r11-upstream.test.ts:
+(pass) sweep sidebar row actions (1826fb55cc) > resolveSidebarSweepKeys covers the rows between the pressed row and the pointer, in either direction [0.03ms]
+(pass) sweep sidebar row actions (1826fb55cc) > the release names the action, the section, the pressed row and the armed rows [0.03ms]
+(pass) sweep sidebar row actions (1826fb55cc) > a settle sweep settles every armed row still in its section, under one undo notice [1.34ms]
+(pass) sweep sidebar row actions (1826fb55cc) > a pan that armed nothing is the button click; un-settle and wake sweeps act on each row [0.21ms]
+(pass) sweep sidebar row actions (1826fb55cc) > without settlement support nothing is swept [0.04ms]
+(pass) draft rows: context menu and discard behind Undo (95edeb753b) > the menu is Copy (Path, Branch), Project settings and the destructive Discard draft [0.08ms]
+(pass) draft rows: context menu and discard behind Undo (95edeb753b) > right click copies the draft workspace path and branch, opens project settings, or discards it [0.25ms]
+(pass) draft rows: context menu and discard behind Undo (95edeb753b) > Discard draft clears the session; Undo brings back the text, images and workspace choice [0.34ms]
+(pass) draft rows: context menu and discard behind Undo (95edeb753b) > Undo refuses a draft that has new content; an expired discard releases its uploads [0.24ms]
+(pass) retry a failed workspace preparation (737993303d) > a retry hides the failure it cancelled, and only that [0.03ms]
+(pass) retry a failed workspace preparation (737993303d) > Retry is offered while the run still ends in its failed preparation [0.06ms]
+(pass) retry a failed workspace preparation (737993303d) > Retry dispatches prepared-run.retry for the open thread [0.08ms]
+(pass) one way to open a machine's No project folder (845ddd9354) > the folder is usable once its project reaches the shell; otherwise the reference message [0.22ms]
+(pass) one way to open a machine's No project folder (845ddd9354) > availableScratchWorkspaceRoot offers the folder only while connected [0.02ms]
+
+examples/macos/t3-code/timeline-item-detail.test.ts:
+(pass) toolCallLines > preserves command and empty/null arguments; formats structured input [0.14ms]
+(pass) turnItemNeedsDetailFetch and turnItemDetailRevision > fetches omitted outputs and summarized input, once per live or final revision [0.03ms]
+(pass) turnItemOutputText > unwraps MCP text, formats JSON, and keeps old Claude stdout/stderr [0.08ms]
+(pass) turnItemHasDetail and inspectorDetail > exit zero alone does not disclose, nonzero exits are short and search patterns/errors survive [0.14ms]
+(pass) on-demand turn item cache > keys source thread and item independently, deduplicates, and keeps late replies in their own rows [0.62ms]
+(pass) on-demand turn item cache > disclosures settle before reads and independent root slots claim later rows [0.15ms]
+(pass) on-demand turn item cache > two read slots leave additional disclosures queued until a slot is free [0.12ms]
+(pass) on-demand turn item cache > refreshes final revision and retains output while refreshing [0.07ms]
+(pass) on-demand turn item cache > a reconnect never adopts or reuses an old connection reply [0.05ms]
+(pass) on-demand turn item cache > source threads with the same item id keep distinct detail identity [0.08ms]
+(pass) on-demand turn item cache > a failed refresh retains existing output and a mismatched response type is refused [0.10ms]
+(pass) on-demand turn item cache > exposes missing, fetched-empty and RPC error states [0.10ms]
+(pass) on-demand turn item cache > refetches after sixty seconds and drops idle entries [0.06ms]
+
+examples/macos/t3-code/composer-controls-subagent.test.ts:
+(pass) provider subagent bar > durations and status lines read as the reference formats them [0.06ms]
+(pass) provider subagent bar > a provider-native subagent thread replaces the composer with the bar and drops its dock [1.73ms]
+
+examples/macos/t3-code/shell-slow.test.ts:
+(pass) request start > a request is timed from the first shell time after it was sent, not from a stale one [0.18ms]
+(pass) request start > a request answered before the shell ticks is never timed [0.02ms]
+(pass) request start > a request sent while the shell ticks is timed from the next tick [0.03ms]
+(pass) request start > before the shell has any time the first time starts the clock [0.01ms]
+(pass) a request held past its threshold > shows exactly one toast, however often the shell runs, and clears on the reply [0.14ms]
+(pass) a request held past its threshold > a second held request joins the same toast [0.03ms]
+(pass) a request the transport has failed > ends when the transport has timed it out, even though the answer that sent it never hears the failure [0.03ms]
+(pass) a request the transport has failed > is older than the deadline T3Transport.rpc gives a request
+(pass) requests of an environment that is gone > switching environment A off and B on ends the slow requests of A [0.05ms]
+(pass) requests of an environment that is gone > requests that were sent to A and are still pending are not timed once B is the environment [0.02ms]
+(pass) requests of an environment that is gone > a request sent to B after the switch is timed on its own [0.03ms]
+(pass) requests of an environment that is gone > a replaced connection of the same environment ends the requests of the old one [0.01ms]
+(pass) requests of an environment that is gone > a client that is not connected does not time requests [0.04ms]
+(pass) requests of an environment that is gone > an acknowledgement of a request that already ended is harmless [0.03ms]
+(pass) status reads end traces with their environment > a status that names another environment ends the traces of the old one on the first read [0.04ms]
+(pass) status reads end traces with their environment > a status that says the transport is not connected ends every trace sent before the read [0.02ms]
+(pass) status reads end traces with their environment > a status of the same connected environment keeps a traced call the transport still lists [0.02ms]
+(pass) status reads end traces with their environment > polling the status ends answered traces whose answer was let go, and keeps the pending one [0.10ms]
+(pass) status reads end traces with their environment > a failed status read settles nothing [0.05ms]
+(pass) status reads end traces with their environment > a trace that slowRequests already ended leaves no entry behind [0.02ms]
+(pass) client.call end to end > a request is tracked from the call, shows one toast past 15 s and clears with its reply [0.15ms]
+(pass) client.call end to end > a failed request ends the same way [0.08ms]
+(pass) client.call end to end > a request whose answer was let go (its reply never arrives) stops counting when the environment switches [0.04ms]
+(pass) shellView settles live traces > a request the transport answered stops counting as slow on the next shell read [0.60ms]
+
+examples/macos/t3-code/r7-polish.test.ts:
+(pass) HTML source in the reference theme > the media fixture page paints every character as Shiki does [13.79ms]
+(pass) HTML source in the reference theme > style sheets, event handlers, style attributes and entities follow the embedded grammars [9.29ms]
+(pass) HTML source in the reference theme > the attachment source lines keep their text and split tokens at line ends [0.19ms]
+(pass) HTML source in the reference theme > script bodies are JavaScript: constructors, inherited classes, arrow parameters and template literals [7.07ms]
+(pass) Files breadcrumbs scrolled to their end > a fitting trail has no fade or shift; an overflowing one fades its left edge over min(24, overflow) [0.17ms]
+(pass) Connections without T3 Connect > settings search hides the cloud-only rows (settingsSearch cloudOnly without a cloud public config) [0.51ms]
+
+examples/macos/t3-code/settings-core.test.ts:
+(pass) device settings > decode keeps valid reference ClientSettings values and drops the rest [0.07ms]
+(pass) device settings > switches, selects and grouping write the device record; a whole theme sets both halves [0.15ms]
+(pass) scope > resolves all, environment, project group and checkout; removed targets stay unavailable [0.20ms]
+(pass) scope > effective values: project override, environment, t3.json for file-backed keys, built-in [0.07ms]
+(pass) scope > project writes replace each member entry; clearing drops only that key [0.07ms]
+(pass) general rows > every reference row in order, with live values and inheritance [4.66ms]
+(pass) general rows > project scope: overrides, t3.json and environment-wide rows [0.30ms]
+(pass) general rows > values are validated against the reference schema [0.20ms]
+(pass) writes through the command > environment and project writes reach server.updateSettings; device rows never do [0.46ms]
+(pass) writes through the command > disconnected server rows refuse; restore resets device and environment values [0.17ms]
+(pass) writes through the command > t3.json is read for each member of a project scope [1.14ms]
+(pass) navigation and search > sidebar lists the reference sections; Project only for a project scope [0.06ms]
+(pass) navigation and search > search ranks like the reference and keybinding commands sort last [0.58ms]
+(pass) appearance > palette follows each half of the theme pair and contrast [0.25ms]
+(pass) appearance > tiles, theme cards and rows [0.46ms]
+(pass) custom themes > theme files: version, name, appearance, colors and variants; reserved ids refused [0.36ms]
+(pass) custom themes > import, duplicate and remove through the command; palette and cards follow [0.47ms]
+
+examples/macos/t3-code/r5-composer-video.test.ts:
+(pass) video preview aspect after relaunch > the pick's frame size is written to the draft file and read back from the saved preferences [0.24ms]
+(pass) video preview aspect after relaunch > an unknown or invalid size stays unknown (16:9 in the view) [0.04ms]
+
+examples/macos/t3-code/pages-prs.test.ts:
+(pass) the search qualifies labels, author, draft, review and checks and leaves the rest as text [0.13ms]
+(pass) rows group as the reference groups them and rank by merge readiness [0.16ms]
+(pass) a row carries its address, state, conflict, checks and label chips [0.20ms]
+(pass) the list view answers groups, facets, hosts and its empty states [0.34ms]
+(pass) the list controls persist in the preference record and narrow the request [0.23ms]
+(pass) the detail offers only what the host can do and this viewer may ask [0.27ms]
+
+examples/macos/t3-code/r3-shell-details.test.ts:
+(pass) environment row (upstream bb7997709d) > a lone primary machine has no row; a lone remote one is a static label; two machines can pick [0.02ms]
+(pass) lineage (upstream d3071275d5) > parent first, then the merge target, then newest first; statuses and badges [0.35ms]
+(pass) lineage (upstream d3071275d5) > a settled subagent sent a follow-up shows as running, its timer follows the live run [0.16ms]
+(pass) lineage (upstream d3071275d5) > labels, elapsed format and the merge-back run [0.02ms]
+(pass) shell preferences > inline cards are open by default; a closed one is remembered and reloaded [0.06ms]
+(pass) Nightly beta-app notice (upstream f1dcd93931) > one stacked toast with a ghost Dismiss and the settings action; any close remembers it [0.09ms]
+(pass) Nightly beta-app notice (upstream f1dcd93931) > an ordinary action close leaves onClose alone [0.02ms]
+(pass) details source (upstream 429c625a85, d1034d62b2) > inline where chat fits beside it and open by default; the popover only while open; one status stream [1.10ms]
+(pass) details source (upstream 429c625a85, d1034d62b2) > the Changes row prefers the branch totals; a worktree is named [0.13ms]
+(pass) details source (upstream 429c625a85, d1034d62b2) > a remote machine gets its row [0.07ms]
+(pass) details source (upstream 429c625a85, d1034d62b2) > stream events fold like applyGitStatusStreamEvent [0.04ms]
+(pass) copy error morph state (upstream f2cc80a7a4) > a copied error reads Copied with a check for 2 s on the shell clock [0.07ms]
+(pass) workspace status stream ordering > a snapshot drained before the subscribe reply is kept; an older stream never wins [0.09ms]
+
+examples/macos/t3-code/r3-protocol.test.ts:
+(pass) typed server errors (7bc161f) > reason and detail travel from the bridge into ClientError [0.07ms]
+(pass) config stream folding (0080e80, serverConfigProjection.ts) > a late snapshot keeps the published themes and usage sources a capable server streamed [0.08ms]
+(pass) config stream folding (0080e80, serverConfigProjection.ts) > keybindingsUpdated replaces keybindings and issues; empty theme and source sets clear [0.05ms]
+(pass) config stream folding (0080e80, serverConfigProjection.ts) > a keybindings reload toasts like KeybindingsUpdateToast [0.08ms]
+(pass) abandon-safe reads and traces > a read tags every request and ends with readEnd [0.08ms]
+(pass) abandon-safe reads and traces > a request whose reply was dropped stops counting as slow once the transport no longer lists it [0.06ms]
+(pass) abandon-safe reads and traces > the snapshot read is tagged end to end and releases the gate [0.16ms]
+(pass) same-session stream retries (c5a929e) > a failed shell stream resubscribes from its sequence when the transport says the retry is due [0.45ms]
+(pass) same-session stream retries (c5a929e) > an authorization failure is not retried and does not resynchronize [0.17ms]
+(pass) outdated servers (22e9d35) > the compatibility message names the direction and whether this client can update the host [0.03ms]
+(pass) answers Exact lets go mid-flight > a read stranded inside snapshot adoption does not block the next read from adopting [11.26ms]
+
+examples/macos/t3-code/snapshot-drafts.test.ts:
+(pass) capture is durably associated with original draft before native acknowledgement; reread deduplicates [0.29ms]
+(pass) failed persistence retains native pending capture without an adopted attachment [0.31ms]
+(pass) selection change during capture read delivers only to the original existing draft [0.07ms]
+(pass) deferred IDs cannot send to newly selected draft (cached image=%s) [0.17ms]
+(pass) deferred IDs cannot send to newly selected draft (cached image=%s) [0.04ms]
+(pass) stale image read performs no server write [0.13ms]
+(pass) deferred upload releases only newly minted server upload and preserves original draft [0.11ms]
+(pass) successful send releases stored image only after committed removal; failed commit retains retry file [0.29ms]
+(pass) saved draft association survives client recreation without capture permission [0.17ms]
+(pass) selection changed during pending-operation persistence prevents server dispatch [0.12ms]
+(pass) upload failure preserves image and text and never submits a provider turn [0.08ms]
+(pass) delete succeeded then final preference commit failed: recreated client retries absent file idempotently [0.21ms]
+(pass) uncertain send retains files until matching server message is reconciled and committed [0.14ms]
+(pass) revoked capture grants do not prevent durable feedback choices and sound selection reenables playback [0.16ms]
+(pass) feedback changes do not swallow nonpermission failures; preview requires actual native playback acknowledgment [0.09ms]
+(pass) snapshot shortcut aliases and literal plus match every app binding, independently of when [0.08ms]
+(pass) snapshot shortcut cancellation, OS conflict and reset preserve saved preferences without backend writes [0.15ms]
+(pass) shortcut save revalidates fresh config and scope before any native replacement [0.09ms]
+(pass) failed shortcut preference commit never installs an unsaved native binding [0.07ms]
+(pass) A capture ready after navigation to B persists to A and never requests B focus [0.09ms]
+(pass) removed original destination keeps the capture pending instead of selecting another project [0.09ms]
+(pass) fresh canonical destination wins over absent cached shell and no eligible project remains explicit [0.09ms]
+(pass) capture with no existing draft chooses default source order only after acquisition [0.07ms]
+(pass) destination deletion while durable association awaits compensates before owned file cleanup [0.12ms]
+
+examples/macos/t3-code/sidebar-extra.test.ts:
+(pass) provider update pill (getProviderUpdateSidebarPillView) > a queued or running update reads Updating; several providers count [0.06ms]
+(pass) provider update pill (getProviderUpdateSidebarPillView) > outcomes: failed and unchanged stay until dismissed; success leaves on its own; the newest outcome leads [0.08ms]
+(pass) provider update pill (getProviderUpdateSidebarPillView) > outcomes from before the window first looked never show; no update, no pill [0.02ms]
+(pass) provider update pill (getProviderUpdateSidebarPillView) > the window remembers its first check, retires a success after three seconds and keeps dismissals [0.06ms]
+(pass) sidebar drag and drop (planSidebarThreadDrop) > dropping an active card on the Pinned block pins it with a key between its neighbours [0.21ms]
+(pass) sidebar drag and drop (planSidebarThreadDrop) > dragging out of Pinned unpins; out of Settled un-settles; onto the shelf settles [0.08ms]
+(pass) sidebar drag and drop (planSidebarThreadDrop) > reordering inside Pinned writes one key; a drop in place, on Working or Snoozed, or without settlement writes nothing [0.04ms]
+(pass) sidebar drag and drop (planSidebarThreadDrop) > the slot follows the lifted centre against the painted middles [0.01ms]
+(pass) sidebar drag and drop (planSidebarThreadDrop) > past the list edge, a drop on the composer adds the thread (or the selection) as context [0.29ms]
+(pass) subagent threads (filterSidebarV2VisibleThreads, parentThreadLink) > a subagent timeline opens with "Subagent of · <parent>" (bot glyph) whose action opens the parent [0.06ms]
+(pass) thread undo (showThreadUndoNotice) > Undo dispatches through the undo command's own handle, never the finished settle's [0.14ms]
+(pass) thread undo (showThreadUndoNotice) > a hover snooze preset resolves its wake when pressed, not when the menu painted [0.43ms]
+(pass) receding favicons > grayscale follows the filter luminance per scheme [0.03ms]
+(pass) in-place rename (Sidebar.tsx handleDoubleClick) > the double-click's own presses keep the edit; opening another row drops it [0.17ms]
+(pass) sidebar wall time > commands carry the window's wall time; the runtime clock (virtual under the agent) only measures from it [0.04ms]
+(pass) remembered shelves (useLocalStorage t3code:sidebar:*-expanded) > shelf expansion and the project scope survive the preferences file; junk decodes to the defaults [0.05ms]
+(pass) thread search pointer (onHighlight) > the result under the pointer becomes the highlighted one Enter opens [0.14ms]
+
+examples/macos/t3-code/r3-composer-controls-queue.test.ts:
+(pass) queued drag reorder > a drop moves the run before the run at the insertion index, or to the end [0.84ms]
+(pass) queued drag reorder > dropping just before or after itself does nothing, but still settles the lifted row [0.97ms]
+
+examples/macos/t3-code/palette-linkpr.test.ts:
+(pass) change request references > hosts by path shape [0.06ms]
+(pass) change request references > typed references: numbers, #numbers, URLs and checkout commands [0.08ms]
+(pass) change request references > resolution against the thread project and the environment host [0.16ms]
+(pass) change request references > link mode follows the environment capabilities [0.01ms]
+(pass) Link pull request dialog > validation appears once the field is touched [0.72ms]
+(pass) Link pull request dialog > submit dispatches thread.pull-request.link and closes [0.56ms]
+(pass) Link pull request dialog > an invalid submit stays open and shows the validation [0.04ms]
+(pass) thread shortcuts > thread.pin pins, or unpins a pinned thread [0.34ms]
+
+examples/macos/t3-code/settings-a-telemetry.test.ts:
+(pass) resource telemetry > formatting follows ResourceTelemetryDiagnostics [0.05ms]
+(pass) resource telemetry > one subscription while the page is open; its snapshot projects every section [0.82ms]
+(pass) resource telemetry > collapsing hides descendants; the timeline window and history are cached for five seconds [0.13ms]
+(pass) resource telemetry > SIGINT goes straight to the server; SIGKILL asks first; a refused signal is a toast [0.18ms]
+(pass) resource telemetry > Retry monitor asks the server to restart the collector and keeps its snapshot [0.13ms]
+(pass) diagnostics tables > live processes carry a Kill column and fold under a collapsed parent [0.97ms]
+
+examples/macos/t3-code/r11-device.test.ts:
+(pass) Right panels keep every surface across launches (lane r11-device) > the Diff, the device with its target, a pull request and an attachment are saved in order [0.11ms]
+(pass) Right panels keep every surface across launches (lane r11-device) > malformed entries are dropped as the migration drops them [0.05ms]
+(pass) Right panels keep every surface across launches (lane r11-device) > a relaunch restores them with their targets; the open Diff and the device are reapplied [0.13ms]
+(pass) The Diff's preview for a project outside the server's root (DiffPanel shouldRetryBranchDiffAtEnvironmentCwd) > a refused cwd is asked again at the server cwd; anything else is not retried [0.13ms]
+
+examples/macos/t3-code/composer-controls-branch.test.ts:
+(pass) workspace strip details > a typed name is offered as a sanitized new ref, and Return picks the highlighted first item [0.27ms]
+(pass) workspace strip details > Previous worktree points the draft at the newest worktree and launches into it [0.35ms]
+(pass) workspace strip details > a started thread shows the locked row: Local checkout, or Worktree [0.14ms]
+(pass) workspace strip details > choosing a ref checked out in another worktree reuses that worktree without switching [0.37ms]
+(pass) workspace strip details > ⇧⌘X, ⇧⌘G and ⇧⌘L dispatch while the strip shows [0.22ms]
+(pass) workspace strip details > right-clicking the branch offers Copy branch name, copied with a toast [0.16ms]
+
+examples/macos/t3-code/settings-a-about.test.ts:
+(pass) background activity, advanced > presets resolve and collapse back to their profile [0.04ms]
+(pass) background activity, advanced > each dialog control writes the full custom override set in milliseconds [0.10ms]
+(pass) background activity, advanced > the dialog model shows resolved seconds and switches [0.02ms]
+(pass) background activity, advanced > Advanced is offered whenever the selection is one environment, with the configure button once custom [0.39ms]
+(pass) background activity, advanced > the command writes server.updateSettings with the computed value [0.08ms]
+(pass) theme editor > a create draft seeds every family from the active theme and paints a preview [0.22ms]
+(pass) theme editor > families write their related roles with readable foregrounds [0.03ms]
+(pass) theme editor > save installs a new theme as the active pair, or replaces the edited one [0.25ms]
+(pass) device tools, refs, archive menu, look > DeviceToolVersions labels and the update action [0.14ms]
+(pass) device tools, refs, archive menu, look > base branch refs carry their tag [0.04ms]
+(pass) device tools, refs, archive menu, look > the archive context menu unarchives, or confirms a delete only while Delete confirmation is on [0.20ms]
+(pass) device tools, refs, archive menu, look > look follows chat width, diff colours, identification and themes [0.16ms]
+(pass) add a theme > JSONC and VS Code themes convert into T3 Code themes [0.43ms]
+(pass) add a theme > pasted JSON is added, made active, and announced [0.24ms]
+(pass) about: updates over the delivery facts > a binary with no update store keeps Check for Updates disabled, like a disabled desktop updater [0.14ms]
+(pass) about: updates over the delivery facts > a linked stream can check; its channel names the track; a staged entry is an install [0.18ms]
+(pass) about: updates over the delivery facts > Install asks first; cancel and a vanished entry clear the question [0.06ms]
+
+examples/macos/t3-code/pages-home.test.ts:
+(pass) project activity follows the latest user message, then updates, ignoring archived threads [0.05ms]
+(pass) the hero menu puts the open project first and leaves the Scratch project to "No project" [0.07ms]
+(pass) headline and landing follow DraftHeroHeadline and the index route [0.03ms]
+(pass) retargeting a draft carries its prompt; the new project default applies unless a model was picked [0.22ms]
+(pass) a sticky model counts as the default, not as an explicit pick [0.02ms]
+(pass) retargeting refuses started threads, vanished projects and servers without Scratch [0.07ms]
+
+examples/macos/t3-code/domain.test.ts:
+(pass) shell synchronization > accepts sequence gaps, deduplicates replay, and replaces with lower snapshots [0.07ms]
+(pass) shell synchronization > enrichment updates metadata only and accepts an explicitly resolved null identity [0.04ms]
+(pass) shell synchronization > keeps resolved identity for the same root, but never carries it to another root [0.03ms]
+(pass) shell synchronization > archived events remove active rows and unknown events advance the cursor [0.02ms]
+(pass) shell synchronization > rejects malformed known shell updates instead of clearing state [0.02ms]
+(pass) thread synchronization > streamed assistant text replaces an entity and its visible row [0.38ms]
+(pass) thread synchronization > authoritative socket fallback resets lower cursor and progressive metadata [0.04ms]
+(pass) thread synchronization > unknown events advance cursor; malformed known event payloads throw [0.08ms]
+(pass) thread synchronization > updates for another thread do not change state or its cursor [0.03ms]
+(pass) thread synchronization > all entity update families use replacement upserts [0.09ms]
+(pass) thread synchronization > provider-turn replacement retains usage omitted in later payloads [0.02ms]
+(pass) thread synchronization > background cancellation carries the structured restart list [0.02ms]
+(pass) thread synchronization > read-state updates preserve activity timestamp
+(pass) timeline visibility and bounded history > rolled-back runs hide local rows and preserve inherited rows [0.03ms]
+(pass) timeline visibility and bounded history > cancelled queued input never reappears as a transcript row [0.02ms]
+(pass) timeline visibility and bounded history > superseded steer results hide unless paired with an explicit stop request [0.05ms]
+(pass) timeline visibility and bounded history > partial snapshots reject missing old ordinals even with inherited-only windows [0.07ms]
+(pass) timeline visibility and bounded history > older-page overlap preserves live text and uses source identity [0.11ms]
+(pass) timeline visibility and bounded history > history page cannot resurrect rows hidden while the request was in flight [0.02ms]
+(pass) timeline visibility and bounded history > retained interrupt requests enter history using their latest control-state value [0.03ms]
+(pass) timeline visibility and bounded history > fully loaded histories accept missing old items again [0.03ms]
+(pass) presentation > renders common turn types and preserves JSON tool output [0.07ms]
+(pass) presentation > diff ordinal comes from the latest ready checkpoint, not row count [0.04ms]
+
+examples/macos/t3-code/settings-b-connections.test.ts:
+(pass) Update all targets connected, older, self-updatable environments only (ServerUpdatesAction eligibility) [0.15ms]
+(pass) Update all sends server.updateServer to each eligible environment and reports none eligible [0.13ms]
+
+examples/macos/t3-code/r10-connect.test.ts:
+(pass) Add environment with nothing connected > a successful pairing toasts "Backend added", as handleAddSavedBackend does beside a connection [0.08ms]
+(pass) Add environment with nothing connected > a failed pairing drops the failed origin from the transport and the client [0.10ms]
+(pass) PullRequestThreadDialog shows its lookup after a 450 ms debounce (HEAD build, measured) > an edit is looked up at once, but "Resolving pull request..." stays until the 450 ms pass [2.60ms]
+(pass) PullRequestThreadDialog shows its lookup after a 450 ms debounce (HEAD build, measured) > edits inside the wait each look up; only the last one settles [2.34ms]
+(pass) PullRequestThreadDialog shows its lookup after a 450 ms debounce (HEAD build, measured) > a pull request cached before the edit shows at once; a failed lookup’s error stays beside "Resolving" until the next one settles [4.68ms]
+(pass) PullRequestThreadDialog shows its lookup after a 450 ms debounce (HEAD build, measured) > closing during the wait leaves the dialog closed [2.36ms]
+(pass) Add Environment fills both fields from a pasted pairing URL (parsePairingUrlFields) > a link with a token splits into its origin and the token; anything else is left alone [0.34ms]
+
+examples/macos/t3-code/pages-welcome.test.ts:
+(pass) a fresh client with no saved environment gets the wizard, and keeps it until it finishes [0.04ms]
+(pass) agents read as the reference cards: Codex setup until pointed at a CLI, readiness, Claude disabled [0.15ms]
+(pass) scan candidates decode, and only busy recent repositories start selected [0.09ms]
+(pass) the wizard lists the paired computer, sets it up, scans, and finishing lands in the imported project [3.90ms]
+(pass) a client that already has an environment never sees the wizard and records setup as done [0.05ms]
+
+examples/macos/t3-code/r7-device-tools.test.ts:
+(pass) device workspace completeness (lane r7-device) > the rail: 3D by default once streaming H.264, Flat on request, the reason 3D is unavailable, the Magic Keyboard [1.07ms]
+(pass) device workspace completeness (lane r7-device) > Android: Back and Recents reach the device; Rotate is a menu of device.action orientations; input notices name the socket [0.41ms]
+(pass) device workspace completeness (lane r7-device) > the Tools drawer: settings read from the device, one device.action per control, confirmed values only [0.38ms]
+(pass) device workspace completeness (lane r7-device) > a failed action shows in the drawer while it is open, in the workspace otherwise; nothing runs while one is pending [0.15ms]
+(pass) device workspace completeness (lane r7-device) > bodies, foreground and location rules [0.04ms]
+
+examples/macos/t3-code/snapshot-adopt.test.ts:
+(pass) failed deferred persist removes only this capture; an unrelated removal is never resurrected [0.48ms]
+(pass) destination lost after a deferred successful persist compensates against the current array [0.14ms]
+(pass) reconnect during deferred persist keeps the durable association and acknowledges on the next generation [0.12ms]
+(pass) a disconnect is not a lost destination: no compensation, release or acknowledgement [0.07ms]
+(pass) no eligible project: cached empty shell dismisses without fetching, reports once, delivers once a project exists [0.10ms]
+(pass) focus is requested only for the destination that is still selected [0.05ms]
+(pass) default destination follows reference preferred project order, then source order [0.08ms]
+
+examples/macos/t3-code/r8-pointer.test.ts:
+(pass) D16: completion time is a real epoch > a window time counted from launch (exactTime unresolved) falls back to the runtime clock [0.02ms]
+(pass) D16: completion time is a real epoch > the welcome decision persists onboardingCompletedAt now, not at 1970-01-01T00:01:58Z [0.06ms]
+(pass) D14: a relaunch reconnects to the saved environment > the last origin wins, then this machine, then the first saved; switched-off ones never [0.04ms]
+(pass) D14: a relaunch reconnects to the saved environment > the first disconnected status connects once, with Keychain’s credential; the fleet leaves it alone [0.06ms]
+(pass) D14: a relaunch reconnects to the saved environment > an already connected or never-paired launch asks nothing [0.03ms]
+(pass) D14: a relaunch reconnects to the saved environment > Connections lists the paired loopback environment as a saved row under Environments (r9-connect), with its Remove (Forget) menu [0.09ms]
+(pass) D9: an answer and its attached changed files share one hover > the attached card takes the answer’s hover key; other rows keep their own [0.36ms]
+(pass) ⌘] returns to Settings after ⌘[ left it > Forward reopens the route Settings was left on, until another location is visited [0.16ms]
+
+examples/macos/t3-code/right-panel-tabs.test.ts:
+(pass) rightPanelStore > closing the active surface activates a neighboring surface [0.02ms]
+(pass) rightPanelStore > closing the final surface closes the panel [0.01ms]
+(pass) rightPanelStore > closing other surfaces keeps the selected surface active [0.02ms]
+(pass) rightPanelStore > closing surfaces to the right activates the selected surface when active was removed [0.02ms]
+(pass) rightPanelStore > closing all surfaces closes the panel
+(pass) rightPanelStore > inactive close preserves selection; close-right preserves a surviving active tab and visibility
+(pass) rightPanelStore > disabled and missing-target closes do nothing [0.04ms]
+(pass) rightPanelStore > gives each host/device its own tab and preserves renamed tabs [0.07ms]
+(pass) rightPanelStore > does not collide when two hosts expose the same device id [0.01ms]
+(pass) rightPanelStore > renames trim, fall back to device name or Device, and leave other kinds alone [0.02ms]
+(pass) rightPanelStore > restores separate device targets and titles after relaunch [0.06ms]
+(pass) tab menu and rename editor > menu order, kinds and disabled flags [0.05ms]
+(pass) tab menu and rename editor > Enter/blur commit; Escape cancels even if blur follows [0.04ms]
+(pass) tab menu and rename editor > menu ignores disabled, unknown and dismissed responses [0.09ms]
+(pass) close hooks and integration > single close can be cancelled, all bulk actions bypass guard but run cleanup [0.11ms]
+(pass) close hooks and integration > an async cleanup preserves newly opened tabs and a newer selection [0.04ms]
+(pass) close hooks and integration > activating device tabs selects each retained device target [0.06ms]
+(pass) close hooks and integration > all close paths keep diffOpen synchronized [0.06ms]
+(pass) Copy path > copies relative path and reports success [0.07ms]
+(pass) Copy path > reports clipboard failures and unavailable API [0.06ms]
+
+examples/macos/t3-code/r8-keys.test.ts:
+(pass) D1: ⌘B in the rich-text composer bolds > isRichTextBoldShortcut over chords [0.02ms]
+(pass) D1: ⌘B in the rich-text composer bolds > the sidebar toggle gives up Meta+b only while the rich-text composer has the focus [0.23ms]
+(pass) D2/D3/D12: one button per chord, ⌘D toggles the diff > composer.effort and composer.mode stay on their visible buttons [0.06ms]
+(pass) D2/D3/D12: one button per chord, ⌘D toggles the diff > diff.toggle opens the diff surface, or closes the panel showing it [0.14ms]
+(pass) D2/D3/D12: one button per chord, ⌘D toggles the diff > chat.new is the window's, not the sidebar button's (it works with the sidebar closed) [0.05ms]
+(pass) D2/D3/D12: one button per chord, ⌘D toggles the diff > a command with two chords gets a button per chord (each is a menu key equivalent) [0.05ms]
+(pass) D2/D3/D12: one button per chord, ⌘D toggles the diff > thread jumps follow the painted rows [0.06ms]
+(pass) D4: the undo notice expires > thread.undo follows the window clock the contract passes [0.08ms]
+(pass) D4: the undo notice expires > the notice carries the wall time it ends at [0.18ms]
+(pass) D6: the table Copy menu is a window-level popup > below the trigger, end-aligned, flipped above when the window has no room [0.03ms]
+(pass) D6: the table Copy menu is a window-level popup > open, toggle, close on copy, and per thread [0.26ms]
+
+examples/macos/t3-code/r4-polish.test.ts:
+(pass) relaunch persistence (the preference file the reference keeps in localStorage) > the Nightly notice dismissed by its × stays dismissed after a relaunch [0.31ms]
+(pass) relaunch persistence (the preference file the reference keeps in localStorage) > the Usage tab and period, a draft and the sidebar survive a relaunch [0.13ms]
+(pass) palette projects follow Project order (CommandPalette pickerProjects) > Projects search: the current project first, then the sidebar order for each setting [0.89ms]
+(pass) palette projects follow Project order (CommandPalette pickerProjects) > New thread in... reads the same list [0.10ms]
+(pass) palette projects follow Project order (CommandPalette pickerProjects) > a grouped repository is one entry titled by the group, targeting the current member [0.17ms]
+(pass) sidebar width (threadSidebarWidth.ts) > the initial width: 16rem, at least 13rem, leaving 40rem of main content [0.03ms]
+(pass) sidebar width (threadSidebarWidth.ts) > with no stored width the size is fixed at load; a stored width leaves the clamp to the window [0.10ms]
+(pass) sidebar width (threadSidebarWidth.ts) > only a finished drag stores the width; toggles send 0; older files count a non-default width as stored [0.11ms]
+(pass) the first-run gate waits for the saved preferences (FirstRunGate hydration) > a relaunch with setup done and no saved environment opens the app, not the wizard [0.08ms]
+(pass) the first-run gate waits for the saved preferences (FirstRunGate hydration) > a first launch still shows the wizard once the empty preferences are read [0.03ms]
+(pass) the SnapShot shortcut conflict names Send and Start New Thread as the reference does
+(pass) header shortcut labels: the newest binding that wins its chord in the default context (findEffectiveShortcutForCommand) [0.09ms]
+
+examples/macos/t3-code/composer-editor-insert.test.ts:
+(pass) insert-context > a thread becomes a kind-scoped context link labelled by its title [0.08ms]
+(pass) insert-context > files become file links, folders @mentions (quoted with spaces) [0.07ms]
+(pass) insert-context > citations insert an Assistant quote link and refuse other hrefs [0.05ms]
+(pass) local ids > are v4 UUIDs from crypto (data sources refuse Math.random) [0.09ms]
+
+examples/macos/t3-code/r7-handoff.test.ts:
+(pass) the draft launches as the thread its hand-off prepared > one id per draft, kept with the draft, used by the launch and then forgotten [0.43ms]
+(pass) the draft launches as the thread its hand-off prepared > a draft without a hand-off launches under a fresh id [0.17ms]
+(pass) the draft launches as the thread its hand-off prepared > the prepare input carries the thread id only when there is one; a bad saved id is dropped [0.03ms]
+(pass) the strip's pull request badge > a hand-off draft on the pull request's checkout shows its number in the state's tone [0.30ms]
+(pass) the strip's pull request badge > no badge when the status is about another branch, or reports no pull request [0.12ms]
+(pass) the strip's pull request badge > a thread's links win over the branch: one link, unrelated links as +N, a stack of N [0.38ms]
+
+examples/macos/t3-code/r9-connect.test.ts:
+(pass) a failed pairing saves nothing > a failed focus that was never saved is not an Environments row [0.10ms]
+(pass) a failed pairing saves nothing > with nothing connected, the wrong code leaves no connection behind [0.10ms]
+(pass) a failed pairing saves nothing > a saved environment that was focused before the attempt is reconnected with its own credential [0.06ms]
+(pass) a failed pairing saves nothing > beside a connected focus the pairing never touches the focus [0.03ms]
+(pass) a stored 1970 onboarding time is repaired > values before the app existed read as unset; real ones are kept [0.01ms]
+(pass) a stored 1970 onboarding time is repaired > the welcome decision then stores the real time [0.04ms]
+(pass) the branch picker offers "Checkout pull request" on a local draft > a search that parses as a reference leads with the item; a thread or a plain ref name gets none [0.07ms]
+(pass) PullRequestThreadDialog > opening resolves the reference and shows the pull request [0.09ms]
+(pass) PullRequestThreadDialog > edits validate like the reference and failed lookups show the server message [0.12ms]
+(pass) PullRequestThreadDialog > Worktree passes the draft’s thread id and moves the draft onto the checkout, then closes [0.15ms]
+(pass) PullRequestThreadDialog > Local passes no thread id; a failure stays in the dialog [0.09ms]
+(pass) PullRequestThreadDialog > an unresolved reference never prepares; Escape is ignored while preparing [0.05ms]
+
+examples/macos/t3-code/diff.test.ts:
+(pass) diff panel > parses statuses, numbered hunks and hidden ranges from git patches [0.08ms]
+(pass) diff panel > word marks highlight only the changed middle of a replaced line [0.08ms]
+(pass) diff panel > the header toggle opens Changes (the branch); checkpoints open their own turn diff [2.15ms]
+(pass) diff panel > scope menu, whitespace, layout, wrap, tree and collapse are real and stateful [2.25ms]
+(pass) diff panel > the hidden range before a later hunk is labeled, and turns sort newest first [0.91ms]
+
+examples/macos/t3-code/settings-a-hosts.test.ts:
+(pass) device hosts > a draft parses as SshDeviceHostConfig [0.08ms]
+(pass) device hosts > updateDeviceHosts edits by id, then by destination, and removes [0.09ms]
+(pass) device hosts > rows show availability, progress, failures and the retry; the editor opens, checks and saves [0.70ms]
+
+examples/macos/t3-code/pages-usage.test.ts:
+(pass) usage figures format as usageFormat.ts does [0.04ms]
+(pass) windows are calendar days ending today, or an exact rolling 24 hours [0.06ms]
+(pass) merging sums owned buckets, counts sessions per source and keeps unpriced models unknown [0.09ms]
+(pass) a transcript directory two environments share counts once; incompatible servers are reported [0.05ms]
+(pass) the chart rounds its scale up and draws monotone curves in plot pixels [0.10ms]
+(pass) the plot spans the chart column at both reference widths [0.01ms]
+(pass) the page presents the summary, provider rows, totals and both breakdowns [0.30ms]
+(pass) limits list providers reporting windows, with pace and reset [0.11ms]
+(pass) usage shortcuts resolve with usagePageOpen and the last binding wins [0.07ms]
+(pass) the metric and period are remembered in the preference record; Limits and 30 days on a first visit [0.05ms]
+
+examples/macos/t3-code/r3-palette-items.test.ts:
+(pass) New thread in... > the current project first, then by activity; no thread-jump hints [0.12ms]
+(pass) New thread in... > the Scratch project is the trailing "No project" when the server offers one [0.06ms]
+(pass) pullRequest.copyNumber > only while a pull request detail panel shows a number [0.11ms]
+(pass) pullRequest.copyNumber > the resource passes the number as its fourteenth argument [0.04ms]
+
+examples/macos/t3-code/r4-surfaces.test.ts:
+(pass) rightPanelStore rules > closing the active tab activates its neighbour; the last tab closes the panel [0.03ms]
+(pass) rightPanelStore rules > openFile replaces the standalone explorer, keeps one tab per path and bumps its reveal [0.09ms]
+(pass) rightPanelStore rules > chat links open workspace-relative paths at their line [0.04ms]
+(pass) rightPanelStore rules > the Diff tab follows the client diff panel, which other controls open and close [0.01ms]
+(pass) rightPanelStore rules > the launcher enables Files with a project, Device from a thread and Linked pull requests with links [0.07ms]
+(pass) Files surface > folders first, then names without case [0.04ms]
+(pass) Files surface > rows follow expansion, flatten single-folder chains and carry level guides [0.10ms]
+(pass) Files surface > search shows the matches under their open folders [0.09ms]
+(pass) Files surface > breadcrumbs, numbered lines and syntax runs [0.23ms]
+(pass) Files surface > opening a file lists its folders, reads it and reveals it; the panel shows it as a tab [0.94ms]
+(pass) Files surface > edits are written with projects.writeFile, newest contents last, and the tab is pending until confirmed [0.15ms]
+(pass) Files surface > Markdown renders as transcript blocks; CSV keeps quoted cells [0.07ms]
+(pass) Linked pull requests > stacks chain by base branch and list newest first, bottom layer first [0.04ms]
+(pass) Linked pull requests > rows carry watch state, waiting links and the footer; watch and unlink are orchestration commands [0.39ms]
+(pass) Device setup > platform status and hub labels match DeviceSetup [0.06ms]
+(pass) Device setup > Device opens the wizard until onboarding is complete; the stream decides readiness [0.25ms]
+
+examples/macos/t3-code/composer-controls.test.ts:
+(pass) sticky model and next-turn selection > a new draft opens on the last picked model and its remembered traits, ahead of the default [3.10ms]
+(pass) sticky model and next-turn selection > sticky memory survives a reload and ignores an unavailable provider [0.03ms]
+(pass) sticky model and next-turn selection > traits and runtime stay enabled during a run: changes stage for the next message [1.00ms]
+(pass) sticky model and next-turn selection > boolean traits are offered and applied [0.08ms]
+(pass) sticky model and next-turn selection > a started thread locks the picker to its driver; drafts are unrestricted [0.66ms]
+(pass) follow-up dispatch > the configured behavior and its alternate pick queue or steer [0.04ms]
+(pass) follow-up dispatch > a message sent during a run queues by default, steers with ⌘ or the Steer setting [1.00ms]
+(pass) follow-up dispatch > ⌥⌘↩ in a draft starts the thread in the background and keeps a fresh draft [0.20ms]
+(pass) follow-up dispatch > Resume continues an interrupted run, then releases a held queue [0.40ms]
+(pass) plan follow-up > Implement sends the plan in default mode; Refine sends the draft in plan mode [1.01ms]
+(pass) plan follow-up > Implement in a new thread launches a default-mode thread titled after the plan [0.26ms]
+(pass) docked banners, activity and the provider control > snoozed and woke notices, with Wake now and dismissal [2.29ms]
+(pass) docked banners, activity and the provider control > several notices: the first stays attached, the rest wait behind the peek; activity leads when present [0.81ms]
+(pass) docked banners, activity and the provider control > the provider control replaces the picker when nothing is available [0.76ms]
+(pass) docked banners, activity and the provider control > trailing labels compact before the model name [0.04ms]
+(pass) queued messages control > lists the user queue in order with steer, edit and remove [0.63ms]
+(pass) queued messages control > editing loads the composer, saves with queued-run.edit and restores the draft; cancel restores too [0.71ms]
+(pass) workspace and branch strip > a draft shows Current checkout and the branch; switching checks the ref out on the server [0.35ms]
+(pass) workspace and branch strip > New worktree launches from its base ref; a started thread hides the strip unless it persists [0.26ms]
+(pass) usage limits > "/usage-limits" opens a local notice from the provider snapshot; a new turn or dismissal closes it [1.20ms]
+(pass) usage limits > a limit-stopped run offers Resume at reset and Snooze until reset [0.77ms]
+(pass) older resource arguments cannot rewind the shared client clock [0.02ms]
+
+examples/macos/t3-code/r12-render.test.ts:
+(pass) the shared highlighter against Shiki 4.2 (r12-render) > type-alias right-hand sides and | in types [3.69ms]
+(pass) the shared highlighter against Shiki 4.2 (r12-render) > an initializer ending at a line-final operator [0.32ms]
+(pass) the shared highlighter against Shiki 4.2 (r12-render) > decorators paint in their own blue [1.61ms]
+(pass) the shared highlighter against Shiki 4.2 (r12-render) > JSX in a .tsx file [1.97ms]
+(pass) the shared highlighter against Shiki 4.2 (r12-render) > a Python decorator, f-string and keyword arguments [2.40ms]
+(pass) the shared highlighter against Shiki 4.2 (r12-render) > shell: an if with a quoted command word (a lookbehind Hermes needs rewritten) [3.29ms]
+(pass) the shared highlighter against Shiki 4.2 (r12-render) > JSON keys and values [0.11ms]
+(pass) the shared highlighter against Shiki 4.2 (r12-render) > fence names and file paths pick the grammar @pierre/diffs and Shiki pick [0.04ms]
+(pass) the shared highlighter against Shiki 4.2 (r12-render) > every surface reaches it: chat fences, the diff panel, the Files panel [0.48ms]
+(pass) the shared highlighter against Shiki 4.2 (r12-render) > a code line is keyed by its runs, so another file's line remounts [0.13ms]
+(pass) the shared highlighter against Shiki 4.2 (r12-render) > a streaming block resumes from its last unchanged line and agrees with a fresh run [6.05ms]
+(pass) the shared highlighter against Shiki 4.2 (r12-render) > text over the budget keeps the heuristic tokenizer [5.21ms]
+
+examples/macos/t3-code/palette.test.ts:
+(pass) command palette root > actions follow the reference order with shortcut labels, then recent threads [0.46ms]
+(pass) command palette root > rows carry their painted geometry for keyboard scrolling [0.16ms]
+(pass) command palette root > a query searches actions, projects, settings and threads with message matches [3.81ms]
+(pass) command palette root > submenus: New thread in..., Change theme and Change appearance [0.27ms]
+(pass) command palette root > ranking keeps exact and prefix matches first and secondary items last [0.05ms]
+(pass) command palette root > labels [0.06ms]
+(pass) add project > path helpers mirror client-runtime projects.ts [0.17ms]
+(pass) add project > sources: new project, local folder, Git URL, then ready providers before Setup Required [0.54ms]
+(pass) add project > browsing lists directories and submits the resolved path [0.23ms]
+(pass) add project > the Git URL step continues to a destination [0.08ms]
+(pass) add project > the New project step previews the folder and offers GitHub only when ready [0.07ms]
+(pass) add project > adding a path creates the project and opens a new thread in it [0.23ms]
+(pass) add project > an existing project opens its latest thread [0.04ms]
+(pass) add project > failures toast with the reference titles [0.25ms]
+(pass) add project > restart agent session detaches provider sessions and refreshes providers [0.15ms]
+(pass) file picker and content search > fuzzy highlights per matched letter [0.10ms]
+(pass) file picker and content search > the picker searches the active workspace [0.14ms]
+(pass) file picker and content search > content results group by file with line numbers and marks [0.52ms]
+(pass) file picker and content search > the resource routes modes and closes [0.07ms]
+(pass) keyboard dispatch > palette, settings and thread commands [0.10ms]
+(pass) keyboard dispatch > back and forward walk the visited threads [0.07ms]
+(pass) keyboard dispatch > the favourite editor follows the reference EDITORS order
+
+examples/macos/t3-code/timeline-diff-syntax.test.ts:
+(pass) changes panel syntax > each side of a hunk is coloured as the reference colours fold.ts [0.20ms]
+(pass) changes panel syntax > word marks split at token boundaries and keep both properties [0.06ms]
+(pass) changes panel syntax > a parsed TypeScript patch keeps its hunks intact for the overlay [0.02ms]
+
+examples/macos/t3-code/r3-composer-controls-model.test.ts:
+(pass) subagent model names (4f7760e6a0) > a reported dated id or alias resolves to the catalog entry and its trigger name [0.15ms]
+(pass) subagent model names (4f7760e6a0) > the bar shows the resolved short name [0.30ms]
+(pass) provider-reported option labels (63f74e209d) > the report belongs to the active provider thread of the selected instance [0.03ms]
+(pass) provider-reported option labels (63f74e209d) > an unset OpenCode variant reads Unknown until the provider reports it [0.10ms]
+(pass) provider-reported option labels (63f74e209d) > the menu checks the reported radio and the subagent effort reads it too [0.04ms]
+(pass) provider-reported option labels (63f74e209d) > the composer trait label follows the open thread's report [0.80ms]
+(pass) background work (151c241cd2, a5b34b2537) > subagent descriptions read as display names [0.05ms]
+(pass) background work (151c241cd2, a5b34b2537) > a subagent with its own thread is an inline link in the roster [0.04ms]
+(pass) background work (151c241cd2, a5b34b2537) > only commands left (a dev server) run rather than wait, and do not pulse [0.02ms]
+(pass) background work (151c241cd2, a5b34b2537) > the banner dot is static for commands and pulses otherwise [0.55ms]
+(pass) latest executed run (5108c978b1) > the run that ended last wins over a higher ordinal; an unfinished run is the latest [0.04ms]
+(pass) composer tooltips > the model tooltip carries the picker shortcut as glyphs [0.83ms]
+
+examples/macos/t3-code/r10-device.test.ts:
+(pass) Files: rendered HTML (FilePreviewPanel renderBrowserFile) > an .html file opens rendered from a signed workspace-file URL, with the eye toggle [0.51ms]
+(pass) Files: rendered HTML (FilePreviewPanel renderBrowserFile) > the preference persists and defaults to rendered; Markdown and tables keep their own [0.01ms]
+(pass) Files: rendered HTML (FilePreviewPanel renderBrowserFile) > a draft names its workspace (draft-workspace-file); a refused mint shows the reference text [0.10ms]
+(pass) Files: rendered HTML (FilePreviewPanel renderBrowserFile) > helpers [0.04ms]
+(pass) Files breadcrumbs: a mounting preview settles at the end (relaunch), a pick in an open one short > restored file at mount: end; a file picked afterwards for the first time: 36pt short; hidden then shown: end [0.34ms]
+(pass) A restored reveal whose view answer was abandoned asks again > a folder listing that never answered is asked again after two seconds; the tree stops loading [11.25ms]
+(pass) Duo and fold tooltips (DeviceDuoControls / DeviceAndroidFoldControls TooltipPopup) > each stand names its pose; Book adds "/ bookshelf"; Fold / Unfold device [0.05ms]
+(pass) HTML scripts: regular expression literals and ternaries as Shiki colours them > a literal and its parts; division is not a literal [2.52ms]
+(pass) HTML scripts: regular expression literals and ternaries as Shiki colours them > groups, classes, anchors, escapes and backreferences [0.40ms]
+(pass) HTML scripts: regular expression literals and ternaries as Shiki colours them > a closing tag inside a literal stays in it; a JSX-looking group does not start JSX [0.26ms]
+(pass) HTML scripts: regular expression literals and ternaries as Shiki colours them > a ternary's colon is a keyword, also around a literal; an object key's is punctuation [0.88ms]
+(pass) Right panels persist across launches (rightPanelStore byThreadKey) > files, file tabs and the pull requests list are kept (lane r11-device keeps the rest: r11-device.test.ts) [0.21ms]
+
+examples/macos/t3-code/r11-misc-ts-decl.test.ts:
+(pass) tsLike against Shiki (every surface that tokenizes JavaScript: chat code, Files, diffs, HTML scripts) > declaration lists: the second const name is a constant, let names variables [1.84ms]
+(pass) tsLike against Shiki (every surface that tokenizes JavaScript: chat code, Files, diffs, HTML scripts) > a list's declarators after calls, arrays and an arrow function [0.14ms]
+(pass) tsLike against Shiki (every surface that tokenizes JavaScript: chat code, Files, diffs, HTML scripts) > annotated, object-valued and for-of const names [0.18ms]
+(pass) tsLike against Shiki (every surface that tokenizes JavaScript: chat code, Files, diffs, HTML scripts) > a list continued after a trailing comma; destructured bindings [0.46ms]
+(pass) tsLike against Shiki (every surface that tokenizes JavaScript: chat code, Files, diffs, HTML scripts) > object keys and case labels are not type annotations [0.27ms]
+(pass) tsLike against Shiki (every surface that tokenizes JavaScript: chat code, Files, diffs, HTML scripts) > import lines: * and type [0.42ms]
+(pass) tsLike against Shiki (every surface that tokenizes JavaScript: chat code, Files, diffs, HTML scripts) > type literals keep typed keys; a member named if is a call [0.23ms]
+(pass) tsLike against Shiki (every surface that tokenizes JavaScript: chat code, Files, diffs, HTML scripts) > HTML: an if statement keeps the script open past its block (runaway script) [0.32ms]
+(pass) tsLike against Shiki (every surface that tokenizes JavaScript: chat code, Files, diffs, HTML scripts) > HTML: an object literal's value position: < is an operator [0.15ms]
+(pass) tsLike against Shiki (every surface that tokenizes JavaScript: chat code, Files, diffs, HTML scripts) > HTML: an import declaration runs to its line's end over the closing tag [0.08ms]
+(pass) tsLike against Shiki (every surface that tokenizes JavaScript: chat code, Files, diffs, HTML scripts) > HTML: a line comment inside a declaration runs over the closing tag [0.08ms]
+(pass) tsLike against Shiki (every surface that tokenizes JavaScript: chat code, Files, diffs, HTML scripts) > HTML: if (a){ with no space is no if-statement rule: the script closes [0.07ms]
+(pass) the if-statement rule and import lines [0.10ms]
+
+examples/macos/t3-code/r11-misc-connections.test.ts:
+(pass) the primary (this Mac) leads and counts while switched off; other switched-off machines do not [0.07ms]
+(pass) A switched off and B added: Load balancing and GitHub sharing show A (This machine) and B, as the reference [0.19ms]
+
+examples/macos/t3-code/r12-sidebar.test.ts:
+(pass) a row-action sweep cancelled with Escape (SidebarPointerSensor keydown) > the cancelled release applies nothing, not even the pressed button, and ends the sweep [0.25ms]
+(pass) keyboard context menus on sidebar rows (refkbd.mjs on the f870c41 reference) > ContextMenu opens a thread row menu at its centre and a draft row menu at its bottom left; other keys do nothing [0.05ms]
+(pass) keyboard context menus on sidebar rows (refkbd.mjs on the f870c41 reference) > a keyed thread menu asks the native menu for the focused row anchor; a right click does not [0.60ms]
+(pass) keyboard context menus on sidebar rows (refkbd.mjs on the f870c41 reference) > a draft row: ContextMenu and the Shift+F10 shortcut anchor at the row; the right click at the pointer [0.10ms]
+(pass) keyboard context menus on sidebar rows (refkbd.mjs on the f870c41 reference) > the anchor never outlives its menu, even when the op throws [0.05ms]
+(pass) Environments without a switched-off primary (ConnectionsSettings savedEnvironments) > A switched off with B on: only B is listed, while Load balancing still counts A as This machine [0.07ms]
+(pass) Environments without a switched-off primary (ConnectionsSettings savedEnvironments) > the primary stays listed while it is on, or while nothing else is on (so it can be switched back on) [0.02ms]
+(pass) the sidebar minimum width follows the brand at the Interface font size > max(13rem, ceil(brand probe)): the macOS probe is 90 + 2.5rem + mark + 0.75rem + 1 [0.01ms]
+(pass) the sidebar minimum width follows the brand at the Interface font size > a width clamps to [minimum, max(minimum, viewport - 40rem)]
+(pass) the sidebar minimum width follows the brand at the Interface font size > the launch width (no stored width) is clamped to the live minimum [0.02ms]
+
+examples/macos/t3-code/composer-editor-drawer.test.ts:
+(pass) ComposerCommandMenuLayer placement > the layer sits card-wide on the chat column, its bottom edge on the card top [0.07ms]
+(pass) ComposerCommandMenuLayer placement > a short window caps the list at the room above the card (at least 96pt for the layer)
+(pass) ComposerCommandMenuLayer placement > until both frames are measured the drawer stays in the flow [0.01ms]
+(pass) ComposerCommandMenuLayer placement > resting keeps the stack height the composer had expanded, per thread [0.03ms]
+
+examples/macos/t3-code/composer-editor.test.ts:
+(pass) slash command menu > lists /model then the provider commands, as the served build does [0.11ms]
+(pass) slash command menu > plan mode adds /plan and /default; compact needs an idle conversation [0.01ms]
+(pass) slash command menu > provider commands only open the prompt
+(pass) slash command menu > ranks exact > prefix > boundary > includes > fuzzy, descriptions lower [0.18ms]
+(pass) slash command menu > scoreQueryMatch tiers [0.02ms]
+(pass) slash command menu > skills join the menu with a /skill: prefix and a source badge [0.10ms]
+(pass) slash command menu > provider commands insert /name and a space [0.01ms]
+(pass) $ skill menu > rows carry the skill badge with a Skill suffix and skip disabled skills [0.12ms]
+(pass) $ skill menu > empty states [0.04ms]
+(pass) @ mention menu > threads lead (query required), then entries with basename and directory [0.10ms]
+(pass) @ mention menu > file links escape labels and encode destinations
+(pass) context references > thread ids are kind-scoped and links canonical [0.06ms]
+(pass) context references > a send carries the thread records its chips reference [0.06ms]
+(pass) prompt length and history > the 120,000-character limit message [0.11ms]
+(pass) prompt length and history > citations count expanded [0.07ms]
+(pass) prompt length and history > history strips context chips and app sends, collapsing consecutive duplicates [0.08ms]
+(pass) # pull request menu > rows filter by project and repository, the exact number first [0.14ms]
+(pass) # pull request menu > numbers match anywhere in the number, newest first after the exact one; text ranks by score [0.09ms]
+(pass) # pull request menu > a picked pull request becomes a review-comment record with PR metadata [0.05ms]
+
+examples/macos/t3-code/pages-usage-r3.test.ts:
+(pass) the merge splits cost by token type and speed, clamping the unsplit and standard remainders [0.11ms]
+(pass) share bars leave out empty segments, round below a cent away and caption each segment [0.12ms]
+(pass) the model table ranks rows, scales the bar to the peak and leaves an unpriced share blank [0.13ms]
+(pass) the model dialog shows cost, tokens, the per-million rate and cache hits, and trends tokens when unpriced [0.20ms]
+(pass) price rows: mapping drops the own price, a self mapping is refused, clearing a mapping returns to automatic [0.29ms]
+(pass) the dialog keeps typed text: seeds hold while an input is on screen, and Set price opens a prefilled row [0.77ms]
+(pass) menus that size to their content measure their rows as the reference lays them out [0.06ms]
+(pass) Set price closes the model dialog and opens Model prices with a row for that model [0.15ms]
+
+examples/macos/t3-code/r3-sidebar.test.ts:
+(pass) f68e24fb41: commands left running do not hold the thread > a commands-only roster reads ready and shows the unseen completion; subagents, monitors and unknown work still wait [0.11ms]
+(pass) f68e24fb41: commands left running do not hold the thread > the completion notification and the sidebar agree on a commands-only thread [0.06ms]
+(pass) c5a929e1ac: Woke dismiss syncs through thread.visit > a visited-tracking server gets thread.visit at the wake time; nothing is written locally [0.12ms]
+(pass) c5a929e1ac: Woke dismiss syncs through thread.visit > an older server keeps the local watermark, which clears the pill [0.04ms]
+(pass) c5a929e1ac: Woke dismiss syncs through thread.visit > a failed visit is not reported (reportFailure: false) [0.04ms]
+(pass) c5a929e1ac: Woke dismiss syncs through thread.visit > the server watermark clears Woke on every device once the visit lands [0.39ms]
+(pass) c5a929e1ac: the sidebar project picker follows Project order > Last user message (default), Created at and Manual [0.04ms]
+(pass) c5a929e1ac: the sidebar project picker follows Project order > ties fall back to the title, then the key [0.02ms]
+(pass) integration: hover keys, utility pages and the settled tail > a row hover key carries its shelf, so a moved row is not hovered; search results key by id [0.21ms]
+(pass) integration: hover keys, utility pages and the settled tail > the open settled row keeps secondary/70 ink at rest; idle styling paints the open row as any other [0.20ms]
+(pass) integration: project glyphs on sidebar rows (ProjectFavicon) > overrides win: monogram letters and color, emoji, Lucide icon; else the automatic monogram [0.05ms]
+(pass) integration: project glyphs on sidebar rows (ProjectFavicon) > the favicon answer: a signed URL against the origin, or nothing for the fallback marker [0.01ms]
+(pass) integration: project glyphs on sidebar rows (ProjectFavicon) > a refresh awaits one ask per project without an override; the rows draw the image [0.20ms]
+(pass) integration: row control tooltips (TooltipPopup side top, drawn by the window overlay) > a live card offers Snooze and Settle at the right edge; a draft adds Discard and Unsent draft [0.07ms]
+(pass) integration: row control tooltips (TooltipPopup side top, drawn by the window overlay) > slim rows: Un-settle on the settled tail, Woke and Unpin; snoozed rows offer no Wake tooltip [0.04ms]
+(pass) integration: row control tooltips (TooltipPopup side top, drawn by the window overlay) > the projection carries each row its tips; search results carry none [0.19ms]
+(pass) custom snooze Duration: the NumberField stepper (CustomSnoozeDialog.tsx) > Decrease and Increase move the amount by one and never below zero; they clear the error [0.09ms]
+
+examples/macos/t3-code/settings-a.test.ts:
+
+examples/macos/t3-code/providers.test.ts:
+(pass) rows follow T3 order: default slots, custom instances, visible cursor only with a live default [0.92ms]
+(pass) summary, advisory and checked labels mirror providerStatus.ts [0.04ms]
+(pass) wizard derives a free instance id from the label and reserves dirty legacy slots [0.26ms]
+(pass) add creates exactly one instance with config and accent; duplicates and bad ids write nothing [1.17ms]
+(pass) ACP registry search and prepare fill the identity step without installing during search [0.21ms]
+(pass) editor writes change only the selected instance and skip no-op commits [0.28ms]
+(pass) default-slot upsert resets the legacy mirror; reset removes the explicit slot [0.10ms]
+(pass) environment variables stay local until valid, keep redacted secrets and publish once [0.41ms]
+(pass) custom models add, rename and remove with T3 validation [0.18ms]
+(pass) enable, delete, refresh and the health interval use the documented server writes [0.21ms]
+(pass) read-only and disconnected sessions expose no provider writes [0.04ms]
+(pass) usage hubs add with a host-derived id and remove only that entry [0.38ms]
+(pass) a ChatGPT account becomes one managed Codex instance with a free id [0.09ms]
+
+examples/macos/t3-code/timeline-highlight.test.ts:
+(pass) syntax highlighting against the reference Shiki output > ts paints every character as the reference does [0.76ms]
+(pass) syntax highlighting against the reference Shiki output > json paints every character as the reference does [0.12ms]
+(pass) syntax highlighting against the reference Shiki output > bash paints every character as the reference does [0.14ms]
+(pass) syntax highlighting against the reference Shiki output > python paints every character as the reference does [0.24ms]
+(pass) syntax highlighting against the reference Shiki output > languages come from fences and file names [0.02ms]
+(pass) syntax highlighting against the reference Shiki output > code blocks carry their exact text for the renderer to match [0.10ms]
+(pass) syntax highlighting against the reference Shiki output > fence languages draw their Pierre icon only when it is specific [0.03ms]
+
+examples/macos/t3-code/composer-editor-intent.test.ts:
+(pass) composerSubmissionIntentForKey (5c0429b, 263097a) > ⌘↩ in a new-thread draft starts it in the background again [0.04ms]
+(pass) composerSubmissionIntentForKey (5c0429b, 263097a) > ⌥⌘↩ starts a draft in the background
+(pass) composerSubmissionIntentForKey (5c0429b, 263097a) > ⌥⌘↩ on an existing thread sends and opens a new thread, running or not
+(pass) composerSubmissionIntentForKey (5c0429b, 263097a) > ⌘↩ while a turn runs is the follow-up alternate; idle it is a plain send [0.01ms]
+(pass) composerSubmissionIntentForKey (5c0429b, 263097a) > Return, a stale gesture and ⇧⌘↩ are plain sends [0.01ms]
+(pass) composerSubmissionIntentForKey (5c0429b, 263097a) > a pointer press only takes the alternate [0.02ms]
+(pass) composerSubmissionIntentForKey (5c0429b, 263097a) > rebinding follows the server: a user rule added last wins [0.03ms]
+(pass) composerSubmissionIntentForKey (5c0429b, 263097a) > an unknown context blocks its chord instead of exposing an older rule [0.01ms]
+(pass) composerSubmissionIntentForKey (5c0429b, 263097a) > a server with no keybindings falls back to the HEAD defaults
+(pass) send button chords > gesture modifiers become aria-keyshortcuts chords
+(pass) send button chords > the existing thread takes ⌥⌘↩; a draft takes ⌘↩ and ⌥⌘↩ [0.02ms]
+
+examples/macos/t3-code/composer-controls-attach.test.ts:
+(pass) attach files > offered when the server stages uploads; picked images join the shelf; other files become file chips [1.52ms]
+
+examples/macos/t3-code/r3-shell-diff.test.ts:
+(pass) Changes is the default diff scope > a generic open selects Changes, even after Uncommitted was chosen; labels and loading text [0.64ms]
+
+examples/macos/t3-code/composer-editor-files.test.ts:
+(pass) large paste folding (textPaste.ts, foldPastedText) > file names count up per draft [0.03ms]
+(pass) large paste folding (textPaste.ts, foldPastedText) > sizes read like formatAttachmentSize
+(pass) large paste folding (textPaste.ts, foldPastedText) > the staging limit follows the server capabilities, clamped to 50 MB [0.01ms]
+(pass) large paste folding (textPaste.ts, foldPastedText) > a staged paste becomes a file chip the send binds to its upload [0.14ms]
+(pass) large paste folding (textPaste.ts, foldPastedText) > only uploaded files persist, and empty drafts release theirs [0.06ms]
+(pass) large paste folding (textPaste.ts, foldPastedText) > base64 of UTF-8 matches the platform encoder [0.53ms]
+(pass) fold, chip and send > a held paste stages once, chips where it went, and uploads with the send [0.78ms]
+(pass) fold, chip and send > a staged file whose bytes were lost cannot send and draws unresolved [0.06ms]
+
+examples/macos/t3-code/timeline-errors.test.ts:
+(pass) thread error banner variants > a failed latest run stopped by its usage limit leaves the banner to the composer [0.04ms]
+(pass) thread error banner variants > another usage-limit server error is a warning; other classes and local errors stay errors [0.02ms]
+
+examples/macos/t3-code/connections.test.ts:
+(pass) status copy follows savedBackendStatus and connectionStatusText [0.05ms]
+(pass) version skew follows versionSkew.ts: only an older server needs an update [0.06ms]
+(pass) every paired environment, a loopback one included, is a saved row under Environments in catalog order [0.17ms]
+(pass) failure tone, trace ID and unsupported clients follow the row rules [0.09ms]
+(pass) load balancing and GitHub sharing preferences decode and summarize like the reference [0.14ms]
+(pass) adding pairs beside the focused connection, connects when there is none, and toasts [0.31ms]
+(pass) the switch persists per environment and moves focus home when the focused one goes off [0.16ms]
+(pass) trace IDs copy, preferences persist on this device, and icon writes need a connection [0.15ms]
+
+examples/macos/t3-code/r12-threads.test.ts:
+(pass) No project drafts switch machine (c47f4263f9, 845ddd9354) > every connected machine with a "No project" folder is a choice; one not created yet has no project [0.17ms]
+(pass) No project drafts switch machine (c47f4263f9, 845ddd9354) > picking a machine without the folder creates it there, waits for it, then moves the draft [0.24ms]
+(pass) No project drafts switch machine (c47f4263f9, 845ddd9354) > a folder that never reaches this device: "Could not switch machine", the draft stays [0.15ms]
+(pass) No project drafts switch machine (c47f4263f9, 845ddd9354) > openScratch waits up to 10 s: rereads every half second, then fails [0.07ms]
+(pass) the worktree setup card leaves a settled thread (resolveVisibleWorktreeSetup turnStarted) > a completed run (a retried preparation included) counts as started: the clean "Worktree ready" card hides [0.04ms]
+(pass) the worktree setup card leaves a settled thread (resolveVisibleWorktreeSetup turnStarted) > before the turn is live the card stays; a held queued run is never the activity run [0.02ms]
+(pass) a thread's device session floats (ChatView autoShowFloatingPreview) > the thread open before the first device state floats its session; a later visit takes a baseline [0.10ms]
+(pass) a thread's device session floats (ChatView autoShowFloatingPreview) > a new session floats, a closed one takes the player with it, a sheet layout floats nothing [0.03ms]
+(pass) a thread's device session floats (ChatView autoShowFloatingPreview) > the player hides while the panel shows the same device (shouldRenderPreviewMiniPlayer) [0.05ms]
+(pass) a thread's device session floats (ChatView autoShowFloatingPreview) > a new player is at least 240 wide at the source aspect, its bottom 12 above the composer (chatCanvasLayout) [0.02ms]
+(pass) the panel tab strip scrolls when its tabs overflow (RightPanelTabs ScrollArea) > overflow, the furthest offset and the active tab come from the anchors [0.03ms]
+(pass) the panel tab strip scrolls when its tabs overflow (RightPanelTabs ScrollArea) > an active change on the same panel counts; a launch or another panel does not [0.01ms]
+
+examples/macos/t3-code/chat.test.ts:
+(pass) timeline rows > the first row carries the 16pt lead and an answer owns its own actions [0.25ms]
+(pass) timeline rows > changed files attach to the answer of the same run and carry its actions below them [0.17ms]
+(pass) timeline rows > a checkpoint from another run, another thread or without files stays standalone [0.27ms]
+(pass) timeline rows > timestamps follow the selected 12/24-hour format and say yesterday across midnight [0.06ms]
+(pass) sidebar row actions > settle and un-settle dispatch the row thread, not the selected thread [0.15ms]
+(pass) sidebar row actions > missing threads, unsupported servers and unknown actions are refused before dispatch [0.05ms]
+(pass) sidebar search excerpts > a server match labels the speaker and marks every case-folded hit, title matches included [0.07ms]
+(pass) sidebar search excerpts > without a server match, or with an empty query, there is no excerpt [0.02ms]
+(pass) snooze > presets follow the shared rules: evening only with an hour left, next week unless it is tomorrow [0.15ms]
+(pass) snooze > snooze and wake dispatch for the row thread and validate the wake time [0.06ms]
+(pass) every TypeScript source app.ts answers is registered with the mixed Rust/TypeScript owner [0.37ms]
+(pass) message search keeps only the current query and marks the server snippet [0.15ms]
+
+examples/macos/t3-code/composer-workspace-snapshots.test.ts:
+(pass) workspace provider discovery > uses partial workspace skills and commands while keeping discovery retryable [0.03ms]
+(pass) workspace provider discovery > asks the root to retry incomplete responses and stops after completion [0.16ms]
+(pass) workspace provider discovery > retries failures and keeps delimiter-containing keys distinct [0.05ms]
+(pass) workspace provider discovery > coalesces overlapping mutations and never dispatches an obsolete selection [0.05ms]
+(pass) workspace provider discovery > late completion cannot suppress discovery after a snapshot reset [0.04ms]
+(pass) workspace provider discovery > a config snapshot arriving during a request wins over a partial response [0.03ms]
+
+examples/macos/t3-code/pages-r3.test.ts:
+(pass) a pairing that never connected is not listed as a computer that is still connecting [0.12ms]
+(pass) copying the pairing command flips the button to Check without a toast [0.06ms]
+(pass) a pull request link that names an issue reads as not found; other failures keep the default title [0.34ms]
+
+examples/macos/t3-code/settings-b-accent.test.ts:
+(pass) the accent picker starts from the saved color and its HSV formula round-trips hex [0.07ms]
+
+examples/macos/t3-code/r4-timeline-chips.test.ts:
+(pass) sent-message context chips > a file record bound to its attachment shows name, size and the two-line tooltip; its file row is left out [0.23ms]
+(pass) sent-message context chips > a reference without its record, or whose attachment is gone, reads "This context is no longer available." [0.03ms]
+(pass) sent-message context chips > skill, mention, thread and image records resolve to their own presentation [0.04ms]
+(pass) sent-message context chips > a video file chip leads with the film glyph; popover kinds carry their details [0.03ms]
+(pass) sent-message context chips > workspace file links carry their full path; web links and images are not chips [0.07ms]
+(pass) sent-message context chips > an assistant quote reads its quote cut at 64 characters and "View source" opens the cited thread [0.04ms]
+(pass) sent-message context chips > formatAttachmentSize, middle truncation and path resolution follow the reference helpers [0.02ms]
+(pass) Markdown settings > code size clamps to 10–18, word wrap and the monospace family come from Settings → Appearance [0.03ms]
+(pass) Markdown settings > diff colors default to red-green
+(pass) subagent divider (TimelineSystemDivider) > "Subagent of" and the parent title are separate parts, the bot glyph leads and the pill opens the parent [0.05ms]
+(pass) image chip accent (averageImageColor) > the fill, border and ink follow color-mix in oklab as Chrome computes them for rgb(129 140 168) [0.17ms]
+(pass) Pull Requests diff colors and Markdown settings > the list and the detail carry Appearance → Diff colors and the code settings [0.25ms]
+(pass) formatProviderSkillDisplayName > prefers the provider display name [0.03ms]
+(pass) formatProviderSkillDisplayName > falls back to a title-cased skill name [0.02ms]
+(pass) formatProviderSkillDisplayName > Markdown skill candidates exclude prices, invalid names and repeated names [0.09ms]
+
+examples/macos/t3-code/composer-controls-queue.test.ts:
+(pass) queued messages reorder > ↑ moves before the previous row, ↓ after the next one; the ends and other keys do nothing [0.49ms]
+(pass) queued messages reorder > composer commands run without Date.now() (data sources have none): the snapshot clock stands in [0.78ms]
+
+examples/macos/t3-code/r3-shell-pr.test.ts:
+(pass) Pull request panel target (upstream f90b77d809) > the current link wins, reusing the legacy object only for the same PR [0.07ms]
+(pass) Pull request panel target (upstream f90b77d809) > open work first; tombstoned stack members are never current [0.03ms]
+(pass) Pull request panel target (upstream f90b77d809) > a PR known only through pullRequests makes the Pull request (P) surface available where the environment reads pull requests (r5-panels) [0.07ms]
+
+examples/macos/t3-code/r3-settings-import.test.ts:
+(pass) VS Code theme import keeps switches and focus rings visible > prefers a visible input background over a transparent border [0.13ms]
+(pass) VS Code theme import keeps switches and focus rings visible > keeps unchecked inputs distinct from the checked action color [0.11ms]
+(pass) VS Code theme import keeps switches and focus rings visible > keeps the derived input distinct when a button reuses it [0.07ms]
+(pass) VS Code theme import keeps switches and focus rings visible > skips a transparent focus border for a visible accent key [0.07ms]
+(pass) VS Code theme import keeps switches and focus rings visible > keeps focus visible against an explicit raised surface [0.06ms]
+(pass) VS Code theme import keeps switches and focus rings visible > keeps the fallback focus visible against an explicit raised surface [0.04ms]
+(pass) VS Code theme import keeps switches and focus rings visible > skips a transparent or raised-surface button background for the action color [0.07ms]
+(pass) VS Code theme import keeps switches and focus rings visible > uses a visible default accent when the file has no usable accent key [0.05ms]
+(pass) VS Code theme import keeps switches and focus rings visible > validates placeholders against the resolved raised surface [0.05ms]
+
+examples/macos/t3-code/composer.test.ts:
+(pass) composer placeholder and phase > follows the served build chain [0.57ms]
+(pass) composer placeholder and phase > a thread without runs or a provider thread is disconnected; held queues do not count [0.05ms]
+(pass) composer controls > traits use the descriptor label, every select option and the Default badge [0.19ms]
+(pass) composer controls > runtime options follow the provider support list and the served labels [2.40ms]
+(pass) composer controls > plan toggle needs the device setting and a provider that allows it [0.07ms]
+(pass) composer controls > shortcuts resolve the configured chords, later rules winning [0.05ms]
+(pass) composer controls > trigger anchors come from the module status [0.03ms]
+(pass) model picker catalog > opens on the active instance, or favorites when any exist, and never touches the selection [0.14ms]
+(pass) model picker catalog > favorites lead an instance list; legacy models follow a collapsible header [0.04ms]
+(pass) model picker catalog > search crosses instances, ranks by field and boosts favorites; rail hides [0.32ms]
+(pass) model picker catalog > rail badges count only enabled sibling instances [0.05ms]
+(pass) model picker catalog > readiness and favorite keys follow the reference [0.05ms]
+
+examples/macos/t3-code/timeline.test.ts:
+(pass) settled turns > fold everything before the answer behind "Worked for" and expand by run [1.55ms]
+(pass) settled turns > an interrupted latest run says how long it ran before you stopped it [0.07ms]
+(pass) settled turns > a superseded attempt folds behind its own toggle and keeps the user prompt [0.24ms]
+(pass) settled turns > a completed answer with no text reads "(empty response)" [0.04ms]
+(pass) live runs > show "Working for", the latest tool as one live row and no fold [0.14ms]
+(pass) live runs > a pending approval is the live activity with its prompt [0.06ms]
+(pass) live runs > think while nothing runs, and after a failed tool [0.06ms]
+(pass) live runs > a streaming thought is the live row with its plain-text heading [0.04ms]
+(pass) live runs > compaction becomes a divider labelled with its token counts [0.07ms]
+(pass) events and messages > interrupts, forks and failures keep their reference labels [0.18ms]
+(pass) events and messages > user rows carry attribution, queued intent and Edit from here for ready checkpoints [0.05ms]
+(pass) events and messages > every Message field is present for Contract [1.10ms]
+(pass) work-log presentation > summaries join at most two categories and count the rest [0.10ms]
+(pass) work-log presentation > command labels name the program the way the live row does [0.05ms]
+(pass) work-log presentation > durations and thought headings match T3 [0.01ms]
+(pass) Edit from here waits for the rollback > resolves once the message run is rolled back [0.12ms]
+(pass) Edit from here waits for the rollback > rejects with the thread's rollback failure for this command [0.03ms]
+(pass) copy feedback > a copy marks its row Copied!, a refused one Failed to copy [0.55ms]
+
+examples/macos/t3-code/r4-composer-overlay.test.ts:
+(pass) composer overlay reservation (resolveComposerTimelineInset, TimelineListFooter) > the transcript reserves the measured overlay plus the footer gap; unmeasured, an empty composer [0.04ms]
+(pass) composer overlay reservation (resolveComposerTimelineInset, TimelineListFooter) > a taller composer while the reader is at the end does not move the transcript [0.02ms]
+(pass) composer overlay reservation (resolveComposerTimelineInset, TimelineListFooter) > new rows, or a scroll toward the end while there, take the held reservation [0.03ms]
+(pass) composer overlay reservation (resolveComposerTimelineInset, TimelineListFooter) > a shorter composer releases the reservation at once
+(pass) composer overlay reservation (resolveComposerTimelineInset, TimelineListFooter) > a resting card keeps the expanded reservation; expanding again moves nothing [0.01ms]
+(pass) composer overlay reservation (resolveComposerTimelineInset, TimelineListFooter) > another thread rebuilds the reservation from its own composer
+(pass) composer overlay reservation (resolveComposerTimelineInset, TimelineListFooter) > Scroll to end clears the dock banners but not a lone stash tab beside an empty dock [0.02ms]
+(pass) composer overlay reservation (resolveComposerTimelineInset, TimelineListFooter) > the content key changes with the rows a reader at the end sees [0.01ms]
+(pass) composer overlay reservation (resolveComposerTimelineInset, TimelineListFooter) > the snapshot reads T3Timeline only for its own thread [0.03ms]
+
+examples/macos/t3-code/r13-threads.test.ts:
+(pass) shouldShowEnvironmentIndicator > shows the indicator whenever multiple environments are pickable
+(pass) shouldShowEnvironmentIndicator > shows a sole remote environment so the user knows where the project runs
+(pass) shouldShowEnvironmentIndicator > hides a sole primary (this-device) environment
+(pass) shouldShowEnvironmentIndicator > hides the indicator when the active environment is unknown
+(pass) shouldShowComposerContextStrip > honors the active-thread preference with resting controls %s [0.01ms]
+(pass) shouldShowComposerContextStrip > honors the active-thread preference with resting controls %s
+(pass) shouldShowComposerContextStrip > keeps the environment indicator visible for a non-Git project
+(pass) shouldShowComposerContextStrip > hides the strip when a non-Git project has nothing to show
+(pass) shouldShowComposerContextStrip > keeps the strip for visible resting composer controls in a non-Git thread
+(pass) shouldShowComposerContextStrip > shows Git controls without requiring an environment indicator
+(pass) the non-Git strip shows only where it runs (BranchToolbar.tsx, BranchToolbarEnvironmentSelector) > a draft on its only, remote machine shows the Select with that machine [0.09ms]
+(pass) the non-Git strip shows only where it runs (BranchToolbar.tsx, BranchToolbarEnvironmentSelector) > a draft on this device alone has nothing to show; a non-Git project on two machines does [0.04ms]
+(pass) the non-Git strip shows only where it runs (BranchToolbar.tsx, BranchToolbarEnvironmentSelector) > a started thread keeps the static machine row, and only when its strip persists [0.02ms]
+(pass) the non-Git strip shows only where it runs (BranchToolbar.tsx, BranchToolbarEnvironmentSelector) > a No project draft with another connected machine: the strip carries only "Run on" [0.30ms]
+(pass) openScratch > resolves once the created project reaches the client store [0.08ms]
+(pass) openScratch > Send reads "Preparing machine" while the machine is prepared: the readers wake at the start and the end [0.04ms]
+(pass) openScratch > fails with ScratchProjectNotLoadedError after 10 seconds without the project [0.06ms]
+
+examples/macos/t3-code/shell-r2.test.ts:
+(pass) appearance.cycle toast > an untyped 1.5 s notice that replaces the previous one [0.05ms]
+(pass) appearance.cycle toast > a leading glyph still overrides the kind icon [0.01ms]
+(pass) slow request notice > tracks unary RPCs past their threshold into one warning updated in place [0.18ms]
+(pass) slow request notice > a notice closed by its × stays closed until the slow set empties [0.06ms]
+(pass) provider update progress > running, then updated or failed, in one replaced toast [0.18ms]
+
+examples/macos/t3-code/r3-settings-keys.test.ts:
+(pass) composer send shortcuts > the defaults carry both new rules in the reference order [0.03ms]
+(pass) composer send shortcuts > the new command is labelled everywhere it is listed [0.58ms]
+(pass) composer send shortcuts > the rules a HEAD server migrates into configs read as defaults, not customizations [0.20ms]
+
+examples/macos/t3-code/r3-composer-controls-resume.test.ts:
+(pass) resume with less context (a976f8c74c) > offered for a Claude session idle 70 minutes with 100k tokens [0.03ms]
+(pass) resume with less context (a976f8c74c) > the banner: tokens from earlier, Compact, Keep full history [1.78ms]
+(pass) resume with less context (a976f8c74c) > Compact is disabled with its reason when the provider cannot compact [0.44ms]
+(pass) resume with less context (a976f8c74c) > not offered under the thresholds, or after "Don't ask again" [1.29ms]
+(pass) resume with less context (a976f8c74c) > sending past the banner sends only the typed message (2188bdd8b5) [0.50ms]
+(pass) resume with less context (a976f8c74c) > "/compact" itself, or a thread without the banner, sends once [0.28ms]
+(pass) Woke dismissal syncs (c5a929e1ac) > a tracking server records the visit at the wake time; its watermark hides the banner [2.92ms]
+(pass) Woke dismissal syncs (c5a929e1ac) > an older server keeps the acknowledgement locally [1.52ms]
+
+examples/macos/t3-code/r9-input.test.ts:
+(pass) ⌘W: rightPanel.close → closeRightPanelSurface(activeRightPanelSurface) > no open panel: no row, so Close Window keeps the chord [0.09ms]
+(pass) ⌘W: rightPanel.close → closeRightPanelSurface(activeRightPanelSurface) > the active tab closes; its neighbour becomes active; the last tab closes the panel [0.16ms]
+(pass) ⌘W: rightPanel.close → closeRightPanelSurface(activeRightPanelSurface) > the Diff is a tab like the others [0.04ms]
+(pass) ⌘W: rightPanel.close → closeRightPanelSurface(activeRightPanelSurface) > the Pull Requests page closes its open pull request first [0.02ms]
+(pass) a moved sidebar row never matches a stale hover > the key gains a move count on each change of shelf [0.03ms]
+(pass) a moved sidebar row never matches a stale hover > the snapshot rows carry it [0.41ms]
+
+examples/macos/t3-code/r5-composer-citation.test.ts:
+(pass) citation View source (AssistantCitationSource) > the cited answer is an assistant row, never a user row that mentions its id [0.08ms]
+(pass) citation View source (AssistantCitationSource) > the jump names the row's citation target and the reference's lead [0.01ms]
+(pass) citation View source (AssistantCitationSource) > a citation on the open thread jumps at once; one whose thread is gone fails [0.19ms]
+(pass) a quote that no longer reads in its answer > the quote still reads (Markdown aside): no warning; a changed quote warns [0.08ms]
+
+examples/macos/t3-code/r6-media.test.ts:
+(pass) attachment media bodies (lane r6-media) > filePreviewKind classifies the four media kinds by MIME type and by name [0.03ms]
+(pass) attachment media bodies (lane r6-media) > PDF, audio and video draw their body from the inline signed URL; nothing reads them as text [0.12ms]
+(pass) attachment media bodies (lane r6-media) > HTML opens rendered with "Show HTML source"; source reads the text and offers copy and wrap [0.19ms]
+(pass) attachment media bodies (lane r6-media) > a player's error reads as the reference's message; Try again re-mints and remounts it [0.07ms]
+(pass) attachment media bodies (lane r6-media) > an unsupported file keeps "No preview for this file" and Save file [0.02ms]
+(pass) sent videos in the transcript (lane r6-media) > a video is a grid tile after the images, never a file row [0.04ms]
+(pass) sent videos in the transcript (lane r6-media) > its inline URL is signed under its video type and never read for an accent [0.34ms]
+(pass) sent videos in the transcript (lane r6-media) > a video opens alone in the media dialog; images step among the images only [0.10ms]
+(pass) HTML source lines (lane r6-media) > every line keeps its own text: tags no longer swallow the text before them [0.13ms]
+
+examples/macos/t3-code/timeline-minimap.test.ts:
+(pass) timeline minimap > one strip per user message, previewing the turn's final answer [0.02ms]
+(pass) timeline minimap > the current turn is the first in view, else the last above the viewport [0.02ms]
+(pass) timeline minimap > the native status names turns on screen by their row ids [0.01ms]
+(pass) timeline minimap > jumping asks the transcript for the row by id, or by strip position for the chevrons [0.09ms]
+
+examples/macos/t3-code/settings-rest.test.ts:
+(pass) settings-rest payloads > params decodes Contract encodeURIComponent pairs, including empty and reserved characters [0.03ms]
+(pass) storage cleanup (StorageSettings.tsx) > environment writes are partial storageCleanup patches; retention clamps to 1–3650 [0.09ms]
+(pass) storage cleanup (StorageSettings.tsx) > an environment with a stored worktree policy keeps it in step [0.03ms]
+(pass) storage cleanup (StorageSettings.tsx) > project mode inherit/off/custom keeps sibling override keys; rules need Custom [0.04ms]
+(pass) storage cleanup (StorageSettings.tsx) > resolveWorktreeCleanup: off clears every rule, inherit reads storageCleanup
+(pass) archive (formatRelativeTimeLabel) > relative labels match the reference [0.01ms]
+(pass) keybindings view (KeybindingsSettings.logic.ts) > command labels, pills and shortcut labels [0.05ms]
+(pass) keybindings view (KeybindingsSettings.logic.ts) > rows: defaults vs custom, sorted by command then key, searchable, conflicts by overlapping when [0.23ms]
+(pass) keybindings view (KeybindingsSettings.logic.ts) > command options: catalog plus configured commands, usage block in page order [0.43ms]
+(pass) keybindings view (KeybindingsSettings.logic.ts) > save/remove/reset payloads replace the exact binding and validate the grammar [0.16ms]
+(pass) When builder (WhenExpressionBuilder) > parse and print round-trip with the reference wrapping [0.12ms]
+(pass) When builder (WhenExpressionBuilder) > variables: core first, then identifiers from the defaults [0.12ms]
+(pass) When builder (WhenExpressionBuilder) > every control precomputes its next expression [0.90ms]
+(pass) keyboard dispatch (resolveShortcutCommand) > chords follow the host grammar and the last matching rule wins [0.08ms]
+(pass) keyboard dispatch (resolveShortcutCommand) > dispatch lists counterparts in sidebar order and context [0.20ms]
+(pass) source control and integrations (scoped rows) > inheritance chain and summaries match SettingInheritance [0.60ms]
+
+examples/macos/t3-code/r3-settings-mobile.test.ts:
+(pass) beta links as QR codes > the TestFlight link encodes as the reference symbol (version 3, 29 modules) [0.63ms]
+(pass) beta links as QR codes > the Android links are version 4 (33 modules) [1.50ms]
+(pass) beta links as QR codes > cells are dark runs inside a 128-point square with one light module of margin [0.73ms]
+(pass) Mobile app row > IS_NIGHTLY_BUILD reads the first prerelease identifier [0.02ms]
+(pass) Mobile app row > About lists Mobile app after the version rows: this client is a Nightly build [0.09ms]
+(pass) Mobile app row > Copy link writes only a beta link; each copy replays Copied [0.18ms]
+
+examples/macos/t3-code/settings-b.test.ts:
+(pass) model visibility and order follow ProjectModelsSection grouping and the picker drops hidden built-ins [0.28ms]
+(pass) script identity, shortcuts and t3.json follow projectScripts.ts and the project file schema [0.32ms]
+(pass) project actions add, edit, import, delete and reset through the project override and environment shortcuts [0.70ms]
+(pass) Providers is single-environment: the machine defaults to the connected environment, with its icon [0.04ms]
+(pass) the fleet keeps every switched-on environment but the focused one connected and lists their threads [0.44ms]
+
+examples/macos/t3-code/client.test.ts:
+(pass) desktop presentation and model options > reasoning control follows the catalog and sends canonical option selections [1.44ms]
+(pass) desktop presentation and model options > a new thread retains chosen reasoning options in its launch [0.23ms]
+(pass) desktop presentation and model options > settled shelves and ages use server state and the supplied clock [0.61ms]
+(pass) desktop presentation and model options > sidebar age follows user activity or settling, and activity never moves a row (threadSort.ts) [3.02ms]
+(pass) desktop presentation and model options > UTC offsets do not change sidebar chronological ordering [0.62ms]
+(pass) desktop presentation and model options > a settled run folds alone while the next run stays live [0.40ms]
+(pass) desktop presentation and model options > provider incompatibility remains visible when the server reports ready [0.04ms]
+(pass) desktop presentation and model options > compact work disclosures preserve tool details, failures and compaction boundaries [0.28ms]
+(pass) desktop presentation and model options > checkpoints remain changed-file footers while settled trailing work joins its run [1.30ms]
+(pass) desktop presentation and model options > model browsing and search are read-only; choosing another provider commits one selection [0.46ms]
+(pass) answer cancellation > a snapshot abandoned during status does not block the next answer [0.55ms]
+(pass) answer cancellation > a snapshot abandoned during authentication does not block the next answer [0.27ms]
+(pass) answer cancellation > a snapshot abandoned during configuration does not block the next answer [0.23ms]
+(pass) answer cancellation > a snapshot abandoned during configuration subscription does not block the next answer [0.19ms]
+(pass) answer cancellation > a snapshot abandoned during shell snapshot does not block the next answer [0.22ms]
+(pass) answer cancellation > a snapshot abandoned during shell subscription does not block the next answer [0.18ms]
+(pass) answer cancellation > a snapshot abandoned during thread snapshot does not block the next answer [0.19ms]
+(pass) answer cancellation > a snapshot abandoned during thread subscription does not block the next answer [0.20ms]
+(pass) answer cancellation > a snapshot abandoned during event read does not block the next answer [0.18ms]
+(pass) answer cancellation > a snapshot abandoned during event acknowledgment does not block the next answer [0.36ms]
+(pass) answer cancellation > a discarded speculative status probe cannot supersede an active event read [0.32ms]
+(pass) answer cancellation > a late older status reply cannot replace a newer completed refresh [0.18ms]
+(pass) answer cancellation > an abandoned preferences read is retried by the next answer [0.14ms]
+(pass) answer cancellation > an abandoned storage write cannot trap later local edits behind its Promise [0.11ms]
+(pass) answer cancellation > a superseding thread command recovers an abandoned selection [0.11ms]
+(pass) answer cancellation > an inbox event arriving between read and ACK is drained using the ACK watermark [0.11ms]
+(pass) answer cancellation > an empty overflow reset is acknowledged before resnapshot and completion markers are drained [0.12ms]
+(pass) native preference persistence > the app data source never starts Exact filesystem work [1.31ms]
+(pass) native preference persistence > loads and saves the versioned preference file solely through native tickets [0.21ms]
+(pass) native preference persistence > a preference read failure is visible and retryable without overwriting pending operations [0.19ms]
+(pass) native preference persistence > a failed native operation save prevents the server mutation [0.15ms]
+(pass) connection and bootstrap > bake stays disconnected without storage or native work [0.20ms]
+(pass) connection and bootstrap > parses token fragments, hosted links and credential-field URLs without retaining secrets in origins [0.05ms]
+(pass) connection and bootstrap > subscribes from snapshot cursors and gates writes on synchronization markers [0.09ms]
+(pass) connection and bootstrap > a misrouted events reply cannot replace the last valid connection status [0.12ms]
+(pass) connection and bootstrap > rejects an invalid status state before adopting other fields [0.09ms]
+(pass) connection and bootstrap > rejects an invalid status origin before adopting other fields [0.06ms]
+(pass) connection and bootstrap > rejects an invalid status environmentId before adopting other fields [0.06ms]
+(pass) connection and bootstrap > rejects an invalid status message before adopting other fields [0.06ms]
+(pass) connection and bootstrap > a genuine non-connected status requires synchronization even if the generation is unchanged [0.15ms]
+(pass) connection and bootstrap > requires explicit model selection when the configured default is unavailable [0.29ms]
+(pass) connection and bootstrap > read-only credentials display history and reject mutation dispatch [0.22ms]
+(pass) commands and uncertain outcomes > creates a root thread with explicit safe modes and stable instance model routing [0.16ms]
+(pass) commands and uncertain outcomes > sends auto delivery intent, retains uncertain payload and retries only on explicit action with the same IDs [0.21ms]
+(pass) commands and uncertain outcomes > reconciles an accepted send whose acknowledgment was lost without sending again [0.13ms]
+(pass) commands and uncertain outcomes > restores uncertain write identity and drafts from app storage after restart [0.15ms]
+(pass) commands and uncertain outcomes > stop targets the active run and holds the queue [0.09ms]
+(pass) commands and uncertain outcomes > project add derives optional title from the server path and never creates the folder [0.23ms]
+(pass) streams and requests > hydrates chunked native JSON and releases it before applying the snapshot [0.22ms]
+(pass) streams and requests > an older history response cannot replace a newer snapshot cursor [0.19ms]
+(pass) streams and requests > old completion and error markers cannot affect a replacement thread subscription [0.10ms]
+(pass) streams and requests > an inbox read cannot acknowledge a new thread marker before its subscription reply arrives [0.18ms]
+(pass) streams and requests > a late command refresh cannot replace subscriptions installed by a newer snapshot synchronization [0.18ms]
+(pass) streams and requests > drains multiple inbox pages and ACKs only the processed cursor [0.09ms]
+(pass) streams and requests > approval forwards only provider-advertised choices and waits for pending live request [0.11ms]
+(pass) streams and requests > question answers preserve exact option values and send arrays for multiple selection [0.47ms]
+(pass) streams and requests > request response reasons distinguish permanent, connection, permission and submission states [2.23ms]
+(pass) streams and requests > diff uses checkpoint ordinal and exposes read-only unified lines [0.62ms]
+(pass) streams and requests > project filtering and draft partitioning keep different workspace input separate [0.49ms]
+(pass) automatic project identities use the reference palette and Unicode monograms [0.30ms]
+(pass) inherited settled work folds across its answer and keeps the fork marker separate [0.40ms]
+(pass) provider account badges distinguish configured siblings and valid accents [0.07ms]
+(pass) timeline presentation belongs to one connection/project/thread and follows the configured collapse setting [0.33ms]
+(pass) project management and scoped defaults > rename validates title and updates canonical project without another entry [0.31ms]
+(pass) project management and scoped defaults > remove clears owner/drafts, keeps unrelated project and does not issue filesystem operations [0.15ms]
+(pass) project management and scoped defaults > scoped permissions preserve unrelated overrides; inheritance changes only new-thread default [0.20ms]
+(pass) stale settings project refuses write rather than expanding to environment [0.07ms]
+(pass) stale environment refuses scoped setting write [0.04ms]
+(pass) repository group management resolves current members and leaves unrelated checkout untouched [0.28ms]
+(pass) provider management preserves configuration and targets one current instance [0.28ms]
+(pass) provider creation validates advertised driver/identity and uses atomic create without replacing siblings [0.19ms]
+(pass) repository_path and physical overrides persist; guarded member removal retains sibling [0.29ms]
+(pass) device settings persist locally, affect projection, and do not write an unavailable server scope [0.34ms]
+(pass) appearance and send shortcut validate and persist without server changes [0.17ms]
+(pass) local appearance and send shortcut reset to reference defaults and survive reload [0.11ms]
+(pass) scoped default model preserves options and other fields; unavailable scopes do not broaden writes [0.26ms]
+(pass) Automatic model chooses ready instance default and scoped reset uses null [0.12ms]
+(pass) archived restore/delete target exact current archived member; reject stale scope without global writes [0.44ms]
+(pass) license manifest validates provenance shape, all-term search, disclosure and retry [0.31ms]
+(pass) diagnostics reads actual sections and range; partial/offline errors remain local [0.26ms]
+(pass) storage cleanup validates capability, retention and stale checkout before scoped writes [0.53ms]
+(pass) scoped source control writes preserve unrelated settings and reset the exact project tier [0.10ms]
+(pass) scoped controls reject unavailable identities and gate device access by the actual hub [0.32ms]
+(pass) writing group reset is explicit; text matches reference trim and preserves sibling fields [0.04ms]
+(pass) device access action cannot bypass disabled hub or stale project capabilities [0.09ms]
+(pass) scheduled defaults and edit conversion match reference daily and origin semantics [0.18ms]
+(pass) scheduled edit rechecks membership, forces requireExisting and preserves provider options [0.29ms]
+(pass) scheduled list query reaches the allowlisted backend and preserves readonly/offline scope state [0.30ms]
+(pass) keybinding precedence is global across commands and physical mod/meta aliases [0.06ms]
+(pass) unknown negated shortcut context cannot activate or revive an older binding [0.04ms]
+(pass) scoped search follows the mounted conditional fields without changing settings [0.05ms]
+(pass) provider catalog includes first instances and disabled or setup-needed drivers [0.15ms]
+(pass) keybinding grammar rejects invalid expressions before server writes [0.21ms]
+(pass) denied snapshot setup leaves device preferences and backend unchanged [0.11ms]
+(pass) snapshot state cannot be adopted into a different draft owner [0.07ms]
+(pass) revoked snapshot grants preserve enabled choice and reachable disable without backend writes [0.17ms]
+(pass) r13-store: Remove forgets the focused environment > forget clears the address, selection and cached threads of the focused environment [0.16ms]
+(pass) r13-store: Remove forgets the focused environment > a plain disconnect keeps the focused environment [0.08ms]
+
+examples/macos/t3-code/timeline-tool-icons.test.ts:
+(pass) toolActivityFaviconUrl > uses the page origin instead of a third-party favicon service [0.05ms]
+(pass) toolActivityFaviconUrl > selects site-owned light and dark variants without filtering full-color icons [0.01ms]
+(pass) toolActivityFaviconUrl > prefers a provider-supplied dark favicon
+(pass) toolActivityFaviconUrl > accepts provider-supplied image URLs but rejects extension URLs
+(pass) toolActivityIconSources > uses toolIcon before source icon and resolves both themes [0.04ms]
+(pass) syncToolActivityIcons > deduplicates native assets and remints after five minutes [0.21ms]
+(pass) syncToolActivityIcons > keeps delayed native icon replies distinct across skipped loop rows [0.05ms]
+(pass) syncToolActivityIcons > keeps old connection replies out of the new connection [0.03ms]
+(pass) syncToolActivityIcons > shows fallback after a failed asset request without retrying every refresh [0.04ms]
+
+examples/macos/t3-code/composer-editor-usage.test.ts:
+(pass) /usage-limits feed > usageLimitSourcesUpdated lands on the config, a snapshot keeps the stream for later [0.03ms]
+(pass) /usage-limits feed > the server-injected command is a provider row that opens the prompt [0.04ms]
+
+examples/macos/t3-code/r13-store.test.ts:
+(pass) the clock helpers separate an instant from a count > only a number above 1e12 ms is an instant [0.02ms]
+(pass) the clock helpers separate an instant from a count > runtime clock refused (the data runtime): the window's instant stands, a count stands for none [0.04ms]
+(pass) the clock helpers separate an instant from a count > runtime clock counting from launch (97 s in): the window's instant stands, a count stands for none [0.01ms]
+(pass) the clock helpers separate an instant from a count > runtime clock virtual (the agent, 6.1 s in): the window's instant stands, a count stands for none
+(pass) the clock helpers separate an instant from a count > a runtime clock that is an instant (the bun tests) still stands in for a window time that is not [0.01ms]
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock refused (the data runtime): a client with an environment stores the window's wall time [0.05ms]
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock refused (the data runtime): Finish stores the wall time the command carried [0.06ms]
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock refused (the data runtime): Import with nothing picked finishes at the wall time it carried [0.03ms]
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock refused (the data runtime): the old finish value (ms since launch) never replaces the last instant — the 1970-01-01T00:01:37Z fault [0.04ms]
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock refused (the data runtime): before the host has told the date nothing is stored, and the first ask that knows it stores it [0.06ms]
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock refused (the data runtime): importing picked projects finishes at the carried wall time [0.06ms]
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock counting from launch (97 s in): a client with an environment stores the window's wall time
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock counting from launch (97 s in): Finish stores the wall time the command carried [0.01ms]
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock counting from launch (97 s in): Import with nothing picked finishes at the wall time it carried
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock counting from launch (97 s in): the old finish value (ms since launch) never replaces the last instant — the 1970-01-01T00:01:37Z fault
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock counting from launch (97 s in): before the host has told the date nothing is stored, and the first ask that knows it stores it [0.01ms]
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock counting from launch (97 s in): importing picked projects finishes at the carried wall time [0.01ms]
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock virtual (the agent, 6.1 s in): a client with an environment stores the window's wall time
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock virtual (the agent, 6.1 s in): Finish stores the wall time the command carried
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock virtual (the agent, 6.1 s in): Import with nothing picked finishes at the wall time it carried
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock virtual (the agent, 6.1 s in): the old finish value (ms since launch) never replaces the last instant — the 1970-01-01T00:01:37Z fault
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock virtual (the agent, 6.1 s in): before the host has told the date nothing is stored, and the first ask that knows it stores it
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > runtime clock virtual (the agent, 6.1 s in): importing picked projects finishes at the carried wall time
+(pass) onboardingCompletedAt (FirstRunGate persistCompletion, WelcomeRouteView.onDone) > every stored stamp reads back through the reader: a stamp the writers make is never "unset" [0.03ms]
+(pass) the sidebar writers (sidebar-state wall time → snoozedUntil on the server) > runtime clock refused (the data runtime): a snooze preset is the command's wall time plus the preset, exactly [0.26ms]
+(pass) the sidebar writers (sidebar-state wall time → snoozedUntil on the server) > runtime clock counting from launch (97 s in): a snooze preset is the command's wall time plus the preset, exactly [0.09ms]
+(pass) the sidebar writers (sidebar-state wall time → snoozedUntil on the server) > runtime clock virtual (the agent, 6.1 s in): a snooze preset is the command's wall time plus the preset, exactly [0.08ms]
+(pass) the sidebar writers (sidebar-state wall time → snoozedUntil on the server) > runtime clock refused: a command that carried no instant snoozes nothing (wall is 0 and the presets are empty), never 1970 [0.03ms]
+(pass) the sidebar writers (sidebar-state wall time → snoozedUntil on the server) > adopting a command time measures later reads from it; a count is not adopted [0.02ms]
+(pass) the prompt stash (composer-editor-stash createdAt) > runtime clock refused (the data runtime): a stashed prompt is stamped with the window's wall time [0.23ms]
+(pass) the prompt stash (composer-editor-stash createdAt) > runtime clock counting from launch (97 s in): a stashed prompt is stamped with the window's wall time [0.01ms]
+(pass) the prompt stash (composer-editor-stash createdAt) > runtime clock virtual (the agent, 6.1 s in): a stashed prompt is stamped with the window's wall time
+
+examples/macos/t3-code/r4-composer-attachments.test.ts:
+(pass) removing a referenced shelf image (removeComposerImage, removeInlineContextReference) > the shelf knows which images the prompt references [0.02ms]
+(pass) removing a referenced shelf image (removeComposerImage, removeInlineContextReference) > every reference goes, with one adjoining space each [0.04ms]
+(pass) video tiles (isPreviewableComposerVideo, videoMimeType) > a definite type answers; the extension speaks only for a generic one [0.02ms]
+(pass) video tiles (isPreviewableComposerVideo, videoMimeType) > only the draft's attached, staged videos become tiles [0.02ms]
+(pass) keybinding labels > the SnapShot conflict message names composer.sendAndNewThread as the reference does
+(pass) the shelf's references and videos in the client > removing an image strips its chips from the stored draft and the open editor [0.08ms]
+(pass) the shelf's references and videos in the client > a video chip carries the video kind (FilmIcon, its tint) [0.02ms]
+(pass) the shelf's references and videos in the client > Play opens the preview at the first frame's size, Close ends it, Remove takes the file, its chips and its staged copy [0.09ms]
+
+examples/macos/t3-code/r3-composer-controls-fanout.test.ts:
+(pass) multi-model drafts > Shift-click adds a model; the trigger and rows show the set; one left becomes the model again [1.10ms]
+(pass) multi-model drafts > a plain pick ends the fan-out; servers without worktree bootstrap never start one [0.37ms]
+(pass) multi-model drafts > Send starts one background thread per model, each in a new worktree from the base branch [0.56ms]
+(pass) multi-model drafts > without a Git base the send stops with the reference warning [0.11ms]
+
+examples/macos/t3-code/composer-editor-title.test.ts:
+(pass) new-thread title seed (ChatView onSend) > context chips are left out of the title [0.01ms]
+(pass) new-thread title seed (ChatView onSend) > an assistant quote reads as its text [0.03ms]
+(pass) new-thread title seed (ChatView onSend) > with no prose the first image, then the first file, names it [0.01ms]
+(pass) new-thread title seed (ChatView onSend) > truncate keeps 50 characters
+
+examples/macos/t3-code/timeline-r3.test.ts:
+(pass) Claude skill calls (43bd667) > titles a skill from its input, in progress as well as completed [0.28ms]
+(pass) Claude skill calls (43bd667) > expands to its trimmed arguments as plain text, and only when it has them [0.32ms]
+(pass) Claude skill calls (43bd667) > read paths and skill arguments remain above withheld output while loading [0.28ms]
+(pass) Claude skill calls (43bd667) > a read expands to the paths it read, not the inspector [0.12ms]
+(pass) inspector input (df4ae529ea) > a dynamic tool shows key value lines and a shell command stays plain without INPUT headings [0.17ms]
+(pass) working timer (736130c) > a wake run counts from the work it continues [0.06ms]
+(pass) runless turns (db51460) > imported V1 turns stay folded once a V2 run starts working [0.06ms]
+(pass) runless turns (db51460) > a provider-native subagent keeps its latest runless response open while it works [0.06ms]
+(pass) thinking after a failed tool (70e5a40) > discloses the run’s tool calls under the Thinking row [0.11ms]
+(pass) subagent notifications (dab26f5) > a known subagent’s notification is its card, frozen at the reported outcome [0.21ms]
+(pass) subagent notifications (dab26f5) > an update has no status dot; an unknown child falls back to the work row [0.13ms]
+(pass) T3 pull request tools (18b2132) > resolve through provider prefixes and name the PR they act on [0.47ms]
+(pass) answered questions > lead with the question, trail the answer, and expand to the history [0.23ms]
+(pass) labels redraw by key > a live row carries its label keyed by its text [0.05ms]
+(pass) mermaid fences (5e35272) > only settled mermaid fences carry a diagram, loading until the module answers [0.07ms]
+(pass) mermaid fences (5e35272) > joins both themes into one geometry with both paints, and reports errors [0.14ms]
+(pass) mermaid fences (5e35272) > a user message with a mermaid fence presents its diagram beside its code highlights [0.06ms]
+
+examples/macos/t3-code/settings-a-collections.test.ts:
+(pass) theme collections > variant labels drop the shared words [0.05ms]
+(pass) theme collections > one card per collection: a root per appearance, the fan of its variants, a one-appearance theme keeps its own orb [0.32ms]
+(pass) theme collections > the title uses the first variants; the removal dialog checks variants and removes them [0.25ms]
+(pass) theme collections > an Open VSX install reads the package files and groups several themes as one collection [0.69ms]
+
+examples/macos/t3-code/r13-panels.test.ts:
+(pass) previewMiniPlayerStore (device sources) > keeps floating previews scoped to their thread [0.04ms]
+(pass) previewMiniPlayerStore (device sources) > floats one source per thread, so a device replaces the browser tab [0.01ms]
+(pass) floating device preview (shouldRenderPreviewMiniPlayer) > only hides the duplicate while the same device is rendered in the panel [0.03ms]
+(pass) a thread's device session floats (ChatView device-session effect) > the thread shown before the first device state floats its open session when the state lands [0.04ms]
+(pass) a thread's device session floats (ChatView device-session effect) > a thread first shown after the state arrived takes it as its baseline (navigating to it) [0.02ms]
+(pass) a thread's device session floats (ChatView device-session effect) > a session whose device summary has not arrived stays out of the baseline [0.02ms]
+(pass) a thread's device session floats (ChatView device-session effect) > a reconnect keeps the environment's last state: a closed player is not resurrected [0.03ms]
+(pass) a thread's device session floats (ChatView device-session effect) > a sheet layout floats nothing, and a closed session takes the player with it [0.03ms]
+
+examples/macos/t3-code/r6-media-device.test.ts:
+(pass) the Device surface after onboarding (lane r6-media) > the list until a device is chosen; host detail, booting devices and a busy host as the reference words them [0.10ms]
+(pass) the Device surface after onboarding (lane r6-media) > a row opens its device with device.open for this thread, then the workspace shows it with its settings [0.13ms]
+(pass) the Device surface after onboarding (lane r6-media) > a failed open is the dismissible device error; the list returns [0.08ms]
+(pass) the Device surface after onboarding (lane r6-media) > rail actions go through device.action and take its confirmed detail; Power off closes with shutdown [0.17ms]
+(pass) the Device surface after onboarding (lane r6-media) > Float moves the device over the chat and hides the panel; Open in right panel and Close floating preview [0.08ms]
+(pass) the Device surface after onboarding (lane r6-media) > the stream report reads as DeviceStreamView words it; input buttons and Reconnect reach the module [0.08ms]
+(pass) the Device surface after onboarding (lane r6-media) > Save screenshot reports the hub failure in the workspace; menus open beside their triggers [0.17ms]
+
+examples/macos/t3-code/composer-editor-attach.test.ts:
+(pass) Attach files: plain files (addComposerAttachments) > the staging limit follows fileAttachmentStagingLimit [0.03ms]
+(pass) Attach files: plain files (addComposerAttachments) > refusals read as the reference names them [0.03ms]
+(pass) Attach files: plain files (addComposerAttachments) > an accepted file is a chip at the caret that uploads under its own type and binds to the send [0.14ms]
+(pass) Attach files: plain files (addComposerAttachments) > several files share one insert; without an editor the chips join the stored draft [0.05ms]
+(pass) Attach files: plain files (addComposerAttachments) > the draft counts its referenced files toward the 100-attachment limit [0.01ms]
+(pass) Attach files: plain files (addComposerAttachments) > a staged attached file survives a restart; a folded paste does not [0.02ms]
+(pass) Attach files: plain files (addComposerAttachments) > a lost staged copy refuses the send with the reattach message [0.05ms]
+(pass) Attach files: plain files (addComposerAttachments) > pruning an emptied draft reports the files it dropped [0.01ms]
+(pass) Attach files: image chips (imageAttachmentsGetChips) > an image gets an inline chip only when the prompt has prose [0.05ms]
+(pass) Attach files: image chips (imageAttachmentsGetChips) > the chip resolves to the shelf image and binds to its upload [0.06ms]
+
+examples/macos/t3-code/r9-device-crumbs.test.ts:
+(pass) Files breadcrumbs settle where the reference scroll left them > a file read for the first time settles 36pt short of the end; a cached one at the end [0.02ms]
+(pass) Files breadcrumbs settle where the reference scroll left them > the settle is fixed when the file becomes active [0.02ms]
+(pass) Files breadcrumbs settle where the reference scroll left them > a trail scrolled short of both ends fades both edges over min(24, overflow) [0.01ms]
+(pass) Source line-number column > matches the oracle column for 1, 2, 3 and 4 digit files
+
+examples/macos/t3-code/settings-a-bitbucket.test.ts:
+(pass) bitbucket credentials > the saved method and the view never carry a token [0.03ms]
+(pass) bitbucket credentials > the patch follows the reference: one method clears the other; a saved token is resent to keep it [0.03ms]
+(pass) bitbucket credentials > save and remove write settings.bitbucket and rescan [0.12ms]
+
+examples/macos/t3-code/r9-device-html.test.ts:
+(pass) HTML script and style bodies end where Shiki ends them > uppercase </SCRIPT> after an unterminated let runs the script on (JSX, operators) [1.37ms]
+(pass) HTML script and style bodies end where Shiki ends them > a closing tag inside a var declaration stays JavaScript [0.13ms]
+(pass) HTML script and style bodies end where Shiki ends them > a line comment hides only a lower-case </script> [0.12ms]
+(pass) HTML script and style bodies end where Shiki ends them > </script > leaves the rest plain until /script> [0.05ms]
+(pass) HTML script and style bodies end where Shiki ends them > </scriptx> ends the script body, then plain text until /script> [0.07ms]
+(pass) HTML script and style bodies end where Shiki ends them > a closing tag inside a string is string text [0.11ms]
+(pass) HTML script and style bodies end where Shiki ends them > an upper-case </STYLE > with a space closes the style sheet [0.07ms]
+(pass) HTML script and style bodies end where Shiki ends them > the body scanners skip strings, comments, templates, brackets and open declarations [0.23ms]
+
+examples/macos/t3-code/sidebar.test.ts:
+(pass) sidebar model (Sidebar.logic.ts, client-runtime models/threadSettled/threadSort) > status: approval and input outrank work; idle with background tasks waits; usage limits read Limited [0.08ms]
+(pass) sidebar model (Sidebar.logic.ts, client-runtime models/threadSettled/threadSort) > pills carry the reference labels, icons and hues [0.04ms]
+(pass) sidebar model (Sidebar.logic.ts, client-runtime models/threadSettled/threadSort) > shelves: snooze wins until its wake, then settlement beats a stale pin; Working only with the beta [0.06ms]
+(pass) sidebar model (Sidebar.logic.ts, client-runtime models/threadSettled/threadSort) > a snoozed thread raises its hand on approval or a newer completion, and wakes as Woke until visited [0.05ms]
+(pass) sidebar model (Sidebar.logic.ts, client-runtime models/threadSettled/threadSort) > unread counts a completion newer than the visit; never-visited reads as read; recede rules [0.02ms]
+(pass) sidebar model (Sidebar.logic.ts, client-runtime models/threadSettled/threadSort) > order: keyless active threads lead newest-anchor first, keyed follow by key; activity never moves a row [0.17ms]
+(pass) sidebar model (Sidebar.logic.ts, client-runtime models/threadSettled/threadSort) > labels: compact ages, wake countdowns rounding up, working durations [0.04ms]
+(pass) sidebar model (Sidebar.logic.ts, client-runtime models/threadSettled/threadSort) > fractional order keys sort between neighbours and materialize keyless sections [0.04ms]
+(pass) sidebar model (Sidebar.logic.ts, client-runtime models/threadSettled/threadSort) > custom snooze resolves local dates and positive durations, refusing the past [0.07ms]
+(pass) thread action menus (threadActionMenu.logic.ts, Sidebar.logic.ts bulk items, ElectronMenu.ts) > the row menu lists the reference items in order, gated by capability [0.07ms]
+(pass) thread action menus (threadActionMenu.logic.ts, Sidebar.logic.ts bulk items, ElectronMenu.ts) > the bulk menu counts only what each action touches [0.05ms]
+(pass) thread action menus (threadActionMenu.logic.ts, Sidebar.logic.ts bulk items, ElectronMenu.ts) > the native template places explicit separators and one before the first destructive row [0.03ms]
+(pass) sidebar projection (sidebar-view.ts) > rows paint pinned, active, then shelves; collapsed shelves keep only the open thread; the tail pages [0.59ms]
+(pass) sidebar projection (sidebar-view.ts) > every project is listed until the filter scopes it; empty states name the scope [0.43ms]
+(pass) sidebar projection (sidebar-view.ts) > search keys move the highlight with wrap-around, Escape clears; pending text while the server searches [0.27ms]
+(pass) sidebar projection (sidebar-view.ts) > woke, done and the unsent-draft marker reach the row [0.14ms]
+(pass) sidebar commands (sidebar-commands.ts) > pin takes the top of the pinned run; unpin offers Undo, which re-pins at the old key [0.29ms]
+(pass) sidebar commands (sidebar-commands.ts) > settling the open thread moves forward to the next card; consecutive settles merge one Undo [0.19ms]
+(pass) sidebar commands (sidebar-commands.ts) > rename trims, warns on empty, skips unchanged; failures and successes surface as toasts [3.21ms]
+(pass) sidebar commands (sidebar-commands.ts) > the row menu runs the picked action: mark unread, auto-settle, regenerate, copy, archive, delete with confirmation [1.65ms]
+(pass) sidebar commands (sidebar-commands.ts) > archive confirms only when Archive confirmation is on; a running thread cannot archive [0.26ms]
+(pass) sidebar commands (sidebar-commands.ts) > ⌘-click toggles and ⇧-click extends the selection in sidebar order; a plain click clears it [0.10ms]
+(pass) sidebar commands (sidebar-commands.ts) > a selected row opens the bulk menu; Settle (N) parks the whole batch [0.34ms]
+(pass) sidebar commands (sidebar-commands.ts) > opening a thread visits it once per watermark; servers without tracking keep a local visit [5.71ms]
+(pass) sidebar navigation, drafts and the hover card > New thread: one project creates at once; several open the picker unless ⇧ is held [0.06ms]
+(pass) sidebar navigation, drafts and the hover card > the brand opens a draft in the most recently active project; a project gear opens its settings [0.18ms]
+(pass) sidebar navigation, drafts and the hover card > unsent new-thread drafts become cards above the list, except the draft on screen; X discards text and images [0.36ms]
+(pass) sidebar navigation, drafts and the hover card > the hover card names the machine, model · instance, hand-offs and the last error [0.17ms]
+(pass) sidebar navigation, drafts and the hover card > custom snooze keeps the dialog open with its error, then snoozes every selected thread [0.47ms]
+
+examples/macos/t3-code/timeline-attachments.test.ts:
+(pass) sent attachments > images keep SnapShot details and skip annotation previews; files take their Pierre icon [0.04ms]
+(pass) sent attachments > signed inline URLs come from assets.createUrl and are reused until they near expiry [0.17ms]
+(pass) sent attachments > the expanded preview opens on an image and steps through the message [0.08ms]
+
+ 1200 pass
+ 0 fail
+ 6011 expect() calls
+Ran 1200 tests across 117 files. [779.00ms]

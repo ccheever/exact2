@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "source_paths": [
+    "examples/macos/t3-code/modules/apple/T3ActivityReporter.swift",
+    "examples/macos/t3-code/modules/apple/T3Transport.swift",
+    "examples/macos/t3-code/modules/apple/T3Fleet.swift",
+    "examples/macos/t3-code/modules/apple/T3Credentials.swift",
+    "examples/macos/t3-code/modules/apple/T3Protocol.swift",
+    "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/assert-capture.py",
+    "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/main.swift",
+    "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/reference-probe.ts"
+  ],
+  "checks": [
+    {
+      "name": "Captured real-server lease effects, fleet and executed reference payload comparison",
+      "argv": [
+        "python3",
+        "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/assert-capture.py"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true
+    }
+  ]
+}

@@ -94,6 +94,17 @@ describe('syncToolActivityIcons', () => {
     expect(calls.length).toBe(2);
     expect(toolActivityIconSources(client, appIcon).iconDark).toContain('mint=2');
   });
+  it('keeps delayed native icon replies distinct across skipped loop rows', async () => {
+    const secondIcon = { toolIcon: { _tag: 'native-app', app: { _tag: 'app-id', appId: 'com.apple.Terminal' } } };
+    const replies: Array<(value: Obj) => void> = [];
+    const client = fixture([appIcon, {}, secondIcon, {}], async () => new Promise(resolve => replies.push(resolve)));
+    const read = syncToolActivityIcons(client, native, 1);
+    replies[1]!({ relativeUrl: '/terminal' });
+    replies[0]!({ relativeUrl: '/safari' });
+    await read;
+    expect(toolActivityIconSources(client, appIcon).iconLight).toBe('http://localhost:16001/safari');
+    expect(toolActivityIconSources(client, secondIcon).iconLight).toBe('http://localhost:16001/terminal');
+  });
   it('keeps old connection replies out of the new connection', async () => {
     let finish: (value: Obj) => void = () => {};
     const client = fixture([appIcon], async () => new Promise<Obj>(resolve => { finish = resolve; }));

@@ -1,0 +1,319 @@
+[
+  {
+    "at": "2026-10-05T17:28:28.992Z",
+    "connection": 2,
+    "direction": "client-to-server",
+    "method": "assets.createUrl",
+    "frame": {
+      "tag": "assets.createUrl",
+      "_tag": "Request",
+      "headers": "[REDACTED]",
+      "id": "1-5",
+      "payload": {
+        "resource": {
+          "_tag": "project-favicon",
+          "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project"
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:28:28.993Z",
+    "connection": 2,
+    "direction": "server-to-client",
+    "method": "assets.createUrl",
+    "frame": {
+      "_tag": "Exit",
+      "requestId": "1-5",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "relativeUrl": "/api/assets/[SIGNED_TOKEN_REDACTED]/project-favicon-missing",
+          "expiresAt": 1791223200000
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:28:49.980Z",
+    "connection": 2,
+    "direction": "client-to-server",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "id": "1-14",
+      "_tag": "Request",
+      "tag": "orchestration.getTurnItem",
+      "headers": "[REDACTED]",
+      "payload": {
+        "revision": "2026-10-05T16:42:54.489Z",
+        "threadId": "verify-timeline",
+        "itemId": "fixture-command"
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:28:49.981Z",
+    "connection": 2,
+    "direction": "server-to-client",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Exit",
+      "requestId": "1-14",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-command",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 1,
+            "status": "completed",
+            "title": "Verification command",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "command_execution",
+            "input": "printf \"verified output\"",
+            "output": "verified output\nsecond result line",
+            "exitCode": 0
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:28:49.981Z",
+    "connection": 2,
+    "event": "verification-fault",
+    "itemId": "fixture-command",
+    "rule": {
+      "delayMs": 6500
+    },
+    "original": {
+      "_tag": "Exit",
+      "requestId": "1-14",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-command",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 1,
+            "status": "completed",
+            "title": "Verification command",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "command_execution",
+            "input": "printf \"verified output\"",
+            "output": "verified output\nsecond result line",
+            "exitCode": 0
+          }
+        }
+      }
+    },
+    "delivered": {
+      "_tag": "Exit",
+      "requestId": "1-14",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-command",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 1,
+            "status": "completed",
+            "title": "Verification command",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "command_execution",
+            "input": "printf \"verified output\"",
+            "output": "verified output\nsecond result line",
+            "exitCode": 0
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:28:56.490Z",
+    "connection": 2,
+    "direction": "client-to-server",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "id": "1-16",
+      "_tag": "Request",
+      "tag": "orchestration.getTurnItem",
+      "headers": "[REDACTED]",
+      "payload": {
+        "revision": "2026-10-05T16:42:54.489Z",
+        "threadId": "verify-timeline",
+        "itemId": "fixture-read"
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:28:56.490Z",
+    "connection": 2,
+    "direction": "server-to-client",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Exit",
+      "requestId": "1-16",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-read",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 3,
+            "status": "completed",
+            "title": "Read fixture.txt",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "read",
+            "input": {
+              "file_path": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project/fixture.txt"
+            },
+            "output": "Timeline verification fixture\n"
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:28:56.491Z",
+    "connection": 2,
+    "event": "verification-fault",
+    "itemId": "fixture-read",
+    "rule": {
+      "delayMs": 2000
+    },
+    "original": {
+      "_tag": "Exit",
+      "requestId": "1-16",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-read",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 3,
+            "status": "completed",
+            "title": "Read fixture.txt",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "read",
+            "input": {
+              "file_path": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project/fixture.txt"
+            },
+            "output": "Timeline verification fixture\n"
+          }
+        }
+      }
+    },
+    "delivered": {
+      "_tag": "Exit",
+      "requestId": "1-16",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-read",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 3,
+            "status": "completed",
+            "title": "Read fixture.txt",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "read",
+            "input": {
+              "file_path": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project/fixture.txt"
+            },
+            "output": "Timeline verification fixture\n"
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:28:58.498Z",
+    "connection": 2,
+    "direction": "client-to-server",
+    "method": "assets.createUrl",
+    "frame": {
+      "id": "1-17",
+      "_tag": "Request",
+      "tag": "assets.createUrl",
+      "headers": "[REDACTED]",
+      "payload": {
+        "resource": {
+          "_tag": "native-app-icon",
+          "app": {
+            "_tag": "app-id",
+            "appId": "com.apple.finder"
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:28:58.499Z",
+    "connection": 2,
+    "direction": "server-to-client",
+    "method": "assets.createUrl",
+    "frame": {
+      "_tag": "Exit",
+      "requestId": "1-17",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "relativeUrl": "/api/assets/[SIGNED_TOKEN_REDACTED]/native-app-icon.png",
+          "expiresAt": 1791224938498
+        }
+      }
+    }
+  }
+]

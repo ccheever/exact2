@@ -1,0 +1,4217 @@
+{
+  "steps": [
+    {
+      "name": "before",
+      "at": "2026-10-05T17:57:12.841Z",
+      "clock": 2000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 11000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion",
+      "at": "2026-10-05T17:57:13.515Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [
+        {
+          "name": "shell",
+          "ticket": 470
+        }
+      ],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-0",
+      "at": "2026-10-05T17:57:13.633Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-1",
+      "at": "2026-10-05T17:57:13.745Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-2",
+      "at": "2026-10-05T17:57:13.858Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-3",
+      "at": "2026-10-05T17:57:13.969Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-4",
+      "at": "2026-10-05T17:57:14.085Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-5",
+      "at": "2026-10-05T17:57:14.200Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-6",
+      "at": "2026-10-05T17:57:14.318Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-7",
+      "at": "2026-10-05T17:57:14.438Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-8",
+      "at": "2026-10-05T17:57:14.550Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-9",
+      "at": "2026-10-05T17:57:14.667Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-10",
+      "at": "2026-10-05T17:57:14.782Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-11",
+      "at": "2026-10-05T17:57:14.898Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-12",
+      "at": "2026-10-05T17:57:15.010Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-13",
+      "at": "2026-10-05T17:57:15.122Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-14",
+      "at": "2026-10-05T17:57:15.238Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-15",
+      "at": "2026-10-05T17:57:15.349Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-16",
+      "at": "2026-10-05T17:57:15.461Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-17",
+      "at": "2026-10-05T17:57:15.573Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-18",
+      "at": "2026-10-05T17:57:15.686Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-19",
+      "at": "2026-10-05T17:57:15.804Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-20",
+      "at": "2026-10-05T17:57:15.923Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-21",
+      "at": "2026-10-05T17:57:16.044Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-22",
+      "at": "2026-10-05T17:57:16.157Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-23",
+      "at": "2026-10-05T17:57:16.270Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-24",
+      "at": "2026-10-05T17:57:16.386Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-25",
+      "at": "2026-10-05T17:57:16.507Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-26",
+      "at": "2026-10-05T17:57:16.620Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-27",
+      "at": "2026-10-05T17:57:16.732Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-28",
+      "at": "2026-10-05T17:57:16.845Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initial-completion-29",
+      "at": "2026-10-05T17:57:16.956Z",
+      "clock": 12000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:45.974Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "id": "1-40",
+            "tag": "server.refreshProviders",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:43:46.644Z",
+          "connection": 3,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "1-41"
+          }
+        },
+        {
+          "at": "2026-10-05T17:55:15.861Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "id": "1-37",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request"
+          }
+        },
+        {
+          "at": "2026-10-05T17:57:13.336Z",
+          "connection": 4,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]",
+            "_tag": "Request",
+            "id": "1-50"
+          }
+        }
+      ]
+    }
+  ]
+}

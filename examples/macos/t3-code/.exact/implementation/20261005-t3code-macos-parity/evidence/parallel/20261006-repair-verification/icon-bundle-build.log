@@ -1,0 +1,12 @@
+   Compiling macos-t3-code-apple v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/t3-code/examples/macos/t3-code/apple)
+    Finished `apple-dev` profile [optimized] target(s) in 27.30s
+host/apple: baked L=0; Swift embedded composition
+Building for production...
+[2 / 3] ExactMac-product
+[3 / 3] ExactMac-product
+Build complete! (0.85 sec)
+    Finished `release` profile [optimized] target(s) in 0.07s
+    Finished `release` profile [optimized] target(s) in 0.11s
+local client: /Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/clients/ce94f4294e3770442fa84099/com.exact.t3code.macos/macos/T3 Code.app
+  No development opening link: build with --url <dev server URL> to register one.
+host/apple: target/clients/ce94f4294e3770442fa84099/com.exact.t3code.macos/macos/aarch64-apple-darwin/embedded/development/standalone/ExactMac (cargo 28.1 s, swift 2.9 s; signed 0F0D033A); GPU: no GPU crate; web arm: libexact_web.dylib; modules: libexact_modules.dylib

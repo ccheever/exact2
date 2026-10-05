@@ -1,0 +1,3 @@
+PASS: Tab and Shift-Tab traverse disclosure/output/next control; focus, blur and scroll keys delivered
+Hidden dismissal hook is an extra Tab stop: true
+PASS: timestamp is reachable by Tab and Shift-Tab; focus/blur delivered

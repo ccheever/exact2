@@ -1,0 +1,9 @@
+{
+  "passed": true,
+  "startClock": 21000,
+  "beforeDeadline": 30000,
+  "atDeadline": 31000,
+  "initialCount": 8,
+  "finalCount": 9,
+  "nextDeadline": 41000
+}

@@ -2,7 +2,7 @@
 name: 20261005-right-panel-tab-menu
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
-verification: failed
+verification: blocked
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3code-parallel-features
@@ -184,7 +184,7 @@ Development results (2026-10-06):
 
 ## Next action
 
-Verification `failed` at `8498fdc8a`. Return the recorded functional finding to `implement`, then rerun affected acceptance and independent review. Keep this task active; no closure or PR publication.
+Verification is `blocked` after the authorized repair pass. The prior menu timeout was traced to nested agent settling during native menu tracking, not a demonstrated product bug. Complete mounted native rename, bulk actions, clipboard/input and relaunch acceptance in an interactive host with usable isolated credential storage; keep this task active until those checks pass.
 
 ## Combined integration, 2026-10-06
 
@@ -210,3 +210,14 @@ acceptance remains unverified. Local evidence: `/tmp/t3-parallel-final-native.lo
 **Result: failed.** 20 Bun and11 AppKit checks pass. Native file opening/context menu and late correct relative clipboard value observed. Both menu attempts leave the action unanswered beyond20s; first request is later cancelled by another action. Cause not established. Mounted device rename/bulk/relaunch remain unverified.
 
 See [live attempt](../evidence/parallel/20261006-live-verification/attempt.md), [capture report](../evidence/parallel/20261006-live-verification/checks-final/report.json), and [independent review](../reviews/20261006-parallel-verification.md). Source remained unchanged. No framework issue was resolved or closed by this app-only verification.
+
+## Authorized repair pass, 2026-10-06
+
+User explicitly requested repair and continuation through verification. Prior failed evidence remains preserved. Work uses Exact implement/verify guidance and stays app-owned; no framework changes or pixel-polish loop.
+
+
+## Bounded mounted acceptance, 2026-10-06
+
+The [menu run-loop reproduction](../evidence/tab-menu/20261006-menu-run-loop-repair/) explains the previous timeout: normal menu selection/Escape complete promptly, while nested `clock settle` delays completion until its bound. No production menu change was justified.
+
+The [mounted acceptance record](../evidence/tab-menu/20261006-mounted-acceptance/acceptance.md) proves five real Contract tabs, distinct host/device identities, visible native device-menu order, and inactive/active close-button neighbor selection. Native editor, bulk actions, middle click, keyboard menu and renamed relaunch acceptance remain unproved after the bounded input routes. A corrected normal-activation host then stalled before connection in `T3Credentials.save` → `SecItemAdd`; read-only process sampling establishes that prerequisite. Input evidence does not establish a new tab defect. The isolated normal host was closed afterwards. No task or framework issue is closed by these partial results.

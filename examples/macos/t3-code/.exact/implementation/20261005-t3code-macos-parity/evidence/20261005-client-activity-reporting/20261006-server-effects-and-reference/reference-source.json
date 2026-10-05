@@ -1,0 +1,8 @@
+{
+  "revision": "1e2ecbd9758830669684b494d4398f626b0576e0",
+  "original": "apps/web/src/lib/backgroundActivityReporter.ts",
+  "original_sha256": "6659acd565c89c1692c0d9593fe9cd7f7f8ce6fc7a6aa3508213de3a3ee5517f",
+  "export_copy_sha256": "de042e06f07b10693bc2939a4a677fe3d85b494c77e11b45fbe546133f2b2cc9",
+  "transformation": "Only add export to createActivityReport declaration",
+  "comparison": "Actual source function with controlled DOM, not Electron runtime"
+}

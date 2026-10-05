@@ -2,7 +2,7 @@
 name: 20261005-upstream-timeline-and-markdown
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
-verification: failed
+verification: blocked
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3code-parallel-features
@@ -140,7 +140,7 @@ Task stays active/unverified. The fixture runtime `f870c41` lacks `orchestration
 
 ## Next action
 
-Verification `failed` at `8498fdc8a`. Return the recorded functional finding to `implement`, then rerun affected acceptance and independent review. Keep this task active; no closure or PR publication.
+Verification remains `blocked` after the authorized repair pass. The final native frame-ID replay passes the output boundary regression; read overlap and the remaining attended tooltip acceptance lack valid live proof. See the final repair evidence below. Keep this task active; no closure or PR publication.
 
 ## Combined integration, 2026-10-06
 
@@ -166,3 +166,13 @@ acceptance remains unverified. Local evidence: `/tmp/t3-parallel-final-native.lo
 **Result: failed.** 158 Bun,10 Rust and11 native hook assertions pass; real pinned server output fetched and shown. Actual ExactKit Tab loop skips tool-output scroll region (acceptsFirstResponder/canBecomeKeyView/tabbable false). This is a functional acceptance failure. Remaining detailed live rows are listed in evidence.
 
 See [live attempt](../evidence/parallel/20261006-live-verification/attempt.md), [capture report](../evidence/parallel/20261006-live-verification/checks-final/report.json), and [independent review](../reviews/20261006-parallel-verification.md). Source remained unchanged. No framework issue was resolved or closed by this app-only verification.
+
+## Authorized repair pass, 2026-10-06
+
+User explicitly requested repair and continuation through verification. Prior failed evidence remains preserved. Work uses Exact implement/verify guidance and stays app-owned; no framework changes or pixel-polish loop.
+
+## Final targeted repair evidence, 2026-10-06
+
+Verification **blocked**, not closed. The final named native bundle passes the loaded-output boundary:334.88→334.88 after three Down keys→294.88 on the first Up. Actual native frames and source receipt: [frame-ID replay](../evidence/20261005-upstream-timeline-and-markdown/20261006-repair-verification/frame-id-agent/observations.md). Actual Tab/disclosure reachability and known-skill/rendering evidence remain in the preceding repair packets.
+
+The independent read slots preserve per-row output ownership. The [overlap attempt](../evidence/20261005-upstream-timeline-and-markdown/20261006-repair-verification/two-slot-agent/observations.md) cannot prove concurrent admission: the deterministic agent clock awaits A's replies before it advances the `then` callback for B. Independent review identifies this as a harness limitation, not a production serialization finding. Normal live mode is blocked on credential keychain insertion; no user keychain was modified. Focused-tooltip and attended wheel acceptance remain incomplete. Prior failed evidence is preserved; no pixel-perfect loop was performed.

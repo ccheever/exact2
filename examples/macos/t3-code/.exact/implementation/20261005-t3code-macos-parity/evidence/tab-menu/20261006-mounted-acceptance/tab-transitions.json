@@ -1,0 +1,218 @@
+{
+  "physical-double": [
+    {
+      "testId": "panel-tab-strip",
+      "selected": null,
+      "label": null
+    },
+    {
+      "testId": "panel-tab-file:fixture.txt",
+      "selected": false,
+      "label": null
+    },
+    {
+      "testId": "close-tab-file:fixture.txt",
+      "selected": null,
+      "label": "Close fixture.txt"
+    },
+    {
+      "testId": "tab-file:fixture.txt",
+      "selected": null,
+      "label": "fixture.txt"
+    },
+    {
+      "testId": "panel-tab-device:fixture-host-a:SIM-A",
+      "selected": true,
+      "label": null
+    },
+    {
+      "testId": "close-tab-device:fixture-host-a:SIM-A",
+      "selected": null,
+      "label": "Close Fixture iPhone A"
+    },
+    {
+      "testId": "tab-device:fixture-host-a:SIM-A",
+      "selected": null,
+      "label": "Fixture iPhone A"
+    },
+    {
+      "testId": "panel-tab-device:fixture-host-a:SIM-B",
+      "selected": false,
+      "label": null
+    },
+    {
+      "testId": "close-tab-device:fixture-host-a:SIM-B",
+      "selected": null,
+      "label": "Close Fixture iPhone B"
+    },
+    {
+      "testId": "tab-device:fixture-host-a:SIM-B",
+      "selected": null,
+      "label": "Fixture iPhone B"
+    },
+    {
+      "testId": "panel-tab-device:fixture-host-b:SIM-A",
+      "selected": false,
+      "label": null
+    },
+    {
+      "testId": "close-tab-device:fixture-host-b:SIM-A",
+      "selected": null,
+      "label": "Close Fixture Remote iPhone"
+    },
+    {
+      "testId": "tab-device:fixture-host-b:SIM-A",
+      "selected": null,
+      "label": "Fixture Remote iPhone"
+    },
+    {
+      "testId": "panel-tab-diff",
+      "selected": false,
+      "label": null
+    },
+    {
+      "testId": "close-tab-diff",
+      "selected": null,
+      "label": "Close Diff"
+    },
+    {
+      "testId": "tab-diff",
+      "selected": null,
+      "label": "Diff"
+    },
+    {
+      "testId": "panel-tab-scroll-buttons",
+      "selected": null,
+      "label": null
+    }
+  ],
+  "close-inactive": [
+    {
+      "testId": "panel-tab-strip",
+      "selected": null,
+      "label": null
+    },
+    {
+      "testId": "panel-tab-file:fixture.txt",
+      "selected": false,
+      "label": null
+    },
+    {
+      "testId": "close-tab-file:fixture.txt",
+      "selected": null,
+      "label": "Close fixture.txt"
+    },
+    {
+      "testId": "tab-file:fixture.txt",
+      "selected": null,
+      "label": "fixture.txt"
+    },
+    {
+      "testId": "panel-tab-device:fixture-host-a:SIM-A",
+      "selected": true,
+      "label": null
+    },
+    {
+      "testId": "close-tab-device:fixture-host-a:SIM-A",
+      "selected": null,
+      "label": "Close Fixture iPhone A"
+    },
+    {
+      "testId": "tab-device:fixture-host-a:SIM-A",
+      "selected": null,
+      "label": "Fixture iPhone A"
+    },
+    {
+      "testId": "panel-tab-device:fixture-host-b:SIM-A",
+      "selected": false,
+      "label": null
+    },
+    {
+      "testId": "close-tab-device:fixture-host-b:SIM-A",
+      "selected": null,
+      "label": "Close Fixture Remote iPhone"
+    },
+    {
+      "testId": "tab-device:fixture-host-b:SIM-A",
+      "selected": null,
+      "label": "Fixture Remote iPhone"
+    },
+    {
+      "testId": "panel-tab-diff",
+      "selected": false,
+      "label": null
+    },
+    {
+      "testId": "close-tab-diff",
+      "selected": null,
+      "label": "Close Diff"
+    },
+    {
+      "testId": "tab-diff",
+      "selected": null,
+      "label": "Diff"
+    },
+    {
+      "testId": "panel-tab-scroll-buttons",
+      "selected": null,
+      "label": null
+    }
+  ],
+  "close-active": [
+    {
+      "testId": "panel-tab-strip",
+      "selected": null,
+      "label": null
+    },
+    {
+      "testId": "panel-tab-file:fixture.txt",
+      "selected": false,
+      "label": null
+    },
+    {
+      "testId": "close-tab-file:fixture.txt",
+      "selected": null,
+      "label": "Close fixture.txt"
+    },
+    {
+      "testId": "tab-file:fixture.txt",
+      "selected": null,
+      "label": "fixture.txt"
+    },
+    {
+      "testId": "panel-tab-device:fixture-host-b:SIM-A",
+      "selected": true,
+      "label": null
+    },
+    {
+      "testId": "close-tab-device:fixture-host-b:SIM-A",
+      "selected": null,
+      "label": "Close Fixture Remote iPhone"
+    },
+    {
+      "testId": "tab-device:fixture-host-b:SIM-A",
+      "selected": null,
+      "label": "Fixture Remote iPhone"
+    },
+    {
+      "testId": "panel-tab-diff",
+      "selected": false,
+      "label": null
+    },
+    {
+      "testId": "close-tab-diff",
+      "selected": null,
+      "label": "Close Diff"
+    },
+    {
+      "testId": "tab-diff",
+      "selected": null,
+      "label": "Diff"
+    },
+    {
+      "testId": "panel-tab-scroll-buttons",
+      "selected": null,
+      "label": null
+    }
+  ]
+}

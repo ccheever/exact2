@@ -321,7 +321,7 @@ The Apple crate is a workspace member outside the default Cargo members; a Cargo
 build alone does not compile or launch its Swift module. Use the app build above
 for an integrated check.
 
-Every AppKit/XCTest binary under `apple/tests/<name>/` builds the same way: Exact's
+The module AppKit/XCTest binaries under `apple/tests/<name>/` build with Exact's
 module facade, the app's generated data keys, every file in `modules/apple/` (the
 `composer`, `menus` and `r5-panels` tests define their own `exactModule`, so they leave
 out `T3Module.swift`) and the test directory's sources. Run from the repository root:
@@ -332,6 +332,7 @@ R="$PWD/target/t3-tests"; mkdir -p "$R"; export T3_APP_DIR="$PWD/examples/macos/
 T3_DK="$R" bun -e 'import { writeDataKeys } from "./host/apple/data-keys.mjs"; import manifest from "./examples/macos/t3-code/app.json"; writeDataKeys({ manifest }, process.env.T3_DK + "/ExactDataKeys.swift");'
 for d in examples/macos/t3-code/apple/tests/*/; do
   n=$(basename "$d"); O="$R/$n"; mkdir -p "$O"
+  [ "$n" = timeline-keyboard ] && continue # Actual host regression; separate recipe below.
   M=$(ls examples/macos/t3-code/modules/apple/*.swift); case $n in composer|menus|r5-panels) M=$(echo "$M" | grep -v /T3Module.swift);; esac
   xcrun swiftc -swift-version 5 -module-name "T3$(echo $n | tr -d -)Tests" -F "$F" -I "$L" -L "$L" \
     -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \
@@ -339,6 +340,19 @@ for d in examples/macos/t3-code/apple/tests/*/; do
   [ $n = snapshot ] && { rm -rf "$O/fixture"; mkdir -p "$O/fixture"; export T3_SNAPSHOT_TEST_ROOT="$O/fixture"; }
   T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_MERMAID_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" "$O/$n-tests" $([ $n = mermaid ] && echo "$T3_SERVER")
 done
+```
+
+The `timeline-keyboard` regression uses the actual ExactKit key loop and scroll
+views. After building the macOS app, run it from the repository root:
+
+```sh
+mkdir -p target/t3-tests
+xcrun swiftc -swift-version 5 -module-name ExactKit -I host/apple/Sources/CExact \
+  $(rg --files host/apple/Sources/ExactKit -g '*.swift') \
+  examples/macos/t3-code/apple/tests/timeline-keyboard/main.swift \
+  -L target/aarch64-apple-darwin/apple-dev -lmacos_t3_code_apple -lc++ \
+  -o target/t3-tests/timeline-keyboard-tests
+target/t3-tests/timeline-keyboard-tests
 ```
 
 `mermaid` needs `T3_SERVER` set to a running T3 server's origin (it loads that server's

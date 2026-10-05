@@ -1,0 +1,18 @@
+   Compiling macos-t3-code-apple v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/t3-code/examples/macos/t3-code/apple)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 31.31s
+     Running unittests src/lib.rs (target/debug/deps/macos_t3_code_apple-ff28c19fc5d05209)
+
+running 10 tests
+test markdown::r4_integrate_align_tests::rules_give_each_table_its_column_alignment ... ok
+test markdown::tests::gaps_follow_collapsed_chat_markdown_margins ... ok
+test markdown::tests::isMarkdownFileLinkLabel_classifies_labels ... ok
+test markdown::tests::prose_with_inline_code_flows_word_by_word ... ok
+test markdown::tests::transcript_keeps_message_identity_and_parses_message_rows ... ok
+test markdown::tests::known_skills_render_outside_code_and_links_and_keep_copy_source ... ok
+test markdown::tests::prose_file_labels_survive_beside_one_chip ... ok
+test markdown::tests::user_text_keeps_line_breaks_and_draws_context_references_as_chips ... ok
+test markdown::tests::file_links_are_chips_and_web_links_lead_with_their_favicon ... ok
+test markdown::tests::tables_are_one_block_with_sizing_columns_and_copy_text ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

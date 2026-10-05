@@ -1,0 +1,2 @@
+examples/macos/t3-code/app.contract: 2156 slots, 20 derives, 42 resources, 1983 actions, 48014 nodes, 19801 regions, 9566049 bytes
+  nodes by component, inlined uses included: SurfacePanel 13826 (2×), BlockBody 12886 (17×), ChatColumn 11528 (1×), FlowRuns 10404 (68×), RightSheets 8777 (1×)

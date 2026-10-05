@@ -136,23 +136,28 @@ export async function syncToolActivityIcons(client: IconClient, native: Native, 
     if (previous && now - previous.at < 5 * 60_000) continue;
     const existing = pending.get(key);
     if (existing) { waits.push(existing); continue; }
-    const origin = client.origin;
-    const destination = cache, requests = pending;
-    const request = (async () => {
-      let src = previous?.src ?? '';
-      try {
-        const reply = obj(await client.rpc(native, 'assets.createUrl', { resource: { _tag: 'native-app-icon', app } }));
-        src = assetUrl(origin, str(reply.relativeUrl));
-      } catch { /* Keep an already drawn icon during a transient refresh failure. */ }
-      destination.set(key, { src, at: now });
-      if (destination.size > 128) destination.delete(destination.keys().next().value!);
-      requests.delete(key);
-      await wakeShell(native);
-    })();
+    // Pass iteration values as arguments: pinned Hermes does not preserve
+    // for-of block captures in an async IIFE after the loop advances.
+    const request = loadNativeToolIcon(client, native, app, key, previous, now, client.origin, cache, pending);
     pending.set(key, request);
     waits.push(request);
   }
   await Promise.all(waits);
+}
+
+async function loadNativeToolIcon(
+  client: IconClient, native: Native, app: Obj, key: string, previous: Asset | undefined,
+  now: number, origin: string, destination: Map<string, Asset>, requests: Map<string, Promise<void>>,
+): Promise<void> {
+  let src = previous?.src ?? '';
+  try {
+    const reply = obj(await client.rpc(native, 'assets.createUrl', { resource: { _tag: 'native-app-icon', app } }));
+    src = assetUrl(origin, str(reply.relativeUrl));
+  } catch { /* Keep an already drawn icon during a transient refresh failure. */ }
+  destination.set(key, { src, at: now });
+  if (destination.size > 128) destination.delete(destination.keys().next().value!);
+  requests.delete(key);
+  await wakeShell(native);
 }
 
 /** Pure readiness: snapshot rendering never waits for an icon URL. */

@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-10-05T17:15:45.557960+00:00",
+  "project_root": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code",
+  "recipe_sha256": "6fca4eb1a1597f9d50c5166fe09cf996e229d9be6472d6f245e01425f59ac042",
+  "environment": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.9.6 (default, Aug 25 2026, 21:26:21) \n[Clang 21.0.0 (clang-2100.3.34.2)]"
+  },
+  "source": {
+    "algorithm": "sha256",
+    "digest": "97705347923b0d571a4ef59f92ed08a3e38393e25e4bb03ea75c32b392a09818",
+    "entries": [
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-root-clock-retry/assert-capture.py",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e5a167132ac0987209da3d3d4c841e63584416e456582c887b32e1a21a2ae0f5"
+      },
+      {
+        "path": "examples/macos/t3-code/app.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "5c024664cf7b755046daf16853a7fd97446a59147f921c2639f2b2b089264a94"
+      },
+      {
+        "path": "examples/macos/t3-code/app.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c39b8ab5182635595c383b34e9319f9f8a72563dc5d13a0273dd089b37955495"
+      },
+      {
+        "path": "examples/macos/t3-code/apple/src/markdown.rs",
+        "kind": "file",
+        "executable": false,
+        "sha256": "bd7a0ddb94f00f275bbc669f4552e57c3e799fe425a80af36c6a039b07d7eefa"
+      },
+      {
+        "path": "examples/macos/t3-code/composer-editor.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e4a087acca341ac475d366125a857eb6c406aa570b2711b4b314b5cea774907b"
+      },
+      {
+        "path": "examples/macos/t3-code/composer-workspace-snapshots.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "ade86ec1aa7fb43808fa77e180fc6d1f759b2b055c86b5c8d82115e831dd9d72"
+      }
+    ]
+  },
+  "checks": [
+    {
+      "name": "Actual root10s workspace retry captured assertions",
+      "required": true,
+      "argv": [
+        "python3",
+        "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-root-clock-retry/assert-capture.py"
+      ],
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code",
+      "timeout_seconds": 60,
+      "started_at": "2026-10-05T17:15:45.565313+00:00",
+      "exit_code": 0,
+      "stdout": "001.stdout.log",
+      "stderr": "001.stderr.log",
+      "status": "passed",
+      "finished_at": "2026-10-05T17:15:45.588678+00:00"
+    }
+  ],
+  "status": "passed",
+  "source_after": {
+    "algorithm": "sha256",
+    "digest": "97705347923b0d571a4ef59f92ed08a3e38393e25e4bb03ea75c32b392a09818",
+    "entries": [
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-root-clock-retry/assert-capture.py",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e5a167132ac0987209da3d3d4c841e63584416e456582c887b32e1a21a2ae0f5"
+      },
+      {
+        "path": "examples/macos/t3-code/app.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "5c024664cf7b755046daf16853a7fd97446a59147f921c2639f2b2b089264a94"
+      },
+      {
+        "path": "examples/macos/t3-code/app.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c39b8ab5182635595c383b34e9319f9f8a72563dc5d13a0273dd089b37955495"
+      },
+      {
+        "path": "examples/macos/t3-code/apple/src/markdown.rs",
+        "kind": "file",
+        "executable": false,
+        "sha256": "bd7a0ddb94f00f275bbc669f4552e57c3e799fe425a80af36c6a039b07d7eefa"
+      },
+      {
+        "path": "examples/macos/t3-code/composer-editor.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e4a087acca341ac475d366125a857eb6c406aa570b2711b4b314b5cea774907b"
+      },
+      {
+        "path": "examples/macos/t3-code/composer-workspace-snapshots.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "ade86ec1aa7fb43808fa77e180fc6d1f759b2b055c86b5c8d82115e831dd9d72"
+      }
+    ]
+  },
+  "source_unchanged": true,
+  "finished_at": "2026-10-05T17:15:45.589835+00:00"
+}

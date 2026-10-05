@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "source_paths": [
+    "examples/macos/t3-code/app.contract",
+    "examples/macos/t3-code/app.ts",
+    "examples/macos/t3-code/composer-editor.ts",
+    "examples/macos/t3-code/composer-workspace-snapshots.ts",
+    "examples/macos/t3-code/apple/src/markdown.rs",
+    "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-root-clock-retry/assert-capture.py"
+  ],
+  "checks": [
+    {
+      "name": "Actual root10s workspace retry captured assertions",
+      "argv": [
+        "python3",
+        "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-root-clock-retry/assert-capture.py"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 60,
+      "required": true
+    }
+  ]
+}

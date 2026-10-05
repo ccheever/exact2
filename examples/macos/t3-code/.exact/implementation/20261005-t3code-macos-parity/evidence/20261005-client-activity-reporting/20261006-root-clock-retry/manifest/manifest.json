@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "task": "20261005-client-activity-reporting",
+  "captured_at": "2026-10-05T17:15:45.620540+00:00",
+  "source": {
+    "algorithm": "sha256",
+    "digest": "97705347923b0d571a4ef59f92ed08a3e38393e25e4bb03ea75c32b392a09818",
+    "entries": [
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-root-clock-retry/assert-capture.py",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e5a167132ac0987209da3d3d4c841e63584416e456582c887b32e1a21a2ae0f5"
+      },
+      {
+        "path": "examples/macos/t3-code/app.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "5c024664cf7b755046daf16853a7fd97446a59147f921c2639f2b2b089264a94"
+      },
+      {
+        "path": "examples/macos/t3-code/app.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c39b8ab5182635595c383b34e9319f9f8a72563dc5d13a0273dd089b37955495"
+      },
+      {
+        "path": "examples/macos/t3-code/apple/src/markdown.rs",
+        "kind": "file",
+        "executable": false,
+        "sha256": "bd7a0ddb94f00f275bbc669f4552e57c3e799fe425a80af36c6a039b07d7eefa"
+      },
+      {
+        "path": "examples/macos/t3-code/composer-editor.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e4a087acca341ac475d366125a857eb6c406aa570b2711b4b314b5cea774907b"
+      },
+      {
+        "path": "examples/macos/t3-code/composer-workspace-snapshots.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "ade86ec1aa7fb43808fa77e180fc6d1f759b2b055c86b5c8d82115e831dd9d72"
+      }
+    ]
+  },
+  "source_report_sha256": "c1e517d0b6652b246d3daabf22e1560fc60d532cc00a573ecbbe878978f7b21c",
+  "verification_status": "passed",
+  "notice": "Artifact integrity only; behavior requires independent acceptance assertions.",
+  "artifacts": [
+    {
+      "path": "evidence/20261005-client-activity-reporting/20261006-root-clock-retry/capture.json",
+      "bytes": 8106,
+      "sha256": "20fce832c9b811ed906bb2e749d7932313c57de9b06b11aa06dd6d58d16b96cb"
+    },
+    {
+      "path": "evidence/20261005-client-activity-reporting/20261006-root-clock-retry/attempt.md",
+      "bytes": 2516,
+      "sha256": "cf34cc0e2bda34920aa66e509d12e01e725475af8d0e0b93ea03a10d82c724ee"
+    }
+  ]
+}

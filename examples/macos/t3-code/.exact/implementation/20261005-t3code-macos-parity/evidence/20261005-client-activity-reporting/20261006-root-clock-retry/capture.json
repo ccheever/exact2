@@ -1,0 +1,213 @@
+{
+  "captures": [
+    {
+      "source_path": "target/t3-repair/gui/activity-before.json",
+      "sha256": "11f51aa27614d1bed9605ded0be37ece01ffc6940a30370a7ec663973e876ac4",
+      "clock": 0,
+      "slots": {
+        "workspaceRetryKey": "",
+        "workspaceRetryAt": 0,
+        "workspaceRefreshed": null
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": []
+    },
+    {
+      "source_path": "target/t3-repair/gui/activity-initial-refresh.json",
+      "sha256": "159f1087f631f6b5e78012807176080040a5ca1f5649074326a765ddb1cb23cd",
+      "clock": 1000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 11000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [
+        {
+          "name": "shell",
+          "ticket": 271
+        }
+      ],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        }
+      ]
+    },
+    {
+      "source_path": "target/t3-repair/gui/activity-before-retry-deadline.json",
+      "sha256": "a8fcbc5931f670e3963495d0c7eee1b4ae23aaab337b17bca57ea191bd42cdb7",
+      "clock": 10000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 11000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [
+        {
+          "name": "shell",
+          "ticket": 289
+        }
+      ],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        }
+      ]
+    },
+    {
+      "source_path": "target/t3-repair/gui/activity-at-retry-deadline.json",
+      "sha256": "984257b206374933786277d00d9ea94f2abc34fad7ef20879321848b09a2558d",
+      "clock": 11000,
+      "slots": {
+        "workspaceRetryKey": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "workspaceRetryAt": 21000,
+        "workspaceRefreshed": {
+          "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+          "retry": true
+        }
+      },
+      "workspaceDiscovery": {
+        "key": "[\"[\\\"ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720\\\",1,\\\"codex\\\",\\\"/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project\\\"]\",1]",
+        "needed": true
+      },
+      "pending": [
+        {
+          "name": "shell",
+          "ticket": 302
+        }
+      ],
+      "requests": [
+        {
+          "at": "2026-10-05T16:47:26.368Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "_tag": "Request",
+            "headers": "[REDACTED]",
+            "tag": "server.refreshProviders",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "id": "2-20"
+          }
+        },
+        {
+          "at": "2026-10-05T17:12:55.694Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "tag": "server.refreshProviders",
+            "_tag": "Request",
+            "id": "1-33",
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "headers": "[REDACTED]"
+          }
+        },
+        {
+          "at": "2026-10-05T17:13:50.069Z",
+          "connection": 1,
+          "direction": "client-to-server",
+          "method": "server.refreshProviders",
+          "frame": {
+            "payload": {
+              "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+              "instanceId": "codex"
+            },
+            "_tag": "Request",
+            "tag": "server.refreshProviders",
+            "headers": "[REDACTED]",
+            "id": "1-37"
+          }
+        }
+      ]
+    }
+  ],
+  "source": {
+    "app.contract": "5c024664cf7b755046daf16853a7fd97446a59147f921c2639f2b2b089264a94",
+    "app.ts": "c39b8ab5182635595c383b34e9319f9f8a72563dc5d13a0273dd089b37955495",
+    "composer-editor.ts": "e4a087acca341ac475d366125a857eb6c406aa570b2711b4b314b5cea774907b",
+    "composer-workspace-snapshots.ts": "ade86ec1aa7fb43808fa77e180fc6d1f759b2b055c86b5c8d82115e831dd9d72",
+    "apple/src/markdown.rs": "bd7a0ddb94f00f275bbc669f4552e57c3e799fe425a80af36c6a039b07d7eefa"
+  }
+}

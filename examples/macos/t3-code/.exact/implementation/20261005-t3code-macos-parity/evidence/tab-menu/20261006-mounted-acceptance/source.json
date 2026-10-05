@@ -1,0 +1,15 @@
+{
+  "baseCommit": "7444d59997c366f76fe71fa5024df3ff2ed41a8f",
+  "sources": {
+    "r4-surfaces.contract": "7eaab98ca3fd5a0738b07ecf70ad62124d3352a06aa7b28dd32c0a8de92e29bb",
+    "r4-surfaces-panel.ts": "a2cee3e2cdd5b56786fc0e90c386372f74f34f0acaacd52f2a5abf78ad5df72a",
+    "right-panel-tabs.ts": "be772774e4d5059613807cff6ef5ae37b39ad93713c55db716a6b108cb552a02",
+    "modules/apple/RightPanelTabsInput.swift": "c44363c8886ec394a9aa88e4b0543aec1c22435dc58eda093260c4128740b536",
+    "modules/apple/T3ContextMenu.swift": "a868b4534cdfac00c96b97c626a2c3472ea8033244ec268d7d2293fdfb2d6bb8",
+    "app.contract": "5c024664cf7b755046daf16853a7fd97446a59147f921c2639f2b2b089264a94",
+    "app.ts": "c39b8ab5182635595c383b34e9319f9f8a72563dc5d13a0273dd089b37955495",
+    "modules/apple/T3Module.swift": "535822e8f1daaf37caf3a3ac2047667e58a8ed555f41260d2e0cf960afc0cc5e"
+  },
+  "runtime": "target/t3-repair/gui/drive.mjs, timing platform; actual ExactMac PID24661; proxy16844 -> isolated runtime16843",
+  "result": "partial; native-input acceptance blocked"
+}

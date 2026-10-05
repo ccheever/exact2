@@ -1,0 +1,11 @@
+import {createActivityReport, observeBackgroundActivitySubscription} from './src/lib/activity-acceptance-export.ts';
+import * as Effect from 'effect/Effect';
+import * as DateTime from 'effect/DateTime';
+(globalThis as any).window={localStorage:{getItem:()=> 'normalized-id'},desktopBridge:{}};
+(globalThis as any).document={visibilityState:'visible',hasFocus:()=>true};
+const normalize=(r:any)=>({...r,observedAt:DateTime.formatIso(r.observedAt)});
+const release=await Effect.runPromise(observeBackgroundActivitySubscription({environmentId:'fixture-a' as any,method:'subscribeResourceTelemetry',input:{}}));
+console.log(JSON.stringify({active:normalize(createActivityReport('fixture-a' as any,10000,55000))}));
+await Effect.runPromise(release);
+(globalThis as any).document={visibilityState:'hidden',hasFocus:()=>false};
+console.log(JSON.stringify({background:normalize(createActivityReport('fixture-a' as any,10000,55001))}));

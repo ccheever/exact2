@@ -1,0 +1,6 @@
+{
+  "target/t3-verify/trace/proxy.mjs": "3b0dcc59083271b2d282d3789a321ca53094c598df52e282a0ea36eb1c5081fa",
+  "target/t3-ref/verify-runtime/acceptance-fixture.json": "438411e470a66b74cc032dfe3c14abf795b275019661aa086b460442fc8241e2",
+  "target/t3-ref/verify-runtime/project/.agents/skills/verify/SKILL.md": "22eb71d164103a7f682fef2658d05789d1828181bfefc5d833b1f47e3b24ca6b",
+  "target/t3-ref/verify-runtime/project/.claude/skills/verify/SKILL.md": "22eb71d164103a7f682fef2658d05789d1828181bfefc5d833b1f47e3b24ca6b"
+}

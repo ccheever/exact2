@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-10-05T17:07:27.015953+00:00",
+  "project_root": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code",
+  "recipe_sha256": "d4fdae5f05b7c52c2ad0f6d786b37249658178b8cfe0fe2ac4b8952aa17a1c13",
+  "environment": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.9.6 (default, Aug 25 2026, 21:26:21) \n[Clang 21.0.0 (clang-2100.3.34.2)]"
+  },
+  "source": {
+    "algorithm": "sha256",
+    "digest": "3486e820c015ce0ad9340dd1c17849941229acff8a78155823b8907d79cc0893",
+    "entries": [
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/assert-capture.py",
+        "kind": "file",
+        "executable": false,
+        "sha256": "2d59f865331b612705bf665613ce5d482edb58edeec1d39666ad5de0ed2ce32b"
+      },
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "725dcfefeb970b69dc5a665dc4c9c45d22ff8e7a2191c92fab6c0299ec0b2dfc"
+      },
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/reference-probe.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "75f24a60792a766709cc5298f132b28eb4a3ca3313c11700b60b42bb1d23a56d"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3ActivityReporter.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "144edcd8e69a2d0eb0a85d781311c81247d7901da16e3721f1a67401a8cee08b"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3Credentials.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f710bcb9cace09f2154ab79ed7a11725939e1916bbacf959b4fe05e52e3e00e1"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3Fleet.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "28c8c59aead1e4503be754de02ecca340cc5c991d3ac10d95c89645c11e93f1d"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3Protocol.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "eb1b3cb8a802a3c3d0131e6b5822c1dfb14d10618466350689cfd5140779fd1d"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3Transport.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "3a22d19c22dc364dbdcb047e9c2a5631b7d53c3f66ec79abe4fc23f364e52fb6"
+      }
+    ]
+  },
+  "checks": [
+    {
+      "name": "Captured real-server lease effects, fleet and executed reference payload comparison",
+      "required": true,
+      "argv": [
+        "python3",
+        "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/assert-capture.py"
+      ],
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code",
+      "timeout_seconds": 60,
+      "started_at": "2026-10-05T17:07:27.024805+00:00",
+      "exit_code": 0,
+      "stdout": "001.stdout.log",
+      "stderr": "001.stderr.log",
+      "status": "passed",
+      "finished_at": "2026-10-05T17:07:27.065248+00:00"
+    }
+  ],
+  "status": "passed",
+  "source_after": {
+    "algorithm": "sha256",
+    "digest": "3486e820c015ce0ad9340dd1c17849941229acff8a78155823b8907d79cc0893",
+    "entries": [
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/assert-capture.py",
+        "kind": "file",
+        "executable": false,
+        "sha256": "2d59f865331b612705bf665613ce5d482edb58edeec1d39666ad5de0ed2ce32b"
+      },
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "725dcfefeb970b69dc5a665dc4c9c45d22ff8e7a2191c92fab6c0299ec0b2dfc"
+      },
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/reference-probe.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "75f24a60792a766709cc5298f132b28eb4a3ca3313c11700b60b42bb1d23a56d"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3ActivityReporter.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "144edcd8e69a2d0eb0a85d781311c81247d7901da16e3721f1a67401a8cee08b"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3Credentials.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f710bcb9cace09f2154ab79ed7a11725939e1916bbacf959b4fe05e52e3e00e1"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3Fleet.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "28c8c59aead1e4503be754de02ecca340cc5c991d3ac10d95c89645c11e93f1d"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3Protocol.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "eb1b3cb8a802a3c3d0131e6b5822c1dfb14d10618466350689cfd5140779fd1d"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3Transport.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "3a22d19c22dc364dbdcb047e9c2a5631b7d53c3f66ec79abe4fc23f364e52fb6"
+      }
+    ]
+  },
+  "source_unchanged": true,
+  "finished_at": "2026-10-05T17:07:27.066196+00:00"
+}

@@ -1,0 +1,5 @@
+1.047 open
+2.118 settle enter
+5.135 settle exit complete=false
+5.457 reply ["ok": true, "generation": 1, "value": ["clicked": "copy"]]
+5.461 main-queue continuation

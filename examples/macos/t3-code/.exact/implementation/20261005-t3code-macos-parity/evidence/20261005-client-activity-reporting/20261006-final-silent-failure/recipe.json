@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "source_paths": [
+    "examples/macos/t3-code/app.contract",
+    "examples/macos/t3-code/app.ts",
+    "examples/macos/t3-code/app.json",
+    "examples/macos/t3-code/modules/apple/T3ActivityReporter.swift",
+    "examples/macos/t3-code/modules/apple/T3Transport.swift",
+    "examples/macos/t3-code/modules/apple/T3Fleet.swift",
+    "examples/macos/t3-code/modules/apple/T3Module.swift",
+    "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-final-silent-failure/assert-capture.py",
+    "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-final-silent-failure/acceptance-exact-deadline.mjs",
+    "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-final-silent-failure/silent-before.json",
+    "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-final-silent-failure/silent-after.json",
+    "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-final-silent-failure/captured-source.json",
+    "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-final-silent-failure/bundle-receipt-check.json"
+  ],
+  "checks": [
+    {
+      "name": "Final main-app silent backendfailure captured assertions",
+      "argv": [
+        "python3",
+        "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-final-silent-failure/assert-capture.py"
+      ],
+      "cwd": ".",
+      "required": true,
+      "timeout_seconds": 60
+    }
+  ]
+}

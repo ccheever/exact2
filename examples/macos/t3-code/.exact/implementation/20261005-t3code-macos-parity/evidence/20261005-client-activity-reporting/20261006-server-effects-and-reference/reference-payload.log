@@ -1,0 +1,2 @@
+{"active":{"environmentId":"fixture-a","clientId":"normalized-id","clientKind":"desktop-renderer","visible":true,"focused":true,"recentlyInteracted":true,"appState":"active","scopes":[{"type":"provider-status"},{"type":"diagnostics"}],"ttlMs":45000,"observedAt":"1970-01-01T00:00:55.000Z"}}
+{"background":{"environmentId":"fixture-a","clientId":"normalized-id","clientKind":"desktop-renderer","visible":false,"focused":false,"recentlyInteracted":false,"appState":"background","scopes":[{"type":"provider-status"}],"ttlMs":45000,"observedAt":"1970-01-01T00:00:55.001Z"}}

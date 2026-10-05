@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "task": "20261005-client-activity-reporting",
+  "captured_at": "2026-10-05T17:07:34.297789+00:00",
+  "source": {
+    "algorithm": "sha256",
+    "digest": "3486e820c015ce0ad9340dd1c17849941229acff8a78155823b8907d79cc0893",
+    "entries": [
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/assert-capture.py",
+        "kind": "file",
+        "executable": false,
+        "sha256": "2d59f865331b612705bf665613ce5d482edb58edeec1d39666ad5de0ed2ce32b"
+      },
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "725dcfefeb970b69dc5a665dc4c9c45d22ff8e7a2191c92fab6c0299ec0b2dfc"
+      },
+      {
+        "path": "examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/reference-probe.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "75f24a60792a766709cc5298f132b28eb4a3ca3313c11700b60b42bb1d23a56d"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3ActivityReporter.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "144edcd8e69a2d0eb0a85d781311c81247d7901da16e3721f1a67401a8cee08b"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3Credentials.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f710bcb9cace09f2154ab79ed7a11725939e1916bbacf959b4fe05e52e3e00e1"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3Fleet.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "28c8c59aead1e4503be754de02ecca340cc5c991d3ac10d95c89645c11e93f1d"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3Protocol.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "eb1b3cb8a802a3c3d0131e6b5822c1dfb14d10618466350689cfd5140779fd1d"
+      },
+      {
+        "path": "examples/macos/t3-code/modules/apple/T3Transport.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "3a22d19c22dc364dbdcb047e9c2a5631b7d53c3f66ec79abe4fc23f364e52fb6"
+      }
+    ]
+  },
+  "source_report_sha256": "08cfa70b9f72847346726f8b540ed3966ab6c052a72161d8ce3d844f2efd299d",
+  "verification_status": "passed",
+  "notice": "Artifact integrity only; behavior requires independent acceptance assertions.",
+  "artifacts": [
+    {
+      "path": "evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/wire.log",
+      "bytes": 168049,
+      "sha256": "7e6319e9e99bf80151909c9ef2956eea95a9dcefb4636fd7c8164bad720166f3"
+    },
+    {
+      "path": "evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/reference-payload.log",
+      "bytes": 570,
+      "sha256": "d72e848a08a7e423cdd19ede05f8fb18791ac8600d64f5bd8d939a47afc0b736"
+    },
+    {
+      "path": "evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/attempt.md",
+      "bytes": 4954,
+      "sha256": "52ddc34bb7395603218f3dff9a827cac59f095f3f2451ead4b2cf92733ef250f"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "app.contract": "563515a23eb3e6ef411526c05fe8eb5b876f136d6377c55675645148f1270535",
+  "app.ts": "c39b8ab5182635595c383b34e9319f9f8a72563dc5d13a0273dd089b37955495",
+  "composer-editor.ts": "e4a087acca341ac475d366125a857eb6c406aa570b2711b4b314b5cea774907b",
+  "composer-workspace-snapshots.ts": "ade86ec1aa7fb43808fa77e180fc6d1f759b2b055c86b5c8d82115e831dd9d72",
+  "apple/src/markdown.rs": "bd7a0ddb94f00f275bbc669f4552e57c3e799fe425a80af36c6a039b07d7eefa",
+  "modules/apple/T3ActivityReporter.swift": "144edcd8e69a2d0eb0a85d781311c81247d7901da16e3721f1a67401a8cee08b",
+  "modules/apple/T3Transport.swift": "3a22d19c22dc364dbdcb047e9c2a5631b7d53c3f66ec79abe4fc23f364e52fb6",
+  "modules/apple/T3Fleet.swift": "28c8c59aead1e4503be754de02ecca340cc5c991d3ac10d95c89645c11e93f1d",
+  "modules/apple/T3Module.swift": "535822e8f1daaf37caf3a3ac2047667e58a8ed555f41260d2e0cf960afc0cc5e"
+}

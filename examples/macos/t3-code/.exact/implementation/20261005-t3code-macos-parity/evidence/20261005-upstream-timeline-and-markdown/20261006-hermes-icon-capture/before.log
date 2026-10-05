@@ -1,0 +1,8 @@
+FAIL TypeError: Cannot read property 'set' of undefined
+    at ?anon_0_ (examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-upstream-timeline-and-markdown/20261006-hermes-icon-capture/before.js:11:19)
+    at next (native)
+    at anonymous (address at InternalBytecode.js:1:42127)
+    at step (address at InternalBytecode.js:1:39929)
+    at anonymous (address at InternalBytecode.js:1:41030)
+    at tryCallOne (address at InternalBytecode.js:1:27620)
+    at anonymous (address at InternalBytecode.js:1:37025)

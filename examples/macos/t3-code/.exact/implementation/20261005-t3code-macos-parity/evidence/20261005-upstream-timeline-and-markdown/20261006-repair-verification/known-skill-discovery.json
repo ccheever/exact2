@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "server.refreshProviders",
+    "payload": {
+      "instanceId": "claudeAgent",
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project"
+    },
+    "reportPaths": [
+      "providers.1.workspaceSnapshots"
+    ]
+  },
+  "rpcStatus": "Success",
+  "instanceId": "claudeAgent",
+  "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project",
+  "skills": [
+    {
+      "name": "verify",
+      "description": "Isolated timeline verification fixture skill.",
+      "path": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project/.claude/skills/verify/SKILL.md",
+      "scope": "project",
+      "enabled": true
+    }
+  ],
+  "slashCommandsPending": false
+}

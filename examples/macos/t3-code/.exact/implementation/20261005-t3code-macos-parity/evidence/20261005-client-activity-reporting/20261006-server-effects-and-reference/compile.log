@@ -1,0 +1,24 @@
+examples/macos/t3-code/modules/apple/R8KeysMenus.swift:98:45: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 96 | 
+ 97 |     @objc func undo(_ sender: Any?) {
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+    |                                             `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+
+examples/macos/t3-code/modules/apple/R8KeysMenus.swift:100:26: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+    |                          `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+101 |     }
+102 |     @objc func closeWindow(_ sender: Any?) {
+target/t3-verify/activity-repair/main.swift:7:44: warning: 'init(contentsOf:)' was deprecated in macOS 15: Use `init(contentsOf:encoding:)` instead [#DeprecatedDeclaration]
+ 5 | func call(_ t:T3Transport,_ req:[String:Any])->[String:Any] { var result:[String:Any]?;t.perform(req){result=$0};let end=Date().addingTimeInterval(35);while result == nil && Date()<end {wait(0.01)};guard let result else {fatalError("timeout")};if result["ok"] as? Bool != true {emit("FAIL",result)};return result["value"] as? [String:Any] ?? [:] }
+ 6 | func rpc(_ t:T3Transport,_ method:String,_ payload:[String:Any]=[:])->[String:Any] {call(t,["op":"request","method":method,"payload":payload])}
+ 7 | func token(_ port:Int)->String {let s=try! String(contentsOf:base.appendingPathComponent("\(port)/pair.txt"));return s.components(separatedBy:"\n").first{$0.hasPrefix("Token: ")}!.replacingOccurrences(of:"Token: ",with:"")}
+   |                                            `- warning: 'init(contentsOf:)' was deprecated in macOS 15: Use `init(contentsOf:encoding:)` instead [#DeprecatedDeclaration]
+ 8 | let creds=T3Credentials(persistent:false),saved=T3SavedEnvironments(persistent:false)
+ 9 | let baseline=T3Transport(persistent:false,credentials:creds,savedEnvironments:saved,changed:{_ in})
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>

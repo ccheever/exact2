@@ -1,0 +1,3 @@
+Known $verify skill. Price $5 stays plain; code `$verify` stays plain; [linked $verify](https://example.test) stays a link.
+
+Review [parser](fixture.txt:3), [fixture.txt](fixture.txt), [fixture.txt:3](fixture.txt:3).

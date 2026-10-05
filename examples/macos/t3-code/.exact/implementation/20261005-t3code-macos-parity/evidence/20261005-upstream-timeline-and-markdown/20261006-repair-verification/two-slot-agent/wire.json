@@ -1,0 +1,445 @@
+[
+  {
+    "at": "2026-10-05T17:54:57.129Z",
+    "connection": 4,
+    "direction": "client-to-server",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Request",
+      "payload": {
+        "revision": "2026-10-05T16:42:54.489Z",
+        "threadId": "verify-timeline",
+        "itemId": "fixture-read"
+      },
+      "headers": "[REDACTED]",
+      "id": "1-33",
+      "tag": "orchestration.getTurnItem"
+    }
+  },
+  {
+    "at": "2026-10-05T17:54:57.130Z",
+    "connection": 4,
+    "direction": "client-to-server",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Request",
+      "payload": {
+        "revision": "2026-10-05T16:42:54.489Z",
+        "threadId": "verify-timeline",
+        "itemId": "fixture-command"
+      },
+      "headers": "[REDACTED]",
+      "id": "1-34",
+      "tag": "orchestration.getTurnItem"
+    }
+  },
+  {
+    "at": "2026-10-05T17:54:57.131Z",
+    "connection": 4,
+    "direction": "server-to-client",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Exit",
+      "requestId": "1-33",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-read",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 3,
+            "status": "completed",
+            "title": "Read fixture.txt",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "read",
+            "input": {
+              "file_path": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project/fixture.txt"
+            },
+            "output": "Timeline verification fixture\n"
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:54:57.131Z",
+    "connection": 4,
+    "direction": "server-to-client",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Exit",
+      "requestId": "1-34",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-command",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 1,
+            "status": "completed",
+            "title": "Verification command",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "command_execution",
+            "input": "printf \"verified output\"",
+            "output": "verified output\nsecond result line",
+            "exitCode": 0
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:55:15.861Z",
+    "connection": 4,
+    "direction": "client-to-server",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "id": "1-35",
+      "tag": "orchestration.getTurnItem",
+      "payload": {
+        "revision": "2026-10-05T16:42:54.489Z",
+        "threadId": "verify-timeline",
+        "itemId": "fixture-dynamic"
+      },
+      "headers": "[REDACTED]",
+      "_tag": "Request"
+    }
+  },
+  {
+    "at": "2026-10-05T17:55:15.864Z",
+    "connection": 4,
+    "direction": "server-to-client",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Exit",
+      "requestId": "1-35",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "id": "fixture-dynamic",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 12,
+            "status": "completed",
+            "title": "Independent dynamic output",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "lookup",
+            "input": {
+              "query": "fixture"
+            },
+            "output": "Independent dynamic detail\nLong output line 0\nLong output line 1\nLong output line 2\nLong output line 3\nLong output line 4\nLong output line 5\nLong output line 6\nLong output line 7\nLong output line 8\nLong output line 9\nLong output line 10\nLong output line 11\nLong output line 12\nLong output line 13\nLong output line 14\nLong output line 15\nLong output line 16\nLong output line 17\nLong output line 18\nLong output line 19\nLong output line 20\nLong output line 21\nLong output line 22\nLong output line 23\nLong output line 24\nLong output line 25\nLong output line 26\nLong output line 27\nLong output line 28\nLong output line 29"
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:55:55.025Z",
+    "connection": 4,
+    "direction": "client-to-server",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "id": "1-44",
+      "payload": {
+        "revision": "2026-10-05T16:42:54.489Z",
+        "threadId": "verify-timeline",
+        "itemId": "fixture-website"
+      },
+      "headers": "[REDACTED]",
+      "_tag": "Request",
+      "tag": "orchestration.getTurnItem"
+    }
+  },
+  {
+    "at": "2026-10-05T17:55:55.026Z",
+    "connection": 4,
+    "direction": "server-to-client",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Exit",
+      "requestId": "1-44",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "toolIcon": {
+              "_tag": "website",
+              "pageUrl": "https://example.test/proof",
+              "faviconUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGMQqXgGRwzEcQBMchch22JQegAAAABJRU5ErkJggg==",
+              "faviconUrlDark": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEUlEQVR4nGN4tkUEjhiI4wAAyDIa4dUGXe4AAAAASUVORK5CYII="
+            },
+            "id": "fixture-website",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 6,
+            "status": "completed",
+            "title": "Icon website",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "fixture_website",
+            "input": {
+              "proof": "website"
+            },
+            "output": "Output owned by website"
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:55:55.026Z",
+    "connection": 4,
+    "event": "verification-fault",
+    "itemId": "fixture-website",
+    "rule": {
+      "delayMs": 15000
+    },
+    "original": {
+      "_tag": "Exit",
+      "requestId": "1-44",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "toolIcon": {
+              "_tag": "website",
+              "pageUrl": "https://example.test/proof",
+              "faviconUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGMQqXgGRwzEcQBMchch22JQegAAAABJRU5ErkJggg==",
+              "faviconUrlDark": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEUlEQVR4nGN4tkUEjhiI4wAAyDIa4dUGXe4AAAAASUVORK5CYII="
+            },
+            "id": "fixture-website",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 6,
+            "status": "completed",
+            "title": "Icon website",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "fixture_website",
+            "input": {
+              "proof": "website"
+            },
+            "output": "Output owned by website"
+          }
+        }
+      }
+    },
+    "delivered": {
+      "_tag": "Exit",
+      "requestId": "1-44",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "toolIcon": {
+              "_tag": "website",
+              "pageUrl": "https://example.test/proof",
+              "faviconUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGMQqXgGRwzEcQBMchch22JQegAAAABJRU5ErkJggg==",
+              "faviconUrlDark": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEUlEQVR4nGN4tkUEjhiI4wAAyDIa4dUGXe4AAAAASUVORK5CYII="
+            },
+            "id": "fixture-website",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 6,
+            "status": "completed",
+            "title": "Icon website",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "fixture_website",
+            "input": {
+              "proof": "website"
+            },
+            "output": "Output owned by website"
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:56:10.096Z",
+    "connection": 4,
+    "direction": "client-to-server",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "id": "1-46",
+      "payload": {
+        "revision": "2026-10-05T16:42:54.489Z",
+        "threadId": "verify-timeline",
+        "itemId": "fixture-themed"
+      },
+      "headers": "[REDACTED]",
+      "tag": "orchestration.getTurnItem",
+      "_tag": "Request"
+    }
+  },
+  {
+    "at": "2026-10-05T17:56:10.097Z",
+    "connection": 4,
+    "direction": "server-to-client",
+    "method": "orchestration.getTurnItem",
+    "frame": {
+      "_tag": "Exit",
+      "requestId": "1-46",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "toolIcon": {
+              "_tag": "themed-logo",
+              "logoUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGMQqXgGRwzEcQBMchch22JQegAAAABJRU5ErkJggg==",
+              "logoUrlDark": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEUlEQVR4nGN4tkUEjhiI4wAAyDIa4dUGXe4AAAAASUVORK5CYII="
+            },
+            "id": "fixture-themed",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 7,
+            "status": "completed",
+            "title": "Icon themed",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "fixture_themed",
+            "input": {
+              "proof": "themed"
+            },
+            "output": "Output owned by themed"
+          }
+        }
+      }
+    }
+  },
+  {
+    "at": "2026-10-05T17:56:10.097Z",
+    "connection": 4,
+    "event": "verification-fault",
+    "itemId": "fixture-themed",
+    "rule": {
+      "delayMs": 2000
+    },
+    "original": {
+      "_tag": "Exit",
+      "requestId": "1-46",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "toolIcon": {
+              "_tag": "themed-logo",
+              "logoUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGMQqXgGRwzEcQBMchch22JQegAAAABJRU5ErkJggg==",
+              "logoUrlDark": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEUlEQVR4nGN4tkUEjhiI4wAAyDIa4dUGXe4AAAAASUVORK5CYII="
+            },
+            "id": "fixture-themed",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 7,
+            "status": "completed",
+            "title": "Icon themed",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "fixture_themed",
+            "input": {
+              "proof": "themed"
+            },
+            "output": "Output owned by themed"
+          }
+        }
+      }
+    },
+    "delivered": {
+      "_tag": "Exit",
+      "requestId": "1-46",
+      "exit": {
+        "_tag": "Success",
+        "value": {
+          "item": {
+            "toolIcon": {
+              "_tag": "themed-logo",
+              "logoUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGMQqXgGRwzEcQBMchch22JQegAAAABJRU5ErkJggg==",
+              "logoUrlDark": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEUlEQVR4nGN4tkUEjhiI4wAAyDIa4dUGXe4AAAAASUVORK5CYII="
+            },
+            "id": "fixture-themed",
+            "threadId": "verify-timeline",
+            "runId": null,
+            "nodeId": null,
+            "providerThreadId": null,
+            "providerTurnId": null,
+            "nativeItemRef": null,
+            "parentItemId": null,
+            "ordinal": 7,
+            "status": "completed",
+            "title": "Icon themed",
+            "startedAt": "2026-10-05T16:42:54.489Z",
+            "completedAt": "2026-10-05T16:42:54.489Z",
+            "updatedAt": "2026-10-05T16:42:54.489Z",
+            "type": "dynamic_tool",
+            "toolName": "fixture_themed",
+            "input": {
+              "proof": "themed"
+            },
+            "output": "Output owned by themed"
+          }
+        }
+      }
+    }
+  }
+]
