@@ -233,6 +233,9 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       // the page 1-10 px low in some runs. Off, on every target.
       addEventListener('DOMContentLoaded', () => { document.documentElement.style.overscrollBehavior = 'none'; });
     ` });
+    // The page has the focus, as a person's page does and as Playwright makes it: an unfocused page's `focus()`
+    // (the document's autofocus at boot) moved the focus and fired no `focus` event, which iOS fires (splitter rough 13).
+    await call('Emulation.setFocusEmulationEnabled', { enabled: true });
     // The viewport exactly: Chrome will not make a window narrower than 500.
     await call('Emulation.setDeviceMetricsOverride', { width: size[0], height: size[1], deviceScaleFactor: 1, mobile: false });
     const evaluate = async (expression, timeoutMs) => {
