@@ -249,3 +249,18 @@ fn border_radius_takes_one_to_four_corners() {
         "{e}"
     );
 }
+
+#[test]
+fn a_numeric_border_says_to_quote_the_shorthand() {
+    let error =
+        contract::compile("component App\n  view\n    view border=0 testId=\"b\"\n").unwrap_err();
+    assert_eq!(
+        (error.id.as_str(), error.message.as_str()),
+        (
+            "lower-css-shorthand",
+            "`border=0`: a CSS shorthand is a string, so write `border=\"0\"`"
+        )
+    );
+    // The quoted form it names compiles.
+    contract::compile("component App\n  view\n    view border=\"0\" testId=\"b\"\n").unwrap();
+}

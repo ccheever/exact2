@@ -51,6 +51,8 @@ pub(crate) fn component(value: &Expr, name: &str, index: usize) -> Result<Expr, 
                 } else { Expr::Str(part, *span) };
             }
         }
+        // A number where CSS writes a shorthand string (authoring bench: `border=0`, three builders).
+        Expr::Number(n, span) => return err("lower-css-shorthand", format!("`{name}={n}`: a CSS shorthand is a string, so write `{name}=\"{n}\"`"), *span),
         _ => return err("lower-css-shorthand", format!("`{name}` takes a literal CSS shorthand or a choice of literals; computed strings cannot be split into longhands"), value.span()),
     }
     Ok(out)
