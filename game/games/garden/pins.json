@@ -1,22 +1,22 @@
 {
   "ticks": {
-    "0": "0xa456a9eeb80ce016",
-    "5136": "0x92fc8962d7dd10e6"
+    "0": "0xffb9afeca600c436",
+    "5136": "0xf5320646af873dfa"
   },
   "saves": {
-    "continuation": "9e67f4981bfa7b4975b1ac0dba6a2f21344c69cbae8955108eb0f652246bd584",
-    "market": "b5ed1f3cbaff015493045911568c3d4a802c8947a7e659865397dab4442bb3e5",
-    "recovery": "f85d90a2630960cb4f6a2cf7fd8cc46a5384ce76c6c054833e5d629d8f06a46b",
-    "watering": "5e6966ece2440813c4109765f7faa77ac334fcc6872e31edc11d4a610fba40ab",
-    "compost": "b20a7c121da2f1a74e3dc5aaabaeeb9f91fa1bd7a34dbe80e95b417f3f216440"
+    "continuation": "1be56ee1b907c489bc98d643702e55a02d7a6cd70fe7437036e07b5e13fcaf82",
+    "market": "bbe7283d08e85e55f71ae60d950099694c1e20f03efc77eafd2ad161826a56b3",
+    "recovery": "bec49eb335491dd898c5a01e3f8c3fc065fe3b44f933df88959e333e81c446fa",
+    "watering": "22224ca58e8373d1ba65138c4c24d36a29c1fc1eb6782b1bfd49f59305e7d203",
+    "compost": "b965cc608256cd11befbd9ef2c132bc31a867dd61ba365910c846e1d95214fe7"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "d9be9459e5ab3ddf4b886368175e2327a6aba2716db2d69856010be1fddc8f40",
+  "inputs": "383249d067c257c22f098b3f285b0eb4ba78b1dad1d928f50b393f11b890c0da",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "6c40122fd22de5c1c82e8e7e51f7904a07dd5b00",
-  "reason": "Authored gardener and crop models, fixed orchard scenery and lighting; generated asset identities and saved scene match across hosts"
+  "at": "9731da5b537626be2289964b3c43078db2c31a3a",
+  "reason": "Saved gardener gestures, bounded action effects and sound; crop timing and rewards unchanged in the before/after slice"
 }

@@ -1636,3 +1636,23 @@ boot 0.015 s). All 81 test binaries pass 2,436 cases, with nine ignored.
 Logs: `/tmp/exact2-garden-feel-root-*.log`. A periodic fetch finds nine new
 main commits through `e55e2c27b`; they stay outside this frozen comparison
 and can be integrated after accepting its baseline.
+
+The strict baseline is accepted at `9731da5b5`, with input digest
+`383249d067c257c22f098b3f285b0eb4ba78b1dad1d928f50b393f11b890c0da`.
+All seven drives agree: Linux Off/Save/FreshGame in 6.360/7.321/7.576 s,
+web in 118.666/123.463/118.571 s, and native release in 29.372 s including
+its build. Restoring the ordinary web bundle takes 22.597 s. Every drive has
+zero failures and an available process audit with no remaining children.
+Both earlier full web/Mac candidate drives match these accepted inputs and
+pins exactly, so they were not repeated just to change their status label.
+Artifacts: `artifacts/prove/run-d0nirU/`; summary:
+`/tmp/exact2-garden-feel-repin-summary.json`.
+
+After the proof finishes, the existing offscreen release benchmark renders
+180 frames at 1280 × 720 for 100/1,000 grown plants: mean 2.0/2.1 ms,
+p95 2.4/2.6, max 2.8/2.9. There are 249/2,249 entities, 123 draws and
+46,669/351,869 triangles. The prior art-only run had means of 1.7/1.7 ms
+and 115 draws; these separate bounded runs show added presentation cost,
+not a controlled speed regression estimate or a browser FPS result.
+Log: `/tmp/exact2-garden-feel-render.log`. This candidate is mechanically
+verified and visually inspected; no human preference result has been collected.
