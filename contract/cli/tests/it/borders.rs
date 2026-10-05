@@ -263,4 +263,19 @@ fn a_numeric_border_says_to_quote_the_shorthand() {
     );
     // The quoted form it names compiles.
     contract::compile("component App\n  view\n    view border=\"0\" testId=\"b\"\n").unwrap();
+    let error =
+        contract::compile("component App\n  view\n    view border-top=2 testId=\"b\"\n").unwrap_err();
+    assert_eq!(
+        error.message,
+        "`border-top=2`: a CSS shorthand is a string, as CSS writes it: `border-top=\"2px solid #ccc\"`"
+    );
+    contract::compile("component App\n  view\n    view border-top=\"2px solid #ccc\" testId=\"b\"\n")
+        .unwrap();
+    // text-decoration has no number form to suggest.
+    let error = contract::compile("component App\n  view\n    text \"a\" text-decoration=1\n")
+        .unwrap_err();
+    assert_eq!(
+        error.message,
+        "`text-decoration=1`: a CSS shorthand is a string, as CSS writes it"
+    );
 }

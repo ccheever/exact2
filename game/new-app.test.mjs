@@ -241,6 +241,9 @@ test('update names the app by its crates, not its folder', () => {
     const made = resolve(parent, 'todo-list'), moved = resolve(parent, 'todo');
     createApp(made);
     spawnSync('mv', [made, moved]);
+    // A hand-edited manifest: a comment after the package name, another table's `name` first.
+    const web = resolve(moved, 'web/Cargo.toml');
+    writeFileSync(web, readFileSync(web, 'utf8').replace(/^name = "todo-list-web"$/m, 'name = "todo-list-web" # formerly "old-web"'));
     createApp(moved, { update: true });
     const commands = readFileSync(resolve(moved, 'exact.mjs'), 'utf8');
     assert.match(commands, /'todo-list-apple'/);

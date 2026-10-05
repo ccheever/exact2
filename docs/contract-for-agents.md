@@ -819,8 +819,8 @@ waiting for a store's or the network's reply on real time (unless a timer fires
 first); its reply says what is still in flight (`inflight`, on every host), and `clock settle` lands it.
 `clock data` lands it without moving the clock: the data module's activation and
 every request in flight, each answer's `then` with it, no timer fired. A CLI drive's
-first operation runs at boot, before any of that has landed (an authored test lands
-it before its first step), so a drive that reads or taps data starts with `clock data`.
+first operation runs at boot and may come before that has landed (an authored test
+lands it before its first step), so a drive that reads or taps data starts with `clock data`.
 A playing `video` or `audio` is on real time too: the clock never seeks or holds it, so
 between operations it moves only as far as the drive took. `clock +N real` lets
 N ms of real time pass with the clock moving beside it, a step at a time: a
