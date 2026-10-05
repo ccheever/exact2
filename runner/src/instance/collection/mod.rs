@@ -7,6 +7,7 @@ mod nest;
 mod rekey;
 mod reorder;
 mod reorder_api;
+mod reorder_group;
 mod start;
 #[cfg(test)]
 mod tests;
@@ -87,6 +88,8 @@ struct Mounted {
     epoch: u64,
     token: MeasurementToken,
     preview_target: Option<f64>,
+    /// Hidden while a ghost stands for it (LLP 1094 D6).
+    preview_hidden: bool,
     /// The position and count the wrapper last published (`aria-posinset`,
     /// `aria-setsize`), for hosts that select and copy across rows.
     published: (usize, usize),
@@ -95,6 +98,12 @@ struct Mounted {
 #[derive(Debug)]
 pub(crate) struct Collection {
     preview: Option<reorder::Preview>,
+    /// The gap a grouped session opens here as its target (LLP 1094 D4).
+    incoming: Option<reorder_group::Incoming>,
+    /// The dragged row's identity while a ghost stands for it (D6).
+    hidden: Option<String>,
+    /// Emit preview offsets at once: the rows moved with them (D8).
+    instant: bool,
     view: ViewId,
     /// Fixed at creation from the list's style (LLP 1070 H1).
     axis: ListAxis,
@@ -353,6 +362,9 @@ impl Collection {
         }
         let mut this = Box::new(Self {
             preview: None,
+            incoming: None,
+            hidden: None,
+            instant: false,
             view,
             axis,
             region,
@@ -437,9 +449,15 @@ impl Collection {
         let rows_changed =
             u.changed_outside(&deps.keys[index], 1) || u.changed_outside(&deps.bodies[index], 1);
         let changed = fresh || rows_changed || u.changed_outside(&deps.subjects[index], 0);
+        // A grouped session's offsets move with its rows, at once (LLP 1094
+        // D8): the layout moved by what they gave.
+        let instant = changed
+            && (self.incoming.is_some() || self.preview.as_ref().is_some_and(|p| p.grouped));
         if changed {
             self.end_preview(u)?;
+            self.unsettle_incoming();
         }
+        self.instant = instant;
         let anchor = if changed { self.anchor()? } else { None };
         // Items that changed in place: the same keys in the same order, and
         // no input of the rows' bodies or keys changed (a live tick's prices).
@@ -512,7 +530,9 @@ impl Collection {
             self.restore(anchor)?;
         }
         self.start_at_end();
-        self.realize_window(u, frames, true, CollectionFill::default())?;
+        let realized = self.realize_window(u, frames, true, CollectionFill::default());
+        self.instant = false;
+        realized?;
         if changed {
             let unchanged = previous.is_some_and(|mut before| {
                 let now = self.snapshot();
@@ -830,6 +850,7 @@ impl Collection {
                         epoch: advance(&mut self.next_epoch)?,
                         token,
                         preview_target: None,
+                        preview_hidden: false,
                         published: (usize::MAX, usize::MAX),
                         row,
                     }
@@ -1285,6 +1306,8 @@ impl Collection {
             || self.target.is_some()
             || self.pending
             || self.preview.is_some()
+            || self.incoming.is_some()
+            || self.hidden.is_some()
             || self.correction.is_some()
             || (
                 g.port_cross,

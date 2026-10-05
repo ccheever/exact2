@@ -486,6 +486,10 @@ impl<D: DataSource> Presenter<D> {
     /// control), where HTML defines it; on a box it means nothing to focus,
     /// as in Chrome (LLP 1088 D7.3, amended 2026-10-04).
     pub(crate) fn focusable(&self, id: ViewId) -> bool {
+        // A grouped list's grip takes the keys that move its row (LLP 1094 D9).
+        if self.group_grip(id).is_some() {
+            return true;
+        }
         self.host.kernel().node(id).is_some_and(|n| {
             !disabled_control(&n)
                 && (n.props.get(PropId::TabIndex).is_some()

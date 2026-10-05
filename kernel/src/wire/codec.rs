@@ -661,7 +661,7 @@ mod tests {
         // build.rs hashes the production codec sources beside the canonical
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
-        assert_eq!(SCHEMA_DIGEST, 0x14fb_5426_8340_243c);
+        assert_eq!(SCHEMA_DIGEST, 0xe850_eadb_dfda_0175);
     }
 
     #[test]

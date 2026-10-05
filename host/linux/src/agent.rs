@@ -651,8 +651,12 @@ fn tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
 }
 
 /// The engine's settle time, milliseconds, when a transition is in flight.
+/// A reorder ghost's return counts too (LLP 1094 D8).
 fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
     field_num(&p.host().agent("{\"op\":\"settle\"}"), "settle")
+        .into_iter()
+        .chain(p.group_settles_at())
+        .reduce(f64::max)
 }
 
 /// Move both clocks to one instant: the runner's (timers, each fired at its

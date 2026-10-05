@@ -1216,6 +1216,14 @@ component A
   view
     text toString(roomOf("x"))
 ---
+== type-geometry-outside-action
+# LLP 1094 D10: `elementFromPoint` reads `frame`'s boxes, so only an action may.
+component A
+  derive under = elementFromPoint(10, 10)
+  view
+    column id="box"
+      text match under { case some(id) => id, case none => "" }
+---
 == type-measure-literal-id
 # The runner answers `measure` before the action runs, so its id is a literal.
 component A

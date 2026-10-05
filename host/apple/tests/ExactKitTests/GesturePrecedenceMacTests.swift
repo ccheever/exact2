@@ -199,7 +199,7 @@ final class GesturePrecedenceMacTests: XCTestCase {
         autoreleasepool {
             var p: Presenter? = Presenter()
             p!.viewport.frame = NSRect(x: 0, y: 0, width: 100, height: 100)
-            p!.hoverMoved(1, PointerSample(x: 0, y: 0, buttons: 0, pressure: 0, type: "mouse", id: 1))
+            p!.hoverMoved(1, PointerSample(x: 0, y: 0, buttons: 0, pressure: 0, type: "mouse", id: 1, clientX: 0, clientY: 0))
             link = p!.hoverLink
             XCTAssertNotNil(link)
             p = nil

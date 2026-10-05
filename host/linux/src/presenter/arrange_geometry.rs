@@ -36,7 +36,6 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         let kernel = self.host.kernel();
-        let list = kernel.node_by_key(b.list)?;
         let mut child = kernel.node_by_key(b.handle)?;
         while child.key != b.list {
             let p = self.host.presented(child.id);
@@ -56,7 +55,33 @@ impl<D: DataSource> Presenter<D> {
             }
             child = kernel.node(child.parent?)?;
         }
-        let base = self.arrange_base(b.list)?;
+        let (port, clip, path) = self.list_port(b.list)?;
+        let g = self.host.runner().reorder_geometry(b.list)?;
+        let m = Mapping {
+            port,
+            clip,
+            row_width: g.row_width,
+            path,
+        };
+        [
+            port.0, port.1, port.2, port.3, clip.0, clip.1, clip.2, clip.3,
+        ]
+        .into_iter()
+        .all(f32::is_finite)
+        .then_some(m)
+        .filter(|m| m.clip.2 > 0. && m.clip.3 > 0.)
+    }
+    /// A list's scrollport in the viewport, the part of it every clipping
+    /// ancestor and the viewport show, and the scroll offsets above it;
+    /// `None` while a transform moves it or an ancestor.
+    #[allow(clippy::type_complexity)]
+    pub(super) fn list_port(
+        &self,
+        list: NodeKey,
+    ) -> Option<(Rect4, Rect4, Vec<(NodeKey, (f32, f32))>)> {
+        let kernel = self.host.kernel();
+        let list = kernel.node_by_key(list)?;
+        let base = self.arrange_base(list.key)?;
         let [top, right, bottom, left] = list.style.border_widths();
         let port = (
             base.x as f32 + left,
@@ -97,20 +122,7 @@ impl<D: DataSource> Presenter<D> {
             }
             at = node.parent;
         }
-        let g = self.host.runner().reorder_geometry(b.list)?;
-        let m = Mapping {
-            port,
-            clip,
-            row_width: g.row_width,
-            path,
-        };
-        [
-            port.0, port.1, port.2, port.3, clip.0, clip.1, clip.2, clip.3,
-        ]
-        .into_iter()
-        .all(f32::is_finite)
-        .then_some(m)
-        .filter(|m| m.clip.2 > 0. && m.clip.3 > 0.)
+        Some((port, clip, path))
     }
 }
 pub(super) fn finite(v: Value) -> bool {
@@ -118,7 +130,7 @@ pub(super) fn finite(v: Value) -> bool {
         .into_iter()
         .all(|n| n.is_finite() && n.abs() <= f32::MAX as f64)
 }
-fn intersect(a: Rect4, b: Rect4) -> Rect4 {
+pub(super) fn intersect(a: Rect4, b: Rect4) -> Rect4 {
     let x = a.0.max(b.0);
     let y = a.1.max(b.1);
     (

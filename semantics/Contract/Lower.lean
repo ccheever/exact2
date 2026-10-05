@@ -127,7 +127,8 @@ def roster : List String :=
    "replace", "back", "select", "go", "stack", "top", "depth", "params", "searchParam",
    "encodeURIComponent", "encodeRouteSegment", "includes", "trim", "first", "t", "map",
    "filter", "join", "formatDate", "formatNumber", "frame", "measure", "at", "startsWith",
-   "endsWith", "slice", "replaceAll", "toLowerCase", "concat", "indexOf", "split"]
+   "endsWith", "slice", "replaceAll", "toLowerCase", "concat", "indexOf", "split",
+   "elementFromPoint"]
 
 /-- A roster entry's result type. -/
 def rosterTy (f : String) (args : List STy) : STy :=
@@ -147,6 +148,7 @@ def rosterTy (f : String) (args : List STy) : STy :=
     match args with
     | .list a :: .list b :: _ => .list (STy.join a b)
     | _ => .top
+  else if f = "elementFromPoint" then .option .string
   else if f = "first" ∨ f = "at" then
     match args with
     | .list t :: _ => .option t

@@ -396,7 +396,7 @@ pub fn svg_filters(plan: &Plan) -> bool {
 }
 
 /// Whether any code range calls a `format` entry, whether any reads
-/// geometry (`frame`, `measure`), and whether any calls `toLowerCase`: each
+/// geometry (`frame`, `measure`, `elementFromPoint`), and whether any calls `toLowerCase`: each
 /// validated body walked whole, so no call a run can reach is missed.
 fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
     let (mut format, mut geometry, mut lowercase) = (false, false, false);
@@ -405,7 +405,9 @@ fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
             if i.op == Opcode::Call {
                 match Stdlib::from_wire(i.args[0] as u8) {
                     Some(Stdlib::FormatDate | Stdlib::FormatNumber) => format = true,
-                    Some(Stdlib::Frame | Stdlib::Measure) => geometry = true,
+                    Some(Stdlib::Frame | Stdlib::Measure | Stdlib::ElementFromPoint) => {
+                        geometry = true
+                    }
                     Some(Stdlib::ToLowerCase) => lowercase = true,
                     _ => {}
                 }

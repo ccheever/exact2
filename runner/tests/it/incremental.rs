@@ -732,6 +732,7 @@ fn store_provenance_propagates_through_unchanged_values() {
 
 /// A pointer sample somewhere over a node.
 fn pointer(rng: &mut Rng) -> exact_runner::PointerEvent {
-    let line = format!("{},{},1,0.5,mouse,1", rng.below(200), rng.below(200));
+    let (x, y) = (rng.below(200), rng.below(200));
+    let line = format!("{x},{y},1,0.5,mouse,1,{x},{y}");
     exact_runner::PointerEvent::parse(&line).unwrap()
 }

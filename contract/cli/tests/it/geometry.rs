@@ -300,3 +300,80 @@ fn resize_given_an_action_is_the_element_resize_event_and_a_string_is_css() {
         "{error:?}"
     );
 }
+
+/// `elementFromPoint(x, y)` (LLP 1094 D10): the `id` nearest the front-most
+/// box at a viewport point, over `frame`'s boxes, as DOM's
+/// `elementFromPoint(x, y)?.closest("[id]")?.id`.
+#[test]
+fn element_from_point_names_the_front_most_box_by_its_nearest_id() {
+    let plan = contract::compile(
+        r#"component App
+  state hit = "unset"
+  state px = 0
+  state py = 0
+  action probe(x: number, y: number)
+    hit = match elementFromPoint(x, y) { case some(id) => id, case none => "none" }
+  view
+    column
+      column id="plain" height=40
+        column height=20 width=50
+      scroll id="pane" height=60
+        column id="inside" height=200
+      column id="ghosted" height=40 pointer-events="none"
+        column id="under" height=40
+      column id="pile" height=60
+        column id="low" height=60 position="relative" z-index=2
+        column height=60 margin-top=-60 position="relative" z-index=1
+          column id="high" height=60
+      column id="shifted" height=20 width=50 translate="100px 0"
+      column id="turned" height=40 width=40 rotate=45
+      button press=probe(0, 0) testId="read"
+        text "read"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    let at = |r: &mut Runner<NoData>, x: f64, y: f64| {
+        r.act("probe", vec![Value::Number(x), Value::Number(y)])
+            .unwrap();
+        r.slot("hit").and_then(Value::as_str).unwrap().to_owned()
+    };
+    // A box with no id of its own is named by its nearest ancestor's.
+    assert_eq!(at(&mut r, 10.0, 10.0), "plain");
+    assert_eq!(at(&mut r, 200.0, 30.0), "plain");
+    // Under the scroller's clip: its content shows only inside the port.
+    assert_eq!(at(&mut r, 10.0, 50.0), "inside");
+    let pane = r.kernel().find_by_id("pane")[0];
+    let pane = r.kernel().arena().local_id(pane.index);
+    r.scrolled(Some(pane), 0.0, 150.0);
+    assert_eq!(
+        at(&mut r, 10.0, 85.0),
+        "inside",
+        "scrolled 150: its last 50 show"
+    );
+    assert_eq!(at(&mut r, 10.0, 95.0), "pane", "past its end, the port");
+    // `pointer-events: none` is inherited: the point passes through both.
+    assert_eq!(at(&mut r, 10.0, 110.0), "none");
+    // The higher `z-index` in a sibling's subtree is in front, though the
+    // other sibling comes later in tree order.
+    assert_eq!(at(&mut r, 10.0, 170.0), "low");
+    // Boxes through their transforms, as `frame` reads them (LLP 1051.000
+    // D1, changed 2026-10-04): the shifted box is hit where it shows, not
+    // where layout left it.
+    assert_eq!(at(&mut r, 120.0, 210.0), "shifted");
+    assert_eq!(at(&mut r, 10.0, 210.0), "none");
+    // A turned box answers its own shape: a corner of its laid-out square
+    // is outside the diamond, a point above the square inside it.
+    assert_eq!(at(&mut r, 2.0, 222.0), "none");
+    assert_eq!(at(&mut r, 20.0, 213.0), "turned");
+    // Off every box.
+    assert_eq!(at(&mut r, 10.0, 5000.0), "none");
+}

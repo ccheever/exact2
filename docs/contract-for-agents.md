@@ -509,7 +509,16 @@ literal `display="flex"` and a literal positive `height`, takes
 nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
 `reorderdrop`. `reorderdrop` belongs only on a vertical `list virtualized=true`
 (each row's handle names it with `reorderFor`); the compiler refuses it on any
-other element, where no host could drag. Lists nest one level deep; an inner vertical list needs a literal
+other element, where no host could drag. Lists that share a `reorderGroup`
+(each with a `reorderdrop`, an `id` and string keys) exchange rows: the drop
+fires once, on the list the row lands in, with the key it lands before and,
+for an action taking one more parameter, `ReorderEvent { from, to }`. A board
+is columns in a plain horizontal `scroll`, each a header, a grouped list
+(`flex=1 min-height=…`) and its quick-add; give each grip `touch-action="none"`
+and no `press`, `pan`, `pointerdown` or `key` of its own, so the host's keys
+(Space, the arrows, Enter, Escape) work on it. The host draws the lifted row,
+holds the drop until the move shows (a second at most) and scrolls the lists
+near their edges; do not build card drags by hand. Lists nest one level deep; an inner vertical list needs a literal
 `height` or `max-height`. Do not revive the removed legacy `item-height`
 windowing mechanism. Rows inserted, removed or resized above what the reader
 sees keep the reader's place, as CSS scroll anchoring does; a list at its start
@@ -704,7 +713,8 @@ they do not admit arbitrary frame callbacks or a second app-state graph.
 
 For drawing and pointer-tracking, `pointerdown`, `pointermove` and `pointerup`
 hand an action that takes it a `PointerEvent` (`offsetX`/`offsetY` from the
-node's content box, `buttons`, `pressure`, `pointerType`, `pointerId`), on any
+node's content box, `buttons`, `pressure`, `pointerType`, `pointerId`, and
+`clientX`/`clientY` from the viewport, `frame()`'s space), on any
 node, a canvas included; set `touch-action="none"` on a drawing surface. Any
 button goes down (`buttons` 2 is a right-click's), and a `contextmenu` action may
 take the same record, where the click was. `wheel` hands a `WheelEvent` (deltas,
@@ -722,6 +732,11 @@ target needs no scroll bookkeeping and a dragged card is where it shows. Nativel
 transform in flight counts at its end value; the web reads it mid-flight. `measure`
 reads an auto-height hypothetical layout at the same origin.
 Neither is a computed style binding to run every render.
+`elementFromPoint(x, y)` names the front-most of the same boxes at a viewport
+point by its nearest `id` (`option<string>`), through the same transforms. For a
+drag still built by hand, test the dragged node's visual centre (the middle of
+its `frame(id)`, which includes the `translate` the drag gave it), not the
+pointer: the box under a lifted card is the card.
 
 SVG uses SVG names. `foreignObject` compiles and renders on the web; native hosts
 refuse it at run time, so position a box over the `svg` there. Canvas 2D calls
@@ -810,7 +825,11 @@ amended): an action that writes nothing, or only sends a mutation, shows the
 choice until the bound value moves, on every host, and `type` replies with what
 the control shows. A checkbox still snaps back to its bound `checked`.
 `tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
-move, with the finger still down. `clock +N` moves the virtual clock without
+move, with the finger still down. `tap <target> drag to <other> [at <x> <y>]`
+ends the drag on another node (refused by name when it is not mounted or off
+screen); a drag that should autoscroll a list or a board is `drag dx dy hold ms`.
+During a reorder `state.reorder` reads `{ item, from, to, before, phase,
+ending }`; a grouped grip also takes `type <grip> key Space` and the arrows. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
 first); its reply says what is still in flight (`inflight`, on every host), and `clock settle` lands it.
 `clock data` lands it without moving the clock: the data module's activation and
@@ -858,6 +877,8 @@ so the next step can tap a row outside the rendered window),
 is last: quoted reads or `clock` while that contact is down, after the move and
 before the hold; `press` and `hold` advance the virtual clock, except under
 `--timing platform`),
+`tap "id" drag to "other" [at x y] […]` (it ends on the other node's middle, or
+at a point in its box; a card dropped on another list),
 `type "id" "text"` (sets the value), `type "id" "text" append` (after the value
 the tree shows, as typing after a prefill), or `type "id" key "Name"`
 (`down`, `up`, or `for <ms>` on the virtual clock),

@@ -118,6 +118,10 @@ impl Batch {
         let key = |i: usize| keys.map_or("null".into(), |k| format!("\"{}\"", motion_node(k[i])));
         self.ops.push(format!("{{\"op\":\"reorder-drag\",\"id\":{view},\"runtime\":\"{runtime}\",\"handleKey\":\"{}\",\"list\":{},\"listKey\":{},\"wrapper\":{},\"wrapperKey\":{},\"rootKey\":{},\"rowEpoch\":\"{}\"}}",motion_node(handle),id(0),key(0),id(1),key(1),key(2),binding.map_or(0,|b|b.row_epoch)));
     }
+    /// One op already written as JSON (a grouped reorder's, LLP 1094).
+    pub(crate) fn push_op(&mut self, json: String) {
+        self.ops.push(json);
+    }
     pub(crate) fn reorder_state(
         &mut self,
         runtime: u64,

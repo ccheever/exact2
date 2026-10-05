@@ -339,6 +339,31 @@ macro_rules! host {
         pub extern "C" fn exact_reorder_end(rt: u32, token: u64, drop: u32, dy: f64, scroll_top: f64, inside: u32, velocity: f64, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_end(token, drop, dy, scroll_top, inside, velocity, now_ms), |n| n)
         }
+        /// Dropping across lists (LLP 1094): lift a grouped grip, with a ghost or for keys.
+        #[no_mangle]
+        pub extern "C" fn exact_reorder_group_begin(rt: u32, handle: u32, scroll_top: f64, ghost: u32, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_group_begin(handle, scroll_top, ghost, now_ms), |n| n)
+        }
+        /// The ghost's centre at `content_y` in `target`'s content (LLP 1094 D5).
+        #[no_mangle]
+        pub extern "C" fn exact_reorder_move_into(rt: u32, token: u64, target: u32, content_y: f64, target_scroll_top: f64, inside: u32, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_move_into(token, target, content_y, target_scroll_top, inside, now_ms), |n| n)
+        }
+        /// A key's or custom action's step: 1 earlier, 2 later, 3 previous list, 4 next (LLP 1094 D9).
+        #[no_mangle]
+        pub extern "C" fn exact_reorder_step(rt: u32, token: u64, step: u32, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_group_step(token, step, now_ms), |n| n)
+        }
+        /// The grouped contact ended: drop (nonzero) into the target, or cancel.
+        #[no_mangle]
+        pub extern "C" fn exact_reorder_group_end(rt: u32, token: u64, drop: u32, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_group_end(token, drop, now_ms), |n| n)
+        }
+        /// The ghost landed or faded: the session ends and the row shows.
+        #[no_mangle]
+        pub extern "C" fn exact_reorder_group_finish(rt: u32, token: u64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_group_finish(token, now_ms), |n| n)
+        }
         /// Check before dispatching an authored completion.
         #[no_mangle]
         pub extern "C" fn exact_has_hold(rt: u32, token: u64) -> u32 {

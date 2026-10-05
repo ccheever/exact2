@@ -773,7 +773,7 @@ impl<'a> Lowerer<'a> {
                     None => (expanded, children),
                 };
                 tags::validate_list(tag, expanded, *span)?;
-                self.check_collection(tag, expanded, children, *span)?;
+                self.check_collection(tag, expanded, children, *span, scope)?;
                 // A row list is a flex item of its column like any carousel;
                 // CSS's own fix keeps its spacers' extent from widening that
                 // column: `min-width: 0`, unless the author set one (LLP 1070

@@ -22,6 +22,11 @@ use exact_motion::{Change, Engine, HoldToken, Property};
 
 #[path = "arrange.rs"]
 mod arrange;
+#[path = "arrange_group.rs"]
+mod arrange_group;
+#[cfg(test)]
+#[path = "arrange_group_tests.rs"]
+mod arrange_group_tests;
 #[cfg(test)]
 #[path = "arrange_tests.rs"]
 mod arrange_tests;
@@ -154,6 +159,8 @@ pub struct Host<D: DataSource> {
     transform_drags: TransformDrags,
     /// The one Arrange contact, from its catch until its source settles.
     arrange: Option<arrange::Arrange>,
+    /// A grouped session (LLP 1094), from its lift until its ghost lands.
+    group: Option<arrange_group::GroupArrange>,
     presence: presence::Presence,
     flights: flights::Flights,
     content_region: Option<crate::content_region::RegionState>,
@@ -427,6 +434,7 @@ impl<D: DataSource> Host<D> {
             height_drag: None,
             transform_drags: TransformDrags::new()?,
             arrange: None,
+            group: None,
             presence: presence::Presence::default(),
             flights: flights::Flights::default(),
             content_region,
@@ -1154,6 +1162,7 @@ impl<D: DataSource> Host<D> {
         let (mut batch, error) = self.commit_tree(receipts, error, batch);
         // A receipt can end an Arrange contact; its terminal runs at receipt time.
         let arrange = self.arrange_after_commit(&mut batch);
+        self.group_after_commit(&mut batch);
         self.commit_finish(batch, error.or(arrange))
     }
 

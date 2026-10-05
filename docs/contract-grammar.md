@@ -357,7 +357,8 @@ name its own; either way they override the drive's flags. A file whose
 assertions depend on the date says so in the file. Before the first step, and
 after a `reload`, the driver waits for the app's data as `clock data` does (its
 module activated, every request in flight answered and each answer's `then`
-landed, the clock unmoved); `before data` skips the wait. `tap "id" drag dx dy` is the driver's `tap … drag` (from the
+landed, the clock unmoved); `before data` skips the wait. `tap "id" drag to "other" [at x y]` ends on the other
+node (LLP 1094 D12). `tap "id" drag dx dy` is the driver's `tap … drag` (from the
 node's middle, or `from x y` in its box, in points; `press`, `over`, `hold` in
 milliseconds; each once). It is a finger where the carrier has one (the web,
 iOS: on a simulator the touch runner's real gesture, LLP 1080.000 §11, which a
@@ -461,6 +462,7 @@ Signatures are authored forms; localization's internal lowered signature differs
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders |
 | `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied |
 | `measure("id")` | `Geometry`, actions only; literal id, height-auto measurement |
+| `elementFromPoint(x, y)` | `option<string>`, actions only; the `id` of the front-most of `frame`'s boxes at the viewport point, or of its nearest ancestor with one (DOM's `elementFromPoint(x, y)?.closest("[id]")?.id`): ancestors' overflow clips apply, `pointer-events: none` and hidden boxes are passed over |
 
 The router functions (`open` through `searchParam`) and `encodeRouteSegment`
 exist only in an app with a `routes` declaration.
@@ -626,7 +628,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | One `list<Picked>` | `change`, `input` on `type="file"` |
 | One `MarkdownSelection` | `select` |
 | Two numbers | `pan`, `panrelease`, `heightrelease` |
-| A string, then an `option<string>` | `reorderdrop`, on a vertical `list virtualized=true` only: the dragged row's key, then the key it lands before (`none` at the end) |
+| A string, an `option<string>`, then optionally a `ReorderEvent` | `reorderdrop`, on a vertical `list virtualized=true` only: the dragged row's key, then the key it lands before (`none` at the end); an action taking one more parameter also hears `ReorderEvent { from, to }`, the two lists' `id`s (equal within one list; [LLP 1094](../llp/1094-dropping-across-lists.rfc.md) D2) |
 | Four numbers | `transformgeometry` |
 | Six numbers | `transformrelease` |
 | Special: zero or one location string, no captured args | `navigate` |
@@ -722,6 +724,7 @@ An action that takes one more parameter than the binding captures gets a
 | `pressure` | 0 to 1: a pen's or a pressed touch's force where the platform measures one, else 0.5 while down and 0 while not |
 | `pointerType` | `mouse`, `pen` or `touch` |
 | `pointerId` | 1 for the mouse; a touch or pen has its own while down |
+| `clientX`, `clientY` | The point from the viewport, CSS px: `frame()`'s space, so a hit test against `frame` needs no scroll bookkeeping ([LLP 1094](../llp/1094-dropping-across-lists.rfc.md) D11) |
 | `shiftKey`, `ctrlKey`, `altKey`, `metaKey` | The modifier keys held (a hardware keyboard's, on iPadOS) |
 
 ```text

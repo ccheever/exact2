@@ -65,6 +65,34 @@ fn the_apps_tests_parse() {
 }
 
 #[test]
+fn a_test_drags_a_card_to_another_list() {
+    // LLP 1094 D12: `drag to` ends at the other node's middle, or at a
+    // point in its box.
+    let src = "test \"board\"\n  tap \"grip-a1\" drag to \"list-b\" over 300\n  tap \"grip-a2\" drag to \"list-c\" at 10 -4 mouse hold 50\n";
+    let tests = contract::tests(src).unwrap();
+    let t = &tests[0];
+    assert!(
+        matches!(&t.steps[0], Step::Drag { to: Some((to, None)), over: Some(o), .. } if to == "list-b" && *o == 300.0)
+    );
+    assert!(
+        matches!(&t.steps[1], Step::Drag { to: Some((to, Some((x, y)))), mouse: true, hold: Some(h), .. } if to == "list-c" && *x == 10.0 && *y == -4.0 && *h == 50.0)
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains(
+            "{\"op\":\"drag\",\"target\":\"grip-a1\",\"to\":\"list-b\",\"over\":300,\"line\":2}"
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains("\"to\":\"list-c\",\"at\":[10,-4],\"mouse\":true,\"hold\":50"),
+        "{json}"
+    );
+    let e = contract::tests("test \"t\"\n  tap \"a\" drag to 3\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-string", "{e}");
+}
+
+#[test]
 fn a_test_drags_and_opens_at_its_size() {
     // kanban F18, paint F5: a drag, as the driver's `tap … drag`, and the
     // viewport a test's session opens at, as its `--size`.

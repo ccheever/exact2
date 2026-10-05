@@ -605,12 +605,16 @@ fn check_handler(
                 span,
             );
         }
+        // Then optionally its `ReorderEvent` (LLP 1094 D2), which
+        // `handler_accepts` holds to its type.
         if attr == "reorderdrop"
-            && params[given..] != [Ty::String, Ty::Option(Box::new(Ty::String))]
+            && params[given..]
+                .get(..2)
+                .is_none_or(|p| p != [Ty::String, Ty::Option(Box::new(Ty::String))])
         {
             return err(
                 "analyze-handler-type",
-                "`reorderdrop` supplies string and option<string>",
+                "`reorderdrop` supplies string and option<string>, then optionally a `ReorderEvent`",
                 span,
             );
         }

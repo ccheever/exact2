@@ -81,7 +81,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             // Writing back "hidden" that only CSS's `display: none` made is not
             // the host's word (a save of `isHidden` restored; review B1): a
             // projection that means it hides again on its next pass.
-            let css = style["display"]?.string == "none"
+            let css = style["display"]?.string == "none" || style["visibility"]?.string == "hidden" // CSS visibility too (LLP 1094 D6)
             if !(newValue && css && !hostHidden && super.isHidden) { hostHidden = newValue }
             super.isHidden = hostHidden || css
         }
@@ -215,6 +215,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var tabbable: Bool {
         if let index = explicitTabIndex { return index >= 0 }
         return kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: Self.focusEvents)
+            || reorderKeys // a grouped grip takes the keys (LLP 1094 D9)
     }
     /// Sequential focus follows the web: a button is in the loop even when
     /// macOS "Keyboard navigation" is off (that setting would otherwise
@@ -263,6 +264,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             if event.modifierFlags.contains(.shift) { window.selectPreviousKeyView(self) } else { window.selectNextKeyView(self) }
             return
         }
+        if reorderKey(name) { return }
         if pressable, name == "Enter" || name == " " {
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)
@@ -1030,7 +1032,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let origin = style["transform_origin"]
         let old = style
         style = s
-        if old["display"] != s["display"] { isHidden = hostHidden }
+        if old["display"] != s["display"] || old["visibility"] != s["visibility"] { isHidden = hostHidden }
         if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)

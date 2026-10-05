@@ -456,6 +456,8 @@ impl Event {
                     pressure: 0.0,
                     pointer_type: "mouse".into(),
                     pointer_id: 1.0,
+                    client_x: 0.0,
+                    client_y: 0.0,
                     held: KeyModifiers::default(),
                 }
                 .value(),
@@ -1168,7 +1170,11 @@ impl<D: DataSource> Runner<D> {
         }
         // The event's record, after what it always carries, to an action
         // that declares one more parameter (`contract_types::event_record`).
-        let record = event.record();
+        // A drop's `ReorderEvent` names its lists (LLP 1094 D2).
+        let record = match &event {
+            Event::ReorderDrop { .. } => Some(self.reorder_record(view)),
+            _ => event.record(),
+        };
         match event {
             Event::ReorderDrop { item, before } => {
                 args.push(Value::str(&item));

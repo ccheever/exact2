@@ -90,7 +90,18 @@ function createGeometry(root) {
       || (document.fonts && document.fonts.status !== 'loaded');
   };
 
+  // `elementFromPoint(x, y)` (LLP 1094 D10): the page's own hit test, DOM's
+  // `elementsFromPoint`, front to back — through every transform, as `frame`
+  // reads boxes (LLP 1051.000 D1, changed 2026-10-04), an overflow clip
+  // cutting descendants, `pointer-events: none` and a hidden `visibility`
+  // passed over — less what is not the app's own: a leaving node, the host's
+  // drag ghost and anything else outside the root. The runner's kernel walk
+  // answers the same natively.
+  const point = (x, y) => document.elementsFromPoint(x, y)
+    .find(el => el !== root && root.contains(el) && !el.closest('[data-exiting]')) ?? null;
+
   return {
+    point,
     read(op, el, out) {
       if (!el?.isConnected || !root.contains(el)) return 0;
       const box = frame(el);

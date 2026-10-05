@@ -120,7 +120,9 @@ fn call_value(
         // @ref LLP 1051.000 D1/D2 — an action's reads, through the linked
         // geometry. The compiler admits them nowhere else, and a host refuses
         // a plan that reads geometry it doesn't link (LLP 1047 D6).
-        Stdlib::Frame | Stdlib::Measure => return geometry?.read(plan, f, args),
+        Stdlib::Frame | Stdlib::Measure | Stdlib::ElementFromPoint => {
+            return geometry?.read(plan, f, args)
+        }
         // @ref LLP 1038 D3/D9 — pure verbs and typed reads over the plan shapes.
         Stdlib::Open
         | Stdlib::Push

@@ -40,7 +40,10 @@ export async function duringOp(s, op) {
  * refused where the carrier refuses them.
  */
 export async function dragTap({ s, carrier, node, target, host, timing, tapRefusal, scrolled }, opts) {
-  const { dx, dy, from, mouse = false, press = 0, over = 250, hold = 0, during = [] } = opts, drag = { dx, dy, press, over, hold, during }, said = { dx, dy, press, over, hold, ...(mouse ? { mouse } : {}) };
+  // `drag to B [at x y]` (LLP 1094 D12): the delta from both boxes at the press, to B's middle or to (x, y) from its
+  // top left; B unmounted or off screen is refused by name. An autoscrolling drag is `drag dx dy hold ms`.
+  if (opts.to !== undefined) opts = { ...opts, ...await toward(s, node, opts) };
+  const { dx, dy, from, mouse = false, press = 0, over = 250, hold = 0, during = [] } = opts, drag = { dx, dy, press, over, hold, during }, said = { dx, dy, press, over, hold, ...(mouse ? { mouse } : {}), ...(opts.to !== undefined ? { to: opts.to } : {}) };
   // `mouse` (files diary F10): the left button, where the carrier's contact
   // is otherwise a finger (the web's); a desktop host's contact is the mouse.
   if (mouse && (carrier.touches || ['ios', 'host-ios'].includes(host))) throw new Error('drag: mouse is a desktop pointer\'s; an iOS contact is a finger');
@@ -114,4 +117,17 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     throw error;
   }
   return s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing });
+}
+
+/** `drag to`'s delta: from the start (`from`, else the middle) to B's middle, or `at` from B's top left. */
+async function toward(s, node, { to, at, from }) {
+  if (at !== undefined && !(Array.isArray(at) && at.length === 2 && at.every(Number.isFinite))) throw new Error('drag to: at takes two finite numbers, an offset from the target\'s box');
+  const end = await s.find(to, false);
+  if (!end) throw new Error(`drag to: ${to} is not mounted`);
+  const layout = await s.layout(), a = layout.nodes.find((n) => n.id === node.id), b = layout.nodes.find((n) => n.id === end.id), vp = layout.viewport;
+  if (!a) throw new Error(`view ${node.id} has no box on screen`);
+  if (!b || (vp && (b.x + b.w <= 0 || b.y + b.h <= 0 || b.x >= vp.w || b.y >= vp.h))) throw new Error(`drag to: ${to} is off screen; drag dx dy hold ms scrolls a list or a board toward it`);
+  const start = from ? [a.x + from[0], a.y + from[1]] : [a.x + a.w / 2, a.y + a.h / 2];
+  const point = at ? [b.x + at[0], b.y + at[1]] : [b.x + b.w / 2, b.y + b.h / 2];
+  return { dx: point[0] - start[0], dy: point[1] - start[1] };
 }

@@ -241,6 +241,7 @@ fn validate(schema: &Schema) {
                             | "list<Router>"
                             | "list<Entry>"
                             | "list<string>"
+                            | "option<string>"
                     ),
                 "format: stdlib `{}` type `{t}`",
                 f.name

@@ -139,7 +139,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               delivered(await s.tap(st.target, opts)); input = st.line; break;
             }
             case 'drag': {
-              const drag = { dx: st.dx, dy: st.dy, ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) };
+              const drag = { ...(st.to != null ? { to: st.to, ...(st.at ? { at: st.at } : {}) } : { dx: st.dx, dy: st.dy }), ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) };
               if (st.during?.length) drag.during = st.during.map((op) => () => duringOp(s, op));
               delivered(await s.tap(st.target, { drag })); input = st.line; break;
             }

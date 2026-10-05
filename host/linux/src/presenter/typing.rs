@@ -386,6 +386,10 @@ impl<D: DataSource> Presenter<D> {
         {
             return;
         }
+        // A grouped grip's keys move its row (LLP 1094 D9).
+        if self.group_key(id, name, now_ms) {
+            return;
+        }
         let (error, prevented) = self.key_event(name, now_ms);
         if let Some(e) = error {
             eprintln!("exact: {e}");

@@ -34,8 +34,9 @@
 //   a target whose app has no Linux host, or a plan that says `// linux:
 //   <why>`, is reported as not compared (`// linux: state only (<why>)`
 //   compares its state and not its tree), and the comparison stops at the
-//   first step the Linux host has no delivery for (a pointer gesture, a
-//   wheel, a list's `into`, the browser's history) or that `LINUX_APART` names.
+//   first step the Linux host fails; a step it has no delivery for (a
+//   pointer's phases, a wheel, a list's `into`, the browser's history) is
+//   skipped and the session kept, and `LINUX_APART` names a step that ends it.
 //   --browser runs a cross-browser comparison of the JS target instead:
 //   Chrome is the oracle and Firefox or WebKit takes the identical steps.
 //   In this mode --build compiles a plan directly for a TypeScript data app;
@@ -180,7 +181,7 @@ function diffPng(a, b, sideBySide, masks = []) {
   return share;
 }
 // The document's head too: the active head's fields, as every runner reports them (runner/src/head.rs).
-const STATE_KEYS = ['slots', 'derives', 'resources', 'head'];
+const STATE_KEYS = ['slots', 'derives', 'resources', 'head', 'reorder'];
 
 // The wasm page's route stack carries the browser's location; the Linux
 // host has none. So, and only in a route stack (entries shaped { id, name,
@@ -343,8 +344,10 @@ async function drive(t, report, fail, dir, ws, js) {
     // `back` (the browser's history), `wheel <target> <dy> [dx]`, `into
     // <list> <key> [block]` (a virtualized list's row by key), `drag
     // <target> <dx> <dy> [ms]` (a finger: down, a move over ms of real time,
-    // up; a pan or a swipe), `pinch <target> <scale>` (two fingers), `down
-    // <target>` and `up` (a held contact: press feedback), `prefer <fact>
+    // up; a pan or a swipe; `… hold <ms>` holds before the lift, an
+    // autoscrolling drag), `drag <target> to <target> [ms]` (it ends on the
+    // other node's middle, LLP 1094 D12), `pinch <target> <scale>` (two fingers), `down
+    // <target>`, `move <dx> <dy> [ms]` and `up` (a held contact: press feedback), `prefer <fact>
     // <value> …` (the device facts: media, page, the fold — LLP 1078 D9's
     // parity, Chromium's own segments on both pages and the kernel's on
     // Linux) — each compared after both settle.
@@ -366,11 +369,11 @@ async function drive(t, report, fail, dir, ws, js) {
     let diverged = false;
     if (existsSync(script)) for (const line of readFileSync(script, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))) {
       const [op, target, ...rest] = line.split(/\s+/);
-      const run = s => op === 'tap' ? s.tap(target) : op === 'menu' ? s.tap(target, { contextmenu: true }) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'key' ? s.type(target, { key: rest[0] }) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : op === 'prefer' ? s.prefer(Object.fromEntries([target, ...rest].flatMap((a, i, all) => i % 2 ? [] : [[a, all[i + 1]]]))) : Promise.reject(new Error(`unknown op ${op}`));
+      const run = s => op === 'tap' ? s.tap(target) : op === 'menu' ? s.tap(target, { contextmenu: true }) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'key' ? s.type(target, { key: rest[0] }) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'move' ? s.pointer('move', { dx: Number(target), dy: Number(rest[0]), ms: Number(rest[1] ?? 200) }) : op === 'drag' && rest[0] === 'to' ? s.tap(target, { drag: { to: rest[1], over: Number(rest[2] ?? 200) } }) : op === 'drag' && rest[3] === 'hold' ? s.tap(target, { drag: { dx: Number(rest[0]), dy: Number(rest[1]), over: Number(rest[2]), hold: Number(rest[4]) } }) : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : op === 'prefer' ? s.prefer(Object.fromEntries([target, ...rest].flatMap((a, i, all) => i % 2 ? [] : [[a, all[i + 1]]]))) : Promise.reject(new Error(`unknown op ${op}`));
       // Playwright cannot make trusted phased touches in Firefox/WebKit.
       // Skip before resolving a target or touching either page; the carrier's
       // named, side-effect-free refusals are exercised by agent.test.mjs.
-      if (crossBrowser && ['drag', 'down', 'up', 'pinch'].includes(op)) {
+      if (crossBrowser && ['drag', 'down', 'move', 'up', 'pinch'].includes(op)) {
         report.steps.push({ target: t.name, step: line, skipped: `${other}: ${op} unsupported: Playwright cannot produce trusted phased touches; synthetic dispatchEvent input is not equal input` });
         continue;
       }
@@ -384,7 +387,9 @@ async function drive(t, report, fail, dir, ws, js) {
       if (jsRefused && !refused) { fail(line, `${other}: ${jsRefused}`); diverged = true; break; }
       if (!jsRefused) answered(other);
       if (refused && !jsRefused) { diverged = true; break; }
-      await onLinux(line, L => LINUX_OPS.includes(op) ? run(L).then(() => answered('linux'), e => { if (!refused) throw e; }) : Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)));
+      // A step Linux does not take is skipped, its session kept, as Firefox skips a drag (LLP 1094 D12).
+      if (L && !LINUX_OPS.includes(op)) report.steps.push({ target: t.name, step: line, linux: 'skipped', skipped: `linux: \`${op}\` is the page's pointer or history delivery, not the runner's` });
+      else await onLinux(line, L => run(L).then(() => answered('linux'), e => { if (!refused) throw e; }));
       await settle();
       await bounds(line);
       tree = await compare(line);
@@ -593,7 +598,7 @@ async function bootPress(t, report, fail, dist, browser) {
 
 // ---------------------------------------------------------------- the Linux reference
 const linuxRef = argv.includes('--linux') && !crossBrowser;
-const LINUX_OPS = ['tap', 'type', 'key', 'clock', 'prefer'];
+const LINUX_OPS = ['tap', 'type', 'key', 'clock', 'prefer', 'drag', 'down', 'move', 'up'];
 // Where an app's drive reaches what only one host has, the Linux comparison
 // stops before that step (null: from the start), saying why (each is a host
 // difference, not the runner's).

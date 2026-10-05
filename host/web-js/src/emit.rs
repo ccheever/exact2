@@ -515,7 +515,10 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     let _ = write!(body, "{mount}($R=>{{{view}}});");
     // A plan whose actions read geometry fetches the page's reader after
     // first paint, as the wasm host does for an artifact that imports it.
-    if em.uses.names.contains("x_frame") || em.uses.names.contains("x_measure") {
+    if ["x_frame", "x_measure", "x_elementFromPoint"]
+        .iter()
+        .any(|name| em.uses.names.contains(*name))
+    {
         let geo = em.uses.rt("geo");
         let _ = write!(body, "{geo}();");
     }
@@ -1187,6 +1190,12 @@ impl Em<'_> {
             self.motion = true;
             let on = self.uses.rt("onReorder");
             let _ = write!(self.out, "{on}({e},e{l});");
+        } else if self.computed_reorder(i) {
+            // A computed `reorderFor` (a board's `cards-${col.id}`, LLP 1094
+            // D1) names its list at run time, as the runner's binding does.
+            self.motion = true;
+            let on = self.uses.rt("onReorder");
+            let _ = write!(self.out, "{on}({e},null);");
         }
         self.wrap_flow(i, &e, scope)?;
         let mut edges = ["0".to_string(), "0".to_string()];

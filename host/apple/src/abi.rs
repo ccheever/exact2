@@ -1466,6 +1466,7 @@ mod colors;
 #[path = "abi/commands.rs"]
 mod commands;
 mod exports;
+mod group;
 mod preferences;
 pub(crate) mod segments;
 
