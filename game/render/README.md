@@ -230,7 +230,11 @@ Model instances keep a CPU pose history only for translucent ordering and windin
 a completed tick steps the instances in blocks whose local or propagated poses
 changed since the last step (`World::poses_changed_since`) and those still
 interpolating, so static instances, parented or not, cost nothing per tick or
-frame. Parented global poses are retained and recomputed only in changed blocks. A model batch stays one draw group per view unless an
+frame. Parented global poses are retained and recomputed only in changed blocks.
+A presentation `Offset` whose content changed (present rewrites every row each
+tick; values are compared) re-poses only its entity's drawn subtree: those
+instances, those pages, in both transform histories, so a few walkers in a
+forest cost their own subtrees, not the forest. A model batch stays one draw group per view unless an
 instance has a negative scale axis or an attachment.
 
 Feed checks storage write generations against each target history and reads only
