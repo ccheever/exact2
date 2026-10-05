@@ -14,7 +14,7 @@ export interface ThreadState {
   latestLocalTurnOrdinal: number | null;
 }
 export interface Activity { id: string; label: string; body: string; icon: string; output: string; result: string; failed: boolean; timestamp: string;
-  tone?: string; ok?: boolean; reasoning?: boolean; expandable?: boolean; detail?: string; status?: string; targetId?: string; answer?: string; retryRunId?: string }
+  detailOpen?: boolean; outputState?: string; iconLight?: string; iconDark?: string; tone?: string; ok?: boolean; reasoning?: boolean; expandable?: boolean; detail?: string; status?: string; targetId?: string; answer?: string; retryRunId?: string }
 export interface Message { id: string; kind: string; title: string; body: string; checkpointId?: string; runId?: string; sourceThreadId?: string; completed?: boolean; createdAt?: string; activities?: Activity[]; files?: { path: string; additions: number; deletions: number }[]; folded?: Message[]; expanded?: boolean;
   icon?: string; tone?: string; failed?: boolean; live?: boolean; startedMs?: number; detail?: string; status?: string; groupId?: string; continues?: boolean;
   revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number; copyFailed?: boolean;

@@ -7,7 +7,7 @@ import { arr, obj, str, type Obj } from './domain';
 import { activeRun } from './protocol';
 import { pendingRequests } from './requests';
 import type { T3Client } from './client';
-import { planFollowUp, resumeState } from './composer-controls';
+import { planFollowUp } from './composer-controls';
 
 const RESUME_MINUTES = 70, RESUME_TOKENS = 100_000;
 export const NEVER_ANSWER = "Don't ask again";
@@ -62,20 +62,4 @@ export function resumeCompaction(client: T3Client, now: number, usage: { used: n
   if (pendingRequests(client.projection).inputs.length > 0 || activeRun(client.projection)) return null;
   const driver = str(arr(client.config.providers).find(entry => entry.instanceId === client.providerId)?.driver);
   return shouldOffer({ driver, usedTokens: usage.used, updatedAt: usage.updatedAt, now }) ? { key, used: usage.used } : null;
-}
-
-/**
- * compactBeforeSend: sending past the banner compacts first, so the turn does
- * not resend the stale history; the message then queues behind the /compact
- * run (a held queue would strand it, and "/compact" itself is not doubled).
- */
-export function compactBeforeSend(client: T3Client, now: number, usage: { used: number; updatedAt: string } | null, text: string): boolean {
-  return !!resumeCompaction(client, now, usage) && !compactBlocked(client) && !resumeState(client.projection).heldQueue
-    && text.trim().toLowerCase() !== '/compact';
-}
-
-/** The standalone "/compact" user turn (onCompactContext, and the turn compactBeforeSend starts first). */
-export function compactTurn(commandId: string, threadId: string, messageId: string, selection: Obj): Obj {
-  return { type: 'message.dispatch', commandId, threadId, messageId, text: '/compact', attachments: [], createdBy: 'user', creationSource: 'web',
-    modelSelection: selection, deliveryIntent: 'auto', dispatchMode: { type: 'start_immediately' } };
 }

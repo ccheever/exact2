@@ -69,7 +69,7 @@ component SetupStageRow
     row width="100%" min-height=24 padding-left=2 padding-right=2 padding-top=2 padding-bottom=2 box-sizing="border-box" gap=6 align-items="center" aria-label=`${label}, ${status}`
       when status == "running"
         row position="relative" flex=1 min-width=0 align-items="center"
-          LiveActivity(label=label, icon="", failed=false, active=true, shimmer=true)
+          LiveActivity(label=label, icon="", failed=false, active=true, shimmer=true, iconLight="", iconDark="")
           box position="absolute" left=4 top=4 width=16 height=16 animation="tlSetupSpin 1s linear infinite" aria-hidden=true
             TimelineIcon(name="loader-circle", size=16, color="light-dark(#44444a, #818181)")
       else

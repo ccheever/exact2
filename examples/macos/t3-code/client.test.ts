@@ -275,7 +275,7 @@ describe('desktop presentation and model options', () => {
     expect(rows[3]?.body).toBe('No findings.');
     await command('chatlocal:fold', 'r1');
     rows = transcriptPresentation(client);
-    expect(rows[1]?.activities?.[0]).toMatchObject({ label: 'cargo test', body: 'cargo test', result: 'Process exited with code 0' });
+    expect(rows[1]?.activities?.[0]).toMatchObject({ label: 'cargo test', body: 'cargo test', result: '' });
   });
   test('checkpoints remain changed-file footers while settled trailing work joins its run', async () => {
     const { client, command, native } = await opened();
@@ -938,7 +938,7 @@ test('inherited settled work folds across its answer and keeps the fork marker s
   await chatLocal(client, {} as Native, 'fold', 'source-run', '');
   const open = transcriptPresentation(client);
   expect(open.map(row=>row.kind)).toEqual(['user','work','entry','assistant','entry','meta','fork']);
-  expect(open[2]!.activities?.[0]).toMatchObject({label:'read file',body:'read file',icon:'terminal',result:'Process exited with code 0',failed:false});
+  expect(open[2]!.activities?.[0]).toMatchObject({label:'read file',body:'read file',icon:'terminal',result:'',failed:false});
   expect(open[4]!.activities?.[0]).toMatchObject({label:'trailing output',result:''});
 });
 

@@ -5,7 +5,6 @@
 // (StructuredValue highlightJson, the dynamic tool's "Input" heading) and
 // V2LifecycleRow.tsx (SubagentNotificationLink).
 import { arr, obj, str, type Activity, type Obj } from './domain';
-import { highlight } from './timeline-highlight';
 import { claudeSkillInvocation, collectToolFilePaths, groupAction, type WorkEntry } from './timeline-worklog';
 import { subagent } from './timeline-events';
 
@@ -32,19 +31,6 @@ export function plainOutput(entry: WorkEntry, root: string): string | null | und
 }
 
 export interface InspectorCode { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }
-const parsesAsJson = (text: string) => { try { JSON.parse(text); return true; } catch { return false; } };
-/**
- * The inspector's input block for a command or dynamic tool: its heading
- * ("INPUT" for a dynamic tool) and its JSON tokens when the text parses as
- * JSON (shell command strings stay plain). Keyed by the entry's id.
- */
-export function inspectorCode(entry: WorkEntry, body: string): InspectorCode | null {
-  if (!body || entry.itemType !== 'command_execution' && entry.itemType !== 'dynamic_tool') return null;
-  const tokens = parsesAsJson(body) ? highlight(body, 'json').map((token, index) => ({ id: String(index), text: token.text, cls: token.cls })) : [];
-  const heading = entry.itemType === 'dynamic_tool' ? 'INPUT' : '';
-  return tokens.length || heading ? { id: entry.id, code: body, icon: heading, tokens } : null;
-}
-
 /** notificationChildThreadId: a subagent or delegated task's notification names its child thread. */
 export function notificationChildThreadId(item: Obj): string {
   const source = obj(item.source);

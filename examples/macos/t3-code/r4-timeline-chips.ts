@@ -161,3 +161,24 @@ export function imageChipInks(accent: string): { fill: string; hover: string; bo
   const hex = hexOf(oklab(rgb));
   return { fill: `${hex}1c`, hover: `${hex}2b`, border: `light-dark(${mix(rgb, '#e4e4e7', 0.34)}, ${hex}61)`, ink: `light-dark(${mix(rgb, '#27272a', 0.22)}, ${mix(rgb, '#f5f5f5', 0.22)})` };
 }
+
+// Ported from T3 Code 1e2ecbd975 SkillInlineText.tsx and providerSkills.ts (MIT).
+// Exact renders parsed runs in Rust; this list supplies validated known names and
+// display labels, without rewriting the message source used by Copy.
+const SKILL_TOKEN_REGEX =
+  /(^|\s)\p{Sc}(?![0-9][0-9_]*(?:[kKmMbBtT]|[eE][0-9]+)?(?:\s|$))(?=[a-zA-Z0-9:_-]*[a-zA-Z])([a-zA-Z0-9][a-zA-Z0-9:_-]*)(?=\s|$)/gu;
+export interface MarkdownSkill { name: string; displayName: string }
+export function formatProviderSkillDisplayName(skill: { name: string; displayName?: string }): string {
+  const displayName = skill.displayName?.trim();
+  if (displayName) return displayName;
+  return skill.name.split(/[\s:_-]+/).filter(Boolean).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+export function markdownSkills(skills: readonly { name: string; displayName?: string }[]): MarkdownSkill[] {
+  const seen = new Set<string>();
+  return skills.flatMap(skill => {
+    const matches = [...`$${skill.name}`.matchAll(SKILL_TOKEN_REGEX)];
+    if (matches[0]?.[2] !== skill.name || seen.has(skill.name)) return [];
+    seen.add(skill.name);
+    return [{ name: skill.name, displayName: formatProviderSkillDisplayName(skill) }];
+  });
+}

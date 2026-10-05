@@ -60,12 +60,12 @@ describe('resume with less context (a976f8c74c)', () => {
     client.thread!.projection.runtimeRequests = [];
     expect(resume(client)).toBeUndefined();
   });
-  test('sending past the banner compacts first, then queues the message behind it', async () => {
+  test('sending past the banner sends only the typed message (2188bdd8b5)', async () => {
     const { client, native, command } = await claudeThread();
     expect(resume(client)).toBeDefined();
     await command('send', '', 'Continue the parser');
     const sent = native.committed.filter(entry => entry.type === 'message.dispatch');
-    expect(sent.map(entry => [entry.text, obj(entry.dispatchMode).type])).toEqual([['/compact', 'start_immediately'], ['Continue the parser', 'queue_after_active']]);
+    expect(sent.map(entry => [entry.text, obj(entry.dispatchMode).type])).toEqual([['Continue the parser', 'start_immediately']]);
     expect(sent[0]).toMatchObject({ modelSelection: { instanceId: 'claude', model: 'model-a' }, attachments: [] });
   });
   test('"/compact" itself, or a thread without the banner, sends once', async () => {

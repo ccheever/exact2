@@ -58,8 +58,8 @@ describe('settled turns', () => {
     expect(details.activities!.map(activity => [activity.label, activity.icon, activity.failed])).toEqual([
       ['cat package.json', 'terminal', false], ["sed -n '1,80p' src/app.ts", 'terminal', false], ['bun test --bail', 'terminal', true],
       ['project/src/timeline/rows.ts', 'square-pen', false], ['T3 Code timeline fixture', 'globe', false]]);
-    expect(details.activities![0]).toMatchObject({ body: 'cat package.json', result: 'Process exited with code 0', ok: true });
-    expect(details.activities![2]).toMatchObject({ result: 'Process exited with code 1', ok: false, tone: 'failed' });
+    expect(details.activities![0]).toMatchObject({ body: 'cat package.json', result: '', ok: true });
+    expect(details.activities![2]).toMatchObject({ result: 'exit 1', ok: false, tone: 'failed' });
     expect(result.find(row => row.kind === 'group')).toMatchObject({ expanded: true });
   });
 

@@ -5,6 +5,7 @@
 // apps/web/src/components/chat/MessagesTimeline.logic.ts (entry labels).
 // T3's own MCP tools take their presentation from timeline-t3tools.ts;
 // integration sources are not reproduced and keep the generic presentation.
+import { toolCallLines } from './timeline-item-detail';
 import { arr, num, obj, str, type Json, type Obj } from './domain';
 import { summarizeT3ToolCalls, t3ActionPriority, t3ToolDefinition, t3ToolPresentation, t3ToolResultFailed, type T3ToolCall, type T3ToolPresentation } from './timeline-t3tools';
 
@@ -489,11 +490,14 @@ export function successKeepsLive(entry: WorkEntry): boolean { return succeeded(e
 export function inspectorDetail(entry: WorkEntry, root: string): { input: string; result: string; ok: boolean } {
   const item = entry.item;
   switch (entry.itemType) {
-    case 'command_execution': return { input: str(item.input), result: typeof item.exitCode === 'number' ? `Process exited with code ${item.exitCode}` : '', ok: item.exitCode === 0 };
-    case 'file_change': return { input: [workspaceRelativePath(str(item.fileName), root), ...arr(item.changes).map(change => `${str(change.operation, str(obj(change.kind).type))} ${workspaceRelativePath(str(change.path), root)}`)].filter(Boolean).join('\n'), result: '', ok: true };
-    case 'web_search': return { input: arr(item.results).map(result => [str(result.title, str(result.url)), str(result.snippet)].filter(Boolean).join('\n')).join('\n\n'), result: '', ok: true };
-    case 'file_search': return { input: arr(item.results).map(result => `${workspaceRelativePath(str(result.fileName), root)}${result.line === undefined ? '' : `:${num(result.line)}`}${result.preview ? `\n${str(result.preview)}` : ''}`).join('\n'), result: '', ok: true };
-    case 'dynamic_tool': return { input: display(item.input), result: '', ok: true };
+    case 'command_execution': return { input: str(item.input), result: typeof item.exitCode === 'number' && item.exitCode !== 0 ? `exit ${item.exitCode}` : '', ok: item.exitCode === 0 };
+    case 'file_change': return { input: item.status === 'failed' && str(item.diffStr) ? str(item.diffStr) : [workspaceRelativePath(str(item.fileName), root), ...arr(item.changes).map(change => `${str(change.operation, str(obj(change.kind).type))} ${workspaceRelativePath(str(change.path), root)}`)].filter(Boolean).join('\n'), result: '', ok: true };
+    case 'web_search': return { input: Array.isArray(item.patterns) ? item.patterns.map(pattern => str(pattern)).filter(Boolean).join('\n') : '', result: '', ok: true };
+    case 'file_search': return { input: str(item.pattern), result: '', ok: true };
+    case 'dynamic_tool': {
+      const lines = toolCallLines({ args: item.input });
+      return { input: lines.command ?? lines.args?.map(([key, value]) => `${key} ${value}`).join('\n') ?? lines.argsText ?? '', result: '', ok: true };
+    }
     case 'approval_request': return { input: str(item.prompt), result: '', ok: true };
     case 'user_input_request': return { input: arr(item.questions).map(question => str(question.question)).join('\n\n'), result: '', ok: true };
     case 'notification': return { input: display(item.detail), result: '', ok: true };

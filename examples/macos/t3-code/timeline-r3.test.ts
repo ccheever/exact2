@@ -53,6 +53,14 @@ describe('Claude skill calls (43bd667)', () => {
     expect(entries.find(entry => entry.id === key('n'))).toMatchObject({ label: 'Skill: plain', output: '', expandable: false });
   });
 
+  test('read paths and skill arguments remain above withheld output while loading', async () => {
+    const view = client([user('u', 0, 'go'), tool('r', 1, 'Read', { file_path: 'src/app.ts' }, { outputOmitted: true }),
+      tool('s', 2, 'Skill', { skill: 'full-send', args: 'ship it' }, { outputOmitted: true }), answer('a', 3, 'done')]);
+    const entries = (await opened(view)).flatMap(row => row.activities ?? []);
+    expect(entries.find(entry => entry.id === key('r'))).toMatchObject({ body: '/work/project/src/app.ts', output: 'Loading output…' });
+    expect(entries.find(entry => entry.id === key('s'))).toMatchObject({ body: 'ship it', output: 'Loading output…' });
+  });
+
   test('a read expands to the paths it read, not the inspector', async () => {
     const view = client([user('u', 0, 'go'), tool('r', 1, 'Read', { file_path: 'src/app.ts' }), answer('a', 3, 'done')]);
     const entry = (await opened(view)).flatMap(row => row.activities ?? []).find(activity => activity.id === key('r'));
@@ -60,16 +68,13 @@ describe('Claude skill calls (43bd667)', () => {
   });
 });
 
-describe('inspector input (f786ff3)', () => {
-  test('a dynamic tool heads its input and highlights it as JSON; a shell command stays plain', async () => {
+describe('inspector input (df4ae529ea)', () => {
+  test('a dynamic tool shows key value lines and a shell command stays plain without INPUT headings', async () => {
     const value = client([user('u', 0, 'go'), tool('t', 1, 'Fetch', { url: 'https://example.com', retries: 2 }), command('c', 2, 'ls -la'), answer('a', 3, 'done')]);
-    const row = (await opened(value)).find(candidate => candidate.activities?.some(activity => activity.id === key('t')))!;
-    const code = row.code!.find(entry => entry.id === key('t'))!;
-    expect(code.icon).toBe('INPUT');
-    expect(code.tokens.map(token => token.cls)).toContain('tag'); // lane r12-render: Shiki's JSON key ink (#d5512f), as 'key' painted
-    expect(row.code!.some(entry => entry.id === key('c'))).toBe(false);
-    const json = client([user('u', 0, 'go'), command('j', 1, '{"cmd":["ls"]}'), answer('a', 3, 'done')]);
-    expect((await opened(json)).flatMap(candidate => candidate.code ?? []).find(entry => entry.id === key('j'))).toMatchObject({ icon: '' });
+    const result = await opened(value);
+    expect(result.flatMap(row => row.activities ?? []).find(entry => entry.id === key('t'))?.body).toBe('url https://example.com\nretries 2');
+    expect(result.flatMap(row => row.activities ?? []).find(entry => entry.id === key('c'))?.body).toBe('ls -la');
+    expect(result.flatMap(row => row.code ?? [])).toEqual([]);
   });
 });
 

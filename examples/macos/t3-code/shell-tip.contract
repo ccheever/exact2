@@ -20,6 +20,27 @@ component Tip
       when label != ""
         TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=over)
 
+// Timeline tooltips close on an actual scroll, remaining suppressed until physical pointer motion.
+component TimelineTip
+  props
+    label: string
+    side: string
+    align: string
+    offset: number
+  slot
+  state over = false
+  state dismissed = false
+  action setOver(value: bool)
+    over = value
+  action scrollDismiss
+    dismissed = not dismissed
+  view
+    box position="relative" hover=setOver flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0
+      children
+      box position="absolute" width=0 height=0 padding=0 border-width=0 pointer-events="none" aria-hidden=true hook="t3-timeline-tip" press=scrollDismiss
+      when label != ""
+        TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=(over and not dismissed))
+
 // The bubble alone, for triggers that already track their own hover. `inset`
 // moves an end- (or start-) aligned bubble past the trigger's edge, as Base
 // UI's 5pt collision shift lands it against the window edge. An aligned

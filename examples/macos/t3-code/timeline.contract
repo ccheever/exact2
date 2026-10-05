@@ -20,7 +20,7 @@ use CheckpointFile from "./shapes.contract"
 use FileTypeIcon from "./timeline-files.contract"
 use AttachmentUrl from "./timeline-attachments.contract"
 use MessageAttachments from "./timeline-attachments.contract"
-use Tip from "./shell-tip.contract"
+use TimelineTip from "./shell-tip.contract"
 use RowTip from "./r8-pointer-tips.contract"
 use WorktreeSetupCard from "./timeline-worktree.contract"
 
@@ -75,7 +75,7 @@ component TimelineRow
               row width="100%" align-items="center" gap=8 padding-top=8 padding-bottom=8 box-sizing="border-box"
                 box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0b)"
                 // TimelineSystemDivider: a fork, or a subagent's "Subagent of · parent" with the bot glyph; the pill's action is its tooltip.
-                Tip(label=message.actionLabel, side="top", align="center", offset=30)
+                TimelineTip(label=message.actionLabel, side="top", align="center", offset=30)
                   button press=command("select-thread", message.targetId, "", 0) disabled=(message.targetId == "") aria-label=message.actionLabel testId=`source-${message.id}` height=26 padding-left=10 padding-right=10 box-sizing="border-box" border-radius=13 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0b)" background-color="light-dark(#fcfcfc, #0a0a0a)" display="flex" flex-direction="row" align-items="center" gap=6 min-width=0
                     TimelineIcon(name=(message.icon == "bot" ? "bot" : "fork"), size=12, color="light-dark(#71717b, #818181)")
                     when message.title != "" and message.detail != ""
@@ -127,7 +127,7 @@ component UserRow
             text (message.attribution == "agent" ? "Sent by another agent" : "Sent by automation") margin-right=4 font-size=11 line-height="15px" color="light-dark(#71717bb3, #818181b3)"
       when message.intent != ""
         row margin-right=4 justify-content="flex-end"
-          Tip(label=message.intentTip, side="top", align="center", offset=20)
+          TimelineTip(label=message.intentTip, side="top", align="center", offset=20)
             row gap=4 align-items="center" justify-content="flex-end" aria-label=message.intentTip aria-description=message.intentTip
               when message.intent == "Steer"
                 TimelineIcon(name="redo", size=12, color="light-dark(#71717b, #818181)")
@@ -215,9 +215,9 @@ component ChangedFiles
               text `-${message.deletions}` font-family="ui-monospace" font-size=12 line-height="16px" font-weight=500 color=(diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
         row flex-shrink=0 gap=4 align-items="center"
           when length(filter(message.files, (f) => f.kind == "directory")) > 0
-            Tip(label=(message.expanded ? "Collapse all folders" : "Expand all folders"), side="top", align="center", offset=28)
+            TimelineTip(label=(message.expanded ? "Collapse all folders" : "Expand all folders"), side="top", align="center", offset=28)
               TreeIconButton(label=(message.expanded ? "Collapse all folders" : "Expand all folders"), icon=(message.expanded ? "chevrons-down-up" : "chevrons-up-down"), press=local("tree-all", (message.runId != "" ? message.runId : message.checkpointId), ""), testId=`tree-all-${message.id}`)
-          Tip(label="Open the full diff", side="top", align="center", offset=28)
+          TimelineTip(label="Open the full diff", side="top", align="center", offset=28)
             OpenDiffButton(message=message, command=command)
       column width="100%" padding=8 box-sizing="border-box"
         each file in message.files key=file.id
@@ -338,16 +338,16 @@ component TimelineContent
                   // After a failed tool the row stands in for the run's tool calls and discloses them.
                   when message.groupId != ""
                     button press=local("group", message.groupId, "") testId=`thinking-${message.groupId}` aria-label="Thinking" aria-expanded=message.expanded width="100%" min-height=24 padding=0 padding-left=2 padding-right=2 box-sizing="border-box" border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
-                      LiveActivity(label="Thinking", icon="brain", failed=false, active=true, shimmer=true)
+                      LiveActivity(label="Thinking", icon="brain", failed=false, active=true, shimmer=true, iconLight="", iconDark="")
                   else
                     row width="100%" padding-left=2 padding-right=2 box-sizing="border-box" align-items="center"
-                      LiveActivity(label="Thinking", icon="brain", failed=false, active=true, shimmer=true)
+                      LiveActivity(label="Thinking", icon="brain", failed=false, active=true, shimmer=true, iconLight="", iconDark="")
               else
                 when message.kind == "live"
                   button press=local("group", message.groupId, "") testId=`live-${message.id}` aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height=24 padding=0 padding-left=2 padding-right=2 box-sizing="border-box" border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
                     // Keyed by its label: a reused one-line text would keep drawing the old string.
                     each keyed in message.activities key=keyed.id
-                      LiveActivity(label=keyed.label, icon=message.icon, failed=message.failed, active=message.live, shimmer=false)
+                      LiveActivity(label=keyed.label, icon=message.icon, failed=message.failed, active=message.live, shimmer=false, iconLight=keyed.iconLight, iconDark=keyed.iconDark)
                 else
                   when message.kind == "group"
                     WorkGroupHeader(message=message, local=local)
@@ -365,7 +365,7 @@ component TimelineContent
                           row width="100%" align-items="center" gap=12 padding-top=4 padding-bottom=4 role="separator" aria-label=message.title
                             box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0b)"
                             each keyed in message.activities key=keyed.id
-                              LiveActivity(label=keyed.label, icon="minimize", failed=false, active=message.live, shimmer=true)
+                              LiveActivity(label=keyed.label, icon="minimize", failed=false, active=message.live, shimmer=true, iconLight="", iconDark="")
                             box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0b)"
                         else
                           when message.kind == "event"
@@ -399,7 +399,7 @@ component WorkGroupHeader
   view
     button hover=hover("row") press=local("group", message.groupId, "") testId=`group-${message.id}` aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height=28 padding=2 box-sizing="border-box" border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
       each keyed in message.activities key=keyed.id
-        WorkLine(icon=message.icon, label=keyed.label, failed=false, highlighted=false, tone="", answer="", strong=false)
+        WorkLine(icon=message.icon, label=keyed.label, failed=false, highlighted=false, tone="", answer="", strong=false, iconLight="", iconDark="")
       // TimelineRowTimestamp: the full date in a tooltip once the time shows.
       box position=(hovering ? "relative" : "absolute") opacity=(hovering ? 1 : 0) flex-shrink=0 margin-right=4
         RowTip(label=(hovering ? message.timeTip : ""), side="top", align="center", offset=20, shown=(over == "time"), hover=hover("time"))

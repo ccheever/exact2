@@ -31,12 +31,19 @@ shape CheckpointFile
   spacer: bool
   plus: string
   minus: string
+shape MarkdownSkill
+  name: string
+  displayName: string
 shape Activity
   id: string
   label: string
   body: string
   icon: string
   output: string
+  outputState: string
+  detailOpen: bool
+  iconLight: string
+  iconDark: string
   result: string
   failed: bool
   timestamp: string
@@ -222,6 +229,8 @@ shape SnapshotDraft
   // r4-composer: its image chip is in the prompt, so Remove asks first (removeComposerImage).
   referenced: bool
 shape Snapshot
+  timelineReadsNeeded: bool
+  markdownSkills: list<MarkdownSkill>
   composer: ComposerView
   // r6-polish: the AlertStack wrapper's clip to its banners (r6-polish-measure.ts alertClip).
   alertClip: string

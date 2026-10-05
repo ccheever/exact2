@@ -24,3 +24,20 @@ component TimelineIcon
         else
           svg width=size height=size viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
             path d=geometry
+
+// Native image lifecycle owns only the overlay; the fallback stays Contract-owned.
+// T3 Code ToolActivityImageIcon (MIT, LICENSE-T3), app hook adaptation.
+component ToolActivityIcon
+  props
+    light: string
+    dark: string
+    label: string
+  slot
+  state loaded = false
+  action settled
+    loaded = not loaded
+  view
+    box width=16 height=16 position="relative" flex-shrink=0 aria-label=label
+      when not loaded
+        children
+      box position="absolute" left=0 top=0 width=16 height=16 padding=0 border-width=0 background-color="#00000000" pointer-events="none" aria-hidden=true hook="t3-tool-icon" data-tool-icon-light=light data-tool-icon-dark=dark press=settled

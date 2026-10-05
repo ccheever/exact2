@@ -9,7 +9,15 @@
 
 /// Advance widths of the system UI font at 12pt (printable ASCII), as measured
 /// in the reference's canvas (pages-text-width.ts R12); others count 6.9.
-const R12: [f64; 95] = [3.38, 3.73, 5.73, 7.56, 7.56, 11.1, 8.54, 3.56, 4.58, 4.58, 5.66, 7.56, 3.56, 5.66, 3.56, 3.66, 7.56, 5.57, 7.24, 7.52, 7.72, 7.42, 7.64, 6.83, 7.66, 7.64, 3.56, 3.56, 7.56, 7.56, 7.56, 6.15, 11.02, 8.09, 7.89, 8.59, 8.72, 7.15, 6.87, 8.96, 8.91, 3.21, 6.46, 7.9, 6.81, 10.49, 8.91, 9.26, 7.62, 9.26, 7.84, 7.65, 7.61, 8.85, 8.09, 11.61, 8.14, 7.86, 7.94, 4.58, 3.66, 4.58, 7.56, 7.0, 6.0, 6.62, 7.37, 6.71, 7.37, 6.86, 4.34, 7.31, 7.06, 2.96, 2.96, 6.52, 3.04, 10.44, 7.0, 7.09, 7.32, 7.31, 4.57, 6.28, 4.36, 7.0, 6.5, 9.29, 6.29, 6.52, 6.47, 4.58, 3.11, 4.58, 7.56];
+const R12: [f64; 95] = [
+    3.38, 3.73, 5.73, 7.56, 7.56, 11.1, 8.54, 3.56, 4.58, 4.58, 5.66, 7.56, 3.56, 5.66, 3.56, 3.66,
+    7.56, 5.57, 7.24, 7.52, 7.72, 7.42, 7.64, 6.83, 7.66, 7.64, 3.56, 3.56, 7.56, 7.56, 7.56, 6.15,
+    11.02, 8.09, 7.89, 8.59, 8.72, 7.15, 6.87, 8.96, 8.91, 3.21, 6.46, 7.9, 6.81, 10.49, 8.91,
+    9.26, 7.62, 9.26, 7.84, 7.65, 7.61, 8.85, 8.09, 11.61, 8.14, 7.86, 7.94, 4.58, 3.66, 4.58,
+    7.56, 7.0, 6.0, 6.62, 7.37, 6.71, 7.37, 6.86, 4.34, 7.31, 7.06, 2.96, 2.96, 6.52, 3.04, 10.44,
+    7.0, 7.09, 7.32, 7.31, 4.57, 6.28, 4.36, 7.0, 6.5, 9.29, 6.29, 6.52, 6.47, 4.58, 3.11, 4.58,
+    7.56,
+];
 /// `.chat-markdown td` max-width: 24rem.
 const CELL_CAP: f64 = 384.0;
 
@@ -23,10 +31,18 @@ fn cell_width(runs: &[markdown_parse::Run], header: bool) -> f64 {
             continue;
         }
         let bold = header || run.bold;
-        let text: f64 = run.text.chars().map(|c| {
-            let code = c as u32;
-            if (32..127).contains(&code) { R12[(code - 32) as usize] } else { 6.9 }
-        }).sum();
+        let text: f64 = run
+            .text
+            .chars()
+            .map(|c| {
+                let code = c as u32;
+                if (32..127).contains(&code) {
+                    R12[(code - 32) as usize]
+                } else {
+                    6.9
+                }
+            })
+            .sum();
         width += text * 0.99 * if bold { 1.045 } else { 1.0 };
     }
     width + 24.0
@@ -36,23 +52,44 @@ fn cell_width(runs: &[markdown_parse::Run], header: bool) -> f64 {
 fn cell_markdown(runs: &[markdown_parse::Run]) -> String {
     let mut out = String::new();
     for run in runs {
-        let mut text = if run.code { format!("`{}`", run.text) } else { run.text.clone() };
-        if run.italic && !run.code { text = format!("*{text}*"); }
-        if run.bold && !run.code { text = format!("**{text}**"); }
-        if !run.href.is_empty() {
+        let skill_source = run.href.strip_prefix("t3-skill:");
+        let mut text = if run.code {
+            format!("`{}`", run.text)
+        } else {
+            skill_source.unwrap_or(&run.text).to_string()
+        };
+        if run.italic && !run.code {
+            text = format!("*{text}*");
+        }
+        if run.bold && !run.code {
+            text = format!("**{text}**");
+        }
+        if !run.href.is_empty() && skill_source.is_none() {
             let href = run.href.strip_prefix(FILE_LINK).unwrap_or(&run.href);
             text = format!("[{text}]({href})");
         }
         out.push_str(&text);
     }
-    out.split_whitespace().collect::<Vec<_>>().join(" ").replace('|', "\\|")
+    out.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace('|', "\\|")
 }
 fn cell_plain(runs: &[markdown_parse::Run]) -> String {
-    runs.iter().map(|run| run.text.as_str()).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ")
+    runs.iter()
+        .map(|run| run.href.strip_prefix("t3-skill:").unwrap_or(&run.text))
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 /// csvCell: quoted when it holds a quote, comma or newline.
 fn csv_cell(value: &str) -> String {
-    if value.contains(['"', ',', '\n']) { format!("\"{}\"", value.replace('"', "\"\"")) } else { value.to_string() }
+    if value.contains(['"', ',', '\n']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
 }
 
 /// serializeTableElementToMarkdown and serializeTableElementToCsv over the parsed rows.
@@ -60,12 +97,27 @@ fn table_text(rows: &[&markdown_parse::Block]) -> (String, String) {
     let mut markdown = Vec::new();
     let mut csv = Vec::new();
     for (index, row) in rows.iter().enumerate() {
-        if row.cells.is_empty() { continue; }
-        markdown.push(format!("| {} |", row.cells.iter().map(|cell| cell_markdown(cell)).collect::<Vec<_>>().join(" | ")));
+        if row.cells.is_empty() {
+            continue;
+        }
+        markdown.push(format!(
+            "| {} |",
+            row.cells
+                .iter()
+                .map(|cell| cell_markdown(cell))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        ));
         if index == 0 {
             markdown.push(format!("| {} |", vec!["---"; row.cells.len()].join(" | ")));
         }
-        csv.push(row.cells.iter().map(|cell| csv_cell(&cell_plain(cell))).collect::<Vec<_>>().join(","));
+        csv.push(
+            row.cells
+                .iter()
+                .map(|cell| csv_cell(&cell_plain(cell)))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
     }
     (markdown.join("\n"), csv.join("\n"))
 }
@@ -78,7 +130,9 @@ fn table_block(first: usize, gap: f64, rows: &[&markdown_parse::Block], align: &
     for column in 0..columns {
         let mut best: Option<(f64, &[markdown_parse::Run], bool)> = None;
         for row in rows {
-            let Some(cell) = row.cells.get(column) else { continue };
+            let Some(cell) = row.cells.get(column) else {
+                continue;
+            };
             let width = cell_width(cell, row.header);
             if best.is_none_or(|(widest, _, _)| width > widest) {
                 best = Some((width, cell.as_slice(), row.header));
@@ -86,7 +140,12 @@ fn table_block(first: usize, gap: f64, rows: &[&markdown_parse::Block], align: &
         }
         let (width, runs, header) = best.unwrap_or((24.0, &[], false));
         let capped = width > CELL_CAP;
-        let sizer = chat_runs(&Value::list(runs.iter().enumerate().map(|(i, run)| markdown_parse::value::run(i, run)).collect()));
+        let sizer = chat_runs(&Value::list(
+            runs.iter()
+                .enumerate()
+                .map(|(i, run)| markdown_parse::value::run(i, run))
+                .collect(),
+        ));
         sizers.push(Value::record(vec![
             Value::str(&column.to_string()),
             sizer,
@@ -96,27 +155,59 @@ fn table_block(first: usize, gap: f64, rows: &[&markdown_parse::Block], align: &
             Value::str(align.get(column).copied().unwrap_or("left")),
         ]));
     }
-    let row_values = rows.iter().enumerate().map(|(index, row)| {
-        let cells = (0..columns).map(|column| {
-            let runs = row.cells.get(column).map(Vec::as_slice).unwrap_or(&[]);
+    let row_values = rows
+        .iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let cells = (0..columns)
+                .map(|column| {
+                    let runs = row.cells.get(column).map(Vec::as_slice).unwrap_or(&[]);
+                    Value::record(vec![
+                        Value::str(&column.to_string()),
+                        chat_runs(&Value::list(
+                            runs.iter()
+                                .enumerate()
+                                .map(|(i, run)| markdown_parse::value::run(i, run))
+                                .collect(),
+                        )),
+                    ])
+                })
+                .collect();
             Value::record(vec![
-                Value::str(&column.to_string()),
-                chat_runs(&Value::list(runs.iter().enumerate().map(|(i, run)| markdown_parse::value::run(i, run)).collect())),
+                Value::str(&index.to_string()),
+                Value::Bool(row.header),
+                Value::list(cells),
             ])
-        }).collect();
-        Value::record(vec![Value::str(&index.to_string()), Value::Bool(row.header), Value::list(cells)])
-    }).collect();
+        })
+        .collect();
     let (markdown, csv) = table_text(rows);
     Value::record(vec![
-        Value::str(&first.to_string()), Value::str("table"), Value::Number(0.0), Value::str(""), Value::str(""), Value::str(""),
-        Value::Bool(false), Value::list(Vec::new()), Value::list(Vec::new()), Value::Number(gap), Value::Bool(false),
-        Value::list(row_values), Value::list(sizers), Value::str(&markdown), Value::str(&csv),
+        Value::str(&first.to_string()),
+        Value::str("table"),
+        Value::Number(0.0),
+        Value::str(""),
+        Value::str(""),
+        Value::str(""),
+        Value::Bool(false),
+        Value::list(Vec::new()),
+        Value::list(Vec::new()),
+        Value::Number(gap),
+        Value::Bool(false),
+        Value::list(row_values),
+        Value::list(sizers),
+        Value::str(&markdown),
+        Value::str(&csv),
     ])
 }
 
 /// The fields every non-table block carries after `flow`: no rows, columns or text.
 fn no_table(fields: &mut Vec<Value>) {
-    fields.extend([Value::list(Vec::new()), Value::list(Vec::new()), Value::str(""), Value::str("")]);
+    fields.extend([
+        Value::list(Vec::new()),
+        Value::list(Vec::new()),
+        Value::str(""),
+        Value::str(""),
+    ]);
 }
 
 /// `![name](t3-context://v1/image/…)`: the parser keeps inline images as bare
@@ -145,15 +236,23 @@ fn image_chip_links(text: &str) -> std::borrow::Cow<'_, str> {
 fn table_lines(lines: &[&str]) -> Vec<bool> {
     let rule = |line: &str| {
         let line = line.trim();
-        line.contains('|') && line.contains('-') && line.chars().all(|c| matches!(c, '|' | '-' | ':' | ' ' | '\t'))
+        line.contains('|')
+            && line.contains('-')
+            && line
+                .chars()
+                .all(|c| matches!(c, '|' | '-' | ':' | ' ' | '\t'))
     };
     let mut table = vec![false; lines.len()];
     let mut index = 0;
     while index < lines.len() {
         if lines[index].contains('|') && lines.get(index + 1).is_some_and(|next| rule(next)) {
             let mut end = index + 2;
-            while end < lines.len() && lines[end].contains('|') && !lines[end].trim().is_empty() { end += 1; }
-            for flag in &mut table[index..end] { *flag = true; }
+            while end < lines.len() && lines[end].contains('|') && !lines[end].trim().is_empty() {
+                end += 1;
+            }
+            for flag in &mut table[index..end] {
+                *flag = true;
+            }
             index = end;
         } else {
             index += 1;

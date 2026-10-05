@@ -1,12 +1,12 @@
 ---
 name: 20261005-upstream-timeline-and-markdown
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: in-progress
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
-branch: null
+branch: daehyeon/t3code-upstream-timeline-markdown
 pr_url: null
 verified_commit: null
 ---
@@ -116,14 +116,28 @@ Required environment: the reference runtime at the new pin; no Chrome-only tooli
 
 ## Progress
 
-Planned.
+Implemented on the round-12 snapshot `1c6b4a12a` under the user's 2026-10-06 direction to work on independent tasks concurrently. This branch retains framework `c1522fdac` plus the existing app parking patch; the main migration, hot-file split PR and new desktop oracle are not represented as merged. The coordinator integrates shared source/manifest changes and runs the combined native build. No pixel-perfect comparison loop was run.
+
+- A1: removed the automatic-compaction helper; the coordinator removes its call/import in `client.ts`. Explicit Compact remains in `composer-controls-commands.ts`. The send regression now expects only the typed message.
+- A2/A3/CN1: ported `itemDetail.ts` with original function names; full call text above bounded muted output, no card/headings, only nonzero `exit N`. Read paths and skill arguments remain visible above fetched output. Search patterns and failed edit errors are preserved. Empty rows have no disclosure.
+- The keyed detail cache isolates connection generation/origin, environment, source thread, item and live/final revision, deduplicates requests, expires after 60 seconds, retains successful content during refresh, and rejects mismatched replies. Disclosure state is data-owned; an independent root mutation awaits reads while the snapshot remains usable. All cache clocks are supplied by the host through `composerNow`, never `Date.now()`.
+- A4: the sole `isMarkdownFileLinkLabel` rule is in app Rust, with the reference's 16-case table. Prose labels remain before file chips; source copy is unchanged.
+- G12b: provider-known `$skill` tokens become chips outside code and links in paragraphs, lists, headings, quotes and tables. Table copying restores the original token. The coordinator wires the existing cwd-scoped provider skill snapshot into `renderMarkdown`'s second argument.
+- Tool icons: website/themed/native-app source precedence and asset URL refresh are implemented. An app-owned native overlay loads/caches image data and uses documented `ExactElement.click()` to change Contract fallback state; it never mutates Exact-owned subviews. Warning/severe rows retain their glyph and failed image rows add an x.
+- A17: timeline-only tooltip hooks observe actual clip-origin changes, preserve focused triggers and remain dismissed under synthetic rehover until physical pointer motion. A wheel that does not scroll does nothing. Contract owns tooltip state; native only emits its declared press callback.
+
+Guidance remains library revision `20261005-platforms-v3`: foundations, state/data, layout, design, accessibility and testing, using application-owned native hooks where the pinned Contract vocabulary has no image-load/scroll-tooltip callback. No framework edit.
+
+Shared integration: `timelineReadsNeeded(client)` and awaited `refreshTimelineReads(client, native)` from `timeline-prepare.ts`; snapshot fields `timelineReadsNeeded` and `markdownSkills`; source `refreshTimelineReads`; `noteNow` before reads; hooks `t3-tool-icon` / `t3-timeline-tip`; data keys `tool-icon-light` / `tool-icon-dark`; install/remove/destroy the two new app Swift hook owners. The Rust mixed-source allowlist includes the timeline mutation and parallel activity source names.
+
+Task stays active/unverified. The fixture runtime `f870c41` lacks `orchestration.getTurnItem`; deterministic protocol tests prove the implemented request path, not runtime parity against a newer server. Native interaction, provider-backed MCP icons, physical-wheel/focused-tooltip checks and output-region Tab reachability remain to verify. The pinned Contract compiler does not expose `tabindex`/`tabIndex`, so no unsupported attribute is emitted.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 2026-10-06 independent implementation | round-12 `1c6b4a12a`, task branch above; Bun 1.4.2 | 1,170 Bun tests pass, strict README `tsc` passes, Contract build returns `[]`; Rust formatting and diff checks pass. Checks temporarily applied the coordinator's A1/manifest seam changes, then restored those shared files. AppKit harness: 5 image lifecycle and 4 tooltip origin/latch checks pass with actual AppKit views and a minimal ExactElement stub. | Local-only logs `/tmp/t3-timeline-checked-0.log`, `/tmp/t3-timeline-checked-1.log`, `/tmp/t3-timeline-final-0.log`; harness `/tmp/t3-tool-icon-check`. Feature regressions committed alongside code. | Full integrated native tests/build and newer fixture runtime pending; no visual or live-input acceptance claim. |
 
 ## Next action
 
-`prepare` after the three dependencies merge, then `implement`.
+Coordinator integrates the documented shared seams, runs the combined native build/tests, and reconciles the pending prerequisite PRs/runtime. Implementation is ready for verification; retain `verification: unverified` until the required runtime acceptance and independent review are complete.

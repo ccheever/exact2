@@ -267,8 +267,12 @@ component BlockBody
     copiedNonce: number
   view
     when block.kind == "heading"
-      text role="heading" aria-level=block.depth width="100%" font-size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14) line-height=1.3 color=(block.depth == 6 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
-        ChatRuns(runs=block.runs, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600)
+      when block.flow
+        box role="heading" aria-level=block.depth width="100%"
+          FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600)
+      else
+        text role="heading" aria-level=block.depth width="100%" font-size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14) line-height=1.3 color=(block.depth == 6 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
+          ChatRuns(runs=block.runs, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600)
     else
       when block.kind == "item"
         row width="100%" padding-left=(block.depth * 20) box-sizing="border-box"
@@ -278,7 +282,7 @@ component BlockBody
           else
             text block.marker width=20 flex-shrink=0 padding-right=4 box-sizing="border-box" text-align="right" white-space="nowrap" font-size=14 line-height="22.75px" color="light-dark(#27272acc, #f5f5f5cc)"
           when block.flow
-            FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local)
+            FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400)
           else
             text flex=1 min-width=0 font-size=14 line-height="22.75px" color=prose
               ChatRuns(runs=block.runs, size=14, weight=400)
@@ -299,11 +303,15 @@ component BlockBody
                 image block.href aria-label=block.text max-width="100%" object-fit="contain"
               else
                 when block.kind == "quote"
-                  text width="100%" font-size=14 padding-left=12.8 box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" line-height="22.75px" color="light-dark(#71717b, #818181)"
-                    ChatRuns(runs=block.runs, size=14, weight=400)
+                  when block.flow
+                    box width="100%" padding-left=12.8 box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)"
+                      FlowRuns(runs=block.runs, color="light-dark(#71717b, #818181)", fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400)
+                  else
+                    text width="100%" font-size=14 padding-left=12.8 box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" line-height="22.75px" color="light-dark(#71717b, #818181)"
+                      ChatRuns(runs=block.runs, size=14, weight=400)
                 else
                   when block.flow
-                    FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local)
+                    FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400)
                   else
                     text width=(fit ? "auto" : "100%") max-width="100%" font-size=14 line-height="22.75px" color=prose
                       ChatRuns(runs=block.runs, size=14, weight=400)
@@ -330,6 +338,8 @@ component ChatRuns
 component FlowRuns
   props
     runs: list<ChatRun>
+    size: number
+    weight: number
     color: string
     fit: bool
     chips: list<ChipView>
@@ -359,9 +369,9 @@ component FlowRuns
                 row flex-shrink=0 align-items="flex-start"
                   box width=14 height=22.75 margin-left=3.5 margin-right=2.8 padding-top=4.5 box-sizing="border-box" flex-shrink=0
                     TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
-                  text run.text href=run.href white-space="pre" flex-shrink=0 font-size=14 line-height="22.75px" font-weight=run.weight font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+                  text run.text href=run.href white-space="pre" flex-shrink=0 font-size=size line-height="22.75px" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
               else
-                text run.text href=(run.kind == "link" ? run.href : "") white-space="pre" flex-shrink=0 font-size=14 line-height="22.75px" font-weight=run.weight font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+                text run.text href=(run.kind == "link" ? run.href : "") white-space="pre" flex-shrink=0 font-size=size line-height="22.75px" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
 
 // ContextChip's per-kind accent (oklch(0.62 C H)): a fill of the accent at
 // 11%, a border mixing it 34% into the border colour and text mixing it 22%
@@ -736,7 +746,7 @@ component TableCell
     prose: string
   view
     column flex-grow=column.grow flex-shrink=0 min-width=0 padding-left=12 padding-right=12 padding-top=(header ? 8.8 : 7.2) padding-bottom=(header ? 8.8 : 7.2) box-sizing="border-box" justify-content="center" role=(header ? "columnheader" : "cell")
-      when length(filter(cell.runs, (part) => part.mono)) > 0
+      when length(filter(cell.runs, (part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "")) > 0
         // A code span keeps its bordered box (inline spans paint backgrounds only).
         CellRuns(runs=cell.runs, weight=(header ? 600 : 400), color=prose, nowrap=(header or not expanded), shown=true, justify=(column.align == "center" ? "center" : column.align == "right" ? "flex-end" : "flex-start"))
       else
@@ -751,7 +761,7 @@ component TableCell
         when column.capped
           box width=360 height=0
         else
-          when length(filter(column.sizer, (part) => part.mono)) > 0
+          when length(filter(column.sizer, (part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "")) > 0
             CellRuns(runs=column.sizer, weight=(column.header ? 600 : 400), color=prose, nowrap=true, shown=false, justify="flex-start")
           else
             text max-width=(expanded and column.header ? 100000 : 360) font-size=12 line-height=1.625 white-space="nowrap" opacity=0
@@ -773,7 +783,13 @@ component CellRuns
         when run.mono
           text run.text flex-shrink=0 font-family="ui-monospace" font-size=12 line-height="14px" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left=5.6 padding-right=5.6 padding-top=1.6 padding-bottom=1.6 border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
         else
-          text run.text min-width=0 font-size=12 line-height=1.625 white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color=color
+          when run.kind == "file"
+            FileChip(run=run)
+          else
+            when chipAccent(run.kind) != ""
+              ContextChipBox(run=run)
+            else
+              text run.text min-width=0 font-size=12 line-height=1.625 white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color=color
 
 // The footer's icon-xs buttons: ghost-muted, or "secondary" while pressed.
 component TableIconButton

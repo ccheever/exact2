@@ -7,7 +7,8 @@ use CodeHighlight from "./markdown.contract"
 use synColor from "./markdown.contract"
 use Icon from "./icons.contract"
 use TimelineIcon from "./timeline-icons.contract"
-use Tip from "./shell-tip.contract"
+use ToolActivityIcon from "./timeline-icons.contract"
+use TimelineTip from "./shell-tip.contract"
 use R11RetryPreparation from "./r11-upstream.contract"
 
 // .live-activity-focus: a 72pt window crossing a box 144pt wider than the
@@ -187,10 +188,12 @@ component WorkLine
     tone: string
     answer: string
     strong: bool
+    iconLight: string
+    iconDark: string
   view
     row flex=1 min-width=0 min-height=24 gap=6 align-items="center"
       row width=24 height=24 flex-shrink=0 align-items="center" justify-content="center"
-        box width=16 height=16 opacity=(tone == "shine" ? 0 : highlighted or tone == "warning" or tone == "error" ? 1 : 0.7)
+        ToolActivityIcon(light=(tone == "warning" or tone == "error" ? "" : iconLight), dark=(tone == "warning" or tone == "error" ? "" : iconDark), label=label)
           TimelineIcon(name=icon, size=16, color=(tone == "warning" ? "light-dark(#e17100, #fe9a00)" : tone == "error" ? "light-dark(#fb2c36, #fb414a)" : failed ? "light-dark(#971a2066, #fca5a566)" : highlighted ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#44444a, #818181)"))
       when answer != ""
         row flex=1 min-width=0 gap=6 align-items="baseline"
@@ -198,6 +201,9 @@ component WorkLine
           text answer min-width=0 font-size=14 line-height="22.75px" line-clamp=1 text-align="left" color=(strong ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
       else
         text label flex=1 min-width=0 font-size=14 line-height="22.75px" font-weight=(tone == "warning" or tone == "error" ? 500 : 400) line-clamp=1 text-align="left" color=(tone == "warning" ? "light-dark(#e17100, #fe9a00)" : tone == "error" ? "light-dark(#fb2c36, #fb414a)" : highlighted ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+
+      when failed and (iconLight != "" or iconDark != "") and tone != "warning" and tone != "error"
+        Icon(name="x", size=12, color="light-dark(#fb2c36, #fb414a)")
 
 // The row width the sweep is laid out for: the label's estimated width,
 // rounded up to the 40pt step its keyframes exist for.
@@ -215,15 +221,17 @@ component LiveActivity
     failed: bool
     active: bool
     shimmer: bool
+    iconLight: string
+    iconDark: string
   derive sweep = shineWidth(label)
   view
     row position="relative" min-height=24 max-width="100%" min-width=0 overflow="hidden" border-radius=8 align-items="center" aria-label=(failed ? "Tool call failed" : label)
-      WorkLine(icon=icon, label=label, failed=failed, highlighted=false, tone="", answer="", strong=false)
+      WorkLine(icon=icon, label=label, failed=failed, highlighted=false, tone="", answer="", strong=false, iconLight=iconLight, iconDark=iconDark)
       when active and not failed
         box position="absolute" top=0 bottom=0 left=-72 width=(sweep + 144) pointer-events="none" mask-image=shineMask(sweep) animation=`tlFocus${sweep} 2.2s linear infinite` aria-hidden=true
           box width="100%" height="100%" animation=`tlCounter${sweep} 2.2s linear infinite`
             row position="absolute" top=0 bottom=0 left=72 right=72 align-items="center" overflow="hidden"
-              WorkLine(icon=icon, label=label, failed=false, highlighted=true, tone=(shimmer ? "" : "shine"), answer="", strong=false)
+              WorkLine(icon=icon, label=label, failed=false, highlighted=true, tone=(shimmer ? "" : "shine"), answer="", strong=false, iconLight=iconLight, iconDark=iconDark)
 
 // A header's label sweeping like a live row, with no icon slot ("Setting up worktree…").
 component LiveLabel
@@ -250,11 +258,8 @@ component WorkEntry
     code: list<CodeHighlight>
     // toolCallExpandedBodyClassName: text-(length:--font-size-code) leading-relaxed (r4-timeline).
     codeSize: number
-  state expanded = false
+  derive expanded = entry.detailOpen
   state hovering = false
-  action toggle
-    if entry.expandable
-      expanded = not expanded
   action setHover(over: bool)
     hovering = over
   view
@@ -264,24 +269,24 @@ component WorkEntry
           row width=24 height=24 flex-shrink=0 align-items="center" justify-content="center"
             Icon(name="circle-alert", size=16, color=(entry.tone == "provider-warning" ? "light-dark(#e17100, #fe9a00)" : "light-dark(#fb2c36, #fb414a)"))
           text entry.label flex=1 min-width=0 font-size=14 font-weight=500 line-height="22.75px" color=(entry.tone == "provider-warning" ? "light-dark(#e17100, #fe9a00)" : "light-dark(#fb2c36, #fb414a)")
-          Tip(label=entry.timeTip, side="top", align="center", offset=20)
+          TimelineTip(label=entry.timeTip, side="top", align="center", offset=20)
             text entry.timestamp flex-shrink=0 margin-right=4 font-size=12 line-height="16px" white-space="nowrap" color="light-dark(#71717b, #818181)"
         when entry.detail != ""
           text entry.detail margin-left=28 padding-top=4 padding-bottom=4 font-size=14 line-height="22.75px" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272acc, #f5f5f5cc)"
         when entry.retryRunId != ""
           R11RetryPreparation(runId=entry.retryRunId, command=command)
       else
-        button press=toggle testId=`work-detail-${entry.id}` aria-label=(entry.failed ? `${entry.answer != "" ? entry.label + ": " + entry.answer : entry.label}, tool call failed` : entry.answer != "" ? `${entry.label}: ${entry.answer}` : entry.label) aria-expanded=expanded width="100%" min-height=24 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap=6
+        button press=command("chatlocal:item-detail", entry.id, expanded ? "close" : "open", 0) disabled=(not entry.expandable) testId=`work-detail-${entry.id}` aria-label=(entry.failed ? `${entry.answer != "" ? entry.label + ": " + entry.answer : entry.label}, tool call failed` : entry.answer != "" ? `${entry.label}: ${entry.answer}` : entry.label) aria-expanded=expanded width="100%" min-height=24 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap=6
           // Separate lines for the two labels: a one-line text reused for a new string can keep drawing the old one.
           when entry.reasoning and expanded
-            WorkLine(icon=entry.icon, label=entry.status, failed=entry.failed, highlighted=false, tone=(entry.tone == "warning" or entry.tone == "error" ? entry.tone : ""), answer="", strong=false)
+            WorkLine(icon=entry.icon, label=entry.status, failed=entry.failed, highlighted=false, tone=(entry.tone == "warning" or entry.tone == "error" ? entry.tone : ""), answer="", strong=false, iconLight=entry.iconLight, iconDark=entry.iconDark)
           else
-            WorkLine(icon=entry.icon, label=entry.label, failed=entry.failed, highlighted=false, tone=(entry.tone == "warning" or entry.tone == "error" ? entry.tone : ""), answer=entry.answer, strong=(not expanded))
+            WorkLine(icon=entry.icon, label=entry.label, failed=entry.failed, highlighted=false, tone=(entry.tone == "warning" or entry.tone == "error" ? entry.tone : ""), answer=entry.answer, strong=(not expanded), iconLight=entry.iconLight, iconDark=entry.iconDark)
           when entry.targetId != ""
             button press=command("select-thread", entry.targetId, "", 0) aria-label="Open created thread" padding=0 border-width=0 background-color="#00000000" flex-shrink=0
               text "Open chat" font-size=14 line-height="22.75px" color="light-dark(#1447e6, #50a2ff)"
           box position=(hovering or expanded ? "relative" : "absolute") opacity=(hovering or expanded ? 1 : 0) flex-shrink=0 margin-right=4
-            Tip(label=(hovering or expanded ? entry.timeTip : ""), side="top", align="center", offset=20)
+            TimelineTip(label=(hovering or expanded ? entry.timeTip : ""), side="top", align="center", offset=20)
               text entry.timestamp font-size=12 line-height="16px" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
           row width=16 height=16 flex-shrink=0 align-items="center" justify-content="center" opacity=(entry.expandable ? 0.7 : 0) rotate=(expanded ? 90 : 0)
             Icon(name="right", size=12, color="light-dark(#71717b, #818181)")
@@ -293,26 +298,15 @@ component WorkEntry
               // space-y-2 between questions, space-y-1 between a question and its answer.
               each line in hl.tokens key=line.id
                 text line.text margin-top=(line.id == "0" ? 0 : line.cls == "q" ? 8 : 4) margin-left=(line.cls == "a" ? 12 : 0) font-size=14 line-height="20px" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
-        when expanded and not entry.reasoning and entry.output != ""
-          column margin-top=4 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 box-sizing="border-box" border-radius=8 background-color="light-dark(#fafafa66, #ffffff03)"
-            scroll width="100%" max-height=256 overflow-x="hidden"
-              text entry.output width="100%" font-family="ui-monospace" font-size=codeSize line-height=1.625 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
-        when expanded and not entry.reasoning and entry.output == "" and (entry.body != "" or entry.result != "")
-          column margin-top=4 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 gap=8 box-sizing="border-box" border-radius=8 background-color="light-dark(#fafafa66, #ffffff03)"
+        when expanded and not entry.reasoning and (entry.body != "" or entry.output != "" or entry.result != "")
+          column margin-left=28 margin-top=4 padding-top=4 padding-bottom=4 gap=8 box-sizing="border-box"
             when entry.body != ""
-              column width="100%"
-                each hl in filter(code, (hl) => hl.id == entry.id and hl.icon == "INPUT") key=hl.id
-                  text hl.icon margin-bottom=4 font-size=10 font-weight=500 letter-spacing=0.25 line-height="14px" color="light-dark(#71717b, #818181)"
-                scroll width="100%" max-height=320 overflow-x="hidden"
-                  when length(filter(code, (hl) => hl.id == entry.id and length(hl.tokens) > 0)) > 0
-                    each hl in filter(code, (hl) => hl.id == entry.id and length(hl.tokens) > 0) key=hl.id
-                      text width="100%" padding=8 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e780, #ffffff08)" background-color="light-dark(#fcfcfc99, #0a0a0a99)" font-family="ui-monospace" font-size=11 line-height="17.875px" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
-                        each token in hl.tokens key=token.id
-                          text token.text color=(token.cls == "" ? "light-dark(#71717b, #818181)" : synColor(token.cls))
-                  else
-                    text entry.body width="100%" padding=8 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e780, #ffffff08)" background-color="light-dark(#fcfcfc99, #0a0a0a99)" font-family="ui-monospace" font-size=11 line-height="17.875px" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
+              text entry.body width="100%" font-family="ui-monospace" font-size=codeSize line-height=1.625 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272ad9, #f5f5f5d9)"
+            when entry.output != ""
+              scroll width="100%" max-height=320 overflow-x="hidden" aria-label="Tool output"
+                text entry.output width="100%" font-family="ui-monospace" font-size=codeSize line-height=1.625 white-space="pre-wrap" overflow-wrap="anywhere" font-style=(entry.outputState == "loading" or entry.outputState == "empty" ? "italic" : "normal") color=(entry.outputState == "error" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
             when entry.result != ""
-              text entry.result font-size=12 line-height="16px" color=(entry.ok ? "#00bc7d" : "light-dark(#fb2c36, #fb414a)")
+              text entry.result font-size=12 line-height="16px" color="light-dark(#fb2c36, #fb414a)"
 
 // TimelineSystemDivider: a rule, a pill with the event and its detail, a rule.
 component SystemDivider

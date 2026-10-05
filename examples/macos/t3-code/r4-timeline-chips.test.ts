@@ -106,3 +106,21 @@ describe('Pull Requests diff colors and Markdown settings', () => {
     expect([detail.diffScheme, detail.md]).toEqual(['blue-orange', { codeFont: 'ui-monospace', codeSize: 15, wrap: false, chips: [] }]);
   });
 });
+
+// Ported providerSkills.test.ts names; the pipeline assertion is clone-authored.
+describe('formatProviderSkillDisplayName', () => {
+  test('prefers the provider display name', async () => {
+    const { formatProviderSkillDisplayName } = await import('./r4-timeline-chips');
+    expect(formatProviderSkillDisplayName({ name: 'review-follow-up', displayName: 'Review Follow-up' })).toBe('Review Follow-up');
+  });
+  test('falls back to a title-cased skill name', async () => {
+    const { formatProviderSkillDisplayName } = await import('./r4-timeline-chips');
+    expect(formatProviderSkillDisplayName({ name: 'review-follow-up' })).toBe('Review Follow Up');
+  });
+  test('Markdown skill candidates exclude prices, invalid names and repeated names', async () => {
+    const { markdownSkills } = await import('./r4-timeline-chips');
+    expect(markdownSkills(['5', '1k', '1e9', '5foo', 'review-follow-up', 'review-follow-up', '_invalid', 'with space', 'unknown!'].map(name => ({ name })))).toEqual([
+      { name: '5foo', displayName: '5foo' }, { name: 'review-follow-up', displayName: 'Review Follow Up' },
+    ]);
+  });
+});
