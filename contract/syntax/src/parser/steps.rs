@@ -505,7 +505,14 @@ impl Parser {
                             name.push_str(&self.ident()?.0);
                         }
                         self.expect_punct("==")?;
-                        let value = self.expr()?;
+                        let value = match self.expr()? {
+                            // A negative number is a number (authoring bench: `== -1`).
+                            Expr::Unary(UnOp::Neg, n, s) if matches!(*n, Expr::Number(..)) => {
+                                let Expr::Number(n, _) = *n else { unreachable!() };
+                                Expr::Number(-n, s)
+                            }
+                            value => value,
+                        };
                         if !matches!(
                             value,
                             Expr::Number(..)

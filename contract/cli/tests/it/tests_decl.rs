@@ -323,3 +323,9 @@ fn else_if_and_else_when_say_to_nest_the_choice() {
         "there is no `else when`: end the line at `else` and write the `when` indented under it"
     );
 }
+
+#[test]
+fn a_negative_number_is_an_expect_state_value() {
+    let tests = contract::tests("test \"t\"\n  expect state offset == -1\n").unwrap();
+    assert_eq!(tests.len(), 1);
+}
