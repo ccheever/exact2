@@ -1284,3 +1284,17 @@ test('rewriting an input with its own bytes does not make a web build stale', as
     assert.deepEqual(webChanges(dist, app).app, [source]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 60000);
+
+test('readManifest names the game.presentation rename instead of an unknown key', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(resolve(tmpdir(), 'render-rename-manifest-'));
+  try {
+    mkdirSync(resolve(dir, 'logic/src'), { recursive: true });
+    writeFileSync(resolve(dir, 'logic/src/lib.rs'), 'impl Game for Island { const ID: &\'static str = "island"; }');
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ game: { presentation: { crate: 'island-presentation', type: 'Hooks' } } }));
+    assert.throws(() => readManifest(dir, 'island'), /game\.presentation is now game\.render/);
+    assert.throws(() => readManifest(dir, 'island'), (e) => !/not a known key/.test(e.message));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

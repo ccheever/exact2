@@ -128,11 +128,15 @@ older `game.presentation`/`presentation/`/`type` spelling is refused with this
 rename (LLP 1046.008 amendment); "presentation" now names only derived appearance
 state (`#[derive(Presentation)]`, `Game::present`).
 Render games also expose `exact-gpu.workspace = true` and
-`exact-gpu-reflect.workspace = true` (the latter as a build dependency). A
-`render/build.rs` can call `exact_gpu_reflect::generate` on its shader directory
-(after prepending declared preludes, as `games/wind-fixture/render/build.rs` does),
-write the generated Rust to `OUT_DIR`, and export its `SHADERS` table. Generated
-registry keys are file stems such as `fog`, without `.wgsl`.
+`exact-gpu-reflect.workspace = true` (the latter as a build dependency). The bake
+writes the shader inventory, each shader after its `gpu.shaderPreludes` exactly as
+it ships, to the directory `EXACT_GAME_SHADERS` names; `render/build.rs` calls
+`exact_gpu_reflect::generate` on it, writes the generated Rust to `OUT_DIR`, and
+exports its `SHADERS` table, so the registry matches what hosts register. A prelude
+may name the renderer's own WGSL by set (`exact-game-render:frame`,
+`exact-game-render:material`, `exact-game-render:material_shadows`, the files of
+`FRAME_WGSL`, `MATERIAL_WGSL` and `MATERIAL_SHADOWS_WGSL`) rather than SDK paths.
+Generated registry keys are file stems such as `fog`, without `.wgsl`.
 
 The render crate may depend on logic to read component/resource types through
 `RenderWorld`. Logic, data, native/web host adapters and build-time metadata must

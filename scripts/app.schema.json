@@ -46,7 +46,7 @@
         },
         "shaderPreludes": {
           "type": "object",
-          "description": "Ordered WGSL library paths relative to app.json, prepended to the named shader stem before reflection and packaging.",
+          "description": "Ordered WGSL library paths relative to app.json, prepended to the named shader stem before reflection and packaging. A game may also name the renderer's own sets: exact-game-render:frame, exact-game-render:material and exact-game-render:material_shadows.",
           "additionalProperties": {
             "type": "array",
             "items": {
