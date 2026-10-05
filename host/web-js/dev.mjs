@@ -92,8 +92,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   };
   // A build reading a tree (the assets it copies) is reported too on macOS:
   // a path not modified since the last build started is no edit.
-  const changed = (base) => (_, name) => {
-    if (name && skipped.test(String(name))) return;
+  const changed = (base, skip = skipped) => (_, name) => {
+    if (name && skip.test(String(name))) return;
     // The declarations a build writes beside app.ts, for an editor.
     if (base === app.dir && String(name) === 'app.contract.d.ts') return;
     try { if (name && statSync(resolve(base, String(name))).mtimeMs < since) return; } catch { /* removed: an edit */ }
@@ -109,7 +109,13 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // Each Contract package the app uses, wherever it is installed or linked.
   const packages = new Set();
   const watchPackages = (roots = []) => {
-    for (const dir of roots) if (!packages.has(dir)) { packages.add(dir); watchers.push(watch(dir, { recursive: true }, changed(dir))); }
+    for (const dir of roots) {
+      if (packages.has(dir) || !existsSync(dir)) continue;
+      packages.add(dir);
+      // A package's dot directories are its sources too; only its own
+      // node_modules is not.
+      watchers.push(watch(dir, { recursive: true }, changed(dir, /(^|\/)node_modules(\/|$)/)));
+    }
   };
   watchPackages(built.packages);
   // The one TypeScript configuration app.ts is checked with (js/bake/src/typescript.mjs).

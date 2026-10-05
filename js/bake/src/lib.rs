@@ -577,8 +577,9 @@ fn packages(app: &Path) -> Result<Vec<(String, PathBuf)>, String> {
 
 /// Link each package into the stage's `node_modules`, replacing what the
 /// last bake linked (the stage holds no other `node_modules`: the capture
-/// skips it).
-fn link_packages(stage: &Path, packages: &[(String, PathBuf)]) -> Result<(), String> {
+/// skips it). A package inside the app is linked to its staged copy, the
+/// one the stage's relative uses reach, so both ways to it are one file.
+fn link_packages(stage: &Path, app: &Path, packages: &[(String, PathBuf)]) -> Result<(), String> {
     let modules = stage.join("node_modules");
     match std::fs::remove_dir_all(&modules) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
@@ -587,13 +588,39 @@ fn link_packages(stage: &Path, packages: &[(String, PathBuf)]) -> Result<(), Str
         _ => {}
     }
     for (name, root) in packages {
+        let target = match root.strip_prefix(app) {
+            Ok(inside) => stage.join(inside),
+            Err(_) => root.clone(),
+        };
         let link = modules.join(name);
         std::fs::create_dir_all(link.parent().unwrap()).map_err(|e| e.to_string())?;
         #[cfg(unix)]
-        std::os::unix::fs::symlink(root, &link).map_err(|e| format!("{}: {e}", link.display()))?;
-        #[cfg(windows)]
-        std::os::windows::fs::symlink_dir(root, &link)
+        std::os::unix::fs::symlink(&target, &link)
             .map_err(|e| format!("{}: {e}", link.display()))?;
+        // Without the privilege a link needs, a copy of the package's
+        // Contract files and manifest.
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_dir(&target, &link).is_err() {
+            copy_package(&target, &link)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn copy_package(from: &Path, to: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(to).map_err(|e| e.to_string())?;
+    for entry in std::fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        let name = path.file_name().unwrap_or_default();
+        if name == "node_modules" || name == ".git" {
+            continue;
+        }
+        if path.is_dir() {
+            copy_package(&path, &to.join(name))?;
+        } else if path.extension().is_some_and(|e| e == "contract") || name == "package.json" {
+            std::fs::copy(&path, to.join(name)).map_err(|e| format!("{}: {e}", path.display()))?;
+        }
     }
     Ok(())
 }
@@ -819,7 +846,7 @@ fn bake_in(
         }
     }
     *previous = captured.clone();
-    link_packages(stage, &package_roots)?;
+    link_packages(stage, &app, &package_roots)?;
     // A changed graph (including a newly added import) is a refused capture.
     if sources(&app)? != captured || packages(&app)? != package_roots {
         return Err("app sources changed during capture; retry the build".into());
@@ -827,6 +854,7 @@ fn bake_in(
     // A package's sources are read where they live; the app's, in the stage.
     let moves: Vec<(PathBuf, PathBuf)> = package_roots
         .iter()
+        .filter(|(_, root)| !root.starts_with(&app))
         .map(|(_, root)| (root.clone(), root.clone()))
         .chain([(stage.to_path_buf(), app.clone())])
         .collect();

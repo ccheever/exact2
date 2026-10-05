@@ -387,11 +387,17 @@ impl Loader<'_> {
                             && self.units.iter().enumerate().any(|(other, unit)| {
                                 other != index
                                     && called[other].contains(name)
-                                    && !unit
-                                        .file
-                                        .uses
-                                        .iter()
-                                        .any(|u| u.names.iter().any(|n| n.local() == name))
+                                    // Named by a use of a callable: a shape or `fn`
+                                    // the used file declares (a style of the name
+                                    // is not one).
+                                    && !unit.file.uses.iter().zip(&unit.targets).any(|(u, &t)| {
+                                        u.names.iter().any(|n| {
+                                            n.local() == name
+                                                && declarations(&self.units[t].file).any(
+                                                    |(kind, d)| kind == Kind::Call && d == n.name,
+                                                )
+                                        })
+                                    })
                                     && !unit.file.fns.iter().any(|f| f.name == name)
                                     && !unit.file.shapes.iter().any(|s| s.name == name)
                             })

@@ -439,6 +439,7 @@ stage 1 lands, and stage 2 waits on them.
 - r3 (2026-10-04): stage 2 as built (§5) and the code review (§10).
 - r4 (2026-10-05): the code review's second round (§11).
 - r5 (2026-10-05): the code review's third round (§12).
+- r6 (2026-10-05): the code review's fourth round (§13).
 
 ## 9. Review dispositions (round 1)
 
@@ -630,4 +631,24 @@ UNSOUND, both confirming every round-2 input fixed. Every finding is taken, with
 | Astra 4: a root shape named like a roster function captured a library's roster call | A declaration named like a compiler call is renamed in any file, the root included, when another file calls the name without declaring or naming it |
 | Astra 3 / Astra 5 / Grok 4: copying package files into the stage split identities (an export that links inside the package), broke relative uses from a linked entry, dropped hidden directories, and staged a linked directory under one name | The bake no longer copies packages: it links `node_modules/<name>` in the stage to each package's directory, so the staged compile reads the same files by the same paths as the original; two names for one directory are two links to one package |
 | Astra 6: creating a missing export target did not rebuild the wasm loop | A target that fails to resolve is in `consulted`, so its creation is a change |
+
+## 13. Code review round 4 dispositions
+
+The delta review of round 3's fixes (`llp/reviews/code-2026-10-05-1091-r4.{astra,grok}.md`), both
+UNSOUND, both confirming every round-3 input fixed. Every finding is taken, with cases in
+`scope_review.rs` where the compiler is concerned; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 2: a computed easing function (`steps(${n}, …)`) filled no slot | A part with a computed value fills what its literal text says: an easing function, or a time by its unit; never the name |
+| Astra 3: per-token trimming shifted the rename's offsets (a tab, or a wide space, which could panic) | Animations are trimmed and split at spaces alone, as `motion` splits them; offsets are the split's |
+| Grok 1: `inf`, `infinity` and `nan` are numbers to `motion` | Numbers parse as Rust parses them, as `motion` does |
+| Astra 6 / Grok 2: any binding named `t` stopped the strings intrinsic | Only an action, prop or inject of the name does, as the type checker reads it |
+| Astra 4: an imported style of a roster name shielded a root shape | Only a use that names a shape or `fn` counts |
+| Astra 1: a package inside the app, reached both by path and by name, was two files in the stage | Its stage link points at its staged copy, the one the relative path reaches |
+| Grok 3: linking needs a privilege Windows may not grant | Without it, the stage copies the package's Contract files and manifest |
+| Astra 5: the TypeScript module producer of `host/web/dev.mjs` watched no package; its compiler-input watcher skipped `node_modules` | Both watch the package sources `contract sources` lists |
+| Astra 7 / Grok 4: a missing directory crashed the JS loop's watcher | Only existing directories inside a package or `node_modules` are watched for a missing file |
+| Astra 8: installing a missing package did not rebuild the wasm session | Where an install would put its manifest is watched |
+| Grok 5: a package's dot directories did not live-reload | A package watcher skips only its `node_modules` |
 

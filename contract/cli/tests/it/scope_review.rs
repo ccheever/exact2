@@ -401,3 +401,72 @@ fn a_missing_target_is_watched_so_creating_it_builds_again() {
         graph.consulted
     );
 }
+
+// Round 4 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn computed_easings_times_tabs_and_infinities_are_read_as_motion_reads_them() {
+    let dir = Dir::new("round4-shorthand");
+    dir.write(
+        "ui.contract",
+        "keyframes linear\n  to opacity=0\nkeyframes pulse\n  to opacity=0\nkeyframes slide\n  to opacity=0\ncomponent Card\n  props\n    n: number\n  view\n    column\n      view animation=`steps(${n}, jump-end) linear 1s`\n      view animation=\"\tpulse 1s\"\n      view animation=\"inf slide\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes linear\n  to opacity=1\nkeyframes pulse\n  to opacity=1\nkeyframes slide\n  to opacity=1\ncomponent App\n  view\n    Card(n=3)\n",
+    );
+    let text = plan(&root);
+    assert!(text.contains("jump-end) linear__ui 1s"), "{text}");
+    assert!(text.contains("pulse__ui 1s"), "{text}");
+    assert!(!text.contains("pulse__uie"), "{text}");
+    assert!(text.contains("\"inf slide__ui\""), "{text}");
+}
+
+#[test]
+fn a_state_named_t_does_not_stop_the_strings_intrinsic() {
+    let dir = Dir::new("t-state");
+    dir.write(
+        "ui.contract",
+        "fn t(k: string): string = \"from-fn\"\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    dir.write("strings/en.json", r#"{"hi":"Hello"}"#);
+    let root = dir.write(
+        "app.contract",
+        "use t, Card from \"./ui.contract\"\ncomponent App\n  state t = 0\n  view\n    column\n      Card()\n      text t(\"hi\")\n",
+    );
+    let text = plan(&root);
+    assert!(!text.contains("from-fn"), "{text}");
+}
+
+#[test]
+fn a_used_style_of_a_roster_name_does_not_shield_a_root_shape() {
+    let dir = Dir::new("style-namespace");
+    dir.write("styles.contract", "style Pad\n  padding-top=1\n");
+    dir.write(
+        "ui.contract",
+        "use Pad as length from \"./styles.contract\"\ncomponent Card\n  view\n    text `${length(\"hi\")}` class=length\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nshape length\n  n: number\ncomponent App\n  derive l = length(n=1)\n  view\n    column\n      Card()\n      text `${l.n}`\n",
+    );
+    contract::compile_path(&root).unwrap();
+}
+
+#[test]
+fn a_package_not_installed_is_watched_where_it_would_be() {
+    let dir = Dir::new("not-installed");
+    let root = dir.write(
+        "app/app.contract",
+        "use Card from \"ui\"\ncomponent App\n  view\n    Card()\n",
+    );
+    let graph = contract::source_graph(&root);
+    assert_eq!(graph.errors.len(), 1);
+    assert!(
+        graph
+            .consulted
+            .contains(&dir.0.join("app/node_modules/ui/package.json")),
+        "{:?}",
+        graph.consulted
+    );
+}

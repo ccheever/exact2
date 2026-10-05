@@ -127,6 +127,7 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
     let mut r = Rewriter {
         scope,
         locals: Vec::new(),
+        callables: Vec::new(),
         seen,
     };
     let File {
@@ -194,6 +195,9 @@ struct Rewriter<'a> {
     /// members, an action's or `fn`'s parameters, `each`, `match`, arrow and
     /// `let` binders. A call of one is the binding's, never a top-level name.
     locals: Vec<String>,
+    /// The component's actions, props and injects: only these stop `t(…)`
+    /// being the strings intrinsic, as the type checker reads it.
+    callables: Vec<String>,
     /// Every binding seen, when collecting them.
     seen: Option<&'a mut Seen>,
 }
@@ -235,6 +239,9 @@ impl Rewriter<'_> {
             .chain(tasks.iter().map(|t| t.name.clone()))
             .collect();
         let mark = self.bind(members);
+        self.callables = (props.iter().chain(injects.iter()).map(|p| p.name.clone()))
+            .chain(actions.iter().map(|a| a.name.clone()))
+            .collect();
         self.params(props)?;
         self.params(injects)?;
         for b in provides.iter_mut().chain(states).chain(derives) {
@@ -261,6 +268,7 @@ impl Rewriter<'_> {
         }
         self.nodes(view)?;
         self.locals.truncate(mark);
+        self.callables.clear();
         Ok(())
     }
 
@@ -487,16 +495,23 @@ impl Rewriter<'_> {
             .collect();
         let mut edits: Vec<(std::ops::Range<usize>, String)> = Vec::new();
         for (at, decl) in split_top(&combined, ',', 0) {
-            let tokens: Vec<(usize, &str)> = split_top(decl, ' ', at)
+            // As `motion` reads it: each animation trimmed, then split at
+            // spaces alone.
+            let lead = decl.len() - decl.trim_start().len();
+            let tokens: Vec<(usize, &str)> = split_top(decl.trim(), ' ', at + lead)
                 .into_iter()
-                .map(|(i, t)| (i, t.trim_matches(|c: char| c.is_whitespace())))
                 .filter(|(_, t)| !t.is_empty())
                 .collect();
             let name = if shorthand {
                 let mut slots = Shorthand::default();
-                tokens
-                    .into_iter()
-                    .find(|(_, t)| !t.contains(HOLE) && slots.name(t))
+                tokens.into_iter().find(|(_, t)| {
+                    if t.contains(HOLE) {
+                        slots.computed(t);
+                        false
+                    } else {
+                        slots.name(t)
+                    }
+                })
             } else {
                 tokens.into_iter().next().filter(|(_, t)| !t.contains(HOLE))
             };
@@ -625,7 +640,7 @@ impl Rewriter<'_> {
                 // `pending` and `failed` are read before any `fn`, and `t`
                 // before any but an action or prop of its name.
                 let intrinsic = matches!(name.as_str(), "pending" | "failed")
-                    || (name == "t" && !self.local(name));
+                    || (name == "t" && !self.callables.iter().any(|c| c == "t"));
                 if !intrinsic && (declared || !(self.local(name) || roster)) {
                     self.scope.rename(Kind::Call, name, *span)?;
                 }
@@ -694,17 +709,30 @@ struct Shorthand {
 }
 
 impl Shorthand {
+    /// A part with a computed value in it fills what its literal text says
+    /// it is — an easing function, or a time by its unit — and is never the
+    /// name.
+    fn computed(&mut self, part: &str) {
+        if ["cubic-bezier(", "steps(", "linear(", "spring("]
+            .iter()
+            .any(|f| part.starts_with(f))
+        {
+            self.eased = true;
+        } else if (part.ends_with("ms") || part.ends_with('s')) && self.times < 2 {
+            self.times += 1;
+        }
+    }
+
     /// Whether `part` is the animation's name: it fills no free slot before
     /// the name's, as `motion`'s grammar takes it.
     fn name(&mut self, part: &str) -> bool {
-        let number = |n: &str| {
-            n.starts_with(|c: char| c.is_ascii_digit() || matches!(c, '.' | '-' | '+'))
-                && n.parse::<f64>().is_ok_and(f64::is_finite)
-        };
+        // `motion` parses numbers as Rust does: `inf` and `nan` are numbers.
+        let number = |n: &str| n.parse::<f64>().ok();
         let time = part
             .strip_suffix("ms")
             .or_else(|| part.strip_suffix('s'))
-            .is_some_and(number);
+            .and_then(number)
+            .is_some();
         if time && self.times < 2 {
             self.times += 1;
             return false;
@@ -717,7 +745,7 @@ impl Shorthand {
             .any(|f| part.starts_with(f));
         let slot = if easing {
             &mut self.eased
-        } else if part == "infinite" || (number(part) && !part.starts_with('-')) {
+        } else if part == "infinite" || number(part).is_some_and(|n| n >= 0.0) {
             &mut self.counted
         } else if matches!(
             part,

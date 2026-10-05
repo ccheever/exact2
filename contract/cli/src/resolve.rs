@@ -190,6 +190,13 @@ fn package(spec: &str, dir: &Path, consulted: &mut Vec<PathBuf>) -> Result<Resol
         .map(|a| a.join("node_modules").join(&name))
         .find(|candidate| candidate.join("package.json").is_file())
         .ok_or_else(|| {
+            // Where an install would put it, nearest first, watched so that
+            // installing it builds again.
+            consulted.extend(
+                dir.ancestors()
+                    .take(4)
+                    .map(|a| a.join("node_modules").join(&name).join("package.json")),
+            );
             (
                 "contract-use-package",
                 format!(
