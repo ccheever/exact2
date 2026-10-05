@@ -53,6 +53,13 @@ fn stamp_of(path: &Path) -> Option<(SystemTime, u64)> {
     let meta = std::fs::metadata(path).ok()?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     std::fs::read(path).ok()?.hash(&mut hasher);
+    // And, where the platform has one, which file it is: a link retargeted
+    // at a byte-identical twin whose relative uses differ.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        (meta.dev(), meta.ino()).hash(&mut hasher);
+    }
     Some((meta.modified().ok()?, hasher.finish()))
 }
 

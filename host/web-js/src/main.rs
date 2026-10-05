@@ -130,11 +130,14 @@ fn main() -> ExitCode {
             .join(",");
         // Every source by path: one in a dot directory the app's watcher
         // would otherwise skip is still an input.
+        // And every path resolution looked at, as written: a link in a dot
+        // directory is watched by its own path.
         let sources: Vec<String> = graph
             .sources
             .iter()
             .filter(|s| s.path.is_absolute())
             .map(|s| s.path.display().to_string())
+            .chain(graph.consulted.iter().map(|c| c.display().to_string()))
             .collect();
         let json = format!(
             "{{\"packages\":[{}],\"shallow\":[{}],\"sources\":[{}]}}\n",

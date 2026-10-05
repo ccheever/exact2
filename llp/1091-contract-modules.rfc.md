@@ -445,6 +445,7 @@ stage 1 lands, and stage 2 waits on them.
 - r9 (2026-10-05): round 7 (§16).
 - r10 (2026-10-05): round 8 (§17).
 - r11 (2026-10-05): round 9 (§18).
+- r12 (2026-10-05): round 10 (§19).
 
 ## 9. Review dispositions (round 1)
 
@@ -741,4 +742,19 @@ byte-identical.
 | Astra 7: a Contract source in a dot directory of the app was not watched | Taken: both loops watch every source the compile read |
 | Astra 8: a linked `node_modules` directory retargeted went unseen | Taken: every link on the way to a consulted path is one watched directory entry |
 | Astra 4 / Grok 1: a Rust build does not see a package installed nearer than the one it resolved | **Declined.** Cargo can only watch files, or directories by recursive scan; the directory a nearer install would make (`apps/node_modules`, `apps/markdown/node_modules`) does not exist and its parent is a tree of other apps or the app itself, so a recursive watch would rebuild on every unrelated edit. Installing a package is a dependency change, and `cargo build` after it rebuilds the plan once any input it watches changes; the dev loops, which can watch one directory entry, do see it. Recorded in QUEUE |
+
+## 19. Code review round 10 dispositions
+
+Round 10 (`llp/reviews/code-2026-10-05-1091-r10.{astra,grok}.md`): both UNSOUND. Both found that
+round 9's rule for a computed part in an `animation` (a literal naming keyframes is the name) was
+wrong. Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1 / Grok 1: round 9 renamed the first literal naming keyframes beside a computed part, though `motion` may read it as a keyword | Round 9's rule is gone. The reader reads as `motion` does with a computed part filling nothing; a computed part whose text says its slot (`steps(${n}, …)`, `${d}ms`) fills it. Where a part's slot is unknown and a keyword beside it is also renamed keyframes, no reading is right for every value, so the compile is refused (`contract-animation-ambiguous`), naming the fix: quote the name, or name the keyframes otherwise |
+| Astra 2 / Grok 2: a type annotation followed a renamed `fn` of its name (`PointerEvent`), and bare `action` was not exempt | A type is a shape: a written type is renamed only to a shape this file sees; else a compiler type or `action` stays; else another file's name is refused |
+| Astra 3: a route's `pages=source()` head was read as a `fn` | It names a data source, as a resource does; only its arguments are rewritten |
+| Astra 4: a content fingerprint misses a link retargeted at a byte-identical file whose relative uses differ | The stamp is the bytes and, on Unix, the inode |
+| Astra 5 / Grok 3: the TypeScript producer did not descend into a dot directory holding a source | Its watch descends into any directory on the way to a source |
+| Astra 6: the JS loop dropped a link in a dot directory | It watches every path resolution looked at, as written, and the directories on the way to them |
 

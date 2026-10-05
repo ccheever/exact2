@@ -729,7 +729,9 @@ fn a_relative_use_is_watched_by_the_path_written() {
 // Round 9 (Astra, Grok, 2026-10-05).
 
 #[test]
-fn a_literal_name_beside_a_computed_easing_is_the_name() {
+fn a_keyword_beside_a_computed_value_that_is_also_renamed_keyframes_is_refused() {
+    // `${easing} linear 1s`: `linear` is the easing if the value is a time,
+    // the name if it is an easing. No rename is right for both (round 10).
     let dir = Dir::new("computed-easing");
     dir.write(
         "ui.contract",
@@ -739,8 +741,8 @@ fn a_literal_name_beside_a_computed_easing_is_the_name() {
         "app.contract",
         "use Card from \"./ui.contract\"\nkeyframes linear\n  to opacity=1\ncomponent App\n  view\n    Card()\n",
     );
-    let text = plan(&root);
-    assert!(text.contains("linear__ui 1s"), "{text}");
+    let e = contract::compile_path(&root).unwrap_err();
+    assert_eq!(e.id, "contract-animation-ambiguous", "{e}");
 }
 
 #[test]
@@ -775,6 +777,56 @@ fn a_shape_named_path_does_not_take_the_routers_call() {
     let e = contract::compile_path(&root).err();
     assert!(
         e.as_ref().is_none_or(|e| e.id != "type-record-base"),
+        "{e:?}"
+    );
+}
+
+// Round 10 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_computed_part_fills_no_slot_and_the_name_motion_reads_is_renamed() {
+    let dir = Dir::new("computed-slot");
+    dir.write(
+        "ui.contract",
+        "keyframes spin\n  to opacity=0\ncomponent Card\n  state dur = \"1s\"\n  view\n    view animation=`${dur} ease spin`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes spin\n  to opacity=1\ncomponent App\n  view\n    Card()\n",
+    );
+    let text = plan(&root);
+    assert!(text.contains(" ease spin__ui"), "{text}");
+}
+
+#[test]
+fn a_type_is_a_shape_never_a_renamed_fn() {
+    let dir = Dir::new("type-not-fn");
+    dir.write(
+        "ui.contract",
+        "fn PointerEvent(x: number): number = x\ncomponent Card\n  state x = 0\n  action point(e: PointerEvent)\n    x = e.offsetX\n  view\n    view pointerdown=point width=10 height=10\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nfn PointerEvent(x: number): number = x\ncomponent App\n  view\n    Card()\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(e.as_ref().is_none_or(|e| e.id != "type-unknown"), "{e:?}");
+}
+
+#[test]
+fn a_route_pages_source_is_a_data_source_not_a_fn() {
+    let dir = Dir::new("route-pages");
+    dir.write(
+        "ui.contract",
+        "fn ids(x: number): number = x\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nroutes nav\n  home \"/\"\n  item \"/item/:id\" render=build pages=ids()\ncomponent App\n  view\n    Card()\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(
+        e.as_ref().is_none_or(|e| e.id != "contract-use-missing"),
         "{e:?}"
     );
 }
