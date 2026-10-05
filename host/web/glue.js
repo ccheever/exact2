@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, commitGuestOrigin, guestMessageAuthorized, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection } from "./navigation.js";
+import { grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, commitGuestOrigin, guestMessageAuthorized, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, assetReplacer } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule, notifyModule; // the file picker (LLP 1069.002), documents (LLP 1069.010) and notifications, loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
@@ -170,7 +170,7 @@ const now = () => agentClock ?? performance.now() - t0;
 let frameSampler = null; // a development page's frame sampler (frames.js, LLP 1079 D3)
 let timelinesMoved = false; // a batch's `timelines` op: its consumers are sought once it is applied
 let bootAttempt = 0;
-let devAssets = null;
+let devAssets = null; const assetsInPlace = assetReplacer(() => devAssets, next => { devAssets = next; }, releaseAssets); // LLP 1046.009 G2
 let installedFonts = [];
 function readOut(len) {
   const ptr = wasm.exact_out();
@@ -208,24 +208,6 @@ function assetNamespace(cards) {
   return assets;
 }
 function releaseAssets(assets) { for (const card of assets?.values() ?? []) if (card.objectURL) URL.revokeObjectURL(card.objectURL); }
-// An asset-only dev generation (the plan this page runs, no code) reaches the
-// running GPU surfaces by name: nothing restarts and no world is carried
-// (LLP 1046.009 G2). Only a game's own kinds qualify; a picture, a font or a
-// shader a plan may use boots the plan as before.
-let committedPlan = null;
-const GAME_ASSET = /^assets\/.+\.(model|tex|sound|level\.json)$/;
-function sameBytes(a, b) { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; }
-function replaceAssets(bytes, assets) {
-  const old = devAssets, gpu = globalThis.exact.gpu;
-  if (!(old instanceof Map) || !committedPlan || !sameBytes(bytes, committedPlan) || typeof gpu?.assetsChanged !== "function") return false;
-  const changed = [...assets].filter(([name, card]) => old.get(name)?.sha256 !== card.sha256).map(([name]) => name)
-    .concat([...old.keys()].filter(name => !assets.has(name)));
-  if (!changed.length || !changed.every(name => GAME_ASSET.test(name))) return false;
-  devAssets = assets;
-  if (!gpu.assetsChanged(changed.map(name => name.slice("assets/".length)))) { devAssets = old; return false; }
-  releaseAssets(old);
-  return true;
-}
 const lists = new Map();
 let listSelection, listSelectionLoading;
 // A virtualized list has logical rows; its (`collection`) feedback is navigation.js's.
@@ -1344,8 +1326,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); }
   navigation.reset(batch.ops.find(op => op.op === "router"));
   const oldAssets = devAssets;
-  devAssets = assets;
-  committedPlan = module ? null : plan;
+  devAssets = assets; assetsInPlace.commit(module ? null : plan);
   shaderCommit?.();
   // Tear down without yielding; ownership guards refuse retired views.
   incarnation += 1;
@@ -1410,8 +1391,7 @@ globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(),
     if (module && !logicInfo) throw new Error('this web client has binary-bound logic; rebuild with the browser module executor');
     if (!module && !rust && (logicInfo || activeModule)) throw new Error('a module client requires a paired plan/module generation');
     if (rust && globalThis.exact.compat?.inputs?.rustMode !== 'browser') throw new Error('Rust replacement is disabled in this client; rebuild it');
-    const assets = assetNamespace(cards);
-    if (!module && !rust && bytes && await mutate(() => current() && replaceAssets(bytes, assets))) return true;
+    const assets = assetNamespace(cards); if (!module && !rust && bytes && await mutate(() => current() && assetsInPlace.replace(bytes, assets))) return true;
     let candidate = null;
     try {
       if (module) candidate = { ...module, realm: await moduleLoader.prepare(module, logicInfo) };
