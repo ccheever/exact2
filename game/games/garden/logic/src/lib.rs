@@ -8,10 +8,7 @@ mod feedback;
 pub mod garden;
 pub mod hud;
 mod looks;
-mod models;
 mod pass;
-mod scenery;
-mod sculpt;
 pub mod shop;
 
 use exact_game::character::Character;
@@ -62,7 +59,7 @@ impl Game for Garden {
     /// A garden does not need 120 Hz: walking interpolates, and every tick
     /// of an hour-long `clock +N` seek is paid for.
     const HZ: u32 = 30;
-    /// The art pass's baked models: never awaited, and fetched only for the
+    /// Every look's baked models: never awaited, and fetched only for the
     /// look that draws them (`prefetch`), so the others never download them.
     const STREAMED: &'static [&'static str] = pass::MODELS;
     /// The balance (simulation: its identity is in every save) and every
@@ -72,8 +69,13 @@ impl Game for Garden {
         asset::Level::shown::<looks::Looks>(looks::LOOKS),
     ];
     type Args = Options;
-    fn prefetch(_: &str, args: &Options) -> bool {
-        args.art == "pass"
+    fn prefetch(name: &str, args: &Options) -> bool {
+        let look = |tag: &str| name.strip_prefix(tag).is_some_and(|n| n.starts_with('-'));
+        match args.art.as_str() {
+            "pass" => !look("golden") && !look("storybook"),
+            art @ ("golden" | "storybook") => look(art),
+            _ => false,
+        }
     }
     fn actions() -> Actions {
         Actions::new()

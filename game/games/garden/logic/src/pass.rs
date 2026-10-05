@@ -204,19 +204,30 @@ macro_rules! crop_models {
             concat!("plant-", $c, "-4.model"), concat!("plant-", $c, "-4-far.model"),
             concat!("fruit-", $c, ".model"), concat!("fruit-", $c, "-far.model"),
             concat!("fruit-", $c, "-unripe.model"), concat!("fruit-", $c, "-unripe-far.model"),
+            concat!("golden-plant-", $c, ".model"), concat!("golden-fruit-", $c, ".model"),
+            concat!("storybook-plant-", $c, ".model"), concat!("storybook-fruit-", $c, ".model"),
         )*
         "fence-post.model", "fence-rail.model", "lantern.model", "path-0.model",
         "path-1.model", "path-2.model", "tuft-0.model", "tuft-1.model", "tuft-2.model",
         "tuft-3.model", "stall.model", "barrel.model", "can.model", "farmer-body.model",
         "farmer-arm.model", "farmer-leg.model", "keeper-body.model", "keeper-arm.model",
-        "keeper-leg.model", "meadow.model", "grass-0.model", "grass-1.model"]
+        "keeper-leg.model", "meadow.model", "grass-0.model", "grass-1.model",
+        "golden-gardener.model", "golden-gardener-arm.model", "golden-gardener-leg.model",
+        "golden-watering-can.model", "golden-orchard.model", "golden-flowers.model",
+        "golden-meadow-grass.model", "golden-backdrop.model", "golden-rail.model",
+        "golden-rain-barrel.model", "storybook-gardener.model", "storybook-gardener-arm.model",
+        "storybook-gardener-leg.model", "storybook-watering-can.model", "storybook-orchard.model",
+        "storybook-flowers.model", "storybook-meadow-grass.model", "storybook-backdrop.model",
+        "storybook-rail.model", "storybook-rain-barrel.model"]
     };
 }
 
-/// Every model `art.mjs` writes. `Game::STREAMED`: fetched in the art pass
-/// (from Play, or from a switch to it) but never awaited, and never in the other
-/// looks; once loaded they stay resident, so a fruit ripening into a model
-/// nothing showed a moment ago is drawn at once and never stalls a save.
+/// Every model `art.mjs` writes: the art pass's, and the golden and
+/// storybook looks' (`golden-*`, `storybook-*`). `Game::STREAMED`: a look's
+/// are fetched while it is chosen (from Play, or from a switch to it) but never
+/// awaited, and never in the other looks (`Game::prefetch`); once loaded they
+/// stay resident, so a fruit ripening into a model nothing showed a moment
+/// ago is drawn at once and never stalls a save.
 pub const MODELS: &[&str] = crop_models!(
     "carrot",
     "strawberry",

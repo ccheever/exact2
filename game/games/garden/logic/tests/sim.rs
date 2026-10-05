@@ -1285,51 +1285,44 @@ fn the_art_pass_draws_day_and_night_without_simulating_them() {
     assert!(game.world().get::<DirectionalLight>("moon").is_none());
 }
 
-/// No look's generated model takes a name the art pass streams: the classic
-/// and generated looks never draw one, nor download one; a switch to the art
-/// pass fetches its models then.
+/// Each look draws and downloads only its own baked models: classic none, a
+/// styled look its `golden-`/`storybook-` set, the art pass the rest; a
+/// switch to a look fetches what it shows first.
 #[test]
-fn no_look_generates_a_streamed_model_name() {
+fn each_look_fetches_only_its_own_models() {
     use exact_game::{Game, Mesh};
+    let own = |art: &str, name: &str| match art {
+        "" => false,
+        "pass" => !name.starts_with("golden-") && !name.starts_with("storybook-"),
+        art => name.starts_with(&format!("{art}-")),
+    };
     let mut game = in_look(1, "");
     send(&mut game, "fill 30");
     game.run(900_000.0);
-    for art in ["", "golden", "storybook"] {
+    for art in ["", "golden", "storybook", "pass"] {
         switch(&mut game, 1, art);
-        game.run(100.0);
         let fetched = game.take_assets();
         assert!(
-            !fetched
-                .iter()
-                .any(|n| Garden::STREAMED.contains(&n.as_str())),
-            "look {art:?} fetches the art pass: {fetched:?}"
+            fetched.iter().all(|n| own(art, n)),
+            "look {art:?} fetches another look's models: {fetched:?}"
         );
+        if !art.is_empty() {
+            assert!(
+                !fetched.is_empty() && fetched.len() < Garden::STREAMED.len(),
+                "what {art:?} shows, alone first: {fetched:?}"
+            );
+        }
+        game.run(100.0);
         let w = game.world();
-        let names = w
-            .query::<&Mesh>()
-            .iter()
-            .map(|(_, m)| m.clone())
-            .chain(w.query::<&DrawnMesh>().iter().map(|(_, d)| d.mesh.clone()))
-            .collect::<Vec<_>>();
-        for mesh in names {
-            if let Mesh::Asset(name) = mesh {
-                assert!(
-                    !Garden::STREAMED.contains(&name.as_str()),
-                    "look {art:?} generates the streamed name {name}"
-                );
+        for (_, d) in w.query::<&DrawnMesh>().iter() {
+            if let Mesh::Asset(name) = &d.mesh {
+                if Garden::STREAMED.contains(&name.as_str()) {
+                    assert!(own(art, name), "look {art:?} draws {name}");
+                }
             }
         }
+        game.take_assets();
     }
-    switch(&mut game, 1, "pass");
-    let fetched = game.take_assets();
-    assert!(
-        !fetched.is_empty()
-            && fetched
-                .iter()
-                .all(|n| Garden::STREAMED.contains(&n.as_str()))
-            && fetched.len() < Garden::STREAMED.len(),
-        "what the art pass shows, alone first: {fetched:?}"
-    );
 }
 
 /// The art pass under the paranoid modes: every sampled tick rebuilds the

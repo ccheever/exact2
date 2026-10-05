@@ -188,8 +188,8 @@ fn looks_at_scale() {
 /// What a look costs to start in (an empty garden), and to switch to live
 /// from classic the first time and again in a restored garden bearing every
 /// crop's fruit: the best of nine fresh games each, which a loaded machine
-/// disturbs least. A look's generated models are made when
-/// it first draws them, so a game pays for the looks it shows.
+/// disturbs least. A look's baked models are streamed while it is chosen,
+/// so a game pays for the looks it shows.
 #[test]
 #[ignore]
 fn setup_per_look() {

@@ -26,15 +26,18 @@ The Garden panel's **Look** row switches the look of the garden you have grown;
 play, saves and the world's hash are identical in each. A look is presentation
 only (`art` is a live argument): setup places every look's props as bare poses, and
 `Game::present` draws the chosen look (`DrawnMesh`, `DrawnLight`, the camera's
-`DrawnEnvironment`), making a look's generated models the first time it draws them
-(`Present::generated`), so a game pays for the looks it shows. **Art pass** draws baked models from `art.mjs` (run
-`bun game/games/garden/art.mjs` to regenerate `art/`; the bake turns it into
-`.model` assets): a model per crop and growth stage with far levels of detail,
+`DrawnEnvironment`). Every look but classic draws baked models that `art.mjs`
+writes (run `bun game/games/garden/art.mjs` to regenerate `art/`; the bake turns
+it into `.model` assets). They are `Game::STREAMED` and only their own look
+prefetches them (`Game::prefetch`): the other looks never download them, and
+switching to a look fetches what it shows first, then the rest, outside any first
+frame. **Golden hour** and **Storybook** (`looks.mjs`) paint every vertex: a
+gardener, can and barrel, an orchard and fence, flowers, a meadow of a few
+dozen grass tufts placed thousands of times, hills, and a plant and fruit per
+crop, in each look's palette (`assets/looks.level.json`). **Art pass** has a model
+per crop and growth stage with far levels of detail,
 fruit shapes recoloured per mutation, a picket fence with lanterns, a seed
-stall with its keeper, a ten-minute day and night, and rain and snow. Its
-models are `Game::STREAMED` and only the art pass prefetches them
-(`Game::prefetch`): the other looks never download them, and switching to the
-art pass fetches what it shows first, then the rest, outside any first frame.
+stall with its keeper, a ten-minute day and night, and rain and snow.
 
 Walk with WASD or the stick. **E** plants the seed in your hand on the tile
 under you, or harvests what is ripe there. You start with 20¢ and one carrot.
@@ -148,6 +151,7 @@ keyboard controls. It does not change the earlier market playtest policies.
 | `logic/src/lib.rs` | arguments, setup, the tick |
 | `logic/src/art.rs`, `feedback.rs` | classic models, every look's setup and `present` dispatch, saved gestures, action particles and sounds |
 | `logic/src/looks.rs`, `pass.rs` | the golden and storybook looks, and the art pass: their props, sky and drawn models |
+| `art.mjs`, `looks.mjs`, `kit.mjs` | every look's baked models, written to `art/`; the glTF writer and mesh shapes they share |
 | `logic/src/garden.rs` | the clock, the schedule, plants, fruit, weather |
 | `logic/src/farm.rs` | tiles, purse, backpack, commands, offline catch-up |
 | `logic/src/shop.rs`, `crops.rs`, `hud.rs` | stock, the balance's types and values, publication |

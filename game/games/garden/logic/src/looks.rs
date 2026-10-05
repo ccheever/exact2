@@ -1,16 +1,14 @@
 //! Alternative looks for the garden, chosen live by the `art` argument:
 //! **golden** (late-afternoon light, long shadows, a warm haze and drifting
 //! pollen) and **storybook** (bright, soft and toy-like). Both draw on the
-//! classic look's entities from `present` (their own generated models, a sun
-//! and fill, a sky, and a handful of props placed in every look), so the
-//! game, its gestures, its saves and its scale are the same in every look.
+//! classic look's entities from `present` (their own baked models, from
+//! `looks.mjs` through `art.mjs`; a sun and fill; a sky; and a handful of props
+//! placed in every look), so the game, its gestures, its saves and its scale
+//! are the same in every look.
 use crate::{
     art::{dress, hide, place},
-    crops::{self, Crop},
+    crops,
     garden::paint,
-    models::*,
-    scenery::*,
-    sculpt::*,
 };
 use exact_game::{emitter, *};
 use std::f32::consts::PI;
@@ -41,11 +39,13 @@ pub struct Looks {
     pub pass: crate::pass::PassLook,
 }
 
-/// A directional light as drawn: its colour and lux.
+/// A directional light as drawn: its colour, lux and where it shines from
+/// (the golden and storybook suns; `looks.mjs` paints the same light).
 #[derive(Clone, Copy, Default, Data)]
 pub struct Light {
     pub color: [f32; 3],
     pub illuminance: f32,
+    pub at: [f32; 3],
 }
 
 #[derive(Clone, Copy, Default, Data)]
@@ -54,8 +54,9 @@ pub struct Water {
     pub roughness: f32,
 }
 
-/// A look's sky, occlusion, sun and fill, the colours it paints what every
-/// look shares (the soil's grid, the meadow, the bed), and its palette.
+/// A look's sky, occlusion, sun and fill, and the colours it paints what every
+/// look shares (the soil's grid, the meadow, the bed, the barrel's water). Its
+/// `palette` is the models' (`looks.mjs`), baked into them.
 #[derive(Clone, Default, Data)]
 pub struct Lighting {
     pub environment: Environment,
@@ -66,7 +67,6 @@ pub struct Lighting {
     pub meadow: [f32; 3],
     pub bed: [f32; 3],
     pub water: Water,
-    pub palette: Look,
 }
 
 /// Every look's data, from `Game::present`.
@@ -74,80 +74,11 @@ pub fn looks(p: &Present) -> std::sync::Arc<Looks> {
     p.level::<Looks>(LOOKS).expect("the declared looks")
 }
 
-/// Everything a look paints with. Colours are authored sRGB-ish.
-#[derive(Clone, Default, Data)]
-pub(crate) struct Look {
-    pub(crate) toy: bool,
-    /// Where the sun is, for painted light that agrees with the real one.
-    pub(crate) sun: Vec3,
-    pub(crate) sat: f32,
-    pub(crate) sunlit: Rgb,
-    pub(crate) mound: [Rgb; 2],
-    pub(crate) grass: [Rgb; 2],
-    pub(crate) wood: Rgb,
-    pub(crate) bark: Rgb,
-    pub(crate) fence: Rgb,
-    pub(crate) accent: Rgb,
-    pub(crate) metal: Rgb,
-    pub(crate) shirt: Rgb,
-    pub(crate) denim: Rgb,
-    pub(crate) skin: Rgb,
-    pub(crate) cheek: Rgb,
-    pub(crate) hair: Rgb,
-    pub(crate) straw: Rgb,
-    pub(crate) band: Rgb,
-    pub(crate) boot: Rgb,
-    pub(crate) glove: Rgb,
-    pub(crate) bag: Rgb,
-    pub(crate) can: Rgb,
-    pub(crate) trim: Rgb,
-    pub(crate) canopy: [Rgb; 3],
-    pub(crate) orchard_fruit: Rgb,
-    pub(crate) blooms: [Rgb; 5],
-    pub(crate) stone: Rgb,
-    pub(crate) hills: [Rgb; 2],
-}
-
 fn lit(looks: &Looks, s: Style) -> &Lighting {
     match s {
         Style::Golden => &looks.golden,
         Style::Storybook => &looks.storybook,
     }
-}
-
-impl Look {
-    pub(crate) fn light(&self) -> Vec3 {
-        self.sun.normalize()
-    }
-    /// Leafy shading on a clump from its unit direction: dark beneath, the
-    /// sun's side lifted toward `sunlit`.
-    pub(crate) fn foliage(&self, tone: Rgb, d: Vec3) -> Rgb {
-        let under = if self.toy { 0.68 } else { 0.5 };
-        let c = mix(scale(tone, under), tone, d.y * 0.5 + 0.5);
-        let sun = d.dot(self.light()).max(0.);
-        mix(c, mix(tone, self.sunlit, 0.55), sun * sun * 0.75)
-    }
-    pub(crate) fn leaf_tones(&self, c: &Crop) -> (Rgb, Rgb) {
-        let tone = saturate(c.leaf, self.sat);
-        if self.toy {
-            (scale(tone, 0.82), mix(tone, [0.9, 1.0, 0.6], 0.4))
-        } else {
-            (scale(tone, 0.6), mix(tone, [0.86, 0.84, 0.36], 0.3))
-        }
-    }
-    /// A soft painted body: darker underneath, lighter toward the sun.
-    pub(crate) fn soft(&self, c: Rgb, d: Vec3) -> Rgb {
-        let floor = if self.toy { 0.82 } else { 0.72 };
-        scale(
-            c,
-            floor + (1. - floor) * (d.y * 0.5 + 0.5) + 0.12 * d.dot(self.light()).max(0.),
-        )
-    }
-}
-
-pub(crate) fn dir(angle: f32) -> Vec3 {
-    let (s, c) = math::sin_cos(angle);
-    Vec3::new(c, 0., s)
 }
 
 // ------------------------------------------------------------- the world
@@ -161,42 +92,15 @@ fn tag(style: Style) -> &'static str {
     }
 }
 
-/// A look's generated model: `golden-orchard.model`.
-fn model(style: Style, base: &str) -> String {
-    format!("{}-{base}.model", tag(style))
+
+/// This look's baked model `base` (`plant-carrot`, `orchard`): streamed, and
+/// fetched only while this look is chosen (`Game::prefetch`).
+fn drawn(style: Style, base: &str) -> DrawnMesh {
+    DrawnMesh::model(format!("{}-{base}.model", tag(style)))
 }
 
-/// This look's generated model `base` (`plant-3`, `orchard`), made the first
-/// time a present draws it: a look costs its models when it is shown. Only
-/// presentation names them, so which looks were shown is in no save.
-fn drawn(p: &mut Present, style: Style, base: &str) -> DrawnMesh {
-    let looks = looks(p);
-    let l = &lit(&looks, style).palette;
-    let b = crops::shown_balance(p);
-    let name = model(style, base);
-    let kind = |k: &str| b.crop(k.parse::<u8>().expect("a crop kind"));
-    let mesh = match base.strip_prefix("fruit-") {
-        Some(k) => p.generated_model(&name, || fruit(kind(k), l)),
-        None => p.generated(&name, || match base {
-            "gardener" => gardener(l),
-            "gardener-arm" => arm(l),
-            "gardener-leg" => leg(l),
-            "watering-can" => watering_can(l),
-            "orchard" => orchard(l),
-            "flowers" => flower_bank(l),
-            "meadow-grass" => meadow(l),
-            "backdrop" => backdrop(l),
-            "rail" => rail(l),
-            "rain-barrel" => barrel(l),
-            _ => plant(kind(base.strip_prefix("plant-").expect("a look model")), l),
-        }),
-    };
-    DrawnMesh::new(mesh.expect("look mesh"))
-}
-
-/// A look's own models are made when it is first drawn (`drawn`); setup
-/// places both looks' ambience emitters and their props as bare poses (they
-/// share a layout).
+/// Setup places both looks' ambience emitters and their props as bare poses
+/// (they share a layout); `present` draws them.
 pub fn setup(w: &mut World) {
     for style in STYLES {
         let (mote, additive, rise) = if style == Style::Storybook {
@@ -250,7 +154,6 @@ pub fn setup(w: &mut World) {
 pub fn present(p: &mut Present, style: Style) {
     let looks = looks(p);
     let lit = lit(&looks, style);
-    let l = &lit.palette;
     if let Some(camera) = p.named("camera") {
         p.insert(
             camera,
@@ -261,9 +164,10 @@ pub fn present(p: &mut Present, style: Style) {
         );
     }
     let aim = |at: Vec3| Transform::at(at.x, at.y, at.z).looking_at(Vec3::ZERO, Vec3::Y);
-    let opposite = Vec3::new(-l.sun.x, l.sun.y * 0.6, -l.sun.z);
-    for (name, at, Light { color, illuminance }, shadows) in
-        [("sun", l.sun, lit.sun, true), ("moon", opposite, lit.fill, false)]
+    let sun = Vec3::from(lit.sun.at);
+    let opposite = Vec3::new(-sun.x, sun.y * 0.6, -sun.z);
+    for (name, at, Light { color, illuminance, .. }, shadows) in
+        [("sun", sun, lit.sun, true), ("moon", opposite, lit.fill, false)]
     {
         if let Some(e) = p.named(name) {
             place(p, e, aim(at));
@@ -299,8 +203,7 @@ pub fn present(p: &mut Present, style: Style) {
         ("bed-rail-west", "rail"),
         ("bed-rail-east", "rail"),
     ] {
-        let mesh = drawn(p, style, base);
-        dress(p, name, mesh);
+        dress(p, name, drawn(style, base));
     }
     dress(
         p,
@@ -310,7 +213,7 @@ pub fn present(p: &mut Present, style: Style) {
     if let Some(bed) = crate::art::bed(p) {
         dress(p, "bed-edge", bed.material(paint(lit.bed)));
     }
-    let barrel = drawn(p, style, "rain-barrel").material(Material::default());
+    let barrel = drawn(style, "rain-barrel").material(Material::default());
     dress(p, "water-barrel", barrel);
     if let Some(water) = p.named("barrel-water") {
         let [r, g, b] = lit.water.color;
@@ -327,23 +230,21 @@ pub fn present(p: &mut Present, style: Style) {
         place(p, water, Transform::at(b.x, 0.92, b.z));
     }
     // The crops: this look's model of each, in the simulation's colours and
-    // poses, made for the kinds that grow. Kept per crop: a present redraws
-    // only the plants and fruit that appeared.
-    let kinds = crops::shown_balance(p).crops.len();
-    let mut crops: Vec<[Option<DrawnMesh>; 2]> = vec![[None, None]; kinds];
-    let mut crop = |p: &mut Present, kind: u8, part: usize| {
-        let kind = kind as usize;
-        crops[kind][part]
+    // poses. Kept per crop: a present redraws only the plants and fruit that
+    // appeared.
+    let b = crops::shown_balance(p);
+    let mut crops: Vec<[Option<DrawnMesh>; 2]> = vec![[None, None]; b.crops.len()];
+    let mut crop = |kind: u8, part: usize| {
+        crops[kind as usize][part]
             .get_or_insert_with(|| {
                 let base = ["plant", "fruit"][part];
-                drawn(p, style, &format!("{base}-{kind}"))
+                drawn(style, &format!("{base}-{}", b.crop(kind).id))
             })
             .clone()
     };
     p.each::<crate::garden::Plant>(|p, e| {
         let kind = p.require::<crate::garden::Plant>(e).kind;
-        let model = crop(p, kind, 0);
-        p.insert(e, model);
+        p.insert(e, crop(kind, 0));
         Derived::Kept
     });
     // The fruit's simulated colour tints it; a ripe Gold one is metal too.
@@ -353,8 +254,7 @@ pub fn present(p: &mut Present, style: Style) {
             let gold = f.ripe && f.muts & (crops::RAINBOW | crops::GOLD) == crops::GOLD;
             (f.kind, gold)
         };
-        let model = crop(p, kind, 1);
-        p.insert(e, model);
+        p.insert(e, crop(kind, 1));
         if gold {
             p.insert(e, MaterialOverrides(vec![crate::pass::gilded(&looks.pass)]));
         }
@@ -368,7 +268,7 @@ pub fn present(p: &mut Present, style: Style) {
             .resource::<crate::farm::Farm>()
             .and_then(|farm| farm.bag.last().map(|i| i.kind));
         if let Some(kind) = last {
-            let fruit = drawn(p, style, &format!("fruit-{kind}"));
+            let fruit = drawn(style, &format!("fruit-{}", b.crop(kind).id));
             dress(p, "picked-fruit", fruit);
         }
     }

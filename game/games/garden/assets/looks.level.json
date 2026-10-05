@@ -26,7 +26,7 @@
       "bloom": [{"threshold": 0.85, "intensity": 0.26, "radius": 2.2}]
     },
     "occlusion": {"radius": 0.7, "intensity": 1.15},
-    "sun": {"color": [1.0, 0.60, 0.30], "illuminance": 21000.0},
+    "sun": {"color": [1.0, 0.60, 0.30], "illuminance": 21000.0, "at": [-18.0, 6.2, -6.0]},
     "fill": {"color": [0.36, 0.52, 1.0], "illuminance": 4200.0},
     "soil": [0.075, 0.042, 0.022],
     "meadow": [0.50, 0.60, 0.23],
@@ -34,7 +34,6 @@
     "water": {"color": [0.05, 0.16, 0.20], "roughness": 0.06},
     "palette": {
       "toy": false,
-      "sun": [-18.0, 6.2, -6.0],
       "sat": 1.1,
       "sunlit": [1.0, 0.84, 0.46],
       "mound": [[0.20, 0.13, 0.08], [0.36, 0.25, 0.16]],
@@ -75,7 +74,7 @@
       "bloom": [{"threshold": 1.0, "intensity": 0.18, "radius": 2.0}]
     },
     "occlusion": {"radius": 0.5, "intensity": 0.75},
-    "sun": {"color": [1.0, 0.95, 0.86], "illuminance": 11000.0},
+    "sun": {"color": [1.0, 0.95, 0.86], "illuminance": 11000.0, "at": [7.0, 20.0, 12.0]},
     "fill": {"color": [1.0, 0.78, 0.80], "illuminance": 2400.0},
     "soil": [0.14, 0.062, 0.024],
     "meadow": [0.44, 0.76, 0.28],
@@ -83,7 +82,6 @@
     "water": {"color": [0.20, 0.55, 0.85], "roughness": 0.06},
     "palette": {
       "toy": true,
-      "sun": [7.0, 20.0, 12.0],
       "sat": 1.35,
       "sunlit": [0.92, 1.0, 0.70],
       "mound": [[0.42, 0.26, 0.16], [0.62, 0.42, 0.28]],

@@ -290,7 +290,9 @@ shapes give; `.squared()` stores colours authored by eye squared (gamma 2). Its
 shapes are `cuboid`, `ellipsoid`, `tube`, `lathe` and `sheet`, each painted per
 vertex by a closure, over `vertex`/`triangle` and single-colour `facet`s; `finish`
 bounds the mesh. A game keeps its own shapes and palette on top (Garden's classic
-look and `sculpt.rs`, Forest's far trees and deer). It is the engine's portable
+look, Forest's far trees and deer). Art that changes often is lighter authored
+offline as a script that writes glTF and baked (Garden's `kit.mjs` ports these
+shapes to TypeScript for its golden and storybook looks). It is the engine's portable
 math, so equal calls make byte-equal meshes and identities on every host.
 A material is part of the model's identity. The entity's `Material` still tints and
 adds emission to every part; its metallic and roughness do not reach a model (a
@@ -374,7 +376,8 @@ resources for its frames. A model a `DrawnMesh` names is requested like a `Mesh`
 saves, picking, physics and animation keep the simulated mesh. A look that is
 presentation only is a `#[live]` argument `present` reads: switching it keeps the
 world (Grow a Garden's `art`), and the look's own models are made when it first draws
-them (`p.generated_model`, [above](#saves-and-assets)).
+them (`p.generated_model`, [above](#saves-and-assets)) or are `Game::STREAMED` and
+fetched while it is chosen (`Game::prefetch`; Grow a Garden's baked looks).
 
 A look over every entity derives its rows per entity and keeps them:
 `p.each::<K>(|p, e| { ...; Derived::Kept })`, where `K` is a simulation component or a
