@@ -1,0 +1,16 @@
+{
+  "lines": [
+    "t=1200 hover in view 1272 (hover#2981) \u2192 epoch 71 (+0 \u22120 ~0)",
+    "t=1200 query data: snapshot",
+    "t=1200 request 364 (localChanged): POST exact-native:",
+    "t=1200 contextmenu view 1272 (chatLocal) \u2192 epoch 71 (+0 \u22120 ~0)",
+    "t=1200 localChanged: the reply asks for one more request",
+    "t=1200 request 365 (localChanged): POST exact-native:",
+    "t=1200 fulfil 364 (localChanged) [HTTP 200, 37 bytes; wall 1 ms] \u2192 epoch 71 (+0 \u22120 ~0)",
+    "t=1200 hover out view 1272 (hover#2981) \u2192 epoch 72 (+3 \u22122 ~1)"
+  ],
+  "host": [],
+  "from": 2821,
+  "next": 2829,
+  "dropped": 0
+}

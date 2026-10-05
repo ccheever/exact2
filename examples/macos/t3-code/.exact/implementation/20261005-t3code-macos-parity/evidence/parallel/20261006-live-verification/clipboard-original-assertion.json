@@ -1,0 +1,7 @@
+{
+  "expected": "fixture.txt absolute path in isolated project",
+  "axpress_match": false,
+  "coordinate_click_match": false,
+  "prior_clipboard_content": "not retained",
+  "validity": "Incorrect absolute-path expectation, preserved as failed probe history; see clipboard-assertion.json for corrected late result."
+}

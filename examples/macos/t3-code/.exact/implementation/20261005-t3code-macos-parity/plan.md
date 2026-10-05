@@ -314,3 +314,17 @@ or inert at 1280×900. Stopped after three attempts without UI adjustment. App i
 acceptance remains unverified. Local evidence: `/tmp/t3-parallel-final-native.log`,
 `/tmp/t3-parallel-final-native-tests.log`, `/tmp/t3-parallel-final-bun.log`, and
 `/tmp/t3-parallel-final-smoke.log`. No push or PR publication performed.
+
+## Exact skill verification, 2026-10-06
+
+Verification of implementation `8498fdc8a` found functional failures; records stay active.
+Timeline: `failed` (actual host Tab skips output). Tab menu: `failed` (native action
+remains pending beyond20s; correct relative clipboard value arrives later). Activity:
+`blocked` (component/cadence and accepted live activity wire checks pass, remaining
+integrated server effects/retry/lifecycle incomplete). The new reference runtime is
+provisioned and getTurnItem works; the older-runtime limitation no longer applies to
+this attempt. Main migration and oracle delivery tasks remain separate work.
+
+Evidence: [live attempt](evidence/parallel/20261006-live-verification/attempt.md),
+[independent review](reviews/20261006-parallel-verification.md). No code repairs,
+framework edits, remote issue writes, task closure or publication occurred.

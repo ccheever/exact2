@@ -2,10 +2,10 @@
 name: 20261005-right-panel-tab-menu
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
-verification: unverified
+verification: failed
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
+base_branch: daehyeon/t3code-parallel-features
 branch: daehyeon/t3code-right-panel-tab-menu
 pr_url: null
 verified_commit: null
@@ -184,11 +184,7 @@ Development results (2026-10-06):
 
 ## Next action
 
-Ready for coordinator integration and practical compilation checks, then `verify`
-after the common dependency records are reconciled. Do not close this ticket or
-claim live input, clipboard, device fixture/relaunch or oracle acceptance from
-unit/AppKit tests. The user's 2026-10-06 instruction supersedes pixel-perfect
-screenshot/fix loops. No real clipboard or personal app data was used.
+Verification `failed` at `8498fdc8a`. Return the recorded functional finding to `implement`, then rerun affected acceptance and independent review. Keep this task active; no closure or PR publication.
 
 ## Combined integration, 2026-10-06
 
@@ -208,3 +204,9 @@ or inert at 1280×900. Stopped after three attempts without UI adjustment. App i
 acceptance remains unverified. Local evidence: `/tmp/t3-parallel-final-native.log`,
 `/tmp/t3-parallel-final-native-tests.log`, `/tmp/t3-parallel-final-bun.log`, and
 `/tmp/t3-parallel-final-smoke.log`. No push or PR publication performed.
+
+## Exact skill verification, 2026-10-06
+
+**Result: failed.** 20 Bun and11 AppKit checks pass. Native file opening/context menu and late correct relative clipboard value observed. Both menu attempts leave the action unanswered beyond20s; first request is later cancelled by another action. Cause not established. Mounted device rename/bulk/relaunch remain unverified.
+
+See [live attempt](../evidence/parallel/20261006-live-verification/attempt.md), [capture report](../evidence/parallel/20261006-live-verification/checks-final/report.json), and [independent review](../reviews/20261006-parallel-verification.md). Source remained unchanged. No framework issue was resolved or closed by this app-only verification.

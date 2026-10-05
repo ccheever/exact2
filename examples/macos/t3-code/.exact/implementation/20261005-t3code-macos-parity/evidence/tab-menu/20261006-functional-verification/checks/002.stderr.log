@@ -1,0 +1,46 @@
+examples/macos/t3-code/modules/apple/R8KeysMenus.swift:98:45: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 96 | 
+ 97 |     @objc func undo(_ sender: Any?) {
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+    |                                             `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+
+examples/macos/t3-code/modules/apple/R8KeysMenus.swift:100:26: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+    |                          `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+101 |     }
+102 |     @objc func closeWindow(_ sender: Any?) {
+Test Suite 'Context menus and tab input' started at 2026-10-06 01:39:55.077.
+Test Suite 'ContextMenuTests' started at 2026-10-06 01:39:55.078.
+Test Case '-[T3ContextmenuTests.ContextMenuTests testArchiveMenuSeparatesTheDestructiveDeleteWithItsTrashSymbol]' started.
+Test Case '-[T3ContextmenuTests.ContextMenuTests testArchiveMenuSeparatesTheDestructiveDeleteWithItsTrashSymbol]' passed (0.036 seconds).
+Test Case '-[T3ContextmenuTests.ContextMenuTests testChoosingAnItemReportsItsId]' started.
+Test Case '-[T3ContextmenuTests.ContextMenuTests testChoosingAnItemReportsItsId]' passed (0.057 seconds).
+Test Case '-[T3ContextmenuTests.ContextMenuTests testDeclaredSectionsAndDisabledItemsAreKept]' started.
+Test Case '-[T3ContextmenuTests.ContextMenuTests testDeclaredSectionsAndDisabledItemsAreKept]' passed (0.000 seconds).
+Test Case '-[T3ContextmenuTests.ContextMenuTests testExportWritesTheThemeFileIntoTheIsolatedDirectory]' started.
+Test Case '-[T3ContextmenuTests.ContextMenuTests testExportWritesTheThemeFileIntoTheIsolatedDirectory]' passed (0.002 seconds).
+Test Case '-[T3ContextmenuTests.ContextMenuTests testImportReadsJsonFilesFromTheIsolatedDirectory]' started.
+Test Case '-[T3ContextmenuTests.ContextMenuTests testImportReadsJsonFilesFromTheIsolatedDirectory]' passed (0.001 seconds).
+Test Case '-[T3ContextmenuTests.ContextMenuTests testOpenVsxReadsRefuseOtherHosts]' started.
+Test Case '-[T3ContextmenuTests.ContextMenuTests testOpenVsxReadsRefuseOtherHosts]' passed (0.000 seconds).
+Test Case '-[T3ContextmenuTests.ContextMenuTests testPanelTabMenuKeepsPlainOrderAndDisabledCloseActions]' started.
+Test Case '-[T3ContextmenuTests.ContextMenuTests testPanelTabMenuKeepsPlainOrderAndDisabledCloseActions]' passed (0.000 seconds).
+Test Suite 'ContextMenuTests' passed at 2026-10-06 01:39:55.175.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.096 (0.097) seconds
+Test Suite 'TabInputTests' started at 2026-10-06 01:39:55.175.
+Test Case '-[T3ContextmenuTests.TabInputTests testDoubleClickRenamesButCloseGlyphDoesNotRename]' started.
+Test Case '-[T3ContextmenuTests.TabInputTests testDoubleClickRenamesButCloseGlyphDoesNotRename]' passed (0.031 seconds).
+Test Case '-[T3ContextmenuTests.TabInputTests testMiddleClickClosesExactlyOneTabAndConsumesEvent]' started.
+Test Case '-[T3ContextmenuTests.TabInputTests testMiddleClickClosesExactlyOneTabAndConsumesEvent]' passed (0.003 seconds).
+Test Case '-[T3ContextmenuTests.TabInputTests testOrdinaryClickAndRemovedTabsDoNotDispatch]' started.
+Test Case '-[T3ContextmenuTests.TabInputTests testOrdinaryClickAndRemovedTabsDoNotDispatch]' passed (0.002 seconds).
+Test Case '-[T3ContextmenuTests.TabInputTests testShiftF10UsesFocusedTabMenu]' started.
+Test Case '-[T3ContextmenuTests.TabInputTests testShiftF10UsesFocusedTabMenu]' passed (0.003 seconds).
+Test Suite 'TabInputTests' passed at 2026-10-06 01:39:55.215.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.039 (0.040) seconds
+Test Suite 'Context menus and tab input' passed at 2026-10-06 01:39:55.215.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.136 (0.138) seconds

@@ -1,0 +1,87 @@
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/Canvas2DImage.swift:194:43: warning: cast from '(any CALayerDelegate)?' to unrelated type 'NodeView' always fails
+192 |             // Replaced content paints over its box: above the box's own
+193 |             // sublayers where AppKit's box is layers (`BoxLayerMac.swift`).
+194 |             if let node = parent.delegate as? NodeView, let top = node.boxSublayersTop { parent.insertSublayer(layer, above: top) }
+    |                                           `- warning: cast from '(any CALayerDelegate)?' to unrelated type 'NodeView' always fails
+195 |             else { parent.insertSublayer(layer, at: 0) }
+196 |             #else
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/Mac/MouseTransformDragMac.swift:136:99: warning: 'defer' statement at end of scope always executes immediately; replace with 'do' statement to silence this warning
+134 |             // The fling after a zoomed pan belongs to the pan: it neither
+135 |             // scrolls the page nor moves the photo (no decay driver).
+136 |             if event.momentumPhase.contains(.ended) || event.momentumPhase.contains(.cancelled) { defer { momentum = false } }
+    |                                                                                                   `- warning: 'defer' statement at end of scope always executes immediately; replace with 'do' statement to silence this warning
+137 |             return momentum
+138 |         }
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/Mac/NodeViewMac.swift:329:15: warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 327 |     /// A control is a leaf, as UIKit makes one: VoiceOver reads its name.
+ 328 |     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+ 329 |         super.accessibilityAttributeNames() + [NSAccessibility.Attribute(rawValue: "AXLanguage")]
+     |               `- warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 330 |     }
+ 331 |     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/Mac/NodeViewMac.swift:336:22: warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 334 |             return language.isEmpty ? nil : language
+ 335 |         }
+ 336 |         return super.accessibilityAttributeValue(attribute)
+     |                      `- warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+ 337 |     }
+ 338 |     override func accessibilityChildren() -> [Any]? {
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/Picker.swift:151:30: warning: 'tracks(withMediaType:)' was deprecated in macOS 13.0: Use loadTracks(withMediaType:) instead [#DeprecatedDeclaration]
+149 |         let asset = AVURLAsset(url: url)
+150 |         var out = ["", "", ""]
+151 |         if let track = asset.tracks(withMediaType: .video).first {
+    |                              `- warning: 'tracks(withMediaType:)' was deprecated in macOS 13.0: Use loadTracks(withMediaType:) instead [#DeprecatedDeclaration]
+152 |             let s = track.naturalSize.applying(track.preferredTransform)
+153 |             out[0] = "\(Int(abs(s.width).rounded()))"; out[1] = "\(Int(abs(s.height).rounded()))"
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/Picker.swift:152:27: warning: 'naturalSize' was deprecated in macOS 13.0: Use load(.naturalSize) instead [#DeprecatedDeclaration]
+150 |         var out = ["", "", ""]
+151 |         if let track = asset.tracks(withMediaType: .video).first {
+152 |             let s = track.naturalSize.applying(track.preferredTransform)
+    |                           `- warning: 'naturalSize' was deprecated in macOS 13.0: Use load(.naturalSize) instead [#DeprecatedDeclaration]
+153 |             out[0] = "\(Int(abs(s.width).rounded()))"; out[1] = "\(Int(abs(s.height).rounded()))"
+154 |         }
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/Picker.swift:152:54: warning: 'preferredTransform' was deprecated in macOS 13.0: Use load(.preferredTransform) instead [#DeprecatedDeclaration]
+150 |         var out = ["", "", ""]
+151 |         if let track = asset.tracks(withMediaType: .video).first {
+152 |             let s = track.naturalSize.applying(track.preferredTransform)
+    |                                                      `- warning: 'preferredTransform' was deprecated in macOS 13.0: Use load(.preferredTransform) instead [#DeprecatedDeclaration]
+153 |             out[0] = "\(Int(abs(s.width).rounded()))"; out[1] = "\(Int(abs(s.height).rounded()))"
+154 |         }
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/Picker.swift:155:46: warning: 'duration' was deprecated in macOS 13.0: Use load(.duration) instead [#DeprecatedDeclaration]
+153 |             out[0] = "\(Int(abs(s.width).rounded()))"; out[1] = "\(Int(abs(s.height).rounded()))"
+154 |         }
+155 |         let seconds = CMTimeGetSeconds(asset.duration)
+    |                                              `- warning: 'duration' was deprecated in macOS 13.0: Use load(.duration) instead [#DeprecatedDeclaration]
+156 |         if seconds.isFinite { out[2] = "\(seconds)" }
+157 |         return out
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/TextInteraction.swift:102:15: warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+100 |     }
+101 |     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+102 |         super.accessibilityAttributeNames() + [NSAccessibility.Attribute(rawValue: "AXLanguage")]
+    |               `- warning: 'accessibilityAttributeNames()' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+103 |     }
+104 |     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code/host/apple/Sources/ExactKit/TextInteraction.swift:106:22: warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+104 |     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+105 |         if attribute.rawValue == "AXLanguage" { return owner?.presenter?.documentLanguage }
+106 |         return super.accessibilityAttributeValue(attribute)
+    |                      `- warning: 'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
+107 |     }
+108 |     override func accessibilityFrame() -> NSRect {
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+Traceback (most recent call last):
+  File "/Users/daehyeonmun/orca/workspaces/exact2/t3-code/examples/macos/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261005-upstream-timeline-and-markdown/20261006-functional-verification/keyboard/run-keyboard.py", line 8, in <module>
+    subprocess.run([str(binary)],check=True)
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/subprocess.py", line 528, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['/var/folders/br/htsmr3l906b37_3s3k_63n500000gn/T/t3-timeline-keyboard-5610vmb1/keyboard']' returned non-zero exit status 1.

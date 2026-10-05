@@ -2,10 +2,10 @@
 name: 20261005-client-activity-reporting
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
-verification: unverified
+verification: blocked
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3code-macos-parity
+base_branch: daehyeon/t3code-parallel-features
 branch: daehyeon/t3code-client-activity-reporting
 pr_url: null
 verified_commit: null
@@ -189,10 +189,7 @@ window. Real-input/oracle parity of this mapping remains unverified. No pixel-pe
 
 ## Next action
 
-Coordinator integrates the shared root/module/source-registration seams, runs the integrated
-build and checks, then hands off to `verify`. Required real-time cadence/server-effect,
-attended pointer, agent-clock retry and desktop-oracle traces remain unverified. Reconcile
-main migration and common dependency records before claiming verification or publication.
+Verification `blocked` at `8498fdc8a`. Complete the remaining integrated acceptance after the failing shared GUI path is diagnosed. Keep this task active; no closure or PR publication.
 
 ## Combined integration, 2026-10-06
 
@@ -212,3 +209,9 @@ or inert at 1280×900. Stopped after three attempts without UI adjustment. App i
 acceptance remains unverified. Local evidence: `/tmp/t3-parallel-final-native.log`,
 `/tmp/t3-parallel-final-native-tests.log`, `/tmp/t3-parallel-final-bun.log`, and
 `/tmp/t3-parallel-final-smoke.log`. No push or PR publication performed.
+
+## Exact skill verification, 2026-10-06
+
+**Result: blocked.** Native7, workspace6 and80s cadence pass. Live proxy confirms accepted reports,25s cadence, stable identity and focus/input/scope transitions. Provider refresh effects, two-server live lifecycle, root retry and reference comparison remain unverified.
+
+See [live attempt](../evidence/parallel/20261006-live-verification/attempt.md), [capture report](../evidence/parallel/20261006-live-verification/checks-final/report.json), and [independent review](../reviews/20261006-parallel-verification.md). Source remained unchanged. No framework issue was resolved or closed by this app-only verification.

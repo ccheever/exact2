@@ -1,0 +1,3 @@
+   Compiling macos-t3-code-apple v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/t3-code/examples/macos/t3-code/apple)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 32.59s
+     Running unittests src/lib.rs (target/debug/deps/macos_t3_code_apple-ff28c19fc5d05209)

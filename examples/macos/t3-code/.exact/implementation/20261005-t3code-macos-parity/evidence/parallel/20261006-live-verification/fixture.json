@@ -1,0 +1,13 @@
+{
+  "synthetic": true,
+  "projectId": "verify-project",
+  "threadId": "verify-timeline",
+  "itemIds": [
+    "fixture-command",
+    "fixture-exit",
+    "fixture-read",
+    "fixture-skill",
+    "fixture-markdown"
+  ],
+  "seededAt": "2026-10-05T16:42:54.489457Z"
+}

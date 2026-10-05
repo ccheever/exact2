@@ -2,10 +2,10 @@
 name: 20261005-upstream-timeline-and-markdown
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
-verification: unverified
+verification: failed
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
+base_branch: daehyeon/t3code-parallel-features
 branch: daehyeon/t3code-upstream-timeline-markdown
 pr_url: null
 verified_commit: null
@@ -140,7 +140,7 @@ Task stays active/unverified. The fixture runtime `f870c41` lacks `orchestration
 
 ## Next action
 
-Coordinator integrates the documented shared seams, runs the combined native build/tests, and reconciles the pending prerequisite PRs/runtime. Implementation is ready for verification; retain `verification: unverified` until the required runtime acceptance and independent review are complete.
+Verification `failed` at `8498fdc8a`. Return the recorded functional finding to `implement`, then rerun affected acceptance and independent review. Keep this task active; no closure or PR publication.
 
 ## Combined integration, 2026-10-06
 
@@ -160,3 +160,9 @@ or inert at 1280×900. Stopped after three attempts without UI adjustment. App i
 acceptance remains unverified. Local evidence: `/tmp/t3-parallel-final-native.log`,
 `/tmp/t3-parallel-final-native-tests.log`, `/tmp/t3-parallel-final-bun.log`, and
 `/tmp/t3-parallel-final-smoke.log`. No push or PR publication performed.
+
+## Exact skill verification, 2026-10-06
+
+**Result: failed.** 158 Bun,10 Rust and11 native hook assertions pass; real pinned server output fetched and shown. Actual ExactKit Tab loop skips tool-output scroll region (acceptsFirstResponder/canBecomeKeyView/tabbable false). This is a functional acceptance failure. Remaining detailed live rows are listed in evidence.
+
+See [live attempt](../evidence/parallel/20261006-live-verification/attempt.md), [capture report](../evidence/parallel/20261006-live-verification/checks-final/report.json), and [independent review](../reviews/20261006-parallel-verification.md). Source remained unchanged. No framework issue was resolved or closed by this app-only verification.

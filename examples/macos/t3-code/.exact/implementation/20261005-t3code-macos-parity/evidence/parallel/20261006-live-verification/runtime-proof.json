@@ -1,0 +1,72 @@
+{
+  "sourceCommit": "1e2ecbd9758830669684b494d4398f626b0576e0",
+  "sourceExport": "git archive read-only reference",
+  "buildCommand": "./node_modules/.bin/vp pack (cwd target/t3-ref/src-1e2ecbd975/apps/server)",
+  "buildResult": "pass",
+  "dependencyProvisioning": "Copied provisioned deps; reverted f870 effect patch and applied exact 1e2 effect patch, all5 files clean; rebuilt server",
+  "bundleEntrySha256": "bc90f8b4451437491c79363154dca2b5f1c81a75c89bb5024a83fee9cdb94c0b",
+  "runtimePid": 64221,
+  "port": 16843,
+  "telemetryEnabled": false,
+  "isolatedData": "target/t3-ref/verify-runtime/home",
+  "syntheticFixture": {
+    "synthetic": true,
+    "projectId": "verify-project",
+    "threadId": "verify-timeline",
+    "itemIds": [
+      "fixture-command",
+      "fixture-exit",
+      "fixture-read",
+      "fixture-skill",
+      "fixture-markdown"
+    ],
+    "seededAt": "2026-10-05T16:42:54.489457Z"
+  },
+  "observed": [
+    {
+      "method": "orchestration.getTurnItem",
+      "threadId": "fixture-timeline",
+      "itemId": "fixture-command",
+      "result": {
+        "item": null
+      }
+    },
+    {
+      "method": "orchestration.getTurnItem",
+      "threadId": "verify-timeline",
+      "itemId": "fixture-command",
+      "status": "Success",
+      "output": "verified output\nsecond result line"
+    }
+  ],
+  "limitations": [
+    "No Electron/web assets built; HTTP root503 expected",
+    "Synthetic persisted turn-item fixture; no real provider invocation",
+    "Copied provisioned dependency files; lockfile server closure audited and changed effect patch applied exactly"
+  ],
+  "dependencyAudit": {
+    "comparison": "f870 lock normalized only corrected effect patch hash versus1e2 lock",
+    "roots": [
+      ".",
+      "apps/server",
+      "packages/contracts",
+      "packages/shared",
+      "packages/ssh",
+      "packages/tailscale",
+      "packages/effect-acp",
+      "packages/effect-codex-app-server"
+    ],
+    "dependencySnapshotsCompared": 524,
+    "differences": []
+  },
+  "effectPatchReverseDryRun": "pass",
+  "bundleFiles": {
+    "bin.mjs": "2d2a508d19b8f9b5171cb92cca0e2662ecb3fff86f506b8fc7b582b4b2bcee18",
+    "AcpMcpStdioBridge-Bx9CxQSS.mjs": "7275cea6908fc106f4b60b854d3958ba19395906ac9ef2ddc07ec5de924b4aef",
+    "claudeHistoryWorker-DGYTnjGT.mjs": "20d10f59d6b65737519a7f6f4d2169f231627b6e77b4fbe294e59e8398df940e",
+    "binCli-BnQXB_oi.mjs": "7bc4310fc9142521b0bccd02c527421918ac7b470c6b94df9c1705f0ab7caa99",
+    "claude-history-worker.mjs": "67d91cbc71239a34126f8047e31d06d10adc714ee0280255f22a9a9e7a29d2bb",
+    "AcpMcpStdioBridge-CIyNUP2p.mjs": "100100ae52edaa0f7c378d8bddc8b27981eeb694482a0625530173e975af8059",
+    "Effect-BBFgVIkb.mjs": "b79e59b78650e8ca8f5f1725297f5dd1e83f7dca8ac83e33e23f1097288e9b06"
+  }
+}

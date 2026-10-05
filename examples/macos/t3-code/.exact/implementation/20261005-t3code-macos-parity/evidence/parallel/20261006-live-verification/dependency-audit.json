@@ -1,0 +1,15 @@
+{
+  "comparison": "f870 lock normalized only corrected effect patch hash versus1e2 lock",
+  "roots": [
+    ".",
+    "apps/server",
+    "packages/contracts",
+    "packages/shared",
+    "packages/ssh",
+    "packages/tailscale",
+    "packages/effect-acp",
+    "packages/effect-codex-app-server"
+  ],
+  "dependencySnapshotsCompared": 524,
+  "differences": []
+}

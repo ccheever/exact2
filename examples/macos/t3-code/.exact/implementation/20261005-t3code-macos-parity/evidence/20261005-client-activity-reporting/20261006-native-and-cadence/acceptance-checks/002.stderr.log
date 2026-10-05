@@ -1,0 +1,13 @@
+
+examples/macos/t3-code/composer-workspace-snapshots.test.ts:
+(pass) workspace provider discovery > uses partial workspace skills and commands while keeping discovery retryable [0.16ms]
+(pass) workspace provider discovery > asks the root to retry incomplete responses and stops after completion [0.22ms]
+(pass) workspace provider discovery > retries failures and keeps delimiter-containing keys distinct [0.07ms]
+(pass) workspace provider discovery > coalesces overlapping mutations and never dispatches an obsolete selection [0.07ms]
+(pass) workspace provider discovery > late completion cannot suppress discovery after a snapshot reset [0.05ms]
+(pass) workspace provider discovery > a config snapshot arriving during a request wins over a partial response [0.05ms]
+
+ 6 pass
+ 0 fail
+ 19 expect() calls
+Ran 6 tests across 1 file. [355.00ms]

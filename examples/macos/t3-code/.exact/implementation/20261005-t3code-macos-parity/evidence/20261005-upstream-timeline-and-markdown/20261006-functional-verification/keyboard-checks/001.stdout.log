@@ -1,0 +1,5 @@
+output.acceptsFirstResponder=false
+output.canBecomeKeyView=false
+output.Presenter.tabbable=false
+actual Tab from disclosure reaches node=3
+FAIL: task requires output scroll reachable by Tab; AppKit skips output to next button

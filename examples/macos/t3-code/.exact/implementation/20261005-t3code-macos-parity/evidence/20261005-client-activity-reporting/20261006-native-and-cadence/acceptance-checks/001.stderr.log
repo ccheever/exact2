@@ -1,0 +1,32 @@
+examples/macos/t3-code/modules/apple/R8KeysMenus.swift:98:45: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 96 | 
+ 97 |     @objc func undo(_ sender: Any?) {
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+    |                                             `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+
+examples/macos/t3-code/modules/apple/R8KeysMenus.swift:100:26: warning: use '#selector' instead of explicitly constructing a 'Selector'
+ 98 |         if Self.textUndo { NSApp.sendAction(Selector(("undo:")), to: nil, from: sender); return }
+ 99 |         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
+100 |         NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+    |                          `- warning: use '#selector' instead of explicitly constructing a 'Selector'
+101 |     }
+102 |     @objc func closeWindow(_ sender: Any?) {
+Test Suite 'ActivityTests' started at 2026-10-06 01:40:47.982.
+Test Case '-[T3ActivityTests.ActivityTests testExpiresInteractionIndependentlyOfWindowFocus]' started.
+Test Case '-[T3ActivityTests.ActivityTests testExpiresInteractionIndependentlyOfWindowFocus]' passed (0.001 seconds).
+Test Case '-[T3ActivityTests.ActivityTests testIdentitySurvivesPreferenceSaveAndRelaunch]' started.
+Test Case '-[T3ActivityTests.ActivityTests testIdentitySurvivesPreferenceSaveAndRelaunch]' passed (0.005 seconds).
+Test Case '-[T3ActivityTests.ActivityTests testKeepsDelimiterContainingEnvironmentAndScopeValuesDistinct]' started.
+Test Case '-[T3ActivityTests.ActivityTests testKeepsDelimiterContainingEnvironmentAndScopeValuesDistinct]' passed (0.000 seconds).
+Test Case '-[T3ActivityTests.ActivityTests testRejectsFutureTimestamps]' started.
+Test Case '-[T3ActivityTests.ActivityTests testRejectsFutureTimestamps]' passed (0.000 seconds).
+Test Case '-[T3ActivityTests.ActivityTests testReportRequestsCoalesceWhileThePreviousBatchIsPending]' started.
+Test Case '-[T3ActivityTests.ActivityTests testReportRequestsCoalesceWhileThePreviousBatchIsPending]' passed (0.886 seconds).
+Test Case '-[T3ActivityTests.ActivityTests testRetainsAnObservedSubscriptionUntilItsReturnedFinalizerRuns]' started.
+Test Case '-[T3ActivityTests.ActivityTests testRetainsAnObservedSubscriptionUntilItsReturnedFinalizerRuns]' passed (0.000 seconds).
+Test Case '-[T3ActivityTests.ActivityTests testSingleQueuePayloadAndDisconnectedEnvironment]' started.
+Test Case '-[T3ActivityTests.ActivityTests testSingleQueuePayloadAndDisconnectedEnvironment]' passed (0.266 seconds).
+Test Suite 'ActivityTests' passed at 2026-10-06 01:40:49.144.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 1.159 (1.161) seconds

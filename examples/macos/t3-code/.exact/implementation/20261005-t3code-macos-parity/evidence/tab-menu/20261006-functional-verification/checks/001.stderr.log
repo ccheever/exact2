@@ -1,0 +1,27 @@
+
+examples/macos/t3-code/right-panel-tabs.test.ts:
+(pass) rightPanelStore > closing the active surface activates a neighboring surface [0.06ms]
+(pass) rightPanelStore > closing the final surface closes the panel [0.03ms]
+(pass) rightPanelStore > closing other surfaces keeps the selected surface active [0.03ms]
+(pass) rightPanelStore > closing surfaces to the right activates the selected surface when active was removed [0.03ms]
+(pass) rightPanelStore > closing all surfaces closes the panel [0.01ms]
+(pass) rightPanelStore > inactive close preserves selection; close-right preserves a surviving active tab and visibility
+(pass) rightPanelStore > disabled and missing-target closes do nothing [0.04ms]
+(pass) rightPanelStore > gives each host/device its own tab and preserves renamed tabs [0.10ms]
+(pass) rightPanelStore > does not collide when two hosts expose the same device id [0.02ms]
+(pass) rightPanelStore > renames trim, fall back to device name or Device, and leave other kinds alone [0.02ms]
+(pass) rightPanelStore > restores separate device targets and titles after relaunch [0.20ms]
+(pass) tab menu and rename editor > menu order, kinds and disabled flags [0.06ms]
+(pass) tab menu and rename editor > Enter/blur commit; Escape cancels even if blur follows [0.05ms]
+(pass) tab menu and rename editor > menu ignores disabled, unknown and dismissed responses [0.14ms]
+(pass) close hooks and integration > single close can be cancelled, all bulk actions bypass guard but run cleanup [0.22ms]
+(pass) close hooks and integration > an async cleanup preserves newly opened tabs and a newer selection [0.06ms]
+(pass) close hooks and integration > activating device tabs selects each retained device target [0.25ms]
+(pass) close hooks and integration > all close paths keep diffOpen synchronized [0.07ms]
+(pass) Copy path > copies relative path and reports success [0.09ms]
+(pass) Copy path > reports clipboard failures and unavailable API [0.08ms]
+
+ 20 pass
+ 0 fail
+ 63 expect() calls
+Ran 20 tests across 1 file. [122.00ms]

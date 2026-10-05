@@ -1,0 +1,7 @@
+{
+  "expected": "fixture.txt (workspace-relative path)",
+  "actual_value_retained": false,
+  "matches": true,
+  "observed_at": "2026-10-05T16:52:00.127379+00:00",
+  "initial_assertion_error": "Initial probe compared absolute path; that expectation was wrong and is not used for verdict. Unanswered menu request independently fails completion."
+}
