@@ -55,10 +55,12 @@ impl Parser {
         }
         if form == "as" && self.at_ident("as") {
             let from = if state {
-                "its initializer and the writes to it (a `none` becomes an option of what is \
-                 written into it)"
+                format!(
+                    "its initializer and the writes to it (a `none` takes its type from a write \
+                     such as `{name} = some(…)`)"
+                )
             } else {
-                "its expression"
+                "its expression".to_string()
             };
             return self.err(
                 "syntax-expected-newline",

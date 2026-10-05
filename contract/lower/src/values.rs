@@ -717,8 +717,7 @@ pub(crate) fn check_style_value(
                                 && matches!(value, Expr::Str(t, _) if t.trim() == "fixed"))
                             .then(|| {
                                 "; `fixed` is not a row (LLP 1001): pin a box to the viewport \
-                                 with `absolute` in a root that does not scroll, or `sticky` \
-                                 in the page's scroller"
+                                 with `absolute` in a root that does not scroll"
                                     .to_string()
                             })
                         });
