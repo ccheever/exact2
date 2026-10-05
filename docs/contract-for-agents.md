@@ -244,6 +244,9 @@ at CSS.
 - Two strings compare with `<`, `<=`, `>`, `>=` in UTF-16 code-unit order, as on
   the web (`end > start` for `"HH:MM"` times). `slice(s, 0, -1)`,
   `replaceAll(s, find, with)` and `toLowerCase(s)` are the web's string methods.
+- Numbers have `floor`, `%` and `formatNumber`, and no text-to-number parse, `ceil`,
+  `round` or fixed-decimal format: a typed amount is parsed (and money formatted)
+  in a source, which takes the field's text and answers the number.
 - Standard calls are free functions, not methods: `trim(s)`, `includes(s, q)`.
   There are no nonempty list literals, object literals, general lambdas, array
   indexing, assignment expressions, or JavaScript built-ins by implication.
@@ -557,7 +560,7 @@ drawn title bar) is a bug. On iOS:
 | `select` of `option`s | a pop-up button with its menu |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` | `UIMenu` (LLP 1021) |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl` (LLP 1059) |
-| a route whose first child is a `header` holding one heading and its buttons | the navigation bar; an `h1` is a large title |
+| a route whose first child is a `header` holding one heading and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title |
 | a route with `navigationPresentation="modal"` | a sheet |
 
 `contract vocab <name>` lists each one's props. A route does not scroll by

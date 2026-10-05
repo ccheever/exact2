@@ -250,3 +250,17 @@ fn an_expression_continued_on_an_indented_line_is_told_to_wrap_it() {
     // The form it names compiles.
     contract::compile("component App\n  state done = false\n  derive label = (done\n    ? \"Done\"\n    : \"Open\")\n  view\n    text label\n").unwrap();
 }
+
+#[test]
+fn a_ternary_broken_before_its_colon_is_told_to_wrap_it() {
+    let src = "component App\n  state done = false\n  state label = \"\"\n  action go\n    let next = done ? \"Done\"\n      : \"Open\"\n    label = next\n  view\n    text label press=go\n";
+    let error = contract::compile(src).unwrap_err();
+    assert_eq!(error.id, "syntax-expected");
+    assert!(
+        error
+            .message
+            .starts_with("the ternary's `:` is on the next line"),
+        "{error}"
+    );
+    contract::compile("component App\n  state done = false\n  state label = \"\"\n  action go\n    let next = (done\n      ? \"Done\"\n      : \"Open\")\n    label = next\n  view\n    text label press=go\n").unwrap();
+}
