@@ -1,6 +1,27 @@
 {
   "game": {
     "assets": true,
-    "audio": true
+    "audio": true,
+    "render": {
+      "crate": "forest-render",
+      "hooks": "Wind",
+      "shaders": "shaders::SHADERS"
+    }
+  },
+  "gpu": {
+    "shaderRoots": [
+      "render/shaders"
+    ],
+    "shaderPreludes": {
+      "tree_forward": [
+        "exact-game-render:material",
+        "exact-game-render:material_shadows",
+        "render/wgsl/sway.wgsl"
+      ],
+      "tree_shadow": [
+        "exact-game-render:material",
+        "render/wgsl/sway.wgsl"
+      ]
+    }
   }
 }

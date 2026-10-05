@@ -1,0 +1,15 @@
+# The art pass's render hooks (app.json game.render): wind in the trees, drawn by
+# the GPU. Only the GPU shell links it; the simulation never does.
+[package]
+name = "forest-render"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+workspace = "../.shells"
+
+[dependencies]
+exact-game-render.workspace = true
+exact-gpu.workspace = true
+
+[build-dependencies]
+exact-gpu-reflect.workspace = true

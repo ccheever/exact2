@@ -112,10 +112,16 @@ and models point at them, so each is baked and uploaded once; the skies are
 `art/data/rgbm/`. The Rust side is `art.rs` (what setup draws: the textured
 generated terrain, each tree's baked model with a generated far level under
 `ModelLod`, the campfire, survivors' and creatures' parts, undergrowth) and
-`look.rs` (`Game::present`: walk cycles and facing, wind in the trees, crowns and
-undergrowth fading in front of the player, carried supplies on the backpack, the
-beam). Motion is presentation, never saved or hashed; the sky grade, the fire's
-flicker and its layered emitters are written by the tick only in this look.
+`look.rs` (`Game::present`: walk cycles and facing, crowns and undergrowth fading
+in front of the player, carried supplies on the backpack, the beam). Wind in the
+trees is `render/` (`app.json` `game.render`): one custom vertex material on every
+material of the five baked trees leans each tree about its base on slow,
+position-shifted gusts and flutters its branch tips, then shades as the engine
+would (textures, the leaves' cutout, faded crowns), within a `REACH` the GPU cull
+grows by; far levels stay still. It costs `present` nothing, so every tree in
+sight sways, not only those near the player. Motion is presentation, never saved
+or hashed; the sky grade, the fire's flicker and its layered emitters are written
+by the tick only in this look.
 
 ## How it is built
 
@@ -136,7 +142,7 @@ flicker and its layered emitters are written by the tick only in this look.
   presentation follow the simulation clock and survive a mid-warning save.
 - `player.rs`: Rapier's `CapsuleController` against trunk colliders, or the same
   grid push-out the creatures use (`lite`), plus needs, carrying and children.
-- `art.rs`, `look.rs`, `artgen/`: the art pass ([above](#the-art-pass)).
+- `art.rs`, `look.rs`, `render/`, `artgen/`: the art pass ([above](#the-art-pass)).
 
 `logic/examples/scale.rs` and `bench.mjs` are the measuring tools behind the
 diary's tables: hostless tick, save and restore costs, and live frame costs in

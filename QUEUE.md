@@ -2,8 +2,6 @@
 
 - **Generated models carry no material** (2026-10-05, garden looks). `World::generated` takes one `MeshData` and a fixed default material (metallic 0, roughness 1), and a model entity's `Material` only tints it, so code-made art cannot be glossy, metallic or emissive per part: golden/storybook paint highlights into vertex colours, and the art pass baked glTF to get materials. Let a generated model carry materials per mesh part.
 
-- **Custom materials are opaque-only, see no model textures and are never culled** (2026-10-05, Forest art pass). A wind-sway vertex shader on leaves would lose alpha cutouts, textures and `ModelLod`, so sway stayed per-tree `Offset` in `present`.
-
 - **Only `Game::ASSETS` models animate** (2026-10-05, Rivals and Forest art passes). An animated model must be required before setup, which makes every look wait on it; soldiers and survivors are rigid parts posed in `present` instead of skinned models.
 
 - **`Game::present` cannot swap a mesh, move a light or change the sky** (2026-10-05, garden art pass). `Mesh`, lights and the `Environment` resource are simulation, and presentation resources are unsupported, so plant stage models, day/night sun and moon, and weather fog are saved and move pins although gameplay never reads them.

@@ -5,11 +5,13 @@
 //!
 //! - walk cycles: survivors' and creatures' limbs swing about their pivots as
 //!   fast as their owners go, and survivors turn to face it;
-//! - wind: trees near the player lean on slow, position-shifted gusts;
 //! - crowns between the camera and the player fade (dithered) instead of popping,
 //!   and so does undergrowth the player walks through;
 //! - carried supplies ride strapped on the survivor's backpack;
 //! - the flashlight's beam shows only while it is on.
+//!
+//! Wind in the trees is the render hooks' (render/): a custom vertex material on
+//! the GPU, for every tree in sight, at no cost here.
 use crate::art::Part;
 use crate::creatures::{Deer, Mind, Pack, Wolf};
 use crate::forest::{Grove, CELL};
@@ -17,7 +19,7 @@ use crate::player::{Child, Fate, Item, Player};
 use exact_game::*;
 use std::f32::consts::{FRAC_PI_2, TAU};
 
-/// Trees within this distance of the player sway; their lean fades out to it.
+/// Crowns within this distance of the player may fade in front of them.
 const REACH: f32 = 30.0;
 /// A crown fading between the camera and the player keeps this much coverage.
 const FADED: f32 = 0.3;
@@ -31,7 +33,7 @@ pub fn present(p: &mut Present<'_>) {
     let t = p.seconds() as f32;
     parts(p, t, player, &you, at);
     supplies(p, &you, at);
-    trees(p, t, at);
+    crowns(p, at);
     undergrowth(p, at);
     if let Some(beam) = p.named("beam") {
         p.insert(beam, Opacity(if you.flashlight { 1.0 } else { 0.0 }));
@@ -173,8 +175,8 @@ fn supplies(p: &mut Present<'_>, you: &Player, at: Vec3) {
     }
 }
 
-/// Wind and faded crowns over the standing trees around the player.
-fn trees(p: &mut Present<'_>, t: f32, at: Vec3) {
+/// Crowns between the camera and the player fade.
+fn crowns(p: &mut Present<'_>, at: Vec3) {
     let camera = p
         .named("camera")
         .and_then(|c| p.global(c))
@@ -199,23 +201,6 @@ fn trees(p: &mut Present<'_>, t: f32, at: Vec3) {
         }
     }
     for (e, base, scale) in near {
-        let Some(turn) = p.get::<Transform>(e).map(|t| t.rotation) else {
-            continue;
-        };
-        let (dx, dz) = (base.x - at.x, base.z - at.z);
-        let fade = math::smoothstep(REACH, REACH - 8.0, (dx * dx + dz * dz).sqrt());
-        let gust = (0.6 + 0.4 * math::sin(t * 0.37 + base.x * 0.02)) * fade;
-        let lean = 0.022 * gust * math::sin(t * 1.3 + base.x * 0.11 + base.z * 0.07);
-        let side = 0.012 * gust * math::sin(t * 0.9 + base.z * 0.13 + 1.7);
-        // Lean in world axes about the trunk's base, whichever way the tree turns.
-        let wind = Quat::from_rotation_x(lean) * Quat::from_rotation_z(side);
-        p.insert(
-            e,
-            Offset(Transform {
-                rotation: turn.inverse() * wind * turn,
-                ..Transform::default()
-            }),
-        );
         if camera.is_some_and(|eye| hides(eye, at, base, scale)) {
             p.insert(e, Opacity(FADED));
         }
