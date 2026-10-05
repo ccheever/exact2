@@ -306,21 +306,7 @@ pub fn background_priority() {
 /// scheduler, which wakes it on a little core: a tap's commit there took two
 /// to three times as long. Whether the mask was set.
 pub fn fast_cores() -> bool {
-    let mut tops: Vec<(usize, u64)> = Vec::new();
-    for cpu in 0..libc::CPU_SETSIZE {
-        let dir = format!("/sys/devices/system/cpu/cpu{cpu}");
-        if !std::path::Path::new(&dir).exists() {
-            break;
-        }
-        let top = std::fs::read_to_string(format!("{dir}/cpufreq/cpuinfo_max_freq"));
-        if let Some(top) = top.ok().and_then(|t| t.trim().parse().ok()) {
-            tops.push((cpu, top));
-        }
-    }
-    let Some(slowest) = tops.iter().map(|t| t.1).min() else {
-        return false;
-    };
-    let fast: Vec<usize> = tops.iter().filter(|t| t.1 > slowest).map(|t| t.0).collect();
+    let fast = fast_set();
     if fast.is_empty() {
         return false;
     }
@@ -328,11 +314,33 @@ pub fn fast_cores() -> bool {
     // (every index is below CPU_SETSIZE); the call reads it for its duration.
     unsafe {
         let mut set: libc::cpu_set_t = std::mem::zeroed();
-        for cpu in fast {
+        for &cpu in fast {
             libc::CPU_SET(cpu, &mut set);
         }
         libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &set) == 0
     }
+}
+
+/// The cores outside the slowest cluster, read once (a thread widens its
+/// mask to them again after every tap it was colocated for,
+/// `crate::android_hint::colocate`).
+pub fn fast_set() -> &'static [usize] {
+    static FAST: std::sync::OnceLock<Vec<usize>> = std::sync::OnceLock::new();
+    FAST.get_or_init(|| {
+        let mut tops: Vec<(usize, u64)> = Vec::new();
+        for cpu in 0..libc::CPU_SETSIZE {
+            let dir = format!("/sys/devices/system/cpu/cpu{cpu}");
+            if !std::path::Path::new(&dir).exists() {
+                break;
+            }
+            let top = std::fs::read_to_string(format!("{dir}/cpufreq/cpuinfo_max_freq"));
+            if let Some(top) = top.ok().and_then(|t| t.trim().parse().ok()) {
+                tops.push((cpu, top));
+            }
+        }
+        let slowest = tops.iter().map(|t| t.1).min().unwrap_or(0);
+        tops.iter().filter(|t| t.1 > slowest).map(|t| t.0).collect()
+    })
 }
 
 /// Open an atrace section on this thread (close it with [`section_end`]).

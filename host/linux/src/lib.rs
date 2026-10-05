@@ -40,6 +40,8 @@
 pub mod agent;
 #[cfg(target_os = "android")]
 pub mod android;
+#[cfg(target_os = "android")]
+pub mod android_hint;
 pub mod app;
 #[cfg(target_os = "android")]
 pub mod canvas;

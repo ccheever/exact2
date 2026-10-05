@@ -446,6 +446,54 @@ macro_rules! canvas_jni {
                 }
             }
 
+            /// An ADPF hint session over `tids` (this process's threads) with
+            /// `target_ns` as their work's target; whether there is one.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_hintSession(
+                env: *mut JNIEnv,
+                _class: jclass,
+                tids: jintArray,
+                target_ns: jlong,
+            ) -> jboolean {
+                let n = ((**env).GetArrayLength.expect("jni"))(env, tids).max(0) as usize;
+                let mut v = vec![0i32; n];
+                ((**env).GetIntArrayRegion.expect("jni"))(env, tids, 0, n as i32, v.as_mut_ptr());
+                if $crate::android_hint::session(&v, target_ns) {
+                    JNI_TRUE
+                } else {
+                    JNI_FALSE
+                }
+            }
+
+            /// Input arrived: the hint session's threads are about to work
+            /// (`hintSession`); whether a hint was sent.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_inputHint(
+                _env: *mut JNIEnv,
+                _class: jclass,
+            ) -> jboolean {
+                if $crate::android_hint::input() {
+                    JNI_TRUE
+                } else {
+                    JNI_FALSE
+                }
+            }
+
+            /// Run thread `tid` on the calling thread's CPU until it widens its
+            /// own mask (`fastCores`); whether it was set.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_colocate(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                tid: jint,
+            ) -> jboolean {
+                if $crate::android_hint::colocate(tid) {
+                    JNI_TRUE
+                } else {
+                    JNI_FALSE
+                }
+            }
+
             /// The scroller `scroll` moves (its group's id in the stream), or 0.
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_feed(
