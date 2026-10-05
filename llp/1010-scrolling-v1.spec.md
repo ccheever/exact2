@@ -929,3 +929,30 @@ the animation runs, the scroller still counts as following its end
 a batch mid-flight does not mistake the animated offset for a reader's scroll.
 Consumer: the Signal Clone app's transcript (send scrolls the new message in,
 as Signal does).
+
+### 6.8 A smooth correction is one retargetable motion (2026-10-04)
+
+On iOS a smooth correction (a list following its end, a smooth
+`scrollIntoView`) was UIKit's `setContentOffset(_:animated:)`. A second
+target while it ran (a list follows a sent message's estimated height, then
+its measured one) could not retarget it: UIKit restarts that animation from
+rest, so the target was held and landed with no animation when it was near.
+Measured on Signal Clone: the new bubble rose for 0.15 s, then jumped its
+last 12 pt 0.2 s later.
+
+Now it is one 0.3 s ease-in-out motion (UIKit's batch-update timing, which
+a chat's insertion rides) that sets the scroll view's `contentOffset` each
+display frame, as UIKit's own scroll animation does, so every reader
+(hit-testing, a drag's start, stickies, the scroll event) sees the offset on
+screen. It begins on the turn after the first target, with the last target
+that turn gave (a list following its end hears the estimated row and the
+measured one in one turn; two motions begun milliseconds apart showed a step
+back first). A later target, smooth or a shift of the rows under it,
+retargets it from where it is. A drag, a wheel, an ordinary correction or
+the list's retirement stops it where it is (`stopAnimation`). While it runs
+the list reports where it is headed, as before. (r1 animated the offset with
+Core Animation; both reviews found the model and the screen apart for the
+whole flight.) `CollectionIOS.swift` `animateOffset`, `OffsetDriver`;
+`SmoothCollectionIOSTests`; measured with `scripts/motion-trace.mjs` on
+Signal Clone's send: one motion, max deviation 0.014 from a 0.3 s
+ease-in-out (before: 0.27, and a 12-pt jump).

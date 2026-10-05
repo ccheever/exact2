@@ -852,7 +852,7 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - Messages native debug startup (2026-09-14, LLP 1027.001): three conversation tests exceed the 100 ms executor guard during synchronous native Snapback/SQLite initialization. Serial A/B on the same integrated runtime measured 132–151 ms with either the standard TextEncoder or the previous private UTF-8 counter; the helper replacement is not causal. All 13 optimized Messages tests pass. Profile native initialization and its scheduling separately; do not raise the guard or describe the full debug workspace suite as green. Evidence: `/tmp/exact2-language-parity/logs/de55b63-messages-current-serial.log` and the adjacent old-helper log.
 
-- Video (LLP 1042): verify PiP/AirPlay on physical devices; complete the designed track/controller and app audio-session ownership APIs before promising captions, background playback or DRM. Linux carries an explicitly unavailable video box.
+- Video (LLP 1042): verify PiP/AirPlay on physical devices. Linux carries an explicitly unavailable video box.
 - Worktree-contained test fixtures (2026-09-14, router chunk (c)): `exact-apple --test inherited` / `apple_artifacts_own_paths_locks_identity_and_failed_placement` creates standalone Cargo packages without their own workspace boundary. With `TMPDIR` inside this worktree, Cargo captures them into the repository workspace and refuses metadata. Three attempts stopped; make those generated packages explicitly standalone. Evidence: `target/router-test.log`, `target/router-test-retry2.log` in `exact2-wt-router`.
 
 - Storage reload assertion (2026-09-14, router verification): the workspace sweep failed `exact-js --test storage` / `unload_invalidates_continuations_and_configuration_survives_reload` with `"cancel"` instead of `"again"`; the focused seven-test storage rerun passed. Reproduce the cancelled file operation/reload interaction before claiming the full workspace sweep green. Evidence: `target/router-test.log`, `target/router-test-retry.log` in `exact2-wt-router`.
@@ -894,7 +894,7 @@ and the Linux headless CPU renderer without claiming display frame timing.
   verification continues separately. Evidence: `target/markdown-comparison/
   origin-integration/workspace-round3-*` in the original checkout.
 
-- Video (LLP 1042): verify PiP/AirPlay on physical devices; complete the designed track/controller and app audio-session ownership APIs before promising captions, background playback or DRM. Linux carries an explicitly unavailable video box.
+- Video (LLP 1042): verify PiP/AirPlay on physical devices. Linux carries an explicitly unavailable video box.
 
 - Hermes incremental rebuild inputs (2026-09-19): `js/build.rs` captures macOS/Linux engine archives in OUT_DIR but only watches iOS archives; replacing the external compiler/VM can leave a warm native build stale. Add upgrade invalidation together with `scripts/app.mjs` receipt identity support for external SDK inputs; simply adding external rerun-if-changed paths currently makes bake receipt capture refuse them. Until then, clean exact-js when provisioning a new compiler/engine.
 

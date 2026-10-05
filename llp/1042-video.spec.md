@@ -220,8 +220,9 @@ represented as working booleans:
   selection; native embedded/HLS selections already belong to AVKit controls;
 - explicit play/fullscreen/PiP command results and capability/error objects,
   including restoring the owning route after PiP;
-- app-scoped AVAudioSession arbitration, interruption/route policy, background
-  entitlement, lock-screen metadata and MPRemoteCommandCenter;
+- interruption and route policy for the player (the iOS session category is
+  LLP 1096 D8's `audio_session`; lock-screen metadata, Now Playing and remote
+  commands are LLP 1098's media session);
 - authenticated media requests and cookies, FairPlay/EME licenses, offline
   downloads and cache budgets, live-edge/latency controls and diagnostics;
 - adaptive source/quality selection, thumbnails, chapters and playlists;
@@ -229,52 +230,10 @@ represented as working booleans:
 
 These are part of the complete design inventory, not part of the simple player's
 implementation claim. DRM and background behavior cannot honestly be made
-portable by copying an iOS property onto a DOM node.
-
-### Complete-player extension design (unimplemented)
-
-Keep three owners instead of putting every control on the leaf:
-
-1. **Element:** HTML `source` and `track` children supply ordered MIME-typed
-   alternatives and WebVTT captions/subtitles/descriptions/chapters. `default`,
-   `kind`, `label` and `srclang` keep their HTML meanings. App-authored source
-   alternatives are distinct from the quality variants inside an HLS manifest.
-   Read-only track inventories carry stable engine ids; selection asks the
-   owning engine and reports the actual selection. Caption accessibility follows
-   the user's system preferences unless explicitly overridden.
-2. **Media controller:** play, pause, load, seek, fullscreen and PiP requests
-   address the mounted node id plus incarnation and return accepted/refused
-   outcomes. DOM user-activation requirements and native presentation owners
-   remain authoritative. A controller is invalid after unmount. `buffered`,
-   `seekable`, `played`, `networkState`, `readyState`, `ended`, `seeking`,
-   `currentSrc`, dimensions and error are observations. Ranges carry seconds;
-   live duration is represented explicitly as indefinite, never serialized NaN.
-   Fullscreen/PiP entry and exit are observations too. AVKit's restoration
-   delegate returns to the owning session/route, with no reparenting of another
-   session's view. A playlist changes sources only after an observed end.
-3. **Application media service:** one app-scoped audio-session arbiter owns
-   category/mode/mixing/ducking, interruption handling and route changes.
-   `backgroundPlayback` is an intent requiring the manifest's existing audio
-   background mode, not a view-level entitlement switch. One selected session
-   owns Now Playing metadata (title, artist, artwork, duration, elapsed time,
-   rate) and remote play/pause/seek commands. A removed session releases that
-   ownership. Download/cache and DRM are separate optional artifacts, loaded
-   only for a source requiring them, never a core Cargo feature.
-
-Authenticated source requests reference an app-owned request policy; they do
-not put access tokens in Contract, agent state or asset URLs. FairPlay/EME
-references a license provider at the data seam; native persistable content keys
-and browser MediaKeySession remain separate capabilities. Offline playback
-references a completed download with an explicit disk budget and expiry.
-These are not arbitrary `headers` on the shared video prop table.
-
-Native preferences additionally cover preferred maximum resolution,
-peak bitrate, forward buffer, live offset, waiting policy, external playback
-and display sleep. The existing properties above are the proven subset. A
-capability record reports platform support for PiP/fullscreen/remote playback,
-DRM type, offline storage and rate range; unsupported requests fail explicitly.
-Telemetry reports stalls, dropped frames, observed bitrate and errors only when
-requested. No per-frame delivery to Contract is introduced.
+portable by copying an iOS property onto a DOM node. The design this section
+once sketched for them (a media controller, an application media service) was
+deleted unbuilt as LLP 1098's take (`rules/DEFERRED.md`); each returns with a
+consumer.
 
 ## 6. Verification
 
@@ -438,7 +397,7 @@ Apple). What differs is what HTML's differs in:
 Linux has no decoder or audio output: its `state.media` lists each media
 node as unavailable, paused at 0. iOS plays under the default audio session,
 so the ring/silent switch silences it, where Safari's element plays (the app
-audio-session arbiter is §5's, unbuilt).
+audio-session category is LLP 1096 D8's `audio_session`).
 
 Sources: [HTML media](https://html.spec.whatwg.org/multipage/media.html),
 [AVPlayerViewController](https://developer.apple.com/documentation/avkit/avplayerviewcontroller),
