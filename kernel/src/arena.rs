@@ -22,7 +22,7 @@ use crate::generated::{
 use crate::id::{Frame, NodeFlags, NodeKey, ViewId};
 use crate::props::{PropList, PropValue};
 use crate::style::Env;
-use crate::text::{ParagraphStamp, TextDomain, TextRevisions, TextRun, TextStyle};
+use crate::text::{ParagraphStamp, TextDomain, TextRevisions, TextRun};
 
 /// Columnar node storage. Cloning forks authored state into a fresh paragraph
 /// namespace: either arena can subsequently receive independent transactions.
@@ -534,6 +534,14 @@ impl NodeArena {
         own
     }
 
+    /// [`crate::text::TextStyle::from_style`] of the computed style, read
+    /// where its rows are set, without copying a style.
+    pub fn text_style(&self, slot: u32) -> crate::text::TextStyle {
+        crate::text::TextStyle::from_rows(&self.styles[slot as usize], |rows, take| {
+            self.copy_inherited(slot, rows, take)
+        })
+    }
+
     /// Values used only to compare inherited rows across a topology change.
     /// No unrelated style payloads are copied into these transient snapshots.
     pub(crate) fn computed_inherited(&self, slot: u32) -> InheritedStyle {
@@ -581,7 +589,9 @@ impl NodeArena {
     /// @ref LLP 1053 §0 G5
     pub fn paragraph(&self, slot: u32) -> crate::text::Paragraph {
         let mut paragraph =
-            crate::text::Paragraph::from_style(&self.computed_style(slot, StyleMask::INHERITED));
+            crate::text::Paragraph::from_rows(&self.styles[slot as usize], |rows, take| {
+                self.copy_inherited(slot, rows, take)
+            });
         paragraph.markup = self.markup(slot);
         if self.node_types[slot as usize] == NodeType::TextInput
             && !paragraph.white_space.model().preserves()
@@ -609,8 +619,7 @@ impl NodeArena {
         boundary: &mut crate::text::case::WordBoundary,
     ) {
         let s = slot as usize;
-        let computed = self.computed_style(slot, StyleMask::INHERITED);
-        let style = TextStyle::from_style(&computed);
+        let style = self.text_style(slot);
         match self.node_types[s] {
             NodeType::TextInput => {
                 // An input has a line box even when empty (the web's
@@ -655,11 +664,11 @@ impl NodeArena {
                     let shown = if self.markup(slot) == crate::text::Markup::Markdown {
                         text.into()
                     } else {
-                        computed.hyphens.shown(crate::text::case::shown(
-                            computed.text_transform,
-                            text,
-                            *boundary,
-                        ))
+                        let hyphens = self.computed_source(slot, StyleId::Hyphens).hyphens;
+                        let transform = self
+                            .computed_source(slot, StyleId::TextTransform)
+                            .text_transform;
+                        hyphens.shown(crate::text::case::shown(transform, text, *boundary))
                     };
                     boundary.push(text);
                     out.push(TextRun { text: shown, style });
@@ -680,11 +689,10 @@ impl NodeArena {
     /// runs before this one, so it asks the whole paragraph.
     pub fn shown_text(&self, slot: u32) -> Option<std::borrow::Cow<'_, str>> {
         let text = self.props[slot as usize].str(PropId::Text)?;
-        let computed = self.computed_style(
-            slot,
-            StyleMask::of(StyleId::TextTransform).union(StyleMask::of(StyleId::Hyphens)),
-        );
-        let (transform, hyphens) = (computed.text_transform, computed.hyphens);
+        let transform = self
+            .computed_source(slot, StyleId::TextTransform)
+            .text_transform;
+        let hyphens = self.computed_source(slot, StyleId::Hyphens).hyphens;
         if self.node_types[slot as usize] != NodeType::Text
             || self.markup(slot) == crate::text::Markup::Markdown
         {

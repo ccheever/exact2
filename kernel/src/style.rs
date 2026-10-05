@@ -1357,7 +1357,7 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
         }
         _ => {}
     }
-    let direction = arena.computed_style(slot, StyleMask::INHERITED).direction;
+    let direction = arena.computed_source(slot, StyleId::Direction).direction;
     s.direction = match direction {
         Direction::Ltr => taffy::style::Direction::Ltr,
         Direction::Rtl => taffy::style::Direction::Rtl,

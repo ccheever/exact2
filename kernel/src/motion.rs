@@ -25,7 +25,7 @@ pub use layout::{layout_presented, LayoutMotion};
 pub use paint::PaintMotion;
 
 use crate::generated::{
-    BoxSizing, Display, InterpolateSize, NodeType, PropId, StyleId, StyleMask, StyleProps,
+    BoxSizing, Display, InterpolateSize, NodeType, PropId, StyleId, StyleProps,
 };
 use crate::id::NodeKey;
 use crate::kernel::Kernel;
@@ -300,9 +300,7 @@ impl Kernel {
         let Some(node) = self.node_by_key(key) else {
             return Vec::new();
         };
-        let mut mask = StyleMask::EMPTY;
-        mask.set(StyleId::StrokeDashoffset);
-        let offset = node.computed_style(mask).stroke_dashoffset;
+        let offset = node.computed_row(StyleId::StrokeDashoffset, |s| s.stroke_dashoffset);
         let mut out = vec![(Property::StrokeDashoffset, Value::scalar(offset as f64))];
         // `r` animates as a length in user units; a percentage radius
         // resolves against its viewport at paint time and is not a target.
@@ -544,9 +542,8 @@ impl Kernel {
             Dimension::Auto => {}
             _ => return None,
         }
-        let mut mask = StyleMask::EMPTY;
-        mask.set(StyleId::InterpolateSize);
-        let allowed = node.computed_style(mask).interpolate_size == InterpolateSize::AllowKeywords;
+        let allowed = node.computed_row(StyleId::InterpolateSize, |s| s.interpolate_size)
+            == InterpolateSize::AllowKeywords;
         let arena = self.arena();
         let mut slot = owner.index;
         loop {
