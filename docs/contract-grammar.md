@@ -423,6 +423,9 @@ nine-operation interactive API is larger than this test-file grammar.
 The complete current `stdlib` name inventory is below. `T` and `U` express generic
 relationships enforced by the type checker, not user-declarable type parameters.
 Signatures are authored forms; localization's internal lowered signature differs.
+An app's `fn` of one of these names shadows it in every expression of the app, as a
+JavaScript function declared over a global does: a name the inventory gains later
+never breaks an app that declared it first.
 
 | Call | Result / restriction |
 | --- | --- |

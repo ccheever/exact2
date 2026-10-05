@@ -267,10 +267,9 @@ fn an_arrow_is_only_a_callback_and_the_types_hold() {
     )
     .unwrap_err();
     assert_eq!(e.id, "type-arrow-position", "{e}");
-    let e =
-        contract::compile("fn map(n: number): number = n\ncomponent A\n  view\n    text \"a\"\n")
-            .unwrap_err();
-    assert_eq!(e.id, "contract-fn-shadows-roster", "{e}");
+    // An app's `fn map` shadows the roster's, callback and all.
+    contract::compile("fn map(n: number): number = n\ncomponent A\n  view\n    text `${map(2)}`\n")
+        .unwrap();
 }
 
 #[test]

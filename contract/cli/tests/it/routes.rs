@@ -507,13 +507,11 @@ component Child
         "searchParam",
         "encodeURIComponent",
     ] {
+        // An app's `fn` of a router verb's name shadows it.
         let source = format!(
-            "fn {name}(value: string): string = value\ncomponent App\n  view\n    text \"hello\"\n"
+            "fn {name}(value: string): string = value\ncomponent App\n  view\n    text {name}(\"hello\")\n"
         );
-        assert_eq!(
-            contract::compile(&source).unwrap_err().id,
-            "contract-fn-shadows-roster"
-        );
+        contract::compile(&source).unwrap();
     }
     let plan = contract::compile("component App\n  view\n    text \"hello\"\n").unwrap();
     assert!(plan.router.is_none() && plan.routes.is_empty());

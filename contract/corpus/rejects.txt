@@ -500,12 +500,6 @@ component A
   view
     text `${f(1)}`
 ---
-== contract-fn-shadows-roster
-fn floor(n: number): number = n
-component A
-  view
-    text `${floor(1)}`
----
 == syntax-expected-step
 test "t"
   jump "a"

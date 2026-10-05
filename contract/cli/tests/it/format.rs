@@ -95,11 +95,37 @@ fn a_style_is_a_listed_literal() {
 
 #[test]
 fn the_roster_names_are_the_roster_s() {
-    let e = contract::compile(
-        "fn formatDate(t: number, o: number, s: string): string = \"x\"\ncomponent A\n  view\n    text \"a\"\n",
-    )
-    .unwrap_err();
-    assert_eq!(e.id, "contract-fn-shadows-roster", "{e}");
+    // An app's own `fn` shadows a roster entry of its name, so a roster
+    // that gains a name never breaks an app that had it first (x2apps
+    // files' `fn indexOf`, batch 6): every call in the program is the
+    // app's, the built-in's arity and types no longer apply, and
+    // `link-by-use` sees no roster call.
+    for (src, shown) in [
+        (
+            "fn formatDate(t: number): string = `day ${t}`\ncomponent A\n  view\n    text formatDate(3) testId=\"x\"\n",
+            "day 3",
+        ),
+        (
+            "fn indexOf(xs: list<string>, p: string): number = 7\ncomponent A\n  state s = [\"a\", \"b\"]\n  view\n    text `${indexOf(s, \"b\")}` testId=\"x\"\n",
+            "7",
+        ),
+        (
+            "fn t(key: string): string = `[${key}]`\ncomponent A\n  view\n    text t(\"hi\") testId=\"x\"\n",
+            "[hi]",
+        ),
+    ] {
+        let plan = contract::compile(src).unwrap();
+        assert_eq!(exact_runner::uses(&plan).to_string(), "", "{src}");
+        let r = Runner::boot(
+            plan,
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        assert_eq!(text(&r, "x"), shown, "{src}");
+    }
     let e = contract::compile("component A\n  view\n    text formatClockTime(0)\n").unwrap_err();
     assert_eq!(e.id, "type-unknown-function", "{e}");
     let e = contract::compile("component A\n  view\n    text formatDate(0, 0)\n").unwrap_err();

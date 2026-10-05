@@ -115,8 +115,8 @@ selects the roster overload when it does not fit the action signature, so
 `action back` can assign `nav = back(nav)` and Messages' `press=open(id)`
 continues to bind its action. `routes` is refused in any used file: its
 component is a child of the using app, never that app's root. The existing
-`fn` namespace still precedes compiler-only `path`; roster names themselves
-remain `contract-fn-shadows-roster`.
+`fn` namespace still precedes compiler-only `path` and the roster itself
+(2026-10-04, batch 6: a `fn` with the roster's name shadows it, so a roster that gains a name never breaks an app that had it).
 
 **Resources.** `resource name = source(args) as shape T`: `source` names the
 app's data source, `args` are expressions over state, `T` is the declared
@@ -194,7 +194,7 @@ lines over their replies; parsed by `contract test <file>` into JSON and run by
 second evaluator. **Functions** (LLP 1017 P5, 2026-08-30): `fn name(param: type, …): type =
 expr` at file scope — one expression over its parameters and the roster only,
 typed like a roster call, expanded inline at each call (no opcode, no table);
-a cycle is `type-fn-recursive`, a roster name `contract-fn-shadows-roster`.
+a cycle is `type-fn-recursive`; a roster name is shadowed (2026-10-04, batch 6: a `fn` with the roster's name shadows it, so a roster that gains a name never breaks an app that had it).
 An app's wording is its own `fn`s, not the roster's (LLP 1035.005.000 D8,
 2026-10-02): `formatCountdownMinutes`, `formatDistance` and `formatWalk`,
 used only by Caltrain, left the roster for Caltrain `fn`s over `floor`, `max`

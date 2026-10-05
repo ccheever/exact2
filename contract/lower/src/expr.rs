@@ -251,7 +251,9 @@ pub(crate) fn compile(
                 let template = l.path_expr(args, *span, scope)?;
                 return compile(l, asm, &template, scope, locals);
             }
-            if contract_types::strings::is_text_call(name, scope) {
+            if !l.fns.contains_key(name.as_str())
+                && contract_types::strings::is_text_call(name, scope)
+            {
                 return l.text_call(asm, args, *span, scope, locals);
             }
             if name == "failed" {

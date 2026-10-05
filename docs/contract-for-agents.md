@@ -270,6 +270,9 @@ at CSS.
 - `fn` parameters and return types are explicit. Its body is one expression over
   its parameters and standard calls (including `now()`), without component-state
   capture or recursion. Pass an app value in; do not invent an ambient reference.
+  A `fn` named like a standard function (`fn indexOf`) shadows it in every
+  expression of the app, so a standard function added later never breaks an
+  app that had the name first; an action or a host command keeps its own rule.
 - Named arguments belong to component uses, record constructors,
   `t("key", placeholder=value)`, `empty(field=value)`, canvas `surface=` bindings,
   and the commands `share(…)`, `showNotification(…)` and `scrollIntoView(…)`. Every other function takes

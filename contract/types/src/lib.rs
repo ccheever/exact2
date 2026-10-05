@@ -781,7 +781,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 routes::expand_path(args, *span, scope, shapes)?;
                 return Ok(Ty::String);
             }
-            if strings::is_text_call(name, scope) {
+            if !shapes.fns.contains_key(name) && strings::is_text_call(name, scope) {
                 return strings::check_call(args, *span, scope, shapes);
             }
             if name == "failed" {
@@ -1152,17 +1152,12 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
     // its parameters only — pure by construction — against the declared
     // result; a cycle through calls is refused, since a body is expanded
     // where it is called.
+    //
+    // A `fn` named like a roster entry shadows it, in every expression of
+    // the program, as a JavaScript function declared over a global does:
+    // a later roster that gains the name never breaks an app that had it
+    // first (x2apps files' `fn indexOf`, batch 6).
     for f in &file.fns {
-        if Stdlib::from_name(&f.name).is_some() {
-            return err(
-                "contract-fn-shadows-roster",
-                format!(
-                    "`fn {}` has the roster's name; a roster entry is the framework's — pick another",
-                    f.name
-                ),
-                f.span,
-            );
-        }
         // @ref LLP 1035.005.000 D3 — `Name(…)` builds a declared shape.
         if shapes.declared.contains(&f.name) {
             return err(

@@ -58,7 +58,11 @@ fn clock<'a>(
         None
     };
     match e {
-        Expr::Call(name, args, _) if name == "now" && args.is_empty() => Some(Through::Direct),
+        Expr::Call(name, args, _)
+            if name == "now" && args.is_empty() && !fns.iter().any(|f| f.name == "now") =>
+        {
+            Some(Through::Direct)
+        }
         Expr::Call(name, args, _) => {
             if let Some(f) = fns.iter().find(|f| &f.name == name) {
                 if seen.insert(&f.name) && clock(&f.body, c, fns, seen).is_some() {
