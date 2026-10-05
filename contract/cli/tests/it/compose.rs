@@ -187,7 +187,9 @@ fn an_html_label_names_the_text_and_the_field_name() {
     let src = "component App\n  view\n    label \"Name\"\n";
     let error = contract::compile(src).unwrap_err();
     assert!(
-        error.message.contains("a label is `text` beside its field, and the field is named by `aria-label`"),
+        error
+            .message
+            .contains("a label is `text` beside its field, and the field is named by `aria-label`"),
         "{error}"
     );
 }

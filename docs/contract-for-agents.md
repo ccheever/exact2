@@ -120,11 +120,13 @@ another viewport, and a test's first step `size <w>x<h>` does the same for that 
 dragging the window's edge would: the browser's viewport, a macOS window, the
 Linux presenter. An iOS app's viewport is the device's screen, so iOS refuses it.
 `--storage <name>` gives a drive a named scratch store, kept between drives on
-every host (on the web, a kept browser profile served on one port per name).
-Without it a drive has no storage at all: a source's storage request is refused
-(`storage is unavailable in agent mode unless the drive names a scratch store`),
-so an app that keeps data does nothing on a write. An authored test has its own
-store; to show what survives a restart on any host, use its `reload` step (below).
+macOS, iOS, Linux and web Chrome (a kept browser profile served on one port per
+name; a Firefox or WebKit drive starts fresh each time). Without it a drive has no
+app storage: an `app:/` file or SQLite request is refused (`storage is unavailable
+in agent mode unless the drive names a scratch store (--storage <name>)`), so an
+app that keeps its data there does nothing on a write; a chosen document (`doc:/`)
+still opens under its grant. An authored test has its own store; to show what
+survives a restart on any host, use its `reload` step (below).
 
 Inside the exact2 checkout, for Caltrain:
 
@@ -432,7 +434,8 @@ bun exact.mjs contract rust app.contract -o /tmp/shapes.rs
 
 Use those generated declarations with the existing TypeScript/Rust integration.
 A shape has no exported name in the `.d.ts`: name one by its source,
-`type Recipe = Result<'recipe'>` (a list's element: `Result<'recipes'>[number]`).
+`type Recipe = Result<'recipe'>` (a list's element: `Result<'recipes'>[number]`;
+an optional answer is `… | null`, so `NonNullable<Result<'find'>>`).
 The [human guide's data-module section](contract-for-humans.md#writing-the-data-module)
 has a complete `app.ts`: synchronous, `fetch` and SQLite sources, the grants
 each needs, and how to drive it with storage.
