@@ -154,7 +154,12 @@ fn crc(bytes: &[u8]) -> u32 {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct DecodePlan {
     pub header: Header,
+    /// The picture's pixels, as cached and charged.
     pub pixels: PixelSize,
+    /// What the decoder makes before they are resampled to `pixels` (a
+    /// platform decode's power-of-two subsample); `pixels` otherwise.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub decode: PixelSize,
     pub cost: DecodeCost,
 }
 impl DecodePlan {
@@ -190,10 +195,14 @@ impl DecodePlan {
         };
         // Android's platform decoder subsamples a JPEG by powers of two in the
         // DCT and then resamples to an exact size at full quality, which costs
-        // more than the decode: plan the largest power-of-two subsample that
-        // still covers the request, as an image loader's inexact decode does,
-        // and let the GPU scale it where it is drawn.
-        let pixels = if header.snaps() {
+        // more than the decode: decode the largest power-of-two subsample that
+        // still covers the request, as an image loader's inexact decode does.
+        // Kept as decoded when that is near the request; otherwise resampled
+        // to it here (bilinear, a ratio under 2), as an image loader scales its
+        // bitmap to the view: a cached picture two to four times the size it
+        // shows at made the cache hold that many fewer, and the list decode
+        // them again (heavy: 309 decodes a fling against Views' 132).
+        let (pixels, decode, scratch) = if header.snaps() {
             let mut s = 1u32;
             while natural.width.div_ceil(s * 2) >= pixels.0
                 && natural.height.div_ceil(s * 2) >= pixels.1
@@ -201,9 +210,21 @@ impl DecodePlan {
             {
                 s *= 2;
             }
-            (natural.width.div_ceil(s), natural.height.div_ceil(s))
+            let decode = (natural.width.div_ceil(s), natural.height.div_ceil(s));
+            let near = u64::from(decode.0) * u64::from(decode.1) * 10
+                <= u64::from(pixels.0) * u64::from(pixels.1) * 13;
+            if near || std::env::var_os("EXACT_NO_RESAMPLE").is_some() {
+                (decode, decode, scratch)
+            } else {
+                let buffer = u64::from(decode.0) * 4 * u64::from(decode.1);
+                (
+                    pixels,
+                    decode,
+                    scratch.checked_add(buffer).ok_or(Refusal::Overflow)?,
+                )
+            }
         } else {
-            pixels
+            (pixels, pixels, scratch)
         };
         let cost = DecodeCost::checked(u64::from(pixels.0) * 4, pixels.1, scratch, 0)?;
         if cost.peak()? > SESSION_BYTES {
@@ -214,6 +235,10 @@ impl DecodePlan {
             pixels: PixelSize {
                 width: pixels.0,
                 height: pixels.1,
+            },
+            decode: PixelSize {
+                width: decode.0,
+                height: decode.1,
             },
             cost,
         })

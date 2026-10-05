@@ -557,6 +557,52 @@ impl RasterSession {
         self.owner.gate.inner.wake.notify();
         Ok(id)
     }
+    /// The smallest picture of `source` (this `generation` and `variant`)
+    /// decoded or being decoded that covers `at_least` and has at most
+    /// `max_pixels` pixels: a view that asks for it shares that one instead
+    /// of decoding the source again at a size of its own (a list shows one
+    /// photo at several sizes, and each size was a decode and a charge).
+    pub fn covering(
+        &self,
+        source: u64,
+        generation: u64,
+        variant: u32,
+        at_least: PixelSize,
+        max_pixels: u64,
+    ) -> Option<PixelSize> {
+        let state = self.owner.gate.inner.state.lock().unwrap();
+        let session = state.sessions.get(&self.id())?;
+        let from = RasterKey {
+            source,
+            generation,
+            pixels: PixelSize {
+                width: 0,
+                height: 0,
+            },
+            variant: 0,
+        };
+        let to = RasterKey {
+            source,
+            generation,
+            pixels: PixelSize {
+                width: u32::MAX,
+                height: u32::MAX,
+            },
+            variant: u32::MAX,
+        };
+        session
+            .entries
+            .range(from..=to)
+            .filter(|(key, entry)| {
+                key.variant == variant
+                    && key.pixels.width >= at_least.width
+                    && key.pixels.height >= at_least.height
+                    && u64::from(key.pixels.width) * u64::from(key.pixels.height) <= max_pixels
+                    && matches!(entry.phase, Phase::Ready { .. } | Phase::Decoding(_))
+            })
+            .map(|(key, _)| key.pixels)
+            .min_by_key(|p| u64::from(p.width) * u64::from(p.height))
+    }
     pub fn status(&self, request: RequestId) -> Option<RequestStatus> {
         let state = self.owner.gate.inner.state.lock().unwrap();
         let session = state.sessions.get(&self.id())?;

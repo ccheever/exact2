@@ -167,7 +167,7 @@ pub(super) fn decode<R: Read + Seek>(
     if cancelled() {
         return Err(Refusal::Stale);
     }
-    let (w, h) = (plan.pixels.width, plan.pixels.height);
+    let (w, h) = (plan.decode.width, plan.decode.height);
     crate::android::section_begin(c"exact platform decode");
     struct End;
     impl Drop for End {
@@ -205,9 +205,70 @@ pub(super) fn decode<R: Read + Seek>(
     if status != 0 {
         return Err(Refusal::DecodeFailed);
     }
+    let (out, w, h) = if plan.pixels == plan.decode {
+        (out, w, h)
+    } else {
+        let (ow, oh) = (plan.pixels.width, plan.pixels.height);
+        (resample(&out, (w, h), (ow, oh)), ow, oh)
+    };
     tiny_skia::IntSize::from_wh(w, h)
         .and_then(|size| Pixmap::from_vec(out, size))
         .ok_or(Refusal::DecodeFailed)
+}
+
+/// Bilinear resample of premultiplied RGBA from `from` to `to` pixels, each
+/// side at most halved (what a power-of-two decode is above its request), so
+/// four taps cover every source pixel.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub(super) fn resample(src: &[u8], from: (u32, u32), to: (u32, u32)) -> Vec<u8> {
+    let (sw, sh) = (from.0 as usize, from.1 as usize);
+    let (dw, dh) = (to.0 as usize, to.1 as usize);
+    // Each output pixel's centre in source pixels, as an index and an 8-bit
+    // fraction toward the next.
+    let taps = |d: usize, s: usize| -> Vec<(usize, u32)> {
+        (0..d)
+            .map(|i| {
+                let at = ((i as f32 + 0.5) * s as f32 / d as f32 - 0.5).max(0.0);
+                let i0 = (at as usize).min(s - 1);
+                let f = ((at - i0 as f32) * 256.0) as u32;
+                (i0, if i0 + 1 < s { f.min(256) } else { 0 })
+            })
+            .collect()
+    };
+    let xs = taps(dw, sw);
+    let ys = taps(dh, sh);
+    // A pixel's four channels in 16-bit lanes, so one multiply weighs all
+    // four (255 * 256 fits a lane).
+    let spread = |p: &[u8]| -> u64 {
+        u64::from(p[0]) | u64::from(p[1]) << 16 | u64::from(p[2]) << 32 | u64::from(p[3]) << 48
+    };
+    const LANES: u64 = 0x00FF_00FF_00FF_00FF;
+    let mut out = vec![0u8; dw * dh * 4];
+    for (y, &(y0, fy)) in ys.iter().enumerate() {
+        let y1 = (y0 + 1).min(sh - 1);
+        let r0 = &src[y0 * sw * 4..(y0 + 1) * sw * 4];
+        let r1 = &src[y1 * sw * 4..(y1 + 1) * sw * 4];
+        let row = &mut out[y * dw * 4..(y + 1) * dw * 4];
+        let (fy, gy) = (u64::from(fy), 256 - u64::from(fy));
+        for (px, &(x0, fx)) in row.chunks_exact_mut(4).zip(xs.iter()) {
+            let x1 = (x0 + 1).min(sw - 1);
+            let (fx, gx) = (u64::from(fx), 256 - u64::from(fx));
+            let top = ((spread(&r0[x0 * 4..x0 * 4 + 4]) * gx
+                + spread(&r0[x1 * 4..x1 * 4 + 4]) * fx)
+                >> 8)
+                & LANES;
+            let bottom = ((spread(&r1[x0 * 4..x0 * 4 + 4]) * gx
+                + spread(&r1[x1 * 4..x1 * 4 + 4]) * fx)
+                >> 8)
+                & LANES;
+            let v = ((top * gy + bottom * fy + 0x0080_0080_0080_0080) >> 8) & LANES;
+            px[0] = v as u8;
+            px[1] = (v >> 16) as u8;
+            px[2] = (v >> 32) as u8;
+            px[3] = (v >> 48) as u8;
+        }
+    }
+    out
 }
 
 /// No platform decoder on this target: JPEG is refused, as before.
@@ -218,4 +279,22 @@ pub(super) fn decode<R: Read + Seek>(
     _cancelled: impl Fn() -> bool,
 ) -> Result<Pixmap, Refusal> {
     Err(Refusal::DecodeFailed)
+}
+
+#[cfg(test)]
+mod resample_tests {
+    use super::resample;
+
+    #[test]
+    fn a_flat_picture_stays_flat_and_a_ramp_stays_monotone() {
+        let flat = [10u8, 20, 30, 255].repeat(8 * 6);
+        let out = resample(&flat, (8, 6), (5, 4));
+        assert_eq!(out.len(), 5 * 4 * 4);
+        assert!(out.chunks(4).all(|p| p == [10, 20, 30, 255]));
+        let ramp: Vec<u8> = (0..16u8).flat_map(|x| [x * 16, 0, 0, 255]).collect();
+        let out = resample(&ramp, (16, 1), (9, 1));
+        let reds: Vec<u8> = out.chunks(4).map(|p| p[0]).collect();
+        assert!(reds.windows(2).all(|w| w[0] <= w[1]), "{reds:?}");
+        assert!(reds[0] < 32 && reds[8] > 200, "{reds:?}");
+    }
 }
