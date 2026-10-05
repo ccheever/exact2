@@ -4,6 +4,7 @@ use std::fmt;
 
 pub mod bin;
 pub(crate) mod columns;
+pub(crate) mod defaults;
 pub mod hash;
 mod impls;
 pub(crate) mod limits;

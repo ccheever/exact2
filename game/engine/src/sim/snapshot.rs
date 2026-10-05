@@ -62,10 +62,16 @@ impl<G: Game> Sim<G> {
         // Restore clears tick-local edges; checkpoints keep continuation state.
         let mut input = self.input.clone();
         input.clear_edges();
+        // Arguments equal to their defaults are left out (a restore reads the
+        // record over `G::Args::default()`), so adding a defaulted argument to
+        // a game moves none of its saves.
+        let mut args = crate::json::Encoder::default();
+        let defaults = crate::data::defaults::fields(&G::Args::default());
+        crate::data::defaults::write_changed(&self.args, defaults.as_deref(), &mut args);
         let saved = Saved {
             game: G::ID.into(),
             world: self.world.save(),
-            args: self.args_json.clone(),
+            args: args.finish()?,
             input,
             queue,
             world_us,

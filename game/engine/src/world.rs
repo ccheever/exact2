@@ -1114,8 +1114,10 @@ impl World {
         ] {
             w.field(kind);
             w.begin_struct();
+            // An empty storage is no state: a world that once held a component
+            // saves as one that never did.
             for (name, s) in storages {
-                if self.registry[name].presentation {
+                if self.registry[name].presentation || s.len() == 0 {
                     continue;
                 }
                 w.key(name);

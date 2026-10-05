@@ -105,7 +105,8 @@ live arguments must not change the saved schema.
 
 Restore validates and installs saved state without calling setup. `Sim::restore`
 uses saved arguments; a canvas uses `Sim::restore_bound` to retain current app
-bindings. Keep state that should travel with a save in components or resources,
+bindings. A save records only the arguments that differ from `Args::default()`,
+so adding an argument whose default keeps the old behaviour moves no save. Keep state that should travel with a save in components or resources,
 and app-owned settings in live arguments.
 
 ## HUD and events
@@ -300,7 +301,11 @@ written (or inserted into) since it last looked, the entity-table pages a spawn 
 despawn touched, and resources whose revision moved, so an observed tick costs
 what changed rather than the world (0.1 ms at 216k entities, against ~90 ms).
 The hash is a stream over page digests in type-name and page order; it is the
-same on every host and for a world freshly loaded from the same save.
+same on every host and for a world freshly loaded from the same save. It measures
+state, not history or schema: a registered type with no rows (or a storage since
+emptied) contributes nothing, and a resource contributes only its top-level fields
+that differ from its `Default`, so an engine resource gaining a defaulted field
+moves no pin.
 
 Visual-only state belongs in `#[derive(Presentation)]` components (presentation
 resources are not supported; a world-wide look, such as the sky, goes on the camera
@@ -383,7 +388,9 @@ storage store their rows' shape (tags, field and variant names, sequence lengths
 once and their scalars as run-length or dictionary-coded columns, so repeated
 values cost nothing per entity and no name or entity key is repeated per row.
 Grow a Garden's scale world saves in about 9 bytes per entity, against 247 in v3.
-Resources save as their values. The encoding is byte-identical on every host.
+Resources save as their values, without the top-level fields equal to their
+type's `Default` (a load reads the record over `Default`); empty storages are not
+saved. The encoding is byte-identical on every host.
 
 Loads allow at most 16 Mi entity slots, 64 MiB per string, and 2 GiB of input and
 accounted allocations. Custom `Data` readers must account allocations with

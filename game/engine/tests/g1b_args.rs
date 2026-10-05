@@ -304,3 +304,98 @@ fn restore_uses_saved_setup_arguments_to_register_components() {
     assert_eq!(receiver.world().get::<Extra>("extra").unwrap().value, 17);
     assert_eq!(receiver.save().unwrap(), saved);
 }
+
+// A game gains a setup argument whose default keeps its old behaviour (as
+// garden, forest and rivals gained `art`): its saves and pins hold.
+#[test]
+fn a_defaulted_argument_added_to_a_game_moves_none_of_its_saves() {
+    #[derive(Default, Args)]
+    struct Before {
+        seed: u64,
+        #[live]
+        paused: bool,
+    }
+    #[derive(Default, Args)]
+    struct After {
+        seed: u64,
+        #[live]
+        paused: bool,
+        art: String,
+    }
+    fn setup(w: &mut World, seed: u64, art: &str) {
+        w.reseed(seed);
+        let x = if art.is_empty() { 1.0 } else { 2.0 };
+        w.spawn_named("player", Transform::at(x, 0.0, 0.0));
+    }
+    fn tick(w: &mut World) {
+        let step = w.rand(0.0f32..1.0);
+        w.get_mut::<Transform>("player").unwrap().position.y += step;
+    }
+    struct Old;
+    impl Game for Old {
+        type Args = Before;
+        const ID: &'static str = "gains-an-argument";
+        fn setup(w: &mut World, args: &Before) {
+            setup(w, args.seed, "");
+        }
+        fn tick(w: &mut World, _: &Input, _: &Before) {
+            tick(w);
+        }
+    }
+    struct New;
+    impl Game for New {
+        type Args = After;
+        const ID: &'static str = Old::ID;
+        fn setup(w: &mut World, args: &After) {
+            setup(w, args.seed, &args.art);
+        }
+        fn tick(w: &mut World, _: &Input, _: &After) {
+            tick(w);
+        }
+    }
+    let mut old = Sim::<Old>::new(Before {
+        seed: 7,
+        paused: false,
+    })
+    .unwrap();
+    let mut new = Sim::<New>::new(After {
+        seed: 7,
+        ..After::default()
+    })
+    .unwrap();
+    old.run(250.0);
+    new.run(250.0);
+    assert_eq!(new.world().hash(), old.world().hash());
+    let saved = old.save().unwrap();
+    assert_eq!(new.save().unwrap(), saved);
+    // Each restores the other's save; a set argument still travels with it.
+    new.restore(&saved).unwrap();
+    assert_eq!(new.args().art, "");
+    let art = Sim::<New>::new(After {
+        seed: 7,
+        art: "pass".into(),
+        ..After::default()
+    })
+    .unwrap();
+    let with_art = art.save().unwrap();
+    new.restore(&with_art).unwrap();
+    assert_eq!(new.args().art, "pass");
+    assert_eq!(new.world().hash(), art.world().hash());
+    // The old game ignores the argument it does not know, as before.
+    old.restore(&with_art).unwrap();
+    assert_eq!(old.args().seed, 7);
+    // A different game's save is still refused, defaults or not.
+    struct Other;
+    impl Game for Other {
+        type Args = Before;
+        const ID: &'static str = "another-game";
+        fn setup(_: &mut World, _: &Before) {}
+        fn tick(_: &mut World, _: &Input, _: &Before) {}
+    }
+    let error = Sim::<Other>::new(Before::default())
+        .unwrap()
+        .restore(&saved)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("belongs to `gains-an-argument`"), "{error}");
+}

@@ -467,7 +467,8 @@ In a proof, `session.world('world')` supplies `hold`, `run`, `settle`, `get`,
 `layout`, `snapshot` and `save`. A held key is released on the same carrier even
 when advancing time fails. `open({fresh:true, world:'run.world'})` opens a new
 process and restores when Play creates the surface. Current app bindings win over
-saved arguments; `restoredFrom` exposes the saved ones while `restored` is true.
+saved arguments; `restoredFrom` exposes the saved ones while `restored` is true
+(a save leaves out arguments equal to their defaults).
 
 Restore validates first and installs the decoded world without running setup.
 Register types that first appear mid-game in `Game::register`; registration receives
