@@ -246,13 +246,14 @@ guide's rules don't make obvious.
   request of its own that the view sends (a `flush` source called with the change).
   (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
 
-- **A mutation that answers at once leaves its `refreshes` resource stale.** After
+- **A mutation that answers at once leaves an async `refreshes` resource stale.** After
   `send added = addItem()` with `refreshes items`, the list kept its old answer and
   nothing was logged, on the web and on iOS. Cause: the refresh at the send only
   re-reads, which drops a request, and the forced refresh comes when the mutation's
   reply lands; a source that answers synchronously never lands a reply later (QUEUE).
-  Fix until then: make the mutation's source answer with a promise (`async`), or
-  have the refreshed resource answer synchronously once loaded. (Authoring bench,
+  A resource whose re-read answers synchronously is not affected. Fix until then:
+  make the mutation's source answer with a promise (`async`), or have the refreshed
+  resource answer its updated value synchronously once loaded. (Authoring bench,
   LLP 1087, t2-todo on web and iOS: about 40 minutes, 2026-10-05.)
 
 - **Two quick sends to one mutation lost the first write on iOS.** Two adds in a
