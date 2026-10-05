@@ -210,6 +210,14 @@ impl<'w> Present<'w> {
         self.presented.derivations = called;
         self.world.presented = std::mem::take(&mut self.presented);
     }
+    /// A declared level of either kind (`Level::of` or `Level::shown`), decoded
+    /// once at delivery: a look's palette, lighting and camera.
+    pub fn level<T: crate::Data + Send + Sync + 'static>(
+        &self,
+        name: &str,
+    ) -> Result<std::sync::Arc<T>, crate::DataError> {
+        self.world.shown_level(name)
+    }
     /// Read one component by entity or name.
     #[track_caller]
     pub fn get<C: Component>(&self, target: impl Target) -> Option<Ref<'_, C>> {

@@ -34,7 +34,7 @@ test('a level-only game bakes its declared type without an art directory', () =>
     gameShells(dir, game, resolve(import.meta.dir, '..'));
     const build = readFileSync(resolve(dir, '.shells/gpu/build.rs'), 'utf8');
     expect(build).toContain('type App = game_logic::Island;');
-    expect(build).toContain('bake_files::bake_game_level::<App>');
+    expect(build).toContain('bake_files::bake_game_levels::<App>');
     expect(build.replaceAll('\\\\', '/')).toContain('bake/src/files.rs');
     expect(build).not.toContain('bake_art(');
     expect(readFileSync(resolve(dir, '.shells/gpu/Cargo.toml'), 'utf8')).not.toContain('exact-game-bake.workspace = true');

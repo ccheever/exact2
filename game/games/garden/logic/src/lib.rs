@@ -65,6 +65,12 @@ impl Game for Garden {
     /// The art pass's baked models: never awaited, and fetched only for the
     /// look that draws them (`prefetch`), so the others never download them.
     const STREAMED: &'static [&'static str] = pass::MODELS;
+    /// The balance (simulation: its identity is in every save) and every
+    /// look's palette, lighting and camera (presentation: in none).
+    const LEVELS: &'static [asset::Level] = &[
+        asset::Level::of::<crops::Balance>(crops::BALANCE),
+        asset::Level::shown::<looks::Looks>(looks::LOOKS),
+    ];
     type Args = Options;
     fn prefetch(_: &str, args: &Options) -> bool {
         args.art == "pass"
@@ -95,37 +101,18 @@ impl Game for Garden {
     }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
-        w.insert_resource(Environment {
-            zenith: [0.18, 0.38, 0.60],
-            horizon: [0.62, 0.76, 0.67],
-            ground: [0.12, 0.16, 0.07],
-            ambient: 0.45,
-            exposure: 0.9,
-            fog: Some(Fog {
-                color: Some([0.62, 0.76, 0.67]),
-                ..Fog::new(0.0025, 0.04)
-            }),
-            ..Environment::default()
-        });
-        w.insert_resource(AmbientOcclusion {
-            radius: 0.6,
-            intensity: 0.8,
-            ..AmbientOcclusion::default()
-        });
+        // Every look draws its own sky, occlusion and sun (`present`).
         w.insert_resource(Schedule::default());
         w.insert_resource(GardenClock::default());
         w.insert_resource(Weather::default());
         w.insert_resource(Census::default());
         w.insert_resource(Shop::default());
-        w.insert_resource(Farm::new());
+        w.insert_resource(Farm::new(&crops::balance(w)));
         w.insert_resource(Shown::default());
+        // Every look dresses the ground with its soil (`present`).
         w.spawn_named(
             "ground",
-            (
-                Transform::default(),
-                Mesh::plane(1.0, 1.0),
-                Material::grid([0.12, 0.065, 0.025], garden::TILE),
-            ),
+            (Transform::default(), Mesh::plane(1.0, 1.0), Material::default()),
         );
         let player = w.spawn_named(
             "player",
@@ -148,10 +135,7 @@ impl Game for Garden {
             "sun",
             (
                 Transform::at(10.0, 20.0, 8.0).looking_at(Vec3::ZERO, Vec3::Y),
-                DirectionalLight {
-                    color: [1.0, 0.90, 0.72],
-                    ..DirectionalLight::default()
-                },
+                DirectionalLight::default(),
             ),
         );
         farm::create_plot_outline(w);

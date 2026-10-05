@@ -110,6 +110,15 @@ keyboard controls. It does not change the earlier market playtest policies.
 
 ## How it is built
 
+- **Numbers are data.** The balance (`assets/garden.level.json`: the seed
+  catalogue, mutations and their odds, the weather, market orders, restock
+  timing, the farm's rules and the camera) is simulation data: a save records
+  its identity, so a balance change moves the pins. Every look's sky, lights,
+  soil, meadow, palette, the art pass's day and camera (`assets/looks.level.json`)
+  are presentation data, in no save. Both are `Game::LEVELS`, decoded once;
+  with `bun game/dev.mjs garden` running, an edit reaches the page in about a
+  second with no build (the looks redraw the running garden; a balance edit
+  starts a fresh one).
 - **Garden time** is world time plus every span the garden spent away
   (`GardenClock`). Everything that will happen — a plant's next stage, a fruit
   ripening, the restock, the weather — is an entry in one saved min-heap
@@ -141,7 +150,8 @@ keyboard controls. It does not change the earlier market playtest policies.
 | `logic/src/looks.rs`, `pass.rs` | the golden and storybook looks, and the art pass: their props, sky and drawn models |
 | `logic/src/garden.rs` | the clock, the schedule, plants, fruit, weather |
 | `logic/src/farm.rs` | tiles, purse, backpack, commands, offline catch-up |
-| `logic/src/shop.rs`, `crops.rs`, `hud.rs` | stock, the catalogue and values, publication |
+| `logic/src/shop.rs`, `crops.rs`, `hud.rs` | stock, the balance's types and values, publication |
+| `assets/garden.level.json`, `assets/looks.level.json` | the balance; every look's lighting, palette and camera |
 | `logic/tests/sim.rs` | the hostless game tests |
 | `logic/tests/scale.rs` | ignored measurements (`--ignored --nocapture`, release) |
 | `app.contract` | title, top bar, shop, backpack, tools, prompts, touch controls |

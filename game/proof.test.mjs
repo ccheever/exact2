@@ -903,7 +903,7 @@ test('a game\'s helper scripts are not proof inputs; its build inputs are', asyn
   const {proofInputExcluded}=await import('./proof.mjs');
   for(const file of ['bench.mjs','live.mjs','jev-proxy.mjs','tools/probe.js','proof.mjs','pins.json','README.md'])
     expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(true);
-  for(const file of ['logic/src/lib.rs','logic/build.mjs','data/src/lib.rs','gpu/shaders/sky.wgsl','assets/x.js','app.contract','app.json','island.level.json','Cargo.toml','Cargo.lock'])
+  for(const file of ['logic/src/lib.rs','logic/build.mjs','data/src/lib.rs','gpu/shaders/sky.wgsl','assets/x.js','app.contract','app.json','assets/island.level.json','Cargo.toml','Cargo.lock'])
     expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(false);
   // Shared SDK scripts stay inputs: the web glue is JavaScript.
   expect(proofInputExcluded('host/web/gpu-glue.js','forest')).toBe(false);

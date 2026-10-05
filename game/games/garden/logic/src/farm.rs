@@ -1,27 +1,13 @@
 //! The player's garden: tiles, sheckles, seeds, the backpack, and the
 //! commands the HUD sends.
 
-use crate::crops::{crop, kind_of, CROPS};
+use crate::crops::{balance, Balance};
 use crate::garden::{self, now_ms, Census, Fruit, GardenClock, Item, Plant, TILE};
 use crate::{feedback, shop};
 use exact_game::character::Character;
 use exact_game::*;
 
-pub const START_SIZE: u16 = 6;
-pub const MAX_SIZE: u16 = 256;
-pub const START_SHECKLES: u64 = 20;
-pub const WATER_CAPACITY: u8 = 3;
-pub const FOOD_CAPACITY: u8 = 3;
 pub const BARREL: Vec3 = Vec3::new(-2.0, 0.0, 0.0);
-
-/// A short ladder of market requests: crop, quantity, bonus on top of value.
-pub const ORDERS: &[(u8, u32, u64)] = &[
-    (0, 1, 30),
-    (1, 4, 400),
-    (2, 5, 600),
-    (3, 4, 1300),
-    (4, 3, 2400),
-];
 
 #[derive(Default, Resource)]
 pub struct Farm {
@@ -51,16 +37,17 @@ pub struct Farm {
 }
 
 impl Farm {
-    pub fn new() -> Self {
-        let mut seeds = vec![0; CROPS.len()];
+    pub fn new(b: &Balance) -> Self {
+        let mut seeds = vec![0; b.crops.len()];
         seeds[0] = 1;
+        let size = b.farm.start_size;
         Farm {
-            sheckles: START_SHECKLES,
-            water: WATER_CAPACITY,
+            sheckles: b.farm.start_sheckles,
+            water: b.farm.water,
             seeds,
             held: Some(0),
-            size: START_SIZE,
-            tiles: vec![None; START_SIZE as usize * START_SIZE as usize],
+            size,
+            tiles: vec![None; size as usize * size as usize],
             shop_dirty: true,
             bag_dirty: true,
             ..Farm::default()
@@ -73,8 +60,8 @@ impl Farm {
     pub fn at(&self, tile: [u16; 2]) -> Option<Entity> {
         self.index(tile).and_then(|i| self.tiles[i])
     }
-    pub fn expand_cost(&self) -> u64 {
-        (self.size as u64).pow(3) * 25
+    pub fn expand_cost(&self, b: &Balance) -> u64 {
+        (self.size as u64).pow(3) * b.farm.expand_cost
     }
 }
 
@@ -152,8 +139,9 @@ pub fn plant_held(w: &mut World, tile: [u16; 2]) -> Result<Entity, String> {
     if occupied {
         return Err("Something grows here".into());
     }
+    let b = balance(w);
     if w.resource::<Farm>().seeds[kind as usize] == 0 {
-        return Err(format!("No {} seeds", crop(kind).name));
+        return Err(format!("No {} seeds", b.crop(kind).name));
     }
     let now = now_ms(w);
     let e = garden::plant(w, kind, tile, now);
@@ -162,9 +150,9 @@ pub fn plant_held(w: &mut World, tile: [u16; 2]) -> Result<Entity, String> {
     let i = farm.index(tile).unwrap();
     farm.tiles[i] = Some(e);
     if farm.seeds[kind as usize] == 0 {
-        farm.held = (0..CROPS.len() as u8).find(|&k| farm.seeds[k as usize] > 0);
+        farm.held = (0..b.crops.len() as u8).find(|&k| farm.seeds[k as usize] > 0);
     }
-    farm.last = format!("Planted {}", crop(kind).name);
+    farm.last = format!("Planted {}", b.crop(kind).name);
     farm.shop_dirty = true;
     drop(farm);
     feedback::cue(w, feedback::Cue::Plant, garden::plant_center(tile));
@@ -196,11 +184,12 @@ pub fn harvest_plant(w: &mut World, plant: Entity) -> u32 {
 }
 
 fn stow(w: &World, mut item: Item) {
+    let b = balance(w);
     let mut farm = w.resource_mut::<Farm>();
     item.id = farm.next_item;
     farm.next_item += 1;
     farm.harvested += 1;
-    farm.last = format!("Harvested {} ({}¢)", item.label(), item.value());
+    farm.last = format!("Harvested {} ({}¢)", item.label(&b), item.value(&b));
     farm.bag.push(item);
     farm.bag_dirty = true;
 }
@@ -234,6 +223,7 @@ pub fn harvest_all(w: &mut World) -> u32 {
 }
 
 pub fn sell(w: &World, id: Option<u32>) -> u64 {
+    let b = balance(w);
     let mut farm = w.resource_mut::<Farm>();
     let sold: Vec<Item> = match id {
         Some(id) => match farm.bag.iter().position(|i| i.id == id) {
@@ -242,7 +232,7 @@ pub fn sell(w: &World, id: Option<u32>) -> u64 {
         },
         None => std::mem::take(&mut farm.bag),
     };
-    let total: u64 = sold.iter().map(Item::value).sum();
+    let total: u64 = sold.iter().map(|i| i.value(&b)).sum();
     farm.sheckles += total;
     farm.earned += total;
     if !sold.is_empty() {
@@ -255,8 +245,9 @@ pub fn sell(w: &World, id: Option<u32>) -> u64 {
 
 /// Compost exactly the chosen fruit; a stale ID or full pouch spends nothing.
 pub fn compost(w: &World, id: u32) -> Result<String, String> {
+    let b = balance(w);
     let mut farm = w.resource_mut::<Farm>();
-    if farm.plant_food >= FOOD_CAPACITY {
+    if farm.plant_food >= b.farm.food {
         return Err("Plant-food pouch full · feed a growing plot first".into());
     }
     let i = farm
@@ -269,20 +260,19 @@ pub fn compost(w: &World, id: u32) -> Result<String, String> {
     farm.bag_dirty = true;
     Ok(format!(
         "Composted {} · +1 plant food instead of {}¢",
-        item.label(),
-        item.value()
+        item.label(&b),
+        item.value(&b)
     ))
 }
 
 /// Deliver one whole request, retaining unrelated fruit. Every fruit still
 /// earns its full weight/mutation value; the request adds its one-time bonus.
 pub fn deliver(w: &World) -> Result<String, String> {
+    let b = balance(w);
     let mut farm = w.resource_mut::<Farm>();
-    let &(kind, count, bonus) = ORDERS
-        .get(farm.orders as usize)
-        .ok_or("All market orders filled")?;
+    let (kind, count, bonus) = b.order(farm.orders).ok_or("All market orders filled")?;
     if farm.bag.iter().filter(|i| i.kind == kind).count() < count as usize {
-        return Err(format!("Bring {count} {} to the market", crop(kind).name));
+        return Err(format!("Bring {count} {} to the market", b.crop(kind).name));
     }
     let mut remaining = count;
     let mut paid = bonus;
@@ -291,13 +281,13 @@ pub fn deliver(w: &World) -> Result<String, String> {
             return true;
         }
         remaining -= 1;
-        paid += i.value();
+        paid += i.value(&b);
         false
     });
     farm.orders += 1;
     // The introductory requests must not wait on a rare seed's stock roll.
     // This is shop inventory at its ordinary price, not a free seed or reward.
-    if let Some(&(next, _, _)) = ORDERS.get(farm.orders as usize) {
+    if let Some((next, _, _)) = b.order(farm.orders) {
         let mut shop = w.resource_mut::<shop::Shop>();
         shop.stock[next as usize] = shop.stock[next as usize].max(1);
     }
@@ -307,13 +297,13 @@ pub fn deliver(w: &World) -> Result<String, String> {
     farm.bag_dirty = true;
     Ok(format!(
         "Delivered {count} {} · {paid}¢ including {bonus}¢ bonus",
-        crop(kind).name
+        b.crop(kind).name
     ))
 }
 
 /// Grows the garden to `size` tiles per side, keeping every plant's tile.
 pub fn resize(w: &mut World, size: u16) {
-    let size = size.min(MAX_SIZE);
+    let size = size.min(balance(w).farm.max_size);
     {
         let mut farm = w.resource_mut::<Farm>();
         if size <= farm.size {
@@ -346,16 +336,18 @@ pub fn lay_ground(w: &World) {
     w.require_mut::<Transform>("ground").position = Vec3::new(mid, 0.0, -mid);
     crate::art::resize(w, span, mid);
     w.require_mut::<Character>("player").bounds = Some([-span, span]);
+    let rig = balance(w).camera.clone();
     let mut follow = w.require_mut::<Follow>("camera");
     *follow = if overview {
-        let r = span.max(12.0);
+        let r = span.max(rig.overview_min);
         Follow::new(w.named("ground").unwrap())
-            .offset(0.0, r * 0.9, r * 0.75)
-            .lag(0.3)
+            .offset(0.0, r * rig.overview[0], r * rig.overview[1])
+            .lag(rig.overview_lag)
     } else {
+        let [x, y, z] = rig.offset;
         Follow::new(w.named("player").unwrap())
-            .offset(0.0, 9.0, 11.0)
-            .lag(0.15)
+            .offset(x, y, z)
+            .lag(rig.lag)
     };
 }
 
@@ -376,7 +368,7 @@ pub fn fill(w: &mut World, n: u32) -> u32 {
             if w.resource::<Farm>().at([x, z]).is_some() {
                 continue;
             }
-            let kind = (planted as usize % CROPS.len()) as u8;
+            let kind = (planted as usize % balance(w).crops.len()) as u8;
             let e = garden::plant(w, kind, [x, z], now);
             let mut farm = w.resource_mut::<Farm>();
             let i = farm.index([x, z]).unwrap();
@@ -396,7 +388,7 @@ pub fn away(w: &mut World, ms: u64) -> garden::Ran {
     let ripe = w.resource::<Census>().ripe;
     w.resource_mut::<Farm>().away = format!(
         "While you were away ({}): {} events, {} fruit ripened ({} ripe now)",
-        crate::crops::clock(ms),
+        crate::hud::clock(ms),
         ran.events,
         ripe.saturating_sub(before),
         ripe
@@ -438,16 +430,17 @@ pub fn command(w: &mut World, cmd: &str) {
     let mut words = cmd.split_whitespace();
     let verb = words.next().unwrap_or("");
     let arg = words.next().unwrap_or("");
+    let b = balance(w);
     let result: Result<String, String> = match verb {
         "" => return,
-        "buy" => match kind_of(arg) {
-            Some(k) => shop::buy(w, k).map(|_| format!("Bought {} seed", crop(k).name)),
+        "buy" => match b.kind_of(arg) {
+            Some(k) => shop::buy(w, k).map(|_| format!("Bought {} seed", b.crop(k).name)),
             None => Err(format!("No seed named {arg}")),
         },
-        "equip" => match kind_of(arg) {
+        "equip" => match b.kind_of(arg) {
             Some(k) if w.resource::<Farm>().seeds[k as usize] > 0 => {
                 w.resource_mut::<Farm>().held = Some(k);
-                Ok(format!("Holding {}", crop(k).name))
+                Ok(format!("Holding {}", b.crop(k).name))
             }
             _ => Err(format!("No {arg} seeds")),
         },
@@ -475,9 +468,9 @@ pub fn command(w: &mut World, cmd: &str) {
             Ok(format!("Backpack page {}", farm.bag_page + 1))
         }
         "expand" => {
-            let cost = w.resource::<Farm>().expand_cost();
+            let cost = w.resource::<Farm>().expand_cost(&b);
             let size = w.resource::<Farm>().size;
-            if size >= MAX_SIZE {
+            if size >= b.farm.max_size {
                 Err("The garden is as big as it gets".into())
             } else if w.resource::<Farm>().sheckles < cost {
                 Err(format!("Expanding costs {cost}¢"))
@@ -542,6 +535,7 @@ pub fn planting_guidance(w: &World) -> String {
     let Some(tile) = tile_at(w, player) else {
         return String::new();
     };
+    let max = balance(w).farm.max_size;
     let farm = w.resource::<Farm>();
     if farm.held.is_none() || farm.at(tile).is_none() {
         return String::new();
@@ -566,7 +560,7 @@ pub fn planting_guidance(w: &World) -> String {
     }
     match nearest {
         Some(([x, z], delta)) => format!("Empty plot {}, {}: {}", x + 1, z + 1, bearing(delta)),
-        None if farm.size < MAX_SIZE => "Garden full · expand to add empty plots".into(),
+        None if farm.size < max => "Garden full · expand to add empty plots".into(),
         None => "Garden full · no empty plots".into(),
     }
 }
@@ -587,12 +581,13 @@ pub fn prompt(w: &World) -> (Option<[u16; 2]>, String) {
         return (None, format!("Return to garden: {}", bearing(delta)));
     };
     let now = now_ms(w);
+    let b = balance(w);
     let farm = w.resource::<Farm>();
     let text = match farm.at(tile) {
         None => match farm.held {
             Some(k) => format!(
                 "E: plant {} ({} left)",
-                crop(k).name,
+                b.crop(k).name,
                 farm.seeds[k as usize]
             ),
             None => "Buy seeds in the shop".into(),
@@ -602,10 +597,10 @@ pub fn prompt(w: &World) -> (Option<[u16; 2]>, String) {
                 .get::<Plant>(p)
                 .map(|p| (p.kind, p.stage, p.planted, p.grow_ms))
                 .unwrap_or_default();
-            let c = crop(kind);
+            let c = b.crop(kind);
             if stage < 4 {
                 let left = (planted + span).saturating_sub(now);
-                format!("{} growing · {}", c.name, crate::crops::clock(left))
+                format!("{} growing · {}", c.name, crate::hud::clock(left))
             } else {
                 let fruits = garden::fruits_of(w, p);
                 let ripe = fruits.iter().filter(|f| f.1).count();
@@ -616,7 +611,7 @@ pub fn prompt(w: &World) -> (Option<[u16; 2]>, String) {
                     format!(
                         "{} fruiting · {}",
                         c.name,
-                        crate::crops::clock(next.saturating_sub(now))
+                        crate::hud::clock(next.saturating_sub(now))
                     )
                 }
             }
@@ -663,7 +658,7 @@ pub fn water_here(w: &World) -> Result<String, String> {
     );
     Ok(format!(
         "Watered {} · remaining wait cut by 25%",
-        crop(w.require::<Plant>(plant).kind).name
+        balance(w).crop(w.require::<Plant>(plant).kind).name
     ))
 }
 
@@ -671,11 +666,12 @@ pub fn refill(w: &World) -> Result<String, String> {
     if !at_barrel(w) {
         return Err(refill_guidance(w));
     }
+    let full = balance(w).farm.water;
     let mut farm = w.resource_mut::<Farm>();
-    if farm.water == WATER_CAPACITY {
+    if farm.water == full {
         return Err("The watering can is full".into());
     }
-    farm.water = WATER_CAPACITY;
+    farm.water = full;
     drop(farm);
     feedback::cue(w, feedback::Cue::Refill, BARREL);
     Ok("Watering can refilled · 3 doses".into())
@@ -702,7 +698,7 @@ pub fn feed_here(w: &World) -> Result<String, String> {
     );
     Ok(format!(
         "Fed {} · next fruit weighs 25% more",
-        crop(w.require::<Plant>(plant).kind).name
+        balance(w).crop(w.require::<Plant>(plant).kind).name
     ))
 }
 

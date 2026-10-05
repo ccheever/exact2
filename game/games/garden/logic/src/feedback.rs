@@ -156,11 +156,11 @@ pub fn harvest(w: &World, at: Vec3, item: &garden::Item) {
     cue(w, Cue::Harvest, at);
     // The classic look's fruit; the other looks draw theirs from `present`.
     *w.require_mut::<Mesh>("picked-fruit") = Mesh::asset(format!("fruit-{}.model", item.kind));
-    *w.require_mut::<Material>("picked-fruit") =
-        garden::paint(crops::fruit_color(item.kind, item.muts));
+    let b = crops::balance(w);
+    *w.require_mut::<Material>("picked-fruit") = garden::paint(b.fruit_color(item.kind, item.muts));
     let mut feedback = w.resource_mut::<Feedback>();
     feedback.fruit_from = at;
-    feedback.fruit_scale = (item.weight / crops::crop(item.kind).weight)
+    feedback.fruit_scale = (item.weight / b.crop(item.kind).weight)
         .sqrt()
         .min(2.0);
 }

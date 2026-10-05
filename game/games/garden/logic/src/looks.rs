@@ -6,7 +6,7 @@
 //! game, its gestures, its saves and its scale are the same in every look.
 use crate::{
     art::{dress, hide, place},
-    crops::{self, Crop, CROPS},
+    crops::{self, Crop},
     garden::paint,
     models::*,
     scenery::*,
@@ -29,17 +29,61 @@ pub fn style(name: &str) -> Option<Style> {
     }
 }
 
+/// What every look's `present` reads (`assets/looks.level.json`): presentation
+/// data, outside saves and hashes, so an edit redraws the same world.
+pub const LOOKS: &str = "looks.level.json";
+
+#[derive(Clone, Default, Data)]
+pub struct Looks {
+    pub classic: Lighting,
+    pub golden: Lighting,
+    pub storybook: Lighting,
+    pub pass: crate::pass::PassLook,
+}
+
+/// A directional light as drawn: its colour and lux.
+#[derive(Clone, Copy, Default, Data)]
+pub struct Light {
+    pub color: [f32; 3],
+    pub illuminance: f32,
+}
+
+#[derive(Clone, Copy, Default, Data)]
+pub struct Water {
+    pub color: [f32; 3],
+    pub roughness: f32,
+}
+
+/// A look's sky, occlusion, sun and fill, the colours it paints what every
+/// look shares (the soil's grid, the meadow, the bed), and its palette.
+#[derive(Clone, Default, Data)]
+pub struct Lighting {
+    pub environment: Environment,
+    pub occlusion: AmbientOcclusion,
+    pub sun: Light,
+    pub fill: Light,
+    pub soil: [f32; 3],
+    pub meadow: [f32; 3],
+    pub bed: [f32; 3],
+    pub water: Water,
+    pub palette: Look,
+}
+
+/// Every look's data, from `Game::present`.
+pub fn looks(p: &Present) -> std::sync::Arc<Looks> {
+    p.level::<Looks>(LOOKS).expect("the declared looks")
+}
+
 /// Everything a look paints with. Colours are authored sRGB-ish.
+#[derive(Clone, Default, Data)]
 pub(crate) struct Look {
     pub(crate) toy: bool,
     /// Where the sun is, for painted light that agrees with the real one.
     pub(crate) sun: Vec3,
     pub(crate) sat: f32,
     pub(crate) sunlit: Rgb,
-    pub(crate) soil: [f32; 3],
-    pub(crate) mound: (Rgb, Rgb),
-    pub(crate) meadow: Rgb,
-    pub(crate) grass: (Rgb, Rgb),
+    pub(crate) mound: [Rgb; 2],
+    pub(crate) grass: [Rgb; 2],
     pub(crate) wood: Rgb,
     pub(crate) bark: Rgb,
     pub(crate) fence: Rgb,
@@ -64,88 +108,10 @@ pub(crate) struct Look {
     pub(crate) hills: [Rgb; 2],
 }
 
-const GOLDEN: Look = Look {
-    toy: false,
-    sun: Vec3::new(-18., 6.2, -6.),
-    sat: 1.1,
-    sunlit: [1.0, 0.84, 0.46],
-    soil: [0.075, 0.042, 0.022],
-    mound: ([0.20, 0.13, 0.08], [0.36, 0.25, 0.16]),
-    meadow: [0.50, 0.60, 0.23],
-    grass: ([0.18, 0.28, 0.07], [0.82, 0.74, 0.36]),
-    wood: [0.62, 0.45, 0.29],
-    bark: [0.40, 0.29, 0.20],
-    fence: [0.66, 0.58, 0.47],
-    accent: [0.55, 0.38, 0.24],
-    metal: [0.30, 0.30, 0.31],
-    shirt: [0.70, 0.24, 0.18],
-    denim: [0.25, 0.37, 0.53],
-    skin: [0.90, 0.66, 0.50],
-    cheek: [0.93, 0.52, 0.45],
-    hair: [0.38, 0.24, 0.13],
-    straw: [0.92, 0.77, 0.46],
-    band: [0.42, 0.15, 0.11],
-    boot: [0.40, 0.25, 0.15],
-    glove: [0.76, 0.60, 0.38],
-    bag: [0.55, 0.36, 0.20],
-    can: [0.64, 0.70, 0.68],
-    trim: [0.45, 0.50, 0.50],
-    canopy: [[0.20, 0.36, 0.13], [0.34, 0.52, 0.18], [0.62, 0.70, 0.26]],
-    orchard_fruit: [0.86, 0.22, 0.14],
-    blooms: [
-        [0.97, 0.95, 0.88],
-        [0.92, 0.28, 0.16],
-        [0.60, 0.50, 0.86],
-        [0.99, 0.82, 0.24],
-        [0.95, 0.62, 0.70],
-    ],
-    stone: [0.62, 0.60, 0.55],
-    hills: [[0.36, 0.48, 0.27], [0.52, 0.60, 0.36]],
-};
-
-const STORYBOOK: Look = Look {
-    toy: true,
-    sun: Vec3::new(7., 20., 12.),
-    sat: 1.35,
-    sunlit: [0.92, 1.0, 0.70],
-    soil: [0.14, 0.062, 0.024],
-    mound: ([0.42, 0.26, 0.16], [0.62, 0.42, 0.28]),
-    meadow: [0.44, 0.76, 0.28],
-    grass: ([0.24, 0.56, 0.16], [0.64, 0.90, 0.34]),
-    wood: [0.80, 0.57, 0.36],
-    bark: [0.58, 0.38, 0.24],
-    fence: [0.98, 0.97, 0.93],
-    accent: [0.90, 0.32, 0.30],
-    metal: [0.98, 0.84, 0.36],
-    shirt: [0.99, 0.83, 0.32],
-    denim: [0.26, 0.56, 0.88],
-    skin: [0.99, 0.79, 0.65],
-    cheek: [1.0, 0.55, 0.58],
-    hair: [0.56, 0.32, 0.18],
-    straw: [1.0, 0.87, 0.52],
-    band: [0.94, 0.30, 0.36],
-    boot: [0.92, 0.30, 0.26],
-    glove: [0.45, 0.78, 0.40],
-    bag: [0.97, 0.72, 0.38],
-    can: [0.96, 0.40, 0.36],
-    trim: [1.0, 0.86, 0.36],
-    canopy: [[0.28, 0.58, 0.44], [0.44, 0.80, 0.40], [0.78, 0.96, 0.52]],
-    orchard_fruit: [1.0, 0.62, 0.20],
-    blooms: [
-        [1.0, 1.0, 0.98],
-        [1.0, 0.45, 0.55],
-        [0.70, 0.60, 1.0],
-        [1.0, 0.88, 0.30],
-        [1.0, 0.68, 0.86],
-    ],
-    stone: [0.82, 0.80, 0.76],
-    hills: [[0.44, 0.74, 0.46], [0.66, 0.88, 0.52]],
-};
-
-fn look(s: Style) -> &'static Look {
+fn lit(looks: &Looks, s: Style) -> &Lighting {
     match s {
-        Style::Golden => &GOLDEN,
-        Style::Storybook => &STORYBOOK,
+        Style::Golden => &looks.golden,
+        Style::Storybook => &looks.storybook,
     }
 }
 
@@ -204,9 +170,11 @@ fn model(style: Style, base: &str) -> String {
 /// time a present draws it: a look costs its models when it is shown. Only
 /// presentation names them, so which looks were shown is in no save.
 fn drawn(p: &mut Present, style: Style, base: &str) -> DrawnMesh {
-    let l = look(style);
+    let looks = looks(p);
+    let l = &lit(&looks, style).palette;
+    let b = crops::shown_balance(p);
     let name = model(style, base);
-    let kind = |k: &str| k.parse::<usize>().expect("a crop kind");
+    let kind = |k: &str| b.crop(k.parse::<u8>().expect("a crop kind"));
     let mesh = match base.strip_prefix("fruit-") {
         Some(k) => p.generated_model(&name, || fruit(kind(k), l)),
         None => p.generated(&name, || match base {
@@ -226,76 +194,12 @@ fn drawn(p: &mut Present, style: Style, base: &str) -> DrawnMesh {
     DrawnMesh::new(mesh.expect("look mesh"))
 }
 
-/// A light's linear colour and lux.
-type Lux = ([f32; 3], f32);
-
-/// The sky, occlusion, sun and fill of a look.
-fn lighting(style: Style) -> (Environment, AmbientOcclusion, Lux, Lux) {
-    match style {
-        Style::Golden => (
-            Environment {
-                zenith: [0.16, 0.30, 0.58],
-                horizon: [1.0, 0.72, 0.48],
-                ground: [0.18, 0.13, 0.06],
-                ambient: 0.3,
-                sun_disc: 0.012,
-                exposure: 1.08,
-                fog: Some(Fog {
-                    color: Some([0.96, 0.70, 0.46]),
-                    ..Fog::new(0.0032, 0.07)
-                }),
-                bloom: Some(Bloom {
-                    threshold: 0.85,
-                    intensity: 0.26,
-                    radius: 2.2,
-                }),
-                ..Environment::default()
-            },
-            AmbientOcclusion {
-                radius: 0.7,
-                intensity: 1.15,
-                ..AmbientOcclusion::default()
-            },
-            ([1.0, 0.60, 0.30], 21000.),
-            ([0.36, 0.52, 1.0], 4200.),
-        ),
-        Style::Storybook => (
-            Environment {
-                zenith: [0.30, 0.58, 0.95],
-                horizon: [0.80, 0.92, 1.0],
-                ground: [0.35, 0.45, 0.20],
-                ambient: 0.55,
-                sun_disc: 0.,
-                exposure: 1.0,
-                fog: Some(Fog {
-                    color: Some([0.82, 0.93, 1.0]),
-                    ..Fog::new(0.0016, 0.06)
-                }),
-                bloom: Some(Bloom {
-                    threshold: 1.0,
-                    intensity: 0.18,
-                    radius: 2.0,
-                }),
-                ..Environment::default()
-            },
-            AmbientOcclusion {
-                radius: 0.5,
-                intensity: 0.75,
-                ..AmbientOcclusion::default()
-            },
-            ([1.0, 0.95, 0.86], 11000.),
-            ([1.0, 0.78, 0.80], 2400.),
-        ),
-    }
-}
-
 /// A look's own models are made when it is first drawn (`drawn`); setup
 /// places both looks' ambience emitters and their props as bare poses (they
 /// share a layout).
 pub fn setup(w: &mut World) {
     for style in STYLES {
-        let l = look(style);
-        let (mote, additive, rise) = if l.toy {
+        let (mote, additive, rise) = if style == Style::Storybook {
             ([1.0, 1.0, 1.0, 0.85], false, 0.05)
         } else {
             ([2.2, 1.6, 0.8, 0.9], true, 0.03)
@@ -344,21 +248,22 @@ pub fn setup(w: &mut World) {
 /// A look as drawn: its sky, sun and fill, its models on what every look
 /// shares and on its props, and its ambience; the others' emitters hidden.
 pub fn present(p: &mut Present, style: Style) {
-    let l = look(style);
-    let (environment, occlusion, sun, fill) = lighting(style);
+    let looks = looks(p);
+    let lit = lit(&looks, style);
+    let l = &lit.palette;
     if let Some(camera) = p.named("camera") {
         p.insert(
             camera,
             DrawnEnvironment {
-                environment,
-                ambient_occlusion: Some(occlusion),
+                environment: lit.environment,
+                ambient_occlusion: Some(lit.occlusion),
             },
         );
     }
     let aim = |at: Vec3| Transform::at(at.x, at.y, at.z).looking_at(Vec3::ZERO, Vec3::Y);
     let opposite = Vec3::new(-l.sun.x, l.sun.y * 0.6, -l.sun.z);
-    for (name, at, (color, illuminance), shadows) in
-        [("sun", l.sun, sun, true), ("moon", opposite, fill, false)]
+    for (name, at, Light { color, illuminance }, shadows) in
+        [("sun", l.sun, lit.sun, true), ("moon", opposite, lit.fill, false)]
     {
         if let Some(e) = p.named(name) {
             place(p, e, aim(at));
@@ -374,7 +279,7 @@ pub fn present(p: &mut Present, style: Style) {
     }
     if let Some(ground) = p.named("ground") {
         let plane = p.get::<Mesh>(ground).map(|m| m.clone()).unwrap_or_default();
-        let soil = Material::grid(l.soil, crate::garden::TILE);
+        let soil = Material::grid(lit.soil, crate::garden::TILE);
         p.insert(ground, DrawnMesh::new(plane).material(soil));
     }
     for (name, base) in [
@@ -400,21 +305,18 @@ pub fn present(p: &mut Present, style: Style) {
     dress(
         p,
         "meadow",
-        DrawnMesh::new(Mesh::plane(1600., 1600.)).material(paint(l.meadow)),
+        DrawnMesh::new(Mesh::plane(1600., 1600.)).material(paint(lit.meadow)),
     );
     if let Some(bed) = crate::art::bed(p) {
-        dress(p, "bed-edge", bed.material(paint(scale(l.mound.0, 0.8))));
+        dress(p, "bed-edge", bed.material(paint(lit.bed)));
     }
     let barrel = drawn(p, style, "rain-barrel").material(Material::default());
     dress(p, "water-barrel", barrel);
     if let Some(water) = p.named("barrel-water") {
+        let [r, g, b] = lit.water.color;
         let still = Material {
-            color: if l.toy {
-                [0.20, 0.55, 0.85, 1.]
-            } else {
-                [0.05, 0.16, 0.20, 1.]
-            },
-            roughness: 0.06,
+            color: [r, g, b, 1.],
+            roughness: lit.water.roughness,
             ..Material::default()
         };
         p.insert(
@@ -427,7 +329,8 @@ pub fn present(p: &mut Present, style: Style) {
     // The crops: this look's model of each, in the simulation's colours and
     // poses, made for the kinds that grow. Kept per crop: a present redraws
     // only the plants and fruit that appeared.
-    let mut crops: Vec<[Option<DrawnMesh>; 2]> = vec![[None, None]; CROPS.len()];
+    let kinds = crops::shown_balance(p).crops.len();
+    let mut crops: Vec<[Option<DrawnMesh>; 2]> = vec![[None, None]; kinds];
     let mut crop = |p: &mut Present, kind: u8, part: usize| {
         let kind = kind as usize;
         crops[kind][part]
@@ -453,7 +356,7 @@ pub fn present(p: &mut Present, style: Style) {
         let model = crop(p, kind, 1);
         p.insert(e, model);
         if gold {
-            p.insert(e, MaterialOverrides(vec![crate::pass::gilded()]));
+            p.insert(e, MaterialOverrides(vec![crate::pass::gilded(&looks.pass)]));
         }
         Derived::Kept
     });

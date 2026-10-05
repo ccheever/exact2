@@ -691,14 +691,21 @@ from `Game::present` instead: `animation::ShownClips` names clips at times deriv
 saved causes, and draws once the model lands (below). Streamed names are
 models and textures (sounds are not streamed yet), and never also in `ASSETS`.
 A generated model (`w.generated`) cannot take a name `ASSETS`, `STREAMED` or the
-level declares: registration refuses it, so a hostless test sees the collision.
+levels declare: registration refuses it, so a hostless test sees the collision.
 Models and sprites need the asset-capable module; sounds and untextured emitters do
 not. See [the audio executor](audio/README.md) and
 [the audio fixture](games/audio-fixture/logic/src/lib.rs) for sampled sounds.
 
-For a data-authored level, derive `Data` for its record and declare `Game::LEVEL`.
+Numbers that change often belong in data, not Rust. Derive `Data` for a record,
+author it as `assets/<name>.level.json` and declare it in `Game::LEVELS`:
+`asset::Level::of::<T>(name)` for simulation data (a level, a balance table;
+a save records its identity, so an edit moves the pins) or `asset::Level::shown::<T>(name)`
+for presentation data (a look's palette, lighting or camera; `present` reads it with
+`p.level::<T>(name)`, and it is in no save or hash). The dev loop sends an edit to
+the page as it sends any asset, with no build: presentation data redraws the
+running world, simulation data starts a fresh one (the old save's identity refuses).
 JSON levels work in the primitive module and need no `game.assets` setting or art importer.
-Setup reads it with `w.level::<T>(name)` after the
+Setup reads one with `w.level::<T>(name)`, decoded once, after the
 asset barrier. `w.generated(name, mesh_data)` registers immutable generated geometry;
 saves check its reconstructed identity rather than storing render vertices. See
 [the level example](games/asset-fixture/logic/src/lib.rs) and [engine reference](engine/README.md).

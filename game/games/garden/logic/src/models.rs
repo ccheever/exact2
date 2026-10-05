@@ -1,6 +1,6 @@
 //! The looks' character, tools, crops and fruit.
 use crate::{
-    crops::CROPS,
+    crops::Crop,
     looks::{dir, Look},
     sculpt::*,
 };
@@ -379,7 +379,7 @@ pub(crate) fn watering_can(l: &Look) -> MeshData {
 
 /// The hilled soil every plant stands in; it grows with the plant.
 fn mound(m: &mut Sculpt, l: &Look, base: f32, radius: f32) {
-    let (low, high) = l.mound;
+    let [low, high] = l.mound;
     m.ellipsoid(
         Vec3::Y * base,
         Vec3::new(radius, 0.07 + radius * 0.06, radius),
@@ -434,8 +434,7 @@ fn stalk(m: &mut Sculpt, from: Vec3, to: Vec3, r: (f32, f32), color: Rgb, segs: 
     );
 }
 
-pub(crate) fn plant(kind: usize, l: &Look) -> MeshData {
-    let c = &CROPS[kind];
+pub(crate) fn plant(c: &Crop, l: &Look) -> MeshData {
     let mut m = Sculpt::default();
     let h = c.height;
     let base = -h * 0.5;
@@ -451,7 +450,7 @@ pub(crate) fn plant(kind: usize, l: &Look) -> MeshData {
     } else {
         m.leafy(1.3, 2.1);
     }
-    match c.id {
+    match c.id.as_str() {
         "carrot" => {
             mound(&mut m, l, base, 0.30);
             let n = if toy { 7 } else { 11 };
@@ -852,12 +851,11 @@ pub(crate) fn plant(kind: usize, l: &Look) -> MeshData {
 /// Fruit is tinted by its entity's material (ripeness, mutations), so the
 /// mesh carries only shading, in greys. The skin is its own part, as glossy as
 /// its crop (glossier in the toy look); seeds are gilt, stems and leaves matte.
-pub(crate) fn fruit(kind: usize, l: &Look) -> Model {
-    let c = &CROPS[kind];
+pub(crate) fn fruit(c: &Crop, l: &Look) -> Model {
     let (mut skin, mut m, mut gilt) = (Sculpt::default(), Sculpt::default(), Sculpt::default());
     let r = c.fruit_size;
     let shine = |d: Vec3, base: f32| [base * (0.7 + 0.3 * (d.y * 0.5 + 0.5)); 3];
-    let roughness = match c.id {
+    let roughness = match c.id.as_str() {
         "tomato" => 0.2,
         "apple" | "grape" => 0.25,
         "strawberry" | "watermelon" | "mango" | "dragon" => 0.3,
@@ -868,7 +866,7 @@ pub(crate) fn fruit(kind: usize, l: &Look) -> Model {
         _ => 0.35,
     } * if l.toy { 0.75 } else { 1. };
     let dark = [0.42; 3];
-    match c.id {
+    match c.id.as_str() {
         "carrot" => {
             let profile: Vec<(f32, f32)> = (0..=10)
                 .map(|i| {

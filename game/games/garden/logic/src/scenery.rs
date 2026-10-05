@@ -199,7 +199,7 @@ pub(crate) fn orchard(l: &Look) -> MeshData {
 fn flower(m: &mut Sculpt, l: &Look, root: Vec3, kind: u32, k: f32) {
     let s = if l.toy { 2.3 } else { 1.8 } * k;
     let h = (0.22 + 0.12 * hash(kind * 13 + (root.x * 10.) as u32)) * s;
-    let stem: Rgb = scale(l.grass.0, 1.2);
+    let stem: Rgb = scale(l.grass[0], 1.2);
     let head = root + Vec3::Y * h + Vec3::new(0.02, 0., 0.01) * s;
     m.tube(
         &[(root, 0.012 * s), (head, 0.009 * s)],
@@ -217,8 +217,8 @@ fn flower(m: &mut Sculpt, l: &Look, root: Vec3, kind: u32, k: f32) {
             0.3,
             0.2,
             0.3,
-            l.grass.0,
-            l.grass.1,
+            l.grass[0],
+            l.grass[1],
         );
     }
     let blooms = &l.blooms;
@@ -334,7 +334,7 @@ pub(crate) fn flower_bank(l: &Look) -> MeshData {
 
 fn rock(m: &mut Sculpt, l: &Look, at: Vec3, size: Vec3, seed: u32) {
     let stone = l.stone;
-    let moss = l.grass.0;
+    let moss = l.grass[0];
     let toy = l.toy;
     m.ellipsoid(
         at,
@@ -363,7 +363,7 @@ fn rock(m: &mut Sculpt, l: &Look, at: Vec3, size: Vec3, seed: u32) {
 /// garden expands toward +x and −z.
 pub(crate) fn meadow(l: &Look) -> MeshData {
     let mut m = Sculpt::default();
-    let (low, high) = l.grass;
+    let [low, high] = l.grass;
     let tufts = if l.toy { 1400 } else { 2600 };
     let spot = |i: u32| -> Vec3 {
         let (u, v) = (hash(i * 2 + 1), hash(i * 2 + 2));

@@ -1,16 +1,32 @@
 use exact_game::{DrawnMesh, Material, Sim, Transform, Visible};
-use garden_logic::crops::{kind_of, CROPS};
+use garden_logic::crops::Balance;
 use garden_logic::farm::Farm;
 use garden_logic::garden::{now_ms, Census, Fruit, GardenClock, Plant, Schedule, Weather};
 use garden_logic::shop::Shop;
 use garden_logic::{census_of, Garden, Options};
 
+/// The balance, as the game reads it.
+static BAL: std::sync::LazyLock<Balance> = std::sync::LazyLock::new(|| {
+    exact_game::json::from_str(include_str!("../../assets/garden.level.json")).unwrap()
+});
+
+/// A garden whose declared data (the balance and the looks) has arrived from
+/// the game's `assets/`, as a host delivers it before setup.
+fn garden(options: Options) -> Sim<Garden> {
+    let mut sim = Sim::<Garden>::new(options).unwrap();
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+    for name in ["garden.level.json", "looks.level.json"] {
+        let bytes = std::fs::read(dir.join(name)).unwrap();
+        sim.asset(name, Some(&bytes)).unwrap();
+    }
+    sim
+}
+
 fn new(seed: u64) -> Sim<Garden> {
-    Sim::<Garden>::new(Options {
+    garden(Options {
         seed,
         ..Options::default()
     })
-    .unwrap()
 }
 
 /// A HUD command, as Contract's `postMessage("world", cmd)` sends it.
@@ -55,7 +71,7 @@ fn plant_grow_harvest_sell() {
     // A carrot is single-harvest: the plant is gone, the tile free.
     assert_eq!(game.world().resource::<Census>().plants, 0);
     assert!(game.world().resource::<Farm>().at([0, 0]).is_none());
-    let value = bag[0].value();
+    let value = bag[0].value(&BAL);
     send(&mut game, "sell all");
     assert_eq!(sheckles(&game), 20 + value);
     assert_eq!(
@@ -77,7 +93,7 @@ fn buy_from_the_shop_and_regrow() {
         game.world().resource::<Farm>().last
     );
     game.world_mut().resource_mut::<Farm>().sheckles = 1000;
-    let berry = kind_of("strawberry").unwrap();
+    let berry = BAL.kind_of("strawberry").unwrap();
     let stock = game.world().resource::<Shop>().stock[berry as usize];
     send(&mut game, "buy strawberry");
     if stock == 0 {
@@ -334,23 +350,21 @@ fn refill_availability_updates_at_the_range_boundary_within_one_plot_and_second(
 #[test]
 fn a_later_epoch_grows_the_garden_offline() {
     let epoch = 1.8e12;
-    let mut game = Sim::<Garden>::new(Options {
+    let mut game = garden(Options {
         seed: 9,
         epoch,
         ..Options::default()
-    })
-    .unwrap();
+    });
     game.tap("KeyE");
     game.run(2_000.0);
     assert_eq!(game.world().resource::<Census>().ripe, 0);
     let saved = game.save().unwrap();
     // A new session an hour later restores that save.
-    let mut later = Sim::<Garden>::new(Options {
+    let mut later = garden(Options {
         seed: 9,
         epoch: epoch + 3_600_000.0,
         ..Options::default()
-    })
-    .unwrap();
+    });
     later.restore_bound(&saved).unwrap();
     later.run(100.0);
     let clock = later.world().resource::<GardenClock>().offline_ms;
@@ -438,7 +452,7 @@ fn schedule_stays_bounded() {
         queued <= census.fruit - census.ripe + census.plants + 2,
         "{queued}"
     );
-    assert_eq!(CROPS.len(), 14);
+    assert_eq!(BAL.crops.len(), 14);
 }
 
 #[test]
@@ -462,7 +476,7 @@ fn market_delivers_the_requested_fruit_once_and_preserves_its_full_value() {
         muts: 0,
         fed: false,
     };
-    let value = carrot.value();
+    let value = carrot.value(&BAL);
     game.world_mut().resource_mut::<Farm>().bag = vec![extra, carrot];
     game.world_mut().resource_mut::<Shop>().stock[1] = 0;
     let saved = game.save().unwrap();
@@ -637,7 +651,7 @@ fn a_lost_player_can_follow_the_public_prompt_after_restore() {
 fn return_guidance_reaches_the_garden_from_every_edge_and_corner() {
     use exact_game::Vec3;
     use garden_logic::farm;
-    for size in [farm::START_SIZE, 16] {
+    for size in [BAL.farm.start_size, 16] {
         for (x, z) in [
             (-1., 0.),
             (1., 0.),
@@ -682,7 +696,7 @@ fn return_guidance_reaches_the_garden_from_every_edge_and_corner() {
                 "lost at {p:?}, size {size}"
             );
             assert!(game.world().require::<Visible>("plot-north").0);
-            assert_eq!(sheckles(&game), farm::START_SHECKLES);
+            assert_eq!(sheckles(&game), BAL.farm.start_sheckles);
             assert_eq!(game.world().resource::<Farm>().seeds[0], 1);
         }
     }
@@ -852,12 +866,11 @@ fn plot_outline_tracks_growth_harvest_movement_and_restore() {
 #[test]
 fn stems_and_fruit_keep_the_same_offset_through_growth_and_regrowth() {
     for smooth in [false, true] {
-        let mut game = Sim::<Garden>::new(Options {
+        let mut game = garden(Options {
             seed: 7,
             smooth,
             ..Options::default()
-        })
-        .unwrap();
+        });
         send(&mut game, "fill 14");
         let anchors: Vec<_> = game
             .world()
@@ -903,19 +916,18 @@ fn stems_and_fruit_keep_the_same_offset_through_growth_and_regrowth() {
 
 #[test]
 fn market_bonus_stops_after_the_last_request() {
-    use garden_logic::farm::ORDERS;
     use garden_logic::garden::Item;
     let mut game = new(7);
-    for &(kind, count, bonus) in ORDERS {
+    for (kind, count, bonus) in (0..BAL.orders.len() as u32).filter_map(|i| BAL.order(i)) {
         let before = sheckles(&game);
         let item = Item {
             id: 0,
             kind,
-            weight: CROPS[kind as usize].weight,
+            weight: BAL.crops[kind as usize].weight,
             muts: 0,
             fed: false,
         };
-        let value = item.value();
+        let value = item.value(&BAL);
         game.world_mut().resource_mut::<Farm>().bag = vec![item; count as usize];
         send(&mut game, "deliver");
         assert_eq!(sheckles(&game), before + value * count as u64 + bonus);
@@ -924,7 +936,7 @@ fn market_bonus_stops_after_the_last_request() {
     let before = sheckles(&game);
     send(&mut game, "deliver");
     assert_eq!(sheckles(&game), before);
-    assert_eq!(game.world().resource::<Farm>().orders, ORDERS.len() as u32);
+    assert_eq!(game.world().resource::<Farm>().orders, BAL.orders.len() as u32);
     assert!(game
         .world()
         .published("order")
@@ -992,7 +1004,7 @@ fn compost_spends_only_the_chosen_fruit_and_refuses_stale_ids_or_a_full_pouch() 
 #[test]
 fn feeding_improves_one_harvest_without_rerolling_it_and_survives_restore() {
     for (kind, late) in [(0, false), (1, false), (1, true), (2, false), (2, true)] {
-        let crop = &CROPS[kind as usize];
+        let crop = &BAL.crops[kind as usize];
         let mut fed = new(7);
         let mut plain = new(7);
         for game in [&mut fed, &mut plain] {
@@ -1068,9 +1080,9 @@ fn feeding_improves_one_harvest_without_rerolling_it_and_survives_restore() {
             .resource::<Farm>()
             .bag
             .iter()
-            .all(|i| i.fed && i.label().starts_with("Fed ")));
+            .all(|i| i.fed && i.label(&BAL).starts_with("Fed ")));
         assert!(fed.save().unwrap() == back.save().unwrap());
-        if crop.regrows {
+        if crop.regrows() {
             assert!(
                 garden_logic::garden::needs_feed(fed.world(), plant),
                 "new growth can be fed again"
@@ -1090,12 +1102,11 @@ fn feeding_improves_one_harvest_without_rerolling_it_and_survives_restore() {
 
 /// A game in a look, bound the way the canvas binds its arguments.
 fn in_look(seed: u64, art: &str) -> Sim<Garden> {
-    Sim::<Garden>::new(Options {
+    garden(Options {
         seed,
         art: art.into(),
         ..Options::default()
     })
-    .unwrap()
 }
 
 /// Switch a running game's look, as the Garden panel's Look row does.
@@ -1185,7 +1196,7 @@ fn the_art_pass_hangs_fruit_on_its_plants_and_presents_mutations() {
             swap.mesh,
             Mesh::asset(format!(
                 "plant-{}-{}.model",
-                CROPS[p.kind as usize].id, p.stage
+                BAL.crops[p.kind as usize].id, p.stage
             ))
         );
         assert!(swap.lod.is_some());
@@ -1204,7 +1215,7 @@ fn the_art_pass_hangs_fruit_on_its_plants_and_presents_mutations() {
         assert!(
             (at.x - center.x).abs() < 1.6 && (at.z - center.z).abs() < 1.6,
             "{} slot {} hangs off its tile: {at:?} from {center:?}",
-            CROPS[f.kind as usize].id,
+            BAL.crops[f.kind as usize].id,
             f.slot
         );
         let Mesh::Asset(name) = &w.require::<DrawnMesh>(e).mesh else {

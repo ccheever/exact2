@@ -2,7 +2,7 @@
 //! the status line (at most once a garden second, for its timers), the shop
 //! and seeds, and the backpack.
 
-use crate::crops::{self, compact, crop, CROPS};
+use crate::crops::balance;
 use crate::farm::Farm;
 use crate::garden::{now_ms, Census, Plant, Schedule, Weather};
 use crate::shop::Shop;
@@ -89,9 +89,52 @@ pub struct BagHud {
 /// (18 ms), and is the size Grow a Garden's own backpack holds.
 pub const BAG_PAGE: usize = 200;
 
+/// "1.2K", "3.4M": the HUD's compact sheckles.
+pub fn compact(n: u64) -> String {
+    const UNITS: &[(u64, &str)] = &[
+        (1_000_000_000_000, "T"),
+        (1_000_000_000, "B"),
+        (1_000_000, "M"),
+        (1_000, "K"),
+    ];
+    for &(unit, suffix) in UNITS {
+        if n >= unit {
+            let tenths = n * 10 / unit;
+            return if tenths >= 1000 || tenths.is_multiple_of(10) {
+                format!("{}{suffix}", tenths / 10)
+            } else {
+                format!("{}.{}{suffix}", tenths / 10, tenths % 10)
+            };
+        }
+    }
+    n.to_string()
+}
+
+/// "4:05", "1:02:03".
+pub fn clock(ms: u64) -> String {
+    let s = ms.div_ceil(1000);
+    if s >= 3600 {
+        format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+    } else {
+        format!("{}:{:02}", s / 60, s % 60)
+    }
+}
+
+fn rarity_color(rarity: &str) -> &'static str {
+    match rarity {
+        "Uncommon" => "#4ade80",
+        "Rare" => "#60a5fa",
+        "Legendary" => "#facc15",
+        "Mythical" => "#c084fc",
+        "Divine" => "#fb923c",
+        _ => "#9ca3af",
+    }
+}
+
 /// Publishes what changed. `prompt` is the player's tile text.
 pub fn publish(w: &World, prompt: String, force: bool) {
     let now = now_ms(w);
+    let b = balance(w);
     let (shop_dirty, bag_dirty) = {
         let mut farm = w.resource_mut::<Farm>();
         let d = (farm.shop_dirty || force, farm.bag_dirty || force);
@@ -102,20 +145,21 @@ pub fn publish(w: &World, prompt: String, force: bool) {
     let farm = w.resource::<Farm>();
     if shop_dirty {
         let shop = w.resource::<Shop>();
-        let rows = CROPS
+        let rows = b
+            .crops
             .iter()
             .enumerate()
             .map(|(k, c)| ShopRow {
-                id: c.id.into(),
-                name: c.name.into(),
-                rarity: c.rarity.name().into(),
-                color: c.rarity.color().into(),
+                id: c.id.clone(),
+                name: c.name.clone(),
+                rarity: c.rarity.clone(),
+                color: rarity_color(&c.rarity).into(),
                 price: compact(c.price),
                 stock: shop.stock.get(k).copied().unwrap_or(0),
                 owned: farm.seeds[k],
                 affordable: farm.sheckles >= c.price,
                 held: farm.held == Some(k as u8),
-                growth: if c.regrows {
+                growth: if c.regrows() {
                     format!(
                         "{}s to first fruit · regrows every {}s",
                         c.grow_s + c.fruit_s,
@@ -139,13 +183,13 @@ pub fn publish(w: &World, prompt: String, force: bool) {
             .take(BAG_PAGE)
             .map(|i| BagRow {
                 id: i.id.to_string(),
-                label: i.label(),
+                label: i.label(&b),
                 weight: format!("{:.2} kg", i.weight),
-                value: compact(i.value()),
+                value: compact(i.value(&b)),
                 mutated: i.muts != 0,
             })
             .collect();
-        let total: u64 = farm.bag.iter().map(|i| i.value()).sum();
+        let total: u64 = farm.bag.iter().map(|i| i.value(&b)).sum();
         w.publish_record(&BagHud {
             bag: rows,
             bag_count: farm.bag.len() as u32,
@@ -158,9 +202,9 @@ pub fn publish(w: &World, prompt: String, force: bool) {
     let weather = w.resource::<Weather>();
     let shop = w.resource::<Shop>();
     let schedule = w.resource::<Schedule>();
-    let order = crate::farm::ORDERS.get(farm.orders as usize);
+    let order = b.order(farm.orders);
     let carried = order
-        .map(|&(kind, _, _)| farm.bag.iter().filter(|i| i.kind == kind).count() as u32)
+        .map(|(kind, _, _)| farm.bag.iter().filter(|i| i.kind == kind).count() as u32)
         .unwrap_or(0);
     let tile = w
         .global_position("player")
@@ -171,8 +215,8 @@ pub fn publish(w: &World, prompt: String, force: bool) {
     let target = tile.and_then(|tile| farm.at(tile));
     let needs_water = target.is_some_and(|p| crate::garden::needs_water(w, p));
     let order_hint = order
-        .map(|&(kind, count, _)| {
-            let c = crop(kind);
+        .map(|(kind, count, _)| {
+            let c = b.crop(kind);
             if carried >= count {
                 "Deliver the fruit in your backpack to collect the bonus.".into()
             } else if planted == Some(kind) {
@@ -189,7 +233,7 @@ pub fn publish(w: &World, prompt: String, force: bool) {
                 } else if let Some(other) = planted {
                     format!(
                         "This tile has {}. Move to an empty tile to plant {}.",
-                        crop(other).name,
+                        b.crop(other).name,
                         c.name
                     )
                 } else {
@@ -199,7 +243,7 @@ pub fn publish(w: &World, prompt: String, force: bool) {
                 format!(
                     "{} seeds are sold out. Restock in {}.",
                     c.name,
-                    crops::clock(shop.next.saturating_sub(now))
+                    clock(shop.next.saturating_sub(now))
                 )
             } else if farm.sheckles < c.price {
                 format!(
@@ -220,7 +264,7 @@ pub fn publish(w: &World, prompt: String, force: bool) {
         sheckles_n: farm.sheckles as f64,
         held: farm
             .held
-            .map(|k| format!("{} ×{}", crop(k).name, farm.seeds[k as usize]))
+            .map(|k| format!("{} ×{}", b.crop(k).name, farm.seeds[k as usize]))
             .unwrap_or_default(),
         prompt,
         plot: tile
@@ -229,7 +273,7 @@ pub fn publish(w: &World, prompt: String, force: bool) {
                     "Plot {}, {} · {}",
                     x + 1,
                     z + 1,
-                    planted.map(|k| crop(k).name).unwrap_or("Empty")
+                    planted.map(|k| b.crop(k).name.as_str()).unwrap_or("Empty")
                 )
             })
             .unwrap_or_else(|| "Outside the garden".into()),
@@ -238,45 +282,45 @@ pub fn publish(w: &World, prompt: String, force: bool) {
         weather_left: if weather.sky == crate::garden::Sky::Clear {
             String::new()
         } else {
-            crops::clock(weather.until.saturating_sub(now))
+            clock(weather.until.saturating_sub(now))
         },
-        restock_in: crops::clock(shop.next.saturating_sub(now)),
+        restock_in: clock(shop.next.saturating_sub(now)),
         plants: census.plants,
         fruit: census.fruit,
         ripe: census.ripe,
         mutated: census.mutated,
         size: farm.size as u32,
-        expand_cost: compact(farm.expand_cost()),
+        expand_cost: compact(farm.expand_cost(&b)),
         last: farm.last.clone(),
         away: farm.away.clone(),
-        garden_time: crops::clock(now),
+        garden_time: clock(now),
         events: schedule.processed as f64,
         queued: schedule.heap.len() as u32,
         order: order
-            .map(|&(kind, count, _)| {
+            .map(|(kind, count, _)| {
                 format!(
                     "Market order {} · {count} {}",
                     farm.orders + 1,
-                    crop(kind).name
+                    b.crop(kind).name
                 )
             })
             .unwrap_or_else(|| "Market regular · all 5 orders filled!".into()),
         order_detail: order
-            .map(|&(_, count, bonus)| {
+            .map(|(_, count, bonus)| {
                 format!("{carried}/{count} in backpack · full value + {bonus}¢ bonus")
             })
             .unwrap_or_else(|| "Keep growing, find mutations, expand your garden".into()),
         order_hint,
         order_seed: order
-            .filter(|&&(kind, count, _)| {
+            .filter(|&(kind, count, _)| {
                 carried < count
                     && planted != Some(kind)
                     && farm.seeds[kind as usize] > 0
                     && farm.held != Some(kind)
             })
-            .map(|&(kind, _, _)| crop(kind).id.into())
+            .map(|(kind, _, _)| b.crop(kind).id.clone())
             .unwrap_or_default(),
-        order_ready: order.is_some_and(|&(_, count, _)| carried >= count),
+        order_ready: order.is_some_and(|(_, count, _)| carried >= count),
         orders: farm.orders,
         water: farm.water as u32,
         water_ready: farm.water > 0 && needs_water,
@@ -292,7 +336,7 @@ pub fn publish(w: &World, prompt: String, force: bool) {
             "Stand on a growing plot to water".into()
         },
         refill: crate::farm::refill_guidance(w),
-        refill_ready: farm.water < crate::farm::WATER_CAPACITY && crate::farm::at_barrel(w),
+        refill_ready: farm.water < b.farm.water && crate::farm::at_barrel(w),
         plant_food: farm.plant_food as u32,
         feed_ready: farm.plant_food > 0 && target.is_some_and(|p| crate::garden::needs_feed(w, p)),
         feeding: if target.is_some_and(|p| crate::garden::is_fed(w, p)) {

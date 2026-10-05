@@ -1,10 +1,9 @@
-//! The seed shop: stock rolls on a five-minute restock, rarer seeds less often.
+//! The seed shop: stock rolls on a restock (every five minutes, by the
+//! balance), rarer seeds less often.
 
-use crate::crops::{crop, CROPS};
+use crate::crops::balance;
 use crate::garden::{Due, Schedule};
 use exact_game::*;
-
-pub const RESTOCK_MS: u64 = 300_000;
 
 #[derive(Default, Resource)]
 pub struct Shop {
@@ -15,9 +14,10 @@ pub struct Shop {
 }
 
 pub fn restock(w: &mut World, at: u64) {
+    let b = balance(w);
     let mut stock: Vec<u32> = {
         let mut rng = w.rng();
-        CROPS
+        b.crops
             .iter()
             .map(|c| {
                 if rng.chance(c.appear) {
@@ -28,25 +28,24 @@ pub fn restock(w: &mut World, at: u64) {
             })
             .collect()
     };
-    if let Some(&(kind, _, _)) =
-        crate::farm::ORDERS.get(w.resource::<crate::farm::Farm>().orders as usize)
-    {
+    if let Some((kind, _, _)) = b.order(w.resource::<crate::farm::Farm>().orders) {
         stock[kind as usize] = stock[kind as usize].max(1);
     }
+    let every = b.farm.restock_s * 1000;
     {
         let mut shop = w.resource_mut::<Shop>();
         shop.stock = stock;
-        shop.next = at + RESTOCK_MS;
+        shop.next = at + every;
         shop.restocks += 1;
     }
-    w.resource_mut::<Schedule>()
-        .push(at + RESTOCK_MS, Due::Restock);
+    w.resource_mut::<Schedule>().push(at + every, Due::Restock);
     w.resource_mut::<crate::farm::Farm>().shop_dirty = true;
 }
 
 /// Buys one seed of `kind`; refuses with the reason.
 pub fn buy(w: &World, kind: u8) -> Result<(), String> {
-    let c = crop(kind);
+    let b = balance(w);
+    let c = b.crop(kind);
     let mut shop = w.resource_mut::<Shop>();
     let mut farm = w.resource_mut::<crate::farm::Farm>();
     if shop.stock[kind as usize] == 0 {

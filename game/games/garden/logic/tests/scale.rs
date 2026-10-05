@@ -7,18 +7,29 @@ use garden_logic::garden::{Census, Schedule};
 use garden_logic::{Garden, Options};
 use std::time::Instant;
 
+/// A garden whose declared data (the balance and the looks) has arrived from
+/// the game's `assets/`, as a host delivers it before setup.
+fn garden(options: Options) -> Sim<Garden> {
+    let mut sim = Sim::<Garden>::new(options).unwrap();
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+    for name in ["garden.level.json", "looks.level.json"] {
+        let bytes = std::fs::read(dir.join(name)).unwrap();
+        sim.asset(name, Some(&bytes)).unwrap();
+    }
+    sim
+}
+
 fn new(smooth: bool) -> Sim<Garden> {
     look(smooth, "")
 }
 
 fn look(smooth: bool, art: &str) -> Sim<Garden> {
-    Sim::<Garden>::new(Options {
+    garden(Options {
         seed: 1,
         smooth,
         art: art.into(),
         ..Options::default()
     })
-    .unwrap()
 }
 
 fn tick(game: &mut Sim<Garden>) {
@@ -80,7 +91,8 @@ fn sizes() -> Vec<u32> {
 #[ignore]
 fn empty_plot_guidance_at_maximum_size() {
     let mut game = new(false);
-    garden_logic::farm::resize(game.world_mut(), garden_logic::farm::MAX_SIZE);
+    let max = garden_logic::crops::balance(game.world()).farm.max_size;
+    garden_logic::farm::resize(game.world_mut(), max);
     game.tap("KeyE");
     send(&mut game, "buy carrot");
     // One real plant and 65,535 empty tiles: the lookup examines the entire

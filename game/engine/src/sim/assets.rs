@@ -54,9 +54,7 @@ impl<G: Game> Sim<G> {
             roots.extend(G::ASSETS.iter().map(|n| (*n).to_owned()));
             roots.extend(G::STREAMED.iter().map(|n| (*n).to_owned()));
             roots.extend(self.world.assets.declared.iter().cloned());
-            if let Some(level) = G::LEVEL {
-                roots.insert(level.name.into());
-            }
+            roots.extend(G::LEVELS.iter().map(|level| level.name.to_owned()));
             self.world.assets.retire(&roots);
             self.textures
                 .retain(|n, _| self.world.assets.states.contains_key(n));

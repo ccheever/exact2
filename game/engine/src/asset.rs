@@ -529,7 +529,7 @@ pub(crate) struct AssetStore {
     owner: Option<ManuallyDrop<Rc<Assets>>>,
     release: Option<fn(ManuallyDrop<Rc<Assets>>)>,
     identity: Option<&'static generated::IdentityCodec>,
-    /// Which of the game's declarations (`Game::ASSETS`, `STREAMED`, `LEVEL`)
+    /// Which of the game's declarations (`Game::ASSETS`, `STREAMED`, `LEVELS`)
     /// names an asset; installed by `Sim` before setup, so a generated model
     /// cannot take a name whose delivered bytes would land on it.
     pub(crate) declared_by: Option<fn(&str) -> Option<&'static str>>,
@@ -811,7 +811,7 @@ impl Content {
 /// Whether a module without model support still receives deliveries: a declared
 /// JSON level or declared `.sound` assets.
 pub fn delivers_without_models<G: crate::Game>() -> bool {
-    G::LEVEL.is_some() || G::ASSETS.iter().any(|name| name.ends_with(".sound"))
+    !G::LEVELS.is_empty() || G::ASSETS.iter().any(|name| name.ends_with(".sound"))
 }
 impl<G: crate::Game> crate::Sim<G> {
     /// Headless model decoder. Primitive surfaces never link this adapter.

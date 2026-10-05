@@ -13,7 +13,7 @@ pub struct AssetFixture;
 impl Game for AssetFixture {
     const ID: &'static str = "asset-fixture";
     const ASSETS: &'static [&'static str] = &["crate.model"];
-    const LEVEL: Option<asset::Level> = Some(asset::Level::of::<Island>("island.level.json"));
+    const LEVELS: &'static [asset::Level] = &[asset::Level::of::<Island>("island.level.json")];
     type Args = ();
     fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
         physics::register(w);
@@ -99,7 +99,7 @@ impl Game for AssetFixture {
         )
         .unwrap();
         w.publish("slopeContact", 10. - contact.distance);
-        w.publish("sign", level.sign);
+        w.publish("sign", level.sign.clone());
         w.spawn_named(
             "camera",
             (
