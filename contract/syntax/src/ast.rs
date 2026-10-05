@@ -32,6 +32,8 @@ pub struct File {
     pub uses: Vec<UseDecl>,
     /// `font "Name"` declarations, in order (LLP 1019 D1).
     pub fonts: Vec<FontDecl>,
+    /// `sound "assets/…wav"` declarations, in order (LLP 1096 D1).
+    pub sounds: Vec<SoundDecl>,
     /// `shape` declarations, in order.
     pub shapes: Vec<ShapeDecl>,
     /// `style` declarations, in order (LLP 1017 P6).
@@ -112,6 +114,16 @@ pub struct FontDecl {
     pub name: String,
     /// Its static faces.
     pub faces: Vec<FontFaceDecl>,
+    /// Where.
+    pub span: Span,
+}
+
+/// A declared sound (LLP 1096 D1): a WAV under the app's `assets/`, which
+/// `playSound` and `playSounds` name by its path.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SoundDecl {
+    /// App-relative WAV source, as `playSound` names it.
+    pub source: String,
     /// Where.
     pub span: Span,
 }
@@ -356,6 +368,45 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `expect mediasession FIELD == "value"` (LLP 1098 D10): a field of
+    /// `state.mediaSession`, the owner by its testId; `none` for no owner.
+    ExpectMediaSession {
+        /// `owner`, `title`, `artist`, `album`, `artwork` or `playbackState`.
+        field: String,
+        /// The value; `None` is `none`.
+        value: Option<String>,
+        /// Where.
+        span: Span,
+    },
+    /// `expect mediasession has|missing "action"` (LLP 1098 D10): whether
+    /// the session's owner offers it to the platform.
+    ExpectMediaSessionAction {
+        /// `play`, `pause`, or one of the six.
+        action: String,
+        /// `has`, or `missing`.
+        present: bool,
+        /// Where.
+        span: Span,
+    },
+    /// `expect sound has|missing "src" [at N] [gain N] [ends N] [by word]`
+    /// (LLP 1096 D10): a voice in the runner's record of that source that
+    /// matches every clause given, or none that does.
+    ExpectSound {
+        /// The declared sound, by its path.
+        src: String,
+        /// `has`, or `missing`.
+        present: bool,
+        /// Its effective start, in runner milliseconds.
+        at: Option<f64>,
+        /// Its gain.
+        gain: Option<f64>,
+        /// Its end, in runner milliseconds.
+        ends: Option<f64>,
+        /// How it ended: `end`, `group`, `cut`, `stop` or `cancelled` (D4).
+        by: Option<String>,
+        /// Where.
+        span: Span,
+    },
 }
 
 /// Which input a `tap` step gives: the driver's `tap` forms (LLP 1012).
@@ -379,6 +430,16 @@ pub enum TapForm {
         scale: f64,
         /// Where the pinch is centred, in the node's box; its middle when `None`.
         at: Option<(f64, f64)>,
+    },
+    /// `mediasession "action" [seconds]`: the media element's session
+    /// action, as the platform's handler would call it (LLP 1098 D10);
+    /// never a press.
+    MediaSession {
+        /// `play`, `pause`, or one of the six actions.
+        action: String,
+        /// A seek's `seekOffset` (else the element's own), `seekto`'s
+        /// `seekTime` (required there).
+        seconds: Option<f64>,
     },
 }
 
@@ -1256,7 +1317,10 @@ impl Step {
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }
             | Step::ExpectText { span, .. }
-            | Step::ExpectState { span, .. } => *span,
+            | Step::ExpectState { span, .. }
+            | Step::ExpectSound { span, .. }
+            | Step::ExpectMediaSession { span, .. }
+            | Step::ExpectMediaSessionAction { span, .. } => *span,
         }
     }
 }

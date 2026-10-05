@@ -208,6 +208,9 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     .map(|r| serde_json::json!({"id": r.id, "state": {"unavailable": "no media decoder or audio output on this host", "paused": true, "currentTime": 0, "duration": null, "readyState": 0}}))
                     .collect();
                 s.push_str(&format!(",\"media\":{}", serde_json::json!(media)));
+                // The media session's record; nothing is published (LLP 1098 D9).
+                let session = crate::media_session::state(p);
+                s.push_str(&format!(",\"mediaSession\":{session}"));
                 // The drive's app storage (trivia F7): none unless it names a scratch store.
                 let storage = match std::env::var("EXACT_AGENT_STORAGE") {
                     Ok(store) => serde_json::json!({"available": true, "store": store}),
@@ -273,6 +276,13 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             let Some(id) = id() else {
                 return error("tap needs an id");
             };
+            // @ref LLP 1098 D9, D10 — the platform's media session action,
+            // before anything that would make it a press.
+            if let Some(action) = request.get("mediaSession").and_then(|a| a.as_str()) {
+                let seconds = request.get("seconds").and_then(|s| s.as_f64());
+                return crate::media_session::act(p, id, action, seconds)
+                    .unwrap_or_else(|e| error(&e));
+            }
             if let Some(into) = request.get("into") {
                 let text = |name: &str, default: &str| {
                     into.get(name)

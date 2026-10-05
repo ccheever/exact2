@@ -491,6 +491,7 @@ impl Event {
             ])),
             Event::Press => Some(KeyModifiers::default().mouse()),
             Event::PressWith(held) => Some(held.mouse()),
+            Event::Media(kind, payload) => super::media_session::record(*kind, payload),
             _ => None,
         }
     }

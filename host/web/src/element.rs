@@ -851,6 +851,13 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::PreventsDisplaySleepDuringVideoPlayback => {
                 "preventsDisplaySleepDuringVideoPlayback"
             }
+            // @ref LLP 1098 D6 — the media session's, which media-glue.js reads.
+            PropId::MediaTitle => "mediaTitle",
+            PropId::MediaArtist => "mediaArtist",
+            PropId::MediaAlbum => "mediaAlbum",
+            PropId::MediaArtwork => "mediaArtwork",
+            PropId::SeekbackwardOffset => "seekbackwardOffset",
+            PropId::SeekforwardOffset => "seekforwardOffset",
 
             PropId::Sandbox => "sandbox",
             PropId::SemanticTag => continue,

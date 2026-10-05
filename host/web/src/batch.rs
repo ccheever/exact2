@@ -678,6 +678,64 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"sound","files":[…],"ops":[…]}` (LLP 1096 D7): the voice
+    /// table's ops, `{"op":"play","id":…,"sound":…,"at":…,"gain":…}` and
+    /// `{"op":"end","id":…,"at":…}`, in runner milliseconds. `plan` at a
+    /// boot names the files to decode, in declaration order (a new boot
+    /// silences the last one's voices); nothing is sent when there is
+    /// nothing to say.
+    pub fn sound(
+        &mut self,
+        ops: Vec<exact_runner::sound::SoundOp>,
+        plan: Option<&exact_plan::Plan>,
+    ) {
+        use exact_runner::sound::SoundOp;
+        let files = plan.filter(|p| !p.sounds.is_empty());
+        if ops.is_empty() && files.is_none() {
+            return;
+        }
+        let mut s = String::from("{\"op\":\"sound\"");
+        if let Some(plan) = files {
+            s.push_str(",\"files\":[");
+            for (i, row) in plan.sounds.iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                quote(plan.str(row.src), &mut s);
+            }
+            s.push(']');
+        }
+        s.push_str(",\"ops\":[");
+        for (i, op) in ops.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            match op {
+                SoundOp::Play {
+                    id,
+                    sound,
+                    at,
+                    gain,
+                } => push_text!(
+                    &mut s,
+                    "{{\"op\":\"play\",\"id\":{},\"sound\":{},\"at\":{},\"gain\":{}}}",
+                    id,
+                    sound,
+                    Shortest(*at),
+                    Shortest(*gain)
+                ),
+                SoundOp::End { id, at } => push_text!(
+                    &mut s,
+                    "{{\"op\":\"end\",\"id\":{},\"at\":{}}}",
+                    id,
+                    Shortest(*at)
+                ),
+            }
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
     /// `{"op":"destroy","id":…}`.
     pub fn destroy(&mut self, id: u32) {
         self.ops.push(text!("{{\"op\":\"destroy\",\"id\":{}}}", id));

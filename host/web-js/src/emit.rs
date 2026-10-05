@@ -1259,6 +1259,13 @@ impl Em<'_> {
                 | EventKind::Seeked
                 | EventKind::Ratechange
                 | EventKind::Volumechange
+                // @ref LLP 1098 D6 — the media session's, through `media.js`.
+                | EventKind::Seekbackward
+                | EventKind::Seekforward
+                | EventKind::Seekto
+                | EventKind::Previoustrack
+                | EventKind::Nexttrack
+                | EventKind::Stop
                 | EventKind::Scroll
                 | EventKind::Refresh
                 | EventKind::Pan

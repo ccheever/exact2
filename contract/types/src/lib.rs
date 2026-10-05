@@ -300,6 +300,9 @@ pub struct Shapes {
     /// Call statements refused as ambiguous (LLP 1089 D1): never checked as
     /// host commands too, so their refusal is the only one.
     pub ambiguous: std::collections::BTreeSet<Span>,
+    /// The sounds the app declares, by path (LLP 1096 D1): a literal
+    /// `playSound` source names one.
+    pub sounds: std::collections::BTreeSet<String>,
 }
 
 impl Shapes {
@@ -1131,6 +1134,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
                 .or_insert_with(|| c.name.clone());
         }
     }
+    shapes.sounds = file.sounds.iter().map(|s| s.source.clone()).collect();
     routes::declare(file, &mut shapes)?;
     selection::declare(&mut shapes);
     geometry::declare(&mut shapes);
@@ -1168,7 +1172,8 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
     // first (x2apps files' `fn indexOf`, batch 6).
     for f in &file.fns {
         // @ref LLP 1035.005.000 D3 — `Name(…)` builds a declared shape.
-        if shapes.declared.contains(&f.name) {
+        if shapes.declared.contains(&f.name) || records::COMPILER_RECORDS.contains(&f.name.as_str())
+        {
             return err(
                 "type-fn-shape-name",
                 format!(

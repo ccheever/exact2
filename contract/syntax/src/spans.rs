@@ -81,13 +81,14 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, shapes, styles, keyframes, timelines, fns, tests, launch, components }
+    File { names, routes, uses, fonts, sounds, shapes, styles, keyframes, timelines, fns, tests, launch, components }
     KeyframesDecl { name, frames, span }
     TimelineDecl { name, span }
     KeyframeDecl { selectors, attrs, span }
     RoutesDecl { slot, rows, span }
     RouteDecl { name, pattern, parent, tab, notfound, fields, span }
     FontDecl { name, faces, span }
+    SoundDecl { source, span }
     FontFaceDecl { weight, italic, source, span }
     TestDecl { name, steps, span }
     FnDecl { name, params, ret, body, span }
@@ -127,6 +128,8 @@ record_variants! {
         Pick { target, paths, span }, Clipboard { target, edit, text, span },
         Clock { arg, span }, Reload { span }, Close { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectTree { target, present, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
+        ExpectSound { src, present, at, gain, ends, by, span },
+        ExpectMediaSession { field, value, span }, ExpectMediaSessionAction { action, present, span },
     }
 }
 record_variants! {

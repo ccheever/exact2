@@ -1,6 +1,7 @@
 //! Action bodies: assignments (the same slot written twice, slots read
 //! after a write, which still sees the starting value), `let`, `if`/`else`,
-//! `match` on an option, `send`, and calls of the root's earlier actions
+//! `match` on an option, `send`, the voice table's commands, and calls of
+//! the root's earlier actions
 //! (LLP 1089 D9: action *i* calls actions *j < i*, so no call cycles):
 //! anywhere among the statements, and in bodies that only call
 //! ([`Gen::dispatch`]). A program whose statement calls the compiler
@@ -79,6 +80,7 @@ impl Gen<'_> {
                 0
             },
             if w.nav { 3 } else { 0 },
+            1,
         ];
         match self.rng.weighted(&weights) {
             0 => {
@@ -126,6 +128,7 @@ impl Gen<'_> {
             }
             5 => self.call_action(env, &pad, out),
             6 => out.push_str(&self.nav_stmt(env, &pad)),
+            7 => self.sound(env, d, &pad, out),
             _ => {
                 let unsent = self.unsent();
                 let m = self.rng.pick(&unsent).clone();
@@ -138,6 +141,27 @@ impl Gen<'_> {
                     m.source,
                     args.join(", ")
                 ));
+            }
+        }
+    }
+
+    /// One of the voice table's commands (LLP 1096 D11): commands to the
+    /// semantics, compared as issued. The source is computed (a program here
+    /// declares no sound, and a literal must name one), so the runner drops
+    /// the voice; the gain is computed too, inside 0–1.
+    fn sound(&mut self, env: &Env, d: usize, pad: &str, out: &mut String) {
+        match self.rng.below(3) {
+            0 => {
+                let src = self.expr(env, &Ty::Str, d, false);
+                let gain = self.expr(env, &Ty::Num, d, false);
+                out.push_str(&format!(
+                    "{pad}playSound(`${{{src}}}`, gain=min(1, max(0, {gain})))\n"
+                ));
+            }
+            1 => out.push_str(&format!("{pad}stopSounds()\n")),
+            _ => {
+                let group = self.expr(env, &Ty::Str, d, false);
+                out.push_str(&format!("{pad}stopSounds(group={group})\n"));
             }
         }
     }

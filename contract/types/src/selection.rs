@@ -4,7 +4,8 @@
 //! `scroll`'s optional `ScrollEvent` (chat F4), `reorderdrop`'s optional
 //! `ReorderEvent` (LLP 1094 D2), and the `InputEvent` of `input`, `change`
 //! and a text field's `select` (x2apps codeedit #2), with the
-//! `setSelectionRange` command's arguments.
+//! `setSelectionRange` command's arguments, and the media session's
+//! two (LLP 1098 D1, D2).
 use super::{err, infer, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span};
 
@@ -57,6 +58,11 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "input" | "change" => Some("InputEvent"),
         "resize" => Some("DOMRectReadOnly"),
         "reorderdrop" => Some("ReorderEvent"),
+        // @ref LLP 1098 D2 — the Media Session's actions, as
+        // `setActionHandler` hands them.
+        "seekbackward" | "seekforward" | "seekto" | "previoustrack" | "nexttrack" | "stop" => {
+            Some("MediaSessionActionDetails")
+        }
         _ => None,
     }
 }
@@ -221,6 +227,29 @@ pub(super) fn declare(shapes: &mut Shapes) {
         ]
         .map(|f| (f.into(), Ty::Number))
         .to_vec(),
+    );
+    // @ref LLP 1098 D1 — the Media Session's `MediaMetadata`, by its
+    // constructor's name and fields: the one compiler shape an app builds
+    // (`records::COMPILER_RECORDS`), on `audio` or `video`'s `metadata=`.
+    // `artwork` is one image's source, not a list of `MediaImage`s.
+    shapes.map.insert(
+        "MediaMetadata".into(),
+        ["title", "artist", "album", "artwork"]
+            .map(|f| (f.into(), Ty::String))
+            .to_vec(),
+    );
+    // @ref LLP 1098 D2 — `MediaSessionActionDetails`, what a media session
+    // action hears, in the order `exact_runner`'s `media_session` writes it:
+    // the action's name, the seek's offset (the platform's, else the
+    // element's own), `seekto`'s time and whether it is a fast seek.
+    shapes.map.insert(
+        "MediaSessionActionDetails".into(),
+        vec![
+            ("action".into(), Ty::String),
+            ("seekOffset".into(), Ty::Number),
+            ("seekTime".into(), Ty::Number),
+            ("fastSeek".into(), Ty::Bool),
+        ],
     );
     // One picked file, in the order `exact_runner::Picked` writes it: the
     // `app:/tmp/picked/…` path, the original name, the MIME type and size

@@ -55,9 +55,11 @@ mod kept;
 mod kept_tests;
 mod lines;
 mod lists;
+mod media_session;
 mod page;
 mod perf;
 mod queue;
+mod query;
 pub use queue::QUEUE_BOUND;
 pub mod router;
 pub use lists::ListTextPosition;
@@ -466,6 +468,8 @@ pub struct Runner<D: DataSource> {
     /// Notifications the app posted under the agent (`state.notifications`):
     /// the agent's substitute for the system's (`crate::notify`).
     notifications: Vec<crate::notify::Notice>,
+    /// The voice table (LLP 1096 D5): what the app's sounds scheduled.
+    sounds: crate::sound::Sounds,
     /// Auth sessions (LLP 1069.006): live ones, and answers to deliver.
     auth: crate::auth::Sessions,
     /// The device capabilities linked (LLP 1047 D3): [`DeviceLinks`].
@@ -822,6 +826,7 @@ impl<D: DataSource> Runner<D> {
             presenting: false,
             batch: 0,
             commands: Vec::new(),
+            sounds: Default::default(),
             into_view: Vec::new(),
             scrolled: Default::default(),
             resized: Vec::new(),
@@ -1176,6 +1181,28 @@ impl<D: DataSource> Runner<D> {
         &mut self.notifications
     }
 
+    /// The voice table (LLP 1096 D5), for `state.sounds` and a test.
+    pub fn sounds(&self) -> &crate::sound::Sounds {
+        &self.sounds
+    }
+
+    /// What the output plays since the last take: a `Play` per new voice,
+    /// an `End` per voice that now ends earlier (LLP 1096 D5).
+    pub fn take_sounds(&mut self) -> Vec<crate::sound::SoundOp> {
+        self.sounds.take()
+    }
+
+    /// End every live voice before this runner is replaced (a dev reload,
+    /// LLP 1096 D5); the host drains `take_sounds` before the restart.
+    pub fn end_sounds(&mut self) {
+        if self.plan.sounds.is_empty() {
+            return;
+        }
+        let mut lines = Vec::new();
+        self.sounds.reload(self.now_ms, &mut lines);
+        lines.into_iter().for_each(|l| self.log(l));
+    }
+
     /// Current value of a slot by name.
     pub fn slot(&self, name: &str) -> Option<&Value> {
         self.plan
@@ -1439,57 +1466,7 @@ impl<D: DataSource> Runner<D> {
         let env = self.env(params, frames);
         Ok(vm::eval(self.plan.code(code), &env, &[])?.value)
     }
-
-    fn query(&mut self, i: usize, args: &[Value]) -> Result<Answer, RunnerError> {
-        let row = &self.plan.resources[i];
-        let source = self.plan.str(row.source).to_string();
-        let resource = self.plan.str(row.name).to_string();
-        // Delivery is the runner's own (LLP 1030 D7): the data seam never
-        // sees it, and a data crate could not answer it if it did.
-        if source == crate::delivery::SOURCE {
-            return self
-                .delivery_answer(i)
-                .map(Answer::Now)
-                .map_err(|error| RunnerError::Data { resource, error });
-        }
-        // @ref LLP 1039 D1 — host facts never reach the app data source.
-        if source == crate::viewport::SOURCE {
-            return self
-                .viewport_answer(i)
-                .map(Answer::Now)
-                .map_err(|error| RunnerError::Data { resource, error });
-        }
-        if source == crate::time::SOURCE {
-            return self
-                .time_answer(i)
-                .map(Answer::Now)
-                .map_err(|error| RunnerError::Data { resource, error });
-        }
-        if source == crate::page::SOURCE {
-            return self
-                .page_answer(i)
-                .map(Answer::Now)
-                .map_err(|error| RunnerError::Data { resource, error });
-        }
-        if source == crate::surface_record::SOURCE {
-            let answer = self.links.surface_answer.ok_or_else(|| RunnerError::Data {
-                resource: resource.clone(),
-                error: DataError::Unavailable("this host links no surfaces".into()),
-            })?;
-            return answer(&self.plan, &self.surface_records, i)
-                .map(Answer::Now)
-                .map_err(|error| RunnerError::Data { resource, error });
-        }
-        // @ref LLP 1038 D5 / §8 — distinguish asked sources from compiled boot values.
-        self.log(lines::query(&resource, &source));
-        let answer = self
-            .data
-            .answer_for(Target::Resource(i), &mut self.store, &source, args);
-        for line in self.data.take_logs() {
-            self.log(line);
-        }
-        answer.map_err(|error| RunnerError::Data { resource, error })
-    }
 }
+
 #[cfg(test)]
 mod stream_tests;

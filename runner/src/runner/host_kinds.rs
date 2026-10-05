@@ -74,7 +74,14 @@ impl Event {
     pub fn media_payload(payload: &str) -> Option<Self> {
         let (name, value) = payload.split_once('\n')?;
         let kind = EventKind::from_name(name)?;
-        if !(EventKind::Loadedmetadata as u8..=EventKind::Canplay as u8).contains(&(kind as u8)) {
+        // The media session's six sit after `drop` (LLP 1098 D11): listed,
+        // so the `loadedmetadata`…`canplay` run never admits them. `resize`
+        // sits between `drop` and the six; it is not a media event.
+        let session = super::media_session::ACTIONS.contains(&kind);
+        if !session
+            && !(EventKind::Loadedmetadata as u8..=EventKind::Canplay as u8).contains(&(kind as u8))
+            || session && super::media_session::details(value).is_none()
+        {
             return None;
         }
         if matches!(kind, EventKind::Timeupdate | EventKind::Durationchange)

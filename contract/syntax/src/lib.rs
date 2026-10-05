@@ -133,4 +133,10 @@ pub const HOST_COMMANDS: &[&str] = &[
     // changes?" is answered. An action prop named `close` may be bound, but
     // calling it is refused as ambiguous (LLP 1089 D1, `syntax-call-ambiguous`).
     "close",
+    // @ref LLP 1096 D2 — `playSound(src, at=, gain=, group=)`,
+    // `playSounds(hits)` and `stopSounds(group=)`: the runner keeps the voice
+    // table, so every host skips them as the runner's own.
+    "playSound",
+    "playSounds",
+    "stopSounds",
 ];

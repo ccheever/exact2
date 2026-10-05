@@ -11,9 +11,11 @@ use crate::Span;
 mod decls;
 mod expr;
 mod keyframes;
+mod media_session;
 mod names;
 #[path = "routes.rs"]
 mod routes;
+mod sounds;
 mod steps;
 use steps::{launch_word, same_launch, LAUNCH};
 
@@ -345,6 +347,7 @@ impl Parser {
                     self.next();
                 }
                 TokenKind::Ident(w) if w == "font" => file.fonts.push(self.font_decl()?),
+                TokenKind::Ident(w) if w == "sound" => file.sounds.push(self.sound_decl()?),
                 TokenKind::Ident(w) if w == "routes" => {
                     if file.routes.is_some() {
                         return self.err(
@@ -405,7 +408,7 @@ impl Parser {
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                        "expected `routes`, `font`, `shape`, `style`, `keyframes`, `timeline`, `fn`, `use`, or `component`, found {}",
+                        "expected `routes`, `font`, `sound`, `shape`, `style`, `keyframes`, `timeline`, `fn`, `use`, or `component`, found {}",
                         describe(other)
                     ),
                     );

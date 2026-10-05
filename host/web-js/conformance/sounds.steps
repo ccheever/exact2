@@ -1,0 +1,13 @@
+tap start
+clock +100
+tap choke
+clock +30
+tap halt
+clock +50
+tap undeclared
+tap nan
+tap loud
+tap past
+tap flood
+clock +300
+tap flood

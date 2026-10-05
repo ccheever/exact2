@@ -1387,3 +1387,74 @@ component A
     setSelectionRange("editor", "4")
   view
     textarea id="editor" value="text" key=jump
+---
+== type-sound-undeclared
+# LLP 1096 D2: a literal source names a declared sound.
+component A
+  action go
+    playSound("assets/kick.wav")
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A literal gain outside 0–1, as a literal `volume` is.
+component A
+  action go
+    playSound(src, gain=1.5)
+  state src = "assets/kick.wav"
+  view
+    button "go" press=go
+---
+== type-play-sound
+# An option `playSound` does not take.
+component A
+  state src = "assets/kick.wav"
+  action go
+    playSound(src, rate=2)
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A hit without `at`: `playSounds` reads a hit's fields by position.
+shape Hit
+  src: string
+  gain: number
+  group: string
+fn noHits(): list<Hit> = []
+component A
+  state hits = noHits()
+  action go
+    playSounds(hits)
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A hit whose gain is a string.
+shape Hit
+  src: string
+  at: number
+  gain: string
+  group: string
+fn noHits(): list<Hit> = []
+component A
+  state hits = noHits()
+  action go
+    playSounds(hits)
+  view
+    button "go" press=go
+---
+== type-play-sound
+# `stopSounds` takes only `group=`.
+component A
+  action go
+    stopSounds("hat")
+  view
+    button "go" press=go
+---
+== lower-media-session
+component A
+  state seek = 0
+  action skip
+    seek = seek + 30
+  view
+    audio "assets/a.mp3" seekforward=skip

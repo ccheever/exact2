@@ -334,6 +334,8 @@ fn compatibility_with_trust(
             "backgroundModes": list("backgroundModes"),
             "urlSchemes": list("urlSchemes"),
             "associatedDomains": host.get("associatedDomains").and_then(|v| v.as_bool()).map_or(Value::Null, Value::Bool),
+            // @ref LLP 1096 D8 — the Apple audio session, baked into the binary.
+            "audioSession": manifest.json.get("audio_session").cloned().unwrap_or(Value::Null),
         },
         // The verification keys the binary carries (LLP 1026 D11), by id: a
         // rotation is a new cohort (1030 D3a).

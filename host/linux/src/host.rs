@@ -117,6 +117,8 @@ pub struct Host<D: DataSource> {
     canvas2d: crate::canvas2d::Canvases,
     /// Views commits renewed (LLP 1078) the presenter has yet to reset.
     renewed: Vec<ViewId>,
+    /// The commit each media session claimant mounted in (LLP 1098 D9).
+    media_mounts: crate::media_session::Mounts,
 }
 
 impl<D: DataSource> Host<D> {
@@ -260,6 +262,7 @@ impl<D: DataSource> Host<D> {
             presses: Default::default(),
             canvas2d: Default::default(),
             renewed: Vec::new(),
+            media_mounts: Default::default(),
         };
         host.runner
             .set_canvas_limits(exact_runner::Limits::native(physical_memory(), false));
@@ -342,6 +345,9 @@ impl<D: DataSource> Host<D> {
     /// The commands the last commits' actions asked for, in order (LLP 1005
     /// §3): `deliveryCheck`, `deliveryActivate`, `setScheme`.
     pub fn take_commands(&mut self) -> Vec<exact_runner::Command> {
+        // The voice table's ops are drained with them and play nothing: this
+        // host keeps the record and has no output (LLP 1096 D9).
+        drop(self.runner.take_sounds());
         self.runner.take_commands()
     }
 
@@ -469,6 +475,11 @@ impl<D: DataSource> Host<D> {
     /// The kernel.
     pub fn kernel(&self) -> &Kernel {
         self.runner.kernel()
+    }
+
+    /// The commit each media session claimant mounted in (LLP 1098 D9).
+    pub(crate) fn media_mounts(&self) -> &crate::media_session::Mounts {
+        &self.media_mounts
     }
 
     /// Explicit region selection, including retained provenance while pending.
@@ -843,16 +854,11 @@ impl<D: DataSource> Host<D> {
             self.log(refusal);
             return Some(refusal.into());
         }
-        match crate::traced(c"exact dispatch", || self.runner.dispatch(view, event)) {
-            Ok(receipt) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Err(e) => self.commit(&[], Some(format!("{e:?}"))),
-        }
+        // At the event's time: an action's `now()` is the host's (LLP 1096 D3).
+        let a = crate::traced(c"exact dispatch", || {
+            self.runner.dispatch_at(view, event, self.now_ms)
+        });
+        self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
     }
 
     // Current eligibility only DENIES an old picture's target. It never finds
@@ -1211,6 +1217,7 @@ impl<D: DataSource> Host<D> {
                     self.renewed.push(id);
                 }
             }
+            self.media_mounts.commit(self.runner.kernel(), r);
         }
         self.track_presence(receipts);
         if receipts.iter().any(|t| !t.receipt.created.is_empty()) {

@@ -1,7 +1,7 @@
 # LLP 1096: Sounds an app can schedule
 
 **Type:** RFC
-**Status:** Accepted (r4, by the orchestrator under Charlie's delegation after three review rounds; Grok 4.7 only — Codex budget exhausted; round-3 findings folded unreviewed — the implementation review checks them).
+**Status:** Accepted (r4, by the orchestrator under Charlie's delegation after three review rounds; Grok 4.7 only — Codex budget exhausted; round-3 findings folded unreviewed — the implementation review checks them). Built 2026-10-04, stages 1–4 (§6, As built).
 - r1 (`88c2f191a`) was reviewed by Grok 4.7 (xhigh) with two scopes: semantics and web fidelity (`llp/reviews/1096-r1.grok-a.md`, READY WITH CHANGES) and implementation (`llp/reviews/1096-r1.grok-b.md`, NOT READY).
 - r2 (`b51ca7d3b`) had a delta review (`llp/reviews/1096-r2.grok.md`, NOT READY: five MATERIAL, six MINOR, five NIT).
 - r3 (`cd9a371dd`) had the final round (`llp/reviews/1096-r3.grok.md`, NOT READY: two MATERIAL, three MINOR, four NIT).
@@ -922,6 +922,105 @@ Each commit passes the five checks.
    - If the iOS session's interruption handling slips, macOS lands and the
      slipped piece gets a `QUEUE.md` line.
 4. **2026-10-09, docs** (D13), after stage 2's adoptions run.
+
+### As built (stages 1–4, 2026-10-04)
+
+- **Stage 1, the model.** As D1–D5, D9–D11. `HOST_COMMANDS` was already in
+  `contract-syntax` (LLP 1089 stage 1 had landed). The checkers are
+  `contract/types/src/checks/sounds.rs`; `type-sound-undeclared` names the
+  three declared sounds nearest by edit distance. A record carries no field
+  names at runtime, so `playSounds` takes a list of a shape whose fields are
+  exactly, in order, `src: string`, `at: number`, `gain: number`, `group:
+  string` (the Summary's `Hit`); a shape in another order is refused with the
+  usage. An omitted `at` or `gain` is pushed as `none` by `compile_or_none`,
+  whose type a command discards. Plan `sounds` is `{src, frames, rate,
+  channels, digest}` (the digest SHA-256 hex; `contract-lower` takes `sha2`,
+  already in the lock). The runner's table is `runner/src/sound.rs`; its record
+  evicts the oldest voice that is no longer live, never a live one, and
+  `state.sounds` (only for a plan with a sound) adds `evicted` and
+  `evictedThrough`, which `expect sound` uses to say a voice is no longer
+  recorded; a voice in no group shows `group: null`. A `reload` journals
+  `sounds stopped: N (reload)` only for a plan with a sound;
+  `Runner::end_sounds` is the dev reload's. The JS target links `sounds.js`
+  by use (`uses::runs_sounds`: a declared sound or one of the three
+  commands); `rt.js` gains `Sounds` and two call sites. Lean's
+  `hostCommands` lists the three; the corpus case is
+  `semantics/corpus/actions/play-sound.contract` (with its WAV); the random
+  generator issues `playSound` with a computed source (its programs declare
+  no files, so the runner drops the voice and the commands still compare)
+  and both `stopSounds` forms. Conformance (`conformance/sounds/app.contract`,
+  on Caltrain's three nearest stations for the list) compares the journal's
+  `sound` lines and `state.sounds` on wasm, JS and Linux: 23 of 23 steps equal.
+- **Stage 2, the web.** As D6, D7. `sound-glue.js` takes `{files, log,
+  origin}` (and, for its tests, a context, a timestamp, a clock and an
+  activation); the wasm host's boot batch names the files, so decoding starts
+  after first paint, and a new boot's files end the last boot's voices. Every
+  root-div writer carries `data-audio-session` (both builds write it; the
+  renderers' cuts in `page.rs`, `direct.rs` and `render.mjs` keep whatever
+  `data-audio-session` the shell's root has). `glue.js` was at 1,499 lines; its
+  `openURL` branch was folded to make room. `host/web/tests/sound-glue.test.mjs`
+  passes in Chrome 154, Firefox and WebKit (Playwright 1.63): onset at frame
+  12000 with gain, a choke at the next voice's frame, a late voice, the
+  `{0, 0}` hold (by the formula and by the timer), WebKit's
+  `navigator.audioSession.type`, and the drop before activation.
+  - **Found while adopting:** the Rust hosts dispatched an event at the
+    runner's last timer time, so an action's `now()` on the wasm page was
+    stale (0 in an app with no timer) and `at=now() + 100` landed in the
+    past. `Runner::dispatch_at` now moves the clock to the event's time,
+    firing any timer due by then, on the web, Apple and Linux hosts, as the
+    JS target's `time()` already did.
+  - **Heard** (a real press, outside the agent, the destination's peak read
+    through an `AnalyserNode`): 0.42 of full scale, the WAV's level, in all
+    three engines, on both targets.
+  - **Measured** (drums' `tools/timing-web.mjs`, 6 s at 112 BPM, each `when`
+    mapped back through D6): every scheduled onset on the grid with no
+    spread beyond the engine's clock resolution (Chrome 0.12 ms, Firefox
+    1 ms, WebKit 0), behind the first hit — which the press starts at once —
+    by 1.2, 3.0 and 2.7 ms; no drift; scheduled 45 ms ahead (median). R3 had
+    a median 3–4 ms and a maximum ~10 ms of jitter.
+- **Stage 3, Apple.** As D6, D8. The arm exports `exact_sound_open`, `_op`
+  (play, end, end all), `_counts`, `_engine` (pause, start, device check)
+  and `_close`; the C mixer's own API is `sound_render.h`, which the arm
+  compile imports, its object built first by clang and named by its content.
+  Host ticks become seconds through `mach_timebase_info` (CoreAudio's
+  `HostTime.h` is not in the iOS SDK). One output per session
+  (`SoundOutput`), so two sessions' voice ids never meet. The bake's `loads`
+  gains `"sound"` for a declared sound: beep's production Mac build carried
+  `libexact_sound.dylib` alone, a sound-less variant left it out, and beep's
+  unsigned `.ipa` carried `Frameworks/ExactSound.framework` and no loose
+  dylib, with `ExactAudioSession` in its Info.plist. `SoundMixerTests`
+  render the C mixer offline at 48 kHz (the file's rate is converted by the
+  arm, outside the mixer).
+  - **The device check** (`EXACT_SOUND_CHECK=1`, a tap on `mainMixerNode`):
+    on this Mac (48 kHz, presentation latency 1.25 ms) beep's three
+    scheduled voices reached the speaker +0.004, +0.005 and +0.005 ms from
+    their times, and drums' scheduled hits −0.010 to +0.005 ms; on the iOS 27
+    simulator (latency 0.10 ms) +0.009 ms. Never early by the source term, so
+    it stays (D6). A voice asked for "now" lands a buffer late (drums' first
+    hit, +30.6 ms, as the engine's first render).
+  - Interruptions are handled as D8 says but were not exercised (no phone).
+    tvOS builds on the same code; its tier-2 build was not run.
+- **Stage 4, docs.** As D13: the guide's recipe, the grammar, the reference's
+  host table and `audio_session`, three pitfalls, LLP 1042 §8's pointer.
+- **Adoption** (scratch copies, patches beside this lane's report).
+  - **Drums:** 16 `sound` lines; the 16 `audio` elements, `VoiceState`,
+    `elementOn`, `trigger` and `fireOne` go; `stepHits` returns a step's
+    hits, each track its own choke group and the closed hat in the open
+    hat's. A closed and an open hat on one step tie, and the later call (the
+    open hat, in kit order) wins, so the demo's open hat still rings until
+    the next bar's closed hat. LLP 1092 stage 2 has not landed, so the clock
+    is still `every(2, tick)`: a step is scheduled 50 ms ahead (less than the
+    shortest step, 75 ms) at its planned time, and the playhead shows it
+    when that time comes. Tests: 24 of 25 on the web and on macOS; the one
+    failure (a context-menu velocity cycle) fails the same on the
+    unchanged app. The copy also names what LLP 1091 now asks `use` lines
+    to name.
+  - **Snake:** eat and crash WAVs, played from the mutation's `then` while
+    the setting is on; the "silent build" label goes. 3 of 3, web and macOS.
+  - **Trivia:** the two tones are WAVs (`afconvert` of the old mp4s, whose
+    extra chunks the reader skips) played from the answer's action and the
+    time-out; the four `video` bleeps, `cue`, `clip`, `audioFailed` and
+    `audioError` go. 9 of 9, web and macOS.
 
 ## 7. Deferred, with preconditions
 

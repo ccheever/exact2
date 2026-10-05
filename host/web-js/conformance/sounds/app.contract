@@ -1,0 +1,107 @@
+// data: caltrain
+// Synthetic conformance plan: the voice table (LLP 1096 D5, §5) on the
+// wasm runner, the JS runtime and the Linux host, all under the driver
+// (`state.sounds.output` is `"agent"`, nothing plays): a window clock
+// scheduled from the press and then each tick, from a list a `fn` makes of
+// Caltrain's three nearest stations; a choke by start time, a tie included;
+// a stop that ends what sounds and cancels what waits; the bound of 32 live
+// voices; and the drops a computed call can make. The journal's `sound`
+// lines and `state.sounds` compare on every target, and the JS target
+// never refuses one of the three commands. (No slot shares a name with
+// Caltrain's: the wasm page carries its first world into this plan by slot
+// name.)
+sound "assets/kick.wav"
+sound "assets/hat.wav"
+
+shape Location
+  lat: number
+  lon: number
+
+shape Station
+  id: string
+  name: string
+  zone: number
+  distance: number
+
+shape Hit
+  src: string
+  at: number
+  gain: number
+  group: string
+
+// A hit every 40 ms from `from`, the first a kick; those before `to`.
+fn window(list: list<Station>, from: number, to: number): list<Hit> = filter(map(list, (s, i) => Hit(src=i == 0 ? "assets/kick.wav" : "assets/hat.wav", at=from + 40 * i, gain=0.5 + 0.25 * i, group=i == 0 ? "" : "hat")), h => h.at < to)
+
+component Sounds
+  resource location = defaultLocation() as shape Location
+  resource nearby = nearest(location, 3) as shape list<Station>
+  state playing = false
+  state scheduledTo = 0
+  state ticks = 0
+  action start
+    playing = true
+    playSounds(window(nearby, now(), now() + 100))
+    scheduledTo = now() + 100
+  action tick
+    if playing
+      playSounds(window(nearby, scheduledTo, now() + 100))
+      scheduledTo = now() + 100
+      ticks = ticks + 1
+  action halt
+    playing = false
+    stopSounds()
+  action choke
+    playSound("assets/hat.wav", at=now() + 60, group="hat")
+    playSound("assets/hat.wav", at=now() + 20, gain=0.5, group="hat")
+    playSound("assets/kick.wav", at=now() + 20, gain=0.25, group="hat")
+    stopSounds(group="none")
+  action flood
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+    playSound("assets/kick.wav")
+  action odd(src: string, at: number, gain: number)
+    playSound(src, at=at == -1 ? 0 / 0 : at, gain=gain)
+  task clock mount
+    every(25, tick)
+  view
+    column testId="root"
+      text `${ticks} ticks, scheduled to ${scheduledTo}` testId="to"
+      button "start" press=start testId="start"
+      button "halt" press=halt testId="halt"
+      button "choke" press=choke testId="choke"
+      button "flood" press=flood testId="flood"
+      button "undeclared" press=odd("assets/nope.wav", 0, 1) testId="undeclared"
+      button "nan" press=odd("assets/hat.wav", -1, 1) testId="nan"
+      button "loud" press=odd("assets/hat.wav", 0, 4) testId="loud"
+      button "past" press=odd("assets/hat.wav", 5, 1) testId="past"

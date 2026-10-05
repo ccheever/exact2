@@ -156,7 +156,7 @@ impl Parser {
     }
 
     /// A step's number, a leading `-` included (a drag's offsets).
-    fn step_number(&mut self, what: &str) -> R<f64> {
+    pub(super) fn step_number(&mut self, what: &str) -> R<f64> {
         let negative = self.eat_punct("-");
         match self.peek_kind().clone() {
             TokenKind::Number(n) => {
@@ -321,6 +321,7 @@ impl Parser {
                             _ => TapForm::Into(self.str_lit("the row's key")?),
                         }
                     }
+                    TokenKind::Ident(w) if w == "mediasession" => self.tap_media_session()?,
                     _ => TapForm::Press,
                 };
                 let modifiers = if form == TapForm::Press && self.at_ident("modifiers") {
@@ -548,7 +549,7 @@ impl Parser {
                         return self.err(
                             "syntax-expected-step",
                             format!(
-                                "`expect` reads `tree`, `text`, or `state`, found {}",
+                                "`expect` reads `tree`, `text`, `state`, `sound`, or `mediasession`, found {}",
                                 describe(&other)
                             ),
                         )
@@ -585,6 +586,8 @@ impl Parser {
                             span,
                         }
                     }
+                    "sound" => self.expect_sound(span)?,
+                    "mediasession" => self.expect_media_session(span)?,
                     "state" => {
                         let (mut name, _) = self.ident()?;
                         // A field, or a list index (`rows.0`), at any depth (feed F10, drums R7).
@@ -636,7 +639,7 @@ impl Parser {
                     other => {
                         return self.err(
                             "syntax-expected-step",
-                            format!("`expect` reads `tree`, `text`, or `state`, not `{other}`"),
+                            format!("`expect` reads `tree`, `text`, `state`, `sound`, or `mediasession`, not `{other}`"),
                         )
                     }
                 }

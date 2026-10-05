@@ -67,6 +67,7 @@ pub mod save_file;
 pub use runner::picker as picker_support;
 pub mod machine;
 pub mod share;
+pub mod sound;
 pub mod stdlib;
 pub mod store;
 pub mod strings;

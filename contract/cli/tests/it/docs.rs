@@ -97,6 +97,18 @@ fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
         match block.info.as_str() {
             "contract" => {
                 compiled += 1;
+                // A declared sound the example names is a short WAV here
+                // (LLP 1096 D1: the compiler reads it).
+                for line in block.body.lines() {
+                    if let Some(src) = line
+                        .strip_prefix("sound \"")
+                        .and_then(|r| r.strip_suffix('"'))
+                    {
+                        let file = dir.join(src);
+                        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+                        std::fs::write(&file, wav()).unwrap();
+                    }
+                }
                 if let Err(all) = contract::compile_path_source_all(&path, &block.body, false) {
                     for e in all {
                         failures.push(format!("{}: [{}] {}", at(e.span.line), e.id, e.message));
@@ -120,4 +132,21 @@ fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
         failures.len(),
         failures.join("\n")
     );
+}
+
+/// A 10 ms, 48 kHz, 16-bit mono WAV of silence.
+fn wav() -> Vec<u8> {
+    let data = 480u32 * 2;
+    let mut b = b"RIFF".to_vec();
+    b.extend_from_slice(&(36 + data).to_le_bytes());
+    b.extend_from_slice(b"WAVEfmt ");
+    b.extend_from_slice(&16u32.to_le_bytes());
+    b.extend_from_slice(&[1, 0, 1, 0]);
+    b.extend_from_slice(&48_000u32.to_le_bytes());
+    b.extend_from_slice(&96_000u32.to_le_bytes());
+    b.extend_from_slice(&[2, 0, 16, 0]);
+    b.extend_from_slice(b"data");
+    b.extend_from_slice(&data.to_le_bytes());
+    b.resize(b.len() + data as usize, 0);
+    b
 }

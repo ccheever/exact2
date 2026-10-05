@@ -725,6 +725,16 @@ impl Loader<'_> {
                 fonts.push(font);
             }
         }
+        // A module's `sound` lines join its user's (LLP 1096 D1), one per path.
+        let mut sounds: Vec<contract_syntax::SoundDecl> = Vec::new();
+        for sound in files
+            .iter_mut()
+            .flat_map(|file| std::mem::take(&mut file.sounds))
+        {
+            if !sounds.iter().any(|prior| prior.source == sound.source) {
+                sounds.push(sound);
+            }
+        }
         macro_rules! all {
             ($field:ident) => {
                 files
@@ -740,6 +750,7 @@ impl Loader<'_> {
             launch: std::mem::take(&mut files[0].launch),
             uses: Vec::new(),
             fonts,
+            sounds,
             shapes: all!(shapes),
             styles: all!(styles),
             keyframes: all!(keyframes),

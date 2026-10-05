@@ -175,6 +175,7 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         routes,
         uses: _,
         fonts: _,
+        sounds: _,
         shapes,
         styles,
         keyframes,

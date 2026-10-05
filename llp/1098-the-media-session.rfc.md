@@ -1,7 +1,7 @@
 # LLP 1098: The media session
 
 **Type:** RFC
-**Status:** Accepted (r3, by the orchestrator under Charlie's delegation after two review rounds; Grok 4.7 only — Codex budget exhausted; round-2 findings folded unreviewed — the implementation review checks them).
+**Status:** Built (stages 1–4, 2026-10-04, on `impl/1098`; §6's "As built"). Accepted r3, by the orchestrator under Charlie's delegation after two review rounds; Grok 4.7 only — Codex budget exhausted; round-2 findings folded unreviewed — the implementation review checks them.
 - r1 (`dfdbb1058`) was reviewed by Grok 4.7 (xhigh) with two scopes: semantics and web fidelity (`llp/reviews/1098-r1.grok-a.md`, READY WITH CHANGES) and implementation (`llp/reviews/1098-r1.grok-b.md`, READY WITH CHANGES). r2 resolves both (§10).
 - r2 (`5afd75f6a`) had a delta review (`llp/reviews/1098-r2.grok.md`, READY WITH CHANGES: two MATERIAL, two MINOR, two NIT). r3 folds its fixes, each checked against the code, with no further review (§10).
 - The orchestrator accepted every r1 recommendation under Charlie's 2026-10-04 delegation (§9). The admission and its take are recorded in `rules/DEFERRED.md` in their own commit (`c881e5f77`).
@@ -1104,6 +1104,87 @@ Each commit passes the five checks.
    - If the iOS refusal waits on LLP 1096, macOS lands first and the iOS
      piece gets a `QUEUE.md` line.
 4. **2026-10-11, docs** (D14), after stage 2's adoptions run.
+
+### As built (stages 1–4, 2026-10-04)
+
+All four stages landed in one lane on 2026-10-04, each with the five checks
+green, on LLP 1096 merged with origin/main. Where the build differs from the
+text, the text above is what was decided and this is what was done.
+
+- **Stage 1.** As D1, D2 and D9–D12. `MediaMetadata` is the one entry of
+  `records::COMPILER_RECORDS`; `metadata=` is its own attribute target
+  (`AttrTarget::MediaMetadata`): a literal record binds each field's own
+  expression, any other `MediaMetadata` value is read a field at a time.
+  `lower-media-session` and the tag refusals are `media::check_session`, one
+  call in `lib.rs`. A blank field still claims: the kernel keeps a bound
+  `""`. The parser's two steps are `parser/media_session.rs`.
+  - **D9's map is the host's, not the presenter's.** `presenter.rs` is 1,499
+    lines, and `Host::commit_effects` (`host/linux/src/host.rs`) already sees
+    each runner commit's receipt with its `created` and `destroyed` keys, so
+    the mount map (`media_session::Mounts`, by `NodeKey`, a counter a receipt)
+    is filled there: the same commit path, no `CREATED` flag needed. A claimant
+    the boot mounted counts as the first commit.
+  - The step's JSON is `{"op":"tap",…,"form":"mediasession","action":…,
+    "seconds":…}` and `{"op":"expect-mediasession","field"|"action":…}`;
+    `expect mediasession owner == none` is admitted.
+- **Stage 2.** As D3–D6. The owner rule's "one commit" is one turn of the
+  page's event loop (a microtask-closed stamp), document order breaking a tie.
+  The overlays report `{owner: null, …, published: "none"}` until a media
+  element has loaded the glue. The driver's web carrier evaluates
+  `exact.mediaSession.act(id, action, seconds)`.
+  - **WebKit 26.6's readback.** In the glue test, after the last claimant
+    left, WebKit read `playbackState` back as `"paused"` though the glue's last
+    declaration (recorded by a setter spy) was `"none"`; a bare page probing the
+    same sequence reads `"none"`. The test asserts the declaration everywhere and
+    the readback in Chrome and Firefox.
+  - A platform `seekOffset` of 0 is treated as none (the element's offset), on
+    the web and Apple: macOS's skip command without an interval delivers 0.
+- **Stage 3.** As D7 and D8, with these choices:
+  - `NowPlaying.swift` talks to a `NowPlayingPlayer` protocol the arm's
+    `VideoArm` adopts, so `Package.swift`'s test build compiles it alone
+    (`ExactNowPlaying`) and `NowPlayingIOSTests` drives it over stand-in
+    players with publication on, on the Mac (`swift test`) and the iOS
+    simulator. `build.mjs` passes both arm sources as the cache key and the
+    inputs, and `-framework MediaPlayer`.
+  - The driver's trigger crosses the arm's five-symbol ABI as a prop,
+    `exactRemote: "<n> <action> [seconds]"`, which the arm runs through the
+    command targets' own `perform` and answers in the same call
+    (`remoteResult`). A remote play tells ExactKit (`remote: "play"`), which
+    sets the latch.
+  - Each player's state message carries its `session` report (claimant,
+    owner, and for the owner the record and readback); `state.mediaSession`
+    lists this session's claimants by id. The live stream is an item ready
+    with an indefinite duration.
+  - The receipt's `mediaSession` and the iOS refusal are as D8; tvOS refuses
+    nothing (the arm type-checks for tvOS; tier 2 builds it).
+- **Stage 4.** `contract-for-agents.md` (the recipe), `contract-grammar.md`
+  (the steps, the events row, a "Media session" section), `reference.md` (the
+  hosts and the manifest lines), `agent-pitfalls.md` (three entries).
+- **Measured on macOS 27.0.1** (outside the driver, a scratch app whose `audio`
+  of a bundled 172 s m4a plays at launch, read through MediaRemote from
+  `/usr/bin/perl`, the one client this macOS still answers):
+  - **Before** (no `metadata=`), AVKit's `AVPlayerView` makes the app the
+    Now Playing app: playing, the asset's URL, duration, elapsed and rate, media
+    type audio, and no title, artist or artwork.
+  - **With** `metadata=`, Now Playing shows the title, artist, album and the
+    artwork (re-encoded by the system), the duration, elapsed time and rates.
+    Commands sent as Control Center and a headset send them
+    (`MRMediaRemoteSendCommand`) reached the app: pause, play, the toggle and
+    stop acted on the element; a seek to 60 s landed at 60; skip forward and
+    back with no interval moved 30 and 15 s (the element's offsets), with an
+    interval of 5 s moved 5; next and previous ran the app's actions. The Mac's
+    hardware media keys were not pressed: this environment may not post HID
+    events (no accessibility grant), and the menu bar's Now Playing was not
+    looked at.
+- **Driven.** A scratch copy of `x2apps/podcast` (the patch beside the lane's
+  report) passes its media session test on the web, macOS and the iOS
+  simulator, and all 21 of its tests on the web. Linux has no host for an app
+  outside the repo: its path is `host/linux/tests/it/media_session.rs` and a
+  fixture plan under `agent.mjs linux --plan … --test …` (mount order, the six,
+  never a press). Conformance `media-session` is equal on wasm and JS (19
+  steps); its data app has no Linux host. The iOS refusal and the build with
+  the two manifest lines were run; the simulator's Control Center, an iPhone's
+  lock screen, Chrome's media hub and jukebox's adoption were not.
 
 ## 7. Deferred, with preconditions
 

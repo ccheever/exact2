@@ -86,7 +86,7 @@ word.
 
 ```ebnf
 file          = { declaration } ;
-declaration   = use | shape | function | style | keyframes | font
+declaration   = use | shape | function | style | keyframes | font | sound
               | routes | component | test ;
 use           = "use" use-name { "," use-name } "from" STRING NL ;
 use-name      = IDENT [ "as" IDENT ] ;
@@ -105,6 +105,7 @@ frame-value   = STRING | NUMBER | "-" NUMBER | constant-call ;
 constant-call = IDENT "(" [ arguments ] ")" ;
 font          = "font" STRING ( "=" STRING NL | block(font-face) ) ;
 font-face     = NUMBER [ "italic" ] "=" STRING NL ;
+sound         = "sound" STRING NL ;
 routes        = "routes" IDENT block(route-row) ;
 route-row     = [ "tab" ] IDENT STRING { attribute } NL [ route-children ]
               | "notfound" { attribute } NL ;
@@ -116,6 +117,14 @@ A font face's weight is a whole number in 1–1000. Keyframe percentages are in
 are animatable and constant-call values can be evaluated at compilation.
 Styles accept literal style attributes and explicitly styleable props (currently
 `buttonStyle`), not arbitrary expressions or event props.
+
+A `sound` names a WAV under the app's `assets/` (LLP 1096 D1): 16-bit integer
+or 32-bit float PCM (or `WAVE_FORMAT_EXTENSIBLE` naming one), one or two
+channels, 8–96 kHz, at most 10 s. The compiler reads its header and refuses
+anything else with the file named and the conversion to run
+(`lower-sound-format`, `lower-sound-long`, `lower-sound-path`,
+`lower-sound-unreadable`). `sound` is a word only at the start of a top-level
+line, so a `state sound` is a slot. Sounds are app-wide, as fonts are.
 
 A `use` specifier is a relative path (`./` or `../`) to a `.contract` file that
 stays inside the using file's root — the app directory, or the package it
@@ -346,7 +355,7 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
 step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
                   | "pinch" NUMBER [ "at" NUMBER NUMBER ]
                   | "into" STRING
-                  | "modifiers" STRING ] NL
+                  | "modifiers" STRING | "mediasession" STRING [ NUMBER ] ] NL
               | "tap" STRING "drag" [ "-" ] NUMBER [ "-" ] NUMBER
                   { ( "press" | "over" | "hold" ) NUMBER
                   | "from" NUMBER NUMBER | "mouse" }
@@ -362,7 +371,11 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
               | "expect" "text" STRING "==" STRING NL
-              | "expect" "state" IDENT { "." ( IDENT | NUMBER ) } "==" test-value NL ;
+              | "expect" "state" IDENT { "." ( IDENT | NUMBER ) } "==" test-value NL
+              | "expect" "sound" ( "has" | "missing" ) STRING
+                  [ "at" NUMBER ] [ "gain" NUMBER ] [ "ends" NUMBER ] [ "by" IDENT ] NL
+              | "expect" "mediasession" ( IDENT "==" ( STRING | "none" )
+                  | ( "has" | "missing" ) STRING ) NL ;
 test-value    = [ "-" ] NUMBER | STRING | "true" | "false" | "none" | "[" "]" ;
 ```
 
@@ -426,8 +439,23 @@ else a field's value. `expect state name.field` reads a field of a record at any
 depth, and `name.0` a list index (a whole number from 0); a missing field fails
 naming the fields there. The value is a number, including a negative (`== -3`),
 a string, a bool, `none`, or `[]` — not an expression (`-1 + 2` is refused).
-The test compiler emits steps as JSON; the agent driver executes them. The
-nine-operation interactive API is larger than this test-file grammar.
+`expect sound has "assets/x.wav"`
+passes when the runner's record of voices (every host's, under the driver's
+clock) holds one of that source matching each clause given: its start (`at`,
+runner milliseconds), its `gain`, its end (`ends`), and how it ended (`by
+end|group|cut|stop|cancelled`); `missing` is the negation. A dropped call is not
+a voice, and a test that asks about a voice the 1,024-voice record no longer
+holds fails and says so. `tap "audio" mediasession "seekforward"` calls the
+handler the platform would call for that media session action ([LLP
+1098](../llp/1098-the-media-session.rfc.md) D10): `play`, `pause` or one of the
+six; its number is a seek's `seekOffset` (absent: the element's own) and
+`seekto`'s time (required there). It is never a press, needs no box, and is
+refused when the element does not own the session or does not offer the action.
+`expect mediasession` reads `state.mediaSession`: `owner` (by testId, or
+`none`), `title`, `artist`, `album`, `artwork` (as authored) or `playbackState`
+`==` a string, or `has`/`missing` an offered action. The test compiler emits steps as JSON;
+the agent driver executes them. The nine-operation interactive API is larger
+than this test-file grammar.
 
 ## Standard functions and intrinsics
 
@@ -635,7 +663,7 @@ link sheet.
 ## Events
 
 An event binding is an action reference or partially applied action. Captured
-arguments precede the event payload. The table contains all 51 handler names.
+arguments precede the event payload. The table contains all 57 handler names.
 Numeric multi-argument payload ordering should be copied from the feature's
 working fixture, not inferred from JavaScript's Event interface.
 
@@ -663,6 +691,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | Zero or one `DragEvent` (the action takes it or leaves it) | `drop` |
 | Zero or one `ClipboardEvent` (the action takes it or leaves it) | `copy`, `cut`, `paste` ([clipboard](#clipboard)) |
 | Zero or one `Selection` (the action takes it or leaves it) | `selectionchange`, on a `text` ([text selection](#text-selection)) |
+| Zero or one `MediaSessionActionDetails` (the action takes it or leaves it) | `seekbackward`, `seekforward`, `seekto`, `previoustrack`, `nexttrack`, `stop`, on an `audio` or `video` with `metadata=` ([media session](#media-session)) |
 | Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation) |
 | None | `beforeunload`, `cancel`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
@@ -676,6 +705,24 @@ A `video`'s or `audio`'s `error` appends a stable code, never the engine's text:
 of range). A play interrupted by a pause or a new source is no error. A `video` the
 tree removed reports nothing more, on every host
 ([LLP 1042](../llp/1042-video.spec.md) §3).
+
+### Media session
+
+`metadata=MediaMetadata(title=…, artist=…, album=…, artwork=…)` on an `audio`
+or `video` claims the platform's media session (Now Playing, the media keys, the
+lock screen; [LLP 1098](../llp/1098-the-media-session.rfc.md)). `MediaMetadata`
+is a compiler shape an app builds as it builds its own records (every field a
+string, each named once; `artwork` is one image's source), so a `fn` may return
+one; an app's own `shape MediaMetadata` or `fn MediaMetadata` is refused. The
+element's six actions append a `MediaSessionActionDetails { action: string,
+seekOffset: number, seekTime: number, fastSeek: bool }` to an action that takes
+one: `seekOffset` is the platform's, else the element's `seekbackwardOffset` or
+`seekforwardOffset` (seconds, greater than 0, default 10), 0 for the other four;
+`seekTime` is `seekto`'s. An action or an offset on an element without
+`metadata=` is `lower-media-session`. The platform's play and pause act on the
+element, whose own `play` and `pause` events report them; the session's position
+and playback state are the player's. Of several claimants, the one that most
+recently started playing owns the session (else the latest mounted).
 `scroll` appends left then top offsets, and to an action that takes one more
 parameter a `ScrollEvent`: the scroller's own `scrollLeft`, `scrollTop`,
 `scrollWidth`, `scrollHeight`, `clientWidth` and `clientHeight` as the event
@@ -1017,7 +1064,8 @@ The current command name inventory is:
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `fastSeek`, `focus`, `format`,
 `load`, `openURL`, `selectText`, `setSelectionRange`, `setScheme`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`,
-`showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `close`
+`showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `close`,
+`playSound`, `playSounds`, `stopSounds`
 ([pointer](#pointer): a window's `beforeunload`), `preventDefault` and
 `stopPropagation` ([keys](#keys)).
 
@@ -1044,6 +1092,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `scrollIntoView(id, block=, inline=, behavior=)`: `Element.scrollIntoView()` on any element by its `id` (a string, dynamic as `focus`'s): every scroll container above it, innermost first, then the page, align it by the web's `ScrollIntoViewOptions` (`block` default `start`, `inline` `nearest`). `scrollIntoView("list-id", key, …, row=)`: a virtualized list's row by key, built and measured first (LLP 1070.000). Native hosts land `smooth` at once on the element form | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
 | `fastSeek(id, seconds)`, `load(id)`: a `video` or `audio`, by HTML's method names (LLP 1042 §3). `fastSeek` seeks each time it runs, where a bound `currentTime` seeks only when its value changes; every host seeks to the exact time, which HTML's approximate-for-speed allows. `load` loads the source again, as a changed `src` does: the bound `currentTime` waits for its metadata and a bound `paused` false plays | [media tests](../contract/cli/tests/it/media.rs), [media conformance plan](../host/web-js/conformance/media.contract) |
 | `deliveryCheck`, `deliveryActivate` | [delivery corpus](../contract/corpus/delivery.contract) |
+| `playSound(src, at=, gain=, group=)`: a new voice of a declared sound (a literal `src` must be declared, `type-sound-undeclared`), starting at `at` on the runner's clock (`now()`'s milliseconds; the past and the default are the commit's time), at a linear `gain` 0–1 (default 1; a literal outside is refused, a computed one clamped), in a `group` that is monophonic by start time. `playSounds(hits)`: one voice per item of a list of a shape whose fields are, in order, `src: string`, `at: number`, `gain: number`, `group: string`. `stopSounds()`, `stopSounds(group=)`: what sounds stops, what waits is cancelled. The runner keeps the voice table (`state sounds`); the web and Apple play it, Linux and Windows keep the record (LLP 1096) | [sound tests](../contract/cli/tests/it/sound.rs), [sounds conformance](../host/web-js/conformance/sounds/app.contract) |
 
 The web (its JS target) and the Apple hosts carry every command. The
 headless Linux host has no browser, clipboard, editor or dev menu: its

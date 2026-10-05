@@ -36,6 +36,7 @@ mod native;
 mod routes;
 mod shorthands;
 mod sites;
+mod sounds;
 mod stmts;
 mod strings;
 mod svg;
@@ -276,6 +277,7 @@ fn lower_with_sites(
         texts_used: Default::default(),
     };
     l.declare_fonts(file, asset_root)?;
+    l.declare_sounds(file, asset_root)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
@@ -769,6 +771,7 @@ impl<'a> Lowerer<'a> {
                     attrs
                 });
                 let expanded = row_list.as_deref().unwrap_or(expanded);
+                media::check_session(tag, expanded)?;
                 let audio = media::audio_rows(tag, expanded, *span)?;
                 let expanded = audio.as_deref().unwrap_or(expanded);
                 // @ref LLP 1074 T1 — a box that contains its absolutely positioned
@@ -1464,6 +1467,7 @@ impl<'a> Lowerer<'a> {
             tags::AttrTarget::Handler(event) => {
                 self.handler(tag, event, control, a, scope, locals, handlers)?;
             }
+            tags::AttrTarget::MediaMetadata => self.media_metadata(a, scope, locals, bindings)?,
         }
         Ok(())
     }

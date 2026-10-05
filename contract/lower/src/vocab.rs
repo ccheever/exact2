@@ -27,6 +27,22 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
     ("selectionchange", "`text`"),
     ("name", "`input type=\"radio\"`"),
     ("markup", "`text` or `textarea`"),
+    // @ref LLP 1098 D1, D2 — the media session's, `media::check_session`.
+    ("metadata", "`audio` or `video`"),
+    ("seekbackward", "an `audio` or `video` with `metadata=`"),
+    ("seekforward", "an `audio` or `video` with `metadata=`"),
+    ("seekto", "an `audio` or `video` with `metadata=`"),
+    ("previoustrack", "an `audio` or `video` with `metadata=`"),
+    ("nexttrack", "an `audio` or `video` with `metadata=`"),
+    ("stop", "an `audio` or `video` with `metadata=`"),
+    (
+        "seekbackwardOffset",
+        "an `audio` or `video` with `metadata=`",
+    ),
+    (
+        "seekforwardOffset",
+        "an `audio` or `video` with `metadata=`",
+    ),
 ];
 
 /// The open set of tags: a hyphenated name is a native module.

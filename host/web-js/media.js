@@ -10,8 +10,11 @@
 // holds its place (jukebox F1, F5, F6, F20).
 import { onEnd, inflight, journal, data } from "./rt.js";
 
+// The media session's actions (LLP 1098 D2, D6): the glue sends them as it
+// sends the element's events, with `seekOffset seekTime fastSeek`.
+const SESSION = ["seekbackward", "seekforward", "seekto", "previoustrack", "nexttrack", "stop"];
 const BOOL = new Set(["autoplay", "controls", "loop", "muted", "playsinline", "disablepictureinpicture", "disableremoteplayback"]);
-export const MEDIA_EVENTS = new Set(["loadedmetadata", "durationchange", "timeupdate", "play", "playing", "pause", "ended", "waiting", "seeking", "seeked", "ratechange", "volumechange", "error", "canplay"]);
+export const MEDIA_EVENTS = new Set(["loadedmetadata", "durationchange", "timeupdate", "play", "playing", "pause", "ended", "waiting", "seeking", "seeked", "ratechange", "volumechange", "error", "canplay", ...SESSION]);
 let Glue = null, Install = null;
 // Nodes whose props changed: handed to the glue together after the commit
 // that built or changed them, when they are in the document.
@@ -104,12 +107,15 @@ function command(e, name, seconds) {
   queue();
   install(e);
 }
-/** A media event's handler (`on`): its payload, a number for the two that carry one. */
+/** A media event's handler (`on`): its payload, a number for the two that
+ * carry one; a session action's `MediaSessionActionDetails` as the trailing
+ * record (`fastSeek` the token "1", the times numbers), as `scroll`'s. */
 export function mediaOn(e, kind, f) {
   e.exactMedia.handlers.push(kind);
   e.addEventListener("exact-media", ev => {
     const at = ev.detail.indexOf("\n"), name = ev.detail.slice(0, at), payload = ev.detail.slice(at + 1);
     if (name !== kind || e.$media.retired) return;
-    if (kind === "timeupdate" || kind === "durationchange") f(Number(payload)); else if (kind === "error") f(payload); else f();
+    if (SESSION.includes(kind)) { const [offset, time, fast] = payload.split(" "); f([kind, Number(offset), Number(time), fast === "1"]); }
+    else if (kind === "timeupdate" || kind === "durationchange") f(Number(payload)); else if (kind === "error") f(payload); else f();
   });
 }

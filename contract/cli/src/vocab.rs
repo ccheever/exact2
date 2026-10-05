@@ -115,12 +115,16 @@ fn kind(a: &AttrTarget) -> &'static str {
         AttrTarget::Flex => "flex",
         AttrTarget::Shorthand => "shorthand",
         AttrTarget::Surface => "surface",
+        AttrTarget::MediaMetadata => "record",
     }
 }
 
 fn prop_type(p: PropId) -> String {
     format!("{:?}", tags::prop_ty(p)).to_lowercase()
 }
+
+/// What `metadata=` takes (LLP 1098 D1): the Media Session's record.
+const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a string";
 
 /// Where an attribute is admitted, if not on every tag.
 fn only_on(name: &str) -> Option<&'static str> {
@@ -178,6 +182,10 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
         }
         AttrTarget::Handler(event) => doc["event"] = (*event).into(),
         AttrTarget::Surface => {}
+        AttrTarget::MediaMetadata => {
+            doc["type"] = METADATA.into();
+            doc["props"] = json!(["mediaTitle", "mediaArtist", "mediaAlbum", "mediaArtwork"]);
+        }
     }
     if let Some(only) = only_on(name) {
         doc["only"] = only.into();
@@ -266,6 +274,11 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
         }
         AttrTarget::Handler(event) => vec![format!("event {event}")],
         AttrTarget::Surface => vec!["a canvas's surface binding: surface=name(args)".into()],
+        AttrTarget::MediaMetadata => vec![
+            format!("record {METADATA}"),
+            "props mediaTitle, mediaArtist, mediaAlbum, mediaArtwork, its fields".into(),
+            "claims the media session (LLP 1098 D1)".into(),
+        ],
     }
 }
 
@@ -324,12 +337,14 @@ fn listing() -> String {
     let props: Vec<_> = of("prop")
         .chain(of("inverted-prop"))
         .chain(of("surface"))
+        .chain(of("record"))
         .collect();
     out += &format!("\nprop attributes ({}): name  type\n", props.len());
     for (name, a) in props {
         let mut text = match a {
             AttrTarget::Prop(p) => prop_type(*p),
             AttrTarget::InvertedBoolProp(p) => format!("bool (inverse of {})", p.name()),
+            AttrTarget::MediaMetadata => METADATA.into(),
             _ => "surface=name(args), on `canvas`".into(),
         };
         if let Some(only) = only_on(name) {

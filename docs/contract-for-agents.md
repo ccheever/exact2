@@ -302,7 +302,8 @@ at CSS.
   app that had the name first; an action or a host command keeps its own rule.
 - Named arguments belong to component uses, record constructors,
   `t("key", placeholder=value)`, `empty(field=value)`, canvas `surface=` bindings,
-  and the commands `share(…)`, `showNotification(…)` and `scrollIntoView(…)`. Every other function takes
+  and the commands `share(…)`, `showNotification(…)`, `scrollIntoView(…)`, `playSound(…)` and
+  `stopSounds(…)`. Every other function takes
   positional arguments.
 
 For the full roster and special calls, see
@@ -665,25 +666,52 @@ nothing (the web and Apple journal `image refused`). Keep a picked photo by copy
 (`HermesInternal`) to choose a source
 ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
 
-A sound is HTML's `audio` (LLP 1042 §8): `video`'s props and events with no
-picture, hidden unless it has `controls`. Bind `paused` and play from the input's
-own action, so the play is inside the user gesture the web requires (a play that
-nothing pressed for is refused, `error` `not-allowed`); mirror `pause` into the
-binding, since a sound that ends pauses itself. Asking an ended sound to play
-again starts it over, on every host:
+A sound effect is a declared WAV that an action plays ([LLP
+1096](../llp/1096-sounds-an-app-can-schedule.rfc.md)): `sound "assets/…wav"` at the
+top level (16-bit or float PCM, one or two channels, at most 10 s; the compiler
+reads it), then `playSound(src, at=, gain=, group=)` from any action. Every call is
+a new voice, so a retrigger is another call. `at=` is the runner's clock (`now()`'s
+milliseconds; the past means now), `gain=` a linear 0–1, and a `group=` is
+monophonic by start time: a voice ends where the next one in its group starts, as a
+drum machine's choke does. `stopSounds()` (or `stopSounds(group=…)`) ends what
+sounds and cancels what waits. The web plays the first sound after the page's first
+tap or key; Linux and Windows keep the record and play nothing.
 
 ```contract
+sound "assets/ding.wav"
+
 component Ding
-  state hush = true
   action ding
-    hush = false
-  action hushed
-    hush = true
+    playSound("assets/ding.wav")
   view
-    column
-      button "Ding" press=ding
-      audio "assets/ding.wav" preload="auto" paused=hush pause=hushed
+    button "Ding" press=ding
 ```
+
+To keep time (a sequencer, a metronome), schedule ahead on the audio clock rather
+than starting each hit when a timer's commit lands: the press schedules the first
+window, `[now(), now() + 100)`, and each tick of a coarse timer schedules the next,
+`[scheduledTo, now() + 100)`, as a list a `fn` computes (`playSounds(hits)` takes a
+list of a shape whose fields are, in order, `src`, `at`, `gain` and `group`). A
+timer's commit is at its due time, so a hit planned at `t` lands on the grid:
+
+```text
+action start
+  playing = true
+  playSounds(hitsBetween(song, now(), now() + 100))
+  scheduledTo = now() + 100
+action tick
+  if playing
+    playSounds(hitsBetween(song, scheduledTo, now() + 100))
+    scheduledTo = now() + 100
+action stop
+  playing = false
+  stopSounds()
+```
+
+Tests read the runner's record: `expect sound has "assets/ding.wav" at 0`, with any
+of `gain`, `ends` and `by end|group|cut|stop|cancelled`, or `expect sound missing …`;
+`state sounds` lists the last 64 voices. `audio` stays HTML's player for long media
+(a song, a podcast: `video`'s props and events with no picture, LLP 1042 §8).
 
 A media source is the string an `image` takes, `app:/data` files included: an
 episode the data module downloaded with `storage.fs` plays on every host but
@@ -694,6 +722,65 @@ time again (a skip back, "start over", a scrubber let go where it was grabbed)
 call `fastSeek(id, seconds)`, which seeks each time it runs. `load(id)` loads the
 source again: a retry after an `error`, or a file written since. Both name the
 element by its `id`, as `focus` does.
+
+To be the system's Now Playing app (the media keys, the lock screen, Control
+Center, a headset's buttons, the browser's media hub), give the player the Media
+Session's `metadata=MediaMetadata(…)` and bind its actions as the element's events
+([LLP 1098](../llp/1098-the-media-session.rfc.md)):
+
+```contract
+component Episode
+  state paused = true
+  state seek = 0
+  state at = 0
+  state part = 1
+  action ticked(t: number)
+    at = t
+  action skipBy(sign: number, d: MediaSessionActionDetails)
+    seek = max(0, at + sign * d.seekOffset)
+  action seekAt(d: MediaSessionActionDetails)
+    seek = d.seekTime
+  action restart
+    seek = 0
+  action nextPart
+    part = part + 1
+  action hostPaused
+    paused = true
+  action hostPlaying
+    paused = false
+  view
+    audio "assets/episode.mp3" paused=paused currentTime=seek timeupdate=ticked
+      metadata=MediaMetadata(title=`Episode 12, part ${part}`, artist="The Show", album="", artwork="assets/art.png")
+      seekbackwardOffset=15 seekforwardOffset=30
+      seekbackward=skipBy(-1) seekforward=skipBy(1) seekto=seekAt
+      previoustrack=restart nexttrack=nextPart
+      pause=hostPaused playing=hostPlaying
+```
+
+- Every field is named (`album=""` when there is none); `artwork` is one image,
+  an `https:` URL or an app asset path.
+- The six actions are `setActionHandler`'s names: `seekbackward`, `seekforward`,
+  `seekto`, `previoustrack`, `nexttrack`, `stop`. Each offers a last
+  `MediaSessionActionDetails` (`action`, `seekOffset`, `seekTime`, `fastSeek`) to
+  take or leave. A bound action is an offered control; the lock screen shows no
+  skip button for an app that does not bind one.
+- `seekbackwardOffset`/`seekforwardOffset` are what the lock screen shows and
+  the `seekOffset` when the platform gives none (default 10). Keep an action that
+  ignores the record (`seekforward=skip(30)`) at the offset it declares.
+- Play and pause are the element's own: the platform plays and pauses the player
+  and the app hears `play`, `playing` and `pause`. With `paused` bound, mirror
+  them, as above.
+- A Mac's previous and next keys send `previoustrack` and `nexttrack`, not the
+  seeks: bind both.
+- One element owns the session: the claimant that most recently started playing,
+  kept while it is paused.
+- On iOS the build refuses a claimant without `"audio_session": "playback"` and
+  `"audio"` in `host.ios.backgroundModes` in `app.json`.
+
+Tests trigger an action as the platform would and read what is published:
+`tap "audio" mediasession "seekto" 600` (the seconds are a seek's `seekOffset`,
+`seekto`'s time), `expect mediasession title == "Episode 12, part 1"`, `expect
+mediasession has "nexttrack"`; `state mediaSession` is the whole record.
 
 A Markdown editor is a `textarea` with `markup="markdown"`; a `text` with it is
 the reader (one node; the value stays the source string). Its toolbar is

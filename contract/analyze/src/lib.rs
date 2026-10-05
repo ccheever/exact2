@@ -318,7 +318,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 51] = [
+pub const HANDLERS: [&str; 57] = [
     "press",
     "change",
     "input",
@@ -378,6 +378,14 @@ pub const HANDLERS: [&str; 51] = [
     "volumechange",
     "error",
     "canplay",
+    // The media session's actions (LLP 1098 D2): no payload, then the
+    // `MediaSessionActionDetails` record to take or leave.
+    "seekbackward",
+    "seekforward",
+    "seekto",
+    "previoustrack",
+    "nexttrack",
+    "stop",
     "navigate",
     "heightrelease",
     "transformgeometry",

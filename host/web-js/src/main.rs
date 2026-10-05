@@ -263,6 +263,20 @@ fn main() -> ExitCode {
                 if u.has(Capability::Notifications) {
                     let _ = std::fs::write(dir.join("notify.flag"), "");
                 }
+                // A declared sound or a sound command (sounds.js, LLP 1096
+                // D5): the flag holds the table, `[src, frames, rate]` each.
+                let _ = std::fs::remove_file(dir.join("sounds.flag"));
+                if exact_runner::uses::runs_sounds(&plan) {
+                    let table: Vec<_> = plan
+                        .sounds
+                        .iter()
+                        .map(|r| serde_json::json!([plan.str(r.src), r.frames, r.rate]))
+                        .collect();
+                    let _ = std::fs::write(
+                        dir.join("sounds.flag"),
+                        serde_json::json!(table).to_string(),
+                    );
+                }
             }
             // Every portable symbol role, which symbols.js loads when a bound
             // source names one the plan's strings don't (ledger diary F10).

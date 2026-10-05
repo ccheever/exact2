@@ -202,6 +202,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             case 'tap': {
               const opts = st.form === 'into' ? { into: { key: st.key } }
                 : st.form === 'pinch' ? { pinch: st.scale, ...(st.at ? { at: st.at } : {}) }
+                : st.form === 'mediasession' ? { mediaSession: st.action, ...(st.seconds != null ? { seconds: st.seconds } : {}) }
                 : st.form !== 'press' ? { [st.form]: true }
                 : st.modifiers ? { modifiers: st.modifiers } : undefined;
               delivered(await s.tap(st.target, opts)); input = st.line; break;
@@ -261,6 +262,34 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               }
               if (missing != null) { failures.push(`${at}: ${path} has no field "${missing}" (${got !== null && typeof got === 'object' && !Array.isArray(got) ? `its fields: ${Object.keys(got).join(', ')}` : `it is ${JSON.stringify(got).slice(0, 200)}`})`); break; }
               if (JSON.stringify(got) !== JSON.stringify(st.value)) await fail(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
+              break;
+            }
+            // The runner's voice table, the whole record (LLP 1096 D10): a voice of that
+            // source matching every clause given, or none; a dropped call is not a voice.
+            case 'expect-sound': {
+              const sounds = (await s.state(undefined, undefined, false, false, { sounds: 'all' })).sounds;
+              const clauses = ['at', 'gain', 'ends', 'by'].filter((k) => st[k] != null), said = clauses.map((k) => ` ${k} ${st[k]}`).join('');
+              if (!sounds) { failures.push(`${at}: the app declares no sound, so the runner keeps no voice table`); break; }
+              const first = sounds.voices[0]?.at ?? Infinity;
+              if (sounds.evicted > 0 && (st.at != null ? st.at < first : !st.present)) { failures.push(`${at}: voices before t=${first} are no longer recorded (the record keeps the last ${sounds.recorded})`); break; }
+              const found = sounds.voices.some((v) => v.src === st.src && clauses.every((k) => v[k] === st[k]));
+              if (found !== st.present) {
+                const of = sounds.voices.filter((v) => v.src === st.src).slice(-8).map((v) => `#${v.id} at ${v.at} gain ${v.gain} ends ${v.ends} by ${v.by}`);
+                // A voice is recorded by the commit that issued it: no clock hint applies.
+                failures.push(`${at}: expected ${st.present ? 'a' : 'no'} voice of "${st.src}"${said}; ${of.length ? `its voices: ${of.join('; ')}` : 'it has no voice'}`);
+              }
+              break;
+            }
+            // The media session the host reports (LLP 1098 D10): a field, the owner by its testId, or an offered action.
+            case 'expect-mediasession': {
+              const ms = (await s.state()).mediaSession;
+              if (!ms) { failures.push(`${at}: this host reports no media session`); break; }
+              if (st.action != null) {
+                if (ms.actions.includes(st.action) !== st.present) await fail(`${at}: expected the media session ${st.present ? 'to offer' : 'not to offer'} "${st.action}"; it offers ${ms.actions.length ? ms.actions.join(', ') : 'nothing'}${ms.owner == null ? ' (no owner)' : ''}`);
+                break;
+              }
+              const got = st.field === 'owner' ? (ms.owner == null ? null : ms.testId ?? `view ${ms.owner}`) : st.field === 'playbackState' ? ms.playbackState : ms.metadata?.[st.field] ?? null;
+              if (got !== st.value) await fail(`${at}: mediasession ${st.field} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
               break;
             }
             default: failures.push(`${at}: unknown step ${st.op}`);

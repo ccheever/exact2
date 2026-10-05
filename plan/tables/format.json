@@ -564,6 +564,32 @@
       ]
     },
     {
+      "name": "sounds",
+      "_comment": "@ref LLP 1096 D1: each declared sound, a WAV the compiler read: its app-relative path (what `playSound` names), its length in frames at its own rate, its channels, and the SHA-256 of its bytes as hex. The runner reads a voice's natural length, frames / rate; the hosts read which files to decode.",
+      "fields": [
+        {
+          "name": "src",
+          "codec": "str"
+        },
+        {
+          "name": "frames",
+          "codec": "u32"
+        },
+        {
+          "name": "rate",
+          "codec": "u32"
+        },
+        {
+          "name": "channels",
+          "codec": "u8"
+        },
+        {
+          "name": "digest",
+          "codec": "str"
+        }
+      ]
+    },
+    {
       "name": "texts",
       "_comment": "@ref LLP 1060 D3: one localized text, `{name}` placeholders unfilled. Within a locale, sorted by key.",
       "fields": [
@@ -680,7 +706,13 @@
       "beforeunload",
       "wheel",
       "drop",
-      "resize"
+      "resize",
+      "seekbackward",
+      "seekforward",
+      "seekto",
+      "previoustrack",
+      "nexttrack",
+      "stop"
     ]
   },
   "_opcodes": "The expression VM: a stack machine over values with a small locals stack (`BindLocal` pops into it, `LoadLocal` copies from it, `DropLocal` pops it) for names an inline `match` binds and the item and index a `Map`/`Filter` callback binds. Each opcode names its operand layout; the decoder validates framing and every index operand. `depth` operands count enclosing instance scopes (0 = innermost). Type inference guarantees stack discipline; the VM still traps, never UB.",

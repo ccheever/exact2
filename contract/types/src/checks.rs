@@ -9,6 +9,8 @@ use contract_syntax::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+mod sounds;
+
 /// Reject recursive functions without revisiting completed subgraphs.
 pub(super) fn check_function_cycles(file: &File) -> Result<(), TypeError> {
     let indices: BTreeMap<&str, usize> = file
@@ -1140,6 +1142,9 @@ pub(super) fn check_command(
     }
     if name == "setSelectionRange" {
         return crate::selection::selection_range_args(args, scope, shapes, span);
+    }
+    if matches!(name, "playSound" | "playSounds" | "stopSounds") {
+        return sounds::args(name, args, scope, shapes, span);
     }
     if name == "postMessage" {
         // The web's argument order, `postMessage(message, target)`: the target

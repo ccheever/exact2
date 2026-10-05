@@ -215,6 +215,8 @@ public final class Agent {
                 // The device sets an iOS app's viewport: there is no window to resize.
                 r = ["error": "unsupported: an iOS app's viewport is the device's screen; resize drives a macOS window, the Linux presenter or the browser"]
                 #endif
+            } else if let action = req["mediaSession"] as? String {
+                r = mediaSessionTap(req, action: action) // LLP 1098 D10, never a press
             } else if let into = req["into"] as? [String: Any] {
                 r = intoView(req, into)
             } else { r = session.canvases.releaseContact(req) ?? tap(req) }
@@ -251,6 +253,7 @@ public final class Agent {
             for (key, value) in Agent.hostState?() ?? [:] { nativeSections[key] = value }
             nativeSections["presence"] = presenter.presenceObservation()
             nativeSections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
+            nativeSections["mediaSession"] = mediaSessionState() // LLP 1098 D10
             // The drive's app storage (trivia F7): none unless it names a scratch store.
             nativeSections["storage"] = ExactEnv.environment["EXACT_AGENT_STORAGE"].map { ["available": true, "store": $0] as [String: Any] }
                 ?? ["available": false, "code": "agent", "message": "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"]
@@ -266,6 +269,8 @@ public final class Agent {
             let world = session.canvases.worlds(["op": "state"])
             nativeSections = session.canvases.restoreReply(nativeSections)
             if !world.isEmpty { nativeSections["world"] = world }
+            // A session that plays fills in its output (LLP 1096 D10); under the agent none plays.
+            if !ExactEnv.agentMode, let output = try? JSONSerialization.data(withJSONObject: session.sound.state) { reply = reply.replacingOccurrences(of: "\"output\":\"agent\"", with: "\"output\":" + String(decoding: output, as: UTF8.self)) }
             if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),
                let sections = try? JSONSerialization.data(withJSONObject: nativeSections) {
                 reply.removeLast()

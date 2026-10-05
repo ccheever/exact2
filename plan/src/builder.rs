@@ -276,6 +276,19 @@ impl PlanBuilder {
         KeyframesId(self.plan.keyframes.len() as u32 - 1)
     }
 
+    /// A declared sound (LLP 1096 D1): its path, its length in frames at its
+    /// own rate, its channels and its digest.
+    pub fn sound(&mut self, src: &str, frames: u32, rate: u32, channels: u8, digest: &str) {
+        let (src, digest) = (self.str(src), self.str(digest));
+        self.plan.sounds.push(SoundsRow {
+            src,
+            frames,
+            rate,
+            channels,
+            digest,
+        });
+    }
+
     /// An ordered CSS font fallback list (one to 64 members).
     pub fn font_stack(&mut self, members: &[(StackMemberKind, Option<FamiliesId>)]) -> StacksId {
         let start = self.plan.stack_members.len() as u32;

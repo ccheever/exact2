@@ -667,6 +667,14 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                                 s.push_str(&format!(",\"at\":[{x},{y}]"));
                             }
                         }
+                        // @ref LLP 1098 D10 — the platform's action, never a press.
+                        TapForm::MediaSession { action, seconds } => {
+                            s.push_str("\"mediasession\",\"action\":");
+                            q(action, &mut s);
+                            if let Some(n) = seconds {
+                                s.push_str(&format!(",\"seconds\":{n}"));
+                            }
+                        }
                     }
                     if !modifiers.is_empty() {
                         s.push_str(",\"modifiers\":");
@@ -822,6 +830,44 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     q(target, &mut s);
                     s.push_str(",\"value\":");
                     q(value, &mut s);
+                }
+                Step::ExpectSound {
+                    src,
+                    present,
+                    at,
+                    gain,
+                    ends,
+                    by,
+                    ..
+                } => {
+                    s.push_str("{\"op\":\"expect-sound\",\"src\":");
+                    q(src, &mut s);
+                    s.push_str(&format!(",\"present\":{present}"));
+                    for (key, n) in [("at", at), ("gain", gain), ("ends", ends)] {
+                        if let Some(n) = n {
+                            s.push_str(&format!(",\"{key}\":{n}"));
+                        }
+                    }
+                    if let Some(by) = by {
+                        s.push_str(",\"by\":");
+                        q(by, &mut s);
+                    }
+                }
+                Step::ExpectMediaSession { field, value, .. } => {
+                    s.push_str("{\"op\":\"expect-mediasession\",\"field\":");
+                    q(field, &mut s);
+                    s.push_str(",\"value\":");
+                    match value {
+                        Some(v) => q(v, &mut s),
+                        None => s.push_str("null"),
+                    }
+                }
+                Step::ExpectMediaSessionAction {
+                    action, present, ..
+                } => {
+                    s.push_str("{\"op\":\"expect-mediasession\",\"action\":");
+                    q(action, &mut s);
+                    s.push_str(&format!(",\"present\":{present}"));
                 }
                 Step::ExpectState { name, value, .. } => {
                     s.push_str("{\"op\":\"expect-state\",\"name\":");
