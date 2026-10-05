@@ -105,6 +105,9 @@ pub struct Presenter<D: DataSource> {
     /// The text field typed into since it took the focus: its `change`
     /// fires on blur or Enter, HTML's commit (LLP 1069.001 D4).
     pub(crate) edited: Option<ViewId>,
+    /// The field whose whole text `selectText` selected: the next key it
+    /// types replaces the text, as at a browser's selection (files diary F5).
+    pub(crate) selected: Option<ViewId>,
     /// The modifier keys held, each side a bit (Shift, Control, Alt, Meta,
     /// left then right): a `key` event's flags (`KeyboardEvent.shiftKey`…).
     pub(crate) held: u8,
@@ -406,6 +409,7 @@ impl<D: DataSource> Presenter<D> {
             hosts: 0,
             focus: None,
             edited: None,
+            selected: None,
             held: 0,
             controls: BTreeMap::new(),
             menu: None,
@@ -479,7 +483,11 @@ impl<D: DataSource> Presenter<D> {
                     exact_runner::share::arm(runner, share, c.source, self.agent, false);
                 }
                 "blur" => self.blur_command(&c.args),
-                "focus" => self.focus_command(&c.args),
+                "focus" => {
+                    self.focus_command(&c.args);
+                }
+                // The whole text, which the next key replaces (focus_command).
+                "selectText" => self.selected = self.focus_command(&c.args),
                 // An element's, by its id (minesweeper F3); a row's is the runner's.
                 "scrollIntoView" => self.scroll_element_into_view(&c.args),
                 // The inverse of `message=`: text into the named surface's
@@ -509,9 +517,9 @@ impl<D: DataSource> Presenter<D> {
                 name @ ("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
                     self.document_picker(name, &c.args)
                 }
-                // No clipboard, text selection, browser, editor or dev menu
-                // here: known, and named so.
-                name @ ("copyText" | "selectText" | "openURL" | "format" | "reload") => {
+                // No clipboard, browser, editor or dev menu here: known,
+                // and named so.
+                name @ ("copyText" | "openURL" | "format" | "reload") => {
                     eprintln!("exact: {name} unsupported on the headless/DRM host")
                 }
                 other => eprintln!("exact: unknown command {other}"),
