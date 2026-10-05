@@ -262,5 +262,9 @@ fn a_ternary_broken_before_its_colon_is_told_to_wrap_it() {
             .starts_with("the ternary's `:` is on the next line"),
         "{error}"
     );
+    // A missing `:` is not told it is on the next line.
+    let missing = "component App\n  state done = false\n  state label = \"\"\n  action go\n    let next = done ? \"Done\"\n    label = next\n  view\n    text label press=go\n";
+    let error = contract::compile(missing).unwrap_err();
+    assert!(!error.message.contains("next line"), "{error}");
     contract::compile("component App\n  state done = false\n  state label = \"\"\n  action go\n    let next = (done\n      ? \"Done\"\n      : \"Open\")\n    label = next\n  view\n    text label press=go\n").unwrap();
 }

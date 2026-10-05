@@ -56,8 +56,14 @@ impl Parser {
             let below = self.last;
             let a = self.expr()?;
             let below = below.max(self.last);
-            // A ternary broken over lines outside brackets (authoring bench).
-            if matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Indent) {
+            // A ternary broken over lines outside brackets (authoring bench): the
+            // next line starts with its `:`.
+            let next = self.tokens[self.pos..]
+                .iter()
+                .find(|t| !matches!(t.kind, TokenKind::Newline | TokenKind::Indent));
+            if matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Indent)
+                && matches!(next.map(|t| &t.kind), Some(TokenKind::Punct(":")))
+            {
                 return self.err(
                     "syntax-expected",
                     "the ternary's `:` is on the next line, and a line ends an expression \

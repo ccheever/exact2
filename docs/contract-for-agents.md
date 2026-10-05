@@ -244,7 +244,7 @@ at CSS.
 - Two strings compare with `<`, `<=`, `>`, `>=` in UTF-16 code-unit order, as on
   the web (`end > start` for `"HH:MM"` times). `slice(s, 0, -1)`,
   `replaceAll(s, find, with)` and `toLowerCase(s)` are the web's string methods.
-- Numbers have `floor`, `%` and `formatNumber`, and no text-to-number parse, `ceil`,
+- Numbers have `floor`, `min`, `max`, `%` and `formatNumber`, and no text-to-number parse, `ceil`,
   `round` or fixed-decimal format: a typed amount is parsed (and money formatted)
   in a source, which takes the field's text and answers the number.
 - Standard calls are free functions, not methods: `trim(s)`, `includes(s, q)`.
