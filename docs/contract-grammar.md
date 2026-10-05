@@ -85,7 +85,7 @@ word.
 
 ```ebnf
 file          = { declaration } ;
-declaration   = use | shape | function | style | keyframes | font
+declaration   = use | shape | function | style | keyframes | font | sound
               | routes | component | test ;
 use           = "use" use-name { "," use-name } "from" STRING NL ;
 use-name      = IDENT [ "as" IDENT ] ;
@@ -104,6 +104,7 @@ frame-value   = STRING | NUMBER | "-" NUMBER | constant-call ;
 constant-call = IDENT "(" [ arguments ] ")" ;
 font          = "font" STRING ( "=" STRING NL | block(font-face) ) ;
 font-face     = NUMBER [ "italic" ] "=" STRING NL ;
+sound         = "sound" STRING NL ;
 routes        = "routes" IDENT block(route-row) ;
 route-row     = [ "tab" ] IDENT STRING { attribute } NL [ route-children ]
               | "notfound" { attribute } NL ;
@@ -115,6 +116,14 @@ A font face's weight is a whole number in 1–1000. Keyframe percentages are in
 are animatable and constant-call values can be evaluated at compilation.
 Styles accept literal style attributes and explicitly styleable props (currently
 `buttonStyle`), not arbitrary expressions or event props.
+
+A `sound` names a WAV under the app's `assets/` (LLP 1096 D1): 16-bit integer
+or 32-bit float PCM (or `WAVE_FORMAT_EXTENSIBLE` naming one), one or two
+channels, 8–96 kHz, at most 10 s. The compiler reads its header and refuses
+anything else with the file named and the conversion to run
+(`lower-sound-format`, `lower-sound-long`, `lower-sound-path`,
+`lower-sound-unreadable`). `sound` is a word only at the start of a top-level
+line, so a `state sound` is a slot. Sounds are app-wide, as fonts are.
 
 A `use` specifier is a relative path (`./` or `../`) to a `.contract` file that
 stays inside the using file's root — the app directory, or the package it
@@ -326,7 +335,9 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu" | "into" STR
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
               | "expect" "text" STRING "==" STRING NL
-              | "expect" "state" IDENT { "." IDENT } "==" test-value NL ;
+              | "expect" "state" IDENT { "." IDENT } "==" test-value NL
+              | "expect" "sound" ( "has" | "missing" ) STRING
+                  [ "at" NUMBER ] [ "gain" NUMBER ] [ "ends" NUMBER ] [ "by" IDENT ] NL ;
 test-value    = NUMBER | STRING | "true" | "false" | "none" | "[" "]" ;
 ```
 
@@ -373,7 +384,13 @@ depth; a missing field fails naming the fields there. `expect state` is delibera
 parser's literal cases, not arbitrary expressions or record comparisons. The
 parser currently treats unary minus as an expression rather than a number
 literal in this particular form. Use the interactive state inspection when a
-value lies outside the assertion language. The test compiler emits steps as JSON;
+value lies outside the assertion language. `expect sound has "assets/x.wav"`
+passes when the runner's record of voices (every host's, under the driver's
+clock) holds one of that source matching each clause given: its start (`at`,
+runner milliseconds), its `gain`, its end (`ends`), and how it ended (`by
+end|group|cut|stop|cancelled`); `missing` is the negation. A dropped call is not
+a voice, and a test that asks about a voice the 1,024-voice record no longer
+holds fails and says so. The test compiler emits steps as JSON;
 the agent driver executes them. The nine-operation interactive API is larger
 than this test-file grammar.
 
@@ -815,7 +832,8 @@ The current command name inventory is:
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `focus`, `format`,
 `openURL`, `selectText`, `setScheme`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`,
-`showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `close`
+`showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `close`,
+`playSound`, `playSounds`, `stopSounds`
 ([pointer](#pointer): a window's `beforeunload`), `preventDefault` and
 `stopPropagation` ([keys](#keys)).
 
@@ -839,6 +857,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `showSaveFilePicker(id, suggestedName)` | Same corpus |
 | `scrollIntoView(id, block=, inline=, behavior=)`: `Element.scrollIntoView()` on any element by its `id` (a string, dynamic as `focus`'s): every scroll container above it, innermost first, then the page, align it by the web's `ScrollIntoViewOptions` (`block` default `start`, `inline` `nearest`). `scrollIntoView("list-id", key, …, row=)`: a virtualized list's row by key, built and measured first (LLP 1070.000). Native hosts land `smooth` at once on the element form | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
 | `deliveryCheck`, `deliveryActivate` | [delivery corpus](../contract/corpus/delivery.contract) |
+| `playSound(src, at=, gain=, group=)`: a new voice of a declared sound (a literal `src` must be declared, `type-sound-undeclared`), starting at `at` on the runner's clock (`now()`'s milliseconds; the past and the default are the commit's time), at a linear `gain` 0–1 (default 1; a literal outside is refused, a computed one clamped), in a `group` that is monophonic by start time. `playSounds(hits)`: one voice per item of a list of a shape whose fields are, in order, `src: string`, `at: number`, `gain: number`, `group: string`. `stopSounds()`, `stopSounds(group=)`: what sounds stops, what waits is cancelled. The runner keeps the voice table (`state sounds`); the web and Apple play it, Linux and Windows keep the record (LLP 1096) | [sound tests](../contract/cli/tests/it/sound.rs), [sounds conformance](../host/web-js/conformance/sounds/app.contract) |
 
 The web (its JS target) and the Apple hosts carry every command. The
 headless Linux host has no browser, clipboard, text selection, editor or dev

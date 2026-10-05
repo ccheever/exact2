@@ -449,6 +449,28 @@ its older one, `closeNotification` removing it), so a drive reads a reminder
 without a permission prompt. Scheduling is one time per call: a daily
 reminder posts the next one when the app runs.
 
+### Sounds
+
+A declared WAV (`sound "assets/…wav"`) is played by `playSound(src, at=,
+gain=, group=)`, `playSounds(hits)` and ended by `stopSounds(group=)` (LLP
+1096). The runner keeps the voice table, so what was scheduled, when, and how
+each voice ended is the same on every host and under the driver's clock
+(`state.sounds`, `expect sound`).
+
+| host | output |
+| --- | --- |
+| web (both targets) | Web Audio: a one-shot `AudioBufferSourceNode` per voice at `start(when)`, aimed at the speaker through the context's output timestamp; the first sound after the page's first tap or key (one before it is dropped and journaled `sound blocked`) |
+| macOS, iOS, tvOS | one `AVAudioEngine` with a C mixer behind an `AVAudioSourceNode`, sample-accurate, in an arm loaded on demand (`libexact_sound.dylib`; `ExactSound.framework` in an `.ipa`) |
+| Linux, Windows | none: the record only (`state.sounds.output` is `"none"` outside the driver) |
+
+Under the driver nothing plays on any host (`output: "agent"`). `app.json`'s
+root `audio_session` is the Apple audio session every sound, video and canvas
+shares: `"ambient"` (the default: the ring/silent switch mutes it, other apps'
+audio keeps playing) or `"playback"`. WebKit's Audio Session API takes it too;
+the Mac has no session. A development run with `EXACT_SOUND_CHECK=1` taps the
+engine's main mixer and journals (and prints) how far each onset after a
+silence reached the speaker from its time.
+
 ### Documents the person chose (`doc:`)
 
 A file or folder the person picks (`showOpenFilePicker`, `showDirectoryPicker`,

@@ -145,6 +145,27 @@ guide's rules don't make obvious.
   the old one. (Spreadsheet F21 and Files F27 diaries, where a copied block was
   the workaround.)
 
+## Sound
+
+- **A scheduled sound plays after Stop.** A sequencer that schedules each step
+  ahead (`playSounds(…)` with a future `at=`) keeps sounding the hits already
+  scheduled for a beat after the Stop press. Cause: a voice is the runner's once
+  its commit stands; a state change does not unschedule it. Fix: call
+  `stopSounds()` (or `stopSounds(group=…)`) in the stop action: it stops what
+  sounds and cancels what waits (`by cancelled`). (Drums adoption, LLP 1096 D13.)
+- **The first sound on the web is silent.** A sound a page plays on load, or
+  from a timer before anyone has pressed anything, is dropped and journaled
+  `sound blocked: the page has had no user activation`. Cause: browsers start
+  audio only after a user activation. Fix: start sound from a press (its own
+  commit plays), or accept that a timer's sounds begin after the first tap or
+  key. Native hosts have no such rule. (Trivia F5; LLP 1096 D7.)
+- **A sequence's first hit is late when the first timer tick plays it.** A
+  gated or new `every(25, tick)` first fires 25 ms after it starts, so a downbeat
+  left to the tick is 25 ms late. Fix: schedule the first window from the press
+  itself (`playSounds(hitsBetween(song, now(), now() + 100))` in the start
+  action), then each tick the next (`[scheduledTo, now() + 100)`). (Drums; LLP
+  1096 D3.)
+
 ## Input
 
 - **A hold's `pointerup` never arrives.** Cause: the press started on a node that a

@@ -428,12 +428,18 @@ Apple). What differs is what HTML's differs in:
   !important }`, so no authored `display` shows one; a bound `controls` binds
   `display` with it. With `controls` the box is Chrome's 300×54 until the
   author sizes it. It never waits for a natural size.
-- A sound effect plays from the input's own action: the web glue calls
-  `play()` in the commit that the press made, inside the user gesture
-  (verified: a play the boot asks for is refused `not-allowed` in the
-  driver's Chrome, one a tap asks for plays). An ended item asked to play
-  starts over, as HTML's `play()` does; Apple seeks to the start, and reports
-  `pause` before `ended` as the element does. `preload="auto"` readies it.
+- A play comes from the input's own action: the web glue calls `play()` in
+  the commit that the press made, inside the user gesture (verified: a play
+  the boot asks for is refused `not-allowed` in the driver's Chrome, one a
+  tap asks for plays). An ended item asked to play starts over, as HTML's
+  `play()` does; Apple seeks to the start, and reports `pause` before `ended`
+  as the element does. `preload="auto"` readies it.
+
+A sound effect is not an `audio` element's job: it is a declared sound an
+action plays, retriggered, scheduled and choked by the runner's voice table
+([LLP 1096](1096-sounds-an-app-can-schedule.rfc.md)). `audio` stays the player
+for long media. The session the Apple players use is now the app's
+(`audio_session`, LLP 1096 D8).
 
 Linux has no decoder or audio output: its `state.media` lists each media
 node as unavailable, paused at 0. iOS plays under the default audio session,
