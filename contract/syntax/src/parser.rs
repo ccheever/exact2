@@ -930,7 +930,7 @@ impl Parser {
             let mut otherwise = Vec::new();
             if self.at_ident("else") {
                 self.next();
-                self.newline()?;
+                self.after_else("if")?;
                 otherwise = self.required_block(span, "else", |p| p.stmt())?;
             }
             return Ok(Stmt::If {
@@ -1170,7 +1170,7 @@ impl Parser {
                 let mut otherwise = Vec::new();
                 if self.at_ident("else") {
                     self.next();
-                    self.newline()?;
+                    self.after_else("when")?;
                     otherwise = self.required_block(span, "else", |p| p.node())?;
                 }
                 Ok(Node::When {

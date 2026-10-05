@@ -813,7 +813,8 @@ text is the rest of the op's words, joined by one space, quotes included:
 `"type new-task buy milk"`;
 in a test file each value is one quoted string, a checkbox's `"true"` too); `change` comes as a
 person's would, when the field commits (`type <id> key Enter` on a field, or the
-focus leaving it), so an edit saved on `change` needs one of those.
+focus leaving it), so an edit saved on `change` needs one of those. A CLI drive's
+input does not wait for a request its action sends; `clock data` lands it.
 `tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
 move, with the finger still down, before the hold. Under `--touch platform` the
 lift is scripted, so the reads run inside the hold and `during` needs one
@@ -870,7 +871,8 @@ above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
 what is in flight lands, with each answer's `then`, the clock unmoved), `resize
 800x600` (the window, mid-test), `reload`
 (the app restarts on the store it had, its state and clock starting over, so a
-test shows what persists),
+test shows what persists; it opens at the launch URL, not the route the test had
+reached, so a deep link after a reload is a `type <root> "/path"` after it),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text; a control's value, so a `select` reads its chosen value, not its
 options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and

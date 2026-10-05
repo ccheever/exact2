@@ -492,6 +492,15 @@ impl Parser {
                         let (mut name, _) = self.ident()?;
                         // A field of a record, at any depth (feed F10).
                         while self.eat_punct(".") {
+                            // A list position (authoring bench: five builders tried `cards.0.id`).
+                            if matches!(self.peek_kind(), TokenKind::Number(_)) {
+                                return self.err(
+                                    "syntax-expected-name",
+                                    "a test's state path names fields, not list positions: assert a \
+                                     list's order through a derive (`derive order = join(map(cards, \
+                                     c => c.id), \",\")`, then `expect state order == \"a,b\"`)",
+                                );
+                            }
                             name.push('.');
                             name.push_str(&self.ident()?.0);
                         }

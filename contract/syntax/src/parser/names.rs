@@ -35,6 +35,21 @@ pub(super) fn reserved_message(w: &str) -> String {
 }
 
 impl Parser {
+    /// The end of an `else` line: there is no `else if` or `else when` (authoring
+    /// bench), so the next choice goes on its own line under the `else`.
+    pub(super) fn after_else(&mut self, choice: &str) -> R<()> {
+        if self.at_ident("if") || self.at_ident("when") {
+            return self.err(
+                "syntax-expected-newline",
+                format!(
+                    "there is no `else {choice}`: end the line at `else` and write the `{choice}` \
+                     indented under it"
+                ),
+            );
+        }
+        self.newline()
+    }
+
     /// A TypeScript-style `: T` before a state's or derive's `=`, or `as T` after its
     /// initializer (`form` "as none" when that initializer is `none`; authoring bench):
     /// its type is inferred.

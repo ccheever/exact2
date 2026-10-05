@@ -177,6 +177,13 @@ guide's rules don't make obvious.
   the old one. (Spreadsheet F21 and Files F27 diaries, where a copied block was
   the workaround.)
 
+- **A delete or save is lost when the page reloads right after it.** An action that
+  `send`s a write and navigates away in the same commit passes every test, but a
+  browser reload in the next ~100 ms comes back without the write. Cause: the write
+  is the data module's, and it is done only when its mutation answers; the reload
+  ends the page first. Fix: navigate in the mutation's `then`, which runs once the
+  write has answered. (Authoring bench, LLP 1087, a2-contacts and t2-todo, 2026-10-05.)
+
 ## Input
 
 - **A hold's `pointerup` never arrives.** Cause: the press started on a node that a
