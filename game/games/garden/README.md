@@ -1,4 +1,4 @@
-# Grow a Garden (greybox)
+# Grow a Garden
 
 A clone of the Roblox game's loop, built to find where the engine breaks
 (diary: [`game/diaries/004-garden.md`](../../diaries/004-garden.md)).
@@ -126,4 +126,4 @@ keyboard controls. It does not change the earlier market playtest policies.
 | `app.contract` | title, top bar, shop, backpack, tools, prompts, touch controls |
 | `proof.mjs` | the real-host proof, `--scale` and Jev's `--playtest` |
 
-![The garden in play](artifacts/web/game.png)
+![The garden in play](artifacts/art-final-view-web/grown.png)

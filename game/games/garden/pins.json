@@ -1,22 +1,22 @@
 {
   "ticks": {
-    "0": "0x6fe97ccab5c60a4d",
-    "5136": "0x0a63449a8ab755d6"
+    "0": "0xa456a9eeb80ce016",
+    "5136": "0x92fc8962d7dd10e6"
   },
   "saves": {
-    "continuation": "8bd5f8bce0082b1382c4b75ce2d6c28720a9641707c962e2acc54d4e13581517",
-    "market": "50b16831ee6c7d6f421a7ed73a501f38170bdbfc71893a5e21b2461720c1e3f3",
-    "recovery": "aceb6dc0e8cccac25d22d7ccdc163f23fd519166f26a2b80de31216972b16e59",
-    "watering": "9965c30c8d12607e74d4ba241c0965c36026f3e9f995fe17b96a279b07d69888",
-    "compost": "a95c5aec8548b855473b846f0f633afd4323da62c69d0ef7caa5a86c85e4191a"
+    "continuation": "9e67f4981bfa7b4975b1ac0dba6a2f21344c69cbae8955108eb0f652246bd584",
+    "market": "b5ed1f3cbaff015493045911568c3d4a802c8947a7e659865397dab4442bb3e5",
+    "recovery": "f85d90a2630960cb4f6a2cf7fd8cc46a5384ce76c6c054833e5d629d8f06a46b",
+    "watering": "5e6966ece2440813c4109765f7faa77ac334fcc6872e31edc11d4a610fba40ab",
+    "compost": "b20a7c121da2f1a74e3dc5aaabaeeb9f91fa1bd7a34dbe80e95b417f3f216440"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "dae54224fabd6d9d1b9fbeecb884ea7f1a17dd28cc637b9125a6b42108b8445c",
+  "inputs": "d9be9459e5ab3ddf4b886368175e2327a6aba2716db2d69856010be1fddc8f40",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "48d883bdc2a30f42a8cd08284232976a7938dfba",
-  "reason": "Add saved plant food and fed harvest state, with compost continuation coverage"
+  "at": "6c40122fd22de5c1c82e8e7e51f7904a07dd5b00",
+  "reason": "Authored gardener and crop models, fixed orchard scenery and lighting; generated asset identities and saved scene match across hosts"
 }

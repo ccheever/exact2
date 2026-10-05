@@ -1439,7 +1439,7 @@ normal tick. Both feeding captures were inspected. Artifacts:
 `artifacts/main-input-{web,macos}/`. Gameplay and the closed Jev policies are
 unchanged.
 
-## A visible art pass (2026-10-04, in progress)
+## A visible art pass (2026-10-04)
 
 Charlie asked whether the games had become more fun and pointed out that the
 art still looked much the same. The honest distinction: today's care,
@@ -1478,3 +1478,65 @@ the next fixed version reduces them and scatters the flower spacing. Artifacts:
 The first failed drive and diagnosis remain in `art-first-web/` and
 `art-diagnose-web/`. This is an in-progress art result, not a fun or accepted
 parity claim.
+
+The final art version passes the complete candidate drive on web/macOS in
+85.644/51.427 s including builds. Inputs, candidate pins, eleven final world
+observations and published values, and all fifteen saved files agree; neither
+host leaves a recorded child. These runs are explicitly UNVERIFIED while the
+accepted baseline still predates the art. Artifacts: `artifacts/art-final-web/`
+and `artifacts/art-final-macos/`; comparison:
+`/tmp/exact2-garden-art-comparison.json`. The matching grown-field browser
+capture (`artifacts/art-final-view-web/grown.png`) and native ripe-crop capture
+were inspected: leaves, fruit silhouettes, hat, flowers and fence now read
+clearly, with stronger color than the second version. The extra browser
+capture's movement/harvest check passes in 11.311 s with no recorded children.
+This changes the scene's appearance, not its still-basic HUD or character
+animation. It is not evidence of increased enjoyment.
+
+The Garden suite passes 29 enabled tests (three unit, 26 simulation), with five
+scale/render tests ignored; strict Clippy passes. The model-capable GPU module
+is 1,257 KiB / 519 KiB gzip, against 1,034 / 437 KiB for the primitive module.
+The application wasm is 955 / 431 KiB. Those extra bytes and the ambient
+occlusion pass are costs of the art; no performance improvement is claimed.
+
+Periodic merge `6c40122fd` brings main through `536a054e1`: web inspection of
+live input values, storage-refusal precedence, and stable native smoke reload.
+The five root checks pass in 49.510 s: build 0.300, tests 46.784 (2,436 passed,
+nine ignored in 81 binaries), Clippy 0.292, format 2.034, caps 0.085, boot 0.015.
+The web inspection/storage regression files pass 92 tests and 2,918 assertions
+in 8.67 s. Logs: `/tmp/exact2-art-main-*.log`. Garden's final candidate drives
+above include this merge. Source is frozen while the strict seven-mode baseline
+runs, avoiding the source-drift mistake recorded in Rivals diary 006.
+
+The strict baseline is now accepted at `6c40122fd`, with input digest
+`d9be9459e5ab3ddf4b886368175e2327a6aba2716db2d69856010be1fddc8f40`.
+All seven required drives agree: Linux Off/Save/FreshGame in
+22.169/6.207/7.050 s, web in 74.977/105.542/97.494 s, and native release
+in 54.613 s including its build. Restoring the ordinary web build takes
+20.967 s. Every drive has zero failures and an available process audit with
+zero remaining children. Artifacts: `artifacts/prove/run-7jUDIS/`; log:
+`/tmp/exact2-garden-art-repin.log`. A direct comparison confirms that both
+earlier full web/macOS candidate runs have these exact accepted pins and
+source inputs, so those playthroughs were not repeated just to change a status
+label. Summary: `/tmp/exact2-garden-art-repin-summary.json`.
+
+The old ignored render benchmark initially refuses `gardener.model` too:
+its direct `WorldSurface<Garden>` still selected the primitive renderer.
+The fixture now selects `ModelPresentation, true`, matching the shipped
+module; no game or engine source changes. Its last heading also names the
+actual `culled` field instead of incorrectly calling it GPU passes. The
+corrected release run measures 180 frames at 1280 × 720, overview camera,
+including offscreen readback, after each field grows for 150 seconds:
+
+| Plants | Entities | Mean / p95 / max ms per frame | Draws | Triangles |
+|---:|---:|---:|---:|---:|
+| 100 | 239 | 1.7 / 2.3 / 3.1 | 115 | 46,645 |
+| 1,000 | 2,239 | 1.7 / 1.9 / 2.3 | 115 | 351,845 |
+
+Logs: `/tmp/exact2-garden-art-render{,-fixed}.log`. This bounded native
+measurement shows the new scene stays inexpensive at these sizes; it is not
+a before/after speedup, a browser FPS measurement, or a 50,000-plant claim.
+The remaining visible weaknesses are the static character, basic HUD and
+limited feedback when an action succeeds. Improving those is a better next
+gameplay presentation task than adding another resource mechanic. Fun remains
+unproven by these correctness and rendering measurements.

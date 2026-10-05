@@ -4,11 +4,14 @@
 //!  -p garden-logic --test render -- --ignored --nocapture --test-threads 1`
 use exact_game::{Args, Value};
 use exact_game_render::exact_gpu::{fixture, Frame, InputEvent, Surface};
-use exact_game_render::WorldSurface;
+use exact_game_render::{ModelPresentation, WorldSurface};
 use garden_logic::{Garden, Options};
 use std::time::Instant;
 
-fn bind(surface: &mut WorldSurface<Garden>) {
+// Match the game's model-capable GPU module (`game.assets` in app.json).
+type GardenSurface = WorldSurface<Garden, ModelPresentation, true>;
+
+fn bind(surface: &mut GardenSurface) {
     let o = Options {
         seed: 1,
         smooth: std::env::var("GARDEN_SMOOTH").is_ok(),
@@ -18,7 +21,7 @@ fn bind(surface: &mut WorldSurface<Garden>) {
     surface.bind(&values, None).unwrap();
 }
 
-fn post(surface: &mut WorldSurface<Garden>, frame: &Frame, text: &str) {
+fn post(surface: &mut GardenSurface, frame: &Frame, text: &str) {
     surface.input(&InputEvent::Message {
         text: text.into(),
         at_ms: frame.now_ms,
@@ -51,9 +54,9 @@ fn frames_at_scale() {
         .ok()
         .map(|s| s.split(',').map(|n| n.parse().unwrap()).collect())
         .unwrap_or(vec![100, 500, 2_000, 10_000, 20_000, 50_000]);
-    println!("| plants | entities | wall ms/frame mean / p95 / max | feed ms | encode ms | draws | instances | triangles | gpu passes |");
+    println!("| plants | entities | wall ms/frame mean / p95 / max | feed ms | encode ms | draws | instances | triangles | culled |");
     for n in sizes {
-        let mut surface = WorldSurface::<Garden>::default();
+        let mut surface = GardenSurface::default();
         bind(&mut surface);
         let mut frame = Frame {
             width: 1280.,
@@ -65,7 +68,7 @@ fn frames_at_scale() {
             children_generation: 0,
             shader_generation: 0,
         };
-        let step = |surface: &mut WorldSurface<Garden>, frame: &mut Frame, ms: f64| {
+        let step = |surface: &mut GardenSurface, frame: &mut Frame, ms: f64| {
             frame.now_ms += ms;
             fixture::render(&gpu, surface, frame).unwrap();
         };
