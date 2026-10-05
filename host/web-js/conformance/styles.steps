@@ -1,4 +1,6 @@
 # Bound readonly starts false, switches true, then permits typing again.
+type free Uncontrolled title
+type free-body Uncontrolled body
 type title First title
 type body First body
 tap flip

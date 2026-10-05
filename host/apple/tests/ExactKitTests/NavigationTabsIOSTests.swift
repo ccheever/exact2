@@ -69,6 +69,31 @@ final class NavigationTabsIOSTests: XCTestCase {
         if tabs.delegate?.tabBarController?(tabs, shouldSelect: target) ?? true { tabs.selectedIndex = index }
     }
 
+    /// Regression (590d73531): a root overlay with a z-index after the
+    /// tablist, the pattern docs/agent-pitfalls.md gives for full-screen
+    /// overlays, paints and takes touches over the native tab container. Dense
+    /// ranks had put the container over every authored sibling, so the
+    /// overlay was laid out, in the tree, and invisible (LLP 1083.000 D4).
+    func testARootOverlayWithAZIndexIsOverTheNativeTabs() throws {
+        let session = try fixture("tabs-overlay")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        // Pressed directly: the button may sit below the fold of the home tab.
+        session.presenter.press(try node(session, "show-overlay").id)
+        let overlayNode = { session.presenter.views.values.first { $0.props["testId"] == "root-overlay" } }
+        until("the overlay mounts") { overlayNode() != nil }
+        let overlay = try node(session, "root-overlay")
+        let parent = try XCTUnwrap(overlay.superview)
+        XCTAssertTrue(tabs.view.superview === parent, "the overlay and the tab container are siblings")
+        XCTAssertGreaterThan(overlay.layer.zPosition, tabs.view.layer.zPosition, "the overlay paints over the tabs")
+        let middle = overlay.convert(CGPoint(x: overlay.bounds.midX, y: overlay.bounds.midY), to: nil)
+        let hit = try XCTUnwrap(overlay.window?.hitTest(middle, with: nil))
+        XCTAssertTrue(hit.isDescendant(of: overlay), "and takes the touch: \(type(of: hit))")
+        let close = try node(session, "hide-overlay")
+        let reply = Agent(session: session).tap(["id": Int(close.id)])
+        XCTAssertEqual(reply["pressed"] as? Int, Int(close.id), "\(reply)")
+        until("the overlay closes") { overlayNode() == nil }
+    }
+
     func testEveryTabKeepsItsStackItsScrollAndItsDraftAndReselectPopsToRoot() throws {
         let session = try fixture("tabs")
         let navigation = session.presenter.navigation
@@ -78,6 +103,18 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertFalse(tabs.tabBar.isHidden)
         XCTAssertEqual(tabs.viewControllers?.map { $0.tabBarItem.title }, ["Home", "Second"])
         XCTAssertTrue(try node(session, "tabs").isHidden, "the bar takes the authored tablist's place")
+        // The container paints where the panels are among the root's
+        // children: under the tablist after them, as CSS paints a later
+        // sibling over an earlier one (shop F21, recipes F23).
+        let root = try node(session, "navigation"), tablist = try node(session, "tabs")
+        let order = root.subviews.map { ObjectIdentifier($0) }
+        XCTAssertLessThan(try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(tabs.view))), try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(tablist))), "the tablist after the panels paints over the container")
+        XCTAssertGreaterThan(try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(tabs.view))), try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(try node(session, "panels")))), "the container paints over the panels' box")
+        // The tablist's `accent-color` is the bar's tint (recipes F20, shop F28).
+        let tint = try XCTUnwrap(tabs.tabBar.tintColor).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+        var rgb: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        tint.getRed(&rgb.0, green: &rgb.1, blue: &rgb.2, alpha: &rgb.3)
+        XCTAssertEqual([rgb.0, rgb.1, rgb.2].map { Int(($0 * 255).rounded()) }, [0x38, 0x38, 0xf5])
         let home = try XCTUnwrap(tabs.viewControllers?[0] as? UINavigationController)
         let second = try XCTUnwrap(tabs.viewControllers?[1] as? UINavigationController)
         XCTAssertEqual(second.viewControllers.count, 1, "another tab's stack is built too")

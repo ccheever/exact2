@@ -14,6 +14,29 @@ final class Presenter {
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
 
     var autofocusProcessed: Set<ObjectIdentifier> = []
+    private var projectionSyncOwed = false
+    /// What the native projections show changed outside a batch (a subtree's
+    /// appearance or size traits, geometry a sheet replayed after the batch).
+    /// Run the projection steps an empty batch used to run, once, on the next
+    /// turn, without waiting for a batch an idle app may never commit (LLP
+    /// 1079's amendment of 2026-10-04): grouped lists remount (frames, cell
+    /// heights, switches), then tab bars and controls.
+    func requestProjectionSync() {
+        guard !projectionSyncOwed else { return }
+        projectionSyncOwed = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            projectionSyncOwed = false
+            guard !applying else { return }
+            // Rows stay carried: a trait refresh never pulls a row (and a
+            // first responder or a touch in it) out of its cell. Lists mount
+            // first, so a segment or control in a carried row is judged
+            // where it shows.
+            groupedLists.sync(changed: [])
+            segments.sync()
+            controls.sync()
+        }
+    }
     /// The `aria-modal` view VoiceOver was last moved into, and the views
     /// made modal, which a cleared prop drops from the index (`syncModal`).
     var announcedModal: (id: UInt32, incarnation: UInt64)?
@@ -371,6 +394,8 @@ final class Presenter {
     var onCommand: ((String, [Any], UInt32?) -> Void)?
     /// A `key` handler called `preventDefault()` (`keyDown(at:_:)`, KeyEvents.swift).
     var defaultPrevented = false
+    /// A `key` handler called `stopPropagation()` (`keyDown(at:_:)`, KeyEvents.swift).
+    var propagationStopped = false
 
     /// One native focus intent, bound to the actual editor across controller
     /// transitions. Replacing a node with the same HTML id cannot inherit it.
@@ -416,7 +441,7 @@ final class Presenter {
         }
         walk(window)
         let order = listed.enumerated().sorted { a, b in
-            let ia = Int(a.element.props["tabIndex"] ?? "0") ?? 0, ib = Int(b.element.props["tabIndex"] ?? "0") ?? 0
+            let ia = a.element.tabOrder, ib = b.element.tabOrder
             let pa = ia > 0 ? ia : Int.max, pb = ib > 0 ? ib : Int.max
             return pa != pb ? pa < pb : a.offset < b.offset
         }.map(\.element)
@@ -427,11 +452,12 @@ final class Presenter {
         let responder: UIView = target.textArea ?? target.field ?? target
         if responder.becomeFirstResponder(), responder === target { target.showFocusRing(true) }
     }
+    /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is one
+    /// by kind; an explicit negative never, though a tap still focuses it.
     private static func tabbable(_ v: NodeView) -> Bool {
-        if v.disabled || v.bounds.width == 0 || v.bounds.height == 0 { return false }
-        let index = Int(v.props["tabIndex"] ?? "0") ?? 0
-        if index < 0 { return false }
-        return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder || index > 0
+        if v.formDisabled || v.bounds.width == 0 || v.bounds.height == 0 { return false }
+        if let index = v.explicitTabIndex, index < 0 { return false }
+        return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder
     }
 
     /// The action's focus(html-id), delivered only after the batch is mounted.
@@ -474,7 +500,7 @@ final class Presenter {
             ancestor = view.superview
         }
         // The mounted window is a prerequisite, never another session's.
-        if let reason = NavigationRules.focusRefusal(mounted: target.window != nil, disabled: target.disabled,
+        if let reason = NavigationRules.focusRefusal(mounted: target.window != nil, disabled: target.formDisabled,
                                                      zeroSize: target.bounds.width == 0 || target.bounds.height == 0,
                                                      hiddenAncestor: hidden, inertAncestor: inert) {
             session?.log("focus \"\(name)\" refused: \(reason)")
@@ -511,6 +537,7 @@ final class Presenter {
     var onFocus: ((UInt32) -> Void)?
     var onBlur: ((UInt32) -> Void)?
     var onKey: ((UInt32, String) -> Void)?
+    var onClipboard: ((UInt32, UInt32, String) -> Void)?
     var onContextmenu: ((UInt32) -> Void)?
     var onDblclick: ((UInt32) -> Void)?
     /// A touch went down on a node (`true`) or came up (LLP 1005 §3).
@@ -523,7 +550,9 @@ final class Presenter {
     var onPanRelease: ((UInt32, Double, Double) -> Void)?
     var onPanSample: ((Bool, Double, Double, Double) -> Void)?
     var panVelocity: ((Double) -> (Double, Double))?
-    var onScroll: ((UInt32, Double, Double) -> Void)?
+    /// A scroller with a `scroll` handler moved: left, top, then its
+    /// `scrollWidth`, `scrollHeight`, `clientWidth`, `clientHeight`.
+    var onScroll: ((UInt32, [Double]) -> Void)?
     /// A scroller (nil: the page) moved, handler or not: `frame()` reads
     /// boxes where the viewer sees them (LLP 1051.000 D1).
     var onScrolled: ((UInt32?, Double, Double) -> Void)?
@@ -549,7 +578,9 @@ final class Presenter {
     weak var hovered: NodeView?
     var hoveredInline: UInt32?
 
-    func press(_ id: UInt32) { onPress?(id) }
+    /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
+    private(set) var pressHeld = ""
+    func press(_ id: UInt32, held: String = "") { pressHeld = held; defer { pressHeld = "" }; onPress?(id) }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
     /// A text field typed into since it took the focus: its `change` fires
     /// when the editing ends or Enter commits it, HTML's `change` (LLP
@@ -606,7 +637,10 @@ final class Presenter {
     func focus(_ id: UInt32) { send(id) { [self] in onFocus?(id) } }
     func blur(_ id: UInt32) { send(id) { [self] in onBlur?(id) } }
     func key(_ id: UInt32, _ name: String) { send(id) { [self] in onKey?(id, name) } }
+    func clipboard(_ id: UInt32, _ kind: UInt32, _ text: String) { send(id) { [self] in onClipboard?(id, kind, text) } }
     func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }
+    /// A `contextmenu` with its point (studio diary R22): kind 10 and its line.
+    func contextmenu(_ id: UInt32, line: String) { send(id) { [self] in onClipboard?(id, 10, line) } }
     func dblclick(_ id: UInt32) { send(id) { [self] in onDblclick?(id) } }
     func pointer(_ id: UInt32, _ kind: PointerKind, _ sample: PointerSample) { send(id) { [self] in onPointer?(id, kind, sample) } }
     func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }
@@ -617,7 +651,7 @@ final class Presenter {
         guard views[id]?.handlers.contains("panrelease") == true else { return }
         send(id) { [self] in onPanRelease?(id, vx, vy) }
     }
-    func scroll(_ id: UInt32, _ left: Double, _ top: Double) { send(id) { [self] in onScroll?(id, left, top) } }
+    func scroll(_ id: UInt32, _ metrics: [Double]) { send(id) { [self] in onScroll?(id, metrics) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
     func message(_ id: UInt32, _ value: String) {
@@ -661,7 +695,7 @@ final class Presenter {
     /// and makes its correction without the presenter's whole finalization
     /// pass, unless work waits on a batch (a focus, a callback, a scroll).
     private func applySnapshots(_ batch: Batch) -> Bool {
-        guard !applying, batch.error == nil, !batch.ops.isEmpty, batch.ops.allSatisfy({ $0.op == .collections }),
+        guard !applying, batch.error == nil, !batch.controls, !batch.ops.isEmpty, batch.ops.allSatisfy({ $0.op == .collections }),
               waiting.isEmpty, pendingScrolls.isEmpty, pendingFocus == nil else { return false }
         collections.beginBatch(batch)
         collections.endBatch()
@@ -820,6 +854,7 @@ final class Presenter {
             case .command:
                 let name = op.payload["name"] as? String ?? ""
                 if name == "preventDefault" { defaultPrevented = true; break }
+                if name == "stopPropagation" { propagationStopped = true; break }
                 onCommand?(name, op.payload["args"] as? [Any] ?? [], (op.payload["source"] as? NSNumber)?.uint32Value)
             case .exit:
                 if flats.isFlat(id) { flats.promote(id) }
@@ -961,6 +996,7 @@ final class Presenter {
             else { current.insert(child, at: i) }
         }
         flats.mounted(parent.id)
+        if parent === navigation.container { navigation.placeOwner() }
     }
 
     /// The views a batch touched and every view above them, as the batch
@@ -980,6 +1016,13 @@ final class Presenter {
     /// Geometry can be deferred for the source route while a modal owns the
     /// session viewport. Replaying it uses the same path as the original batch.
     func applyGeometry(_ op: BatchOp) {
+        // Replayed outside a batch (a sheet's dismissal completing): carried
+        // rows go back to their authored parents first, as before a batch,
+        // so the new box is theirs; the projections remount on the next turn.
+        if !applying {
+            groupedLists.prepare()
+            requestProjectionSync()
+        }
         let id = op.id
         guard let v = views[id] else { return }
         switch op.op {

@@ -127,6 +127,8 @@ def SendsOK (p : Program) : List Stmt → Prop
   | .send x _ _ :: rest => isMutation p x = true ∧ SendsOK p rest
   | .ifS _ thn els :: rest => SendsOK p thn ∧ SendsOK p els ∧ SendsOK p rest
   | .matchS _ _ sm nn :: rest => SendsOK p sm ∧ SendsOK p nn ∧ SendsOK p rest
+  /- A callee's sends are its own body's, which `SlotTyped.sends` covers. -/
+  | .call _ _ :: rest => SendsOK p rest
 
 theorem StmtsTy.sendsOK {p : Program} {G : Scope} : ∀ {Γ : Scope} (ss : List Stmt), StmtsTy p G Γ ss → SendsOK p ss
   | _, [], _ => by simp [SendsOK]
@@ -154,9 +156,13 @@ theorem StmtsTy.sendsOK {p : Program} {G : Scope} : ∀ {Γ : Scope} (ss : List 
     simp only [StmtsTy] at h
     obtain ⟨⟨_, _, hsm⟩, hnn, hr⟩ := h
     exact ⟨StmtsTy.sendsOK sm hsm, StmtsTy.sendsOK nn hnn, StmtsTy.sendsOK rest hr⟩
+  | _, .call _ _ :: rest, h => by
+    simp only [SendsOK]
+    simp only [StmtsTy] at h; exact StmtsTy.sendsOK rest h.2
 
 theorem ExecR.sends {p : Program} {env ls ss fx fx'} (h : ExecR env ls ss fx fx') (hs : SendsOK p ss)
-    (hfx : ∀ s ∈ fx.sends, isMutation p s.1 = true) : ∀ s ∈ fx'.sends, isMutation p s.1 = true := by
+    (hfx : ∀ s ∈ fx.sends, isMutation p s.1 = true) (hp : env.prog = p)
+    (hall : ∀ a ∈ p.actions, SendsOK p a.body) : ∀ s ∈ fx'.sends, isMutation p s.1 = true := by
   induction h with
   | nil => exact hfx
   | letS _ _ ih => simp only [SendsOK] at hs; exact ih hs hfx
@@ -179,6 +185,10 @@ theorem ExecR.sends {p : Program} {env ls ss fx fx'} (h : ExecR env ls ss fx fx'
     simp only [SendsOK] at hs; exact ih₂ hs.2.2 (ih₁ hs.1 hfx)
   | matchNone _ _ _ ih₁ ih₂ =>
     simp only [SendsOK] at hs; exact ih₂ hs.2.2 (ih₁ hs.2.1 hfx)
+  | call _ hd _ _ _ ih₁ ih₂ =>
+    simp only [SendsOK] at hs
+    rw [hp] at hd
+    exact ih₂ hs (ih₁ (hall _ (List.mem_of_find?_eq_some hd)) hfx)
 
 /-! ## Commits keep the invariant -/
 
@@ -214,7 +224,7 @@ theorem runAction_slotsOK {p : Program} {o c name args rows c' out} (hp : SlotTy
   split at h
   · exact keep h
   next hw =>
-  have hsends := (exec_sound hx).sends (hp.sends a (List.mem_of_find?_eq_some ha)) (by simp)
+  have hsends := (exec_sound hx).sends (hp.sends a (List.mem_of_find?_eq_some ha)) (by simp) rfl hp.sends
   have hok : SlotsOK p (Contract.applyWrites c.slots (answered ++ fx.writes)) := by
     refine hc.applyWrites fun w hw' => ?_
     simp only [List.mem_append] at hw'
@@ -407,7 +417,7 @@ built. -/
 theorem reachable_slotsOK {p : Program} {c} (hp : WellTyped p) (h : Reachable p c) : SlotsOK p c.slots :=
   Reachable.invariant (fun c => SlotsOK p c.slots)
     (fun _ => boot_slotsOK hp.slotTyped)
-    (fun _ _ _ hc => hc)
+    (fun _ _ _ _ hc => hc)
     (fun _ _ _ _ _ _ _ _ _ _ _ _ hc _ _ hr => runAction_slotsOK hp.slotTyped hc hr)
     (fun _ _ _ _ _ _ hc hr => runAction_slotsOK hp.slotTyped hc hr) c h
 

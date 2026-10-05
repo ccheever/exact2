@@ -12,12 +12,13 @@ mod control;
 mod event;
 mod host_kinds;
 mod pointer;
-pub use pointer::PointerEvent;
+pub use pointer::{DropEvent, PointerEvent, WheelEvent};
 mod reorder;
 mod reorder_codec;
 mod root_font;
 pub use event::{
     ActionBinding, ActionBindingError, ActionBindingRefusal, ControlValue, Event, KeyModifiers,
+    ScrollEvent,
 };
 mod canvas2d;
 pub use canvas2d::{
@@ -420,6 +421,9 @@ pub struct Runner<D: DataSource> {
     journal: std::collections::VecDeque<String>,
     /// Device requests held for the agent (LLP 1069.007 D3): not I/O.
     device_holds: Vec<device::Hold>,
+    /// Notifications the app posted under the agent (`state.notifications`):
+    /// the agent's substitute for the system's (`crate::notify`).
+    notifications: Vec<crate::notify::Notice>,
     /// Auth sessions (LLP 1069.006): live ones, and answers to deliver.
     auth: crate::auth::Sessions,
     /// The device capabilities linked (LLP 1047 D3): [`DeviceLinks`].
@@ -643,6 +647,11 @@ impl<D: DataSource> Runner<D> {
         launch: &str,
     ) -> Result<Runner<D>, RunnerError> {
         viewport.validate()?;
+        // @ref LLP 1095 D9 — every platform colour the plan can show is known
+        // before the host's first report, a branch not yet taken included.
+        for text in &plan.strings {
+            exact_kernel::style::roles::intern_literals(text);
+        }
         let carried = match seed {
             Seed::Carried(carried) => Some(carried),
             _ => None,
@@ -815,6 +824,7 @@ impl<D: DataSource> Runner<D> {
             derive_store_dependent: Vec::new(),
             journal: std::collections::VecDeque::new(),
             device_holds: Vec::new(),
+            notifications: Vec::new(),
             auth: Default::default(),
             device_links: DeviceLinks::CORE,
             input_source: None,
@@ -954,6 +964,18 @@ impl<D: DataSource> Runner<D> {
         if !note.is_empty() {
             runner.log(note);
         }
+        // @ref LLP 1048.003 D6 — what the first frame shows from the bake
+        // until its source is ready (feed F24: say so in the journal).
+        for i in 0..runner.stale.len() {
+            if runner.stale[i]
+                && runner.resources[i]
+                    .as_ref()
+                    .is_some_and(|s| s.value.is_compiled())
+            {
+                let line = lines::build_time(runner.plan.str(runner.plan.resources[i].name));
+                runner.log(line);
+            }
+        }
         // Grants that do not parse grant nothing: said once here, and in
         // each refusal (the store's, the host's).
         if let Some(why) = runner.store.unparsed() {
@@ -1076,6 +1098,15 @@ impl<D: DataSource> Runner<D> {
     /// Inspect data-source identity and readiness without executing app logic.
     pub fn data_ref(&self) -> &D {
         &self.data
+    }
+
+    /// What the app posted under the agent, oldest first (`crate::notify`).
+    pub fn notifications(&self) -> &[crate::notify::Notice] {
+        &self.notifications
+    }
+
+    pub(crate) fn notifications_mut(&mut self) -> &mut Vec<crate::notify::Notice> {
+        &mut self.notifications
     }
 
     /// Current value of a slot by name.

@@ -27,7 +27,8 @@ pub(super) fn host_css(node: &NodeRef<'_>, css: String, tag: &str) -> String {
 /// its own (LLP 1007.001): the only child of a box or a button, with no style
 /// row, no prop but its text and no handler — nothing a box of its own could
 /// show or hear. Its element stays (the runtime writes its text, the agent
-/// reads its node) as `display: contents`, so it makes no box, and a flex
+/// reads its node) as `display: contents`, so it makes no box (an inline
+/// box under a box that restricts touch, [`contents`]), and a flex
 /// box holding it is a block ([`blocks`]): its text is the box's own line
 /// boxes, laid out and painted as a stretched style-less block child's are.
 /// Only where the two lay out alike — a block, or a flex column that
@@ -147,14 +148,61 @@ pub fn blocks(mut css: String, holds_folded: bool) -> String {
     css
 }
 
-/// A folded text's CSS ([`folds`]): no box.
-pub fn contents(css: String, folded: bool) -> String {
+/// A folded text's CSS ([`folds`]): no box (`display: contents`), or an
+/// inline box under a box that restricts touch ([`touch_scoped`]). Chrome
+/// 154 lays out the text of a `display: contents` element with a style that
+/// keeps no effective `touch-action`, so a touch that starts on its glyphs
+/// under a `touch-action: none` pan is the browser's, cancelled after its
+/// first move (smoke step 11b); an inline box keeps its ancestors' touch
+/// action, at one more layout object (LLP 1007.001 §5).
+pub fn contents(css: String, folded: bool, touch_scoped: bool) -> String {
     if !folded {
         return css;
     }
     let mut css = css.replace("display:block;", "");
-    css.push_str("display:contents;");
+    css.push_str(if touch_scoped {
+        "display:inline;"
+    } else {
+        "display:contents;"
+    });
     css
+}
+
+/// Whether a box restricts touch on the web: an authored `touch-action`
+/// other than `auto`, or what the page gives `touch-action: none` — a drag
+/// timeline's source, a game action, a reorder handle.
+pub fn restricts_touch(n: &NodeFacts<'_>) -> bool {
+    use exact_kernel::{StyleId, TouchAction};
+    (n.style.mask.has(StyleId::TouchAction) && n.style.touch_action != TouchAction::Auto)
+        || n.style.mask.has(StyleId::DragTimeline)
+        || n.props.str(PropId::Action).is_some()
+        || n.props.str(PropId::ReorderFor).is_some()
+}
+
+/// A node of `kernel`'s CSS with its fold's ([`contents`]), as its tree stands.
+pub(super) fn folded_css(
+    kernel: &Kernel,
+    node: &NodeRef<'_>,
+    css: String,
+    handled: bool,
+) -> String {
+    contents(
+        css,
+        folded(kernel, node, handled),
+        touch_scoped(kernel, node),
+    )
+}
+
+/// Whether a node of `kernel` sits under a box that [`restricts_touch`].
+pub(super) fn touch_scoped(kernel: &Kernel, node: &NodeRef<'_>) -> bool {
+    let mut up = node.parent;
+    while let Some(p) = up.and_then(|p| kernel.node(p)) {
+        if restricts_touch(&p.facts()) {
+            return true;
+        }
+        up = p.parent;
+    }
+    false
 }
 
 /// [`host_css`], from a node's facts.
@@ -290,8 +338,8 @@ pub fn tag_of<'a>(node: &NodeFacts<'a>, in_button: bool) -> &'a str {
         return name;
     }
     match element(node) {
-        "div" | "main" | "header" | "nav" | "section" | "footer" | "article" | "aside" | "h1"
-        | "h2" | "h3" | "h4" | "h5" | "h6"
+        "div" | "main" | "header" | "nav" | "section" | "footer" | "article" | "aside" | "hr"
+        | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
             if in_button =>
         {
             "span"
@@ -362,6 +410,9 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
             "article" => return "article",
             "aside" => return "aside",
             "dialog" => return "dialog",
+            // @ref LLP 1021 D1 — HTML's separator, void: the kernel gives it
+            // no children, and its UA rows are the node's own.
+            "hr" => return "hr",
             _ => {}
         }
     }
@@ -429,6 +480,8 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
         NodeType::Control => "input",
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
+        // @ref LLP 1042 §8 — HTML's `audio` is the media node marked so.
+        NodeType::Video if node.props.str(PropId::SemanticTag) == Some("audio") => "audio",
         NodeType::Video => "video",
         // Never created: a head is the page's `<head>` (LLP 1048.003 D1).
         NodeType::Head => "template",
@@ -723,6 +776,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Placeholder => "placeholder",
             PropId::Type => "type",
             PropId::InputMode => "inputmode",
+            PropId::EnterKeyHint => "enterkeyhint",
             PropId::Autocapitalize => "autocapitalize",
             PropId::Autocorrect => "autocorrect",
             PropId::Spellcheck => "spellcheck",
@@ -801,6 +855,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Checked => "checked",
             PropId::Rows => "rows",
             PropId::Maxlength => "maxlength",
+            // A file input's own attributes (LLP 1069.002 D1), so the
+            // browser's picker takes the types and the count (gallery F6).
+            PropId::Accept => "accept",
+            PropId::Multiple => "multiple",
             // The Popover API by identity (LLP 1021 D5): the browser owns
             // the top layer, light dismiss, and Escape once these land on
             // the real elements.
@@ -816,6 +874,16 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilityPressed => "aria-pressed",
             PropId::AccessibilityModal => "aria-modal",
             PropId::AccessibilityElementsHidden => "aria-hidden",
+            PropId::AccessibilityInvalid => "aria-invalid",
+            PropId::AccessibilityDescribedBy => "aria-describedby",
+            PropId::AccessibilityLabelledBy => "aria-labelledby",
+            // HTML's own attribute, so the browser makes the box focusable
+            // (LLP 1088 D7.3); `data-tabindex` would be ignored.
+            PropId::TabIndex => "tabindex",
+            PropId::AccessibilityRequired => "aria-required",
+            PropId::AccessibilityHasPopup => "aria-haspopup",
+            // HTML's global `title`: the browser's own tooltip (studio diary R24).
+            PropId::Title => "title",
             // SVG 2 attributes by their exact (case-sensitive) names (LLP 1055 D1).
             PropId::ViewBox => "viewBox",
             PropId::PreserveAspectRatio => "preserveAspectRatio",
@@ -856,6 +924,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::FeDy => "dy",
             PropId::FeScale => "scale",
             PropId::FeRadius => "radius",
+            PropId::FeOrder => "order",
             PropId::LightX => "x",
             PropId::LightY => "y",
             PropId::LightZ => "z",
@@ -914,7 +983,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             if symbol.is_some_and(|s| s.2) {
                 out.insert("data-symbol-fill".into(), String::new());
             }
-            out.insert("alt".into(), String::new());
+            // Decorative unless the author named it (`alt`, `aria-label`).
+            if !out.contains_key("alt") {
+                out.insert("alt".into(), String::new());
+            }
         }
     }
     // A link to an absolute URL leaves the app, as natively (the system
@@ -1024,9 +1096,9 @@ impl<D: exact_runner::DataSource> super::Host<D> {
         let m = self.mirror.get(&node.id);
         let (css, _) = crate::css::css_text(&css_style(kernel, node), &self.font_names);
         let css = host_css(node, css, tag_for(node, m.is_some_and(|m| m.in_button)));
-        let fold = folded(kernel, node, m.is_some_and(|m| m.handled));
+        let css = folded_css(kernel, node, css, m.is_some_and(|m| m.handled));
         let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
-        let css = blocks(contents(css, fold), holds_folded(kernel, node, &handled));
+        let css = blocks(css, holds_folded(kernel, node, &handled));
         self.paint_css(node, css)
     }
 
@@ -1127,7 +1199,7 @@ mod dataset_tests {
                     | "mode"
                     | "numOctaves"
                     | "operator"
-                    | "order"
+                    | "feOrder"
                     | "preserveAlpha"
                     | "primitiveUnits"
                     | "result"

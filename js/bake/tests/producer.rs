@@ -197,7 +197,7 @@ fn producer_bakes_the_bytecode_keeps_sources_untouched_and_refuses_bad_candidate
         "app.ts",
         &SOURCE.replace(
             "'./logic'",
-            &format!("'{}'", outside.0.join("logic").display()),
+            &serde_json::to_string(&outside.0.join("logic").to_string_lossy()).unwrap(),
         ),
     );
     let error = bake(&f.0, &Tools::default())
@@ -324,6 +324,29 @@ fn native_host_sessions_prepare_together_and_keep_the_live_app_when_one_refuses(
     if !exact_js::ENGINE_LINKED {
         return;
     }
+    // This is a Bridge protocol test, not qualification of Apple's HOME/Library
+    // defaults on another platform. A child owns its explicit storage-free drive.
+    const CHILD: &str = "EXACT_PRODUCER_BRIDGE_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "native_host_sessions_prepare_together_and_keep_the_live_app_when_one_refuses",
+            ])
+            .env(CHILD, "1")
+            .env("EXACT_AGENT", "1")
+            .env_remove("EXACT_AGENT_STORAGE")
+            .env_remove("EXACT_AGENT_STORAGE_FRESH")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     let f = Fixture::new();
     let first = f.bake();
     let mut a = Bridge::<Module>::new();
@@ -331,9 +354,11 @@ fn native_host_sessions_prepare_together_and_keep_the_live_app_when_one_refuses(
     for bridge in [&mut a, &mut b] {
         prepare(bridge, &first).unwrap();
         let count = bridge.commit_plan();
-        assert!(output(bridge, count)["error"].is_null());
+        let committed = output(bridge, count);
+        assert!(committed["error"].is_null(), "{committed}");
         let count = bridge.data_ready();
-        assert!(output(bridge, count)["error"].is_null());
+        let activated = output(bridge, count);
+        assert!(activated["error"].is_null(), "{activated}");
     }
     let tree = ask(&mut b, "tree");
     let button = tree["nodes"]
@@ -585,8 +610,11 @@ fn resident_producer_honors_compiler_overrides() {
         return;
     }
     let f = Fixture::new();
+    // The native test harness rejects tsc's --noEmit argument on every host.
+    // This proves a real override ran and refused, without a Unix-only helper.
+    let refusing = std::env::current_exe().unwrap();
     let tools = Tools {
-        tsc: PathBuf::from("/usr/bin/false"),
+        tsc: refusing.clone(),
         ..Tools::default()
     };
     let mut producer = exact_js_bake::Producer::new(tools).unwrap();
@@ -594,7 +622,7 @@ fn resident_producer_honors_compiler_overrides() {
         .bake(&f.0, None)
         .err()
         .unwrap()
-        .contains("/usr/bin/false refused"));
+        .contains(&format!("{} refused", refusing.display())));
 }
 
 #[test]
@@ -666,6 +694,7 @@ fn resident_maps_name_original_imports_and_bake_refusals_after_capture() {
     assert!(!error.contains(".exact-js-bake-"), "{error}");
 }
 
+#[cfg(unix)]
 #[test]
 fn resident_compilation_refusals_are_drained_before_the_next_request() {
     if !exact_js::ENGINE_LINKED {

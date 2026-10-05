@@ -121,7 +121,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         lastScroll = CACurrentMediaTime()
         armRest(after: Self.restDelay)
         // A correction's move is not the reader's travel (LLP 1070.000 §2.5).
-        if let node, p.collections.owns(node.id), !p.collections.correcting { sample(node, now: lastScroll) }
+        // Nor is a smooth correction's frame (`OffsetDriver`).
+        if let node, p.collections.owns(node.id), !p.collections.correcting, !p.collections.animating.contains(node.id) { sample(node, now: lastScroll) }
         p.leaves.scrolled()
         // What this frame shows has its text before it commits.
         p.paintVisibleText()
@@ -266,6 +267,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     func forget(_ id: UInt32) {
         travel[id] = nil; costs[id] = nil
     }
+    /// A smooth correction ended: no travel sample outlives it.
+    func forgetTravel(_ id: UInt32) { travel[id] = nil }
 
 }
 private final class ScrollPumpTarget: NSObject {

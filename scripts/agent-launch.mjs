@@ -1,12 +1,20 @@
 // Session setup shared by the agent CLI and its programmatic driver.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bakeOutput, linuxBinary, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
+import { types as utilTypes } from 'node:util';
+import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+/** Preserve the original operation failure and any owned cleanup handle. */
+export function retainCleanupError(error, failure) {
+  error.message += `; cleanup: ${failure.message}`;
+  error.cleanupError = failure;
+}
 
 /** Only the caller's throwaway browser profile. Bun 1.4.2 on Windows ignores
  * rmSync's maxRetries: a real sharing lock fails in <1 ms. Yield between bounded
@@ -19,6 +27,83 @@ export async function removeBrowserProfile(profile) {
       await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
     }
   }
+}
+
+/** The helper never establishes browser exit; both recorded children must exit.
+ * `terminate` is the owned helper-spawn boundary used by the refusal fixtures. */
+export async function closeWindowsBrowser(child, cdp, exited, profile, terminate = pid =>
+  spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {windowsHide:true, stdio:['ignore','pipe','pipe']})) {
+  const start = performance.now(), elapsed = () => Math.round(performance.now() - start);
+  const detail = {}, wait = async promise => {
+    let timer;
+    try { return await Promise.race([promise.then(() => true), new Promise(resolve => { timer = setTimeout(() => resolve(false), 2000); })]); }
+    finally { clearTimeout(timer); }
+  };
+  const bounded = value => value == null ? null : String(value).slice(-2048);
+  const didExit = process => process.exitCode !== null || process.signalCode !== null;
+  try { await cdp.send('Browser.close', {}, undefined, 2000); detail.cdp = {outcome:'reply', ms:elapsed()}; }
+  catch (error) { detail.cdp = {error:bounded(error.message), ms:elapsed()}; }
+  await wait(exited);
+  detail.graceMs = elapsed();
+  let helper, helperExit = Promise.resolve();
+  if (!didExit(child)) {
+    const began = performance.now();
+    const info = detail.taskkill = {pid:null, status:null, signal:null, error:null, stdout:'', stderr:'', deadline:false};
+    try {
+      helper = terminate(child.pid);
+      info.pid = helper.pid ?? null;
+      for (const name of ['stdout','stderr']) {
+        helper[name]?.setEncoding('utf8');
+        helper[name]?.on('data', data => { info[name] = bounded(info[name] + data); });
+        helper[name]?.on('error', error => { info[`${name}Error`] = bounded(error.message); });
+      }
+      helperExit = new Promise(resolve => {
+        helper.once('exit', () => { info.ms = Math.round(performance.now() - began); resolve(); });
+        helper.on('error', error => {
+          info.error = bounded(error.message);
+          // Failed spawn owns no process. An error on a launched child is not exit.
+          if (!helper.pid) resolve();
+        });
+      });
+      if (!await wait(helperExit)) {
+        info.deadline = true;
+        try { info.killSent = helper.kill('SIGKILL'); }
+        catch (error) { info.killError = bounded(error.message); }
+      }
+    } catch (error) { info.error = bounded(error.message); }
+    info.waitMs = Math.round(performance.now() - began);
+  }
+  // Reap the helper and observe Chrome concurrently within the existing final
+  // wait. Neither helper success nor closed output pipes certify either exit.
+  await wait(Promise.all([exited, helperExit]));
+  const helperLive = helper?.pid && !didExit(helper);
+  if (helper) {
+    Object.assign(detail.taskkill, {status:helper.exitCode, signal:helper.signalCode});
+    helper.stdout?.destroy(); helper.stderr?.destroy();
+  }
+  if (!didExit(child) || helperLive) {
+    Object.assign(detail, {totalMs:elapsed(), exitCode:child.exitCode, signalCode:child.signalCode});
+    const reason = !didExit(child) ? `Chrome ${child.pid} did not exit` : `Chrome termination helper ${helper.pid} did not exit`;
+    const error = new Error(`${reason}; owned profile retained at ${profile}; shutdown ${JSON.stringify(detail)}`);
+    if (helperLive) error.ownedHelper = helper;
+    throw error;
+  }
+}
+
+/** Where a web drive's named scratch store lives (`--storage <name>`), kept between drives as a native one is (dash,
+ * weather, kanban: a second drive opened an empty store): Chrome's profile for it, beside the native stores' cache
+ * (agent-test.mjs `storeBase`), and the port its page is served on — an origin's storage is its host and port's, so
+ * one name is one port, from its hash, below the ephemeral range. */
+/** The store a drive with `env` uses: the driver's environment under the drive's own, as `runTests` places and removes
+ * it and a native host sees it (review b5-c 3). */
+export const driveStore = (appId, storage, env, platform = process.platform) => {
+  const launched = { ...process.env, ...(env ?? {}) };
+  return webStore(appId, storage, launched, launched.HOME || homedir(), platform);
+};
+export function webStore(appId, storage, env = process.env, home = homedir(), platform = process.platform) {
+  const cache = platform === 'darwin' ? resolve(home, 'Library/Caches') : env.XDG_CACHE_HOME?.startsWith('/') ? env.XDG_CACHE_HOME : resolve(home, '.cache');
+  const base = resolve(cache, 'exact', appId, 'agent-web');
+  return { base, profile: resolve(base, storage), port: 20000 + createHash('sha256').update(`${appId}/${storage}`).digest().readUInt32BE(0) % 28000 };
 }
 
 /** One browser lookup for the agent and its tests: an explicit override,
@@ -154,6 +239,17 @@ export function packagedBuildChanges(receipt, directory) {
       if (createHash('sha256').update(readFileSync(path)).digest('hex') !== product.sha256) changed.push(path);
     } catch { changed.push(path); }
   }
+  const compatibility = resolve(directory, 'compat.json');
+  if (existsSync(compatibility)) {
+    const assets = JSON.parse(readFileSync(compatibility, 'utf8')).embedded?.assets ?? [];
+    for (const asset of assets.filter(asset => /^shaders\/[A-Za-z_][A-Za-z0-9_]*\.wgsl$/.test(asset.name))) {
+      const path = resolve(directory, asset.name);
+      try {
+        const bytes = readFileSync(path);
+        if (bytes.length !== asset.bytes || createHash('sha256').update(bytes).digest('hex') !== asset.sha256) changed.push(path);
+      } catch { changed.push(path); }
+    }
+  }
   return changed;
 }
 
@@ -215,7 +311,7 @@ export function gitIgnored(dir, keep = []) {
 // fonts and strings). A build reads more than the bake captures, so the rule
 // names the outputs and leaves everything else an input.
 const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world)$/i;
-const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|linux)(\/|$)/;
+const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|ios|macos|linux)(\/|$)/;
 /** A skip for an app's own files that no build reads. A file a build can
  * read always counts, ignored by Git or not: what the bake captures, anything
  * in an input tree, under `keep` (declared shader roots) or in one of the
@@ -243,10 +339,14 @@ export function receiptChanges(receipt, app) {
   if (!existsSync(receipt)) return [];
   const { build, target } = JSON.parse(readFileSync(receipt, 'utf8')), since = statSync(receipt).mtimeMs;
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
-  const own = newerThan(since, [app.dir], path => /\/(apple|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path));
+  const own = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path));
+  // Platform-local modules live under the host crate directory skipped above,
+  // but their separate dylib's sources are absent from the binary receipt.
+  const platform = target.includes('-ios') ? 'ios' : 'macos';
+  own.push(...newerThan(since, [moduleDirectory(app.dir, platform)], ignored));
   // The receipt names what the binary links, not what built it: the Rust
   // archive's own dep-info also names its build script's (the compiler, the bake).
-  const archive = `lib${app.crate('apple').replace(/-/g, '_')}.d`;
+  const archive = `lib${app.crate(platform).replace(/-/g, '_')}.d`;
   let infos = []; try { infos = readdirSync(resolve(app.target, target)).map(p => resolve(app.target, target, p, archive)).filter(existsSync); } catch {}
   const info = infos.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
   const tools = info ? depInfoNewer(since, null, info) : [];
@@ -262,18 +362,85 @@ export function receiptChanges(receipt, app) {
 export function gameNonInput(path) {
   path = path.replaceAll('\\', '/');
   return /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.md)$/.test(path)
-    || (/\.m?js$/.test(path) && !/^(logic|data|gpu|art|assets|deck)\//.test(path));
+    || (/\.m?js$/.test(path) && !/^(logic|data|gpu|presentation|art|assets|deck)\//.test(path));
 }
 export function webChanges(dist, app) {
   const marker = resolve(dist, '.exact-build.json');
   if (!existsSync(marker)) return { app: [], shared: [], all: [] };
   const since = statSync(marker).mtimeMs, js = JSON.parse(readFileSync(marker, 'utf8')).target === 'js';
-  const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'plan', 'motion', 'num', 'contract'];
+  const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'svg-filter', 'plan', 'motion', 'num', 'contract'];
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
-  const appChanges = newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
+  const appChanges = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
   const shared = newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) }));
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
+}
+
+// LLP 1015.000: capture bounded primitive params, never claim they are wire bytes.
+const cdpFailures = new WeakMap(), CDP_STRING_LIMIT = 256 * 1024;
+const cdpIdentity = value => typeof value === 'string' && value.length <= 256 ? value : null;
+export const cdpFailureContext = error => cdpFailures.get(error);
+function associateCdpFailure(error, context) {
+  try {
+    const prior = cdpFailures.get(error);
+    cdpFailures.set(error, prior && prior !== context
+      ? Object.freeze({schema:1, omitted:'shared-error', ambiguous:true}) : context);
+  } catch { /* A primitive throw remains a primitive throw. */ }
+  return error;
+}
+export function copyCdpFailureContext(from, to) {
+  const context = cdpFailureContext(from);
+  return context ? associateCdpFailure(to, context) : to;
+}
+
+/** Also the offline test seam: no getter, Proxy trap, coercion or hashing. */
+export function captureCdpRequest(method, params, sessionId, requestId, timeoutMs) {
+  const snapshot = {method:cdpIdentity(method), requestId, cdpSessionId:cdpIdentity(sessionId),
+    timeoutMs:typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) ? timeoutMs : null};
+  const field = method === 'Runtime.evaluate' ? 'expression' : method === 'Page.navigate' ? 'url' : null;
+  if (!field) return snapshot;
+  const unavailable = omitted => { snapshot.parameter = {field, omitted}; return snapshot; };
+  try {
+    if (typeof utilTypes.isProxy !== 'function') return unavailable('proxy-check-unavailable');
+    if (!params || typeof params !== 'object' || utilTypes.isProxy(params)) return unavailable('not-plain-data');
+    const prototype = Object.getPrototypeOf(params);
+    if (prototype !== null && (utilTypes.isProxy(prototype) || prototype !== Object.prototype)) return unavailable('not-plain-data');
+    if (Object.getOwnPropertyDescriptor(params, 'toJSON') || prototype && Object.getOwnPropertyDescriptor(prototype, 'toJSON'))
+      return unavailable('serialization-hook');
+    const property = Object.getOwnPropertyDescriptor(params, field);
+    if (!property || !Object.hasOwn(property, 'value') || typeof property.value !== 'string') return unavailable('not-string-data');
+    const characters = property.value.length;
+    snapshot.parameter = characters > CDP_STRING_LIMIT ? {field, characters, omitted:'length-limit'}
+      : {field, characters, value:property.value};
+  } catch { return unavailable('capture-unavailable'); }
+  return snapshot;
+}
+function releaseCdpRequest(snapshot) { if (snapshot.parameter) delete snapshot.parameter.value; }
+function finishCdpFailure(error, snapshot, category, input) {
+  try {
+    const {parameter, ...identity} = snapshot;
+    const context = {schema:1, ...identity, category, source:'captured-primitive-params'};
+    if (parameter) {
+      const {value, ...metadata} = parameter;
+      if (typeof value === 'string') {
+        metadata.utf8Bytes = Buffer.byteLength(value, 'utf8');
+        metadata.sha256 = createHash('sha256').update(value, 'utf8').digest('hex');
+      }
+      context.parameter = Object.freeze(metadata);
+    }
+    const pipe = {};
+    try {
+      for (const key of ['writableLength','writableNeedDrain','destroyed']) {
+        const value = input?.[key];
+        if (typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value)) pipe[key] = value;
+      }
+    } catch { pipe.omitted = 'unavailable'; }
+    context.input = Object.freeze(pipe);
+    associateCdpFailure(error, Object.freeze(Buffer.byteLength(JSON.stringify(context), 'utf8') <= 8192
+      ? context : {schema:1, omitted:'context-limit'}));
+  } catch { associateCdpFailure(error, Object.freeze({schema:1, omitted:'metadata-unavailable'})); }
+  finally { releaseCdpRequest(snapshot); }
+  return error;
 }
 
 /** The DevTools protocol over Chrome's --remote-debugging-pipe (fd 3 in, fd 4 out; NUL-delimited JSON). A closed pipe or a dead Chrome fails every pending call; every call has a deadline. */
@@ -295,7 +462,7 @@ export class Cdp {
         if (msg.id) {
           const p = this.pending.get(msg.id);
           this.pending.delete(msg.id);
-          if (msg.error) p?.reject(new Error(`${msg.error.message} (${p.method})`));
+          if (msg.error) p?.reject(new Error(`${msg.error.message} (${p.method})`), 'protocol');
           else p?.resolve(msg.result);
         } else for (const l of this.listeners) l(msg);
       }
@@ -306,15 +473,24 @@ export class Cdp {
   }
   fail(why) {
     this.closed ??= why;
-    for (const [id, p] of this.pending) { this.pending.delete(id); p.reject(new Error(`${why} (${p.method})`)); }
+    for (const [id, p] of this.pending) { this.pending.delete(id); p.reject(new Error(`${why} (${p.method})`), 'transport'); }
   }
   send(method, params = {}, sessionId, timeoutMs = 15000) {
-    if (this.closed) return Promise.reject(new Error(`${this.closed} (${method})`));
+    if (this.closed) return Promise.reject(finishCdpFailure(new Error(`${this.closed} (${method})`),
+      captureCdpRequest(method, params, sessionId, null, timeoutMs), 'closed', this.input));
     const id = this.next++;
+    const snapshot = captureCdpRequest(method, params, sessionId, id, timeoutMs);
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`${method} did not answer within ${timeoutMs} ms`)); }, timeoutMs);
-      this.pending.set(id, { resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); }, method });
-      this.input.write(JSON.stringify({ id, method, params, sessionId }) + '\0');
+      const fail = (error, category) => reject(finishCdpFailure(error, snapshot, category, this.input));
+      const timer = setTimeout(() => { this.pending.delete(id); fail(new Error(`${method} did not answer within ${timeoutMs} ms`), 'timeout'); }, timeoutMs);
+      this.pending.set(id, { resolve: (v) => { clearTimeout(timer); releaseCdpRequest(snapshot); resolve(v); },
+        reject: (e, category = 'transport') => { clearTimeout(timer); fail(e, category); }, method });
+      try { this.input.write(JSON.stringify({ id, method, params, sessionId }) + '\0'); }
+      catch (error) {
+        // Keep the existing executor rejection and pending timer; only metadata is retired.
+        finishCdpFailure(error, snapshot, 'send-refusal', this.input);
+        throw error;
+      }
     });
   }
 }

@@ -1,23 +1,20 @@
-//! Style value types and the one lowering onto Taffy.
-//!
-//! The generated `StyleProps` holds the rows; this module holds the value
-//! grammars the rows use (dimensions, colors, grid tracks and placements) and
-//! `to_taffy`, the single place where authored style becomes engine style.
-//! Percentages are authored as points (0–100) on the wire and in storage and
-//! are converted to Taffy's fraction exactly once, here.
+//! Style grammars (dimensions, colors, grid tracks/placements) and Taffy lowering.
+//! Generated `StyleProps` holds rows; `to_taffy` converts authored to engine style.
+//! Percentages use points (0–100) on the wire/in storage, becoming fractions here.
 
 use taffy::prelude::{auto, length, percent};
 
 use crate::arena::NodeArena;
 use crate::error::StyleValueError;
 use crate::generated::{
-    AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, Direction, Display, FlexDirection,
-    FlexWrap, GridAutoFlow, JustifyContent, JustifyItems, NodeType, Overflow, PositionType,
-    StyleId, StyleMask, StyleProps,
+    AlignContent, AlignItems, AlignSelf, BoxSizing, Direction, Display, FlexDirection, FlexWrap,
+    GridAutoFlow, JustifyContent, JustifyItems, NodeType, Overflow, PositionType, StyleId,
+    StyleMask, StyleProps,
 };
 
 mod backdrop;
 pub use backdrop::link as link_backdrop_filter;
+mod border;
 pub(crate) mod effects;
 pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
@@ -30,9 +27,14 @@ pub use grid::{
 pub mod env;
 pub use env::link as link_segments;
 pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, SegmentVar};
+/// Link the wide colour forms (`lab()`, `lch()`, `oklab()`, `oklch()`,
+/// `color()`) into every colour row's grammar: native hosts and the compiler
+/// at start, a web artifact by use (LLP 1047 D2, LLP 1056 §8.2).
+pub use exact_motion::color::css::link_wide as link_wide_colors;
 mod viewport;
 pub use viewport::ViewportUnit;
 pub mod relative;
+pub mod roles;
 mod shadow;
 pub mod space;
 pub(crate) mod stroke;
@@ -336,7 +338,7 @@ pub enum StyleValue {
     /// A number: points for dimensions, the raw value for numeric rows, a
     /// packed `0xRRGGBBAA` for colors.
     Number(f64),
-    /// Text: an enum value by name, or a color as `#rrggbb[aa]` or `rgb()`.
+    /// Text: an enum value by name, or a CSS colour.
     Text(String),
     /// A percentage, authored 0–100.
     Percent(f64),
@@ -347,6 +349,21 @@ pub enum StyleValue {
 }
 
 impl StyleValue {
+    /// Whether this value is a CSS-wide keyword that leaves row `style`
+    /// unset — inherited, else initial — which is what clearing the row
+    /// does: `unset`, and `inherit` on an inherited row (`color:
+    /// currentcolor` is `inherit`). `inherit` on any other row needs its
+    /// parent's value, which no row holds, so it stays refused (feed F1).
+    pub fn unsets(&self, style: StyleId) -> bool {
+        let StyleValue::Text(t) = self else {
+            return false;
+        };
+        let t = t.trim();
+        t.eq_ignore_ascii_case("unset")
+            || (t.eq_ignore_ascii_case("inherit") && StyleMask::INHERITED.has(style))
+            || (t.eq_ignore_ascii_case("currentcolor") && style == StyleId::TextColor)
+    }
+
     pub(crate) fn line_height(&self, style: StyleId) -> Result<LineHeight, StyleValueError> {
         let value = match self {
             Self::Number(n) if *n >= 0.0 => Some(LineHeight::Number(*n as f32)),
@@ -666,11 +683,11 @@ pub enum ColorValue {
     /// CSS `light-dark(a, b)`: the first under a light scheme, the second
     /// under a dark one.
     LightDark(Color, Color),
-    /// One of UIKit's label, fill and separator colours by WebKit's name
-    /// (`symbols::SYSTEM_COLORS`, by index): the table's pair wherever a
-    /// colour paints, and the name an Apple host draws vibrantly inside a
-    /// material (LLP 1077 D13).
-    System(u8),
+    /// A colour role (LLP 1095 D2), by id into `COLOR_ROLES`: the platform's
+    /// own colour where a host has it, the role's pair everywhere else.
+    Role(u8),
+    /// A `platform-color()` (LLP 1095 D3), by id into the interned table.
+    Platform(u16),
 }
 
 impl Default for ColorValue {
@@ -682,9 +699,13 @@ impl Default for ColorValue {
 impl ColorValue {
     /// The colour under an appearance. A host that paints calls this; the web
     /// host does not, because it hands the pair to the browser.
-    pub const fn resolve(self, dark: bool) -> Color {
-        match self.pair() {
-            ColorValue::Fixed(c) => c,
+    pub fn resolve(self, dark: bool) -> Color {
+        // @ref LLP 1095 D1 — a reference is what the host reported, else
+        // its fallback pair.
+        if let Some(c) = roles::reported(self, dark) {
+            return c;
+        }
+        match self.fallback() {
             ColorValue::LightDark(light, night) => {
                 if dark {
                     night
@@ -692,42 +713,35 @@ impl ColorValue {
                     light
                 }
             }
-            // `pair` never returns one.
-            ColorValue::System(_) => Color(0),
+            ColorValue::Fixed(c) => c,
+            ColorValue::Role(_) | ColorValue::Platform(_) => Color::TRANSPARENT,
         }
     }
 
-    /// A system colour as the pair it paints; any other value as it is.
-    pub const fn pair(self) -> ColorValue {
-        match self {
-            ColorValue::System(i) => symbols::system_pair(i),
-            other => other,
-        }
+    /// Whether this depends on the appearance: a pair or a reference — what
+    /// a host asks before deciding whether an appearance change is anything to it.
+    pub fn is_scheme_aware(self) -> bool {
+        !matches!(self, ColorValue::Fixed(_))
     }
 
-    /// The system colour's WebKit name, when this is one.
-    pub fn system_name(self) -> Option<&'static str> {
-        match self {
-            ColorValue::System(i) => symbols::SYSTEM_COLORS.get(i as usize).map(|s| s.0),
-            _ => None,
-        }
-    }
-
-    /// Whether this is a pair — what a host asks before deciding whether an
-    /// appearance change is anything to it.
-    pub const fn is_scheme_aware(self) -> bool {
-        matches!(self, ColorValue::LightDark(..) | ColorValue::System(_))
-    }
-
-    /// `light-dark(<color>, <color>)`, CSS's own spelling, or one of UIKit's
-    /// label, fill and separator colours by WebKit's name, which is such a
-    /// pair (LLP 1077 D13). Whitespace is free; anything that is not two
-    /// parseable colours is not this function, and falls through to the
-    /// plain colour parse.
+    /// A colour that is more than one colour: a role (LLP 1095 D2, which
+    /// takes in WebKit's `-apple-system-*` names, LLP 1077 D13), a
+    /// `platform-color()` (D3), or `light-dark(<color>, <color>)`, CSS's own
+    /// spelling. Whitespace is free; anything else is not this, and falls
+    /// through to the plain colour parse.
     pub fn parse_light_dark(text: &str) -> Option<ColorValue> {
-        if let Some(system) = symbols::system_color(text) {
-            return Some(system);
+        if let Some(role) = roles::role(text) {
+            return Some(ColorValue::Role(role));
         }
+        if text.trim_start().starts_with("platform-color(") {
+            return roles::parse_platform(text);
+        }
+        ColorValue::parse_pair(text)
+    }
+
+    /// `light-dark(<color>, <color>)` alone (LLP 1034): a reference is not
+    /// valid inside one (LLP 1095 D1).
+    pub fn parse_pair(text: &str) -> Option<ColorValue> {
         let inner = text.trim().strip_prefix("light-dark(")?.strip_suffix(')')?;
         // The comma between the two colours, not one inside an `rgb()`.
         let mut depth = 0;
@@ -754,60 +768,21 @@ impl From<Color> for ColorValue {
 }
 
 impl Color {
-    /// A CSS colour: hex, `rgb()`, `hsl()` or `hwb()` notation, `transparent`
-    /// (transparent black) or a named colour (`gray`), keywords in any ASCII
-    /// case as CSS's are; whitespace around it free.
+    /// A CSS colour, by the one parser every reader shares
+    /// ([`exact_motion::color::css`]): hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`,
+    /// `hwb()`, a named colour or `transparent` (any ASCII case, whitespace
+    /// around it free), and the wide forms (`lab()`, `oklch()`, `color()`…)
+    /// clipped to sRGB once a host links them ([`link_wide_colors`]). The web
+    /// hands the same text to the browser, so a colour that paints there
+    /// paints on every host (feed F13). `currentColor` is not a colour here:
+    /// a row that takes it says so ([`StyleValue::keyword_color`]).
     pub fn parse(text: &str) -> Option<Color> {
-        let text = text.trim();
-        if text.eq_ignore_ascii_case("transparent") {
-            return Some(Color::rgba(0, 0, 0, 0));
-        }
-        let named = || exact_motion::named::named(text).map(|[r, g, b]| Color::rgba(r, g, b, 255));
-        let hue = || exact_motion::hue::hue(text).map(|[r, g, b, a]| Color::rgba(r, g, b, a));
-        Color::parse_hex(text)
-            .or_else(|| Color::parse_rgb(text))
-            .or_else(named)
-            .or_else(hue)
-    }
-
-    /// CSS `rgb()` / `rgba()` (one function under two names, as in CSS
-    /// Color 4): `rgb(255, 0, 0)`, `rgba(255, 0, 0, 0.5)`, `rgb(255 0 0 / 50%)`.
-    /// A channel is a number 0–255 or a percentage; alpha is a number 0–1 or
-    /// a percentage; out-of-range values clamp, as on the web.
-    fn parse_rgb(text: &str) -> Option<Color> {
-        let inner = text
-            .strip_prefix("rgba(")
-            .or_else(|| text.strip_prefix("rgb("))?
-            .strip_suffix(')')?;
-        let parts: Vec<&str> = if inner.contains(',') {
-            inner.split(',').map(str::trim).collect()
-        } else {
-            let (rgb, alpha) = match inner.split_once('/') {
-                Some((rgb, alpha)) => (rgb, Some(alpha.trim())),
-                None => (inner, None),
-            };
-            rgb.split_whitespace().chain(alpha).collect()
+        use exact_motion::color::css::{self, Parsed};
+        let c = match css::parse(text)? {
+            Parsed::Color(c) | Parsed::Wide(c, _) => c,
+            Parsed::Current => return None,
         };
-        let ([r, g, b], alpha) = match parts[..] {
-            [r, g, b] => ([r, g, b], None),
-            [r, g, b, a] => ([r, g, b], Some(a)),
-            _ => return None,
-        };
-        // A value as a byte: a percentage of 255, or a number in `unit`s of
-        // a byte (1 for a channel, 255 for alpha).
-        let byte = |s: &str, unit: f32| -> Option<u8> {
-            let v = match s.strip_suffix('%') {
-                Some(p) => exact_num::parse_f32(p).ok()? / 100.0 * 255.0,
-                None => exact_num::parse_f32(s).ok()? * unit,
-            };
-            v.is_finite().then(|| v.round().clamp(0.0, 255.0) as u8)
-        };
-        Some(Color::rgba(
-            byte(r, 1.0)?,
-            byte(g, 1.0)?,
-            byte(b, 1.0)?,
-            alpha.map_or(Some(255), |a| byte(a, 255.0))?,
-        ))
+        Some(Color::rgba(c.r, c.g, c.b, (c.a * 255.0).round() as u8))
     }
 
     /// Parse CSS hex notation: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`.
@@ -1127,23 +1102,6 @@ pub(crate) fn encode_grid_rows(
 }
 
 impl StyleProps {
-    /// CSS effective border widths: none and hidden occupy no border area.
-    pub fn border_widths(&self) -> [f32; 4] {
-        [
-            (self.border_style_top, self.border_width_top),
-            (self.border_style_right, self.border_width_right),
-            (self.border_style_bottom, self.border_width_bottom),
-            (self.border_style_left, self.border_width_left),
-        ]
-        .map(|(style, width)| {
-            if style == BorderStyle::Solid {
-                width.max(0.0)
-            } else {
-                0.0
-            }
-        })
-    }
-
     /// Whether every padding and border width reaches layout as zero, read
     /// without building the engine's style: a kernel that mirrors no engine
     /// tree checks content regions too (LLP 1047 §10).
@@ -1157,17 +1115,6 @@ impl StyleProps {
         .into_iter()
         .all(|p| p.lp_is_zero(env))
             && self.border_widths().into_iter().all(|w| w.to_bits() == 0)
-    }
-
-    /// Border colours after resolving currentColor against this node's computed colour.
-    pub fn border_colors(&self, current: ColorValue) -> [ColorValue; 4] {
-        [
-            self.border_color_top,
-            self.border_color_right,
-            self.border_color_bottom,
-            self.border_color_left,
-        ]
-        .map(|color| color.unwrap_or(current))
     }
 
     /// Lower to engine style. `node_type` supplies the per-tag defaults the
@@ -1374,14 +1321,16 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     let mut s = arena
         .style(slot)
         .to_taffy(arena.node_type(slot), arena.env());
-    // Exact resets a `<button>` to an authored flex container, but HTML's
-    // form-control block sizing still makes its automatic inline size
-    // shrink-to-fit. The element remains a button when an author gives it
-    // another ARIA role; only a Pressable with href projects as an `<a>`.
-    if arena.node_type(slot) == NodeType::Pressable
-        && arena.props(slot).str(crate::PropId::Href).is_none()
-    {
+    // HTML's button layout, which Exact's reset of a `<button>` keeps: its
+    // automatic inline size is shrink-to-fit, and a block button's content
+    // sits in an anonymous flow-root box centred safely in the block axis,
+    // whatever `align-content` says (Chrome 154; LLP 1001 §1). A flex or
+    // grid button lays out as any flex or grid container.
+    if arena.is_button(slot) {
         s.item_is_table = true;
+        if s.display == taffy::Display::Block {
+            s.align_content = Some(taffy::style::AlignContent::SAFE_CENTER);
+        }
     }
     // The page reset makes a checkbox border-box for both `appearance:auto`
     // and `none`. With native appearance Chrome additionally ignores its

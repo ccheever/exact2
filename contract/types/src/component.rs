@@ -71,7 +71,10 @@ pub(crate) fn check_component(
         ct.resources.push(sink.keep(shapes.resolve(&r.shape)));
     }
     for m in &c.mutations {
-        ct.mutations.push(sink.keep(shapes.resolve(&m.shape)));
+        let t = sink.keep(shapes.resolve(&m.shape));
+        // A mutation holds `option<T>` of its answer (LLP 1090 D2).
+        sink.keep_unit(shapes.bounded(&Ty::Option(Box::new(t.clone())), m.shape.span()));
+        ct.mutations.push(t);
         // @ref LLP 1054.000.000 D1 — what a send to this mutation refreshes.
         for (i, (name, span)) in m.refreshes.iter().enumerate() {
             if !c.resources.iter().any(|r| &r.name == name) {
@@ -202,6 +205,8 @@ pub(crate) fn check_component(
     // action-prop arguments must see those types too, not the earlier scope.
     let scope = types.component_scope(c, &ct);
     sink.keep_unit(refine_params_from_view(&c.view, &scope, c, &mut ct, shapes));
+    // Then the calls in action bodies (LLP 1089 D8), before any body is checked.
+    crate::calls::refine(c, &mut ct, types);
     // Action bodies: writes refine slots; assignments must unify. Two
     // rounds, so a `send` whose argument is a state a later action writes
     // (`state q = none`, typed by `q = some(s)`) records the written type
@@ -484,6 +489,13 @@ fn refine_params_from_view(
                             | "pointerdown"
                             | "pointerup"
                             | "pointermove"
+                            | "copy"
+                            | "cut"
+                            | "paste"
+                            | "selectionchange"
+                            | "beforeunload"
+                            | "wheel"
+                            | "drop"
                             | "swiperight"
                             | "refresh"
                             | "reachstart"
@@ -561,9 +573,19 @@ fn refine_params_from_view(
                                 _ => vec![],
                             };
                             // Then the event's record, when the action
-                            // declares one more parameter (`event_record`).
+                            // declares one more parameter (`event_record`)
+                            // of its type or none: another type there is an
+                            // argument left unbound, analysis's arity
+                            // refusal (`handler_accepts`).
                             if let Some(record) = crate::event_record(&a.name) {
-                                if ct.actions[ai].len() == args.len() + payload.len() + 1 {
+                                let n = args.len() + payload.len() + 1;
+                                let fits = ct.actions[ai].len() == n
+                                    && match &ct.actions[ai][n - 1] {
+                                        Ty::Unknown => true,
+                                        Ty::Record(r) => r == record,
+                                        _ => false,
+                                    };
+                                if fits {
                                     payload.push(Ty::Record(record.into()));
                                 }
                             }

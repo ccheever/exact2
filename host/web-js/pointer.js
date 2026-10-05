@@ -1,6 +1,6 @@
 // DOM's own `pointerdown`, `pointerup` and `pointermove` (LLP 1005 §3; LLP
-// 1056 §3 stage 3), as the web host's input-glue `pointer`: the primary
-// button or a touch going down on an element, then up or cancelled (a cancel
+// 1056 §3 stage 3), as the web host's input-glue `pointer`: a button (any,
+// studio diary R22) or a touch going down on an element, then up or cancelled (a cancel
 // is an up), and the pointer moving over it or, once down on it, anywhere
 // until it lifts. The element's handlers share one held pointer; its up and
 // moves are heard on the document, so they arrive wherever the pointer goes
@@ -8,14 +8,14 @@
 // the `PointerEvent` record; moves go out at most once a frame, the latest.
 
 // The record: the point from the element's content box in its own CSS px
-// (a scale undone), DOM's buttons and pressure, the device and its id.
+// (a scale undone), DOM's buttons and pressure, the device and its id, the modifiers held.
 export function record(e, ev, lifted = false) {
   const r = e.getBoundingClientRect(), cs = getComputedStyle(e);
   const sx = e.offsetWidth ? r.width / e.offsetWidth : 1, sy = e.offsetHeight ? r.height / e.offsetHeight : 1;
   const left = parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft), top = parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop);
   const type = ev.pointerType === "pen" || ev.pointerType === "touch" ? ev.pointerType : "mouse";
   return [(ev.clientX - r.left) / (sx || 1) - left, (ev.clientY - r.top) / (sy || 1) - top,
-    lifted ? 0 : ev.buttons, lifted ? 0 : Math.min(1, Math.max(0, ev.pressure || 0)), type, ev.pointerId];
+    lifted ? 0 : ev.buttons, lifted ? 0 : Math.min(1, Math.max(0, ev.pressure || 0)), type, ev.pointerId ?? 1, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey];
 }
 export function pointer(e, kind, f) {
   let s = e.$pointer;
@@ -45,7 +45,8 @@ export function pointer(e, kind, f) {
     };
     e.addEventListener("pointerdown", ev => {
       // The innermost enabled pointer node takes it, as the web host's does.
-      if (ev.$pointerOwner || !ev.isPrimary || ev.button !== 0 || s.held !== null || e.matches(":disabled") || e.hasAttribute("disabled") || e.closest("[inert]")) return;
+      // Any button, as the DOM's (studio diary R22: a secondary click's down; `buttons` says which).
+      if (ev.$pointerOwner || !ev.isPrimary || s.held !== null || e.matches(":disabled") || e.hasAttribute("disabled") || e.closest("[inert]")) return;
       ev.$pointerOwner = e;
       s.held = ev.pointerId; s.last = ev;
       for (const [type, target] of ends) target.addEventListener(type, up, target === document);

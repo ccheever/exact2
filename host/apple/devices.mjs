@@ -9,7 +9,23 @@ import { resolve } from 'node:path';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
-const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts });
+/** Use Xcode when `xcode-select` names the Command Line Tools, which carry
+ * no iOS SDK and no `simctl` (LLP 1054 O2): the iOS build failed deep in a
+ * crate's build script with `SDK "iphonesimulator" cannot be located`, and a
+ * driver that resolved Xcode apart from the build could not find `simctl`
+ * where the build had just installed the app (shop F20, recipes F16). Every
+ * `xcrun` here goes through it, the build's and the driver's alike; an
+ * explicit `DEVELOPER_DIR` is kept. Said on stderr: a drive's stdout is its reply. */
+export function useXcode() {
+  if (process.platform !== 'darwin' || process.env.DEVELOPER_DIR) return;
+  const selected = spawnSync('xcode-select', ['-p'], { encoding: 'utf8' }).stdout?.trim() ?? '';
+  const xcode = '/Applications/Xcode.app/Contents/Developer';
+  if (selected.includes('CommandLineTools') && existsSync(xcode)) {
+    process.env.DEVELOPER_DIR = xcode;
+    console.error(`host/apple: xcode-select names the Command Line Tools (${selected}); using ${xcode}`);
+  }
+}
+const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts }); };
 
 /** Every available simulator: { udid, name, runtime, state }. */
 export function simulators() {

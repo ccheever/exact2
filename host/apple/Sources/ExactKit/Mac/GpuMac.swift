@@ -190,6 +190,11 @@ final class Canvases {
                 guard let self, deferred.remove(key) != nil else { return }
                 load(key)
                 session?.frames.requestCanvas()
+                // Work queued while this wave loaded settles when the wave's
+                // last module has loaded or failed: no later batch is owed to
+                // drain it (an idle tick is skipped). Not before, or a module
+                // still loading would answer its tickets "unavailable".
+                if deferred.isEmpty { session?.drainSurfaceWorkNow() }
             }
         }
     }
@@ -248,7 +253,7 @@ final class Canvases {
                 if r != 0 { return false }
                 continue
             }
-            let hidden = child.isHidden
+            let hidden = child.hiddenByHost
             if child.placementHidden { child.isHidden = false }
             defer { child.isHidden = hidden }
             guard let rep = Capture.bitmap(of: child, scale: scale), let data = rep.bitmapData else { continue }

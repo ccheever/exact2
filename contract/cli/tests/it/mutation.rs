@@ -1062,6 +1062,44 @@ fn then_runs_after_an_answer_in_the_sending_commit_and_not_after_a_failure() {
     assert_eq!(text_of(&r, "greeted").as_deref(), Some("/0"));
 }
 
+/// An agent's input ends by landing what it settled (LLP 1012 §2; trivia
+/// F3): `land_then` runs the armed `then` without moving the clock or
+/// firing a timer due at it.
+#[test]
+fn land_then_runs_the_armed_then_and_no_timer() {
+    let source = THEN.replace(
+        "  action quick\n",
+        "  state ticks = 0\n  action tick\n    ticks = ticks + 1\n  task ticking mount\n    every(100, tick)\n  action quick\n",
+    );
+    let baked = contract::bake(contract::compile(&source).unwrap(), Castle::default()).unwrap();
+    let mut r = Runner::boot(
+        baked,
+        Castle::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(r.advance(50.0).unwrap().len(), 0);
+    assert!(
+        r.land_then().receipts.is_empty(),
+        "nothing armed, nothing run"
+    );
+    r.dispatch(view_of(&r, "quick"), Event::Press).unwrap();
+    assert_eq!(text_of(&r, "greeted").as_deref(), Some("/0"));
+    let landed = r.land_then();
+    assert!(landed.error.is_none());
+    assert_eq!(landed.receipts.len(), 1, "the then, as its own commit");
+    assert_eq!(landed.now_ms, 50.0, "the clock stays");
+    assert_eq!(text_of(&r, "greeted").as_deref(), Some("hello ada/1"));
+    assert_eq!(
+        r.timer_due_ms(),
+        Some(100.0),
+        "the timer is still the clock's"
+    );
+    assert!(r.land_then().receipts.is_empty(), "spent");
+}
+
 #[test]
 fn then_names_an_action_that_takes_nothing() {
     let refuse = |edit: &str, with: &str, id: &str| {
@@ -1145,10 +1183,10 @@ fn two_sends_to_one_mutation_on_one_path_are_refused() {
     }
 }
 
-/// LLP 1088 D8 on the inlined body: a child's action that tail-calls a root
-/// action runs that action's sends in its own commit, so the walk reads the
-/// root after tail calls are inlined — the callee's double send is refused
-/// once, and a single send through the call compiles.
+/// LLP 1088 D8 on the expanded body: a child's action that calls a root
+/// action through its prop runs that action's sends in its own commit, so the
+/// walk reads the root with every call expanded (LLP 1089 D6) — the callee's
+/// double send is refused once, and a single send through the call compiles.
 #[test]
 fn a_send_twice_is_found_through_a_tail_call_once() {
     let src = |body: &str| {

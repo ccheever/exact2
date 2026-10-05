@@ -51,7 +51,7 @@ mutual
 
 /-- `e` evaluates to `v`, `inFn` hiding the component's names. -/
 inductive EvalR (env : Env) : Bool → Locals → Expr → Value → Prop
-  | num : EvalR env inFn ls (.num b) (.num (Float.ofBits b))
+  | num : EvalR env inFn ls (.num b) (.num (F64.ofBits b))
   | str : EvalR env inFn ls (.str s) (.str s)
   | bool : EvalR env inFn ls (.bool b) (.bool b)
   | none : EvalR env inFn ls .none .none
@@ -197,6 +197,13 @@ inductive ExecR (env : Env) : Locals → List Stmt → Effects → Effects → P
       ExecR env ls rest fx₁ fx' → ExecR env ls (.matchS s x sm nn :: rest) fx fx'
   | matchNone : EvalR env false ls s .none → ExecR env ls nn fx fx₁ → ExecR env ls rest fx₁ fx' →
       ExecR env ls (.matchS s x sm nn :: rest) fx fx'
+  /-- A call (LLP 1089 D9): its arguments in the caller's scope, the
+  callee's body in a scope of its parameters alone, against the same `env`;
+  the rest of the caller's block sees its locals again. -/
+  | call : ListR env false ls args vs → env.prog.actions.find? (·.name == a) = .some ad →
+      ad.params.length = vs.length →
+      ExecR env ((ad.params.map (·.1)).zip vs).reverse ad.body fx fx₁ → ExecR env ls rest fx₁ fx' →
+      ExecR env ls (.call a args :: rest) fx fx'
 
 /-! ## The interpreter is sound -/
 
@@ -811,6 +818,17 @@ theorem exec_sound : ∀ {n env ls ss fx fx'}, exec n env ls ss fx = .ok fx' →
           simp only [Except.bind_ok_iff] at h2; obtain ⟨fx₁, h2, h3⟩ := h2
           exact .matchNone (eval_sound h1) (exec_sound h2) (exec_sound h3)
         next => simp at h2
+      | call a args =>
+        simp only [exec, Except.bind_ok_iff] at h
+        obtain ⟨vs, h1, h2⟩ := h
+        split at h2
+        next => simp at h2
+        next ad had =>
+          split at h2
+          next => simp at h2
+          next hl =>
+            simp only [Except.bind_ok_iff] at h2; obtain ⟨fx₁, h2, h3⟩ := h2
+            exact .call (evalList_sound h1) had (by simpa using hl) (exec_sound h2) (exec_sound h3)
 
 theorem exec_mono : ∀ {n m env ls ss fx fx'}, n ≤ m → exec n env ls ss fx = .ok fx' →
     exec m env ls ss fx = .ok fx'
@@ -866,6 +884,19 @@ theorem exec_mono : ∀ {n m env ls ss fx fx'}, n ≤ m → exec n env ls ss fx 
           simp only [Except.bind_ok_iff] at h2 ⊢
           obtain ⟨a, h2, h3⟩ := h2; exact ⟨a, exec_mono hm h2, exec_mono hm h3⟩
         next => simp at h2
+      | call a args =>
+        simp only [exec, Except.bind_ok_iff] at h ⊢
+        obtain ⟨vs, h1, h2⟩ := h
+        refine ⟨vs, evalList_mono hm h1, ?_⟩
+        split at h2
+        next => simp at h2
+        next ad had =>
+          split at h2
+          next => simp at h2
+          next hl =>
+            rw [ite_eq_right_of_eq_false _ _ (eq_false hl)]
+            simp only [Except.bind_ok_iff] at h2 ⊢
+            obtain ⟨a, h2, h3⟩ := h2; exact ⟨a, exec_mono hm h2, exec_mono hm h3⟩
 
 theorem ExecR.complete {env ls ss fx fx'} (h : ExecR env ls ss fx fx') :
     ∃ n, exec n env ls ss fx = .ok fx' := by
@@ -911,6 +942,15 @@ theorem ExecR.complete {env ls ss fx fx'} (h : ExecR env ls ss fx fx') :
       simp only [exec, Except.bind_ok_iff]
       refine ⟨_, eval_mono (by omega) h0, ?_⟩
       simp only [Except.bind_ok_iff]
+      exact ⟨_, exec_mono (by omega) h1, exec_mono (by omega) h2⟩⟩
+  | call ha had hl _ _ ih₁ ih₂ =>
+    obtain ⟨n0, h0⟩ := ha.complete
+    obtain ⟨n1, h1⟩ := ih₁
+    obtain ⟨n2, h2⟩ := ih₂
+    exact ⟨max n0 (max n1 n2) + 1, by
+      simp only [exec, Except.bind_ok_iff]
+      refine ⟨_, evalList_mono (by omega) h0, ?_⟩
+      simp only [had, hl, bne_self_eq_false, Bool.false_eq_true, ↓reduceIte, Except.bind_ok_iff]
       exact ⟨_, exec_mono (by omega) h1, exec_mono (by omega) h2⟩⟩
 
 /-! ## The theorems -/

@@ -13,6 +13,23 @@ fn native_and_browser_use_the_same_grant_corpus() {
             "{spec}: {parsed:?}"
         );
         if let Ok(set) = parsed {
+            for probes in ["fs", "nativeFs"] {
+                if let Some(probes) = case[probes].as_array() {
+                    for probe in probes {
+                        let path = probe[1].as_str().unwrap().into();
+                        let operation = match probe[0].as_str().unwrap() {
+                            "fs.read" => Operation::FsRead { path },
+                            "fs.write" => Operation::FsWrite { path },
+                            other => panic!("unknown probe {other}"),
+                        };
+                        assert_eq!(
+                            set.permits(&operation),
+                            probe[2].as_bool().unwrap(),
+                            "{spec}: {probe}"
+                        );
+                    }
+                }
+            }
             if let Some(fetches) = case["fetch"].as_array() {
                 for probe in fetches {
                     let url = url::Url::parse(probe[0].as_str().unwrap()).unwrap();

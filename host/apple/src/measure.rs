@@ -88,6 +88,16 @@ pub struct CRequest {
     pub exclusion_count: usize,
     /// 1 when the one run is Markdown source the host expands (LLP 1045 D3).
     pub markup: u8,
+    /// CSS `text-indent`, points.
+    pub text_indent: f32,
+    /// CSS `hyphens`: 0 manual (the initial value, so a zeroed request
+    /// is CSS's), 1 none, 2 auto.
+    pub hyphens: u8,
+    /// The document's language (UTF-8, not NUL-terminated), whose
+    /// hyphenation points `auto` takes; empty is unknown.
+    pub lang: *const u8,
+    /// Its length in bytes.
+    pub lang_len: usize,
 }
 
 /// What the callback returns.
@@ -196,6 +206,8 @@ pub struct CallbackMeasurer {
     f: MeasureFn,
     ctx: *mut c_void,
     memo: identified::Memo,
+    /// The document language (`TextMeasurer::set_language`), for `hyphens: auto`.
+    language: String,
 }
 
 impl CallbackMeasurer {
@@ -207,6 +219,7 @@ impl CallbackMeasurer {
             f,
             ctx,
             memo: identified::Memo::default(),
+            language: String::new(),
         }
     }
 }
@@ -293,6 +306,14 @@ impl CallbackMeasurer {
             exclusions: shapes.flat.as_ptr(),
             exclusion_count: shapes.flat.len(),
             markup: u8::from(request.paragraph.markup == exact_kernel::Markup::Markdown),
+            text_indent: request.paragraph.text_indent,
+            hyphens: match request.paragraph.hyphens {
+                exact_kernel::Hyphens::Manual => 0,
+                exact_kernel::Hyphens::None => 1,
+                exact_kernel::Hyphens::Auto => 2,
+            },
+            lang: self.language.as_ptr(),
+            lang_len: self.language.len(),
         };
         // The one foreign call: the app's function, with the structs above
         // alive for its duration and read-only.
@@ -317,6 +338,15 @@ fn sanitize(m: CMetrics) -> TextMetrics {
 }
 
 impl TextMeasurer for CallbackMeasurer {
+    fn set_language(&mut self, language: &str) {
+        // `hyphens: auto` breaks by the language's points: answers by the old
+        // one are another paragraph's.
+        if self.language != language {
+            self.language = language.to_owned();
+            self.memo = identified::Memo::default();
+        }
+    }
+
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         sanitize(self.foreign_measure(request, None))
     }

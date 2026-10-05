@@ -372,7 +372,39 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
     };
     let bottom = if tail == 1 || plain { 0.0 } else { SECTION_GAP };
     let mut sheet = vec![n("margin-top", top, span), n("margin-bottom", bottom, span)];
-    sheet.extend(attrs.iter().cloned());
+    // `background-color="transparent"` on a section drops its card (§6.2), as
+    // Signal's profile and conversation headers sit on the list's background
+    // (UIKit's clear cell background). Only that literal: a coloured card or
+    // a class's background would draw differently on iOS, which keeps the
+    // system's card.
+    let mut cardless = false;
+    for a in attrs.iter().filter(|a| a.name == "background-color") {
+        match &a.value {
+            Expr::Str(v, _) if v == "transparent" => cardless = true,
+            _ => {
+                return err(
+                    "lower-grouped-list",
+                    "a section's `background-color` is the literal `\"transparent\"`, which drops its card; the system draws the card otherwise",
+                    a.span,
+                )
+            }
+        }
+    }
+    if cardless {
+        if let Some(c) = attrs.iter().find(|a| a.name == "class") {
+            return err(
+                "lower-grouped-list",
+                "a section without its card takes no `class`: a class's background would show through",
+                c.span,
+            );
+        }
+    }
+    sheet.extend(
+        attrs
+            .iter()
+            .filter(|a| a.name != "background-color")
+            .cloned(),
+    );
     let label = |node: &Node, footer: bool| -> Node {
         let Node::Element {
             tag,
@@ -407,8 +439,12 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
             instance: *instance,
         }
     };
-    let mut group = vec![s("background-color", CELL, span)];
-    if style == "grouped" {
+    let mut group = vec![s(
+        "background-color",
+        if cardless { "transparent" } else { CELL },
+        span,
+    )];
+    if style == "grouped" && !cardless {
         group.extend([
             n("border-top-width", 1.0, span),
             n("border-bottom-width", 1.0, span),
@@ -418,18 +454,18 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
         ]);
     }
     if inset {
-        group.extend([
-            n("margin-left", 16.0, span),
-            n("margin-right", 16.0, span),
-            n("border-radius", 26.0, span),
-        ]);
+        group.extend([n("margin-left", 16.0, span), n("margin-right", 16.0, span)]);
+        // No card, no card corners to clip a header image to.
+        if !cardless {
+            group.push(n("border-radius", 26.0, span));
+        }
     }
     // Every row draws the separator under it and overlaps the next by its
     // width; the group clips the last one away (`row`).
     group.push(s("overflow", "hidden", span));
     let body = rows
         .iter()
-        .map(|r| over(r, &mut |node| Ok(row(node))))
+        .map(|r| over(r, &mut |node| Ok(row(node, !cardless))))
         .collect::<Result<Vec<_>, _>>()?;
     let mut out: Vec<Node> = children[..head].iter().map(|h| label(h, false)).collect();
     out.push(Node::Element {
@@ -514,7 +550,7 @@ fn with(node: &Node, sheet: Vec<Attr>) -> Node {
 /// at 56 after an icon), its separator from the text to the trailing edge,
 /// the icon in the leading margin, a value or subtitle in the secondary
 /// colour, an accessory's size and colour; red when `destructive`.
-fn row(node: &Node) -> Node {
+fn row(node: &Node, separated: bool) -> Node {
     let Node::Element {
         attrs,
         children,
@@ -592,10 +628,15 @@ fn row(node: &Node) -> Node {
             span,
         ),
         n("padding-right", 16.0, span),
-        n("border-bottom-width", 1.0, span),
+        // A card-less section's rows draw no separator (§6.2).
+        n(
+            "border-bottom-width",
+            if separated { 1.0 } else { 0.0 },
+            span,
+        ),
         s("border-bottom-style", "solid", span),
         s("border-bottom-color", SEPARATOR, span),
-        n("margin-bottom", -1.0, span),
+        n("margin-bottom", if separated { -1.0 } else { 0.0 }, span),
         n("font-size", 17.0, span),
         attr("color", tint(LABEL), span),
         s("text-align", "left", span),

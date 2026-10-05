@@ -785,6 +785,20 @@ component A
       column navigate=follow navigationKey="home"
         text "Home"
 ---
+== lower-route-place
+# hn-reader F5: a route behind a wrapper is found by no host.
+routes nav
+  home "/"
+component A
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back"
+      column align-items="center"
+        each e in stack(nav) key=e.id
+          column navigationKey=`${e.id}`
+            text e.url
+---
 == syntax-continuation-indent
 # LLP 1035.005 D1: an element's attributes continue only on lines deeper
 # than the element's; at its own depth `width=` is neither a child nor a
@@ -851,36 +865,102 @@ component A
       text "a"
 ---
 == type-unknown-command
-# An action is not callable from an action.
-component A
+# An action of another component is out of this one's scope: a call reaches
+# its own component's actions, its action props and its injects (LLP 1089).
+component App
   state n = 1
   action begin
     n = 2
+  view
+    Child()
+component Child
+  state m = 0
   action go
     begin()
   view
     button press=go
       text "a"
 ---
-== type-unknown-command
-# Nor is an action prop, except as the action's last statement (its tail
-# call, LLP 1017 §11).
-component Child
-  props
-    comment: action
-  state sent = false
+== type-call-arity
+# A call passes every parameter the action takes (LLP 1089 D10).
+component A
+  state n = 1
+  action set(x: number, y: number)
+    n = x + y
   action go
-    comment("x")
-    sent = true
+    set(1)
   view
     button press=go
       text "a"
-component App
-  state draft = ""
-  action post(text: string)
-    draft = text
+---
+== type-call-value
+# A call is a statement: it gives no value (LLP 1089 D1).
+component A
+  state n = 1
+  action begin
+    n = 2
+  action go
+    let x = begin()
+    n = 3
   view
-    Child(comment=post)
+    button press=go
+      text "a"
+---
+== type-call-action-arg
+# A call passes values, never an action (LLP 1089 D1).
+component A
+  state n = 1
+  action begin
+    n = 2
+  action run(what)
+    n = 3
+  action go
+    run(begin)
+  view
+    button press=go
+      text "a"
+---
+== syntax-call-cycle
+# No action calls itself, directly or through others (LLP 1089 D4).
+component A
+  state n = 1
+  action go
+    n = 2
+    go()
+  view
+    button press=go
+      text "a"
+---
+== syntax-call-target
+# A called action prop names an action where it is bound (LLP 1089 D7).
+component App
+  state n = 1
+  view
+    Child(cb=n + 1)
+component Child
+  props
+    cb: action
+  state m = 0
+  action go
+    cb()
+  view
+    button press=go
+      text "a"
+---
+== analyze-call-stale-read
+# A callee reads the state the action started with: a slot its caller
+# assigned first is stale behind the call (LLP 1089 D3).
+component A
+  state sel = 0
+  state seen = 0
+  action follow
+    seen = sel
+  action go
+    sel = 2
+    follow()
+  view
+    button press=go
+      text "a"
 ---
 == type-share-argument
 # `share` takes the Web Share API's names, named (LLP 1069.003 D1).
@@ -923,6 +1003,42 @@ component A
 component A
   action go
     share(text=3)
+  view
+    button press=go
+      text "a"
+---
+== type-notification-argument
+# `showNotification` takes the Notification API's names, named.
+component A
+  action go
+    showNotification("Stretch")
+  view
+    button press=go
+      text "a"
+---
+== type-notification-argument
+# It needs a title.
+component A
+  action go
+    showNotification(body="Five minutes")
+  view
+    button press=go
+      text "a"
+---
+== type-notification-argument
+# `showTrigger` is a time in epoch milliseconds, not text.
+component A
+  action go
+    showNotification(title="Stretch", showTrigger="7:30")
+  view
+    button press=go
+      text "a"
+---
+== type-notification-argument
+# `closeNotification` takes the tag.
+component A
+  action go
+    closeNotification()
   view
     button press=go
       text "a"

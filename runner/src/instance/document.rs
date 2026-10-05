@@ -337,9 +337,11 @@ impl Build<'_> {
                 },
                 BindingKind::Style if shared.is_some() => {}
                 // `none` clears the row: unset in a fold from the default.
-                BindingKind::Style if matches!(value, Value::Option(None)) => {}
+                BindingKind::Style
+                    if matches!(value, Value::Option(None))
+                        || bridge::unsets(binding.id, value) => {}
                 BindingKind::Style => {
-                    match bridge::set_style(&mut patch, binding.id, value, plan.stacks.len()) {
+                    match bridge::set_plan_style(&mut patch, binding.id, value, plan) {
                         Ok(StyleId::Animation) => {
                             self.sites.keyframes.resolve(&mut patch.animation);
                         }

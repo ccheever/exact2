@@ -12,7 +12,10 @@
 //! Corpus cases are `test` blocks in `semantics/corpus/*.contract`; random
 //! cases come from [`gen`].
 
+pub mod arith;
+pub mod expansion;
 pub mod gen;
+pub mod js;
 pub mod leanrun;
 pub mod lowering;
 pub mod observe;
@@ -223,6 +226,16 @@ pub fn clone_case(c: &leanrun::LeanCase) -> leanrun::LeanCase {
     }
 }
 
+/// The runner's refusals for passing an evaluation bound: its list steps,
+/// a string's or a value's size, a value's depth (`runner/src/vm.rs`), and
+/// an action argument's or a write's string length.
+const BOUNDS: [&str; 4] = [
+    "IterationLimit",
+    "StringTooLong",
+    "ValueTooLarge",
+    "ValueTooDeep",
+];
+
 fn compare(rust: Vec<String>, lean: Vec<String>) -> Verdict {
     // `#` lines are commentary (a refusal's reason), never compared.
     let keep = |v: Vec<String>| -> Vec<String> {
@@ -268,9 +281,20 @@ fn compare(rust: Vec<String>, lean: Vec<String>) -> Verdict {
             lean_raw,
         };
     }
+    // Where the two first differ, the runner refusing a step for passing
+    // one of its evaluation bounds is outside the semantics, which is
+    // unbounded (LLP 1090 D8): every executor refuses that step alike.
+    let bound = |at: usize| -> Option<String> {
+        let mut lines = rust_raw.iter().flat_map(|l| l.lines());
+        lines.by_ref().filter(|l| !l.starts_with('#')).nth(at)?;
+        lines
+            .take_while(|l| l.starts_with('#'))
+            .find(|l| BOUNDS.iter().any(|b| l.contains(b)))
+            .map(|l| format!("{l} (the runner's evaluation bound, LLP 1090 D8)"))
+    };
     let first = rust.iter().zip(&lean).position(|(a, b)| a != b);
     if let Some(at) = first.or((rust.len() != lean.len()).then(|| rust.len().min(lean.len()))) {
-        if let Some(why) = unsupported(at) {
+        if let Some(why) = unsupported(at).or_else(|| bound(at)) {
             return Verdict::Unsupported(why);
         }
     }
@@ -459,6 +483,47 @@ pub fn shrink(case: &Case, tag: &str) -> Result<Case, String> {
         {
             Some(o) => best = o.case,
             None => return Ok(best),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lines(v: &[&str]) -> Vec<String> {
+        v.iter().map(|l| l.to_string()).collect()
+    }
+
+    /// A step the runner refuses for an evaluation bound is outside the
+    /// unbounded semantics; any other refusal still diverges (LLP 1090 D8).
+    #[test]
+    fn a_bound_refusal_is_outside_and_another_refusal_diverges() {
+        let lean = lines(&["== boot", "outcome ok", "== tap \"go\"", "outcome ok"]);
+        for (reason, outside) in [
+            ("# Trap(IterationLimit { pc: 17 })", true),
+            ("# StringTooLong { name: \"text\" }", true),
+            ("# Instance(Trap(ValueTooLarge { pc: 3 }))", true),
+            ("# Trap(UnwrapNone { pc: 4 })", false),
+        ] {
+            let rust = lines(&[
+                "== boot",
+                "outcome ok",
+                "== tap \"go\"",
+                "outcome refused",
+                reason,
+            ]);
+            let verdict = compare(rust, lean.clone());
+            assert_eq!(
+                matches!(verdict, Verdict::Unsupported(_)),
+                outside,
+                "{reason}"
+            );
+            assert_eq!(
+                matches!(verdict, Verdict::Diverge { .. }),
+                !outside,
+                "{reason}"
+            );
         }
     }
 }

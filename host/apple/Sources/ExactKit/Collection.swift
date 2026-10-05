@@ -60,8 +60,11 @@ struct CollectionCursor {
     /// a relative move, whatever the port did since. A later revision
     /// carrying the same anchor's correction owes only what it adds.
     private var shifted: (sequence: UInt64, from: Double, offset: Double)?
-    mutating func takeShift(revision: UInt64, _ c: CollectionSnapshot.Correction) -> Double? {
-        guard let from = c.from, c.sequence >= jumpedAt, correctedRevision.map({ revision > $0 }) ?? true else { return nil }
+    /// `jumpedBefore`: where `jumpedAt` was before a port resize in this
+    /// same batch; a correction planned since then still lands.
+    mutating func takeShift(revision: UInt64, _ c: CollectionSnapshot.Correction, jumpedBefore: UInt64? = nil) -> Double? {
+        guard let from = c.from, c.sequence >= (jumpedBefore ?? jumpedAt),
+              correctedRevision.map({ revision > $0 }) ?? true else { return nil }
         correctedRevision = revision
         let done = shifted.flatMap { $0.sequence == c.sequence && $0.from == from ? $0.offset : nil } ?? from
         shifted = (c.sequence, from, c.offset)
@@ -242,6 +245,15 @@ final class CollectionHost {
     /// while it ran).
     var animationTargets: [UInt32: CGPoint] = [:]
     var owedTargets: [UInt32: CGPoint] = [:]
+    /// iOS: lists whose smooth correction begins on the next turn, the
+    /// animation each was scheduled for, and the drivers running.
+    var startOwed = Set<UInt32>()
+    var pendingSerial: [UInt32: Int] = [:]
+    var pendingToken: [UInt32: Int] = [:]
+    var nextPendingToken = 0
+    #if os(iOS) || os(tvOS)
+    var offsetDrivers: [UInt32: OffsetDriver] = [:]
+    #endif
     /// The running animation's number, for each animating list only: a
     /// callback for one that has since been stopped, or replaced, is not
     /// this one's.
@@ -258,7 +270,14 @@ final class CollectionHost {
     }
     /// An animation stops: by a drag, an ordinary correction, or the list's
     /// retirement. What it owed goes with it.
+    /// A list whose port changed outside a report reports again.
+    func reportAgain(_ view: UInt32) { dirty.insert(view); schedule() }
     func stopAnimation(_ view: UInt32) {
+        startOwed.remove(view); pendingSerial[view] = nil; pendingToken[view] = nil
+        #if os(iOS) || os(tvOS)
+        offsetDrivers.removeValue(forKey: view)?.cancel()
+        presenter?.scrollPump.forgetTravel(view)
+        #endif
         animating.remove(view)
         animationTargets[view] = nil; owedTargets[view] = nil; animationSerial[view] = nil
         animationMoved.remove(view)
@@ -373,14 +392,18 @@ final class CollectionHost {
         for (view, entry) in entries {
             guard let port = geometry(view) else { continue }
             let dimensions = [port.portCross, port.portMain, port.cross]
-            let planned = entry.cursor.sequence
+            let planned = entry.cursor.sequence, jumped = entry.cursor.jumpedAt
             if let previous = entry.port, previous != dimensions { entry.cursor.jump() }
             entry.port = dimensions
             if let correction = entry.snapshot.correction, correction.from != nil {
                 // Rows before the anchor changed size in this batch: the
                 // offset moves with them before this frame displays, even
-                // under a pan or a fling, which go on from there.
-                if let delta = entry.cursor.takeShift(revision: entry.snapshot.revision, correction) {
+                // under a pan or a fling, which go on from there. A port this
+                // same batch resized is not the reader moving either: rows
+                // put above the reader as a pull-to-refresh zone closes stay
+                // put on the page (feed F14), so a correction planned
+                // before it still lands.
+                if let delta = entry.cursor.takeShift(revision: entry.snapshot.revision, correction, jumpedBefore: jumped) {
                     correcting = true
                     shift(view, by: delta, extent: entry.snapshot.extent, from: entry.batchStart)
                     correcting = false

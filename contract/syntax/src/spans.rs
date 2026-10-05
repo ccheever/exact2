@@ -67,7 +67,7 @@ macro_rules! leaves {
         }
     )* };
 }
-leaves!(String, bool, f64, u16, u32, usize, BinOp, UnOp, TaskKind);
+leaves!(String, bool, f64, u16, u32, usize, BinOp, UnOp, TaskKind, TapForm);
 
 macro_rules! structs {
     ($($ty:ident { $($field:ident),* $(,)? })*) => { $(
@@ -81,7 +81,7 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, shapes, styles, keyframes, timelines, fns, tests, components }
+    File { names, routes, uses, fonts, shapes, styles, keyframes, timelines, fns, tests, launch, components }
     KeyframesDecl { name, frames, span }
     TimelineDecl { name, span }
     KeyframeDecl { selectors, attrs, span }
@@ -91,7 +91,8 @@ structs! {
     FontFaceDecl { weight, italic, source, span }
     TestDecl { name, steps, span }
     FnDecl { name, params, ret, body, span }
-    UseDecl { name, path, span }
+    UseDecl { names, path, span }
+    UseName { name, alias, span }
     StyleDecl { name, attrs, span }
     ShapeDecl { name, fields, span }
     Field { name, ty, span }
@@ -120,9 +121,11 @@ macro_rules! record_variants {
 }
 record_variants! {
     Step {
-        Tap { target, hover, span }, Drag { target, dx, dy, press, over, hold, span },
-        Size { width, height, span }, Type { target, text, span }, Key { target, key, span },
-        Clock { arg, span }, Screenshot { path, span }, ExpectTree { target, present, span },
+        Tap { target, form, modifiers, span }, Drag { target, dx, dy, from, mouse, press, over, hold, span },
+        Size { width, height, span }, Epoch { value, span }, TimeZone { zone, span },
+        Locale { tag, span }, Seed { seed, span }, BeforeData { span }, Type { target, text, append, span }, Key { target, key, span },
+        Pick { target, paths, span }, Clipboard { target, edit, text, span },
+        Clock { arg, span }, Reload { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectTree { target, present, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
     }
 }
@@ -131,6 +134,7 @@ record_variants! {
         Let { name, expr, span }, Assign { target, expr, span }, Command { name, args, span },
         Send { target, source, args, span }, Refresh { target, span },
         If { cond, then, otherwise, span }, Match { subject, some, none, span },
+        Call { action, args, body, authored, curried, binding, span },
     }
 }
 record_variants! {

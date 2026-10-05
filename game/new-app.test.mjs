@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
@@ -41,11 +41,25 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
       assert.equal(result.status, 0, result.stderr);
       assert.deepEqual(JSON.parse(result.stdout), { args, app: realpathSync(dir) });
     }
+    // chat F19, calendar F13: the files named, from the current directory (a glob too), each run in turn.
+    mkdirSync(resolve(dir, 'tests'));
+    for (const name of ['b.test.contract', 'a.test.contract']) writeFileSync(resolve(dir, 'tests', name), '');
+    const files = (command, cwd = dir) => {
+      const result = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim().split('\n').filter((l) => l.startsWith('{')).map((l) => JSON.parse(l).args);
+    };
+    const tested = (host, file, ...more) => [host, '--app', 'field-log', '--test', resolve(realpathSync(dir), file), ...more];
+    assert.deepEqual(files(['test', 'ios', 'tests/b.test.contract', '--size', '800x600']), [tested('ios', 'tests/b.test.contract', '--size', '800x600')]);
+    assert.deepEqual(files(['test', 'macos', 'tests/*.test.contract']), [tested('macos', 'tests/a.test.contract'), tested('macos', 'tests/b.test.contract')]);
+    assert.deepEqual(files(['test', 'ios', '--test', 'field-log/tests/a.test.contract'], parent), [tested('ios', 'tests/a.test.contract')]);
+    assert.equal(spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test', 'ios', 'none/*.test.contract'], { cwd: dir, env: { ...process.env, EXACT2: sdk } }).status, 2);
     writeFileSync(resolve(sdk, 'scripts/agent.mjs'), 'process.exit(7);');
     const refused = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test', 'ios'], { cwd: parent, env: { ...process.env, EXACT2: sdk } });
     assert.equal(refused.status, 7, 'a failed app test fails the generated command');
     const logged = readFileSync(resolve(dir, '.exact/commands.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
-    assert.deepEqual(logged.map(c => [c.verb, c.exit]).slice(-2), [['contract', 0], ['test ios', 7]], 'each command is logged, without its arguments');
+    assert.deepEqual(logged.map(c => [c.verb, c.exit]).slice(-2), [['test ios', 2], ['test ios', 7]], 'each command is logged, without its arguments, a glob that matched nothing too');
+    assert.ok(logged.some(c => c.verb === 'contract' && c.exit === 0), 'the contract command is logged too');
     const manifest = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
     writeFileSync(resolve(dir, 'Cargo.toml'), manifest.replace(/^taffy = .*\n/m, ''));
     writeFileSync(resolve(dir, 'rust-toolchain.toml'), '[toolchain]\nchannel = "1.0.0"\n');
@@ -73,6 +87,60 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.equal(readFileSync(resolve(dir, 'Cargo.toml'), 'utf8'), manifest, 'the patch table is rewritten in place');
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000); // Three offline Cargo resolutions; a cold metadata cache takes seconds.
+
+// chat and onboarding F20: killing `bun exact.mjs web` left the dev server listening. A signal is passed on; a
+// SIGKILL passes nothing, so the server watches its launcher (`EXACT_LAUNCHER_PID`, serve.mjs `watchLauncher`).
+test('the generated exact.mjs ends its child with it: a signal is passed on, and a killed launcher leaves no server', async () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const until = async (f) => { for (let i = 0; i < 100; i++) { const v = f(); if (v) return v; await new Promise((r) => setTimeout(r, 50)); } throw new Error('timed out'); };
+  try {
+    const dir = resolve(parent, 'field-log'), sdk = resolve(parent, 'sdk'), pidFile = resolve(parent, 'dev.pid');
+    createApp(dir);
+    mkdirSync(resolve(sdk, 'host/web'), { recursive: true });
+    writeFileSync(resolve(sdk, 'host/web/dev.mjs'), `import { watchLauncher } from ${JSON.stringify(resolve(import.meta.dir, '../host/web/serve.mjs'))};
+import { writeFileSync } from 'node:fs';
+process.on('SIGTERM', () => process.exit(0));
+watchLauncher(() => process.exit(0));
+writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+setInterval(() => {}, 1000);`);
+    for (const signal of ['SIGTERM', 'SIGKILL']) {
+      rmSync(pidFile, { force: true });
+      const launcher = spawn(process.execPath, [resolve(dir, 'exact.mjs'), 'web'], { cwd: parent, env: { ...process.env, EXACT2: sdk }, stdio: 'ignore' });
+      const dev = await until(() => existsSync(pidFile) && Number(readFileSync(pidFile, 'utf8')));
+      launcher.kill(signal);
+      await until(() => !alive(dev));
+    }
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 30_000);
+
+// paint, minesweeper, ledger: `update` regenerated exact.mjs and dropped the verbs the app had added to it.
+// The app's own verbs are app.json's `commands`, which the generated file reads and update leaves alone.
+test('the app\'s own verbs live in app.json, so update keeps them', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const dir = resolve(parent, 'field-log'), sdk = resolve(parent, 'sdk');
+    createApp(dir);
+    mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
+    writeFileSync(resolve(sdk, 'scripts/agent.mjs'), '');
+    const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { verify: ['bun', 'verify.mjs', '--quick'] } }, null, 2));
+    writeFileSync(resolve(dir, 'verify.mjs'), 'console.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2),app:process.env.EXACT_APP_DIR,exact2:process.env.EXACT2})); process.exit(3);');
+    readManifest(dir, 'field-log');
+    const exact = (...args) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...args], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    createApp(dir, { update: true });
+    const verified = exact('verify', 'web');
+    assert.equal(verified.status, 3, verified.stderr);
+    assert.deepEqual(JSON.parse(verified.stdout), { cwd: realpathSync(dir), args: ['--quick', 'web'], app: realpathSync(dir), exact2: sdk });
+    assert.match(exact('nope').stderr, /Usage: bun exact\.mjs <web\|[^>]*\|verify>/);
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, '.exact/commands.jsonl'), 'utf8').trim().split('\n')[0]).verb, 'verify');
+    // A built-in verb's name is the generated file's, and an empty command is no command.
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { test: ['bun', 'verify.mjs'] } }, null, 2));
+    assert.match(exact('test').stderr, /commands\.test: test is one of exact\.mjs's own verbs/);
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { verify: [] } }, null, 2));
+    assert.throws(() => readManifest(dir, 'field-log'), /commands\.verify: fewer than 1 items/);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 60_000); // Two offline Cargo resolutions.
 
 test('a new app refuses a name no host crate can carry, and a directory that is not empty', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));

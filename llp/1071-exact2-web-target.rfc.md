@@ -1659,6 +1659,9 @@ reports no `value`), and an option is `Text`.
 Caltrain drive and every bare-plan fixture pass on JS builds (a fixture is
 `agent.mjs web --plan` over the app's JS build: a JS build of that plan); the
 router sweep keeps its wasm build beside its JS-target sweep (above).
+Both web targets report a text input or textarea’s live DOM value in `tree`
+and `layout <node>`, including an uncontrolled field with no binding or input
+handler. Inspection does not write that value into the runner’s authored props.
 What the JS agent (agent.js) now reports as the wasm agent does:
 `layout <node>` — the host's half as glue.js's `nodeDetail` gives it (the
 viewport, local and capture spaces, the scroll and clip chains, visibility,

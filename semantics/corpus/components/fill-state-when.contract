@@ -1,0 +1,39 @@
+// A stateful child in a slot fill, the slot component showing `children`
+// under its own `when`: the fill renders at `children`, so the arm around
+// `children` owns the child's state, and hiding and showing the arm starts
+// it fresh — not the use site, which keeps rendering throughout.
+component App
+  view
+    column
+      Box()
+        Counter()
+
+component Box
+  slot
+  state open = true
+  action toggle
+    open = not open
+  view
+    column
+      button "toggle" press=toggle testId="toggle"
+      when open
+        children
+
+component Counter
+  state n = 0
+  action inc
+    n = n + 1
+  view
+    button "inc" press=inc testId="inc"
+      text `${n}` testId="n"
+
+test "hiding the slot's arm resets the fill's child"
+  tap "inc"
+  tap "inc"
+  expect text "n" == "2"
+  tap "toggle"
+  expect tree missing "n"
+  tap "toggle"
+  expect text "n" == "0"
+  tap "inc"
+  expect text "n" == "1"

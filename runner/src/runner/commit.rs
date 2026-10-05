@@ -137,7 +137,7 @@ impl<D: DataSource> Runner<D> {
     /// virtual frames here unless the host presents frames
     /// ([`Runner::present_frames`]; LLP 1073 D3).
     pub fn advance_timed(&mut self, now_ms: f64) -> Advanced {
-        self.advance_within(now_ms, false)
+        self.advance_within(now_ms, false, true)
     }
 
     /// Whether the host presents frames (LLP 1073 D4): while it does, frame
@@ -196,10 +196,19 @@ impl<D: DataSource> Runner<D> {
     /// send would drop it. An agent's clock jump advances this way (LLP
     /// 1012); on the wall clock, replies land between ticks by themselves.
     pub fn advance_until_request(&mut self, now_ms: f64) -> Advanced {
-        self.advance_within(now_ms, true)
+        self.advance_within(now_ms, true, true)
     }
 
-    fn advance_within(&mut self, now_ms: f64, until_request: bool) -> Advanced {
+    /// The `then` of every answer already landed, each its own commit, with
+    /// the clock where it is and no timer fired: how an agent's input ends
+    /// (LLP 1012 §2), so the next operation sees what the input settled —
+    /// a wall-clock host runs them at once by itself (`timer_due_ms`).
+    /// trivia F3, kanban F19.
+    pub fn land_then(&mut self) -> Advanced {
+        self.advance_within(self.now_ms, false, false)
+    }
+
+    fn advance_within(&mut self, now_ms: f64, until_request: bool, timers: bool) -> Advanced {
         // A host that presents frames fires frame tasks at `frame`; else
         // their virtual frames are timers (LLP 1073 D3).
         let frames = !self.presenting;
@@ -232,6 +241,7 @@ impl<D: DataSource> Runner<D> {
                 .timers
                 .iter()
                 .enumerate()
+                .filter(|_| timers)
                 .filter(|(i, t)| t.next_ms <= now_ms && (frames || !self.plan.timers[*i].frame))
                 .min_by(|(ia, a), (ib, b)| {
                     a.next_ms.partial_cmp(&b.next_ms).unwrap().then(ia.cmp(ib))
@@ -423,6 +433,19 @@ impl<D: DataSource> Runner<D> {
         }
         for (i, p) in row.params.iter().enumerate() {
             let param = self.plan.param(p);
+            // A hidden parameter (`@capture:…`, a child's captured prop; `@`
+            // begins no authored name) is the compiler's argument, not the
+            // host's: it has its type, but its numbers need not be finite
+            // nor its strings short, as a prop read in place needs neither.
+            if self.plan.str(param.name).starts_with('@') {
+                if !args[i].typed(&self.plan, param.ty) {
+                    return Err(RunnerError::ArgumentType {
+                        action: self.plan.str(row.name).to_string(),
+                        param: self.plan.str(param.name).to_string(),
+                    });
+                }
+                continue;
+            }
             if !args[i].conforms(&self.plan, param.ty) {
                 return Err(RunnerError::ArgumentType {
                     action: self.plan.str(row.name).to_string(),
@@ -617,11 +640,13 @@ impl<D: DataSource> Runner<D> {
                 s
             })
             .collect();
-        // `scrollIntoView` is the runner's own (LLP 1070.000): it runs in
-        // this commit, after the update, and never reaches a host.
+        // `scrollIntoView` of a list's row is the runner's own (LLP
+        // 1070.000): it runs in this commit, after the update, and never
+        // reaches a host. An element's (its id and three options, not the
+        // row form's six arguments) is the host's, as `focus` is.
         let stated: Vec<Command> = self.commands.drain(first_command..).collect();
         for command in stated {
-            if command.name != "scrollIntoView" {
+            if command.name != "scrollIntoView" || command.args.len() != 6 {
                 self.commands.push(command);
                 continue;
             }
@@ -1035,6 +1060,8 @@ impl<D: DataSource> Runner<D> {
         }
         match p.target {
             Target::Resource(i) => {
+                let shown = self.resources[i].take();
+                self.revalidated(i, shown.as_ref(), &value);
                 self.stale[i] = false;
                 self.failed_args[i] = None;
                 self.keep_answer(i, &p.args, &value);

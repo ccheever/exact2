@@ -31,7 +31,11 @@ final class Presenter {
     /// Shared elements in flight, by the arriver's id (LLP 1013.000, `FlightsMac.swift`).
     var flights: [UInt32: Flight] = [:]
     /// A view's props were written (`NodeView.props`' own observer).
-    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props) }
+    func propsChanged(_ view: NodeView) {
+        chrome.note(view.id, props: view.props)
+        // HTML's `title`: the platform's tooltip (studio diary R24).
+        if view.toolTip != view.props["title"] { view.toolTip = view.props["title"] }
+    }
     /// Views carrying an indexed prop, in id order (the passes' old order was
     /// a dictionary's, which is none).
     func carrying(_ key: String) -> [NodeView] {
@@ -89,6 +93,8 @@ final class Presenter {
     /// The head's title goes to the window the app attached, through the
     /// toolbar host that already owns its title (LLP 1048.003 D1).
     func headTitle(_ title: String?) { toolbar.headTitle(title) }
+    /// `head edited` (LLP 1069.010 D6): the window's edited mark.
+    func headEdited(_ edited: Bool) { toolbar.headEdited(edited) }
     /// The first root's `viewportFit` prop (`"cover"` or nothing), as of the
     /// last batch; `onViewportFit` fires when it changes. macOS maps `cover`
     /// to a full-size-content window (the titlebar overlays the viewport;
@@ -616,12 +622,17 @@ final class Presenter {
     var onCommand: ((String, [Any], UInt32?) -> Void)?
     /// A `key` handler called `preventDefault()` (`keyDown(at:_:)`, KeyEvents.swift).
     var defaultPrevented = false
+    /// The last wheel or magnify event and whether a `wheel` handler
+    /// prevented it: every view it passes up asks once (MouseEventsMac.swift).
+    var lastWheel: (NSEvent, Bool)?
+    /// A `key` handler called `stopPropagation()` (`keyDown(at:_:)`, KeyEvents.swift).
+    var propagationStopped = false
 
     /// The action's focus(html-id), delivered only after the batch is mounted.
     func focusElement(_ args: [Any], selectText: Bool = false) {
         guard args.count == 1, let name = args.first as? String,
               let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
-              let window = target.window, !target.disabled,
+              let window = target.window, !target.formDisabled,
               target.bounds.width > 0, target.bounds.height > 0 else { return }
         var ancestor: NSView? = target
         while let view = ancestor {
@@ -664,6 +675,9 @@ final class Presenter {
     var onFocus: ((UInt32) -> Void)?
     var onBlur: ((UInt32) -> Void)?
     var onKey: ((UInt32, String) -> Void)?
+    var onClipboard: ((UInt32, UInt32, String) -> Void)?
+    /// A `text`'s part of the selection changed: its text and source offsets.
+    var onSelectionChange: ((UInt32, String, Int, Int) -> Void)?
     var onContextmenu: ((UInt32) -> Void)?
     var onDblclick: ((UInt32) -> Void)?
     /// The primary button went down on a node (`true`) or came up (LLP 1005 §3).
@@ -687,7 +701,9 @@ final class Presenter {
     var onPanRelease: ((UInt32, Double, Double) -> Void)?
     var onPanSample: ((Bool, Double, Double, Double) -> Void)?
     var panVelocity: ((Double) -> (Double, Double))?
-    var onScroll: ((UInt32, Double, Double) -> Void)?
+    /// A scroller with a `scroll` handler moved: left, top, then its
+    /// `scrollWidth`, `scrollHeight`, `clientWidth`, `clientHeight`.
+    var onScroll: ((UInt32, [Double]) -> Void)?
     /// A scroller (nil: the page) moved, handler or not: `frame()` reads
     /// boxes where the viewer sees them (LLP 1051.000 D1).
     var onScrolled: ((UInt32?, Double, Double) -> Void)?
@@ -735,7 +751,10 @@ final class Presenter {
     weak var hovered: NodeView?
     var hoveredInline: UInt32?
 
-    func press(_ id: UInt32, fromNativeMenu: Bool = false) {
+    /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
+    var pressHeld = ""
+    func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "") {
+        pressHeld = held; defer { pressHeld = "" }
         guard let node = textHost(id), !node.inert, !node.disabled,
               fromNativeMenu || (segments.shown(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
         let command = dialogs.command(node, fromNativeMenu: fromNativeMenu)
@@ -812,7 +831,12 @@ final class Presenter {
     func focus(_ id: UInt32) { send(id) { [self] in onFocus?(id) } }
     func blur(_ id: UInt32) { send(id) { [self] in onBlur?(id) } }
     func key(_ id: UInt32, _ name: String) { send(id) { [self] in onKey?(id, name) } }
+    func clipboard(_ id: UInt32, _ kind: UInt32, _ text: String) { send(id) { [self] in onClipboard?(id, kind, text) } }
+    func selectionChange(_ id: UInt32, _ text: String, _ start: Int, _ end: Int) { send(id) { [self] in onSelectionChange?(id, text, start, end) } }
     func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }
+    /// A `contextmenu` with its point (10), a `wheel` (37) or a `drop` (38)
+    /// with its line (studio diary R22, R3, R19; MouseEventsMac.swift).
+    func mouseEvent(_ id: UInt32, _ kind: UInt32, _ line: String) { send(id) { [self] in onClipboard?(id, kind, line) } }
     func dblclick(_ id: UInt32) { send(id) { [self] in onDblclick?(id) } }
     func pointer(_ id: UInt32, _ kind: PointerKind, _ sample: PointerSample) { send(id) { [self] in onPointer?(id, kind, sample) } }
     func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }
@@ -822,7 +846,7 @@ final class Presenter {
         guard views[id]?.handlers.contains("panrelease") == true else { return }
         send(id) { [self] in onPanRelease?(id, vx, vy) }
     }
-    func scroll(_ id: UInt32, _ left: Double, _ top: Double) { send(id) { [self] in onScroll?(id, left, top) } }
+    func scroll(_ id: UInt32, _ metrics: [Double]) { send(id) { [self] in onScroll?(id, metrics) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
     func message(_ id: UInt32, _ value: String) {
@@ -975,6 +999,7 @@ final class Presenter {
             case .command:
                 let name = op.payload["name"] as? String ?? ""
                 if name == "preventDefault" { defaultPrevented = true; break }
+                if name == "stopPropagation" { propagationStopped = true; break }
                 onCommand?(name, op.payload["args"] as? [Any] ?? [], (op.payload["source"] as? NSNumber)?.uint32Value)
             case .exit: beginExit(id)
             case .flight: beginFlight(op)
@@ -1161,7 +1186,7 @@ final class Presenter {
         if let dialog = dialogs.active { walk(dialog) }
         else { for r in root.subviews.compactMap({ $0 as? NodeView }) { walk(r) } }
         let tabbable = listed.enumerated().sorted { a, b in
-            let ia = Self.tabIndex(a.element), ib = Self.tabIndex(b.element)
+            let ia = a.element.tabOrder, ib = b.element.tabOrder
             let pa = ia > 0 ? ia : Int.max, pb = ib > 0 ? ib : Int.max
             if pa != pb { return pa < pb }
             return a.offset < b.offset
@@ -1180,17 +1205,15 @@ final class Presenter {
         viewport.nextKeyView = keyView(of: tabbable[0])
     }
 
-    private static func tabIndex(_ v: NodeView) -> Int { Int(v.props["tabIndex"] ?? "0") ?? 0 }
-
+    /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is
+    /// one by kind; an explicit negative never, though it still takes a click.
     static func tabbable(_ v: NodeView) -> Bool {
-        if v.props["disabled"] == "true" { return false }
-        let index = tabIndex(v)
-        if index < 0 { return false }
+        if v.formDisabled { return false }
+        if let index = v.explicitTabIndex, index < 0 { return false }
         if v.field != nil || v.textArea != nil { return true }
         if v.kind == "native", v.presenter?.session?.natives.focusTarget(v) != nil { return true }
         if v.isButton || v.kind == "toggle" || v.pressable { return true }
-        if v.canBecomeKeyView { return true }
-        return index > 0
+        return v.canBecomeKeyView
     }
 
     /// An op touched a node (LLP 1014 D4 a): every canvas it is painted

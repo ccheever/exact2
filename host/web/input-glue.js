@@ -5,7 +5,17 @@
 const pressesByKey = el => !el.matches("button, a[href], input, select, textarea, summary")
   && (el.exactHandlers ?? el.dataset.exactOn?.split(" "))?.includes("press") === true;
 const shortcutKeys = new Set(["Enter", "Tab", "Escape", "Backspace", "Delete", "Insert", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
-export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false }) {
+/** The modifiers an event holds, as a chord prefix (a pointer record's last field; glue.js's press writes the same). */
+const modifiers = e => (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "");
+/** The `PointerEvent` line of `e` at `el`: the point from its content box in its own CSS px (a scale undone), the buttons, pressure, device, id and modifiers. */
+function pointerLine(el, e, lifted = false) {
+  const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+  const sx = el.offsetWidth ? r.width / el.offsetWidth : 1, sy = el.offsetHeight ? r.height / el.offsetHeight : 1;
+  const left = parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft), top = parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop);
+  const type = e.pointerType === "pen" || e.pointerType === "touch" ? e.pointerType : "mouse";
+  return `${(e.clientX - r.left) / (sx || 1) - left},${(e.clientY - r.top) / (sy || 1) - top},${lifted ? 0 : e.buttons},${lifted ? 0 : Math.min(1, Math.max(0, e.pressure || 0))},${type},${e.pointerId ?? 1},${modifiers(e)}`;
+}
+export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false, log = () => {}, documents = null }) {
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
   // it; any other goes to the root's `navigate` handler, as popstate does.
@@ -47,9 +57,14 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         && event.altKey === modifiers.has("Alt") && event.shiftKey === modifiers.has("Shift")
         && event.key.toLowerCase() === key.toLowerCase();
     };
+    // Nothing behind the frontmost modal — a modal `dialog`, or the last
+    // shown `aria-modal` view (gallery F22) — and never Enter or Space while
+    // the focus is a control they activate (onboarding F27).
+    const modal = document.activeElement.closest("dialog:modal") ?? [...root.querySelectorAll('[aria-modal="true"]')].findLast(m => m.getClientRects().length && !inertAncestor(m));
+    const focus = document.activeElement, activates = focus?.matches?.("button, a[href], summary, input[type=checkbox], input[type=radio], [data-exact-on~=press]");
     for (const el of root.querySelectorAll("button[aria-keyshortcuts]")) {
-      const modal = document.activeElement.closest("dialog:modal");
       if (modal && !modal.contains(el)) continue;
+      if (activates && focus !== el && (event.key === "Enter" || event.key === " ") && !(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) continue;
       if (!el.isConnected || !el.getClientRects().length || inertAncestor(el) || getComputedStyle(el).visibility !== "visible") continue;
       if (!(el.getAttribute("aria-keyshortcuts") ?? "").split(/\s+/).some(matches)) continue;
       event.preventDefault();
@@ -116,7 +131,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (e.button !== 0 || !e.isPrimary) return;
     release(); // a press whose release never reached the page
     const el = e.target.closest?.("[data-exact-on~=press],button[data-button-style]");
-    if (!el || !root.contains(el) || !(el.style.getPropertyValue("--exact-press") || el.matches("button[data-button-style]")) || el.closest(":disabled,[disabled='true']")) return;
+    if (!el || !root.contains(el) || el.closest(":disabled,[disabled='true']")) return;
+    // @ref LLP 1077 D14 — `press-haptic` plays at the press, as Apple's does:
+    // `navigator.vibrate` where the browser has it (not desktop, not iOS
+    // Safari), with `haptic()`'s two lengths (workout F4).
+    const haptic = el.style.getPropertyValue("--exact-press-haptic").trim();
+    if (haptic && haptic !== "none") navigator.vibrate?.(haptic === "selection" ? 5 : 12);
+    if (!(el.style.getPropertyValue("--exact-press") || el.matches("button[data-button-style]"))) return;
     const r = unpressedBox(el);
     press = { el, id: e.pointerId, box: [r.left, r.top, r.right, r.bottom] };
     showPress(el, true);
@@ -136,18 +157,12 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // `pointermove`: a free pointer over the node (no button down), or the
     // held one anywhere, at most once a frame, the latest. Each carries the
     // `PointerEvent` record (`offsetX,offsetY,buttons,pressure,pointerType,
-    // pointerId`, from the content box): `fire(29, r)` is down, 30 up, 31 a
+    // pointerId,` the modifiers held, from the content box): `fire(29, r)` is down, 30 up, 31 a
     // move. The JS target's pointer.js is the same rule.
     pointer(el, on, fire) {
       let held = null, last = null, move = null, frame = 0;
       const wants = kind => el.exactHandlers?.includes(kind);
-      const record = (e, lifted = false) => {
-        const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
-        const sx = el.offsetWidth ? r.width / el.offsetWidth : 1, sy = el.offsetHeight ? r.height / el.offsetHeight : 1;
-        const left = parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft), top = parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop);
-        const type = e.pointerType === "pen" || e.pointerType === "touch" ? e.pointerType : "mouse";
-        return `${(e.clientX - r.left) / (sx || 1) - left},${(e.clientY - r.top) / (sy || 1) - top},${lifted ? 0 : e.buttons},${lifted ? 0 : Math.min(1, Math.max(0, e.pressure || 0))},${type},${e.pointerId}`;
-      };
+      const record = (e, lifted = false) => pointerLine(el, e, lifted);
       const flush = () => {
         cancelAnimationFrame(frame); frame = 0;
         const m = move; move = null;
@@ -179,7 +194,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       return e => {
         // The innermost enabled pointer node takes it (the event bubbles
         // here first from inner ones, which mark it).
-        if (e.exactPointerOwner || !e.isPrimary || e.button !== 0 || held !== null || disabled()) return;
+        // Any button, as the DOM's (studio diary R22); `buttons` says which.
+        if (e.exactPointerOwner || !e.isPrimary || held !== null || disabled()) return;
         e.exactPointerOwner = el;
         held = e.pointerId; last = e;
         for (const [type, target] of ends) target.addEventListener(type, up, target === document);
@@ -187,6 +203,32 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         flush();
         if (wants("pointerdown") && ready()) fire(29, record(e));
       };
+    },
+    // Studio diary R22, R3, R19, R17: a `contextmenu` with its point (10),
+    // `dblclick` (11), a `wheel` (37, its record; a prevented one does not
+    // scroll), files dropped from outside (38, each minted a `doc:` handle,
+    // documents-glue.js) and the window's `beforeunload` (36), as the JS
+    // target's rt.js and files.js hear them. `fire(kind, line)` dispatches.
+    mouse(el, kind, e, fire) {
+      if (!ready()) return;
+      if (kind === "beforeunload") return el.isConnected && fire(36, "");
+      if (el.matches(":disabled") || inertAncestor(el)) return;
+      if (kind === "wheel") return fire(37, `${pointerLine(el, e).split(",").slice(0, 2)},${e.deltaX},${e.deltaY},${e.deltaMode},${modifiers(e)}`);
+      if (kind === "dragover") { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } return; }
+      if (kind === "drop") {
+        const dt = e.dataTransfer;
+        if (!dt?.files?.length) return;
+        e.preventDefault(); e.stopPropagation();
+        const at = `${pointerLine(el, e).split(",").slice(0, 2)},${modifiers(e)}`, files = [...dt.files];
+        const handles = [...dt.items].filter(i => i.kind === "file").map(i => i.getAsFileSystemHandle?.().catch(() => null) ?? null);
+        return documents?.().then(async (glue) => {
+          const found = await glue.dropped(await Promise.all(handles), files);
+          if (found.length) fire(38, `${at}\n${found.join("\n")}`); else log("drop: refused: no file of a type this app declares");
+        });
+      }
+      if (e.target.closest("input,textarea,[contenteditable]")) return;
+      e.preventDefault(); e.stopPropagation();
+      fire(kind === "contextmenu" ? 10 : 11, kind === "contextmenu" ? pointerLine(el, e) : "");
     },
     pan(el, id, on) {
       // @ref LLP 1043.000 §3 D8: one coalesced action per display frame.
@@ -199,7 +241,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       // Under a nested press the pan captures nothing until it begins, so until
       // then the window hears the contact's moves and its end (capture phase),
       // wherever they happen: a release outside this node ends it here too.
-      const watched = { pointermove: e => move(e, true), pointerup: e => up(e, true), pointercancel: e => { if (e.pointerId === contact?.pointer) cancel(); } };
+      const watched = { pointermove: e => move(e, true), pointerup: e => up(e, true), pointercancel: e => { if (e.pointerId === contact?.pointer) cancelled(e); } };
       const watch = on => { for (const t in watched) (on ? addEventListener : removeEventListener)(t, watched[t], true); };
       const drop = () => { if (contact?.watching) watch(false); contact = null; };
       const flush = () => {
@@ -227,6 +269,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       const sample = (e, first = false) => velocity.sample?.(id, e.clientX, e.clientY, e.timeStamp, first);
       const released = (payload) => { if (el.exactHandlers?.includes("panrelease") && live()) dispatchRelease(id, payload); };
       const cancel = () => { cancelAnimationFrame(frame); frame=0; const began = contact?.active; drop(); if (began) released("0,0"); };
+      // The browser took the contact (pointercancel): it scrolls or zooms by a
+      // finger this node does not claim. Silent, it was a drag that died after
+      // two moves (files diary F10); the journal says why and what claims it.
+      const cancelled = e => {
+        if (contact?.pointer === e.pointerId) log(`pan cancelled: the browser took the ${e.pointerType || "pointer"} contact to scroll or zoom; give the dragged node touch-action="none", or "pan-y" or "pan-x" to leave the browser the other axis`);
+        cancel();
+      };
       // A watched contact is the window's alone (`watched`); this node's listeners take it once captured.
       const move = (e, outside = false) => {
         if (contact?.pointer !== e.pointerId || !!contact.watching !== outside || waiting(e)) return;
@@ -242,7 +291,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       };
       on("pointermove", e => move(e));
       on("pointerup", e => up(e));
-      on("pointercancel", cancel);
+      on("pointercancel", cancelled);
       // A child's implicit touch capture, lost when a deferred pan takes it, bubbles here.
       on("lostpointercapture", e => { if (e.target === el) cancel(); });
       el.addEventListener("click", e => { if (suppressClick) { suppressClick = false; e.preventDefault(); e.stopImmediatePropagation(); } }, true);

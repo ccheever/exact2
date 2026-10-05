@@ -27,6 +27,8 @@ mod arrange;
 mod arrange_tests;
 #[path = "canvas2d.rs"]
 pub(crate) mod canvas2d;
+#[path = "colors.rs"]
+mod colors;
 #[path = "content_region/host.rs"]
 mod content_region_host;
 #[path = "covers.rs"]
@@ -115,6 +117,8 @@ pub struct Host<D: DataSource> {
     /// last told (LLP 1048.003 D1): the window or scene title.
     has_heads: bool,
     head_title: Option<String>,
+    /// The active head's `edited` (LLP 1069.010 D6), sent with the title.
+    head_edited: bool,
     language: Option<String>,
     mirror: IdMap<ViewId, Mirror>,
     keys: IdMap<NodeKey, ViewId>,
@@ -172,6 +176,9 @@ pub struct Host<D: DataSource> {
     /// a check writes it once.
     update_line: Option<String>,
     delivery: Option<&'static crate::delivery::Hooks>,
+    /// The reported colours' generation this session last presented; `None`
+    /// before its first report, which corrects without motion (LLP 1095 D9).
+    colors_seen: Option<u64>,
 }
 
 /// A plan's bytes at boot: copied from while decoding, or linked into the
@@ -337,6 +344,7 @@ impl<D: DataSource> Host<D> {
         // Native hosts link every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
         exact_kernel::style::link_segments();
+        exact_kernel::style::link_wide_colors();
         exact_kernel::timeline::link();
         let kernel = Kernel::new(measurer);
         let facts = candidate_delivery.unwrap_or_else(|| {
@@ -384,6 +392,7 @@ impl<D: DataSource> Host<D> {
         let mut host = Host {
             has_heads,
             head_title: None,
+            head_edited: false,
             language: None,
             runner,
             mirror: IdMap::default(),
@@ -435,6 +444,7 @@ impl<D: DataSource> Host<D> {
             secrets,
             update_line: None,
             delivery,
+            colors_seen: None,
         };
         let mut batch = Batch::new();
         host.native_prepare_candidate().map_err(HostError::Layout)?;
@@ -867,6 +877,13 @@ impl<D: DataSource> Host<D> {
         self.advanced(a)
     }
 
+    /// The `then`s an agent's input settled, the clock unmoved
+    /// ([`exact_runner::Runner::land_then`]).
+    pub fn land_then(&mut self) -> String {
+        let a = self.runner.land_then();
+        self.advanced(a)
+    }
+
     /// Whether this host's display drives frame tasks (LLP 1073 D4): off when
     /// the agent's clock takes over, so its advances fire virtual frames.
     pub fn present_frames(&mut self, on: bool) {
@@ -1094,16 +1111,18 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error)
     }
 
-    /// The active head's title, when a plan with a head may have moved it
-    /// (LLP 1048.003 D1). The app owning the window or scene shows it.
+    /// The active head's title and edited mark, when a plan with a head may
+    /// have moved them (LLP 1048.003 D1, LLP 1069.010 D6). The app owning
+    /// the window or scene shows them.
     fn emit_title(&mut self, batch: &mut Batch) {
         if !self.has_heads {
             return;
         }
-        let title = self.runner.head().title;
-        if title != self.head_title {
-            batch.title(title.as_deref());
-            self.head_title = title;
+        let head = self.runner.head();
+        if head.title != self.head_title || head.edited != self.head_edited {
+            batch.title(head.title.as_deref(), head.edited);
+            self.head_title = head.title;
+            self.head_edited = head.edited;
         }
     }
 

@@ -99,7 +99,15 @@ and one tag join the table (LLP 1017 §8.1; every name is the HTML one):
   `press` and `popovertarget`; both fire, the spec's behavior — the
   switcher uses exactly this to refresh `accounts` as the menu opens (D6).
 - `hr` — a void row, the separator; outside a popover it is the element's
-  bare self (a rule).
+  bare self (a rule). *Built 2026-10-04:* a `view` whose `semanticTag` is
+  `hr`, carrying the UA stylesheet's rows (`margin: 0.5em auto`, a 1px
+  `inset` border, `color: gray`, `overflow: hidden`), the author's own rows
+  winning; children are refused (`lower-void`). `inset` joined the border
+  styles for it (LLP 1001 §1, "Border semantics": Chrome's two shades on
+  the native hosts). The sheet names no `border-color`, as Chrome's does
+  not; a `currentcolor` inset side paints from `#eeeeee`, so a bare `hr` is
+  `#9a9a9a` over `#eeeeee` whatever its `color` (measured in Chrome 154). Like the browser's, an `hr` in a flex column has auto
+  side margins and so no width until the author zeroes them.
 - `aria-checked` on a `button` — the ARIA state, lowered like its three
   siblings at `tags.rs:165`.
 
@@ -116,10 +124,12 @@ Declared deviation (LLP 1001's ledger): a bare `[popover]` on the web is
 a *centered* fixed box (`inset:0; margin:auto`). v1's popovers are
 **anchored to their invoker** instead — v1 serves menus, and the newest
 spec gives an invoker-opened popover exactly this implicit anchor. CSS
-anchor positioning (`position-area`) is the vocabulary if an app later
-needs placement control; not in v1 (§5). The web host applies the same
-one anchoring rule from the invoker's box, so the oracle and the kernel
-agree by construction until implicit anchors are universal.
+`position-area` is the vocabulary for placement other than this rule, and
+it is admitted for a subset ("Placement", below; §5): the rule is `none`, which a
+popover without the row keeps. As built, the web passes a popover with no
+`position-area` to the browser's default centred placement (the one glue
+rule was never written); one with the row is placed by the browser's own
+anchor positioning against the same implicit anchor.
 
 The top layer sits **outside every canvas capture** — the web's top layer
 cannot be sampled by anything on the page, and that is the parity: a menu
@@ -387,11 +397,144 @@ item image is its symbol, else its `img` once that has loaded, fitted to 24
 points. The menu reads the bitmap the hidden row already holds, so opening it
 never fetches. `UIAlertAction` has no public image, so sheet rows show no icon.
 `state.navigation.popover.actions` counts the sheet's actions. The author
-writes `role="menu"` on a column: there is no `menu` tag, and `hr` (D1) is not
-yet in the schema. The fixture's `open-in` (a menu) and `open-in-sheet` (a
-sheet), with rows from its `providers()` source, are the evidence. Placement
-beyond D2's rule (`position-area`), macOS parity for confirmations, and the
-keyboard contract stay where §5 puts them.
+writes `role="menu"` on a column: there is no `menu` tag. An `hr` row (D1)
+is a section break in the `UIMenu`, and `NSMenu.separator()` in macOS's
+`NSMenu`.
+The fixture's `open-in` (a menu, its providers, an `hr`, then Cancel) and
+`open-in-sheet` (a sheet), with rows from its `providers()` source, are the
+evidence.
+
+*Refused at compile time (2026-10-04).* What the sheet refuses at the tap,
+Contract refuses where a literal shows it, as `lower-alertdialog` naming the
+row: a popover with `role="alertdialog"` (or a `dialog` with that role, which
+also needs `closedby="any"`) whose rows, read through `each`, `when` and
+`match` to the elements they produce, are anything but `text`, actions (a
+`button` with `press` that hides it: `popovertarget` and
+`popovertargetaction="hide"`, or `commandfor` and `command="close"`; a `link`
+is refused as any other row, since the hosts present buttons) and at
+most one cancel (a `button` without `press` that hides it; one on each arm of
+one `when` is one, the same component used on both arms included, and one
+inside `each` may repeat and is refused), or that has no action. A value known only at run time (a bound `popovertargetaction`, an
+`id` that is not a literal) is left to the host, which still refuses and logs. Placement
+beyond D2's rule is `position-area` ("Placement", below); the keyboard
+contract stays where §5 puts it.
+
+**The chooser on macOS (Claude, 2026-10-04):** the same shape, by the same
+rules and with the same refusal lines, is an `NSMenu` popped up against its
+invoker (`popUp(positioning:at:in:)`), as a button menu already was; it had
+been painted in the top layer. The menu's top-left is where the popover's
+box would sit by its `position-area` ("Placement", below), the menu's own
+size taken as the box: below the invoker by default. One item per action: its title, its image (as
+iOS's menu rows), `.on` for `aria-checked`, dimmed when disabled, red when
+`destructive`. A chooser is headed by its `aria-label` as a section header
+(`NSMenuItem.sectionHeader`): a pop-up `NSMenu` never shows its own title,
+and the HIG's way to label a menu's items is a header above them. A
+confirmation's text rows are disabled lines at the top, wrapped at 260
+points, then a separator, and no heading. The cancel has no item: Escape
+and a click outside end a menu and dispatch nothing, as UIKit drops the
+cancel from a sheet shown as a popover. A chosen item is recorded, and its
+row is pressed by view id once, on the next main-queue turn after the menu
+ends, as iOS presses after the sheet is dismissed. AppKit sends an item's
+action inside `popUp`, while it still tracks the menu in the invoker, and a
+press whose batch unmounts that invoker (Messages' Discard Changes
+navigates back) must not run under it. The owner checks above run then,
+and again as each batch lands, while the menu is open and after it has
+ended with a choice awaiting its turn: a batch that changes a row's title
+or enablement, hides it (its own or an ancestor's `display: none` or
+hiding, though not the popover's own, hidden in place while its menu shows
+it) or makes it inert, that unmounts, hides, disables or makes inert the
+invoker or points it elsewhere, a reset or an unmount ends the menu, and
+the choice is cancelled for good: a later batch that undoes the change
+does not revive it. A choice belongs to its presentation: presenting the
+popover again cancels one still awaiting its turn, whose press would
+otherwise run under the new presentation (its hide closing it). A button
+menu's item is pressed the same way: on the next turn, once per menu, and
+only if its row is still the node the menu showed (live, in its popover,
+enabled, shown, the same title; an id reused by another node is not it),
+its invoker still opens the popover as above, and the popover has not been
+presented again; the same per-batch checks cancel it for good. A hidden or
+inert row is an item that cannot be chosen, as a chooser's. A reset before
+the turn presses nothing. A refused shape
+is logged and keeps its painted presentation, which macOS, unlike iOS, has.
+A menu-shaped popover is headed by its `aria-label` the same way, and a
+row of an `img` and text is menu-shaped, its item showing the bitmap fitted
+to 16 points. Under the agent (D4) every popover stays painted, so the
+agent's taps need no host activation here. `ChooserMacTests` is the
+evidence; `<dialog>` stays the session's modal top layer on macOS.
+
+**Placement, `position-area` (Claude, 2026-10-04):** the chooser's next
+consumer is an "Open in…" button at the foot of a card, whose chooser must
+sit above it or centred on it: the first popover that cannot live at the
+invoker's bottom-left, which §5 named as the condition. CSS `position-area`
+is admitted on a `popover` only, its anchor the invoker that opens it (the
+implicit anchor; no `anchor-name`, `position-anchor` or `position-try`),
+with these values, spelled as CSS spells them:
+
+| `position-area` | CSS meaning (implicit anchor = the invoker) | placed |
+|---|---|---|
+| `none` (no row) | — | D2's rule: top-left at the invoker's bottom-left |
+| `bottom span-right` | the bottom row, centre and right columns; aligned to the anchor's left edge | the same as D2's rule |
+| `bottom`, `bottom span-all` | the bottom row, all three columns; `anchor-center` | below, centred on the invoker |
+| `top span-right` | the top row, centre and right columns | bottom-left at the invoker's top-left |
+| `top`, `top span-all` | the top row, all three columns; `anchor-center` | above, centred on the invoker |
+| `center` | `center center`, the anchor's own cell; `anchor-center` in both axes | centred over the invoker |
+
+A single keyword names its row and spans every column, so `top` *is* `top
+span-all` (centred), not `top span-right`; `bottom` alike. Any other
+value (a corner, `left`/`right`, `span-left`, logical keywords, `span-all
+top`) fails the build with `lower-css-position-area`, as does the row on a
+node that is not a popover. Every host clamps the box to the viewport (the
+layer): CSS does the same, as an absolutely positioned box that overflows
+its area but fits its containing block is shifted back into it. Nothing
+flips: a flip is `position-try`, still refused.
+
+The row is a schema enum (`PositionArea`, bit 176). The web writes it as
+the CSS declaration on both targets and the browser places the popover
+(Chrome, the oracle, implements it with the invoker as the implicit
+anchor; an engine without anchor positioning keeps its default centred
+popover, and nothing in the host reimplements it). The UA sheet's
+`[popover] { inset: 0; margin: auto }` needs no reset: with a
+`position-area` Chrome 154 uses zero margins (measured: a 242×122 popover
+under `top span-all` over an invoker at x 190, width 172, y 801 is at
+155,679, centred and flush; without the row, margin auto centres it in the
+viewport), and the fixture's `open-above-sheet` lays out the same way.
+The painted top layers — iOS under the agent (`lift`)
+and macOS's — place by the table, from one function (`PositionArea.swift`),
+and macOS pops a menu up at the point it gives (the menu's size the box).
+As CSS does, it aligns the popover's margin box, not its border box:
+`position-area="top"` with `margin-bottom=12` leaves 12 points between the
+popover and the invoker, and clamping keeps the margins inside the layer.
+Margins are the kernel's resolved points (`auto` and a percentage are 0):
+the Apple style encoder, which leaves margins out of every other box's
+dictionary (the kernel placed the box), carries the four on a popover
+with a `position-area` other than `none`, as it carries a dialog's insets.
+The iOS sheet ignores them: UIKit places it.
+The iOS sheet (`role="alertdialog"`, a `UIAlertController` popover) takes a
+side from it: a `top` area permits only a down arrow, which UIKit places
+above the source, `bottom` only an up arrow; a centred area anchors at the
+whole invoker rather than its label, which UIKit centres on where it fits.
+`center` anchors at the whole invoker too, with no arrow permitted and
+`canOverlapSourceViewRect`, `none`'s arrowless presentation: UIKit centres
+the sheet across the invoker (the probe above: anchored to the full row,
+Block centres at x=81) and picks its vertical position itself, as for
+`none`, shifted to stay on screen. It is not centred over the invoker in
+both axes as CSS's `center` is; no public API does that short of a custom
+`popoverBackgroundViewClass`.
+A permitted direction makes UIKit draw its arrow toward the invoker; no
+public API places a popover on a side without one short of a custom
+`popoverBackgroundViewClass`, which this does not take on.
+`none` keeps the arrowless placement measured above. `UIMenu` exposes no
+public placement control: a menu-shaped popover presented as the system
+menu is placed by UIKit whatever its `position-area`. Linux has no popover
+presentation yet (`POPOVER_UNSUPPORTED`), so nothing there reads the row.
+The native fixture's `open-above` (a menu) and `open-above-sheet` (a
+sheet), in a row below the Detail screen's scroll, are the evidence: under
+the agent, on iOS, macOS and in Chrome (both web targets), each opens above
+the invoker, centred on it (the menu clamped to the left edge): the sheet
+with its bottom at the invoker's top, the menu, whose `margin-bottom=12`
+crosses the Apple encoder, 12 points above it (measured on iOS: bottom
+665, invoker top 677; in Chrome: 789 and 801; macOS was driven before the
+margin was added).
 
 **D3 — menu-shaped popovers may present natively.** A popover whose
 children are exclusively `button` rows (each with optional
@@ -457,9 +600,12 @@ agent flow and the seeded-book CDP recipe keep working unchanged.
 - **`command`/`commandfor`** (the general invoker vocabulary) — when a
   popover must be driven by something other than toggle/show/hide, take
   the newer names; `popovertarget` is the shipped subset.
-- **CSS anchor positioning rows** (`position-area`, `anchor-name`) — the
-  first popover that cannot live at the invoker's bottom-left. D2's one
-  rule until then.
+- **CSS anchor positioning rows** (`anchor-name`, `position-anchor`,
+  `position-try`) — a popover placed against something other than its
+  invoker, or one that must flip when it does not fit. **`position-area`
+  — earned back 2026-10-04** by an "Open in…" chooser at the foot of a
+  card that must open above its invoker: a subset, on popovers only, with
+  the invoker as the implicit anchor ("Placement", D2).
 - **A destructive row — earned back 2026-09-10:** the original return
   condition was a web-standard name or a consumer measuring the miss.
   Messages' black Block/Discard actions supply the measurement. The existing

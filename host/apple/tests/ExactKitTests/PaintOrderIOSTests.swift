@@ -80,6 +80,35 @@ final class PaintOrderIOSTests: XCTestCase {
         XCTAssertEqual(p.views[3]?.paintZPosition, 0)
     }
 
+    #if os(iOS)
+    /// A native navigation container sits just above rank ½: over its
+    /// in-flow and positioned siblings wherever its subview place, and under
+    /// a positive `z-index` overlay, as before dense ranks. A top-layer view
+    /// (a popover, a snapshot) stays over every ranked sibling.
+    func testANavigationContainerSitsUnderAPositiveZIndexOverlay() throws {
+        let p = fixture()
+        let parent = try XCTUnwrap(p.views[1])
+        // Twice the rank: 3 is positioned (½), 5 is `z-index: 30`.
+        p.apply(wireBatch([["op": "rank", "id": 3, "rank": 1], ["op": "rank", "id": 5, "rank": 60]]))
+        let container = UIView(), top = UIView()
+        parent.container.addSubview(container)
+        container.setPaintForeground(aboveAuthored: false)
+        parent.container.sendSubviewToBack(container)
+        p.views[2]?.setRank(1); p.views[2]?.setRank(0)
+        XCTAssertEqual(container.layer.zPosition, 0.0015, accuracy: 1e-9)
+        XCTAssertGreaterThan(container.layer.zPosition, p.views[4]!.paintZPosition, "over an in-flow sibling after it")
+        XCTAssertGreaterThan(container.layer.zPosition, p.views[3]!.paintZPosition, "and a positioned one")
+        XCTAssertTrue(NodeView.hitOrder(parent.container.subviews).dropFirst().first === container)
+        XCTAssertGreaterThan(p.views[5]!.paintZPosition, container.layer.zPosition, "the overlay paints over the container")
+        XCTAssertTrue(NodeView.hitOrder(parent.container.subviews).first === p.views[5], "and takes the touch first")
+        parent.container.addSubview(top)
+        top.setPaintForeground()
+        XCTAssertGreaterThan(top.layer.zPosition, p.views[5]!.paintZPosition)
+        container.setPaintForeground(false)
+        XCTAssertEqual(container.layer.zPosition, 0)
+    }
+    #endif
+
     func testHitsUseRankAndLaterFirstAmongEqualsAcrossHolders() throws {
         let styles: [[String: Any]] = [[:], ["overflow_y": "scroll"], ["overflow_x": "hidden", "overflow_y": "hidden", "border_radius_top_left": 8]]
         for style in styles {

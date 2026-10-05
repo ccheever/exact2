@@ -1,6 +1,8 @@
 //! Carousel's data (LLP 1070): `cards(count)` is `count` cards whose widths
 //! vary (so a strip's estimate is replaced by real measurements), in one of
-//! six colours, the same on every host.
+//! six colours, the same on every host. It ignores a second argument, which
+//! the evaluation budget's conformance plan passes (LLP 1090 D7), as it does
+//! `long(n, c)`: `c` repeated `n` times.
 
 #![deny(missing_docs)]
 
@@ -55,6 +57,13 @@ impl DataSource for Cards {
                 };
                 Ok(Value::list((0..count).map(card).collect()))
             }
+            "long" => Ok(match args {
+                [Value::Number(n), c] if *n >= 0.0 => {
+                    let c = c.as_str().unwrap_or_default();
+                    Value::str(&c.repeat((*n as usize).min(1 << 27)))
+                }
+                _ => Value::str(""),
+            }),
             "posts" => {
                 let count = match args.first() {
                     Some(Value::Number(n)) if *n >= 0.0 => (*n as u64).min(10_000),

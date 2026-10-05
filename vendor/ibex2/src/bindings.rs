@@ -387,6 +387,14 @@ impl Context {
         self.endowment.state.set_sqlite_provider(provider)
     }
 
+    /// The table `doc:` paths resolve through (Exact patch 5).
+    pub fn set_documents(
+        &self,
+        documents: Arc<crate::stdlib::fs::Documents>,
+    ) -> Result<(), crate::boundary::HostError> {
+        self.endowment.state.set_documents(documents)
+    }
+
     /// Worker-safe, edge-triggered notification that schedules the embedder's
     /// loop. Admissions coalesce and at most one callback runs at a time; a
     /// publisher that finds one running records another edge and returns.

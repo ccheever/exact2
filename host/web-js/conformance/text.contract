@@ -1,0 +1,59 @@
+// Synthetic conformance plan (LLP 1088 D1, D2): strings compare in UTF-16
+// code-unit order, and `slice`, `replaceAll` and `toLowerCase` are the web's,
+// each result made well formed — beside the roster's other string and list
+// entries (`at`, `join`, `includes`, `formatDate`). A `replaceAll` whose
+// `$\`` grows the text quadratically traps at `MAX_STRING` on both runners:
+// the action is refused and its state kept. Case fixtures use only mappings
+// every Unicode version agrees on: `İ`, a final sigma, ASCII.
+shape Location
+  lat: number
+  lon: number
+
+shape Station
+  id: string
+  name: string
+  zone: number
+  distance: number
+
+component Text
+  resource loc = defaultLocation() as shape Location
+  resource close = nearest(loc, 3) as shape list<Station>
+  state typed = "ΟΔΟΣ İ Paris"
+  state expr = "12+3"
+  state start = "09:30"
+  state end = "10:00"
+  state grown = "x"
+  action edit(v: string)
+    typed = v
+  action setEnd(v: string)
+    end = v
+  action backspace
+    expr = slice(expr, 0, -1)
+  action flip
+    expr = replaceAll(expr, "+", "-")
+  action grow
+    grown = replaceAll(slice(replaceAll("x", "x", "0123456789abcdef"), 0, 16), "", "$`$'$`$'")
+  action explode
+    grown = replaceAll(replaceAll(replaceAll(grown, "", "$`$'"), "", "$`$'"), "", "$`$'")
+  view
+    column testId="root" gap=4 padding=8
+      input value=typed input=edit testId="typed" padding=4
+      input value=end input=setEnd testId="end" padding=4
+      text toLowerCase(typed) testId="lower"
+      text (includes(toLowerCase(typed), "paris") ? "has paris" : "no paris") testId="has"
+      text (end > start ? "after" : "not after") testId="order"
+      text ("" < "😀" ? "code points" : "code units") testId="units"
+      text expr testId="expr"
+      text slice(expr, 1) testId="tail"
+      text slice("a😀b", 1, 2) testId="cut"
+      text replaceAll("😀", "", "-") testId="halves"
+      text replaceAll("😀😀", "", "") testId="joined"
+      text replaceAll("abc", "b", "[$&|$`|$'|$$|$1]") testId="subst"
+      text `${length(grown)}` testId="grown"
+      text join(map(close, s => toLowerCase(s.name)), " < ") testId="join"
+      text match at(close, -1) { case some(s) => slice(s.name, -4), case none => "" } testId="at"
+      text formatDate(0, 0, "medium") testId="date"
+      button "Backspace" press=backspace testId="back"
+      button "Flip" press=flip testId="flip"
+      button "Grow" press=grow testId="grow"
+      button "Explode" press=explode testId="explode"

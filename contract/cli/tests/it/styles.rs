@@ -48,7 +48,7 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     assert_eq!(card.row_gap, 10.0);
     assert_eq!(
         card.background_color,
-        Color::parse_hex("#ffffffd9").unwrap().into(),
+        Some(Color::parse_hex("#ffffffd9").unwrap().into()),
         "`rgba(255, 255, 255, 0.85)` is `#ffffffd9`"
     );
     let tight = style_of("tight");
@@ -60,7 +60,7 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     );
     assert_eq!(
         tight.background_color,
-        Color::parse_hex("#000000").unwrap().into()
+        Some(Color::parse_hex("#000000").unwrap().into())
     );
     // A `calc()` of a percentage and a length is one row, not text.
     assert_eq!(style_of("calc").width, Dimension::Calc(100.0, -89.0));
@@ -87,7 +87,7 @@ fn a_class_chooses_between_two_styles_by_state() {
     let (chip_id, idle) = chip(&r);
     assert_eq!(
         idle.background_color,
-        Color::parse_hex("#cccccc").unwrap().into()
+        Some(Color::parse_hex("#cccccc").unwrap().into())
     );
     assert_eq!(idle.opacity, 0.5);
     // Only `Active` sets padding: the kernel's default while `Idle` is chosen.
@@ -96,7 +96,7 @@ fn a_class_chooses_between_two_styles_by_state() {
     let (_, active) = chip(&r);
     assert_eq!(
         active.background_color,
-        Color::parse_hex("#0000ff").unwrap().into()
+        Some(Color::parse_hex("#0000ff").unwrap().into())
     );
     assert_eq!(active.opacity, 1.0);
     assert_eq!(active.padding_top, Dimension::Points(12.0));
@@ -444,12 +444,15 @@ fn transparent_is_a_colour() {
             .clone()
     }
     let b = style(&r, "box");
-    assert_eq!(b.background_color, clear.into());
+    assert_eq!(b.background_color, Some(clear.into()));
     assert_eq!(b.text_color, clear.into());
     assert_eq!(b.border_colors(clear.into())[0], clear.into());
     assert_eq!(
         style(&r, "text").background_color,
-        exact_kernel::ColorValue::LightDark(clear, Color::parse_hex("#000000").unwrap())
+        Some(exact_kernel::ColorValue::LightDark(
+            clear,
+            Color::parse_hex("#000000").unwrap()
+        ))
     );
     let flip = {
         let k = r.kernel();
@@ -498,7 +501,7 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
             "linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#fff, #000)",
             "at most four background layers",
         ),
-        ("linear-gradient(reddish, blue)", "a stop's colour is"),
+        ("linear-gradient(red, blurple)", "a stop's colour is"),
         (
             "linear-gradient(#000 10px, #fff)",
             "a stop's position is a percentage",
@@ -511,6 +514,21 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
     let e =
         refused("background-image=(true ? \"none\" : \"repeating-conic-gradient(#000, #fff)\")");
     assert!(e.message.contains("conic"), "{e}");
+    // A computed value's own text (studio diary R15: a grid the web painted
+    // and the Mac dropped): the function it names is refused on every target.
+    let e = refused(
+        "background-image=`repeating-linear-gradient(0deg, #0001 0 1px, transparent 1px ${10}px)`",
+    );
+    assert_eq!(e.id, "lower-attr-value", "{e}");
+    assert!(
+        e.message
+            .contains("repeating-linear-gradient() is not implemented"),
+        "{e}"
+    );
+    let e = refused("mask-image=(true ? `url(${\"a\"}.png)` : \"none\")");
+    assert!(e.message.contains("image as a background"), "{e}");
+    let fine = boot("component App\n  state stop = 40\n  view\n    view background-image=`linear-gradient(#000, #fff ${stop}%)` testId=\"a\"\n");
+    assert!(style_of(&fine, "a").background_image.gradient().is_some());
 }
 
 #[test]

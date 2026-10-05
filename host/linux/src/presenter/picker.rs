@@ -3,7 +3,8 @@
 //! held for `tap @t cancel` or `type @t <path>…`, whose files are copied
 //! into `app:/tmp/picked/` before `change` fires. `saveFile` likewise
 //! (LLP 1069.010 D3): refused with `cancel`, or held as `export` for
-//! `type @t <path>`, which the `app:/` file is copied to.
+//! `type @t <path>`, which the `app:/` file is copied to. Notifications have
+//! no centre here either: refused, or listed for the agent.
 use super::*;
 use exact_runner::picker_support as support;
 use exact_runner::ControlValue;
@@ -92,6 +93,19 @@ impl<D: DataSource> Presenter<D> {
             self.deliver_picker(view, Event::Cancel);
         }
         self.dirty = true;
+    }
+
+    /// `showNotification(…)` and `closeNotification(tag)`: the runner's rule,
+    /// with no notification centre (refused, or listed for the agent).
+    pub(crate) fn notify(&mut self, name: &str, args: &[exact_plan::Value]) {
+        use exact_runner::notify::{arm, close, Notice};
+        let runner = self.host.runner_mut();
+        if name == "closeNotification" {
+            let tag = args.first().and_then(exact_plan::Value::as_str);
+            close(runner, tag.unwrap_or_default(), self.agent);
+        } else {
+            arm(runner, Notice::from_args(args), self.agent, false);
+        }
     }
 
     /// The agent's answer to a held export: copy the `app:/` file to the

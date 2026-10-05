@@ -1,391 +1,563 @@
 # LLP 1090: The JS target's evaluation budget
 
 **Type:** RFC
-**Status:** Draft r1, 2026-10-04
-**Systems:** Runner (`runner/src/vm.rs`, `stdlib.rs`), Contract checker (`contract/types`), JS target (`host/web-js`: `src/code.rs`, `src/emit.rs`, `src/regions.rs`, `rt.js`, a new `budget.js`), conformance (`host/web-js/conform.mjs`, `host/web-js/conformance/`), Lean semantics and difftest (`semantics/`)
+**Status:** Accepted (r3, by the orchestrator under Charlie's delegation after three rounds; Grok 4.7 only — Codex budget exhausted), 2026-10-04.
+- r1 was reviewed twice by Grok 4.7 (xhigh), with two scopes: semantic parity (`llp/reviews/1090-r1.grok-a.md`) and performance and implementation (`llp/reviews/1090-r1.grok-b.md`). Both NOT READY.
+- r2 was delta-reviewed (`llp/reviews/1090-r2.grok.md`). NOT READY, with two MATERIAL, four MINOR and one NIT finding.
+- r3 resolves all seven, so nothing is descoped (§8). r3 had no further review.
+**Systems:** Runner (`runner/src/vm.rs`, `stdlib.rs`, `instance/collection/mod.rs`), Contract checker (`contract/types`), JS target (`host/web-js`: `src/code.rs`, `src/emit.rs`, `src/regions.rs`, `rt.js`, a new `budget.js`), conformance (`host/web-js/conform.mjs`, `host/web-js/conformance/`), Lean semantics and difftest (`semantics/`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
+**Revised:** 2026-10-04 (r2, r3)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stages 1 and 2 on 2026-10-05, stage 3 on 2026-10-06 (§5)
-**Amends:** LLP 1017.003 D3 (what a value's extent counts) and D7 ("no second evaluator": since LLP 1071 there is one); LLP 1088 §9.1 (this LLP meets its precondition)
-**Related:** LLP 1005 §6 (a refused commit changes nothing); LLP 1017.003 (map, filter, join and `MAX_LIST_STEPS`); LLP 1071 (the JS target); LLP 1088 D2 (`MAX_STRING` on the new string functions) and §9.1 (list construction); `llp/reviews/1088-r2.astra.md` (the reset points); `QUEUE.md`, "The JS target's evaluation budget"
+**Built:** stages 1 and 2, 2026-10-04 (`fix/impl1090`; §5, "As built"). Stage 3 is not.
+**Amends:** LLP 1017.003 D3 (what a value's extent counts) and D7 ("no second evaluator": since LLP 1071 there is one); LLP 1006 §2 (two type refusals); LLP 1088 §9.1 (this LLP meets its precondition)
+**Related:** LLP 1005 §6; LLP 1017.003; LLP 1071; LLP 1088 D2 and §9.1; `llp/reviews/1088-r2.astra.md` (the reset points); `QUEUE.md`, "The JS target's evaluation budget". Benchmark harness, kept outside the repository: `~/projects/x2apps/_reviews/llp1090-bench/`.
 
 ## Summary
 
-The runner bounds every evaluation (65,536 list steps; 64 MiB strings;
-values of 2²⁴ nodes, 64 MiB of string bytes, 64 levels). The JS target, the
-web's default build, bounds none of it, so a program the runner refuses runs
-in the browser. LLP 1088 deferred list construction until the two executors
-refuse the same programs at the same step; this LLP makes that true.
+The runner bounds every evaluation:
 
-Two choices carry the rest. **The measure changes, not the
-representation:** a `Some` stops counting as a node in the runner and depth
-becomes a checker rule, so the JS target counts exactly what the runner
-counts from the erased values it already has. **Metering is emitted only
-where a bound can be reached:** steps and string lengths always, composite
-checks where types cannot rule them out, and no budget context in a Code
-without a list step.
+- 65,536 list steps;
+- strings of 64 MiB;
+- values of 2²⁴ nodes, 64 MiB of string bytes and 64 levels.
+
+The JS target bounds none of it, so a program the runner refuses runs in the
+browser. LLP 1088 deferred list construction until the two refuse the same
+programs at the same step. Three choices make that true:
+
+- **The measure changes, not the representation.** A `Some` stops counting
+  as a node, and the checker refuses an option directly inside an option. The
+  JS target then counts exactly what the runner counts from the erased values
+  it already has, and the runner's walk bound loses at most a factor of two.
+  Depth becomes a checker rule.
+- **The step counter is a local variable of each metered evaluation.** There
+  is no global counter, no save and restore, and no context in a Code without
+  a list step. A nested lazy derive is a separate function, so it starts at 0
+  by construction.
+- **Checks are emitted inline, not elided.** Loops replace `.map`/`.filter`.
+  Measured in both engines, they cost no more than the unmetered native calls
+  they replace, so no check is skipped and no soundness argument is needed
+  for skipping one.
 
 | | Decision | Stage |
 |---|---|---|
-| D1 | A budget context per evaluation of a Code that takes list steps; saved and restored, so nested lazy derives start fresh | 2 |
-| D2 | A `Some` adds no node and no bytes; a type nests at most 64 deep (`type-too-deep`) | 1 |
-| D3 | Checked emission: metered `map`/`filter`/`join`, checked constructors and concatenation, exact UTF-8 bytes, the runner's order and pcs | 2 |
-| D4 | Static elision of composite checks, sound by type, tested against the unelided build | 3 |
-| D5 | A performance ceiling: no cost outside list steps, at most 10% on a metered `map` | 3 |
-| D6 | A trap on the web is the runner's trap: same text, same outcome; two runner gaps closed | 1–2 |
-| D7 | Conformance: adversarial plans on wasm, JS and Linux, refusal and trap text compared | 2 |
-| D8 | Lean: the semantics stays unbounded; difftest calls a bound trap `OUTSIDE` | 1 |
+| D1 | A local step counter per metered evaluation, at the runner's reset points; handler arguments evaluated inside the commit | 2 |
+| D2 | A `Some` adds no node or bytes; `type-option-option` and `type-too-deep` | 1 |
+| D3 | Checked emission: inline loops, checked constructors, concatenation and `join`; exact UTF-8 bytes; the runner's order and pcs | 2, 3 |
+| D4 | No compile-time elision | — |
+| D5 | Performance: a published harness and a ceiling held in both engines | 2, 3 |
+| D6 | A trap on the web is the runner's refusal, with the same `Debug` text at each site; three runner gaps closed | 1, 2 |
+| D7 | Conformance: adversarial plans on wasm, JS and Linux, with pinned oracles and trap text compared | 2 |
+| D8 | Lean: the semantics stays unbounded; both checkers gain the two refusals; difftest calls a bound refusal `OUTSIDE` | 1 |
 
 ## 1. What the runner bounds, and where it resets
 
 `vm::eval` (`runner/src/vm.rs:459`) starts a fresh step count and extent cache
-on every invocation. Within it:
+on every invocation.
 
-- **`MAX_LIST_STEPS` = 65,536** (`vm.rs:43`). A step is each run of a
-  `Map`/`Filter` body, taken before the body runs (`Callback::begin`,
-  `vm.rs:224`), plus one per item `join` prints, taken before it joins
-  (`vm.rs:768`). The trap is `IterationLimit` at the `Map`, `Filter` or
-  `Call`'s pc.
-- **`MAX_STRING` = 2²⁶ UTF-8 bytes** on `Concat` (`vm.rs:717`), `join`, `t`
-  and `NativeProps`. The trap is `StringTooLong`.
-- **Extents.** These are checked at every `Some`, `Record` and `List` built
+- **`MAX_LIST_STEPS` = 65,536** (`vm.rs:43`). There is one step per
+  `Map`/`Filter` body run, taken before the body (`vm.rs:224`), and one per
+  item `join` prints, taken before it joins (`vm.rs:768`). The trap is
+  `IterationLimit` at that pc. An empty list takes no step
+  (`vm.rs:806–809`).
+- **`MAX_STRING` = 2²⁶ UTF-8 bytes.**
+  - `Concat` (`vm.rs:717`), `join`, `t` and `NativeProps` trap
+    `StringTooLong`. A one-element string list joins unchecked
+    (`stdlib.rs:191–195`).
+  - An action argument or a slot write over the limit is
+    `RunnerError::StringTooLong { name }` (`commit.rs:432–436`, `:519–527`).
+  - Nothing bounds a resource or literal string.
+- **Extents** are checked at every `Some`, `Record` and `List` built
   (`vm.rs:554`, `:658`, `:670`) and at each item a `Map`/`Filter` keeps
-  (`vm.rs:512`).
-  - `MAX_VALUE_NODES` = 2²⁴ and `MAX_VALUE_BYTES` = 2²⁶ trap
-    `ValueTooLarge`. A shared part counts once per place it appears.
+  (`vm.rs:512`), with loaded parts measured where used.
+  - `MAX_VALUE_NODES` = 2²⁴ and `MAX_VALUE_BYTES` = 2²⁶ trap `ValueTooLarge`,
+    with a shared part counted per place.
   - `MAX_VALUE_DEPTH` = 64 traps `ValueTooDeep`.
-  - Extents of 64 nodes or more are remembered per evaluation (`vm.rs:320`).
+  - A filter that keeps everything returns its input (`vm.rs:525`).
 
-The boundaries are `vm::eval`'s production callers (Astra's r2 table, at
-today's lines):
+The reset points are the production callers of `vm::eval`. This is Astra's
+r2 table at today's lines, with the JS sites that must match:
 
-| Evaluation | Runner | JS target today |
+| Evaluation | Runner | JS target |
 |---|---|---|
-| Each action body (timers and `then` continuations too) | `runner/commit.rs:469` | `emit.rs:466` (`act`) |
-| Each derive evaluation or retry | `runner/settlement.rs:295` | `emit.rs:370` (`memo`) |
-| **Each** resource argument | `runner/settlement.rs:367` | `emit.rs:384`, all joined into one callback at `:429` |
-| Each root-state initializer | `runner/router.rs:605` → `runner.rs:1352` | `emit.rs:339`, `regions.rs:159` |
-| **Each** handler argument, collection edges included | `runner/event.rs:814`, `:971` | `emit.rs:1171` |
-| Each binding and surface argument | `instance.rs:810`, `:817`, `:926` | `emit.rs:876`, `:1043`, `:1080`, `:1315` |
-| Each region subject, row key, row-state initializer | `instance/region.rs:43`, `:69`, `:95`, `:131`, `:324` | `regions.rs:14`, `:116`, `:77` |
-| Virtualized subjects, bindings, keys, initializers | `instance/collection/mod.rs:266`–`:354`, `:456`, `:582`, `:995`; `collection/rekey.rs:72` | `regions.rs:105`, `:116` (`$vl`) |
+| Each action body (timers and `then` too) | `runner/commit.rs:469` | `emit.rs:421`, wrapped by `act` at `:433` |
+| Each derive evaluation or retry | `runner/settlement.rs:295` | `emit.rs:325`, `memo` at `:327` |
+| **Each** resource argument | `runner/settlement.rs:367` | `emit.rs:339`, inside one `args()` callback (`:384`) |
+| Each root-state initializer | `runner/router.rs:605` | `regions.rs:159` (`root_slot`; `emit.rs:294` is the locale slot) |
+| **Each** handler argument, collection edges included | `runner/event.rs:814`, `:971` | `emit.rs:1127`, wrapped at `:1183–1189` |
+| Each binding and surface argument | `instance.rs:810`, `:817`, `:926` | `rows.rs:63`; `emit.rs:999`, `:1036`, `:1271` |
+| Each region subject, row key, row-state initializer | `instance/region.rs:43`, `:69`, `:95`, `:131`, `:324` | `regions.rs:105` (`each` and `$vl` alike), `:116`, `:77` |
+| Virtualized bindings, subjects, keys, initializers | `instance/collection/mod.rs:266`–`:309`, `:456`, `:582`, `:995`; `collection/rekey.rs:72` | the same `regions.rs` sites |
 
-A `fn` body is inlined at lowering, and a `map` callback is part of its Code.
-Both share their caller's budget.
+`collection/mod.rs:354` evaluates `scroll-restoration` and discards a trap
+with `.ok()`. D6 removes that exception. A `fn` body is inlined at lowering
+and a `map` body belongs to its Code: both share their caller's budget.
 
 ## 2. What the JS target does today
 
-- `code.rs:433` emits a native `.map`/`.filter`, and `x_join` (`rt.js:1293`)
-  counts nothing.
-- `Concat` is emitted as `+` (`code.rs:334`), so no string is bounded.
-- `Some` and `Unwrap` emit nothing (`code.rs:286`). Records and lists are
-  arrays (`code.rs:325`, `:330`), so `[some(0)]` and `[0]` are the same value.
-- Derives are lazy memos (`rt.js:92`). A read inside another evaluation runs
-  the derive there, nested, where the runner settles it in its own `eval`.
+- `.map`/`.filter` are native (`code.rs:433`), and `x_join` (`rt.js:1293`)
+  and `Concat` (`+`, `code.rs:334`) count nothing.
+- `Some` is erased, and records and lists are arrays (`code.rs:286`, `:325`,
+  `:330`).
+- Handler arguments are evaluated before `act` opens the commit
+  (`emit.rs:1189`, `rt.js:206`). A row action's handler always has
+  arguments, because the emitter inserts `$r` first (`emit.rs:1183`).
+- A tree-update failure is journaled `poisoned: <message>` (`rt.js:175`).
 
 ## 3. Decisions
 
-### D1 — A budget context per evaluation, only where it can be spent
+### D1 — A local step counter per metered evaluation
 
-- **The counter.** `budget.js` holds one step counter, `B`. A Code is
-  *metered* when its bytecode holds a `Map`, `Filter` or `Call join`. The
-  emitter, which translates each plan Code once (`code::function`,
-  `code::expression`), opens a context in a metered Code's emitted body:
+- **Metered Codes.** A Code is *metered* when its bytecode holds a `Map`, a
+  `Filter` or a `Call join`. The emitter translates each plan Code once
+  (`code::function`, `code::expression`). A metered Code's function declares
+  `let $s=0`. Its loops (D3) increment `$s`, including loops inside a map
+  body, which captures `$s`. A `join` is emitted as `$s+=l.length` with its
+  trap test at the `Call`'s pc, then `x_join(l, sep, pc)`, which joins and
+  checks bytes and has no counter of its own.
+  - There is no module-level counter, so nothing is saved or restored.
+  - A derive read mid-loop is another function's invocation (its memo), with
+    its own `$s` from 0, and the caller's `$s` is untouched.
+  - **An unmetered Code gets no `$s` and nothing else changes in its
+    shape.** It still gets D3's checks wherever it constructs, concatenates
+    or calls a checked function (`K`, `cc`, `x_t`, `NP`, the encoders). A
+    Code with none of these is emitted exactly as today.
+- **One invocation per reset point.** That holds for a metered
+  `code::expression` because it is always an immediately called function.
+  The strip in `code.rs:99–101` applies to unmetered straight-line
+  expressions only. Each of the following is its own expression, never the
+  enclosing callback, which also builds DOM:
+  - each row-state initializer (`regions.rs:77`);
+  - each surface argument;
+  - each list-option binding;
+  - each resource argument (an IIFE inside the existing `args()` callback;
+    the memo and its subscriptions are unchanged).
+- **Handler and edge arguments run inside the commit, through one entry.**
+  The emitter writes `(...v)=>a_N.t(()=>[args], v)` for a handler with
+  arguments, row actions included, where `args` begins with `$r`.
+  - `act(fn, names, rowed)` on `rt.js:206` builds both entry points over one
+    function `go(a)`:
+    1. it checks the string arguments in parameter order, zipped to the
+       contract's parameters with `$r` skipped when `rowed`, against
+       `names` (the string parameters' names, emitted only when there are
+       any);
+    2. it calls `fn(...a)`.
+  - The plain entry is `(...a) => commit(() => go(a), "action")`.
+  - `.t(f, v)` first tests `Poisoned`. On a poisoned runner it forces `f()`
+    alone, inside a `try`, so a trapping argument journals its `Trap(…)` and
+    otherwise the poisoned refusal stands. This matches the runner, which
+    evaluates handler arguments (`event.rs:969–971`) before `run_action`'s
+    poisoned check (`commit.rs:412–414`).
+  - Otherwise `.t` is `commit(() => go([...f(), ...v]), "action")`.
+  - A trap in an argument is caught by `commit` and journaled as a refusal
+    with nothing changed. Edges (`list.js:755`) call the same closures.
+- **A skipped evaluation hides nothing.** An evaluation is a pure function of
+  its reads, so skipping one whose reads are unchanged (a memo, a kept row's
+  key) skips a result already computed, trap or not.
 
-  ```js
-  const o = enter(); try { … } finally { leave(o); }
-  ```
+### D2 — The measure: a `Some` is transparent, nesting is a type rule
 
-  `enter` saves `B` and sets it to 0. `leave` restores it.
-- **The boundaries follow.** Each runner reset point in §1 evaluates one
-  Code, so a context per Code reproduces each: every resource argument is its
-  own expression (the callback at `emit.rs:429` becomes a list of separately
-  metered ones), a row key's context is inside the function called per row,
-  an action's inside the function `act` wraps.
-- **Nested lazy evaluation.** A derive read mid-`map` runs inside the
-  caller's evaluation. A metered derive saves the caller's count and starts
-  from 0; an unmetered one never touches `B`. Either way the caller resumes
-  intact. `try/finally` restores it even if a future catch site resumes an
-  evaluation (none does today: `commit` and `run` rethrow a `Refusal`).
-- **Unmetered Codes get nothing** (most bindings, keys and handlers). Steps
-  are the only per-evaluation state; string and extent checks need no
-  context (D3).
-- **Skipped evaluations hide nothing.** An evaluation is a pure function of
-  its reads, so where an executor skips one whose reads are unchanged (an
-  unchanged memo, a kept row's key) it skips a result already computed,
-  trap or not.
-
-### D2 — The measure: a `Some` is transparent; depth is a type rule
-
-- **A `Some` adds no node and no bytes.** In the runner, `some(v)` has `v`'s
-  node and byte count, and its depth plus one (`Opcode::Some`, `measure`,
-  `Extent::scalar`). Everything else counts as today: a scalar or `none` one
-  node, a string one node plus its UTF-8 bytes, a record or list one node
-  plus its parts.
-- **Why.** Under that measure the erased JS value has exactly the runner's
-  count: `null` is one node whether `none` or `unit`, records and lists are
-  arrays that count alike, and an erased `Some` was never there to count
-  (even `some(none)`, which the JS target collapses to `none`). A `Some` has
-  one child and cannot multiply anything; the node bound exists to stop
-  doubling (`[x, x]`, again and again), and at most a factor of two on
-  option-heavy values gives up nothing it guards.
-- **Depth becomes a checker rule.** Shapes cannot recurse (`checks.rs:331`),
-  so a value is never deeper than its type. The type's depth is 0 for a
-  scalar and 1 + the inner depth for an option, list or record.
-  - The checker refuses any declared or inferred type deeper than 64 with
-    `type-too-deep`: "a type nests at most 64 deep (the data seam's bound,
-    `Value::decode`)".
-  - `ValueTooDeep` stays in the VM as the defense of a plan it does not
-    trust. For a compiled plan it is unreachable, so the JS target tracks no
+- **A `Some` adds no node and no bytes, and checks nothing.** In the runner,
+  `some(v)` has `v`'s nodes and bytes and its depth plus one (`Opcode::Some`,
+  `measure`, `Extent::scalar`). Everything else counts as today. Under this
+  measure the erased JS value has exactly the runner's count:
+  `null` is one node, records and lists are arrays that count alike, and an
+  erased `Some` was never there to count.
+- **`type-option-option`: an option directly inside an option is refused.**
+  Without this rule, a tower of `some`s between two counted nodes makes the
+  runner walk up to 64 uncounted wrappers per counted node (r1-a, finding
+  1). With it, at most one `Some` sits above each counted node. So the
+  expanded tree that `compare::equal`, conversion and dropping walk is at
+  most twice `MAX_VALUE_NODES`, as r1 claimed.
+  - The JS target already cannot represent such a value (`some(none)`
+    erases to `none`, `code.rs:13`), and no `.contract` in this repository,
+    x2apps, weird-castle or the Bluesky client declares one.
+  - The rule applies to inferred types too, such as `first` of a
+    `list<option<T>>`. The message names the type and suggests a record
+    field.
+- **`type-too-deep`: a type nests at most 64 deep.** Depth is 0 for a scalar
+  and 1 + the inner depth for an option, list or record.
+  - It is computed on value types after shape expansion. `fn` and action
+    types are left out, so the walk cannot loop.
+  - `?` counts 0. The semantics proves no value has type `?`
+    (`ValTy.unknown`, `semantics/Contract/ValTy.lean:144`), so with type
+    soundness a value is never deeper than its type.
+  - Shapes cannot recurse (`checks.rs:331`).
+  - The cutoff is `depth > 64`, which matches `vm.rs:258` and
+    `Value::decode`.
+  - `ValueTooDeep` stays in the VM to defend a plan the runner did not
+    compile. For a compiled plan it cannot fire, so the JS target tracks no
     depth.
+  - It is a Contract rule, so every target refuses the same programs.
 
-### D3 — Checked emission, in the runner's order
+### D3 — Checked emission, inline, in the runner's order
 
-`host/web-js/budget.js`, linked by use (`QUEUE.md`'s standing rule; `rt.js`
-is at 1,498 of 1,500 lines), exports these helpers; the emitter passes each
-the instruction's pc as a literal.
-
-- **`xm(list, f, pc)` and `xf(list, pred, pc)`** are loops that take the
-  runner's per-item steps in order:
-  1. a step (`++B > MAX_LIST_STEPS` traps `IterationLimit` at `pc`);
-  2. the body;
-  3. the extent of a kept item added to the result's (`ValueTooLarge` at
-     `pc`).
-
-  An empty list returns itself; a filter keeping every item returns its
-  input (`vm.rs:524`), after accounting for each.
-- **`xj(list, sep, pc)`** first takes `list.length` steps at once, then
-  joins and checks the result's bytes.
-- **`cc(a, b, pc)`** replaces `+` for `Concat`. `Add` stays `+`.
-- **`K(arr, pc)`** wraps `Record` and `List`: it sums the parts' extents and
-  traps `ValueTooLarge`. The parts are already evaluated, as on the VM's
-  stack, so one check after the sum is the same trap at the same pc. `Some`
-  stays unemitted (D2); `NP` and `x_t` check their result's bytes.
-- **Extents.** `ext(v)` measures as D2 does. An array of 64 nodes or more
-  is remembered in a module-wide `WeakMap` (the runner's `REMEMBERED` rule,
-  kept across evaluations).
-  - That is sound because a value is immutable once compiled code holds it:
-    compiled code never mutates, the router verbs copy first, and a data
-    answer belongs to the runtime once taken (memo equality already assumes
-    it).
-- **Bytes are exact UTF-8, without encoding on the fast path.** A string of
-  `u` UTF-16 units encodes to between `u` and `3u` bytes.
-  - Each check compares the cheap upper bound `3u` first, and only when that
-    passes the limit counts exactly. A unit counts 1, 2 or 3 bytes, a
-    surrogate pair 4, and a lone surrogate 3 (as U+FFFD, LLP 1088 D2).
-  - A running total that once needed the exact count keeps counting
-    exactly, so the trap falls on the runner's item or construction. LLP
-    1088 D2's string functions use the same counter.
+- **Loops.**
+  - **Map.** `map` becomes `for` into a presized array. Each item:
+    1. a step (`++$s>65536` traps `IterationLimit` at the `Map`'s pc);
+    2. the body, an arrow defined once and called per item;
+    3. the kept item's extent added inline (`ValueTooLarge` at the same pc).
+  - **Filter** does the same, and returns its input when it kept everything.
+  - **Empty lists** return themselves without taking a step.
+- **Extent of a part, inline.** A string is 1 node plus `3·length` toward
+  the byte bound. A number, bool or `null` is 1. An array goes to
+  `nodesOf(v)`, which returns the cached or walked extent.
+- **Constructions.** A `Record` or `List` built inside a loop body sums its
+  parts inline, since the part count is in the opcode, and the loop adds the
+  sum. Elsewhere it calls `K(arr, pc)` in `budget.js` (stage 2: `K`
+  everywhere; stage 3 inlines the loop bodies, D5).
+- **Concatenation.** `Concat` becomes `cc(a, b, pc)`: it builds the
+  string, then checks the length when `length > ⌊MAX/3⌋`. `Add` stays `+`.
+- **`join`.** The steps are the caller's `$s` (D1), taken before joining,
+  as `vm.rs:768` does. `x_join` then returns a one-element list's string
+  unchecked (`stdlib.rs:191–195`) and otherwise checks the result's
+  bytes.
+- **`NP`, `x_t` and the two encoders** check their result's bytes. The
+  encoders check after `encode_route_segment`'s empty and dot refusal, at
+  the `Call`'s pc.
+- **Exact UTF-8 bytes, cheap until near the bound.**
+  - A string of `u` UTF-16 units encodes to between `u` and `3u` bytes: a
+    unit counts 1, 2 or 3, a surrogate pair 4, and a lone surrogate 3 (as
+    U+FFFD, LLP 1088 D2).
+  - An accumulator (a loop's sum, `K`'s sum, a cached extent) holds the
+    upper bound `3u` until that bound passes `MAX_VALUE_BYTES`.
+  - Then the exact count of everything accumulated so far **replaces** it,
+    and every later addition is exact. A trap fires only on the exact
+    total, `>` as in Rust. So the trap falls on the runner's item or
+    construction, never earlier and never later.
+  - In an exact recount, a cached part's bytes count only if its cache
+    entry is marked exact. Otherwise the part is recounted in UTF-8, and its
+    entry is updated to that exact total and marked exact.
+  - A one-shot check (`cc`, `join`, `t`, `NP`) counts exactly once its upper
+    bound passes.
+- **The extent cache.** An array of 64 nodes or more is remembered in a
+  module-wide `WeakMap` with its nodes, its bytes and whether the bytes are
+  exact (the runner's `REMEMBERED` rule, kept across evaluations).
+  - It is sound only while values are immutable once compiled code holds
+    them: compiled code never mutates, the router verbs copy first, and a
+    data answer belongs to the runtime once taken (memo equality already
+    assumes this).
+  - A later change that mutates a value array must drop the cache.
+  - A shared part counts once per place, never once per walk.
+- **`budget.js` and `rt.js`.** `budget.js` holds the cold parts: the `Trap`
+  class, `nodesOf`, the exact UTF-8 counter, `K`, `cc` and the checked
+  `x_join`, `NP`, `x_t` and encoders.
+  - The app module imports what it calls from `budget.js` directly; the
+    emitter's import list gains a second module.
+  - `rt.js` never imports it, and the roster test
+    (`code.rs:600–614`) reads `budget.js` as well.
+  - `rt.js` (1,499 of 1,500 lines) changes only on existing lines: `act`
+    (D1), the commit's write check and `sig` (D6).
+  - Those checks are one-shot tests that need no counter: a string whose
+    `length > ⌊MAX_STRING/3⌋` is encoded with `TextEncoder`, which turns a
+    lone surrogate into U+FFFD's 3 bytes, and its byte length is compared.
 - **The order is the runner's.** The translator keeps the stack's
-  left-to-right order (`code.rs`, `flush`) and each helper checks where the
-  VM does, so an evaluation that would pass two bounds reports the same
-  first one on both executors.
+  left-to-right order (`code.rs`, `flush`), and each check sits where the VM
+  makes it. So an evaluation that would pass two bounds reports the same
+  first trap on both executors.
 
-### D4 — Static elision, decided at compile time
+### D4 — No compile-time elision
 
-Stage 3 has the translator carry a static type with each symbolic stack
-entry:
-
-- loads take the plan's types: slots, derives, resources, action params, a
-  record's `TypesId` fields;
-- a frame takes its subject's element type;
-- calls take the roster's return type, with `first`/`at` giving
-  `option<elem>`;
-- a `map` takes its body's type.
-
-With `maxNodes(T)` infinite when T holds a list, and `strings(T)` the count
-of string leaves (infinite under a list):
-
-- **`K` is skipped** when `1 + Σ maxNodes(partᵢ) ≤ 2²⁴` and
-  `Σ strings(partᵢ) ≤ 1`. One string is bounded by `MAX_STRING`, which
-  equals `MAX_VALUE_BYTES`. With two string parts it emits the length sum
-  only.
-- **In `xm`/`xf`, node accounting is skipped** when the item type has
-  `maxNodes ≤ 255` (65,536 × 255 + 1 < 2²⁴). Byte accounting is
-  skipped when the item holds no string, and is otherwise specialized to the
-  item's string fields.
-- **Steps and `cc` are never skipped.** They cost about nothing (D5).
-- **Unknowns fall back.** An unknown type (`?`, a `none` or `[]` literal not
-  yet joined) is treated as unbounded, so elision can only remove a check
-  that a type proves unreachable.
-
-Each rule is sound locally, and every D7 case runs with elision off (an
-emitter option for tests) and on, with identical results. Correctness never
-depends on D4: D2 made the generic helpers exact.
+r1's type-directed elision was unsound: a resource or literal string is not
+bounded by `MAX_STRING` (r1-a-7, r1-b-1). It was also unneeded, because
+inline checks cost what the unmetered calls cost (D5). Everything is
+checked.
 
 ### D5 — The performance ceiling
 
-Microbenchmarks of the emitted shapes on this Mac (Apple M5 Ultra; Chrome
-154, V8; Bun 1.4.2, JavaScriptCore), in ns per operation, unmetered → metered:
+These numbers come from the harness in
+`~/projects/x2apps/_reviews/llp1090-bench/` (`bench.js`, the model
+`budget.js`, `serve.js` for Chrome), outside the repository. Each value is
+the median of 7 runs of each shape after warmup, with opaque strings, on an
+Apple M5 Ultra under Chrome 154 (V8) and Bun 1.4.2 (JavaScriptCore). Times
+are ns per call.
 
 | Shape | V8 | JSC |
 |---|---|---|
-| A binding with no list step | 3.0 → 3.0 (no context) | 2.2 → 2.2 |
-| The same, inside a context (D1) | 3.0 → 3.4 | 2.2 → 3.7 |
-| `map` of 48 numbers (Crypto's row), steps only | 89 → 69 | 107 → 95 |
-| The same, generic extent per item (no D4) | 89 → 143 | 107 → 161 |
-| `map` of 1,000 strings → records, steps and specialized bytes (D4) | 5,860 → 3,820 | 6,160 → 6,770 |
-| The same, generic `xm` + `K` (no D4) | 5,500 → 12,180 | 5,240 → 15,280 |
-| Two concatenations, checked | 11.5 → 12.1 | 4.0 → 5.8 |
+| `map`, 48 numbers: native `.map` | 61.5 | 80.8 |
+| … emitted loop, body arrow, local `$s` (D1, D3) | 27.0 | 54.5 |
+| … outlined helper with a global counter (r1's design) | 123.5 | 147.2 |
+| `map`, 1,000 strings → 3-field records: native `.map` | 4,833 | 4,520 |
+| … emitted loop, parts summed inline (stage 3) | 1,933 | 4,471 |
+| … emitted loop, outlined `K` (stage 2) | 7,000 | 9,018 |
+| … outlined helper and `K` (r1's design) | 12,133 | 10,250 |
+| A four-part template: `+` → `cc` | 9.2 → 9.7 | 6.0 → 9.9 |
+| A binding with no list step | unchanged | unchanged |
 
-A loop into a presized array matches `.map`; the cost is the generic extent
-walks, which D4 removes for list-free items.
+r1-b found r1's outlined helper could not meet r1's ceiling; the
+reproduction agrees, and D3 now specifies the emitted loop.
 
-**The ceiling, held at stage 3:**
+**The ceiling.**
 
-- No measurable cost in a Code with no list step.
-- At most 10% per metered `map`/`filter` over list-free items in both
-  engines.
-- At most 0.5 KiB brotli on the `app.js` of an app that uses `map`, and
-  nothing on one that does not (`metrics.mjs --long` budgets).
-- Caltrain, RealWorld (`host/web-js/bench.mjs`) and the Bluesky feed within
-  noise of before.
+- **Stage 3, in both engines on the harness:** an emitted metered
+  `map`/`filter`, construction included, no slower than the native call it
+  replaces. A concatenation costs at most 1.5 ns more.
+- **Codes with no list step, construction, concatenation or checked call**
+  are unchanged. Their constructions and concatenations pay `K` and `cc`
+  (in the table).
+- **App level:** the RealWorld load and press (`host/web-js/bench.mjs`) and
+  a Caltrain hover drive are within noise of before, and every in-repo
+  `app.js` grows at most 1 KiB brotli (`metrics.mjs --long`).
+- **Stage 2** (outlined `K`) is held only to correctness.
 
-Measured with a scratch microbenchmark outside the repo and the existing
-benches; no script is added. Stage 2 (unelided) may exceed the ceiling,
-stage 3 may not; a lane that cannot meet it stops after three rounds and
-reports. Parity is not traded for speed silently.
+In-repo consumers are small: Spark's, RealWorld's and Shared Elements'
+filters, one `join`, and Caltrain's templates (now `cc`). The 48-number row
+is the out-of-repo crypto bench's shape. A lane that misses the ceiling stops
+after three rounds and reports. Parity is not traded for speed.
 
-### D6 — A trap on the web is the runner's trap
+### D6 — A trap on the web is the runner's refusal
 
-- **The trap class.** `budget.js` throws a `Trap extends Refusal` whose
-  message is the runner's `Debug` text of the same trap, for example
-  `Trap(IterationLimit { pc: 17 })`, and which carries `kind` and `pc`. The
-  pc is the Code's own, so the two executors print the same text.
-- **The outcome follows from where the evaluation ran**, as LLP 1017.003 D3
-  states for the runner:
+- **The trap class.** `budget.js` throws `Trap extends Refusal`, carrying
+  `kind` and `pc`.
+- **The journal text is the runner's.** Each site's journal text is the
+  `Debug` of the `RunnerError` the runner returns there. Line prefixes stay
+  each host's own; conformance compares the reason.
 
-  | Where | Runner | JS target |
+  | Where | Runner outcome | Reason text |
   |---|---|---|
-  | An action body, derive, resource argument or handler argument | The commit is refused and rolled back; journal `… refused: Trap(…)` | `commit`'s catch rolls back; journal `refused …: Trap(…)` |
-  | A binding, subject, key or row initializer while the tree updates | The runner is poisoned | `flush` sets `Poisoned`; journal `poisoned: Trap(…)` |
-  | A root initializer, or a first frame at boot or bake | Boot or bake fails with the trap | Boot throws the trap |
+  | Action body, derive, resource argument, handler or edge argument, root initializer | Commit (or boot) refused, rolled back | `Trap(IterationLimit { pc: 17 })` |
+  | Binding, surface argument, subject, key or row initializer while the tree updates | Runner poisoned; writes kept, store restored (`commit.rs:64`) | `Instance(Trap(IterationLimit { pc: 17 }))` (`lists.rs:94–98`, `runner.rs:203–208`) |
+  | A string action argument or slot write past `MAX_STRING` | Commit refused | `StringTooLong { name: "text" }` |
 
-  Line prefixes stay each host's own; the trap text must match.
-- **Two gaps close, so there is one rule to match:**
-  - `encodeURIComponent` and `encodeRouteSegment` can triple a string
-    unchecked (`stdlib.rs:89`). They trap `StringTooLong` past `MAX_STRING`.
-  - The JS target checks an action argument's string bytes in `act`, as the
-    runner refuses `StringTooLong { name }`.
+  - The JS `flush` catch already poisons. It now journals the `Instance(…)`
+    form.
+  - The commit's write loop (`rt.js:149`) refuses a top-level string over
+    `MAX_STRING` after the body, with the slot's name. `sig` takes the name
+    for string-typed slots only.
+  - `act`'s shared `go` refuses a string argument over `MAX_STRING` in
+    parameter order, for both entry points (`commit.rs:424–436`; D1).
+  - A bake or boot that fails does so with the same text.
+- **Three runner gaps close in stage 1, so there is one rule to match:**
+  1. `encodeURIComponent` and `encodeRouteSegment` check `MAX_STRING` on the
+     encoded result (`stdlib.rs:89–99`). The empty and dot refusal comes
+     first, unchanged.
+  2. `scroll-restoration` propagates a trap like every other virtualized
+     binding (`collection/mod.rs:354`).
+  3. difftest's `OUTSIDE` list covers both `StringTooLong` forms (D8).
 
 ### D7 — Conformance proves parity
 
 - **The plans.** `host/web-js/conformance/budget.contract` and its `.steps`
-  run on Carousel's sources (`// data: carousel`, whose `cards(n)` answers n
-  records). The async lane's `conform.mjs --synthetic --linux --strict` runs
-  them on the wasm runner, the JS target and the Linux runner; it already
-  fails a step one target refuses and another does not (`conform.mjs:378`),
-  and gains a comparison of the refused step's trap text.
-- **Each case is a step that must succeed or be refused identically:**
-  1. A `map` over `cards(65536)` succeeds; over `cards(65537)` it traps
-     `IterationLimit`.
+  run on Carousel's sources (`// data: carousel`). `cards(n)` answers `n`
+  six-node records (`apps/carousel/data/src/lib.rs:19–27`). Carousel's data
+  crate gains an ignored second argument to `cards` (case 3) and
+  `long(n, c)`, the string `c` repeated `n` times (cases 10, 13, 17 and
+  18).
+  - The async lane's `conform.mjs --synthetic --linux --strict` runs them on
+    the wasm runner, the JS target and the Linux runner.
+  - It already fails a step that one target refuses and another does not
+    (`conform.mjs:378`).
+  - It gains a comparison of the reason text for bound refusals: the kinds
+    above and the `StringTooLong { name }` form. Other refusals keep today's
+    refused-or-not comparison; the empty route segment's text differs
+    already and is not this LLP's.
+- **Cases.** Each step must succeed, or be refused with the same reason:
+  1. `map(cards(65536), c => c)` succeeds (1 + 65,536 × 6 nodes, under the
+     cap); `cards(65537)` traps `IterationLimit` at the `Map`.
   2. Nested `map` over `cards(300)` traps (90,300 steps).
-  3. Two arguments of one resource, 40,000 steps each, succeed (`cards`
-     gains an ignored second argument for this case).
-  4. Three row keys, and two handler arguments, of 40,000 steps each
-     succeed.
-  5. Derive A maps 40,000 items, then reads derive B, which maps 40,000:
-     both succeed; raised to 70,000, B's pc traps on every target.
-  6. `join` over `cards(65537)` traps at the `Call`.
-  7. Doubling `s = s + s` from `"é"`: the 25th click reaches exactly
-     `MAX_STRING` (2²⁵ units, 2²⁶ bytes, between `u` and `3u`) and
-     succeeds; the 26th traps `StringTooLong`. A lone surrogate typed into
-     an input counts as U+FFFD.
-  8. A `map` of `cards(2000)` to `Two(a=cards, b=cards)` traps
-     `ValueTooLarge` partway (about 24,000 nodes an item).
-  9. 40,000 items of a 2 KiB string trap on bytes; 30,000 do not.
-  10. `map(cards, c => some(c))` and `map(cards, c => c)` measure alike.
-  11. After every refusal, the next step's state is identical on all three
+  3. Two arguments of one resource, 40,000 steps each, succeed.
+  4. Three row keys, two metered row-state initializers and two handler
+     arguments, 40,000 steps each, succeed.
+  5. Derive A maps 40,000 items, reads derive B (which maps 40,000), then
+     maps 30,000 more. It traps at A's second `Map`. This proves B neither
+     reset nor charged A.
+  6. A handler argument and a list-edge argument that trap refuse the
+     action. The reason is `Trap(…)` and the next step's state is
+     unchanged.
+  7. A row key that traps poisons, with `Instance(Trap(…))`.
+  8. `join` over `cards(65537)` traps at the `Call`. A one-element list of a
+     string past `MAX_STRING` returns it.
+  9. Doubling `s = s + s` from `"é"`: the 25th click reaches exactly
+     2²⁶ bytes (2²⁵ units, between `u` and `3u`) and succeeds; the 26th
+     traps `StringTooLong`.
+  10. Storing `long(2^26 + 1, "a")` into a slot is refused
+      `StringTooLong { name }`.
+  11. `map(cards(2000), c => Two(a=cards, b=cards))`: each item is 24,003
+      nodes, and the sum crosses 2²⁴ on item 699 with
+      `Trap(ValueTooLarge { pc })` at the `Map`.
+  12. 40,000 copies of a 2 KiB ASCII string trap `ValueTooLarge` at the
+      `Map` on item 32,769. 30,000 succeed, though their `3u` upper bound
+      passes the cap at item 10,923: the exact recount (D3) carries on.
+  13. A record holding `long(2^26 + 1, "a")` traps `ValueTooLarge`.
+  14. Each encoder traps one byte past `MAX_STRING`.
+  15. `[x, x]` over a cached 64-node list counts it twice, and a
+      filter-identity subject is not mutated.
+  16. `join(map(cards(40000), c => c.label), ",")` traps `IterationLimit`
+      at the `join`'s `Call` (80,000 steps in one evaluation); with 30,000
+      it succeeds.
+  17. **Handler and row arguments.**
+      - A row action's `input` handler whose argument is
+        `long(2^26 + 1, "a")` is refused `StringTooLong { name }`, and the
+        next step is unchanged.
+      - `long(22369622, "€")` (67,108,866 bytes in fewer than 2²⁶ units),
+        stored or passed, is refused the same way.
+      - After a row key has poisoned the runner (case 7), a handler whose
+        argument traps journals `Trap(…)`.
+  18. With `resource k = long(1000, "a")` and
+      `derive xs = map(cards(10000), c => k)` (10,001 nodes, so cached;
+      10 MB exact, 30 MB as an upper bound), `Three(a=xs, b=xs, c=xs)`
+      succeeds through the cached part's recount: 30 MB exact, 90 MB as an
+      upper bound. `Seven(…)` (70 MB) traps `ValueTooLarge`.
+  19. After every refusal, the next step's state is identical on all three
       targets (LLP 1005 §6).
-- Each case also runs with D4's elision off. The blocking `cargo test`
-  gains only the runner's, checker's and emitter's tests (§4); no browser.
+- **State size.** The harness compares state, so cases 9 and 10 hold a
+  64 MiB slot for one step. The step after them resets it.
 
 ### D8 — Lean
 
-- **Eval and Runtime are unchanged.** The semantics stays unbounded
-  (`Eval.lean`'s `fuel` is a recursion bound, not one of the runner's). The
-  bounds are executor refusals, and their parity is shown by running the two
-  executors (D7), not by proof.
-- **The checker.** `Contract.check` gains `type-too-deep` as a clause, so the
-  two checkers stay equal for `difftest types`. A refusal adds no
-  derivation, so `TypeCheck`'s soundness proof is unaffected.
-- **difftest.** A runner refusal whose reason is `IterationLimit`,
-  `StringTooLong`, `ValueTooLarge` or `ValueTooDeep` is reported `OUTSIDE`,
-  not as a divergence. The generator already stays below the bounds
+- **Eval and Runtime are unchanged.** The semantics is unbounded. The bounds
+  are executor refusals, shown equal by running the executors (D7).
+- **The checker.** `Contract.check` gains `type-option-option` and
+  `type-too-deep`, so `difftest types` keeps the two checkers equal. A
+  refusal adds no derivation, so `TypeCheck`'s soundness proof stands.
+- **difftest.** A runner refusal of `IterationLimit`, `StringTooLong` (the
+  trap or `RunnerError::StringTooLong { name }`), `ValueTooLarge` or
+  `ValueTooDeep` is `OUTSIDE`. The generator already stays under the bounds
   (`gen/action.rs`, `GROWTH_CAP`).
-- **The claim**, in two parts:
-  - where no evaluation passes a bound, both executors agree with the
-    semantics (LowerCorrect and difftest);
-  - where one does, both refuse the same step with the same trap (D7).
+- **The claim:** where no evaluation passes a bound, both executors agree
+  with the semantics; where one does, both refuse the same step with the
+  same reason.
 
 ## 4. Tests
 
-- **Runner** (`vm.rs` tests, counted, not timed): `some(x)` has `x`'s nodes
-  and bytes; `[some(0)]` and `[0]` measure alike; doubling through a local
-  still traps; each encoder traps one byte past `MAX_STRING`.
-- **Checker:** a shape nested 64 deep compiles; 65, declared or an inferred
-  `some(…)` chain, is refused; every in-repo app still compiles.
-- **Emitter**, in `host/web-js`'s Rust tests:
-  - a Code with no list step gets no context, and one with a step gets
-    exactly one;
-  - each resource argument and each handler argument is its own context;
-  - each emitted pc equals the `Instruction.pc` it came from;
-  - D4's decisions on a table of types: a list-free record with one string
-    is skipped, two strings check bytes only, a list part checks nodes, `?`
-    falls back.
-- **Conformance.** D7's eleven cases, with elision on and off.
+- **Runner** (counted, not timed): `some(x)` measures as `x`; doubling
+  through a local still traps; the encoders trap one byte past
+  `MAX_STRING` and still refuse `""`; a trapping `scroll-restoration`
+  poisons.
+- **Checker:** `option<option<T>>` is refused, declared or inferred; depth
+  64 compiles and 65 does not; every in-repo app compiles.
+- **Emitter:**
+  - a Code with no list step, construction, concatenation or checked call
+    is emitted as today; one with a construction or concatenation but no
+    list step has no `$s` and does call `K` or `cc`;
+  - a `join` adds to `$s` at its `Call`;
+  - `act` receives its string parameters' names and whether it takes `$r`;
+  - a metered Code declares one `$s`, and a metered `expression()` is called
+    in place;
+  - each resource argument, row initializer and surface argument is its
+    own;
+  - handlers with arguments use `.t`;
+  - every pc equals its `Instruction.pc`.
+- **Conformance:** D7.
 
 ## 5. Stages
 
-1. **Runner, checker, Lean (2026-10-05).** D2, D6's encoder bound and D8 in
-   one change, with their tests and `docs/reference.md`'s limits (the four
-   bounds and `type-too-deep`). No JS changes.
-2. **The JS target, unelided (2026-10-05).**
-   - `budget.js`, D1, D3, D6's trap class and `act` check;
-   - D7's plans and the harness's trap-text comparison;
-   - the overhead measured and recorded (it may exceed D5).
-   - The `QUEUE.md` entry is removed. LLP 1088 §9.1's precondition is met.
-3. **Elision (2026-10-06).** D4, held to D5's ceiling, with D7 run with
-   elision on and off.
+1. **Runner, checker, Lean (2026-10-05).** D2 (the measure and both
+   refusals), D6's three runner gaps, and D8, with their tests and
+   `docs/reference.md`'s limits. No JS changes.
+2. **The JS target (2026-10-05).** D1, D3 with an outlined `K`, D6's JS
+   side, D7's plans and the harness's reason comparison. The emitted code
+   is re-measured on the harness. LLP 1088 §9.1's precondition is met, and
+   the `QUEUE.md` entry is removed.
+3. **Speed (2026-10-06).** Loop bodies sum construction parts inline. The
+   D5 ceiling is held on the harness and the app benches.
 
-LLP 1088 §9.1, list construction, then lands as an amendment to that LLP.
-Each new list function (literals, `concat`, `slice`, `includes`) states its
-steps and extent on both executors in terms of D3's helpers.
+LLP 1088 §9.1 then lands as an amendment to LLP 1088. Each new list function
+states its steps and extent on both executors in D3's terms.
+
+### As built (stages 1 and 2, 2026-10-04)
+
+- **Stage 1.** The runner measures `some(v)` as `v` a level deeper
+  (`vm.rs`, `Opcode::Some` and `measure`). `contract/types/src/bounds.rs`
+  holds both refusals: every resolved type, every inferred one (`infer`), each
+  shape once its fields are known, and a mutation's `option<T>`, so a mutation
+  `as shape option<T>` is refused too (it held `some(none)`; one test fixture
+  declared one). `derive d = some(d)` is now `type-option-option` rather than
+  `type-derive-cycle`. Lean: `Ty.bounded`, `checkBounds`, and `boundedTy`
+  where `infer` grows a type (`some`, `map`, the roster); the proofs needed
+  one lemma, `boundedTy_some`. The two semantics corpus programs that built
+  `some(none)` (`options/nested`, `options/some-of-option`) are deleted, and
+  so is `host/web-js/src/nested.rs`, which the checker subsumes.
+- **Stage 2.** As D1 and D3, with `K` outlined. A loop's scalar parts are
+  counted inline and its result's extent remembered (`$m`). `.t(f)` returns
+  the handler, which appends the event's arguments.
+- **Conformance.** `host/web-js/conformance/budget.contract` (with
+  `.steps`) runs cases 1–9, 11, 12, 14–16, 18 and 19, and case 17's
+  poisoned-runner bullet. Every step is equal on wasm, JS and Linux, with the
+  same bound-refusal text. The JS target's Rust data seam carries at most
+  16 MiB a message (`MAX_HOST_WORK_BYTES`; `QUEUE.md`), so no source can
+  hand it a string past `MAX_STRING`. Cases 10, 13 (as written), 17's first
+  two bullets and 8's one-item `join` are run on the runtime instead
+  (`host/web/tests/js-runtime.test.mjs`). The plan builds case 13's
+  replacement, two 32 MiB strings in one record, and the encoders' inputs by
+  doubling in `fn`s. `conform.mjs` counts a bound refusal that a host repeats
+  once: Linux reports a settling list's edge more often than a page does.
+  The full async-lane run (`--synthetic --build --linux --strict`, 68
+  targets) has the same 17 failures as origin/main, and none in the budget plan.
+- **D5, measured** (M-series Mac, Chrome 154, Bun 1.4.2; the emitted shapes
+  over the real `budget.js`):
+
+  | Shape | V8 native → emitted | JSC native → emitted |
+  |---|---|---|
+  | `map`, 48 numbers | 83.5 → 85.0 ns | 70.1 → 68.7 ns |
+  | `filter`, 1,000 | 4,467 → 2,167 ns | 1,833 → 2,061 ns |
+  | `map`, 1,000 strings → records (`K`) | 6,067 → 9,167 ns | 8,069 → 15,298 ns |
+  | four-part template, `+` → `cc` | 11.5 → 12.0 ns | 9.1 → 15.5 ns |
+
+  - RealWorld (`bench.mjs`, mobile profile, 9 cold runs, brotli served):
+    FCP 592 → 596 ms, content 1,109 → 1,115, runtime 587 → 593, press
+    1,321 → 1,349 (a hosted API). Within noise.
+  - Caltrain: 480 hovers of the station list took 7.8–8.1 ms before and
+    7.4–7.7 ms after. Within noise.
+  - Brotli `app.js` grew 126–985 B in 28 apps. **RealWorld grew 1,205 B,
+    past the 1 KiB ceiling.** About 880 B of that is `budget.js` and the
+    rest is its 17 inlined filters and 97 concatenations. Two rounds of
+    shrinking were tried. A loop body that sends strings through `$p` saved
+    59 B but costs a call for each string item, so it was not kept. `.t(f)`
+    saved 17 B. Stage 3's emission owns the rest.
 
 ## 6. Considered and not taken
 
-- **Boxing `Some` on the JS target.** Exact without touching the runner,
-  but it changes every value crossing `rt.js`, the DOM bindings, `eq`,
-  `conforms` and the data seam, and allocates per optional. D2 changes one
-  measure instead.
-- **Type metadata from the lowering** (opcode operands or a side table):
-  bytes in every target's plan and a new `Vm.lean` decoder, for one
-  executor. D4 reconstructs types only for speed, inside `host/web-js`.
-- **One counter reset per commit** (LLP 1088 r2's D3): it merges budgets the
-  runner keeps apart; Astra's two 40,000-step arguments would fail.
-- **Charging a whole `map` at entry.** It is cheaper, but it reports
-  `IterationLimit` where the runner reports a `ValueTooLarge` or
-  `StringTooLong` from an earlier item.
-- **Counting UTF-16 units in both executors.** The runner would pay O(n) per
-  string per construction, and `MAX_STRING` is a UTF-8 bound everywhere else.
-- **Bounds in the Lean semantics:** a step count through `Vm.lean` and every
-  lowering proof, for what running the executors already shows.
-- **A declared deviation instead.** List construction stays deferred, and a
-  tab can hang on a plan native refuses in microseconds.
+- **Counting option layers from static types in the JS target** (r1-a's
+  fix). This makes typed translation a correctness dependency at every
+  construction and walk. `type-option-option` gets the same bound without
+  types, and refuses only programs the web build already gets wrong.
+- **Boxing `Some` on the JS target.** It changes every value crossing
+  `rt.js`, the DOM, `eq`, `conforms` and the data seam.
+- **A global counter with save and restore, and outlined helpers** (r1).
+  They measured 2× to 2.5× native (D5). A local counter is free and nests by
+  construction.
+- **Type-directed elision** (r1's D4): unsound and unneeded.
+- **One counter per commit; charging a whole `map` at entry; UTF-16 counts in
+  both executors; bounds in Lean.** These would merge budgets, report the
+  wrong first trap, cost O(n) in the runner, and put a step count through
+  every proof.
 
 ## 7. Open questions
 
-1. **Is D2's runner change acceptable?** It refuses fewer programs (an
-   option-heavy value gets up to twice the nodes). The alternatives are
-   boxing or type metadata (§6). The author recommends D2.
-2. **Should `type-too-deep` be a Contract rule or a JS-build refusal?** As a
-   Contract rule (proposed), every target refuses the same programs. As a
-   build refusal, only the web build refuses; nothing in the repo nests
-   anywhere near 64.
-3. **Is D5's ceiling right?** It is set from microbenchmarks, not an app's
-   frame; the alternative is the Crypto and Bluesky fling numbers on the
-   web, which stage 3 would then measure.
-4. **The JS target's `some(none)` collapse** (`code.rs:13`) is a value bug,
-   not a budget one. D2 makes it harmless to the bounds. Should the JS build
-   refuse `option<option<T>>` and `option<unit>`, as a separate `QUEUE.md`
-   line?
+1. **`type-option-option`.** It is a language restriction: `option<option<T>>`
+   is refused, including from `first` or `at` on a list of options. The
+   alternative is type-aware counting in the JS target (§6). The author
+   recommends the refusal.
+2. **`scroll-restoration` now poisons on a trap,** where it was ignored. Is
+   that acceptable? The alternative is for the JS target to swallow the
+   same trap at the same point.
+3. **Is D5's ceiling right?** It is held per shape on the harness and within
+   noise on the app benches. Making it a frame-time budget would need a
+   fling bench on the web in this repository, which is apparatus.
+
+## 8. Revisions
+
+**r2 (2026-10-04).** Every finding of both Grok reviews is resolved or
+rejected with evidence. The dispositions, finding by finding, are in the two
+review records. The design changed in five ways:
+
+- the local counter;
+- handler arguments inside the commit;
+- `type-option-option`;
+- inline emission instead of elision;
+- pinned conformance oracles.
+
+**r3 (2026-10-04), the final revision.** It resolves the r2 delta review
+(`llp/reviews/1090-r2.grok.md`):
+
+- one argument check for both of `act`'s entry points, with `$r` skipped;
+- the argument thunk forced on a poisoned runner;
+- `K` and `cc` in unmetered Codes;
+- `join`'s steps on the caller's `$s`;
+- the cache's exactness rule;
+- one-shot UTF-8 tests in `rt.js` through `TextEncoder`;
+- the re-pinned `emit.rs` sites.
+
+Cases 16 to 18 are new. Nothing is descoped.

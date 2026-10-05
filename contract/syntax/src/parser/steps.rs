@@ -86,19 +86,73 @@ impl Parser {
         let name = self.str_lit("the test's name")?;
         self.newline()?;
         let steps = self.block(|p| p.step())?;
-        // The viewport is the session's: it opens at it, before any step.
-        if let Some(Step::Size { span, .. }) = steps
+        // The viewport, the date, the zone, the locale and the seed are the
+        // session's: it opens with them, before any other step.
+        let leading = steps
             .iter()
-            .skip(1)
-            .find(|s| matches!(s, Step::Size { .. }))
-        {
+            .take_while(|s| !launch_word(s).is_empty())
+            .count();
+        if let Some(late) = steps[leading..].iter().find(|s| !launch_word(s).is_empty()) {
             return Err(SyntaxError {
                 id: "syntax-expected-step",
-                message: "`size` is a test's first step: its session opens at that viewport".into(),
-                span: *span,
+                message: format!(
+                    "`{}` leads a test's steps: its session opens with it, before any other step",
+                    launch_word(late)
+                ),
+                span: late.span(),
             });
         }
+        for (i, a) in steps[..leading].iter().enumerate() {
+            if let Some(first) = steps[..i].iter().find(|b| same_launch(a, b)) {
+                return duplicate("launch line", launch_word(a), a.span(), first.span());
+            }
+        }
         Ok(TestDecl { name, steps, span })
+    }
+
+    /// A launch line's quoted value.
+    fn launch_str(&mut self, word: &str, what: &str) -> R<String> {
+        match self.peek_kind().clone() {
+            TokenKind::Str(s) if !s.is_empty() => {
+                self.next();
+                Ok(s)
+            }
+            other => self.err(
+                "syntax-expected-step",
+                format!(
+                    "`{word}` takes {what} in quotes, found {}",
+                    describe(&other)
+                ),
+            ),
+        }
+    }
+
+    /// A viewport, `1200x800` (the lexer reads `1200` and then the word
+    /// `x800`), in whole points.
+    fn viewport(&mut self, word: &str) -> R<(f64, f64)> {
+        let width = self.step_number("the viewport's width, as 1200x800")?;
+        let height = match self.peek_kind().clone() {
+            TokenKind::Ident(w) if w.starts_with('x') && w[1..].parse::<u32>().is_ok() => {
+                self.next();
+                w[1..].parse::<u32>().unwrap_or_default() as f64
+            }
+            other => {
+                return self.err(
+                    "syntax-expected-step",
+                    format!(
+                        "`{word}` takes a viewport as 1200x800, found {}",
+                        describe(&other)
+                    ),
+                )
+            }
+        };
+        if width.fract() != 0.0 || width < 1.0 || height < 1.0 {
+            return self.err(
+                "syntax-expected-step",
+                format!("`{word}` takes whole points, as 1200x800"),
+            );
+        }
+        Ok((width, height))
     }
 
     /// A step's number, a leading `-` included (a drag's offsets).
@@ -116,14 +170,14 @@ impl Parser {
         }
     }
 
-    fn step(&mut self) -> R<Step> {
+    pub(super) fn step(&mut self) -> R<Step> {
         let (word, span) = match self.peek_kind().clone() {
             TokenKind::Ident(w) => (w, self.peek().span),
             other => {
                 return self.err(
                     "syntax-expected-step",
                     format!(
-                    "expected `tap`, `type`, `clock`, `screenshot`, `size`, or `expect`, found {}",
+                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`), found {}",
                     describe(&other)
                 ),
                 )
@@ -138,7 +192,31 @@ impl Parser {
                     let dx = self.step_number("the drag's dx in points")?;
                     let dy = self.step_number("the drag's dy in points")?;
                     let (mut press, mut over, mut hold) = (None, None, None);
+                    let (mut from, mut mouse) = (None, false);
                     while let TokenKind::Ident(w) = self.peek_kind().clone() {
+                        let twice = match w.as_str() {
+                            "from" => from.is_some(),
+                            "mouse" => mouse,
+                            _ => false,
+                        };
+                        if twice {
+                            return self.err(
+                                "syntax-expected-step",
+                                format!("`{w}` is given twice in one drag"),
+                            );
+                        }
+                        if w == "mouse" {
+                            self.next();
+                            mouse = true;
+                            continue;
+                        }
+                        if w == "from" {
+                            self.next();
+                            let x = self.step_number("the start's x in the node's box")?;
+                            let y = self.step_number("the start's y in the node's box")?;
+                            from = Some((x, y));
+                            continue;
+                        }
                         let slot = match w.as_str() {
                             "press" => &mut press,
                             "over" => &mut over,
@@ -159,21 +237,36 @@ impl Parser {
                         target,
                         dx,
                         dy,
+                        from,
+                        mouse,
                         press,
                         over,
                         hold,
                         span,
                     });
                 }
-                let hover = if self.at_ident("hover") {
+                let form = match self.peek_kind().clone() {
+                    TokenKind::Ident(w) if w == "hover" || w == "dblclick" || w == "contextmenu" || w == "into" => {
+                        self.next();
+                        match w.as_str() {
+                            "hover" => TapForm::Hover,
+                            "dblclick" => TapForm::Dblclick,
+                            "contextmenu" => TapForm::Contextmenu,
+                            _ => TapForm::Into(self.str_lit("the row's key")?),
+                        }
+                    }
+                    _ => TapForm::Press,
+                };
+                let modifiers = if form == TapForm::Press && self.at_ident("modifiers") {
                     self.next();
-                    true
+                    self.str_lit("the modifiers held, as \"Shift+Meta\"")?
                 } else {
-                    false
+                    String::new()
                 };
                 Step::Tap {
                     target,
-                    hover,
+                    form,
+                    modifiers,
                     span,
                 }
             }
@@ -183,23 +276,64 @@ impl Parser {
                     self.next();
                     let key = self.str_lit("the key's name")?;
                     Step::Key { target, key, span }
+                } else if self.at_ident("copy") || self.at_ident("cut") || self.at_ident("paste") {
+                    let edit = if self.at_ident("copy") { "copy" } else if self.at_ident("cut") { "cut" } else { "paste" };
+                    self.next();
+                    let text = if edit == "paste" { self.str_lit("the pasted text")? } else { String::new() };
+                    Step::Clipboard { target, edit: edit.into(), text, span }
                 } else {
                     let text = self.str_lit("the text")?;
-                    Step::Type { target, text, span }
+                    let append = self.at_ident("append");
+                    if append {
+                        self.next();
+                    }
+                    Step::Type {
+                        target,
+                        text,
+                        append,
+                        span,
+                    }
+                }
+            }
+            // `pick "id" "path"…` or `pick "id" cancel` (files F11).
+            "pick" => {
+                let target = self.str_lit("the picker's node id, or its capability")?;
+                let mut paths = Vec::new();
+                if self.at_ident("cancel") {
+                    self.next();
+                } else {
+                    paths.push(self.str_lit("a path to choose, or `cancel`")?);
+                    while let TokenKind::Str(path) = self.peek_kind().clone() {
+                        self.next();
+                        paths.push(path);
+                    }
+                }
+                Step::Pick {
+                    target,
+                    paths,
+                    span,
                 }
             }
             "clock" => {
                 let arg = match self.peek_kind().clone() {
-                    TokenKind::Ident(w) if w == "settle" => {
+                    TokenKind::Ident(w) if w == "settle" || w == "data" => {
                         self.next();
-                        "settle".to_string()
+                        w
                     }
                     TokenKind::Punct("+") => {
                         self.next();
                         match self.peek_kind().clone() {
                             TokenKind::Number(n) => {
                                 self.next();
-                                format!("+{n}")
+                                // `clock +ms real`: that much real time passes
+                                // with the clock (media, the network: LLP 1042 §3).
+                                match self.peek_kind() {
+                                    TokenKind::Ident(w) if w == "real" => {
+                                        self.next();
+                                        format!("+{n} real")
+                                    }
+                                    _ => format!("+{n}"),
+                                }
                             }
                             other => {
                                 return self.err(
@@ -220,7 +354,7 @@ impl Parser {
                         return self.err(
                             "syntax-expected-step",
                             format!(
-                                "`clock` takes `settle`, `+ms`, or `ms`, found {}",
+                                "`clock` takes `settle`, `data`, `+ms`, `+ms real`, or `ms`, found {}",
                                 describe(&other)
                             ),
                         )
@@ -231,34 +365,77 @@ impl Parser {
             // `size 1200x800`, as the driver's `--size` (the lexer reads
             // `1200` and then the word `x800`).
             "size" => {
-                let width = self.step_number("the viewport's width, as 1200x800")?;
-                let height = match self.peek_kind().clone() {
-                    TokenKind::Ident(w) if w.starts_with('x') && w[1..].parse::<u32>().is_ok() => {
-                        self.next();
-                        w[1..].parse::<u32>().unwrap_or_default() as f64
-                    }
-                    other => {
-                        return self.err(
-                            "syntax-expected-step",
-                            format!(
-                                "`size` takes a viewport as 1200x800, found {}",
-                                describe(&other)
-                            ),
-                        )
-                    }
-                };
-                if width.fract() != 0.0 || width < 1.0 || height < 1.0 {
-                    return self.err(
-                        "syntax-expected-step",
-                        "`size` takes whole points, as 1200x800",
-                    );
-                }
+                let (width, height) = self.viewport("size")?;
                 Step::Size {
                     width,
                     height,
                     span,
                 }
             }
+            // `resize 800x600`: the window, mid-test (reader: repagination;
+            // the driver's `resize`, a desktop window's or the browser's).
+            "resize" => {
+                let (width, height) = self.viewport("resize")?;
+                Step::Resize {
+                    width,
+                    height,
+                    span,
+                }
+            }
+            // `epoch "2026-09-21T12:00:00Z"` or `epoch 1790000000000`: the
+            // driver's `--epoch`, which its launch facts check again.
+            "epoch" => {
+                let value = match self.peek_kind().clone() {
+                    TokenKind::Number(n) if n.fract() == 0.0 && n >= 0.0 => {
+                        self.next();
+                        format!("{n}")
+                    }
+                    TokenKind::Str(s) if iso_date(&s) => {
+                        self.next();
+                        s
+                    }
+                    other => {
+                        return self.err(
+                            "syntax-expected-step",
+                            format!(
+                                "`epoch` takes an ISO date in quotes, as \"2026-09-21T12:00:00Z\", or whole Unix milliseconds, found {}",
+                                describe(&other)
+                            ),
+                        )
+                    }
+                };
+                Step::Epoch { value, span }
+            }
+            "time-zone" => Step::TimeZone {
+                zone: self.launch_str("time-zone", "an IANA zone, as \"America/New_York\",")?,
+                span,
+            },
+            "locale" => Step::Locale {
+                tag: self.launch_str("locale", "a BCP 47 tag, as \"fr-FR\",")?,
+                span,
+            },
+            "seed" => {
+                let seed = self.step_number("the seed, a whole number")?;
+                if seed.fract() != 0.0 || !(0.0..=9_007_199_254_740_991.0).contains(&seed) {
+                    return self.err(
+                        "syntax-expected-step",
+                        "`seed` takes a whole number from 0 through 2^53 - 1",
+                    );
+                }
+                Step::Seed { seed, span }
+            }
+            // `before data`: the first step does not wait for the app's data.
+            "before" => {
+                if !self.at_ident("data") {
+                    return self.err(
+                        "syntax-expected-step",
+                        "`before` takes `data`: `before data`, the test's first step before the app's data lands",
+                    );
+                }
+                self.next();
+                Step::BeforeData { span }
+            }
+            "reload" => Step::Reload { span },
             "screenshot" => Step::Screenshot {
                 path: self.str_lit("a file name")?,
                 span,
@@ -312,7 +489,12 @@ impl Parser {
                         }
                     }
                     "state" => {
-                        let (name, _) = self.ident()?;
+                        let (mut name, _) = self.ident()?;
+                        // A field of a record, at any depth (feed F10).
+                        while self.eat_punct(".") {
+                            name.push('.');
+                            name.push_str(&self.ident()?.0);
+                        }
                         self.expect_punct("==")?;
                         let value = self.expr()?;
                         if !matches!(
@@ -343,7 +525,7 @@ impl Parser {
                 return Err(SyntaxError {
                     id: "syntax-expected-step",
                     message: format!(
-                    "expected `tap`, `type`, `clock`, `screenshot`, `size`, or `expect`, found `{other}`"
+                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`), found `{other}`"
                 ),
                     span,
                 })
@@ -352,4 +534,41 @@ impl Parser {
         self.newline()?;
         Ok(step)
     }
+}
+
+/// The words of a test's launch lines, which a test file may also write at
+/// its top level for every test in it (habits F7, calendar F13).
+pub(super) const LAUNCH: [&str; 6] = ["size", "epoch", "time-zone", "locale", "seed", "before"];
+
+/// A launch line's word, or `""` for any other step.
+pub(super) fn launch_word(step: &Step) -> &'static str {
+    match step {
+        Step::Size { .. } => "size",
+        Step::Epoch { .. } => "epoch",
+        Step::TimeZone { .. } => "time-zone",
+        Step::Locale { .. } => "locale",
+        Step::Seed { .. } => "seed",
+        Step::BeforeData { .. } => "before data",
+        _ => "",
+    }
+}
+
+/// Whether two launch lines set the same fact.
+pub(super) fn same_launch(a: &Step, b: &Step) -> bool {
+    let word = launch_word(a);
+    !word.is_empty() && word == launch_word(b)
+}
+
+/// `YYYY-MM-DD`, alone or before a `T` time: what the driver's epoch reads.
+fn iso_date(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() >= 10
+        && b[..10].iter().enumerate().all(|(i, c)| {
+            if i == 4 || i == 7 {
+                *c == b'-'
+            } else {
+                c.is_ascii_digit()
+            }
+        })
+        && (b.len() == 10 || b[10] == b'T')
 }

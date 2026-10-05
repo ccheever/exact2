@@ -7,7 +7,11 @@
 //!   difftest quick [--base <rev>]        before landing a change to contract/, runner/,
 //!                                        plan/ or semantics/: what it touches, in a minute
 //!   difftest random [--seed S] [--count N] [--batch B]
+//!     each of the three with `--js`: also the web JS target against the
+//!     runner (src/js.rs); `--js-only`: the runner and the JS target alone
 //!   difftest numbers [--seed S] [--count N]   number printing alone
+//!   difftest arith [--seed S] [--count N]     the binary64 model's operations
+//!                                             against this machine's f64
 //!   difftest types [--seed S] [--count N]     the Lean type checker against the Rust one
 //!   difftest show <seed>                       a random case's program and script
 //!   difftest apps [--write]              the app embeddings under semantics/Apps
@@ -15,6 +19,9 @@
 //!   difftest lowering [--seed S] [--count N] [--batch B]
 //!   difftest lowering-corpus [<dir|file>…]     the compiler's bytecode against the
 //!                                              Lean VM model and `eval` (semantics/README.md)
+//!   difftest expansion [<dir|file>…] [--seed S] [--count N] [--batch B]
+//!                                        component expansion against the Lean expander
+//!                                        and the component-level semantics
 //!
 //! Prints one line per divergence with where its reproduction was kept, then
 //! a summary; exits 1 when anything diverged, a corpus program was refused,
@@ -22,24 +29,26 @@
 //! compiler accepts.
 
 use contract_difftest::{
-    check, corpus, expectations, gen, leanrun, lowering, script::Case, shrink, work_dir, Outcome,
-    Verdict,
+    check, corpus, expectations, gen, js, leanrun, lowering, script::Case, shrink, work_dir,
+    Outcome, Verdict,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 const USAGE: &str = "usage:
-  difftest corpus [<dir|file>…]
-  difftest explore <dir|file>…
+  difftest corpus [<dir|file>…] [--js|--js-only]
+  difftest explore <dir|file>… [--js|--js-only]
   difftest verify <file.contract> [--types] [--prove <Module>]
   difftest quick [--base <rev>]
-  difftest random [--seed <u64>] [--count <n>] [--batch <n>]
+  difftest random [--seed <u64>] [--count <n>] [--batch <n>] [--js|--js-only]
   difftest numbers [--seed <u64>] [--count <n>]
+  difftest arith [--seed <u64>] [--count <n>]
   difftest types [--seed <u64>] [--count <n>]
   difftest show <seed>
   difftest apps [--write]
   difftest lowering [--seed <u64>] [--count <n>] [--batch <n>]
-  difftest lowering-corpus [<dir|file>…]";
+  difftest lowering-corpus [<dir|file>…]
+  difftest expansion [<dir|file>…] [--seed <u64>] [--count <n>] [--batch <n>]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -50,10 +59,12 @@ fn main() -> ExitCode {
         Some("quick") => contract_difftest::quick::run(&args[1..]),
         Some("random") => run_random(&args[1..]),
         Some("numbers") => run_numbers(&args[1..]),
+        Some("arith") => run_arith(&args[1..]),
         Some("types") => run_types(&args[1..]),
         Some("apps") => run_apps(&args[1..]),
         Some("lowering") => run_lowering(&args[1..]),
         Some("lowering-corpus") => run_lowering_corpus(&args[1..]),
+        Some("expansion") => run_expansion(&args[1..]),
         Some("show") => match args.get(1).map(|s| s.parse::<u64>()) {
             Some(Ok(seed)) => {
                 let case = gen::case(seed, &gen::Size::default());
@@ -87,13 +98,66 @@ fn main() -> ExitCode {
     }
 }
 
+/// Whether the JS target runs too (`--js`), or instead of the semantics
+/// (`--js-only`).
+#[derive(Clone, Copy, PartialEq)]
+enum Js {
+    No,
+    Also,
+    Only,
+}
+
+/// The `--js` flags among `args`, and the other arguments.
+fn js_flag(args: &[String]) -> (Js, Vec<String>) {
+    let js = if args.iter().any(|a| a == "--js-only") {
+        Js::Only
+    } else if args.iter().any(|a| a == "--js") {
+        Js::Also
+    } else {
+        Js::No
+    };
+    let rest = args
+        .iter()
+        .filter(|a| *a != "--js" && *a != "--js-only")
+        .cloned()
+        .collect();
+    (js, rest)
+}
+
+/// The JS target's half of a run: `outcomes` (the semantics', when it ran)
+/// say by case whether Lean agreed with the runner.
+fn run_js(
+    cases: &[Case],
+    outcomes: Option<&[Outcome]>,
+    batch: usize,
+    tag: &str,
+    shrinking: bool,
+    verbose_outside: bool,
+) -> Result<bool, String> {
+    let compiler = js::build()?;
+    let verdicts = js::check(&compiler, cases, batch, tag)?;
+    let lean: Option<Vec<bool>> = outcomes.map(|o| {
+        o.iter()
+            .map(|o| matches!(o.verdict, Verdict::Agree))
+            .collect()
+    });
+    js::report(
+        &compiler,
+        cases,
+        &verdicts,
+        lean.as_deref(),
+        shrinking,
+        verbose_outside,
+    )
+}
+
 fn run_corpus(args: &[String]) -> Result<bool, String> {
+    let (js, args) = js_flag(args);
     let dirs: Vec<PathBuf> = if args.is_empty() {
         vec![leanrun::project().join("corpus")]
     } else {
         args.iter().map(PathBuf::from).collect()
     };
-    leanrun::build()?;
     let (scripted, errors) = corpus(&dirs)?;
     for e in &errors {
         println!("SCRIPT {e}");
@@ -106,7 +170,12 @@ fn run_corpus(args: &[String]) -> Result<bool, String> {
         }
     }
     let cases: Vec<Case> = scripted.into_iter().map(|s| s.case).collect();
-    let mut outcomes = check(cases, 64, "corpus")?;
+    if js == Js::Only {
+        println!("difftest: {} scripts could not be read", errors.len());
+        return Ok(run_js(&cases, None, 32, "corpus", false, true)? && errors.is_empty());
+    }
+    leanrun::build()?;
+    let mut outcomes = check(cases.clone(), 64, "corpus")?;
     // An expectation that failed on the runner is the case's verdict when
     // the two sides agree.
     for o in &mut outcomes {
@@ -115,19 +184,21 @@ fn run_corpus(args: &[String]) -> Result<bool, String> {
         }
     }
     println!("difftest: {} scripts could not be read", errors.len());
-    Ok(report(&outcomes, true, false)? && errors.is_empty())
+    let lean = report(&outcomes, true, false)?;
+    let js = js == Js::No || run_js(&cases, Some(&outcomes), 32, "corpus", false, true)?;
+    Ok(lean && js && errors.is_empty())
 }
 
 /// Programs written for something else (the apps, the compiler's corpus):
 /// each is explored, its tests ignored; one the compiler refuses (a used
 /// file that is not a root) is skipped.
 fn run_explore(args: &[String]) -> Result<bool, String> {
+    let (js, args) = js_flag(args);
     if args.is_empty() {
         return Err(format!("explore needs files or directories\n{USAGE}"));
     }
-    leanrun::build()?;
     let mut files = Vec::new();
-    for a in args {
+    for a in &args {
         contract_difftest::collect(std::path::Path::new(a), &mut files)?;
     }
     files.sort();
@@ -136,8 +207,13 @@ fn run_explore(args: &[String]) -> Result<bool, String> {
         let src = std::fs::read_to_string(f).map_err(|e| format!("{}: {e}", f.display()))?;
         cases.push(contract_difftest::explore(&f.display().to_string(), &src, Some(f)).case);
     }
-    let outcomes = check(cases, 16, "explore")?;
-    report(&outcomes, false, false)
+    if js == Js::Only {
+        return run_js(&cases, None, 16, "explore", false, true);
+    }
+    leanrun::build()?;
+    let outcomes = check(cases.clone(), 16, "explore")?;
+    let lean = report(&outcomes, false, false)?;
+    Ok((js == Js::No || run_js(&cases, Some(&outcomes), 16, "explore", false, true)?) && lean)
 }
 
 /// One app for its author (`contract verify`).
@@ -160,6 +236,7 @@ fn run_verify(args: &[String]) -> Result<bool, String> {
 }
 
 fn run_random(args: &[String]) -> Result<bool, String> {
+    let (js, args) = js_flag(args);
     let mut seed: u64 = 1;
     let mut count = 100usize;
     let mut batch = 50usize;
@@ -173,13 +250,18 @@ fn run_random(args: &[String]) -> Result<bool, String> {
             other => return Err(format!("unknown argument {other}\n{USAGE}")),
         }
     }
-    leanrun::build()?;
     let size = gen::Size::default();
     let cases: Vec<Case> = (0..count as u64)
         .map(|i| gen::case(seed.wrapping_add(i), &size))
         .collect();
-    let outcomes = check(cases, batch, &format!("random-{seed}"))?;
-    report(&outcomes, false, true)
+    let tag = format!("random-{seed}");
+    if js == Js::Only {
+        return run_js(&cases, None, batch, &tag, true, false);
+    }
+    leanrun::build()?;
+    let outcomes = check(cases.clone(), batch, &tag)?;
+    let lean = report(&outcomes, false, true)?;
+    Ok((js == Js::No || run_js(&cases, Some(&outcomes), batch, &tag, true, false)?) && lean)
 }
 
 /// Random programs' bytecode against the Lean VM model and the semantics.
@@ -218,6 +300,42 @@ fn run_lowering_corpus(args: &[String]) -> Result<bool, String> {
     }
     let cases: Vec<Case> = scripted.into_iter().map(|s| s.case).collect();
     lowering::run(cases, 16, "lowering-corpus")
+}
+
+/// Component expansion: the files given (scripted, or explored when they
+/// have no tests) and `count` generated programs, each expanded by Rust and
+/// by `Contract.Expand` and run on the component-level and flat semantics
+/// (`contract_difftest::expansion`). With neither, semantics/corpus.
+fn run_expansion(args: &[String]) -> Result<bool, String> {
+    let mut seed: u64 = 1;
+    let mut count = 0usize;
+    let mut batch = 32usize;
+    let mut dirs = Vec::new();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut value = || it.next().ok_or_else(|| format!("{a} needs a value"));
+        match a.as_str() {
+            "--seed" => seed = value()?.parse().map_err(|e| format!("--seed: {e}"))?,
+            "--count" => count = value()?.parse().map_err(|e| format!("--count: {e}"))?,
+            "--batch" => batch = value()?.parse().map_err(|e| format!("--batch: {e}"))?,
+            other if !other.starts_with('-') => dirs.push(PathBuf::from(other)),
+            other => return Err(format!("unknown argument {other}\n{USAGE}")),
+        }
+    }
+    if dirs.is_empty() && count == 0 {
+        dirs.push(leanrun::project().join("corpus"));
+    }
+    let mut cases: Vec<Case> = Vec::new();
+    if !dirs.is_empty() {
+        let (scripted, errors) = corpus(&dirs)?;
+        for e in &errors {
+            println!("SCRIPT {e}");
+        }
+        cases.extend(scripted.into_iter().map(|s| s.case));
+    }
+    let size = gen::Size::default();
+    cases.extend((0..count as u64).map(|i| gen::case(seed.wrapping_add(i), &size)));
+    contract_difftest::expansion::run(cases, batch, &format!("expansion-{seed}"))
 }
 
 /// The Lean type checker against the Rust one over generated programs and
@@ -293,6 +411,24 @@ fn run_numbers(args: &[String]) -> Result<bool, String> {
         values.len()
     );
     Ok(bad == 0 && lean.len() == values.len())
+}
+
+/// `difftest arith`: `Contract.Binary64` against `f64`
+/// (`contract_difftest::arith`).
+fn run_arith(args: &[String]) -> Result<bool, String> {
+    let mut seed: u64 = 1;
+    let mut count = 1_000_000usize;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut value = || it.next().ok_or_else(|| format!("{a} needs a value"));
+        match a.as_str() {
+            "--seed" => seed = value()?.parse().map_err(|e| format!("--seed: {e}"))?,
+            "--count" => count = value()?.parse().map_err(|e| format!("--count: {e}"))?,
+            other => return Err(format!("unknown argument {other}\n{USAGE}")),
+        }
+    }
+    leanrun::build()?;
+    contract_difftest::arith::run(seed, count, &work_dir())
 }
 
 /// The apps whose embeddings `semantics/Apps/` keeps, proved about under

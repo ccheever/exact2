@@ -46,7 +46,7 @@ fn text(r: &Runner<Sessions>, id: &str) -> String {
         .to_string()
 }
 
-fn background(r: &Runner<Sessions>, id: &str) -> exact_kernel::ColorValue {
+fn background(r: &Runner<Sessions>, id: &str) -> Option<exact_kernel::ColorValue> {
     let k = r.kernel();
     k.node_by_key(k.find_by_test_id(id)[0])
         .unwrap()
@@ -66,8 +66,8 @@ fn a_launcher_highlights_the_rows_whose_code_starts_with_the_digit_typed() {
         "/",
     )
     .unwrap();
-    let white = Color::parse_hex("#ffffff").unwrap().into();
-    let amber = Color::parse_hex("#ffe08a").unwrap().into();
+    let white = Some(Color::parse_hex("#ffffff").unwrap().into());
+    let amber = Some(Color::parse_hex("#ffe08a").unwrap().into());
     // Nothing typed: every name includes "", every code starts with "",
     // and no row is highlighted.
     assert_eq!(text(&r, "named"), "3 named");
@@ -152,4 +152,87 @@ fn the_webs_method_spellings_name_the_function_form() {
             "{spelling}: {e}"
         );
     }
+}
+
+/// LLP 1088 D1, D2: calendar's end-after-start and calc's Backspace in the
+/// view — two strings compare in code-unit order, and `slice`,
+/// `replaceAll` and `toLowerCase` are the web's (`end` may be left out).
+#[test]
+fn strings_compare_and_cut_as_the_web_does() {
+    let plan = contract::compile(&corpus("strings.contract")).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Sessions,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(text(&r, "valid"), "ok");
+    assert_eq!(
+        text(&r, "tail"),
+        "2+3",
+        "an omitted end is the string's end"
+    );
+    assert_eq!(text(&r, "lower"), "οδος paris", "a final sigma");
+    r.act("setEnd", vec![Value::str("09:00")]).unwrap();
+    assert_eq!(text(&r, "valid"), "end before start");
+    r.act("backspace", vec![]).unwrap();
+    assert_eq!(text(&r, "expr"), "12+");
+    r.act("flip", vec![]).unwrap();
+    assert_eq!(text(&r, "expr"), "12-");
+}
+
+/// Two strings or two numbers: mixed operands and bools stay refused, and
+/// `slice` takes two or three arguments; an action named `slice` keeps its
+/// own arity (a scoped action is found before the roster), and `slice` on a
+/// list names LLP 1088 §9.
+#[test]
+fn string_order_and_slice_are_typed() {
+    let src = corpus("strings.contract");
+    for (from, to, id, says) in [
+        (
+            "end > start",
+            "end > 1",
+            "type-operand",
+            "comparison needs two numbers or two strings, given `string` and `number`",
+        ),
+        (
+            "end > start",
+            "true < false",
+            "type-operand",
+            "given `bool` and `bool`",
+        ),
+        (
+            "slice(expr, 1)",
+            "slice(expr)",
+            "type-arity",
+            "`slice` takes 2 to 3 argument(s), given 1; expected `slice(string, number, number?)`",
+        ),
+        (
+            "slice(expr, 1)",
+            "slice(expr, 1, 2, 3)",
+            "type-arity",
+            "given 4",
+        ),
+        (
+            "toLowerCase(query)",
+            "toLowerCase(1)",
+            "type-argument",
+            "expects `string`",
+        ),
+    ] {
+        assert!(src.contains(from), "{from}");
+        let e = contract::compile(&src.replace(from, to)).unwrap_err();
+        assert_eq!(e.id, id, "{to}: {e}");
+        assert!(e.message.contains(says), "{to}: {e}");
+    }
+    contract::compile("component App\n  state n = 0\n  action slice(by: number)\n    n = n + by\n  view\n    button \"s\" press=slice(1)\n")
+        .unwrap();
+    let e = contract::compile(
+        "component App\n  state xs = []\n  derive ys = slice(xs, 1)\n  view\n    text \"a\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-refused-idiom", "{e}");
+    assert!(e.message.contains("LLP 1088 §9"), "{e}");
 }

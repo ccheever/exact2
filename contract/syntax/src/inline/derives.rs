@@ -346,6 +346,10 @@ fn read_outside_derives(c: &Component) -> BTreeSet<&str> {
                 Stmt::Command { args, .. } | Stmt::Send { args, .. } => {
                     args.iter().for_each(|a| expr(a, out))
                 }
+                Stmt::Call { args, body, .. } => {
+                    args.iter().for_each(|a| expr(a, out));
+                    stmts(body, out);
+                }
                 Stmt::Refresh { .. } => {}
                 Stmt::If {
                     cond,

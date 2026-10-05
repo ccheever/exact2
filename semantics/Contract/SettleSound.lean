@@ -8,18 +8,18 @@ namespace Contract
 
 /-- An oracle answers or refuses. -/
 theorem ask_legit (o : Oracle) (src : String) (args : List Value) (r : String) :
-    GoodR (fun _ => True) (o.ask src args r) := by
+    GoodW Strict (fun _ => True) (o.ask src args r) := by
   unfold Oracle.ask
   split
   · trivial
   · split
     · trivial
-    · trivial
+    · exact ⟨trivial, by simp⟩
 
 /-- What settlement's evaluations need: the derives and resources are
 typed in a scope `G`, and an environment of the slots and any well-typed
 settled values satisfies `EnvOK` for `G`. -/
-structure SettleHyps (p : Program) (G : Scope) (slots : List (String × Value)) (now : Float) : Prop where
+structure SettleHyps (p : Program) (G : Scope) (slots : List (String × Value)) (now : F64) : Prop where
   prog : ProgOK p
   derives : ∀ d ∈ p.derives, ∃ t, HasTy p G [] d.body t
   resources : ∀ r ∈ p.resources, ∃ ts, ListTy p G [] r.args ts
@@ -50,7 +50,7 @@ theorem settle_pass_good {p : Program} {o : Oracle} {slots now prev force} {G : 
     (hN : distinct (p.resources.map (·.name)) = true)
     (hH : H → SettleHyps p G slots now) (hprev : SettledOK p prev) :
     ∀ n st, SettledOK p st →
-      GoodW (fun e => H → Legit e) (SettledOK p) (settle.pass p o slots now prev force n st)
+      GoodW (fun e => (H → Legit e) ∧ e ≠ .pending) (SettledOK p) (settle.pass p o slots now prev force n st)
   | 0, _, _ => by simp [settle.pass, GoodW, Legit]
   | n + 1, st, hst => by
     rw [settle.pass]
@@ -68,7 +68,7 @@ theorem settle_pass_good {p : Program} {o : Oracle} {slots now prev force} {G : 
       · exact hs
       · next e hne he =>
         simp only [bind, Except.bind, throw, throwThe, MonadExceptOf.throw, GoodW]
-        intro hHy
+        refine ⟨fun hHy => ?_, hne⟩
         have HH := hH hHy
         obtain ⟨t, ht⟩ := HH.derives d hd
         have := eval_sound_ty (n := fuel) HH.prog (HH.env s.1 hs) LocalsOK.nil ht
@@ -94,15 +94,15 @@ theorem settle_pass_good {p : Program} {o : Oracle} {slots now prev force} {G : 
           obtain ⟨r', hr', hn, hc⟩ := hprev.2 _ _ (lookup_mem hv)
           have := distinct_eq hN hr' hr hn; subst this
           exact hs.addResource hr' hc
-        · refine GoodW.bind ((GoodW.of_goodR (ask_legit o r.source args r.name)).mono
-            (fun e he _ => he) (fun _ h => h)) fun v _ => ?_
+        · refine GoodW.bind ((ask_legit o r.source args r.name).mono
+            (fun e he => ⟨fun _ => he.1, he.2⟩) (fun _ h => h)) fun v _ => ?_
           split
           · simp [bind, Except.bind, throw, throwThe, MonadExceptOf.throw, GoodW, Legit]
           · next hc => exact hs.addResource hr (by simpa using hc)
       · exact hs
       · next e hne he =>
         simp only [bind, Except.bind, throw, throwThe, MonadExceptOf.throw, GoodW]
-        intro hHy
+        refine ⟨fun hHy => ?_, hne⟩
         have HH := hH hHy
         obtain ⟨ts, ht⟩ := HH.resources r hr
         have := evalList_sound_ty (n := fuel) HH.prog (HH.env s.1 hs) LocalsOK.nil ht
@@ -124,7 +124,7 @@ it fails only legitimately: never a type error, never an unbound name. -/
 theorem settle_good {p : Program} {o : Oracle} {slots now prev force} {G : Scope} {H : Prop}
     (hN : distinct (p.resources.map (·.name)) = true)
     (hH : H → SettleHyps p G slots now) (hprev : SettledOK p prev) :
-    GoodW (fun e => H → Legit e) (SettledOK p) (settle p o slots now prev force) :=
+    GoodW (fun e => (H → Legit e) ∧ e ≠ .pending) (SettledOK p) (settle p o slots now prev force) :=
   settle_pass_good hN hH hprev _ _ SettledOK.empty
 
 theorem settle_settledOK {p : Program} {o : Oracle} {slots now prev force st}
@@ -137,6 +137,13 @@ theorem settle_settledOK {p : Program} {o : Oracle} {slots now prev force st}
 theorem settle_legit {p : Program} {o : Oracle} {slots now prev force} {G : Scope}
     (hN : distinct (p.resources.map (·.name)) = true) (hH : SettleHyps p G slots now) (hprev : SettledOK p prev) :
     GoodR (SettledOK p) (settle p o slots now prev force) :=
-  GoodR.of_goodW ((settle_good (H := True) hN (fun _ => hH) hprev).mono (fun _ h => h trivial) (fun _ h => h))
+  GoodR.of_goodW ((settle_good (H := True) hN (fun _ => hH) hprev).mono (fun _ h => h.1 trivial) (fun _ h => h))
+
+/-- Settlement fails only legitimately and never `pending` (it waits on
+those). -/
+theorem settle_strict {p : Program} {o : Oracle} {slots now prev force} {G : Scope}
+    (hN : distinct (p.resources.map (·.name)) = true) (hH : SettleHyps p G slots now) (hprev : SettledOK p prev) :
+    GoodW Strict (SettledOK p) (settle p o slots now prev force) :=
+  (settle_good (H := True) hN (fun _ => hH) hprev).mono (fun _ h => ⟨h.1 trivial, h.2⟩) (fun _ h => h)
 
 end Contract

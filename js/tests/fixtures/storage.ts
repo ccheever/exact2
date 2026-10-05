@@ -1,7 +1,7 @@
 import type { Storage } from "../../../vendor/ibex2/src/bindings/storage";
 type Store = { get(name:string):string|null; set(name:string,value:string):void; forget(name:string):void };
 const appId = "dev.exact.storage-test";
-const grants = "fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
+const grants = "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
 
 // Work queued behind whatever the module started last, the way an app serializes its
 // database operations. The second answer's storage calls run in a later microtask.
@@ -40,6 +40,33 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     } catch(error:any) { return {text:error.message}; }
   }
   if (op === "placeholder") return {text: ""};
+  // A folder the person chose (LLP 1069.010 D1), `value` its `doc:` path:
+  // listed, read, written beside, and refused past what it holds.
+  if (op === "doc") {
+    const out: string[] = [], text = (b: ArrayBuffer) => String.fromCharCode(...new Uint8Array(b));
+    for (const name of await storage.fs.readdir(value)) {
+      const stat = await storage.fs.stat(value + "/" + name);
+      out.push(name + (stat.isDirectory ? "/" + stat.size : "=" + text(await storage.fs.readFile(value + "/" + name))));
+    }
+    await storage.fs.writeFile(value + "/new.txt", new Uint8Array([104, 105]));
+    out.push("new=" + text(await storage.fs.readFile(value + "/new.txt")));
+    await storage.fs.rm(value + "/new.txt");
+    const steps: (() => Promise<unknown>)[] = [
+      () => storage.fs.readFile(value + "/absent"),
+      () => storage.fs.readFile(value + "/../escape"),
+      () => storage.fs.readFile(value + "/sub"),
+      () => storage.fs.readdir(value + "/a.txt"),
+      () => storage.fs.rm(value + "/sub"),
+      () => storage.fs.rm(value),
+      () => storage.fs.rename(value + "/a.txt", value + "/b.txt"),
+      () => storage.fs.readFile("doc:/999999/a.txt"),
+      () => storage.fs.readFile("app:/data/note"),
+    ];
+    for (const step of steps) {
+      try { await step(); out.push("ok"); } catch (e: any) { out.push(e.kind + " " + e.code); }
+    }
+    return {text: out.join(" ")};
+  }
   // Ledger's shape (ledger F12): every answer queued on one chain, a listing
   // that reads, and a save that refuses bad input before touching storage.
   if (op === "count" || op === "invalid") {
@@ -105,6 +132,13 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
       try { await step(); out.push("ok"); } catch (e:any) { out.push(e.kind + " " + e.code + " " + e.message); }
     }
     return {text: out.join("\n")};
+  }
+  // A long read (files F18: a folder's preview walking its tree), one
+  // storage step after another in one answer.
+  if (op === "walk") {
+    let steps = 0;
+    for (let i = 0; i < 24; i++) { await storage.fs.readdir(storage.fs.directories.data); steps++; }
+    return {text: value + ":" + steps};
   }
   // An independent read, on no chain (minesweeper F10).
   if (op === "peek") {

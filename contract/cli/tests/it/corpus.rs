@@ -328,14 +328,16 @@ fn button_primary_text_is_a_real_accessible_text_child() {
     assert_eq!(label.props.str(PropId::Text), Some("Post"));
 }
 
-/// A `button` is a pressable `column` (Charlie, 2026-09-23: "One native
-/// button, flex column"; LLP 1006 §3): its two rows are fixed, and an
+/// A `button` is Chrome's `<button>` (Charlie, 2026-10-04, reversing
+/// 2026-09-23's "One native button, flex column"; LLP 1001 §1): a block with
+/// the UA sheet's `text-align: center` whose content the kernel centres in
+/// its height. An author's `display` makes a CSS flex row or a grid, and an
 /// author's own row wins, as on any tag.
 #[test]
-fn a_button_is_a_pressable_column_whose_rows_an_author_overrides() {
-    let src = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column\n      button \"Save\" press=bump testId=\"save\"\n      button press=bump flex-direction=\"row\" testId=\"row\"\n        text \"Row\"\n";
+fn a_button_is_chromes_button_whose_rows_an_author_overrides() {
+    let src = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column\n      button \"Save\" press=bump height=40 testId=\"save\"\n      button press=bump display=\"flex\" text-align=\"start\" testId=\"row\"\n        text \"Row\"\n";
     let plan = contract::compile(src).unwrap();
-    let r = Runner::boot(
+    let mut r = Runner::boot(
         plan,
         Schedule,
         Kernel::with_monospace(),
@@ -343,20 +345,27 @@ fn a_button_is_a_pressable_column_whose_rows_an_author_overrides() {
         "/",
     )
     .unwrap();
+    let root = r.roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(400.0, 600.0))
+        .unwrap();
     let node = |id: &str| {
         let key = r.kernel().find_by_test_id(id)[0];
         r.kernel().node_by_key(key).unwrap()
     };
     let save = node("save");
     assert_eq!(save.node_type, NodeType::Pressable);
-    assert_eq!(save.style.display, exact_kernel::Display::Flex);
+    assert_eq!(save.style.display, exact_kernel::Display::Block);
+    assert_eq!(save.style.text_align, exact_kernel::TextAlign::Center);
+    let label = r.kernel().node(save.children()[0]).unwrap();
     assert_eq!(
-        save.style.flex_direction,
-        exact_kernel::FlexDirection::Column
+        label.frame.y - save.frame.y,
+        (40.0 - label.frame.height) / 2.0
     );
     let row = node("row");
     assert_eq!(row.style.display, exact_kernel::Display::Flex);
     assert_eq!(row.style.flex_direction, exact_kernel::FlexDirection::Row);
+    assert_eq!(row.style.text_align, exact_kernel::TextAlign::Start);
 }
 
 #[test]
@@ -815,13 +824,25 @@ fn scroll_events_append_two_numeric_offsets_after_authored_arguments() {
         .node_by_key(r.kernel().find_by_test_id("port")[0])
         .unwrap()
         .id;
-    r.dispatch(id, Event::scroll_payload("12.5,-3.25").unwrap())
-        .unwrap();
+    r.dispatch(
+        id,
+        Event::scroll_payload("12.5,-3.25,600,600,400,100").unwrap(),
+    )
+    .unwrap();
     assert_eq!(r.slot("name"), Some(&Value::str("row")));
     assert_eq!(r.slot("left"), Some(&Value::Number(12.5)));
     assert_eq!(r.slot("top"), Some(&Value::Number(-3.25)));
-    for bad in ["NaN,0", "0,inf", "0", "1,2,3", "bad,2"] {
-        assert!(Event::scroll_payload(bad).is_none());
+    for bad in [
+        "NaN,0,1,1,1,1",
+        "0,inf,1,1,1,1",
+        "0",
+        "1,2",
+        "1,2,3,4,5",
+        "0,0,-1,1,1,1",
+        "bad,2,1,1,1,1",
+        "0,0,1,1,1,1,1",
+    ] {
+        assert!(Event::scroll_payload(bad).is_none(), "{bad}");
     }
     for params in [
         "id: string, x: string, y: number",
@@ -834,11 +855,44 @@ fn scroll_events_append_two_numeric_offsets_after_authored_arguments() {
         );
     }
     assert_eq!(
-        contract::compile(&src.replace("scroll=moved(\"row\")", "scroll=moved"))
+        contract::compile(&src.replace("scroll=moved(\"row\")", "scroll=moved(\"row\", 1)"))
             .unwrap_err()
             .id,
         "analyze-handler-arity"
     );
+}
+
+/// An action taking one more parameter hears the scroller's extents, the
+/// web's `Element` fields, so "at the end" is the web's arithmetic (chat F4).
+#[test]
+fn a_scroll_action_taking_one_more_parameter_hears_the_scroll_event() {
+    let src = r#"component App
+  state away = 0
+  state wide = 0
+  action moved(x: number, y: number, e: ScrollEvent)
+    away = e.scrollHeight - e.scrollTop - e.clientHeight
+    wide = e.scrollWidth - e.clientWidth + e.scrollLeft
+  view
+    scroll height=100 scroll=moved testId="port"
+      box width=600 height=600
+"#;
+    let mut r = Runner::boot(
+        Plan::decode(&contract::compile(src).unwrap().encode()).unwrap(),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let port = r.kernel().find_by_test_id("port")[0];
+    let id = r.kernel().node_by_key(port).unwrap().id;
+    r.dispatch(id, Event::scroll_payload("2,380,600,600,400,100").unwrap())
+        .unwrap();
+    assert_eq!(r.slot("away"), Some(&Value::Number(120.0)));
+    assert_eq!(r.slot("wide"), Some(&Value::Number(202.0)));
+    r.dispatch(id, Event::scroll_payload("2,500,600,600,400,100").unwrap())
+        .unwrap();
+    assert_eq!(r.slot("away"), Some(&Value::Number(0.0)));
 }
 
 #[test]

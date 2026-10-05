@@ -339,7 +339,7 @@ fn unknown_types_list_named_choices_at_the_original_import() {
         .unwrap();
     let expected = contract::compile_path(&root).unwrap_err();
     assert_eq!(expected.id, "type-unknown");
-    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `Contact`, `Geometry`, `KeyboardEvent`, `MarkdownSelection`, `Picked`, `PointerEvent`, `Wrapper`, `Zulu`");
+    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `ClipboardEvent`, `Contact`, `DragEvent`, `Geometry`, `KeyboardEvent`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ScrollEvent`, `Selection`, `WheelEvent`, `Wrapper`, `Zulu`");
     let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
     same_error(&errors[0], &expected);
     assert_eq!(errors[0]["file"], model.to_str().unwrap());
@@ -361,13 +361,15 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     for prefix in ["", "shape string\n", "shape Later\n  value: number\n"] {
         let root = app.write("app.contract", &format!("{prefix}{body}"));
         let error = contract::compile_path(&root).unwrap_err();
-        // `KeyboardEvent`, `MarkdownSelection`, `Picked` and `PointerEvent`
-        // are the `key`, `select`, file `change` and pointer payloads every
-        // file can name, and `Geometry` what `frame` and `measure` answer.
+        // `ClipboardEvent`, `DragEvent`, `KeyboardEvent`, `MarkdownSelection`,
+        // `MouseEvent`, `Picked`, `PointerEvent`, `ScrollEvent`, `Selection` and
+        // `WheelEvent` are the clipboard, `drop`, `key`, `select`, `press`,
+        // file `change`, pointer, scroll, `selectionchange` and wheel payloads
+        // every file can name, and `Geometry` what `frame` and `measure` answer.
         let extra = if prefix.contains("Later") {
-            ", `Geometry`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `Picked`, `PointerEvent`"
+            ", `ClipboardEvent`, `DragEvent`, `Geometry`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"
         } else {
-            ", `Geometry`, `KeyboardEvent`, `MarkdownSelection`, `Picked`, `PointerEvent`"
+            ", `ClipboardEvent`, `DragEvent`, `Geometry`, `KeyboardEvent`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"
         };
         assert_eq!(error.id, "type-unknown");
         assert_eq!(
@@ -378,7 +380,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     let root = app.write("app.contract", &format!("routes nav\n  home \"/\"\n{body}"));
     let error = contract::compile_path(&root).unwrap_err();
     assert_eq!(error.id, "type-unknown");
-    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `Entry`, `Geometry`, `KeyboardEvent`, `MarkdownSelection`, `Params`, `Picked`, `PointerEvent`, `Router`, `Tab`"));
+    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `ClipboardEvent`, `DragEvent`, `Entry`, `Geometry`, `KeyboardEvent`, `MarkdownSelection`, `MouseEvent`, `Params`, `Picked`, `PointerEvent`, `Router`, `ScrollEvent`, `Selection`, `Tab`, `WheelEvent`"));
     // Field resolution has already seen later declarations, even when it fails
     // while resolving the first shape's fields.
     let root = app.write("app.contract", "shape First\n  value: Ltaer\nshape Later\n  value: string\ncomponent App\n  view\n    text \"hello\"\n");
@@ -386,7 +388,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     assert_eq!(error.id, "type-unknown");
     assert!(error
         .message
-        .ends_with("`First`, `Geometry`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `Picked`, `PointerEvent`"));
+        .ends_with("`First`, `Geometry`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"));
 }
 
 #[test]
@@ -521,7 +523,9 @@ fn unknown_import_lists_only_target_exports_and_repairs_through_the_cli() {
     assert_eq!(expected.id, "contract-use-unknown");
     assert_eq!(expected.span.line, 3);
     assert_eq!(expected.file.as_deref(), Some(root.as_path()));
-    assert_eq!(expected.message, "`./barrel.contract` declares no component, shape, style, or function `Rwo`; available components: `Wrapper`, `Left`, `Row`, `Badge`, `Right`; shapes: `Item`; styles: `Line`; functions: `label`");
+    // Only what barrel declares or itself names: Row, Item, Line and label
+    // reach it through Left and Right, which do not pass them on (LLP 1091 D1).
+    assert_eq!(expected.message, "`./barrel.contract` declares no component, shape, style, function, keyframes, or timeline `Rwo`; available components: `Left`, `Right`, `Wrapper`");
     let output = app.run(&[root.to_str().unwrap(), "--json", "-o", "out.plan"]);
     let errors = diagnostics(&output, 1);
     assert_eq!(errors.len(), 1);
@@ -533,12 +537,11 @@ fn unknown_import_lists_only_target_exports_and_repairs_through_the_cli() {
         .unwrap()
         .contains(&expected.message));
     // Every offered declaration is actually admitted by this use syntax.
-    for name in [
-        "Wrapper", "Left", "Row", "Badge", "Right", "Item", "Line", "label",
-    ] {
+    let source = source.replace("    Row()\n", "    Wrapper()\n");
+    for name in ["Wrapper", "Left", "Right"] {
         app.write(
             "app.contract",
-            &source.replace("use Rwo from", &format!("use {name} from")),
+            &source.replace("use Rwo from", &format!("use {name} as Chosen from")),
         );
         assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
     }
@@ -564,7 +567,7 @@ fn empty_import_choices_exclude_fonts_and_keep_nested_locations() {
         assert_eq!(expected.id, "contract-use-unknown");
         assert_eq!(expected.file.as_deref(), Some(nested.as_path()));
         assert_eq!(expected.span.line, 1);
-        assert_eq!(expected.message, "`./empty.contract` declares no component, shape, style, or function `Brand`; this file exports no components, shapes, styles, or functions");
+        assert_eq!(expected.message, "`./empty.contract` declares no component, shape, style, function, keyframes, or timeline `Brand`; this file declares nothing that can be used");
         let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
         same_error(&errors[0], &expected);
     }
@@ -1395,7 +1398,7 @@ fn refusals_from_the_app_diaries_name_the_fix() {
     says(
         "component App\n  state n = 0\n  action save(id: string, extra: number)\n    n = 1\n  view\n    button \"s\" press=save(\"a\")\n",
         "analyze-handler-arity",
-        "`press=save(\"a\")` calls `save` with `\"a\"` and nothing more; declare `action save(id: string)`",
+        "`press=save(\"a\")` calls `save` with `\"a\"` and nothing more; declare `action save(id: string)`, or `action save(id: string, event: MouseEvent)` for its `MouseEvent`",
     );
     // D7.4 (ledger F3, hn-reader F2): the web's spellings, rewritten.
     says(
@@ -1430,7 +1433,7 @@ fn refusals_from_the_app_diaries_name_the_fix() {
             "write `replaceAll(s, find, with)`",
         ),
         ("indexOf(s, \"a\")", "`includes(s, t)`"),
-        ("substring(s, 1)", "cut the text in the data module"),
+        ("substring(s, 1)", "write `slice(s, start, end)`"),
         ("padStart(s, 2, \"0\")", "LLP 1088 D2 defers it"),
         ("toUpperCase(s)", "`text-transform=\"uppercase\"`"),
         ("parseInt(s)", "Contract does not parse numbers from text"),

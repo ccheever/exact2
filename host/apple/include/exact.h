@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 10
+#define EXACT_ABI_VERSION 11
 
 #ifdef __cplusplus
 extern "C" {
@@ -164,6 +164,10 @@ typedef struct ExactMeasureRequest {
     const ExactFlowShape *exclusions;
     size_t exclusion_count;
     uint8_t markup;        /* 1: the one run is Markdown source; expand it with exact_markup_pieces (LLP 1045 D3) */
+    float text_indent;     /* CSS text-indent, points: the first line's inset from its start edge */
+    uint8_t hyphens;       /* CSS hyphens: 0 manual (the initial value), 1 none (soft hyphens already arrive as U+034F), 2 auto */
+    const uint8_t *lang;   /* the document language, UTF-8 (auto's hyphenation points); lang_len 0 is unknown */
+    size_t lang_len;
 } ExactMeasureRequest;
 
 /* LLP 1045 D3/D4. Markdown source into display pieces, the same for measure and paint. */
@@ -382,7 +386,7 @@ uint32_t exact_pan_sample(ExactRuntime rt, uint32_t first, double x, double y, d
 double exact_pan_velocity(ExactRuntime rt, uint32_t axis, double t);
 /* The runner's clock: timers. Nonzero until_request stops after a timer that
  * sends, the clock at its due time (an agent's jump; the wall clock passes 0). */
-uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t until_request);
+uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t mode);
 /* @ref LLP 1073 D5: a presented display frame — timers due by now_ms, then
  * every frame task once at it. The batch says "frames" while one wants it. */
 uint32_t exact_frame(ExactRuntime rt, double now_ms);
@@ -447,6 +451,13 @@ uint32_t exact_scheme(ExactRuntime rt, uint32_t dark);
  * differs from the session's: its node's light-dark() colours resolve by it
  * (LLP 1062). */
 uint32_t exact_view_scheme(ExactRuntime rt, uint32_t view, uint32_t dark);
+/** LLP 1095 D1: every colour reference the presenter should resolve, as JSON
+ *  `[[kind, id, "name"], …]` in the output buffer; returns its length. */
+uint32_t exact_color_references(ExactRuntime rt);
+/** LLP 1095 D1: what the presenter resolved them to, as LE records in the
+ *  input buffer (u8 kind, u8 dark, u16 id, u8 r, g, b, a); returns the
+ *  batch's length. */
+uint32_t exact_colors(ExactRuntime rt, size_t len);
 uint32_t exact_tick(ExactRuntime rt, double now_ms);      /* a motion frame, only while "motion" is true */
 /* An image node loaded: its bitmap's pixel counts, taken one-for-one as
  * points (never divided by the backing scale — a 2× asset is not half its

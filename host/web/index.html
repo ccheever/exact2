@@ -76,9 +76,10 @@
   dialog:not([open]) { display: none !important; }
   /* Gesture feedback is decorative, including when its opacity is zero. */
   [swipeIndicator="true"] { pointer-events: none; }
-  /* Modal dimming belongs to the host; UIKit supplies its own backdrop. */
+  /* Modal dimming belongs to the host; UIKit supplies its own backdrop. It dims the route the
+     sheet covers (navigation.js marks it), so the sheet's own background paints undimmed (recipes F6). */
   [navigationPresentation="modal"] { isolation: isolate; position: relative; }
-  [navigationPresentation="modal"]::before { content: ""; position: absolute; inset: 0; z-index: -1; background: #00000033; }
+  [data-exact-covered]::after { content: ""; position: absolute; inset: 0; background: #00000033; pointer-events: none; }
   /* `all: unset` would inherit the field's color onto the placeholder. */
   input::placeholder, textarea::placeholder { color: light-dark(#3c3c434c, #ebebf54c); opacity: 1; }
   /* A platform material (host policy, LLP 1053.000 D3, D4): the schema's approximation of the named material, from the variables the host sets

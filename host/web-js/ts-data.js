@@ -8,6 +8,7 @@
 import * as source from '__APP_TS__';
 import { createSecretFacade, hasGrant, setAppGrantSet } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
+import { answering } from './ts-fetch.js';
 import { sourceTypes } from './names.js';
 import { checkpoint, clock, commit, journal, painted, R, Resources } from './rt.js';
 __AUTH_IMPORT__
@@ -133,8 +134,9 @@ const native = Object.freeze({
 // `sqlite` over the web host's own adapters (`storage-fs.js`,
 // `storage-sqlite.js`, beside the page and fetched on first use), under
 // the app's grants and its page's store key — none under the agent unless
-// the drive names a scratch store (`storageKey`). Only where the grants
-// name `fs.` or `sqlite.`.
+// the drive names a scratch store (`storageKey`) — and the documents the
+// person chose (`documents-glue.js`, the handles its pickers keep). Without
+// storage grants the same interface refuses, without fetching any adapters.
 // A refusal is `{kind: 'Unavailable', code, message}`, with Hermes's codes
 // (js/src/prelude.js `storageCode`; kanban F28): 'agent' for a drive with no
 // scratch store, 'denied' past the grants, the filesystem's POSIX name, else
@@ -145,15 +147,29 @@ const coded = e => {
   error.code ??= /^denied: /.test(error.message) ? 'denied' : /\bbusy\b|database is locked/.test(error.message) ? 'EBUSY' : 'failed';
   throw error;
 };
+let toldAgent = false;
 function storageOf(grants) {
-  if (!['fs-read', 'fs-write', 'sqlite-open'].some(kind => hasGrant(grants, kind))) return undefined;
+  const admitted = ['fs-read', 'fs-write', 'sqlite-open'].some(kind => hasGrant(grants, kind));
   let fs, sqlite;
   const key = () => import('./storage-environment.js').then(({ storageKey, agentStorageRefusal }) => {
     const k = source.appId ? storageKey(source.appId) : null;
-    if (k == null) throw Object.assign(new Error(agentStorageRefusal), { kind: 'Unavailable', code: 'agent' });
+    if (k == null) {
+      // Said once in the journal, as on every host (trivia F7).
+      if (!toldAgent) { toldAgent = true; journal.push(`t=${clock.now} storage refused (agent): ${agentStorageRefusal}`); }
+      throw Object.assign(new Error(agentStorageRefusal), { kind: 'Unavailable', code: 'agent' });
+    }
     return k;
   });
   const files = () => fs ??= key().then(k => import(new URL('./storage-fs.js', import.meta.url).href).then(m => m.createFileSystem(k, grants)));
+  // A document the person chose (`doc:/`, LLP 1069.010 D1) is the page's
+  // handle, not app storage: no store key, so a drive without a scratch
+  // store reaches it too, as a Rust source's storage request does.
+  let docs;
+  const documents = () => docs ??= ((globalThis.exact ??= {}), import(new URL('./documents-glue.js', import.meta.url).href)).then(() => globalThis.exact.documents.files(grants));
+  const isDocument = args => args.slice(0, 2).some(p => typeof p === 'string' && p.startsWith('doc:/'));
+  const denied = (op, document = false) => (document ? Promise.resolve() : key()).then(() => {
+    throw Object.assign(new Error(`denied: ${op}`), { kind: 'Unavailable', code: 'denied' });
+  });
   const databases = () => sqlite ??= key().then(k => import(new URL('./storage-sqlite.js', import.meta.url).href).then(m => m.createSqlite(k, grants)));
   // A database's and a statement's methods refuse as storage's do.
   const wrap = (o, convert) => Object.freeze(Object.fromEntries(Object.entries(convert).map(([m, then]) =>
@@ -163,11 +179,14 @@ function storageOf(grants) {
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
-      ...Object.fromEntries(methods.map(m => [m, (...args) => files().then(f => f[m](...structuredClone(args))).catch(coded)])) }),
-    sqlite: Object.freeze({ open: path => databases().then(d => d.open(path)).then(database, coded) }),
+      ...Object.fromEntries(methods.map(m => [m, (...args) => (admitted ? (isDocument(args) ? documents() : files()).then(f => f[m](...structuredClone(args))) : denied(`fs.${m}`, isDocument(args))).catch(coded)])) }),
+    sqlite: Object.freeze({ open: path => (admitted ? databases().then(d => d.open(path)).then(database) : denied('sqlite.open')).catch(coded) }),
     work: promise => Promise.resolve(promise),
   });
 }
+// A stream (LLP 1016.000; ts-fetch.js), opened by ts-stream.js, loaded on
+// first use so a module that never streams carries none of it.
+const opener = (stream, conv) => (deliver, controller) => import('./ts-stream.js').then(m => m.open(stream, conv, tsGrantSet, deliver, controller));
 export function install(data, mixed = false, modules = null) {
   data.appId = source.appId;
   data.grants = setAppGrantSet(tsGrantSet);
@@ -198,10 +217,12 @@ export function install(data, mixed = false, modules = null) {
     // The store as the module sees it (LLP 1018): a read marks the answer.
     const seen = createSecretFacade(store, tsGrantSet, kept);
     asking = target ?? name; watching = name;
+    const call = answering.call = { stream: null };
     let r;
-    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } finally { asking = ''; watching = null; }
+    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } finally { asking = ''; watching = null; answering.call = null; }
     const target_ = target ?? name;
     const shaped = types ? v => checked(name, v, result) : v => v;
+    if (call.stream) return { stream: opener(call.stream, v => conv(shaped(v), result, target_)), store: seen.read };
     if (r && typeof r.then === 'function') return { promise: r.then(v => conv(shaped(v), result, target_)), store: seen.read };
     return { v: conv(shaped(r), result, target_), store: seen.read };
   };

@@ -112,6 +112,12 @@ impl<D: DataSource> Presenter<D> {
         self.activate_first_pixel();
     }
 
+    /// The deferred data module has yet to activate, and has not failed to:
+    /// the agent's `clock data` waits for it.
+    pub fn data_activating(&self) -> bool {
+        !self.activation_failed && self.host.data_pending()
+    }
+
     /// Wake an idle display while an executable image is loading off-thread.
     pub fn module_pending(&self) -> bool {
         (self.painted && !self.activation_failed && self.host.data_pending())
@@ -198,10 +204,15 @@ impl<D: DataSource> Presenter<D> {
         if let Some(reason) = assets.take_refusal() {
             return Err(HostError::Asset(reason));
         }
-        self.updates
-            .as_mut()
-            .unwrap()
-            .commit_activation(candidate.entry, candidate.seq)
+        let shaders = self
+            .surfaces
+            .prepare_shaders(&self.compat, &assets)
+            .map_err(HostError::Asset)?;
+        let updates = self.updates.as_mut().unwrap();
+        self.surfaces
+            .activate_shaders(shaders, || {
+                updates.commit_activation(candidate.entry, candidate.seq)
+            })
             .map_err(HostError::Asset)?;
         self.updates.as_mut().unwrap().boot_started();
         self.host = host;
@@ -272,6 +283,7 @@ mod tests {
         fn take_note(&mut self) -> Option<String> {
             None
         }
+        #[cfg(unix)]
         fn fd(&self) -> std::os::unix::io::RawFd {
             -1
         }

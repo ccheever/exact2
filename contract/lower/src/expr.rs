@@ -20,20 +20,30 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
         })
     };
     // @ref LLP 1070.000 §1: the list, the key, then the options in a fixed
-    // order, `none` where the author left the web's default.
+    // order, `none` where the author left the web's default: six, the
+    // runner's own. An element's (minesweeper F3) is four, the id and the
+    // options, which the runner leaves to its host.
     if name == "scrollIntoView" {
         let mut out: Vec<_> = args
             .iter()
             .filter(|a| !matches!(a, Expr::NamedArg(..)))
             .map(Some)
             .collect();
-        out.extend(["block", "inline", "behavior", "row"].map(named));
+        let element = out.len() == 1;
+        out.extend(["block", "inline", "behavior"].map(named));
+        if !element {
+            out.push(named("row"));
+        }
         return out;
     }
-    if name != "share" {
-        return args.iter().map(Some).collect();
-    }
-    ["title", "text", "url"]
+    // The Web Share API's members, and the Notification API's title and
+    // options, in a fixed order, `none` where the author gave none.
+    let order: &[&str] = match name {
+        "share" => &["title", "text", "url"],
+        "showNotification" => &["title", "body", "tag", "showTrigger"],
+        _ => return args.iter().map(Some).collect(),
+    };
+    order
         .iter()
         .map(|want| {
             args.iter().find_map(|a| match a {
@@ -330,6 +340,11 @@ pub(crate) fn compile(
             let mut given = Vec::with_capacity(args.len());
             for a in args {
                 given.push(compile(l, asm, a, scope, locals)?);
+            }
+            // The defaults of trailing optional parameters the call omitted
+            // (LLP 1088 D2): the plan's call always carries the full arity.
+            for &d in f.omitted(args.len()) {
+                asm.number(d);
             }
             asm.call(f);
             match (f, given.first()) {

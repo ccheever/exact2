@@ -297,7 +297,7 @@ final class SwipeActionsHost {
         }
         /// Hidden while projected; `restore` gives back what it was, once.
         private func hide(_ view: NodeView) {
-            if !hiddenControls.contains(where: { $0.0 === view }) { hiddenControls.append((view, view.isHidden)) }
+            if !hiddenControls.contains(where: { $0.0 === view }) { hiddenControls.append((view, view.hiddenByHost)) }
             view.isHidden = true
         }
         func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 1 }
@@ -322,8 +322,9 @@ final class SwipeActionsHost {
             guard let ancestors = actionAncestors[target.id], !ancestors.isEmpty else { return false }
             for ancestor in ancestors {
                 guard let view = ancestor.view else { return false }
+                // What the projection saved is the host's word; CSS's `display: none` hides besides.
                 let hidden = view === owner.scroll ? scrollWasHidden :
-                    hiddenControls.first(where: { $0.0 === view })?.1 ?? view.isHidden
+                    hiddenControls.first(where: { $0.0 === view }).map { $0.1 || $0.0.style["display"]?.string == "none" } ?? view.isHidden
                 if hidden || !view.isUserInteractionEnabled || (view as? NodeView)?.disabled == true ||
                     (view as? NodeView)?.props["inert"] == "true" { return false }
             }

@@ -153,6 +153,7 @@ impl<D: DataSource> Host<D> {
         // Native hosts link every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
         exact_kernel::style::link_segments();
+        exact_kernel::style::link_wide_colors();
         exact_kernel::timeline::link();
         let kernel = Kernel::new(measurer);
         // An `app:/data` image shows from the first frame, before storage
@@ -296,8 +297,6 @@ impl<D: DataSource> Host<D> {
                 ));
                 self.canvas2d.text = Some(text.clone());
                 self.runner.set_canvas_text(text);
-                // Native hosts parse the wide colour forms (LLP 1056 §8.2).
-                exact_runner::exact_canvas::color::link_wide();
             }
             self.runner.layout_canvases(scale);
             if frame {
@@ -730,14 +729,14 @@ impl<D: DataSource> Host<D> {
     /// error; the tree is untouched (as the kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> Option<String> {
         let event = self.document_value(view, event);
-        if matches!(event, Event::Press)
+        if matches!(event, Event::Press | Event::PressWith(_))
             && crate::navigation::popover_invoker(self.runner.kernel(), view)
         {
             self.log(crate::navigation::POPOVER_UNSUPPORTED);
             return Some(crate::navigation::POPOVER_UNSUPPORTED.into());
         }
         self.now_ms = now_ms.max(self.now_ms);
-        if matches!(event, Event::Press)
+        if matches!(event, Event::Press | Event::PressWith(_))
             && self
                 .runner
                 .kernel()
@@ -843,6 +842,13 @@ impl<D: DataSource> Host<D> {
     /// agent's jump ([`exact_runner::Runner::advance_until_request`]).
     pub fn advance_until_request(&mut self, now_ms: f64) -> Option<String> {
         let a = self.runner.advance_until_request(now_ms);
+        self.advanced(a).0
+    }
+
+    /// The `then`s an agent's input settled, the clock unmoved
+    /// ([`exact_runner::Runner::land_then`]).
+    pub fn land_then(&mut self) -> Option<String> {
+        let a = self.runner.land_then();
         self.advanced(a).0
     }
 

@@ -6,6 +6,20 @@ use exact_runner::Event;
 use serde_json::json;
 use std::collections::BTreeSet;
 
+/// A form control HTML lets `disabled` take out of focus and input: a
+/// button, an input or a control. On any other box `disabled` means
+/// nothing to focus or keys, as Chrome's `<div disabled>` (LLP 1088 D7.3,
+/// amended 2026-10-04); a pressable with an `href` is the web's `<a>`,
+/// which `disabled` does not touch either (review b5-delta).
+pub(crate) fn disabled_control(n: &exact_kernel::NodeRef<'_>) -> bool {
+    n.props.bool(PropId::Disabled) == Some(true)
+        && match n.node_type {
+            NodeType::Pressable => n.props.str(PropId::Href).is_none(),
+            NodeType::TextInput | NodeType::Control => true,
+            _ => false,
+        }
+}
+
 impl<D: DataSource> Presenter<D> {
     pub(crate) fn control_target(&self, id: u32) -> Option<u32> {
         let mut cursor = Some(id);
@@ -344,6 +358,9 @@ impl<D: DataSource> Presenter<D> {
             })
         }) {
             let _ = self.type_key(id, code, key, down, repeat);
+        } else if down && code == "Tab" {
+            // From no focus, Tab takes the first stop (LLP 1088 D7.3).
+            self.key_down("Tab", self.host.now());
         }
         if code == "Escape"
             && self.focus.is_some_and(|id| {
@@ -458,13 +475,21 @@ impl<D: DataSource> Presenter<D> {
         None
     }
 
-    /// The web's focusable nodes: controls, inputs, buttons and links, and a
+    /// The web's focusable nodes: controls, inputs, buttons and links, a
     /// node with a `focus`, `blur` or `key` handler (the web gives it a
-    /// `tabindex`), as the Apple hosts take the first responder.
+    /// `tabindex`), and any node with an explicit `tabindex`, a negative one
+    /// included (LLP 1088 D7.3), as the Apple hosts take the first
+    /// responder. What tap, `autofocus` and `focus()` may focus; Tab takes
+    /// only the `tabbable` ones.
+    ///
+    /// `disabled` keeps only a form control out (a button, an input, a
+    /// control), where HTML defines it; on a box it means nothing to focus,
+    /// as in Chrome (LLP 1088 D7.3, amended 2026-10-04).
     pub(crate) fn focusable(&self, id: ViewId) -> bool {
         self.host.kernel().node(id).is_some_and(|n| {
-            n.props.bool(PropId::Disabled) != Some(true)
-                && (n.props.str(PropId::Action).is_some()
+            !disabled_control(&n)
+                && (n.props.get(PropId::TabIndex).is_some()
+                    || n.props.str(PropId::Action).is_some()
                     || n.node_type == NodeType::TextInput
                     // A native button is a button under any role (LLP 1069.011.000 D1).
                     || exact_kernel::ControlKind::of(n.node_type, n.props)
@@ -482,7 +507,14 @@ impl<D: DataSource> Presenter<D> {
                         .any(|k| {
                             matches!(
                                 k,
-                                EventKind::Focus | EventKind::Blur | EventKind::Key | EventKind::Press
+                                EventKind::Focus
+                                    | EventKind::Blur
+                                    | EventKind::Key
+                                    | EventKind::Press
+                                    // The clipboard's events go to the focus.
+                                    | EventKind::Copy
+                                    | EventKind::Cut
+                                    | EventKind::Paste
                             )
                         }))
         })
@@ -589,7 +621,14 @@ impl<D: DataSource> Presenter<D> {
                 target
             }
         });
-        if let Some(e) = self.host.dispatch_at(target, Event::Press, now_ms) {
+        // With the modifiers held (gallery F20: shift-click), as a click has them.
+        let held = self.modifiers();
+        let press = if held == Default::default() {
+            Event::Press
+        } else {
+            Event::PressWith(held)
+        };
+        if let Some(e) = self.host.dispatch_at(target, press, now_ms) {
             eprintln!("exact: {e}");
         }
         if let Some(e) = self.after_commit() {

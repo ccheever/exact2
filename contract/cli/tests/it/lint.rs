@@ -39,9 +39,9 @@ fn a_literal_value_is_checked_against_its_row_at_compile_time() {
             "`align-items`",
         ),
         (
-            "component A\n  view\n    column background-color=\"reddish\"\n      text \"a\"\n",
+            "component A\n  view\n    column background-color=\"blurple\"\n      text \"a\"\n",
             "lower-attr-value",
-            "#rrggbb",
+            "a named colour",
         ),
         (
             "component A\n  view\n    column padding=\"auto\"\n      text \"a\"\n",
@@ -67,29 +67,6 @@ fn a_literal_value_is_checked_against_its_row_at_compile_time() {
     // and a computed number or string.
     let src = "component A\n  state w = 10\n  state c = \"#fff\"\n  view\n    column width=w height=\"50%\" max-width=\"auto\" background-color=c align-items=\"center\" flex=1\n      text \"a\" font-size=14 color=\"#00000080\"\n";
     contract::compile(src).unwrap();
-}
-
-#[test]
-fn a_button_keeps_its_cross_host_flex_column() {
-    let app = |display: &str| {
-        format!("component A\n  view\n    button display=\"{display}\"\n      text \"Go\"\n")
-    };
-    for display in ["block", "inline", "inline-block", "inline-flex"] {
-        let error = contract::compile(&app(display)).unwrap_err();
-        assert_eq!(error.id, "lower-attr-value", "{display}: {error}");
-        assert!(
-            error.message.contains("a `button` is a flex column"),
-            "{error}"
-        );
-        assert!(error.message.contains("display=\"flex\""), "{error}");
-    }
-    contract::compile(&app("flex")).unwrap();
-    contract::compile(&app("none")).unwrap();
-
-    let source = "style Block\n  display=\"block\"\ncomponent A\n  view\n    button class=Block display=\"flex\"\n      text \"Go\"\n";
-    contract::compile(source).unwrap();
-    let error = contract::compile(&source.replace(" display=\"flex\"", "")).unwrap_err();
-    assert_eq!(error.id, "lower-attr-value", "{error}");
 }
 
 #[test]
@@ -141,6 +118,60 @@ fn bake_refuses_a_pressable_with_zero_area() {
             assert_eq!(id, "bake-zero-size");
             assert!(message.contains("testId=\"go\""), "{message}");
         }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// Ledger2 Rough 4: an absolutely positioned button is sized by its insets
+/// (a modal's backdrop, `inset=0`), so neither the compiler's check nor
+/// the bake's refuses it; a relatively positioned one with `inset` still has
+/// no size, and one with only `top` and `bottom` keeps its zero width.
+#[test]
+fn an_inset_sized_button_has_area() {
+    for attrs in [
+        "position=\"absolute\" inset=0",
+        "position=\"absolute\" top=0 bottom=0 left=0 right=0",
+        "position=(open ? \"absolute\" : \"sticky\") inset=0",
+    ] {
+        let src = format!("component A\n  state open = true\n  action close\n    open = false\n  view\n    column position=\"relative\" width=200 height=200\n      button press=close {attrs} background-color=\"rgba(0,0,0,0.4)\" testId=\"backdrop\"\n");
+        let plan = contract::compile(&src).unwrap_or_else(|e| panic!("{attrs}: {e}"));
+        contract::check(&plan).unwrap_or_else(|e| panic!("{attrs}: {e:?}"));
+    }
+    let e = contract::compile("component A\n  action close\n    let x = 1\n  view\n    button press=close position=\"relative\" inset=0\n")
+        .unwrap_err();
+    assert!(format!("{e}").contains("zero area"), "{e}");
+}
+
+/// The web's JS target bakes nothing; `contract::check` refuses there what
+/// every native bake would, before the page's module answers (files diary
+/// F13: a hidden shortcut button passed the web build and 21 web tests).
+#[test]
+fn check_refuses_without_data_what_no_answer_could_change() {
+    let hidden = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button \"Down\" press=go display=\"none\" aria-keyshortcuts=\"Shift+ArrowDown\" testId=\"down\"\n";
+    match contract::check(&contract::compile(hidden).unwrap()).unwrap_err() {
+        BakeError::Lint { id, message, .. } => {
+            assert_eq!(id, "bake-zero-size");
+            assert!(message.contains("testId=\"down\""), "{message}");
+        }
+        other => panic!("{other:?}"),
+    }
+    // A label the module answers is empty until it does: not this check's
+    // to judge, nor a `scroll` that only its answered rows reach the bound
+    // of (unanswered, it is exactly as tall as its header).
+    let answered = "component A\n  resource title = title() as shape string\n  resource rows = rows() as shape list<string>\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button press=go padding=0 border-width=0 testId=\"title\"\n        text title\n      row max-height=300\n        scroll\n          column\n            text \"Header\"\n            each r in rows key=r\n              text r\n";
+    contract::check(&contract::compile(answered).unwrap()).unwrap();
+}
+
+/// Review C2: `check` excuses only a source that answers in the page. Any
+/// other refusal at boot is the bake's too, and fails the web build (here a
+/// plan for another kernel schema, refused before a frame).
+#[test]
+fn check_refuses_a_boot_the_bake_refuses() {
+    let mut plan = contract::compile("component A\n  view\n    text \"a\"\n").unwrap();
+    contract::check(&plan).unwrap();
+    plan.kernel_schema_digest ^= 1;
+    match contract::check(&plan).unwrap_err() {
+        BakeError::Runner(exact_runner::RunnerError::KernelSchemaMismatch { .. }) => {}
         other => panic!("{other:?}"),
     }
 }
@@ -212,6 +243,65 @@ fn conditional_style_checks_preserve_computation_and_match_bindings() {
 }
 
 #[test]
+fn a_platform_colour_is_a_plan_literal_never_data() {
+    // LLP 1095 D3: state may choose between the plan's literals; a string
+    // that came from an action's argument names no platform colour.
+    let source = r##"component App
+  state on = false
+  state named = "#000000"
+  action toggle
+    on = !on
+  action name(v: string)
+    named = v
+  view
+    column
+      text "a" testId="chosen" color=(on ? "platform-color(ios lintTestOnColor, #010203)" : "platform-color(ios lintTestOffColor, #040506)")
+      text "b" testId="named" color=named
+"##;
+    let mut runner = exact_runner::Runner::boot(
+        contract::compile(source).unwrap(),
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let color = |runner: &exact_runner::Runner<NoData>, id: &str| {
+        let kernel = runner.kernel();
+        let key = kernel.find_by_test_id(id)[0];
+        kernel.node_by_key(key).unwrap().style.text_color
+    };
+    let platform = |c: exact_kernel::style::ColorValue| {
+        let exact_kernel::style::ColorValue::Platform(id) = c else {
+            return None;
+        };
+        exact_kernel::style::roles::platform(id).and_then(|p| p.ios.clone())
+    };
+    assert_eq!(
+        platform(color(&runner, "chosen")).as_deref(),
+        Some("lintTestOffColor")
+    );
+    runner.act("toggle", vec![]).unwrap();
+    assert_eq!(
+        platform(color(&runner, "chosen")).as_deref(),
+        Some("lintTestOnColor")
+    );
+    runner
+        .act(
+            "name",
+            vec![Value::str("platform-color(ios lintTestDataColor, #070809)")],
+        )
+        .unwrap();
+    let named = color(&runner, "named");
+    assert_eq!(
+        platform(named),
+        None,
+        "data names no platform colour: {named:?}"
+    );
+    assert!(!runner.is_poisoned());
+}
+
+#[test]
 fn conditional_pixel_lengths_compile_and_update() {
     for expression in [
         r#"(on ? "0px" : "20px")"#,
@@ -260,7 +350,17 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
         (app("  state drab = \"\"\n", "text drat"), "type-unknown-name", "unknown name `drat`"),
         (app("  state t = some(\"a\")\n", "buton"), "lower-unknown-tag", "unknown tag `buton`; did you mean `button`?"),
         (app("", "div"), "lower-unknown-tag", "unknown tag `div`; a flex container is `column` or `row`, and a plain box `view`"),
-        (app("", "text \"a\" color=\"bleu\""), "lower-attr-value", "`color=\"bleu\"` is not a valid `color`: a color is `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb(r, g, b)`, `rgba(r, g, b, a)`, `hsl()`, `hwb()`, a CSS color name (`gray`), or `transparent`"),
+        // An SVG element's own attribute on a box is refused by name, not
+        // kept as a prop no host reads; CSS `order` is a box's (feed F19).
+        (app("", "view mode=\"multiply\""), "lower-attr-tag", "`mode` is an SVG element's attribute; it does nothing on `view`"),
+        (app("", "view mask=\"url(#m)\""), "lower-attr-tag", "`mask` masks SVG elements so far; a box takes `mask-image` (a gradient)"),
+        // HTML's and CSS's own spellings (feed F1): `alt` is an image's,
+        // and `inherit` takes what the parent computed, which only an
+        // inherited row has.
+        (app("", "view alt=\"x\""), "lower-attr-tag", "`alt` belongs to `image`, not `view`; another element's accessible name is `aria-label`"),
+        (app("", "view background-color=\"inherit\""), "lower-attr-value", "`background-color=\"inherit\"`: `background-color` does not inherit, and exact2 inherits only the rows CSS inherits; write the value"),
+        (app("", "text \"a\" color=\"bleu\""), "lower-attr-value", "`color=\"bleu\"` is not a valid `color`: a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, `lab()`, `oklch()`, a named colour, `transparent`, `light-dark(a, b)` of two, a role (`\"secondary-label\"`, `\"CanvasText\"`: LLP 1095), or `platform-color(ios <name>Color, …, <fallback>)` written whole as a string literal"),
+        (app("", "text \"a\" color=`platform-color(ios ${draft}Color, #000)`"), "lower-platform-color-literal", "`color`: write `platform-color(…)` whole, as a string literal (a branch of `?:` or `match` may be one); it is never built from a template, a concatenation or data, so the platform colours a plan names are fixed when it compiles (LLP 1095 D3)"),
         (app("", "text \"a\" font-size=\"14px\""), "lower-attr-value", "`font-size=\"14px\"` is not a valid `font-size`: expected number; write `font-size=14` (a number is pixels)"),
         (app("", "text \"a\" width=10px"), "syntax-unquoted-length", "`width=10px` needs quotes: a value with a unit is a string, `width=\"10px\"` (a bare number is pixels)"),
         (app("", "text \"a\" className=\"x\""), "lower-unknown-attr", "`text` has no attribute `className`; `class` names a `style` declared in this file, as in `class=Card`"),

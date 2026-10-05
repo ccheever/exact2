@@ -9,6 +9,8 @@
 //! reuses the host's element and CSS rules (`exact_web::host::template`),
 //! and `exact-web` already depends on `contract`.
 
+#[cfg(test)]
+mod budget_tests;
 mod code;
 mod emit;
 mod faces;
@@ -61,6 +63,34 @@ fn main() -> ExitCode {
     // linked, as the render host links them (LLP 1047 D7).
     exact_web::link(exact_web_capabilities::ALL);
     let path = std::path::Path::new(input);
+    // The dev loop watches every package the Contract reads (LLP 1091 D10),
+    // even when this compile fails: the fix may be in the library.
+    if dev_reload && !input.ends_with(".plan") {
+        let graph = contract::source_graph(path);
+        let mut roots: Vec<String> = graph
+            .packages
+            .iter()
+            .map(|package| package.root.display().to_string())
+            .chain(
+                graph
+                    .consulted
+                    .iter()
+                    .filter_map(|manifest| manifest.parent().map(|dir| dir.display().to_string())),
+            )
+            .collect();
+        roots.sort();
+        roots.dedup();
+        let json = format!(
+            "{{\"packages\":[{}]}}\n",
+            roots
+                .iter()
+                .map(|r| format!("{r:?}"))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let _ = std::fs::create_dir_all(out);
+        let _ = std::fs::write(std::path::Path::new(out).join("dev-sources.json"), json);
+    }
     let mut map = None;
     let plan = if input.ends_with(".plan") {
         let bytes = match std::fs::read(path) {
@@ -81,6 +111,16 @@ fn main() -> ExitCode {
         // Every refusal, each naming its own file (LLP 1054 L9), as `contract build` prints them.
         match contract::compile_path_all(path, sites) {
             Ok((p, m)) => {
+                // The native bake's refusals, here too: this build bakes
+                // nothing, and a plan every native build refuses must not
+                // pass the web loop (files diary F13).
+                if let Err(e) = contract::check(&p) {
+                    match &m {
+                        Some(m) => eprintln!("{}", m.bake_error(&e)),
+                        None => eprintln!("{input}: {e}"),
+                    }
+                    return ExitCode::from(1);
+                }
                 map = m;
                 p
             }
@@ -160,6 +200,11 @@ fn main() -> ExitCode {
                     .any(|c| u.has(c))
                 {
                     let _ = std::fs::write(dir.join("files.flag"), "");
+                }
+                // `showNotification`/`closeNotification` (notify.js).
+                let _ = std::fs::remove_file(dir.join("notify.flag"));
+                if u.has(Capability::Notifications) {
+                    let _ = std::fs::write(dir.join("notify.flag"), "");
                 }
             }
             // Every portable symbol role, which symbols.js loads when a bound

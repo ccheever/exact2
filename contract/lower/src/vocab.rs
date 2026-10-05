@@ -24,6 +24,7 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
     ("reachstart", "`list`"),
     ("reachend", "`list`"),
     ("text-transform", "any tag but `input` and `textarea`"),
+    ("selectionchange", "`text`"),
 ];
 
 /// The open set of tags: a hyphenated name is a native module.
@@ -108,7 +109,7 @@ pub fn default(row: StyleId) -> Option<&'static str> {
 pub fn open_set(name: &str) -> Option<&'static str> {
     if name.starts_with("data-") {
         Some(DATA_NOTE)
-    } else if crate::native::is_module_tag(name) {
+    } else if crate::native::is_module_tag(name) && crate::lint::fragmentation(name).is_none() {
         Some(MODULE_NOTE)
     } else {
         None

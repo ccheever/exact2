@@ -13,6 +13,19 @@ import UIKit
 typealias KeyPlatformView = UIView
 #endif
 
+extension NodeView {
+    /// `disabled` where HTML defines it: a button, an input, a control. It
+    /// takes those out of focus and keys; on any other box it means nothing
+    /// there, as Chrome's `<div disabled>` (LLP 1088 D7.3, amended
+    /// 2026-10-04). A pressable with an `href` is the web's `<a>`, which
+    /// `disabled` does not touch either. A press is still refused on any
+    /// disabled node.
+    var formDisabled: Bool {
+        disabled && ["button", "input", "textarea", "control"].contains(kind)
+            && !(kind == "button" && props["href"] != nil)
+    }
+}
+
 extension KeyCodes {
     /// The chord prefix of the modifiers held, in `Event::key`'s spelling.
     static func held(shift: Bool, control: Bool, alt: Bool, meta: Bool) -> String {
@@ -20,16 +33,27 @@ extension KeyCodes {
     }
 }
 
+extension NodeView {
+    /// HTML's `tabindex` as authored, nil when absent (LLP 1088 D7.3): any
+    /// explicit value makes a node focusable — by pointer, script and
+    /// `autofocus` — and only one ≥ 0 a Tab stop; a missing one is never
+    /// read as `0`, which would make every box a stop.
+    var explicitTabIndex: Int? { props["tabIndex"].flatMap { Int($0) } }
+    /// The order HTML's sequential navigation sorts by: absent is `0`.
+    var tabOrder: Int { explicitTabIndex ?? 0 }
+}
+
 extension Presenter {
     /// The `key` handlers at `target` and above it hear `name` with the
     /// modifiers `held` (a chord prefix, `KeyCodes.held`), the path fixed
-    /// before the first runs, as the DOM fixes an event's. True when one
-    /// called `preventDefault()`: the caller skips the default action.
+    /// before the first runs, as the DOM fixes an event's; one that called
+    /// `stopPropagation()` is the last. True when one called
+    /// `preventDefault()`: the caller skips the default action.
     func keyDown(at target: NodeView?, _ name: String, held: String = "") -> Bool {
         var path: [UInt32] = []
         var next: KeyPlatformView? = target
         while let view = next {
-            if let node = view as? NodeView, views[node.id] === node, node.handlers.contains("key"), !node.disabled, !node.inert {
+            if let node = view as? NodeView, views[node.id] === node, node.handlers.contains("key"), !node.formDisabled, !node.inert {
                 path.append(node.id)
             }
             next = view.superview
@@ -37,10 +61,14 @@ extension Presenter {
         var prevented = false
         for id in path {
             defaultPrevented = false
+            propagationStopped = false
             key(id, held + name)
             prevented = prevented || defaultPrevented
+            // `stopPropagation()`: no ancestor hears it (files diary F8).
+            if propagationStopped { break }
         }
         defaultPrevented = false
+        propagationStopped = false
         return prevented
     }
 }
@@ -134,7 +162,7 @@ extension NodeView {
     /// with it: true when a `key` handler prevented its default. An input
     /// method's composition keeps its keys.
     func editorKeyDown(_ presses: Set<UIPress>) -> Bool {
-        guard !disabled, let key = presses.first?.key, (field?.markedTextRange ?? textArea?.markedTextRange) == nil else { return false }
+        guard !formDisabled, let key = presses.first?.key, (field?.markedTextRange ?? textArea?.markedTextRange) == nil else { return false }
         return presenter?.keyDown(at: self, NodeView.keyName(key), held: KeyCodes.held(key.modifierFlags)) == true
     }
 }

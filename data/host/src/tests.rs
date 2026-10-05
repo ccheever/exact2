@@ -191,6 +191,64 @@ fn construction_configuration_and_validation_have_no_storage_effects() {
     assert!(!paths.0.exists());
 }
 
+/// Studio diary R14: a document a launch hands over is sent to the data
+/// module before first pixel; its storage request waits for activation
+/// rather than being refused and lost. A resource is still refused (it is
+/// asked again at `data_ready`), and validation never runs one.
+#[test]
+fn a_send_before_activation_waits_for_storage_and_runs_once_it_is_ready() {
+    let paths = Paths::new();
+    let mut host = Storage::new(Fixture::new());
+    paths.configure(&mut host);
+    let mut store = Store::default();
+    assert!(host
+        .answer_for(Target::Resource(0), &mut store, "operation", &[])
+        .is_err());
+    let Answer::Later(request) = host
+        .answer_for(Target::Mutation(0), &mut store, "operation", &[])
+        .unwrap()
+    else {
+        panic!("expected a held request")
+    };
+    let token = request.continuation.unwrap();
+    assert!(matches!(host.dispatch(token, &store), Dispatch::Held));
+    assert!(
+        host.release(&store).is_empty(),
+        "nothing runs before activation"
+    );
+    assert!(!paths.0.exists());
+    host.activate().unwrap();
+    let mut released = host.release(&store);
+    assert_eq!(released.len(), 1);
+    let (released_token, Dispatch::Run(exact_runner::Work::Now(job))) = released.remove(0) else {
+        panic!("expected the held work")
+    };
+    assert_eq!(released_token, token);
+    std::thread::spawn(job).join().unwrap();
+    assert_eq!(std::fs::read(paths.0.join("data/note")).unwrap(), b"hello");
+    assert!(host.release(&store).is_empty(), "released once");
+    // An early request outside the app's grants fails when it runs.
+    let mut host = Storage::new(Fixture::new());
+    paths.configure(&mut host);
+    host.source.request =
+        storage::request("fs.writeFile", json!({"path":"app:/cache/x","text":"no"}));
+    let Answer::Later(request) = host
+        .answer_for(Target::Mutation(0), &mut store, "operation", &[])
+        .unwrap()
+    else {
+        panic!("expected a held request")
+    };
+    assert!(matches!(
+        host.dispatch(request.continuation.unwrap(), &store),
+        Dispatch::Held
+    ));
+    host.activate().unwrap();
+    let (_, Dispatch::Run(exact_runner::Work::Now(job))) = host.release(&store).remove(0) else {
+        panic!("expected the held work")
+    };
+    assert!(storage::response(std::thread::spawn(job).join().unwrap()).is_err());
+}
+
 #[test]
 fn activation_defers_io_to_the_owned_job_and_parse_returns_its_result() {
     let paths = Paths::new();
@@ -622,7 +680,7 @@ fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
         "fs.readFile",
         serde_json::json!({"path": doc}),
     );
-    assert!(refused.unwrap_err().contains("not granted"));
+    assert!(refused.unwrap_err().starts_with("denied: "));
     let write = serde_json::json!({"path": doc, "text": "# B"});
     let refused = run("fs.read doc:/", "fs.atomicWriteFile", write.clone());
     assert!(refused.unwrap_err().contains("fs.write doc:/"));
@@ -643,4 +701,27 @@ fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
     );
     assert!(gone.unwrap_err().contains("no such document"));
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A drive that names no scratch store (trivia F7): the request is answered,
+/// with the web's refusal word for word, which the module can handle — where
+/// an unconfigured host refuses the answer itself.
+#[test]
+fn an_agent_drive_without_a_store_answers_with_the_webs_refusal() {
+    let mut host = Storage::new(Fixture::new());
+    host.agent = true;
+    host.activate().unwrap();
+    let refused = run(
+        &mut host,
+        storage::request("fs.writeFile", json!({"path":"app:/data/x","text":"x"})),
+    );
+    assert_eq!(
+        refused,
+        Err("storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)".into())
+    );
+    host.agent = false;
+    host.source.request = storage::request("fs.readFile", json!({"path":"app:/data/x"}));
+    assert!(host
+        .answer(&mut Store::default(), "operation", &[])
+        .is_err());
 }

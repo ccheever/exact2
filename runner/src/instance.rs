@@ -861,7 +861,11 @@ impl NodeInst {
                 },
                 // A class choice's row the chosen style does not set is
                 // `none`: an explicit unset, cleared to the kernel's default.
-                BindingKind::Style if matches!(value, Value::Option(None)) => {
+                // So is CSS's `unset`, and `inherit` on an inherited row.
+                BindingKind::Style
+                    if matches!(value, Value::Option(None))
+                        || bridge::unsets(binding.id, &value) =>
+                {
                     let style = exact_kernel::StyleId::from_bit(binding.id as u32)
                         .expect("known to the bridge");
                     let mut mask = exact_kernel::StyleMask::default();
@@ -873,7 +877,7 @@ impl NodeInst {
                 }
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(StyleProps::default);
-                    match bridge::set_style(p, binding.id, &value, plan.stacks.len()) {
+                    match bridge::set_plan_style(p, binding.id, &value, plan) {
                         Ok(exact_kernel::StyleId::Animation) => {
                             let dropped = u.sites.keyframes.resolve(&mut p.animation);
                             u.notes.extend(dropped);

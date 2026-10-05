@@ -46,7 +46,7 @@ pub enum Capability {
     /// `share(…)` (LLP 1069.003): a plan whose code runs the command.
     Share,
     /// `saveFile` and the three file pickers (LLP 1069.010): a plan whose
-    /// code runs one.
+    /// code runs one, or that hears a `drop` of files (studio diary R19).
     Documents,
     /// `input type="file"` and `showPicker` (LLP 1069.002): a plan with a
     /// file input, or whose code runs the command.
@@ -85,11 +85,14 @@ pub enum Capability {
     /// A navigation root's tabs (LLP 1075.003 §3.7): a plan that binds
     /// `aria-controls`. The web's document shows each tab's stack.
     Tabs,
+    /// `showNotification` and `closeNotification` (rules/DEFERRED.md,
+    /// 2026-10-04): a plan whose code runs one.
+    Notifications,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 22] = [
+    pub const ALL: [Capability; 23] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -112,6 +115,7 @@ impl Capability {
         Capability::Segments,
         Capability::Dataset,
         Capability::Tabs,
+        Capability::Notifications,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -139,6 +143,7 @@ impl Capability {
             Capability::Segments => "segments",
             Capability::Dataset => "dataset",
             Capability::Tabs => "tabs",
+            Capability::Notifications => "notifications",
         }
     }
 
@@ -310,6 +315,8 @@ pub fn uses(plan: &Plan) -> Uses {
             | EventKind::Reorderdrop => {
                 uses = uses.with(Capability::Motion).with(Capability::Drag);
             }
+            // Dropped files become `doc:` handles (studio diary R19).
+            EventKind::Drop => uses = uses.with(Capability::Documents),
             _ => {}
         }
     }
@@ -320,12 +327,19 @@ pub fn uses(plan: &Plan) -> Uses {
     {
         uses = uses.with(Capability::Collections);
     }
-    let (format, geometry) = stdlib_calls(plan);
+    let (format, geometry, lowercase) = stdlib_calls(plan);
     if format {
         uses = uses.with(Capability::Format);
     }
+    // `toLowerCase` maps through the same case tables (LLP 1088 D2).
+    if lowercase {
+        uses = uses.with(Capability::TextTransform);
+    }
     if runs_command(plan, &["share"]) {
         uses = uses.with(Capability::Share);
+    }
+    if runs_command(plan, &["showNotification", "closeNotification"]) {
+        uses = uses.with(Capability::Notifications);
     }
     if runs_command(
         plan,
@@ -381,23 +395,24 @@ pub fn svg_filters(plan: &Plan) -> bool {
         })
 }
 
-/// Whether any code range calls a `format` entry, and whether any reads
-/// geometry (`frame`, `measure`): each validated body walked whole, so no
-/// call a run can reach is missed.
-fn stdlib_calls(plan: &Plan) -> (bool, bool) {
-    let (mut format, mut geometry) = (false, false);
+/// Whether any code range calls a `format` entry, whether any reads
+/// geometry (`frame`, `measure`), and whether any calls `toLowerCase`: each
+/// validated body walked whole, so no call a run can reach is missed.
+fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
+    let (mut format, mut geometry, mut lowercase) = (false, false, false);
     plan.each_code(&mut |code| {
         for i in crate::vm::instructions(plan.code(code)).flatten() {
             if i.op == Opcode::Call {
                 match Stdlib::from_wire(i.args[0] as u8) {
                     Some(Stdlib::FormatDate | Stdlib::FormatNumber) => format = true,
                     Some(Stdlib::Frame | Stdlib::Measure) => geometry = true,
+                    Some(Stdlib::ToLowerCase) => lowercase = true,
                     _ => {}
                 }
             }
         }
     });
-    (format, geometry)
+    (format, geometry, lowercase)
 }
 
 /// Whether any code range runs a host command named one of `names`.

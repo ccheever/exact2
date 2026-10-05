@@ -42,9 +42,9 @@ pub struct Linked {
     /// Inspection (LLP 1012): the agent API's reads. Not a plan's use: the
     /// entry links it by policy, in production too (LLP 1047 §10, Q3).
     pub inspection: bool,
-    /// Canvas 2D's wide colour forms (LLP 1056 §8.2), linked when the data
-    /// crate's source names one: registered at [`link`].
-    pub canvas_colors: Option<fn()>,
+    /// The wide colour forms (LLP 1056 §8.2), linked when the plan or the
+    /// data crate's source names one: registered at [`link`].
+    pub wide_colors: Option<fn()>,
     /// `backgroundMaterial` (LLP 1053.000 D4): a material's CSS variables
     /// appended to a node's style, and the line to log, once, for a name
     /// the table lacks.
@@ -56,6 +56,8 @@ pub struct Linked {
     pub auth: bool,
     /// `share(…)` (LLP 1069.003).
     pub share: bool,
+    /// `showNotification` and `closeNotification`.
+    pub notifications: bool,
     /// `saveFile` and the file pickers (LLP 1069.010).
     pub documents: bool,
     /// `input type="file"` and `showPicker` (LLP 1069.002): a file input's
@@ -116,6 +118,28 @@ pub struct AnimationsLink {
 pub type PickedPayload = fn(&str) -> Option<Vec<exact_runner::Picked>>;
 
 impl Linked {
+    /// The runner's device capabilities this names (LLP 1047 D3): each
+    /// linked one's entries, [`exact_runner::DeviceLinks::CORE`]'s none for
+    /// the rest.
+    pub const fn device_links<D: exact_runner::DataSource>(self) -> exact_runner::DeviceLinks<D> {
+        let all = exact_runner::DeviceLinks::<D>::ALL;
+        exact_runner::DeviceLinks {
+            auth: if self.auth { all.auth } else { None },
+            share: if self.share { all.share } else { None },
+            documents: if self.documents { all.documents } else { None },
+            picker: if self.picker.is_some() {
+                all.picker
+            } else {
+                None
+            },
+            notifications: if self.notifications {
+                all.notifications
+            } else {
+                None
+            },
+        }
+    }
+
     /// The core alone.
     pub const CORE: Linked = Linked {
         markup: None,
@@ -127,11 +151,12 @@ impl Linked {
         router: None,
         format: None,
         inspection: false,
-        canvas_colors: None,
+        wide_colors: None,
         materials: None,
         backdrop: None,
         auth: false,
         share: false,
+        notifications: false,
         documents: false,
         picker: None,
         timelines: None,
@@ -178,6 +203,9 @@ impl Linked {
         }
         if self.share {
             uses = uses.with(Capability::Share);
+        }
+        if self.notifications {
+            uses = uses.with(Capability::Notifications);
         }
         if self.documents {
             uses = uses.with(Capability::Documents);
@@ -227,7 +255,7 @@ thread_local! {
 
 /// Register what this artifact links: its entry does before every boot.
 pub fn link(linked: Linked) {
-    if let Some(link) = linked.canvas_colors {
+    if let Some(link) = linked.wide_colors {
         link();
     }
     if let Some(link) = linked.backdrop {

@@ -513,6 +513,12 @@ extension Agent {
             // it leaves behind.
             guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
             let gesture = req["gesture"] as? Bool == true
+            // The modifiers held (studio diary R3: ⌘-scroll; a pinch is Control's).
+            var flags: NSEvent.ModifierFlags = []
+            for name in (req["modifiers"] as? String ?? "").split(separator: "+") {
+                guard let flag = ["Shift": NSEvent.ModifierFlags.shift, "Control": .control, "Alt": .option, "Meta": .command][String(name)] else { return ["error": "tap: unknown modifier \(name)"] }
+                flags.insert(flag)
+            }
             let whole = { (d: Double) -> Int32 in Int32(min(max(d.rounded(), -1_000_000), 1_000_000)) }
             let screen = win.convertPoint(toScreen: p)
             let location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
@@ -529,6 +535,7 @@ extension Agent {
             for (phase, dx, dy) in steps {
                 guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -whole(dy), wheel2: -whole(dx), wheel3: 0) else { return ["error": "no wheel event"] }
                 cg.location = location
+                cg.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
                 if gesture {
                     // A trackpad's deltas are continuous; without this the
                     // event reads as a wheel's notches and the phase is moot.
@@ -567,6 +574,15 @@ extension Agent {
             return ["tapped": Int(v.id), "pinch": scale, "at": at, "delivery": "platform"]
         }
         if v.kind == "iframe" { return session.webviews.tap(v, request: req, at: at) }
+        // Files dragged in from Finder (studio diary R19): the drag session
+        // AppKit would run, without a drag — each path as a dropped file's URL
+        // at the point, through the same filter, minting and event.
+        if let paths = req["drop"] as? [String] {
+            guard let node = NodeView.dropTarget(win.contentView?.hitTest(p) ?? v) else { return ["error": "view \(v.id) takes no drop: nothing under it declares `drop`"] }
+            guard node.drop(paths.map { URL(fileURLWithPath: $0) }, at: p) else { return ["error": "drop: refused: no file of a type this app declares"] }
+            session.presenter.settlePump()
+            return ["tapped": Int(node.id), "at": at, "drop": paths.count, "delivery": "presenter"]
+        }
         // A right click (minesweeper F8): the right button down and up at the
         // point through the window, as a mouse's are routed; `rightMouseUp`
         // answers it on the node with a `contextmenu` handler.
@@ -580,12 +596,18 @@ extension Agent {
             win.sendEvent(up)
             return ["tapped": Int(v.id), "at": at, "contextmenu": true, "delivery": "platform"]
         }
+        // The modifiers held through the click (gallery F20: shift-click).
+        var held: NSEvent.ModifierFlags = []
+        for name in (req["modifiers"] as? String ?? "").split(separator: "+") {
+            guard let flag = ["Shift": NSEvent.ModifierFlags.shift, "Control": .control, "Alt": .option, "Meta": .command][String(name)] else { return ["error": "tap: unknown modifier \(name)"] }
+            held.insert(flag)
+        }
         // A double click is two real clicks, the second with clickCount 2.
         for clicks in 1...(req["dblclick"] as? Bool == true ? 2 : 1) {
             let t = ProcessInfo.processInfo.systemUptime
             let eventNumber = AgentMouseRelease.nextEventNumber()
-            guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 1),
-                  let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 0),
+            guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: held, timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 1),
+                  let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: held, timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 0),
                   let release = AgentMouseRelease(up)
             else { return ["error": "no mouse event"] }
             // NSTextView and AVKit controls may track synchronously inside mouseDown.
@@ -625,6 +647,7 @@ extension Agent {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
         if v.kind == "native", req["key"] == nil { return nativeType(v, req) }
         if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
         if req["key"] == nil, let reply = presenter.controls.type(v, req["text"] as? String ?? "") { return reply }
@@ -744,6 +767,13 @@ extension Agent {
             if v.kind == "native" { return nativeType(v, req, token: nativeToken) }
             // Accessory test windows may have a first responder before
             // NSApp has a keyWindow. Deliver to the named responder first.
+            // An Edit menu chord (⌘X, ⌘C, ⌘V) first, whether or not a window is
+            // key (the agent's need not be): its action through the responder chain,
+            // as the menu would send it (spreadsheet F14: ⌘V's paste).
+            let edits: [String: Selector] = ["x": #selector(NSText.cut(_:)), "c": #selector(NSText.copy(_:)), "v": #selector(NSText.paste(_:))]
+            if phase != "up", modifiers == .command, let action = edits[key], win.firstResponder?.tryToPerform(action, with: nil) == true {
+                return ["typed": Int(v.id), "key": chord, "delivery": "platform"]
+            }
             if phase != "up", modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {
                 return ["typed": Int(v.id), "key": chord]
             }
@@ -759,7 +789,7 @@ extension Agent {
         }
         if let f = v.textArea {
             if !win.isKeyWindow { win.makeKey() }
-            win.makeFirstResponder(f)
+            if win.firstResponder !== f { win.makeFirstResponder(f) }
             f.selectAll(nil)
             f.insertText(TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props), replacementRange: f.selectedRange())
             return ["typed": Int(v.id), "value": f.string]
@@ -769,7 +799,10 @@ extension Agent {
         // The field editor needs a key window; an accessory app's is not
         // one until asked (and asking does not activate the app).
         if !win.isKeyWindow { win.makeKey() }
-        win.makeFirstResponder(f)
+        // A field already being edited keeps its editor: asking again would
+        // end the editing (a blur) and begin it (a focus), which a person's
+        // typing never does.
+        if f.currentEditor().map({ win.firstResponder !== $0 }) ?? true { win.makeFirstResponder(f) }
         guard let editor = f.currentEditor() as? NSTextView else { return ["error": "the field has no editor"] }
         editor.selectAll(nil)
         editor.insertText(text, replacementRange: editor.selectedRange())
@@ -862,6 +895,16 @@ extension Agent {
         (Agent.systemAppearance ?? NSApp.effectiveAppearance).bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
     nonisolated(unsafe) static var systemAppearance: NSAppearance?
+    /// `prefer contrast more` (LLP 1095 D7): the high-contrast variant of the
+    /// system appearance, so views redraw and platform colours resolve as
+    /// Increase Contrast shows them.
+    func systemContrast(more: Bool) {
+        let following = NSApp.appearance == nil || NSApp.appearance === Agent.systemAppearance
+        let dark = systemDark
+        let name: NSAppearance.Name = dark ? (more ? .accessibilityHighContrastDarkAqua : .darkAqua) : (more ? .accessibilityHighContrastAqua : .aqua)
+        Agent.systemAppearance = NSAppearance(named: name)
+        if following { NSApp.appearance = Agent.systemAppearance }
+    }
 }
 
 extension Capture {

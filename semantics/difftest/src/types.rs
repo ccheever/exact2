@@ -93,7 +93,8 @@ fn walk_stmts(ss: &mut [Stmt], f: &mut dyn FnMut(&mut Expr, Role) -> bool) -> bo
     for s in ss {
         let stop = match s {
             Stmt::Let { expr, .. } | Stmt::Assign { expr, .. } => walk_expr(expr, Role::Plain, f),
-            Stmt::Command { args, .. } | Stmt::Send { args, .. } => {
+            // A call is expansion's, never an authored tree's (LLP 1089).
+            Stmt::Command { args, .. } | Stmt::Send { args, .. } | Stmt::Call { args, .. } => {
                 args.iter_mut().any(|a| walk_expr(a, Role::Plain, f))
             }
             Stmt::Refresh { .. } => false,
@@ -358,14 +359,6 @@ fn mutate(file: &mut File, kind: Kind, rng: &mut Rng) -> Option<String> {
     what
 }
 
-/// Rust refusals the judgments do not model, by id: the embedding does not
-/// carry what they read. A prop's or an inject's declared type (its
-/// argument is substituted, untyped, into the expansion) and a data
-/// source's one signature across its uses (the semantics leaves a source's
-/// signature free). A mutant refused only for one of these is well typed in
-/// the expansion Lean judges, so Lean accepts it.
-const OUTSIDE: [&str; 3] = ["type-prop", "type-provide", "type-source-signature"];
-
 /// One program for the Lean checker, and what it should say.
 struct Item {
     label: String,
@@ -425,7 +418,8 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
     leanrun::build()?;
     build_checker()?;
     // The corpus's programs, then the generated ones.
-    let mut sources: Vec<(String, String)> = Vec::new();
+    // (label, source, the file: its `use`s and strings tables resolve)
+    let mut sources: Vec<(String, String, Option<std::path::PathBuf>)> = Vec::new();
     let mut files = Vec::new();
     crate::collect(&leanrun::project().join("corpus"), &mut files)?;
     files.sort();
@@ -436,18 +430,22 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
             .unwrap_or(&f)
             .display()
             .to_string();
-        sources.push((name, src));
+        sources.push((name, src, Some(f)));
     }
     let size = gen::Size::default();
     for i in 0..count as u64 {
         let case = gen::case(seed.wrapping_add(i), &size);
-        sources.push((case.name, case.source));
+        sources.push((case.name, case.source, None));
     }
     let mut items = Vec::new();
     let mut refused = 0;
-    for (i, (label, source)) in sources.into_iter().enumerate() {
+    for (i, (label, source, path)) in sources.into_iter().enumerate() {
         let name = format!("o{i}");
-        match contract::lean::lean(&source, &name) {
+        let program = match &path {
+            Some(p) => contract::lean::lean_path(p, &name),
+            None => contract::lean::lean(&source, &name),
+        };
+        match program {
             Ok(program) => items.push(Item {
                 label: label.clone(),
                 source: source.clone(),
@@ -474,7 +472,7 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
     }
     let verdicts = lean_checks(&items, dir)?;
     std::fs::create_dir_all(dir.join("types")).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let (mut agree, mut lean_refuses, mut lean_accepts, mut outside) = (0, 0, 0, 0);
+    let (mut agree, mut lean_refuses, mut lean_accepts) = (0, 0, 0);
     let (mut refused_by_both, mut mutants) = (0, 0);
     for (k, (item, (ok, failure))) in items.iter().zip(&verdicts).enumerate() {
         if item.label.ends_with("mutant") {
@@ -486,13 +484,6 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
         if item.rust.is_ok() == *ok {
             agree += 1;
             continue;
-        }
-        if let Err(why) = &item.rust {
-            if *ok && OUTSIDE.iter().any(|id| why.starts_with(&format!("[{id}]"))) {
-                outside += 1;
-                println!("OUTSIDE {} ({}): rust {why}", item.label, item.what);
-                continue;
-            }
         }
         let stem = dir
             .join("types")
@@ -535,7 +526,7 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
     println!(
         "difftest types: {} programs ({mutants} mutants, {refused_by_both} refused by both): {agree} agree, \
          {lean_refuses} refused by Lean alone, {lean_accepts} accepted by Lean alone, \
-         {outside} refused by Rust for what the embedding does not carry, {refused} refused by the compiler",
+         {refused} refused by the compiler",
         items.len()
     );
     Ok(lean_refuses == 0 && lean_accepts == 0 && refused == 0)

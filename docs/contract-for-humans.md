@@ -61,8 +61,10 @@ bun scripts/exact.mjs new ../hello
 The new app has `app.contract` (its interface), `app.ts` (its data module),
 `app.json` (its manifest), `app.test.contract`, `web/` and `apple/` crates, and its
 own Cargo workspace; it consumes this checkout by path. Its generated `exact.mjs`
-runs the web and native commands (`bun exact.mjs test`, for example); run it with
-no verb to list them, and see the [tooling reference](reference.md).
+runs the web and native commands (`bun exact.mjs test`, for example; `bun exact.mjs
+test web tests/*.test.contract` runs the files named, from the current directory,
+in turn); run it with no verb to list them, and see the [tooling reference](reference.md).
+Stopping or killing `bun exact.mjs web` stops its dev server too.
 
 You can compile a standalone Contract file without running a host:
 
@@ -121,17 +123,40 @@ may supply reusable declarations; the importing file's first component remains
 its root.
 
 ```text
-use Card from "./parts.contract"
-use Item from "./models.contract"
+use Card, Badge as StatusBadge from "./parts.contract"
+use Item, pulse from "./models.contract"
 ```
 
-Imports are local `.contract` files inside the app directory. Paths begin
-with `./`, stay below the importing file, and cannot contain `..` segments. They cannot import
-JavaScript packages or TypeScript functions. Import cycles, conflicting
-declarations, and unknown exports are refused. Fonts are not individually named
-`use` exports. Loading a file merges its resolved declarations, not just the
-single named declaration; there is no import namespace. Keep external work
-behind the data interface.
+Each file has its own names (LLP 1091): its own declarations, and the names its
+`use` lines list. Nothing comes along unnamed: if `parts.contract` uses `Icon`,
+`Card` still works, but this file writes `Icon()` only after naming it too,
+from `./icons.contract` or from `./parts.contract`, which passes on what it
+names. `as` renames one name in this file. Any component, shape, `fn`, style,
+keyframes or timeline can be named; there is no `export` keyword.
+
+Two files may declare the same name: each file's references mean its own
+declaration. One name brought into a file twice from different declarations,
+or brought and also declared, is refused; rename one with `as`. Fonts stay
+app-wide, like CSS's `@font-face`.
+
+A `use` names one of three things:
+
+- a file of the app: `./parts.contract`, or `../lib/row.contract`, as long as
+  it stays inside the app's directory;
+- a built-in: `use Activity from "exact:motion"` is the one app-wide timeline
+  for loading indicators, so every spinner keeps one rhythm;
+- a package: `use Card from "@acme/ui"` reads an installed package's
+  `.contract` files, found in `node_modules` as Node finds JavaScript. Its
+  `package.json` `exports` maps `.` (and any subpaths) to `.contract` files;
+  without `exports`, `index.contract`. A local library is a dependency too:
+  `"@me/ui": "file:../ui"` in the app's `package.json`, or a Bun workspace.
+  A package's own relative uses stay inside the package.
+
+A library is Contract only: components, shapes, functions, styles, keyframes and
+timelines. It cannot own resources or carry TypeScript; its components take data
+through props, `inject` and slots. Fonts it names are the app's to supply.
+Contract never imports JavaScript or TypeScript. Import cycles and unknown names
+are refused. Keep external work behind the data interface.
 
 Identifiers start with an ASCII letter or underscore. Letters, digits, and
 underscores can follow. A hyphen followed by a letter is part of the identifier:
@@ -275,10 +300,16 @@ be read before its declaration. Separate branches may each declare their own
 local of the same name. Locals do not become application state.
 
 Actions support assignments to their own states and mutations, `let`, `send`,
-`refresh`, host commands, `if`/`else`, and option `match` blocks. They have no
-loops, `return`, `await`, or general action-to-action calls. Share calculations
-through `fn`; bind an action to an event to invoke it. The compiler infers the
-state an action writes. Do not write a `writes` clause.
+`refresh`, host commands, calls of actions, `if`/`else`, and option `match`
+blocks. They have no loops, `return`, or `await`. An action calls another action
+of its component, an `action` prop or an injected action as a statement:
+`arrive(path)` runs `arrive`'s statements right there, in the same commit, and
+they too read the state the action started with. So a helper does not see what
+its caller assigned before the call; the compiler refuses such a read and asks
+for the value to be passed (`arrive(next)`). A name that is a host command, such
+as `focus`, stays the command. A call returns nothing: share calculations through
+`fn`. The compiler infers the state an action writes, through its calls. Do not
+write a `writes` clause.
 
 ## Expressions and functions
 
@@ -527,7 +558,8 @@ The `refreshes items` clause re-reads `items` when the mutation is sent (an answ
 the source gives at once shows immediately) and forces it again when the reply
 lands. `then afterSave` runs a parameterless action in its own commit at the
 host's next clock advance, once for every answer that landed before it, so it
-reads the latest answer. It does not run for a failure that brought no answer,
+reads the latest answer (the agent driver lands it at the end of the input
+that settled the answer). It does not run for a failure that brought no answer,
 and it must not send its own mutation. Do not use `then` as a general event queue.
 
 `pending(resourceOrMutation)` asks whether a request is in flight.
@@ -578,8 +610,12 @@ arguments, not state, and is answered once at build. See
 
 The app build bakes initial resource values into its plan for first paint. At
 build there is no network, storage, store write or native module; a source that
-needs a request is left unbaked and asked at run time. Generate the interface
-rather than guessing it:
+needs a request is left unbaked and asked at run time. A baked value is only
+the first frame: every host asks the TypeScript module again at launch (a native
+host once the module loads after first pixel), even for a source with no
+arguments, so what the module knows at launch reaches the view. `logs` names
+each resource that showed a build-time answer and what its ask answered. Generate
+the interface rather than guessing it:
 
 ```sh
 cargo run -q -p contract -- types path/to/app.contract -o /tmp/app.contract.d.ts
@@ -724,10 +760,16 @@ call outside them fails. The capabilities are:
 | `sqlite.open app:/data/name.db` | `storage.sqlite.open` on that path |
 | `fs.read app:/data/dir`, `fs.write app:/data/dir` | `storage.fs` under that prefix (`app:/data`, `app:/cache`, `app:/tmp`) |
 | `secret.keep name` | `store.keepKey(name, pair)` and `store.key(name)`: a P-256 key pair kept by the platform |
-| `storage.kv scope`, `env.read NAME` | a key–value scope; an environment variable (see `grants/src/lib.rs`) |
+| `storage.kv scope`, `env.read NAME` | a host's key–value scope and environment variable (`grants/src/lib.rs`); a data module has no API for them yet: its `storage` is `fs` and `sqlite`, so keep key–value data in a file or a table |
 
 **What catches people.**
 
+- *A source cannot read the clock, start a timer or call `Math.random()`.*
+  `Date.now()`, `new Date()` without a value, `setTimeout`, `setInterval`,
+  `performance.now()` and `Math.random()` are refused when first used, on every
+  executor (`crypto.getRandomValues` and `crypto.randomUUID` work inside an answer); the type check cannot see it, and only `logs` shows the refusal. Time
+  and seeds are arguments: pass `now()` from the Contract (the
+  [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
 - *There is no storage or network at build time.* The build bakes each
   resource's first value into the plan, and a storage call then is refused
   with `code: 'bake'`. Catch that and return a first-frame value, as `books`
@@ -765,10 +807,10 @@ bun exact.mjs test web                    # each test starts with an empty store
 bun exact.mjs agent web --storage demo "type title Dune" "tap add" "clock settle" tree
 ```
 
-A named scratch store outlives the drive on macOS and iOS: run the second line
-twice with `agent macos` and the second launch lists the first one's book. On the
-web, every agent drive starts a new browser profile, so a scratch store lasts one
-drive; add a book in the dev loop (`bun exact.mjs web`) and reload the page instead.
+A scratch store is kept between drives on every host, so a second drive with the
+same `--storage demo` opens the list the first one saved: on the web, Chrome's
+profile for that name, served at one origin (Firefox and WebKit drives start
+fresh). A test's `reload` restarts the app on its store within one drive.
 
 **Rust instead.** A data module can be a Rust crate rather than `app.ts`:
 `bun exact.mjs contract rust app.contract -o shapes.rs` generates the shapes as
@@ -821,7 +863,13 @@ and wrapping; color and gradients; transforms, shadows, filters, and animation;
 and SVG presentation properties. The actual declaration inventory is
 [`kernel/tables/schema.json`](../kernel/tables/schema.json), with authored names
 and shorthands resolved by [`tags.rs`](../contract/lower/src/tags.rs). Use those
-instead of assuming every CSS property or unit exists.
+instead of assuming every CSS property or unit exists. A value is held to one
+grammar on every host, a computed one too: `background-image` takes
+`linear-`, `radial-` and `conic-gradient()` with percentage stops, so a
+template naming `repeating-linear-gradient(` or `url(` fails the build, and a
+computed value that is refused at run time is dropped and journaled on the web
+as on a Mac (`invalid background-image value …; unset`), never painted by the
+browser alone.
 
 Bound scroll containers. A typical full-height column gives its scroller
 `flex=1 min-height=0`; an isolated scroller can use a numeric height. A scrolling
@@ -830,6 +878,15 @@ measured layout as well as the compiler's structural checks.
 
 Use `aria-label`, roles, and other admitted ARIA attributes where content alone
 does not name a control. Keep accessible labels separate from driver `testId`s.
+They mean on every host what they mean in a browser: `aria-hidden` takes a
+subtree off the tree and out of its ancestors' names; `role="checkbox"`,
+`"radio"` or `"switch"` with `aria-checked` is that control, `role="img"` with a
+label an image; `aria-labelledby` (the ids of the elements whose text names this
+one, as a radiogroup names itself by its visible heading) wins over `aria-label`;
+`aria-describedby` (the ids of the elements whose text describes
+this one) and `aria-description` are its description. `aria-invalid`,
+`aria-required` and `aria-haspopup` take their ARIA words or a bool; UIKit has
+no property for those three, so iOS exposes none of them.
 Font sizes, touch targets, focus behavior, and contrast remain author decisions.
 
 Declare bundled fonts at file scope:
@@ -864,7 +921,8 @@ by the new text. This syntax is binding, not immediate evaluation.
 
 Use explicit types when they make the interface clear; omitted action parameter
 types can be inferred from event sites. There is no inline `() => …` handler;
-a `key` action claims its key with the host command `preventDefault()`
+a `key` action claims its key with the host command `preventDefault()`, and
+keeps it from its ancestors' `key` handlers with `stopPropagation()`
 ([keys](contract-grammar.md#keys)).
 
 The complete event inventory and payload groups are in the
@@ -887,7 +945,10 @@ A file `input` needs a literal `accept`; types other than images and video must
 be listed in `app.json`'s `file_handlers`. `showPicker` delivers a `list<Picked>`
 to the addressed element's `change` handler, while `showOpenFilePicker`,
 `showDirectoryPicker` and `showSaveFilePicker` deliver `doc:` handle strings;
-cancellation uses `cancel`. File content, durable storage, and permissions belong
+cancellation uses `cancel`. Where a browser has no open pickers (Firefox,
+Safari) they refuse with `cancel` too: read `exactPage().canOpenFiles` to tell
+that from a person's dismissal and offer an import instead. A save there still
+works: what the app writes to its handle downloads under the suggested name. File content, durable storage, and permissions belong
 in the data module. See [file-picker syntax](../contract/corpus/file-pickers.contract).
 
 ### Choosing a native button
@@ -938,7 +999,7 @@ title, an optional second `text` (a value) or a `column` of two texts (a
 subtitle), and an optional trailing accessory — a `forward-chevron` or
 `checkmark` image, a checkbox or switch `input`, or a `button` holding only
 `image "symbol:info"`. `destructive` draws a row red. Any other row is custom
-and keeps its own views.
+and keeps its own views. A section written `background-color="transparent"` has no card: its rows sit on the list's background with no separators or corners, as a profile header does (LLP 1084 §6.2). That literal is the only `background-color` a section takes, and not beside a `class`; a section that gains and loses its card is two sections under `when`.
 
 ```text
 list appearance="auto" listStyle="inset-grouped" flex=1
@@ -979,9 +1040,9 @@ component App
   action followLink(url: string)
     nav = go(nav, url)
   view
-    main navigationKey=`${current.id}` navigationBack="back" navigate=followLink
+    main navigationKey=`${current.id}` navigationBack="back" navigate=followLink width="100%" height="100%"
       each e in stack(nav) key=e.id
-        column navigationKey=`${e.id}` gap=8
+        column navigationKey=`${e.id}` position="absolute" inset=0 gap=8 background-color="#ffffff"
           text e.name testId=`route-${e.id}`
           when e.name == "item"
             text e.params.id
@@ -995,6 +1056,9 @@ A navigation stack is built this way: one row per entry of `stack(nav)`, keyed b
 the entry's id, so a retained screen keeps its state. The root's `navigationKey`
 names the top entry, and each row's `navigationKey` names its own; the host
 presents the stack from them. `navigationBack` names the `id` of the back control.
+Each row is a direct child of the root and fills it: a covered entry is hidden, not
+removed, so one in the flow would still take its room. Tabs with a stack each are
+laid out as [the tabs corpus](../contract/corpus/tabs.contract) shows.
 `navigate=` receives locations the host navigates to itself, such as link clicks
 and browser history.
 
@@ -1111,7 +1175,7 @@ and its arguments; it is not a drawing-command language. Heavy computation and
 game loops belong in those modules. See [Canvas Gallery](../apps/canvas-gallery/app.contract),
 [SVG Gallery](../apps/svg-gallery/app.contract), and [the game workspace](../game/README.md).
 
-`image`, `video`, `iframe`, and Markdown-capable text/editors use host facilities.
+`image`, `video`, `audio`, `iframe`, and Markdown-capable text/editors use host facilities.
 Use `object-fit` for replaced media; distinguish text content from markup.
 [Video Player](../apps/video-player/app.contract) shows playback bindings and
 [Markdown Stress](../apps/markdown-stress/app.contract) selection and editing;

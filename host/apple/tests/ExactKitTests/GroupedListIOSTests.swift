@@ -124,6 +124,20 @@ final class GroupedListIOSTests: XCTestCase {
         let s = try XCTUnwrap(self.switches(toggle).first)
         XCTAssertTrue(s.isOn, "the control's `checked`")
         XCTAssertEqual(s.accessibilityIdentifier, "toggle")
+        // A finger at its middle reaches the switch the cell shows, though
+        // the hidden row's own switch is laid out under it.
+        let middle = s.convert(CGPoint(x: s.bounds.midX, y: s.bounds.midY), to: window)
+        let scroll = try XCTUnwrap(p.views[1]?.scroll)
+        let at = scroll.convert(middle, from: window)
+        p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0],
+                           ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0],
+                           ["op": "frame", "id": 12, "x": 0.0, "y": Double(at.y - 26), "w": 402.0, "h": 52.0],
+                           ["op": "frame", "id": 13, "x": Double(at.x - 31.5), "y": 0.0, "w": 63.0, "h": 52.0]]))
+        let authored = try XCTUnwrap(p.controls.controls[13] as? UISwitch)
+        XCTAssertTrue(authored !== s && scroll.isHidden)
+        XCTAssertTrue(authored.convert(authored.bounds, to: window).contains(middle), "the hidden row's switch is under the accessory")
+        let hit = try XCTUnwrap(window.hitTest(middle, with: nil))
+        XCTAssertTrue(hit === s || hit.isDescendant(of: s), "hit \(hit)")
         s.setOn(false, animated: false)
         s.sendActions(for: .valueChanged)
         XCTAssertEqual(flips.map(\.0), [13])
@@ -132,6 +146,54 @@ final class GroupedListIOSTests: XCTestCase {
         // The agent's tap on the control flips the switch the cell shows.
         XCTAssertEqual(p.groupedLists.activate(try XCTUnwrap(p.views[13]))?["native"] as? String, "grouped-list")
         XCTAssertEqual(flips.map(\.1), [false, false])
+    }
+
+    /// LLP 1080.000 D4: a real finger aimed at what a list draws lands on
+    /// UIKit's view, not the hidden authored node: a row's cell, its
+    /// toggle's switch, its detail button; never the row for a control
+    /// that is not shown.
+    func testARealTouchAimsAtTheCellOrAccessoryUIKitDraws() throws {
+        var detail = false
+        let p = presenter {
+            var m = self.model()
+            if detail { m.sections[0].rows[2].accessory = "detail" }
+            return m
+        }
+        let l = try list(p)
+        func aimed(_ id: UInt32) throws -> UIView? {
+            guard case .view(let view, let port)? = p.groupedLists.shown(try XCTUnwrap(p.views[id])) else { return nil }
+            XCTAssertTrue(port === l.collection)
+            return view
+        }
+        func refusal(_ id: UInt32) throws -> String? {
+            guard case .refused(let why)? = p.groupedLists.shown(try XCTUnwrap(p.views[id])) else { return nil }
+            return why
+        }
+        let toggle = try cell(p, 12)
+        let s = try XCTUnwrap(switches(toggle).first)
+        XCTAssertTrue(try aimed(13) === s, "the toggle's control: its switch")
+        XCTAssertTrue(try aimed(10) === (try cell(p, 10)), "a row: its cell")
+        XCTAssertNil(p.groupedLists.shown(try XCTUnwrap(p.views[4])), "a node no list draws: the ordinary aim")
+        // The dispatch log tells one row's switch from another's, and from
+        // its cell: the node alone is the list's for all of them.
+        XCTAssertEqual(GroupedListHost.part(s.subviews.first ?? s) as? [String: AnyHashable], ["row": 12, "part": "switch"])
+        XCTAssertEqual(GroupedListHost.part(toggle.contentView) as? [String: AnyHashable], ["row": 12, "part": "cell"])
+        XCTAssertNil(GroupedListHost.part(l.collection))
+        // A switch not shown is refused, never the row in its place.
+        s.removeFromSuperview()
+        XCTAssertEqual(try refusal(13), "its switch is not shown")
+        // A detail button's control: UIKit's accessory, a control in the
+        // cell outside its content.
+        detail = true
+        p.apply(wireBatch([["op": "props", "id": 12, "set": ["testId": "row12"], "clear": [String]()]]))
+        let info = try XCTUnwrap(try aimed(13) as? UIControl)
+        let row = try cell(p, 12)
+        XCTAssertTrue(info.isDescendant(of: row) && !info.isDescendant(of: row.contentView))
+        // Scrolled off the list's port, a row has no cell to aim at.
+        l.collection.contentInset.bottom = 2000
+        l.collection.setContentOffset(CGPoint(x: 0, y: 1500), animated: false)
+        l.collection.layoutIfNeeded()
+        XCTAssertEqual(try refusal(10), "its cell is outside the list's port; scroll it into view first")
     }
 
     func testASwitchFollowsItsControlsStateAndTarget() throws {
@@ -205,6 +267,88 @@ final class GroupedListIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "style", "id": 31, "style": ["tint_color": [[0, 0, 255, 255], [255, 0, 0, 255]]]]]))
         XCTAssertEqual(try rgb(.light), [0, 0, 1, 1])
         XCTAssertEqual(try rgb(.dark), [1, 0, 0, 1])
+    }
+
+    /// Outside a batch (a sheet's dismissal replaying geometry, a subtree's
+    /// appearance), the projections sync on the next turn with no batch to
+    /// carry them (LLP 1079's amendment of 2026-10-04): the collection takes
+    /// the list's new box and the switch its control as it now stands.
+    func testAnOutOfBatchChangeReachesTheProjectionOnTheNextTurn() throws {
+        let p = presenter { self.model() }
+        let l = try list(p)
+        let toggle = try XCTUnwrap(switches(try cell(p, 12)).first)
+        XCTAssertTrue(toggle.isOn)
+        p.views[13]?.props["checked"] = "false"
+        p.applyGeometry(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 600.0]]).ops[0])
+        p.requestProjectionSync() // coalesced with the replay's
+        XCTAssertEqual(l.collection.frame.width, 402, "not inline")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(l.collection.frame, CGRect(x: 0, y: 0, width: 300, height: 600))
+        XCTAssertFalse(toggle.isOn)
+    }
+
+    /// A carried custom row given a new box outside a batch keeps it, and is
+    /// carried into its cell again on the next turn.
+    func testAReplayedBoxReachesACarriedRow() throws {
+        let p = presenter { self.model(custom: true) }
+        let row = try XCTUnwrap(p.views[21])
+        let before = try cell(p, 21)
+        XCTAssertTrue(row.superview === before.contentView, "carried")
+        p.applyGeometry(wireBatch([["op": "frame", "id": 21, "x": 16.0, "y": 52.0, "w": 354.0, "h": 80.0]]).ops[0])
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let after = try cell(p, 21)
+        XCTAssertEqual(row.frame.height, 80, "the replayed box, not the one saved at the last carry")
+        XCTAssertTrue(row.superview === after.contentView, "carried again")
+    }
+
+    /// A card-less section (`section background-color="transparent"`): its
+    /// rows sit on the list's background, as Signal's profile header does,
+    /// and a section that gains its card back is configured again.
+    func testACardlessSectionsCellsAreClear() throws {
+        var card = false
+        let p = presenter {
+            var m = self.model()
+            m.sections[1].card = card
+            return m
+        }
+        XCTAssertEqual(try cell(p, 20).backgroundConfiguration?.backgroundColor, .clear, "a standard row: no card")
+        XCTAssertNotEqual(try cell(p, 10).backgroundConfiguration?.backgroundColor, .clear, "the other section keeps its card")
+        // Pressed, a pressable row still highlights.
+        let pressed = try cell(p, 20)
+        var state = pressed.configurationState
+        state.isHighlighted = true
+        pressed.configurationUpdateHandler?(pressed, state)
+        XCTAssertNotEqual(pressed.backgroundConfiguration?.backgroundColor, .clear, "highlighted while pressed")
+        state.isHighlighted = false
+        pressed.configurationUpdateHandler?(pressed, state)
+        XCTAssertEqual(pressed.backgroundConfiguration?.backgroundColor, .clear)
+        // An otherwise unchanged standard row is configured again when its
+        // section gains its card back, and loses it again.
+        card = true
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["testId": "s1"], "clear": [String]()]]))
+        XCTAssertNotEqual(try cell(p, 20).backgroundConfiguration?.backgroundColor, .clear, "the card is back")
+        card = false
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["testId": "s1b"], "clear": [String]()]]))
+        XCTAssertEqual(try cell(p, 20).backgroundConfiguration?.backgroundColor, .clear, "and gone again")
+    }
+
+    /// A row moved between a card-less section and a carded one, with
+    /// neither section's card changing, is configured for its new section.
+    func testARowMovedIntoACardlessSectionLosesItsCard() throws {
+        var moved = false
+        let p = presenter {
+            var m = self.model()
+            m.sections[1].card = false
+            if moved {
+                let row = m.sections[0].rows.removeFirst()
+                m.sections[1].rows.insert(row, at: 0)
+            }
+            return m
+        }
+        XCTAssertNotEqual(try cell(p, 10).backgroundConfiguration?.backgroundColor, .clear)
+        moved = true
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["testId": "s0"], "clear": [String]()]]))
+        XCTAssertEqual(try cell(p, 10).backgroundConfiguration?.backgroundColor, .clear, "in the card-less section now")
     }
 
     func testCustomRowsGoBackInTheirOrder() throws {

@@ -182,28 +182,7 @@ impl<D: DataSource> HostLinks<D> {
             } else {
                 None
             },
-            device: exact_runner::DeviceLinks {
-                auth: if linked.auth {
-                    Some(exact_runner::AuthLinks::LINKED)
-                } else {
-                    None
-                },
-                share: if linked.share {
-                    exact_runner::DeviceLinks::<D>::ALL.share
-                } else {
-                    None
-                },
-                documents: if linked.documents {
-                    exact_runner::DeviceLinks::<D>::ALL.documents
-                } else {
-                    None
-                },
-                picker: if linked.picker.is_some() {
-                    Some(exact_runner::PickerLinks::LINKED)
-                } else {
-                    None
-                },
-            },
+            device: linked.device_links(),
             auth: if linked.auth {
                 Some(Host::<D>::auth_linked)
             } else {
@@ -708,7 +687,7 @@ impl<D: DataSource> Host<D> {
         self.advanced(a)
     }
 
-    fn advanced(&mut self, a: exact_runner::Advanced) -> String {
+    pub(crate) fn advanced(&mut self, a: exact_runner::Advanced) -> String {
         self.now_ms = a.now_ms.max(self.now_ms);
         // LLP 1056 D5: a canvas that asked for a frame draws at the landed time.
         self.runner.canvas_frame();
@@ -1375,10 +1354,8 @@ impl<D: DataSource> Host<D> {
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
                 let mut props = props_for(&node);
                 svg_props(kernel, &node, &mut props);
-                let css = element::contents(
-                    host_css(&node, css, tag),
-                    element::folded(kernel, &node, !kinds.is_empty()),
-                );
+                let css = host_css(&node, css, tag);
+                let css = element::folded_css(kernel, &node, css, !kinds.is_empty());
                 let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
                 let css = element::blocks(css, element::holds_folded(kernel, &node, &handled));
                 (props, self.paint_css(&node, css))

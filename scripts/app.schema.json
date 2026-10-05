@@ -77,6 +77,17 @@
         "audio": { "type": "boolean" },
         "assets": { "type": "boolean" },
         "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-logic$" },
+        "presentation": {
+          "type": "object",
+          "description": "Optional GPU-only render hooks in presentation/. The crate may read game logic resources; logic and host metadata must not depend on it. Shader files use gpu.shaderRoots and gpu.shaderPreludes.",
+          "required": ["crate", "type"],
+          "additionalProperties": false,
+          "properties": {
+            "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-presentation$" },
+            "type": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" },
+            "shaders": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" }
+          }
+        },
         "data": {
           "type": "object",
           "description": "An optional linked Rust DataSource in the app's data/ crate, constructed with Default and wrapped by host storage.",
@@ -126,10 +137,13 @@
     },
     "background_color_dark": {
       "type": "string",
-      "description": "The dark first-frame background beside background_color, used by the web page and iOS launch screen."
+      "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+      "description": "The dark first-frame background beside background_color, used by the web page and iOS launch screen: #RGB, #RRGGBB or #RRGGBBAA, the forms the launch screen's colour set takes."
     },
     "background_color": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+      "description": "The first-frame background, the web page's and the iOS launch screen's: #RGB, #RRGGBB or #RRGGBBAA, the forms the launch screen's colour set takes, so a colour the web accepts is one every host builds."
     },
     "lang": {
       "description": "The W3C manifest's language: a BCP 47 tag for the page's <html lang> and the web manifest. Absent is en.",
@@ -360,6 +374,11 @@
         },
         "linux": {
           "description": "The Linux host has no settings yet; an empty object.",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "windows": {
+          "description": "The Windows host has no settings yet; an empty object.",
           "type": "object",
           "additionalProperties": false
         },
@@ -616,6 +635,15 @@
         }
       ],
       "description": "Rust live replacement, enabled by default in dev and prod. Resolve root, environment, platform, then platform environment. false/off removes replacement support at bake; true/auto uses browser Wasm, iOS Wasm interpreter, native desktop, Android native dev / Wasm prod. Android and Windows hosts remain future work."
+    },
+    "commands": {
+      "description": "The app's own verbs for the exact.mjs `exact new` generates, by name: each a command as argv, run in the app's directory with the arguments after the verb, EXACT_APP_DIR and EXACT2 set. `\"verify\": [\"bun\", \"verify.mjs\"]` makes `bun exact.mjs verify web` run `bun verify.mjs web`. `bun exact.mjs update` rewrites exact.mjs and keeps these; a name exact.mjs already uses (test, agent, web, …) is refused.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": { "type": "string", "minLength": 1 }
+      }
     },
     "strings": {
       "type": "object",

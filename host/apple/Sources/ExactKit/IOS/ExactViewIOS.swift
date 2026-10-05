@@ -72,7 +72,7 @@ public final class ExactView: UIView {
         }
         #endif
         session.presenter.observeKeyboard()
-        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self, UITraitAccessibilityContrast.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
         // A hinge moving from flat to a book angle changes the division
         // regions' `isActive` without changing any bounds; nothing else would
         // lay out again (LLP 1078 D5). The status is kept: the posture
@@ -91,6 +91,8 @@ public final class ExactView: UIView {
     /// A system appearance change reaches the view as a trait change too:
     /// `prefers-color-scheme` is told again (LLP 1069.000 D1).
     private func reportScheme() { session.scheme(dark: traitCollection.userInterfaceStyle == .dark); session.tellPreferences() }
+    /// An app or window tint changed: `AccentColor` is reported again (LLP 1095 D9).
+    public override func tintColorDidChange() { super.tintColorDidChange(); session.reportColors() }
 
     required init?(coder: NSCoder) { nil }
     deinit {
@@ -131,6 +133,13 @@ public final class ExactView: UIView {
         fit()
     }
 
+    #if os(iOS)
+    // aria-keyshortcuts as key commands (ShortcutsIOS, gallery F18).
+    public override var canBecomeFirstResponder: Bool { true }
+    public override var keyCommands: [UIKeyCommand]? { session.presenter.shortcutCommands(#selector(exactShortcut(_:))) }
+    @objc private func exactShortcut(_ command: UIKeyCommand) { session.presenter.performShortcut(command) }
+    #endif
+
     public override func willMove(toWindow newWindow: UIWindow?) {
         // Child didMoveToWindow callbacks can retry focus before our own
         // didMoveToWindow. Wait until their native owners have been installed.
@@ -155,6 +164,11 @@ public final class ExactView: UIView {
                 fit()
                 session.presenter.navigation.mounted()
                 session.presenter.syncAccessibility()
+                #if os(iOS)
+                // Nothing focused (autofocus has run): this view holds the
+                // focus, so a hardware keyboard's shortcuts are heard (ShortcutsIOS).
+                if session.presenter.focusedNode == nil { _ = becomeFirstResponder() }
+                #endif
             }
         }
         // Mounted and visible participate in frame demand (D3): an unmounted

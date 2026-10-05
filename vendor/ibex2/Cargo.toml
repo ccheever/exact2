@@ -86,7 +86,11 @@ rustls-native-certs = "0.7"
 webpki-roots = "1"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Win32_Foundation", "Win32_Networking_WinSock", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO"] }
+windows-sys = { version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_SystemServices", "Win32_Foundation", "Win32_Networking_WinSock", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_WindowsProgramming"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+# Restore only the owned document-refusal fixture's captured DACL.
+windows-sys = { version = "0.61.2", features = ["Win32_Security_Authorization"] }
 
 [features]
 default = ["loader", "crypto"]

@@ -1,4 +1,5 @@
 use super::*;
+use crate::generated::BorderStyle;
 
 #[test]
 fn cursor_is_inherited_non_layout_css_with_its_keyword_vocabulary() {
@@ -158,7 +159,7 @@ fn scroll_containers_scroll_on_the_block_axis_by_default() {
 }
 
 #[test]
-fn a_colour_parses_as_hex_or_as_css_rgb_notation() {
+fn a_colour_parses_as_css_writes_it() {
     let red = Some(Color::rgba(255, 0, 0, 255));
     assert_eq!(Color::parse(" #f00 "), red);
     assert_eq!(Color::parse("rgb(255, 0, 0)"), red);
@@ -212,6 +213,22 @@ fn a_colour_parses_as_hex_or_as_css_rgb_notation() {
     ] {
         assert_eq!(Color::parse(text), None, "{text}");
     }
+    // The rest of CSS Color 4's sRGB forms, as the web paints them: one
+    // parser for every host (feed F13).
+    assert_eq!(Color::parse("hsl(0, 100%, 50%)"), red);
+    assert_eq!(Color::parse("hsla(0deg 100% 50% / 50%)"), half);
+    assert_eq!(Color::parse("HWB(0 0% 0%)"), red);
+    assert_eq!(Color::parse("Red"), red);
+    assert_eq!(
+        Color::parse("hsl(326, 55%, 52%)"),
+        Some(Color::rgba(0xc8, 0x41, 0x8e, 255))
+    );
+    // The wide forms, clipped to sRGB, once linked.
+    crate::style::link_wide_colors();
+    assert_eq!(
+        Color::parse("oklch(0.7 0.1 200 / 0.5)"),
+        Some(Color::rgba(64, 177, 183, 128))
+    );
 }
 
 #[test]
@@ -271,11 +288,18 @@ fn a_colour_row_takes_a_pair_dynamically_as_a_dimension_takes_env() {
     .expect("a colour row takes CSS's own function");
     assert_eq!(
         s.background_color,
-        ColorValue::LightDark(
+        Some(ColorValue::LightDark(
             Color::parse_hex("#ffffff").unwrap(),
             Color::parse_hex("#17181b").unwrap()
-        )
+        ))
     );
+    // `currentcolor` is the keyword, which a host resolves to `color`.
+    s.set_dynamic(
+        StyleId::BackgroundColor,
+        &StyleValue::Text("currentColor".into()),
+    )
+    .expect("a background takes currentcolor");
+    assert_eq!(s.background_color, None);
     // And still takes a plain colour, which is the common case.
     s.set_dynamic(StyleId::TextColor, &StyleValue::Text("#112233".into()))
         .expect("a hex is still a colour");
@@ -644,4 +668,28 @@ fn overflow_auto_has_scroll_sizing_and_zero_automatic_minimum() {
             taffy::style::Overflow::Scroll
         )
     );
+}
+
+#[test]
+fn a_bare_node_s_colour_is_the_platform_s_text_colour_and_its_tint_the_accent() {
+    // LLP 1095 stage 2: CSS's initial `color` is `CanvasText`, a system
+    // colour; a host with it shows the platform's, never a snapshot.
+    let s = StyleProps::default();
+    let canvas_text = roles::role("CanvasText").unwrap();
+    assert_eq!(s.text_color, ColorValue::Role(canvas_text));
+    assert_eq!(roles::role_of(canvas_text).unwrap().ios, "labelColor");
+    // The tint is the platform's accent, which the host keeps dynamic.
+    let accent = roles::role("AccentColor").unwrap();
+    assert_eq!(s.tint_color, Some(ColorValue::Role(accent)));
+    assert_eq!(roles::role_of(accent).unwrap().ios, "@tint");
+    // Everywhere else the role's pair: black on light, white on dark.
+    assert_eq!(
+        s.text_color.resolve(false),
+        Color::parse_hex("#000000").unwrap()
+    );
+    assert_eq!(
+        s.text_color.resolve(true),
+        Color::parse_hex("#ffffff").unwrap()
+    );
+    assert!(s.text_color.is_scheme_aware());
 }

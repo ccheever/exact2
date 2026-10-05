@@ -21,10 +21,14 @@ sha2 = "0.10"
 
 [build-dependencies]
 cc = "1"
+serde_json = "1.0"
+sha2 = "0.10"
 
 [dev-dependencies]
 caltrain-data = { path = "../apps/caltrain/data" }
 contract = { path = "../contract/cli" }
 exact-kernel = { path = "../kernel" }
-# The render server, for a spinning source stopped at its deadline.
+# The render server uses Unix sockets/poll; direct executor interrupt tests
+# remain platform-independent.
+[target.'cfg(unix)'.dev-dependencies]
 exact-render = { path = "../host/render" }

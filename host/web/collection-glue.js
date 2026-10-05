@@ -484,14 +484,17 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         // with them before it paints, whatever was scrolled since the report
         // (a fling's frames). Once: a later revision with the same anchor's
         // correction owes only what it adds.
-        // Not one from before an authored jump or a resize (`jumpedAt`).
+        // Not one from before an authored jump or a resize (`jumpedAt`); a
+        // port this commit resizes is not the reader moving, so it still
+        // lands (feed F14: posts put above the reader as a pull-to-refresh
+        // zone closes).
         if (correction && Number.isFinite(correction.from) && s.corrected !== snapshot.revision
             && BigInt(correction.scrollSequence) >= (s.jumpedAt ?? 0n)) {
           const g = geometry(s), name = AXES[axis].offset;
           // H4: a row list moving under the user's hand is not corrected
           // (below); a vertical one moves with its rows, mid-fling too.
           const moving = axis === 'x' && velocity(s) !== 0;
-          if (g && !moving && (s.dimensions === null || s.dimensions === dimensionsOf(g))) {
+          if (g && !moving) {
             s.corrected = snapshot.revision;
             const last = s.shifted;
             const done = last && last.scrollSequence === correction.scrollSequence && last.from === correction.from ? last.offset : correction.from;
@@ -523,7 +526,13 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
           // its next report carries the uncorrected offset and the runner
           // re-anchors from that. Vertical lists correct as before.
           const moving = axis === 'x' && velocity(s) !== 0;
-          if (g && !moving && (s.dimensions === null || s.dimensions === dimensionsOf(g))) {
+          // A port this commit resized (not reported yet, so the sequence
+          // has not moved past the correction's) is not the reader moving:
+          // a correction planned at that sequence still lands, clamped by
+          // the browser to the new port, as on Apple and Linux (review B5:
+          // a sent message's end-follow as the composer shrinks back).
+          const planned = BigInt(correction.scrollSequence) === s.sequence;
+          if (g && !moving && (planned || s.dimensions === null || s.dimensions === dimensionsOf(g))) {
             s.corrected = snapshot.revision;
             // Relative conversion also handles a list below siblings in its port.
             const to = port[name] + correction.offset - g.raw;

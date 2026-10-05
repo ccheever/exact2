@@ -42,13 +42,18 @@ pub fn lake() -> PathBuf {
 /// Build the semantics library once (its modules are compiled natively, so
 /// the generated `main` calls the interpreter as machine code).
 pub fn build() -> Result<(), String> {
+    build_targets(&[
+        "Contract.Observe",
+        "Contract.OracleText",
+        "Contract.LowerCheck",
+    ])
+}
+
+/// Build these modules of the semantics library.
+pub fn build_targets(targets: &[&str]) -> Result<(), String> {
     let out = Command::new(lake())
-        .args([
-            "build",
-            "Contract.Observe",
-            "Contract.OracleText",
-            "Contract.LowerCheck",
-        ])
+        .arg("build")
+        .args(targets)
         .current_dir(project())
         .output()
         .map_err(|e| format!("lake build: {e} (is Lean installed? see semantics/README.md)"))?;
@@ -305,7 +310,7 @@ pub fn numbers(bits: &[u64], dir: &Path) -> Result<Vec<String>, String> {
         "import Contract.OracleText\nopen Contract\n\ndef data : String := \"{}\"\n\n\
          def main : IO Unit := do\n  for w in data.splitOn \" \" do\n    \
          match OracleText.hexN 16 0 w.toList with\n    \
-         | .some (b, _) => IO.println (Number.jsToString (Float.ofBits (UInt64.ofNat b)))\n    \
+         | .some (b, _) => IO.println (Number.jsToString (F64.ofBits (UInt64.ofNat b)))\n    \
          | .none => IO.println \"?\"\n",
         data.join(" ")
     );

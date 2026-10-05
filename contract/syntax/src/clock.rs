@@ -4,7 +4,7 @@
 
 use crate::ast::{Attr, Expr, File, Node};
 use crate::parser::SyntaxError;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Rewrite every `animation-timeline` (or `animationTimeline`) whose value
 /// is a bare name a `timeline` declares into `"clock(Name)"`, on view
@@ -15,9 +15,23 @@ use std::collections::HashSet;
 /// in a style, where only a timeline's name is admitted, one no `timeline`
 /// declares is refused.
 pub fn resolve_clock_timelines(file: &mut File) -> Result<(), SyntaxError> {
-    let names: HashSet<String> = file.timelines.iter().map(|t| t.name.clone()).collect();
+    let names = file
+        .timelines
+        .iter()
+        .map(|t| (t.name.clone(), t.name.clone()))
+        .collect();
+    resolve_clock_timelines_in(file, &names)
+}
+
+/// [`resolve_clock_timelines`] through a file's scope (LLP 1091 D5): `names`
+/// maps each timeline name the file may write, its own or one its `use`
+/// lines bring, to the program-unique name of the declaration it means.
+pub fn resolve_clock_timelines_in(
+    file: &mut File,
+    names: &HashMap<String, String>,
+) -> Result<(), SyntaxError> {
     for style in &mut file.styles {
-        attrs(&names, &HashSet::new(), &mut style.attrs);
+        attrs(names, &HashSet::new(), &mut style.attrs);
         if let Some(a) = style
             .attrs
             .iter()
@@ -46,28 +60,32 @@ pub fn resolve_clock_timelines(file: &mut File) -> Result<(), SyntaxError> {
             .chain(c.resources.iter().map(|r| &r.name))
             .chain(c.mutations.iter().map(|m| &m.name))
             .chain(c.actions.iter().map(|a| &a.name))
-            .filter(|n| names.contains(*n))
+            .filter(|n| names.contains_key(*n))
             .cloned()
             .collect();
-        nodes(&names, &locals, &mut component.view);
+        nodes(names, &locals, &mut component.view);
     }
     Ok(())
 }
 
-fn attrs(names: &HashSet<String>, locals: &HashSet<String>, attrs: &mut [Attr]) {
+fn is_timeline(a: &Attr) -> bool {
+    a.name == "animation-timeline" || a.name == "animationTimeline"
+}
+
+fn attrs(names: &HashMap<String, String>, locals: &HashSet<String>, attrs: &mut [Attr]) {
     for a in attrs {
-        if a.name != "animation-timeline" && a.name != "animationTimeline" {
+        if !is_timeline(a) {
             continue;
         }
         if let Expr::Ident(name, span) = &a.value {
-            if names.contains(name) && !locals.contains(name) {
-                a.value = Expr::Str(format!("clock({name})"), *span);
+            if let Some(to) = names.get(name).filter(|_| !locals.contains(name)) {
+                a.value = Expr::Str(format!("clock({to})"), *span);
             }
         }
     }
 }
 
-fn nodes(names: &HashSet<String>, locals: &HashSet<String>, list: &mut [Node]) {
+fn nodes(names: &HashMap<String, String>, locals: &HashSet<String>, list: &mut [Node]) {
     for node in list {
         match node {
             Node::Element {

@@ -16,47 +16,106 @@ use contract_types::{Checked, Ty};
 use std::fmt::Write as _;
 use std::path::Path;
 
+mod components;
+pub use components::{lean_components, lean_components_path};
+
 /// Compile one source text and emit `def <name> : Contract.Program`.
 pub fn lean(src: &str, name: &str) -> Result<String, CompileError> {
-    // The plan backend first: what it refuses is not a program.
-    crate::compile(src)?;
-    let mut file = contract_syntax::parse(src)?;
-    contract_syntax::resolve_clock_timelines(&mut file)?;
-    emit_file(&file, name)
+    lean_source(src, name, true)
 }
 
 /// [`lean`] for a file, resolving its `use`s as `compile_path` does.
 pub fn lean_path(path: &Path, name: &str) -> Result<String, CompileError> {
-    let src = std::fs::read_to_string(path).map_err(|e| CompileError {
-        pass: "io",
-        id: "contract-unreadable".into(),
-        message: format!("{}: {e}", path.display()),
-        span: Span::default(),
-        file: Some(path.into()),
-        related: Box::new([]),
-    })?;
+    lean_file(path, name, true)
+}
+
+/// [`lean`] of the expansion the plan compiler makes, its uses' arguments
+/// not ascribed (`difftest expansion` compares it with the Lean expander).
+pub fn lean_plain(src: &str, name: &str) -> Result<String, CompileError> {
+    lean_source(src, name, false)
+}
+
+/// [`lean_plain`] for a file.
+pub fn lean_path_plain(path: &Path, name: &str) -> Result<String, CompileError> {
+    lean_file(path, name, false)
+}
+
+fn lean_source(src: &str, name: &str, ascribed: bool) -> Result<String, CompileError> {
+    // The plan backend first: what it refuses is not a program.
+    crate::compile(src)?;
+    let mut file = contract_syntax::parse(src)?;
+    contract_syntax::resolve_clock_timelines(&mut file)?;
+    emit_file(&file, name, None, ascribed)
+}
+
+fn lean_file(path: &Path, name: &str, ascribed: bool) -> Result<String, CompileError> {
+    let src = read(path)?;
     crate::compile_path_source(path, &src)?;
+    emit_file(&load(path, &src)?, name, strings_beside(path)?, ascribed)
+}
+
+/// The strings tables beside the root source, as the compile reads them.
+fn strings_beside(
+    path: &Path,
+) -> Result<Option<std::sync::Arc<contract_types::strings::Strings>>, CompileError> {
+    crate::strings::load(&app_root(path)?, path).map_err(|mut all| all.swap_remove(0))
+}
+
+/// The file at `path` with its `use`s merged in, as `compile_path` loads it.
+fn load(path: &Path, src: &str) -> Result<File, CompileError> {
+    let (file, _) =
+        crate::sources::load(path, src, &app_root(path)?).map_err(|mut all| all.swap_remove(0))?;
+    Ok(file)
+}
+
+/// The directory of the root source, canonical: where its `use`s and
+/// strings tables are found.
+fn app_root(path: &Path) -> Result<std::path::PathBuf, CompileError> {
     let root = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let app_root = root.canonicalize().map_err(|e| CompileError {
+    root.canonicalize().map_err(|e| CompileError {
         pass: "use",
         id: "contract-use-unreadable".into(),
         message: format!("{}: {e}", root.display()),
         span: Span::default(),
         file: Some(path.into()),
         related: Box::new([]),
-    })?;
-    let (file, _) =
-        crate::sources::load(path, &src, &app_root).map_err(|mut all| all.swap_remove(0))?;
-    emit_file(&file, name)
+    })
 }
 
-fn emit_file(file: &File, name: &str) -> Result<String, CompileError> {
-    let checked = contract_types::check_all(file, false, contract_lower::tags::style, None)
+/// Read a source file.
+fn read(path: &Path) -> Result<String, CompileError> {
+    std::fs::read_to_string(path).map_err(|e| CompileError {
+        pass: "io",
+        id: "contract-unreadable".into(),
+        message: format!("{}: {e}", path.display()),
+        span: Span::default(),
+        file: Some(path.into()),
+        related: Box::new([]),
+    })
+}
+
+fn emit_file(
+    file: &File,
+    name: &str,
+    strings: Option<std::sync::Arc<contract_types::strings::Strings>>,
+    ascribed: bool,
+) -> Result<String, CompileError> {
+    let checked = contract_types::check_all(file, false, contract_lower::tags::style, strings)
         .map_err(|mut all| CompileError::from(all.swap_remove(0)))?;
-    emit_checked(&checked, name)
+    if ascribed {
+        emit_checked(&checked, name)
+    } else {
+        let mut e = Emitter {
+            out: String::new(),
+            checked: &checked,
+            root: checked.expanded.root.clone(),
+        };
+        e.program(name)?;
+        Ok(e.out)
+    }
 }
 
 /// Emit a checked expansion as `def <name> : Contract.Program`. The
@@ -64,9 +123,13 @@ fn emit_file(file: &File, name: &str) -> Result<String, CompileError> {
 /// expansion the checker refused, typed by the program it was mutated
 /// from, to give the Lean checker the mutant to judge.
 pub fn emit_checked(checked: &Checked, name: &str) -> Result<String, CompileError> {
+    // The same expansion, every prop's and inject's argument ascribed its
+    // declared type: the checker's judgment of each use rides along.
+    let (typed, _) = contract_syntax::expand_typed(checked.file);
     let mut e = Emitter {
         out: String::new(),
         checked,
+        root: typed.root,
     };
     e.program(name)?;
     Ok(e.out)
@@ -75,7 +138,13 @@ pub fn emit_checked(checked: &Checked, name: &str) -> Result<String, CompileErro
 struct Emitter<'a> {
     out: String,
     checked: &'a Checked<'a>,
+    /// The expanded root with its uses' arguments ascribed
+    /// (`contract_syntax::expand_typed`).
+    root: Component,
 }
+
+/// The name of the resolved locale's slot, as the plan names it.
+const LOCALE: &str = "#locale";
 
 fn refuse(message: impl Into<String>, span: Span) -> CompileError {
     CompileError {
@@ -123,6 +192,28 @@ pub fn ty(t: &Ty) -> String {
     }
 }
 
+/// Every `"…"` that follows `prefix` in `text` (an embedding's names, which
+/// are identifiers: no escaped quote inside, and a string literal's own
+/// quotes are escaped, so it never matches).
+fn quoted_after(text: &str, prefix: &str) -> Vec<String> {
+    text.match_indices(prefix)
+        .filter_map(|(at, _)| {
+            let rest = &text[at + prefix.len()..];
+            rest.find('"').map(|end| rest[..end].to_string())
+        })
+        .collect()
+}
+
+/// The shapes a type names.
+fn record_names(t: &Ty, out: &mut Vec<String>) {
+    match t {
+        Ty::Record(s) => out.push(s.clone()),
+        Ty::Option(t) | Ty::List(t) => record_names(t, out),
+        Ty::Action(ts) => ts.iter().for_each(|t| record_names(t, out)),
+        _ => {}
+    }
+}
+
 fn list<T>(
     items: &[T],
     mut f: impl FnMut(&T) -> Result<String, CompileError>,
@@ -133,21 +224,163 @@ fn list<T>(
 
 impl Emitter<'_> {
     fn root(&self) -> &Component {
-        &self.checked.expanded.root
+        &self.root
+    }
+
+    /// Whether `name(args)` is the strings call `t("key", …)`.
+    fn is_text_call(&self, name: &str, args: &[Expr]) -> bool {
+        name == "t"
+            && self.checked.types.shapes.strings.is_some()
+            && matches!(args.first(), Some(Expr::Str(..)))
+            && !self.checked.file.fns.iter().any(|f| f.name == "t")
     }
 
     fn program(&mut self, name: &str) -> Result<(), CompileError> {
         let root = self.root();
         let types = &self.checked.types;
         let ct = &types.components[0];
-        let shapes = &types.shapes;
         let mut o = String::new();
-        let _ = writeln!(o, "def {name} : Contract.Program := {{");
-        // Shapes: every shape the checker knows, the compiler's own too (a
-        // source may answer a `Router`).
-        let shape_rows: Vec<String> = shapes
-            .map
+        let _ = writeln!(o, "  fns := {},", self.fns_list()?);
+        let owners = &self.checked.expanded.owners;
+        let mut states = Vec::new();
+        // The resolved locale's slot (LLP 1060 D4), when the app has strings
+        // tables: initialized before every other, to the base locale; after
+        // the router's, which the expander puts first and boot fills from
+        // the launch, not an initializer.
+        let locale_at = usize::from(self.checked.file.routes.is_some());
+        for (i, s) in root.states.iter().enumerate() {
+            if i == locale_at {
+                states.extend(self.locale_state());
+            }
+            let (owner, late) = match owners.get(i).copied() {
+                Some(contract_syntax::Owner::Arm { tag, arm }) => {
+                    (format!(".some ({tag}, {arm})"), false)
+                }
+                Some(contract_syntax::Owner::Instance) => (".none".into(), true),
+                Some(contract_syntax::Owner::Root) | None => (".none".into(), false),
+            };
+            states.push(format!(
+                "{{ name := {}, ty := {}, init := {}, owner := {owner}, late := {late} }}",
+                string(&s.name),
+                ty(&ct.slots[i]),
+                self.expr(&s.expr)?
+            ));
+        }
+        if root.states.len() <= locale_at {
+            states.extend(self.locale_state());
+        }
+        let _ = writeln!(o, "  states := [{}],", states.join(",\n    "));
+        let _ = writeln!(o, "  derives := {},", self.derives_list(root, ct)?);
+        let _ = writeln!(o, "  resources := {},", self.resources_list(root, ct)?);
+        let _ = writeln!(o, "  mutations := {},", self.mutations_list(root, ct));
+        let _ = writeln!(o, "  actions := {},", self.actions_list(&root.actions, ct)?);
+        let _ = writeln!(o, "  tasks := {},", self.tasks_list(root)?);
+        let _ = writeln!(o, "  view := {},", self.nodes(&root.view)?);
+        let _ = writeln!(o, "  routes := {},", self.routes_list());
+        let _ = writeln!(o, "  router := {},", self.router());
+        let _ = writeln!(o, "  strings := {},", self.strings_list());
+        let _ = writeln!(o, "  locale := {},", self.locale());
+        let _ = writeln!(o, "  sources := {}", self.sources_list(ct));
+        o.push_str("}\n");
+        let _ = writeln!(self.out, "def {name} : Contract.Program := {{");
+        let _ = writeln!(self.out, "  shapes := {},", self.shapes_list(&o));
+        self.out.push_str(&o);
+        Ok(())
+    }
+
+    /// The resolved locale's slot, when the app has strings tables.
+    fn locale_state(&self) -> Option<String> {
+        let st = self.checked.types.shapes.strings.as_deref()?;
+        Some(format!(
+            "{{ name := {}, ty := .string, init := (.str {}), owner := .none, late := false }}",
+            string(LOCALE),
+            string(&st.base)
+        ))
+    }
+
+    /// `Program.locale`: the resolved locale's slot, when there are tables.
+    fn locale(&self) -> String {
+        match self.checked.types.shapes.strings {
+            Some(_) => format!(".some {}", string(LOCALE)),
+            None => ".none".into(),
+        }
+    }
+
+    /// The strings tables, the base first and the rest in name order, as
+    /// the plan bakes them.
+    fn strings_list(&self) -> String {
+        let tables: Vec<String> = self
+            .checked
+            .types
+            .shapes
+            .strings
+            .as_deref()
+            .map(|st| {
+                let base = st.tables.get_key_value(&st.base);
+                let others = st.tables.iter().filter(|(l, _)| **l != st.base);
+                base.into_iter()
+                    .chain(others)
+                    .map(|(locale, table)| {
+                        let texts: Vec<String> = table
+                            .iter()
+                            .map(|(k, t)| format!("({}, {})", string(k), string(t)))
+                            .collect();
+                        format!("({}, [{}])", string(locale), texts.join(", "))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        format!("[{}]", tables.join(",\n    "))
+    }
+
+    /// Each source's one signature (`type-source-signature`), but those the
+    /// runner answers itself, whose readers each have their own.
+    fn sources_list(&self, ct: &contract_types::ComponentTypes) -> String {
+        let sources: Vec<String> = ct
+            .sources
             .iter()
+            .filter(|(s, _)| !exact_plan::runner_owned_source(s))
+            .map(|(s, (params, result))| {
+                let ps: Vec<String> = params.iter().map(ty).collect();
+                format!("({}, [{}], {})", string(s), ps.join(", "), ty(result))
+            })
+            .collect();
+        format!("[{}]", sources.join(",\n    "))
+    }
+
+    /// The shapes `body` (the rest of the embedding) reaches: every shape
+    /// it names (a type `(.record "S")`, a record built `(.record "S" …)`),
+    /// those of the roster entries it calls (`Router`, `Entry`, …), the
+    /// router's four when there are routes, and the shapes their fields
+    /// name, in the checker's order. Not every shape the checker knows: a
+    /// compiler shape the program never reaches (an event's, say) would
+    /// make every embedding stale when the compiler gains one.
+    fn shapes_list(&self, body: &str) -> String {
+        let map = &self.checked.types.shapes.map;
+        let mut seen = std::collections::BTreeSet::new();
+        let mut todo: Vec<String> = quoted_after(body, ".record \"");
+        for name in quoted_after(body, ".call \"") {
+            if let Some(f) = exact_plan::Stdlib::from_name(&name) {
+                for spec in f.params().iter().chain([&f.returns()]) {
+                    record_names(&Ty::from_roster(spec), &mut todo);
+                }
+            }
+        }
+        if self.checked.file.routes.is_some() {
+            todo.extend(["Router", "Entry", "Tab", "Params"].map(String::from));
+        }
+        while let Some(s) = todo.pop() {
+            if let Some(fields) = map.get(&s) {
+                if seen.insert(s) {
+                    for (_, t) in fields {
+                        record_names(t, &mut todo);
+                    }
+                }
+            }
+        }
+        let shape_rows: Vec<String> = map
+            .iter()
+            .filter(|(s, _)| seen.contains(*s))
             .map(|(s, fields)| {
                 let fs: Vec<String> = fields
                     .iter()
@@ -156,7 +389,11 @@ impl Emitter<'_> {
                 format!("{{ name := {}, fields := [{}] }}", string(s), fs.join(", "))
             })
             .collect();
-        let _ = writeln!(o, "  shapes := [{}],", shape_rows.join(",\n    "));
+        format!("[{}]", shape_rows.join(",\n    "))
+    }
+
+    fn fns_list(&self) -> Result<String, CompileError> {
+        let shapes = &self.checked.types.shapes;
         let mut fns = Vec::new();
         for f in &self.checked.file.fns {
             let (params, ret) = &shapes.fns[&f.name];
@@ -174,35 +411,31 @@ impl Emitter<'_> {
                 self.expr(&f.body)?
             ));
         }
-        let _ = writeln!(o, "  fns := [{}],", fns.join(",\n    "));
-        let owners = &self.checked.expanded.owners;
-        let mut states = Vec::new();
-        for (i, s) in root.states.iter().enumerate() {
-            let (owner, late) = match owners.get(i).copied() {
-                Some(contract_syntax::Owner::Arm { tag, arm }) => {
-                    (format!(".some ({tag}, {arm})"), false)
-                }
-                Some(contract_syntax::Owner::Instance) => (".none".into(), true),
-                Some(contract_syntax::Owner::Root) | None => (".none".into(), false),
-            };
-            states.push(format!(
-                "{{ name := {}, ty := {}, init := {}, owner := {owner}, late := {late} }}",
-                string(&s.name),
-                ty(&ct.slots[i]),
-                self.expr(&s.expr)?
-            ));
-        }
-        let _ = writeln!(o, "  states := [{}],", states.join(",\n    "));
+        Ok(format!("[{}]", fns.join(",\n    ")))
+    }
+
+    fn derives_list(
+        &self,
+        c: &Component,
+        ct: &contract_types::ComponentTypes,
+    ) -> Result<String, CompileError> {
         let mut derives = Vec::new();
-        for (i, d) in root.derives.iter().enumerate() {
+        for (i, d) in c.derives.iter().enumerate() {
             derives.push(format!(
                 "{{ name := {}, ty := {}, body := {} }}",
                 string(&d.name),
-                ty(&ct.derives[i]),
+                ct.derives.get(i).map_or(".unknown".into(), ty),
                 self.expr(&d.expr)?
             ));
         }
-        let _ = writeln!(o, "  derives := [{}],", derives.join(",\n    "));
+        Ok(format!("[{}]", derives.join(",\n    ")))
+    }
+
+    fn resources_list(
+        &self,
+        root: &Component,
+        ct: &contract_types::ComponentTypes,
+    ) -> Result<String, CompileError> {
         let mut resources = Vec::new();
         for (i, r) in root.resources.iter().enumerate() {
             resources.push(format!(
@@ -229,7 +462,10 @@ impl Emitter<'_> {
                 list(&p.args, |a| self.expr(a))?
             ));
         }
-        let _ = writeln!(o, "  resources := [{}],", resources.join(",\n    "));
+        Ok(format!("[{}]", resources.join(",\n    ")))
+    }
+
+    fn mutations_list(&self, root: &Component, ct: &contract_types::ComponentTypes) -> String {
         let mutations: Vec<String> = root
             .mutations
             .iter()
@@ -248,23 +484,39 @@ impl Emitter<'_> {
                 )
             })
             .collect();
-        let _ = writeln!(o, "  mutations := [{}],", mutations.join(",\n    "));
-        let mut actions = Vec::new();
-        for (i, a) in root.actions.iter().enumerate() {
+        format!("[{}]", mutations.join(",\n    "))
+    }
+
+    /// Actions with their parameters' checked types (`ct.actions`, by
+    /// position; `?` past its end).
+    fn actions_list(
+        &self,
+        actions: &[contract_syntax::Action],
+        ct: &contract_types::ComponentTypes,
+    ) -> Result<String, CompileError> {
+        let mut out = Vec::new();
+        for (i, a) in actions.iter().enumerate() {
+            let tys = ct.actions.get(i);
             let ps: Vec<String> = a
                 .params
                 .iter()
-                .zip(&ct.actions[i])
-                .map(|(p, t)| format!("({}, {})", string(&p.name), ty(t)))
+                .enumerate()
+                .map(|(j, p)| {
+                    let t = tys.and_then(|t| t.get(j)).map_or(".unknown".into(), ty);
+                    format!("({}, {t})", string(&p.name))
+                })
                 .collect();
-            actions.push(format!(
+            out.push(format!(
                 "{{ name := {}, params := [{}], body := {} }}",
                 string(&a.name),
                 ps.join(", "),
                 self.stmts(&a.body)?
             ));
         }
-        let _ = writeln!(o, "  actions := [{}],", actions.join(",\n    "));
+        Ok(format!("[{}]", out.join(",\n    ")))
+    }
+
+    fn tasks_list(&self, root: &Component) -> Result<String, CompileError> {
         let mut tasks = Vec::new();
         for t in &root.tasks {
             let kind = match t.kind {
@@ -279,10 +531,15 @@ impl Emitter<'_> {
                 string(&t.timer.1)
             ));
         }
-        let _ = writeln!(o, "  tasks := [{}],", tasks.join(",\n    "));
-        let _ = writeln!(o, "  view := {},", self.nodes(&root.view)?);
-        // The checked route table (LLP 1038 D2) and the slot `routes` names.
-        let routes: Vec<String> = shapes
+        Ok(format!("[{}]", tasks.join(",\n    ")))
+    }
+
+    /// The checked route table (LLP 1038 D2).
+    fn routes_list(&self) -> String {
+        let routes: Vec<String> = self
+            .checked
+            .types
+            .shapes
             .routes
             .iter()
             .flat_map(|t| &t.routes)
@@ -297,15 +554,15 @@ impl Emitter<'_> {
                 )
             })
             .collect();
-        let _ = writeln!(o, "  routes := [{}],", routes.join(",\n    "));
-        let router = match &self.checked.file.routes {
+        format!("[{}]", routes.join(",\n    "))
+    }
+
+    /// The slot `routes` names.
+    fn router(&self) -> String {
+        match &self.checked.file.routes {
             Some(r) => format!(".some {}", string(&r.slot)),
             None => ".none".into(),
-        };
-        let _ = writeln!(o, "  router := {router}");
-        o.push_str("}\n");
-        self.out.push_str(&o);
-        Ok(())
+        }
     }
 
     fn expr(&self, e: &Expr) -> Result<String, CompileError> {
@@ -344,17 +601,66 @@ impl Emitter<'_> {
                 }
                 format!("(.record {} {base} [{}])", string(name), fields.join(", "))
             }
+            Expr::Call(name, args, _) if self.is_text_call(name, args) => {
+                // `t("key", name=value, …)` as the compiler lowers it: the
+                // locale slot, the key, then each placeholder's name and its
+                // value as `toString` prints it.
+                let mut parts = vec![format!("(.var {})", string(LOCALE)), self.expr(&args[0])?];
+                for a in &args[1..] {
+                    let Expr::NamedArg(n, v, _) = a else {
+                        return Err(refuse("a placeholder is filled by name", a.span()));
+                    };
+                    parts.push(format!("(.str {})", string(n)));
+                    parts.push(format!("(.call \"toString\" [{}])", self.expr(v)?));
+                }
+                format!("(.call \"t\" [{}])", parts.join(", "))
+            }
+            // `pending(x)`/`failed(x)` name a resource or a mutation: a
+            // prop's ascription around the name is not an expression here.
+            Expr::Call(name, args, _)
+                if matches!(name.as_str(), "pending" | "failed")
+                    && matches!(args.as_slice(), [Expr::Typed(x, _, _)] if matches!(**x, Expr::Ident(..))) =>
+            {
+                let [Expr::Typed(x, _, _)] = args.as_slice() else {
+                    unreachable!("matched above")
+                };
+                format!("(.call {} [{}])", string(name), self.expr(x)?)
+            }
             Expr::Call(name, args, _) => {
-                format!("(.call {} {})", string(name), list(args, |a| self.expr(a))?)
+                let mut parts = args
+                    .iter()
+                    .map(|a| self.expr(a))
+                    .collect::<Result<Vec<_>, _>>()?;
+                // A roster call may leave its trailing optional parameters
+                // out (LLP 1088 D2); the semantics takes the full arity, so
+                // their defaults are written here as lowering writes them.
+                // No `fn` takes a roster name, and the semantics evaluates
+                // no action in an expression.
+                if let Some(f) =
+                    exact_plan::Stdlib::from_name(name).filter(|_| !shapes.fns.contains_key(name))
+                {
+                    for d in f.omitted(args.len()) {
+                        parts.push(format!("(.num 0x{:016x})", d.to_bits()));
+                    }
+                }
+                format!("(.call {} [{}])", string(name), parts.join(", "))
             }
             Expr::NamedArg(n, v, _) => format!("(.named {} {})", string(n), self.expr(v)?),
             Expr::Typed(e, t, _) => {
-                let t = self
-                    .checked
-                    .types
-                    .shapes
-                    .resolve(t)
-                    .map_or_else(|_| ".unknown".to_string(), |t| ty(&t));
+                let resolved = self.checked.types.shapes.resolve(t).ok();
+                // A literal at its own type is the literal: the ascription
+                // changes nothing, and the compiler reads literals as
+                // literals (a template's text, an attribute's value).
+                let literal = match **e {
+                    Expr::Number(..) => Some(Ty::Number),
+                    Expr::Str(..) => Some(Ty::String),
+                    Expr::Bool(..) => Some(Ty::Bool),
+                    _ => None,
+                };
+                if literal.is_some() && literal == resolved {
+                    return self.expr(e);
+                }
+                let t = resolved.map_or_else(|| ".unknown".to_string(), |t| ty(&t));
                 format!("(.typed {} {t})", self.expr(e)?)
             }
             Expr::Unary(op, inner, _) => {
@@ -417,16 +723,7 @@ impl Emitter<'_> {
     }
 
     fn stmts(&self, body: &[Stmt]) -> Result<String, CompileError> {
-        // A tail call's type check (LLP 1017 §11) runs nothing: lowering
-        // drops it, so the semantics never sees it.
-        let run: Vec<&Stmt> = body
-            .iter()
-            .filter(|s| {
-                !matches!(s, Stmt::Command { name, .. }
-                    if name.starts_with(contract_syntax::inline::tail::CHECK))
-            })
-            .collect();
-        list(&run, |s| self.stmt(s))
+        list(body, |s| self.stmt(s))
     }
 
     fn stmt(&self, s: &Stmt) -> Result<String, CompileError> {
@@ -462,6 +759,15 @@ impl Emitter<'_> {
                 list(args, |a| self.expr(a))?
             ),
             Stmt::Refresh { target, .. } => format!("(.refresh {})", string(target)),
+            // A call by its callee's name and whole argument list (LLP 1089
+            // D9), never the body the Rust compiler expanded: the semantics
+            // gives the call its own meaning, so difftest checks the
+            // expansion against it.
+            Stmt::Call { action, args, .. } => format!(
+                "(.call {} {})",
+                string(action),
+                list(args, |a| self.expr(a))?
+            ),
             Stmt::If {
                 cond,
                 then,
@@ -488,6 +794,35 @@ impl Emitter<'_> {
         })
     }
 
+    /// An element's attributes: its values, and its handlers as (event,
+    /// action, curried arguments).
+    fn attrs(
+        &self,
+        attrs: &[contract_syntax::Attr],
+    ) -> Result<(Vec<String>, Vec<String>), CompileError> {
+        let mut props = Vec::new();
+        let mut handlers = Vec::new();
+        for a in attrs {
+            match contract_lower::tags::attr(&a.name) {
+                Some(contract_lower::tags::AttrTarget::Handler(event)) => {
+                    let (action, args): (&str, &[Expr]) = match &a.value {
+                        Expr::Ident(action, _) => (action, &[]),
+                        Expr::Call(action, args, _) => (action, args),
+                        _ => return Err(refuse("a handler names an action", a.span)),
+                    };
+                    handlers.push(format!(
+                        "({}, {}, {})",
+                        string(event),
+                        string(action),
+                        list(args, |x| self.expr(x))?
+                    ));
+                }
+                _ => props.push(format!("({}, {})", string(&a.name), self.expr(&a.value)?)),
+            }
+        }
+        Ok((props, handlers))
+    }
+
     fn nodes(&self, nodes: &[Node]) -> Result<String, CompileError> {
         list(nodes, |n| self.node(n))
     }
@@ -501,26 +836,7 @@ impl Emitter<'_> {
                 children,
                 ..
             } => {
-                let mut props = Vec::new();
-                let mut handlers = Vec::new();
-                for a in attrs {
-                    match contract_lower::tags::attr(&a.name) {
-                        Some(contract_lower::tags::AttrTarget::Handler(event)) => {
-                            let (action, args): (&str, &[Expr]) = match &a.value {
-                                Expr::Ident(action, _) => (action, &[]),
-                                Expr::Call(action, args, _) => (action, args),
-                                _ => return Err(refuse("a handler names an action", a.span)),
-                            };
-                            handlers.push(format!(
-                                "({}, {}, {})",
-                                string(event),
-                                string(action),
-                                list(args, |x| self.expr(x))?
-                            ));
-                        }
-                        _ => props.push(format!("({}, {})", string(&a.name), self.expr(&a.value)?)),
-                    }
-                }
+                let (props, handlers) = self.attrs(attrs)?;
                 format!(
                     "(.element {} {} [{}] [{}] {})",
                     string(tag),

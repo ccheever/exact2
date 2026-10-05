@@ -1,0 +1,41 @@
+// A mutation's `then`: armed by the commit its answer landed in, it runs
+// as its own commit at the next clock advance, never inside the tap.
+shape Ack
+  ok: bool
+
+component App
+  state sent = 0
+  state after = 0
+  state stamp = -1
+  mutation ack as shape Ack then landed
+  action poke
+    sent = sent + 1
+    send ack = ping(sent)
+  action landed
+    after = after + 1
+    stamp = now()
+  view
+    column
+      text `${sent}/${after}` testId="count"
+      button "poke" press=poke testId="poke"
+
+test "then waits for the clock"
+  tap "poke"
+  expect state after == 0
+  clock +0
+  expect state after == 1
+  expect state stamp == 0
+  clock +100
+  expect state after == 1
+
+test "armed again by each answer"
+  clock +40
+  tap "poke"
+  tap "poke"
+  clock +5
+  expect state after == 1
+  expect state stamp == 40
+  tap "poke"
+  clock +1
+  expect state after == 2
+  expect state stamp == 45

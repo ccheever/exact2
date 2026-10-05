@@ -39,6 +39,10 @@ fn style_rows_lower_to_css_by_their_names() {
         .unwrap();
     s.set_dynamic(StyleId::LetterSpacing, &StyleValue::Number(1.2))
         .unwrap();
+    s.set_dynamic(StyleId::TextIndent, &StyleValue::Number(-24.0))
+        .unwrap();
+    s.set_dynamic(StyleId::Hyphens, &StyleValue::Text("auto".into()))
+        .unwrap();
     s.set_dynamic(
         StyleId::PaddingTop,
         &StyleValue::Text("env(safe-area-inset-top)".into()),
@@ -85,6 +89,8 @@ fn style_rows_lower_to_css_by_their_names() {
         "translate:10px -4.5px;",
         "opacity:0.5;",
         "letter-spacing:1.2px;",
+        "text-indent:-24px;",
+        "hyphens:auto;",
         "padding-top:env(safe-area-inset-top);",
         "padding-bottom:calc(env(safe-area-inset-bottom) + 12px);",
         "margin-left:calc(env(safe-area-inset-left) - 2px);",

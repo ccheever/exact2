@@ -642,7 +642,14 @@
       "panrelease",
       "pointerdown",
       "pointerup",
-      "pointermove"
+      "pointermove",
+      "copy",
+      "cut",
+      "paste",
+      "selectionchange",
+      "beforeunload",
+      "wheel",
+      "drop"
     ]
   },
   "_opcodes": "The expression VM: a stack machine over values with a small locals stack (`BindLocal` pops into it, `LoadLocal` copies from it, `DropLocal` pops it) for names an inline `match` binds and the item and index a `Map`/`Filter` callback binds. Each opcode names its operand layout; the decoder validates framing and every index operand. `depth` operands count enclosing instance scopes (0 = innermost). Type inference guarantees stack discipline; the VM still traps, never UB.",
@@ -1148,6 +1155,25 @@
       "params": ["string", "string"],
       "returns": "bool",
       "_comment": "The web's `String.prototype.endsWith(suffix)`: whether the text ends with the suffix, case-sensitive; the empty suffix matches. The web's optional end-position argument is not taken."
+    },
+    {
+      "name": "slice",
+      "params": ["string", "number", "number"],
+      "optional": ["Number.MAX_VALUE"],
+      "returns": "string",
+      "_comment": "@ref LLP 1088 D2: JavaScript's `String.prototype.slice(start, end?)` over UTF-16 code units (ToIntegerOrInfinity: NaN is 0, fractions truncate, a negative index counts from the end, both clamped); an omitted `end` is `Number.MAX_VALUE`, which clamps as `undefined` does (a plan's constants are finite, so not `Infinity`). The result is made well formed: a lone surrogate half becomes U+FFFD."
+    },
+    {
+      "name": "replaceAll",
+      "params": ["string", "string", "string"],
+      "returns": "string",
+      "_comment": "@ref LLP 1088 D2: JavaScript's `String.prototype.replaceAll(find, with)` with a string `find`: every match, left to right, `GetSubstitution` applied (`$$`, `$&`, `` $` ``, `$'`; `$1` is literal), an empty `find` inserting at every code-unit boundary; the whole result made well formed once, and bounded by `MAX_STRING` UTF-8 bytes as it is built."
+    },
+    {
+      "name": "toLowerCase",
+      "params": ["string"],
+      "returns": "string",
+      "_comment": "@ref LLP 1088 D2: JavaScript's `String.prototype.toLowerCase()`: Unicode's default, locale-independent mapping with final sigma. Linked by use: it reaches the kernel's case tables through `text-transform`'s link (capability `text_transform`), bounded by `MAX_STRING`."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

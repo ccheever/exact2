@@ -118,7 +118,10 @@ extension NodeView {
             let zero = ranks.firstIndex(of: 0)!
             dense.positions = Dictionary(uniqueKeysWithValues: ranks.enumerated().map { ($0.element, CGFloat($0.offset - zero) * 0.001) })
         }
-        for child in children { child.setPaintPosition(dense.positions[child.siblingPaintRank]!) }
+        // A document-plane view (a navigation container) sits just above
+        // rank ½ (the encoded 1: positioned or stacking, `z-index` auto or 0)
+        // and below `z-index: 1`, whatever its subview place.
+        for child in children { child.setPaintPosition(dense.positions[child.siblingPaintRank]! + (child.paintDocumentPlane ? 0.0005 : 0)) }
     }
 
     /// Live children may reorder around an exit, but the ghost keeps its
@@ -154,17 +157,28 @@ extension NodeView {
 }
 
 extension PaintView {
-    fileprivate var paintForeground: Bool { (objc_getAssociatedObject(self, &paintForegroundKey) as? Bool) == true }
-    fileprivate var siblingPaintRank: Int64 { paintForeground ? Int64.max : (self as? NodeView)?.paintRank ?? 0 }
+    fileprivate var paintForeground: Bool { paintPlane != nil }
+    private var paintPlane: Int64? { objc_getAssociatedObject(self, &paintForegroundKey) as? Int64 }
+    fileprivate var siblingPaintRank: Int64 { paintPlane ?? (self as? NodeView)?.paintRank ?? 0 }
+    fileprivate var paintDocumentPlane: Bool { paintPlane == 1 }
 
-    /// Native navigation replaces authored route holders, and a top-layer
-    /// popover sits above the document. Their foreground plane must survive
-    /// ranked authored siblings, just as their previous last-subview did.
-    func setPaintForeground(_ on: Bool = true) {
+    /// A native view among authored siblings. A top-layer popover or a
+    /// transition snapshot sits above every ranked sibling. A native
+    /// navigation container sits just above rank ½ (positioned or stacking,
+    /// `z-index` auto or 0): over its authored route holders and every
+    /// sibling without a positive `z-index`, wherever its subview place, and
+    /// under an authored overlay with a positive `z-index`, as before dense
+    /// ranks (LLP 1083.000 D4, the kernel's `paint_order::rank`). Signal
+    /// Clone's call screen and menus, root siblings with `z-index` after
+    /// the tab container, hid under it.
+    func setPaintForeground(_ on: Bool = true, aboveAuthored: Bool = true) {
         #if os(macOS)
         if on { wantsLayer = true }
         #endif
-        objc_setAssociatedObject(self, &paintForegroundKey, on, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        let plane: Int64? = on ? (aboveAuthored ? Int64.max : 1) : nil
+        objc_setAssociatedObject(self, &paintForegroundKey, plane, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        // A view leaving the plane leaves the ranking too: back to the origin.
+        if plane == nil, !(self is NodeView) { setPaintPosition(0) }
         if let superview { PaintOrder.changed(superview) }
         else { setPaintPosition(0) }
     }

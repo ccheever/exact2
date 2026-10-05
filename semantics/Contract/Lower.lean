@@ -127,13 +127,15 @@ def roster : List String :=
    "replace", "back", "select", "go", "stack", "top", "depth", "params", "searchParam",
    "encodeURIComponent", "encodeRouteSegment", "includes", "trim", "first", "t", "map",
    "filter", "join", "formatDate", "formatNumber", "frame", "measure", "at", "startsWith",
-   "endsWith"]
+   "endsWith", "slice", "replaceAll", "toLowerCase"]
 
 /-- A roster entry's result type. -/
 def rosterTy (f : String) (args : List STy) : STy :=
   if f = "now" ∨ f = "length" ∨ f = "floor" ∨ f = "max" ∨ f = "min" then .number
   else if f = "isEmpty" ∨ f = "includes" ∨ f = "startsWith" ∨ f = "endsWith" then .bool
-  else if f = "toString" ∨ f = "trim" ∨ f = "encodeURIComponent" ∨ f = "join" then .string
+  else if f = "toString" ∨ f = "trim" ∨ f = "encodeURIComponent" ∨ f = "join" ∨ f = "slice"
+    ∨ f = "replaceAll" ∨ f = "toLowerCase" ∨ f = "formatTime" ∨ f = "formatDate" ∨ f = "formatNumber"
+    ∨ f = "t" then .string
   else if f = "first" ∨ f = "at" then
     match args with
     | .list t :: _ => .option t
@@ -187,8 +189,6 @@ def literalParts : List Expr → Option String
 
 /-- The deepest `fn` expansion the Rust compiler admits. -/
 def fnDepthLimit : Nat := 32
-
-def tailCheck (name : String) : Bool := name.startsWith "@check:"
 
 mutual
 
@@ -432,10 +432,7 @@ def compileStmt : Nat → Program → Layout → Scope → Nat → Stmt → Exce
       match find? t L.resources with
       | .some r => .ok [.refresh r]
       | .none => .error s!"`{t}` is not a resource"
-    | .command name args =>
-      -- The Rust compiler drops a tail call's type check; the semantics
-      -- runs it as a command, so this compiler refuses it.
-      if tailCheck name then .error "a tail call's check" else do
+    | .command name args => do
       let (c, _) ← compileArgs fuel p 0 sc n args
       .ok (c ++ [.command name args.length])
     | .ifS c thn els => do
@@ -450,6 +447,20 @@ def compileStmt : Nat → Program → Layout → Scope → Nat → Stmt → Exce
       let cnn ← compileBlock fuel p L sc n nn
       .ok (cs ++ [.jumpIfNone (csm.length + 4), .unwrap, .bindLocal] ++ csm ++
            [.dropLocal, .jump (cnn.length + 1), .pop] ++ cnn)
+    -- A call (LLP 1089 D9), expanded as the Rust compiler expands it, with
+    -- no call opcode: each argument bound as the next local, at the type
+    -- its code has (a `let`'s), then the callee's body in a scope of those
+    -- locals and the component's names alone (the caller's locals are
+    -- still on the stack, out of reach), every local dropped at its end.
+    | .call a args =>
+      match p.actions.find? (·.name == a) with
+      | .none => .error s!"`{a}` is not an action"
+      | .some ad =>
+        if args.length ≠ ad.params.length then .error "arity" else do
+        let (ca, ts) ← compileBind fuel p 0 sc n args
+        let cb ← compileBlock fuel p L (fnScope (ad.params.map (·.1)) n ts ++ globalScope p L)
+          (n + args.length) ad.body
+        .ok (ca ++ cb ++ List.replicate args.length .dropLocal)
 
 end
 

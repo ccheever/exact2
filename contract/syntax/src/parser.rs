@@ -14,6 +14,7 @@ mod names;
 #[path = "routes.rs"]
 mod routes;
 mod steps;
+use steps::{launch_word, same_launch, LAUNCH};
 
 /// A parse failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -369,6 +370,13 @@ impl Parser {
                 }
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
                 TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
+                TokenKind::Ident(w) if LAUNCH.contains(&w.as_str()) => {
+                    let line = self.step()?;
+                    if let Some(first) = file.launch.iter().find(|s| same_launch(s, &line)) {
+                        return duplicate("launch line", launch_word(&line), line.span(), first.span());
+                    }
+                    file.launch.push(line);
+                }
                 TokenKind::Ident(w) if w == "component" => {
                     let component = self.component()?;
                     if let Some(first) = file
@@ -395,13 +403,33 @@ impl Parser {
         Ok(true)
     }
 
-    /// `use Name from "./file.contract"` (LLP 1017 P8). Only a `.contract`
-    /// file may be used: no TypeScript, no packages, no behaviours — data
-    /// comes from the app's Rust data source and formatting from the roster
+    /// `use A, B as C from "./file.contract"` (LLP 1017 P8, LLP 1091 D2).
+    /// Only a `.contract` file may be used: no TypeScript, no behaviours —
+    /// data comes from the app's data source and formatting from the roster
     /// or a `fn` (LLP 1004 D4).
     fn use_decl(&mut self) -> R<UseDecl> {
         let span = self.expect_word("use")?;
-        let name = self.named_ident(span)?;
+        let mut names = Vec::new();
+        loop {
+            let (name, name_span) = self.ident()?;
+            if names.is_empty() {
+                self.names.names.insert(span, name_span);
+            }
+            let alias = if self.at_ident("as") {
+                self.next();
+                Some(self.ident()?.0)
+            } else {
+                None
+            };
+            names.push(UseName {
+                name,
+                alias,
+                span: name_span,
+            });
+            if !self.eat_punct(",") {
+                break;
+            }
+        }
         self.expect_word("from")?;
         let path = match self.peek_kind().clone() {
             TokenKind::Str(s) => {
@@ -415,7 +443,14 @@ impl Parser {
                 )
             }
         };
-        if !path.ends_with(".contract") {
+        // A relative path names a `.contract` file; `exact:name` and a
+        // package name are resolved by the driver (LLP 1091 D8/D9). Any other
+        // file — TypeScript, JavaScript, JSON — is never Contract's to load.
+        let relative = path.starts_with("./") || path.starts_with("../");
+        let other = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".json"]
+            .iter()
+            .any(|ext| path.ends_with(ext));
+        if (relative && !path.ends_with(".contract")) || other {
             return Err(SyntaxError {
                 id: "contract-no-imports",
                 message: format!("`use … from \"{path}\"` is not admitted: only a `.contract` file may be used — data comes from the app's Rust data source and formatting from the stdlib roster (LLP 1004 D4)"),
@@ -423,7 +458,7 @@ impl Parser {
             });
         }
         self.newline()?;
-        Ok(UseDecl { name, path, span })
+        Ok(UseDecl { names, path, span })
     }
 
     /// `fn name(param: type, …): type = expr` (LLP 1017 P5).

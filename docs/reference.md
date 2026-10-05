@@ -25,8 +25,59 @@ the `hermesc` compiler from a sibling **ibex** checkout at `../ibex`
 `./scripts/build-hermes.sh --vanilla` there once. `EXACT_HERMES_DIR` and
 `EXACT_HERMESC` point at an engine and a compiler built elsewhere. Without
 them, the build of such an app stops in `exact-js`'s build script with a
-message naming these steps. An app with a Rust data crate and no `app.ts`
-needs none of this.
+message naming these steps. On iOS the app links a lean VM instead, built
+once per machine into `~/.cache/exact/hermes/<pin>-lean-ios` by
+`host/apple/build.mjs --ios`, which clones the pinned source and builds a host
+compiler when this machine has neither; CMake is its one prerequisite, and a
+build without it says so in one message (`EXACT_HERMES_IOS_DIR` names archives
+built elsewhere). An app with a Rust data crate and no `app.ts` needs none of
+this.
+
+### Windows TypeScript
+
+Windows x64 uses Exact's pinned bytecode-only Hermes and static ICU 76.1, built
+with the dynamic MSVC CRT. From an x64 Visual Studio developer shell with
+PowerShell 7, Git, tar, CMake and Ninja available, run
+`pwsh -File js/build-windows.ps1 -Jobs 2`. The helper fetches pinned private build
+dependencies, retains its short work directory and verifies the actual compiler,
+archives, headers, locale data and VM probes before publishing an absent cache.
+It prints the resolved installation path and receipt digest. No ICU DLL or source
+compiler is needed by the packaged application. The x64 Microsoft Visual C++
+runtime is required by the dynamic CRT; this helper does not install its
+redistributable on a destination machine.
+
+The default cache is
+`%LOCALAPPDATA%/Exact/hermes/<pin>-lean-windows-x64-icu76-intl1`.
+`EXACT_HERMES_DIR` selects a complete matching install; an `EXACT_HERMESC` override
+must have the same identity as its compiler. The producer and linker validate one
+receipt and reject missing, extra or altered payloads. `EXACT_JS_ENGINE=stub` is
+an explicit opt-out whose executor refuses to load; it cannot bake a working
+TypeScript app. Rust-only apps do not link this VM.
+
+An ordinary TypeScript app needs an explicit Windows shell using `exact-windows`
+and the native `exact-js` data constructor; `exact new` does not generate that
+shell yet. Declare `host.windows: {}` and `deploy.store.windows: "0"` in its
+manifest. The Windows packager is `bun host/windows/build.mjs <app>` with the
+ordinary external-app `EXACT_APP_DIR` selection. Signed module delivery and
+generic cross-process persistence are not added by this support.
+
+Windows Intl uses a deliberately bounded, receipt-bound adapter. Date formatting
+supports Gregorian dates, styles, best-fit component formatting, actual parts,
+hour cycles and positional decimal numbering. A locale whose effective calendar
+is not Gregorian is refused unless explicitly overridden to Gregorian. Number
+formatting supports standard decimal, percent and currency with symbol/code
+display, boolean grouping, fraction/significant precision and half-expand
+rounding. Nonstandard notation, unit/accounting/name display, non-default rounding
+policies and algorithmic numbering are refused by name. Locale casing uses real
+ICU strings. This is not a claim of complete Intl or timezone-alias conformance;
+the supported behavior and actual probes are recorded in
+[LLP 1027.006](../llp/1027.006-windows-native-typescript.plan.md).
+
+Windows application storage uses the current user's LocalAppData known folder,
+under `exact/<app-id>/{data,cache,temporary}` (`app:/tmp` uses `temporary`). It does
+not require `HOME`. App and scratch
+identities and `app:/` path components must be safe Windows leaves; drive, UNC,
+backslash traversal, alternate-stream and reserved-device forms are refused.
 
 Snapback4 consumers use release **0.2.30**: the CLI and browser device are pinned
 in `bun.lock`; Cargo pins native devices and schema compilers to the matching
@@ -190,9 +241,26 @@ line to add when none is.
 
 An app says what it opens with `file_handlers` in `app.json` — the W3C Web App
 Manifest's own key — and the macOS bake derives `CFBundleDocumentTypes` from
-it. A path from the command line, from Finder, from ⌘O, or from a link inside
+it. Each MIME type it accepts must be one the Apple hosts map to a system type
+(`DOCUMENT_UTIS` in `scripts/app.mjs`; `application/octet-stream` is
+`public.data`), which the app views (`Viewer`, rank `Alternate`), or the app's
+own format: a vendor or unregistered type (`application/vnd.studio.board+json`,
+`application/x-studio-board+json`) with its extensions (`[".board"]`), which the
+bake exports as `<app id>.<subtype>` (`UTExportedTypeDeclarations`, conforming to
+JSON for `+json`, XML for `+xml`, else data) with the app as its `Editor` and
+`Owner` (studio diary R13). Every build refuses any other type when it reads the
+manifest, the web's included. An extension another app already owns on a Mac
+(Freeform has `.board`) can still resolve to that app's type there; the open
+panels and drops take a declared extension whichever type the Mac gives it.
+A file chosen in the app's own picker (`showOpenFilePicker`,
+`showSaveFilePicker`) joins File ▸ Open Recent — a save once it is written —
+and becomes the window's document, as a routed one does. A path from the command line, from Finder, from ⌘O, or from a link inside
 a document all arrive at the same place: the app's `open-file` node
-(LLP 1033 D3). `exact uninstall <app>` takes both halves away.
+(LLP 1033 D3). One handed over at launch arrives before first pixel, before
+app storage is ready: a send its `change` makes waits for storage and then runs,
+rather than being refused (studio diary R14). When nothing takes the path, the
+host says why — no `open-file` field, or the `change` the app refused, and the
+refusal — on stderr and in the journal. `exact uninstall <app>` takes both halves away.
 
 Apple products live under the resolved app's target directory, scoped by
 canonical source directory, manifest id, destination, composition and trust
@@ -201,9 +269,16 @@ policy. The Swift host is compiled once per destination for every app, in
 one at a time, and its executable is copied to its own products before the next
 app links. A development build compiles it file by file and incrementally, and
 beside the app's Rust; the host's two Rust modules build in
-`<target>/apple-modules`. What is distributed (`--archive`, `exact release`) is
-the whole-module build, stripped, with its dSYM and whole receipt beside it
-(LLP 1036.000 §5–§9). `--bundle` prints the stable Mac bundle at
+`<target>/apple-modules`, and a checkout that has not built one takes it from
+`~/.cache/exact/apple-modules` when another checkout of this machine compiled
+it from the same bytes. A target directory that has compiled nothing starts
+with the registry crates this machine has compiled
+(`~/.cache/exact/apple-crates`; Cargo decides which it can use). Delete either
+directory to compile everything here. What is
+distributed (`--archive`, `exact release`) is the whole-module build, stripped,
+with its dSYM and whole receipt beside it; a production build links its Rust
+with fat LTO and, when its plan is fixed, leaves out the loaded modules the
+plan cannot reach (LLP 1036.000 §5–§10). `--bundle` prints the stable Mac bundle at
 `<target>/clients/<source-key>/<id>/macos/<Name>.app`; `scripts/exact.mjs`,
 `agent --app` and metrics use that same resolver. `--host` leaves both standalone
 and sample products; simulator and device bundles have separate destinations.
@@ -238,9 +313,11 @@ is in [LLP 1030.000 §7](../llp/1030.000-dev-server-as-deployer.rfc.md#7-exact2-
 
 Agent sessions use `exactTime()` launch facts `seed: 1` (LLP 1069.007), `locale: "en-US"`,
 `timeZone: "UTC"` and `epochAtZero` 2026-01-01T00:00:00Z (LLP 1027.000.000 D3, with the
-zone's `utcOffset` at that instant) on every host. Override them at session setup with
+zone's `utcOffset` at that instant, answered again when the virtual date crosses a DST change) on every host. Override them at session setup with
 `bun scripts/agent.mjs web --seed 42 --locale fr-CA --time-zone America/Toronto --epoch 2026-09-21T14:13:20Z tree`
-or `open({host, seed: 42, locale: "fr-CA", timeZone: "America/Toronto", epoch: "2026-09-21T14:13:20Z"})`.
+or `open({host, seed: 42, locale: "fr-CA", timeZone: "America/Toronto", epoch: "2026-09-21T14:13:20Z"})`;
+a test file writes them as launch lines (`epoch "2026-09-21T14:13:20Z"`, `time-zone "America/Toronto"`,
+[authored tests](contract-grammar.md#authored-tests)), which override the flags.
 Seeds are integers from 0 through 2^53 − 1; an epoch is an ISO date or Unix milliseconds. Native carriers pass
 `EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
 (milliseconds); direct agent launches can set these too. Web agent pages accept
@@ -322,7 +399,11 @@ interface. Native `storage.fs` provides byte-oriented files under `app:/data`,
 `app:/cache`, and `app:/tmp`; `storage.sqlite` provides databases, prepared
 statements, and batch transactions. Declare grants such as `fs.read app:/data`,
 `fs.write app:/data`, and `sqlite.open app:/data/notes.db` in `app.ts`’s exported
-`grants` string.
+`grants` string. The TypeScript module always receives `storage`, including
+when no storage grants are declared. Once storage is available, ungranted
+operations reject with `Unavailable` and code `denied`, without loading the
+browser storage adapters. A drive without a scratch store still gets `agent`
+for app-storage operations; `doc:/` handles do not need that store.
 Generated declarations export Ibex2's `Storage` and related types; Rust sources
 can use the same implementations through `ibex2::host`.
 
@@ -347,6 +428,15 @@ the filesystem's POSIX name (`'ENOENT'`, `'EEXIST'`, `'ENOTDIR'`, `'EISDIR'`,
 `'ENOTEMPTY'`, `'EBUSY'`), else `'failed'`. Branch on the code, never the
 message: `catch (e) { if (e.code === 'ENOENT') return empty; throw e; }`.
 
+A drive's app storage is a scratch store it names (`--storage <name>`) or none,
+kept between drives (on the web, Chrome's profile for the name and its page's
+origin; a Firefox or WebKit drive's is its own); an authored test gets a fresh
+one of its own, removed after it. The driver's `state.storage` says
+which (`{available: false, code: 'agent', message}` or `{available: true,
+store}`), and the web's journal says `storage refused (agent): …` the first time
+a refusal lands. A Rust module's storage request in such a drive is answered
+with the same message, never refused outright (trivia F7).
+
 An answer's storage and `fetch` steps run whether or not it awaits them: a save
 started and not awaited (queued behind the module's own promise chain, say)
 lands on every host. In the browser the answer is given at once and the save
@@ -359,11 +449,93 @@ behind them, to their end before the next answer starts; only its answer is
 dropped, so serializing storage through one promise chain composes with
 `refreshes` and fast-changing arguments (ledger F12, minesweeper F10).
 
+An answer that keeps coming (LLP 1016.000) is a `fetch` with `exactStream`,
+returned as the answer: `return fetch(url, { exactStream: (event) => value })`.
+The promise never settles; each message, and the end, is mapped now (the
+mapper cannot await) and commits as the resource's answer. An `http:`/`https:`
+URL is read as server-sent events under `net.fetch`; a `ws:`/`wss:` URL is a
+receive-only WebSocket under `net.websocket` alone (no frame is ever sent, so a
+feed that waits for a subscribe frame cannot be read). An event is
+`{type, data, lastEventId, coalesced}`; messages that arrive faster than they
+commit coalesce to the newest, counted in `coalesced`. The end is
+`{type: 'error', kind, message, status}`: `kind` is `Network` (the far side
+closed: `the socket closed (1000)`), `Refused` (outside the grants), `Aborted`,
+or `Response` with the status and body of a reply that was not an event stream.
+New arguments, `refresh` or the resource leaving the view close the stream;
+`state.pending` lists it until its first message, `state.streams` while it is
+open. The same holds on Hermes, the web's wasm host and the web build (the JS
+target), with one difference: on the web build the stream's `fetch` must be
+made while the answer is asked, before its first `await` (a later one is
+refused, saying so); on Hermes it may follow an `await`.
+
 This first browser implementation targets modest app stores: filesystem
 operations read the app's file records, and each SQLite mutation atomically
 saves the whole database file. Database files share the filesystem namespace,
 so closed databases can be copied or exported through `storage.fs`. SQLite integer results
 are `bigint`: convert them to a Contract-compatible value before returning.
+
+### Notifications
+
+`showNotification(title=…, body=…, tag=…, showTrigger=…)` posts a local
+notification; `closeNotification(tag)` takes one away, shown or still
+waiting. The names are the Notification API's (`showTrigger` is the
+Notification Triggers draft's member, given as the time in epoch
+milliseconds: the date now is `exactTime().epochAtZero + now()`). A newer notification
+with the same `tag` replaces the older. The app's grants must name
+`device.notifications purpose.notifications` (a strings key, LLP 1069.008;
+iOS shows its own fixed prompt text), or the command is refused. Permission
+is asked the first time; the outcome is a journal line
+(`showNotification: shown`, `scheduled`, `refused: denied`, …).
+
+| host | now | at `showTrigger` |
+| --- | --- | --- |
+| web | `new Notification(title, {body, tag})` | while the page is open: the web has no trigger that outlives the page |
+| macOS, iOS | `UNUserNotificationCenter`, shown with the app in front too | the system's, delivered with the app closed |
+| Linux | refused: `unavailable` | the same |
+
+Under the agent nothing reaches the system on any host: `state.notifications`
+lists what the app posted (`{title, body, tag, showTrigger}`, a tag replacing
+its older one, `closeNotification` removing it), so a drive reads a reminder
+without a permission prompt. Scheduling is one time per call: a daily
+reminder posts the next one when the app runs.
+
+### Documents the person chose (`doc:`)
+
+A file or folder the person picks (`showOpenFilePicker`, `showDirectoryPicker`,
+`showSaveFilePicker`), or opens from the system at the app's `open-file` node,
+arrives as a `doc:/<n>/<name>` path (LLP 1069.010 D1). `storage.fs` reaches it,
+and paths beneath a chosen folder, under the grants `fs.read doc:/` and
+`fs.write doc:/` — the same grants, operations, refusals and codes whether the
+data module is TypeScript or Rust, on every host:
+
+```ts
+export const grants = 'fs.read doc:/';
+// listing([folder]) with folder = 'doc:/1/notes', from `change` on the picker's node
+for (const name of await storage.fs.readdir(folder)) {
+  const stat = await storage.fs.stat(`${folder}/${name}`);       // a folder's size is 0
+  if (stat.isFile) bytes = await storage.fs.readFile(`${folder}/${name}`);
+}
+```
+
+| Operation on a `doc:` path | Grant | What it does |
+| --- | --- | --- |
+| `readFile`, `stat`, `readdir` | `fs.read doc:/` | `doc:/<n>` itself lists only `<name>` |
+| `writeFile`, `atomicWriteFile`, `appendFile` | `fs.write doc:/` | Creates a file beneath a chosen folder |
+| `mkdir` | `fs.write doc:/` | Makes the folders above it too |
+| `rm` | `fs.write doc:/` | One file or one empty folder beneath the chosen document; never the document itself, never a tree |
+| `rename`, `copyFile`, `realpath` | — | Refused (`'failed'`): read the bytes and write them |
+
+A path never minted, `.`/`..`, and a closed window's or page's handle are
+refused. A document needs no app storage: a drive without `--storage` reaches
+it. On the web the paths are the `FileSystemHandle`s the page's picker
+returned (Chromium; Safari and Firefox refuse the pickers), and a module placed
+on a worker on the wasm web host cannot reach them (`'unsupported'`); on macOS
+and iOS they are security-scoped URLs held for the session; Linux opens no
+picker panel (a drive's held pickers still answer), so outside a drive only
+`open-file` delivers one there. The handles end with the
+session: nothing about a document is remembered across launches.
+
+### Bake and deliver a TypeScript module
 
 Build an app-local `app.ts` module and bake its Contract through the resulting
 Hermes bytecode (currently a macOS producer with the sibling ibex toolchain):

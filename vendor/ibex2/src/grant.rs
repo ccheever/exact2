@@ -3,6 +3,9 @@
 pub use exact_grants::*;
 
 pub fn realized_fs(grants: &GrantSet) -> GrantSet {
+    #[cfg(windows)]
+    return grants.clone();
+    #[cfg(not(windows))]
     grants.map_fs(|path| {
         crate::stdlib::fs::realize(std::path::Path::new(path))
             .to_string_lossy()

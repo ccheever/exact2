@@ -97,25 +97,25 @@ def mkCb (filter : Bool) (start stop : Nat) (x : Value) (i : Nat) (rest out : Li
 
 /-- A callback body's end, for `map`. -/
 theorem step_end_map {P : Code} {venv start stop x i rest out L S cbs fx y} :
-    Vm.step P venv (M stop [y] (L ++ [x, .num (Float.ofNat i)]) (mkCb false start stop x i rest out L.length S :: cbs) fx) =
+    Vm.step P venv (M stop [y] (L ++ [x, .num (F64.ofNat i)]) (mkCb false start stop x i rest out L.length S :: cbs) fx) =
       match rest with
-      | x' :: rest' => .ok (.run (M start [] (L ++ [x', .num (Float.ofNat (i + 1))])
+      | x' :: rest' => .ok (.run (M start [] (L ++ [x', .num (F64.ofNat (i + 1))])
           (mkCb false start stop x' (i + 1) rest' (out ++ [y]) L.length S :: cbs) fx))
       | [] => .ok (.run (M stop (.list (out ++ [y]) :: S) L cbs fx)) := by
   cases rest <;> simp [Vm.step, bodyEnd, mkCb]
 
 /-- A callback body's end, for `filter`. -/
 theorem step_end_filter {P : Code} {venv start stop x i rest out L S cbs fx b} :
-    Vm.step P venv (M stop [.bool b] (L ++ [x, .num (Float.ofNat i)])
+    Vm.step P venv (M stop [.bool b] (L ++ [x, .num (F64.ofNat i)])
       (mkCb true start stop x i rest out L.length S :: cbs) fx) =
       match rest with
-      | x' :: rest' => .ok (.run (M start [] (L ++ [x', .num (Float.ofNat (i + 1))])
+      | x' :: rest' => .ok (.run (M start [] (L ++ [x', .num (F64.ofNat (i + 1))])
           (mkCb true start stop x' (i + 1) rest' (out ++ if b then [x] else []) L.length S :: cbs) fx))
       | [] => .ok (.run (M stop (.list (out ++ if b then [x] else []) :: S) L cbs fx)) := by
   cases rest <;> cases b <;> simp [Vm.step, bodyEnd, mkCb, pure, Except.pure, bind, Except.bind]
 
 theorem step_end_filter_bool {P : Code} {venv start stop x i rest out L S cbs fx y s}
-    (h : Vm.step P venv (M stop [y] (L ++ [x, .num (Float.ofNat i)])
+    (h : Vm.step P venv (M stop [y] (L ++ [x, .num (F64.ofNat i)])
       (mkCb true start stop x i rest out L.length S :: cbs) fx) = .ok s) : ∃ b, y = .bool b := by
   cases y <;> simp [Vm.step, bodyEnd, mkCb, bind, Except.bind] at h
   exact ⟨_, rfl⟩
@@ -128,15 +128,15 @@ theorem vty_item {sh xs t} (h : VTy sh (.list xs) t) : VTyAll sh xs t.item := by
 
 theorem map_loop {ps body cb tb item q stop S cbs fx}
     (hbody : ∀ x i, VTy env.prog.shapes x item →
-      ExprSpec env inFn (bindParams ps x i ls) venv P (L ++ [x, .num (Float.ofNat i)]) body cb tb)
+      ExprSpec env inFn (bindParams ps x i ls) venv P (L ++ [x, .num (F64.ofNat i)]) body cb tb)
     (hroom : ∀ x i rest out, Room P cb (q + 1) (mkCb false (q + 1) stop x i rest out L.length S :: cbs)
-      (L ++ [x, .num (Float.ofNat i)]))
+      (L ++ [x, .num (F64.ofNat i)]))
     (hstop : stop = q + 1 + cb.length) :
     ∀ rest x i out, VTyAll env.prog.shapes (x :: rest) item →
       (∀ ys, MapR env inFn ls ps body (x :: rest) i ys → VTyAll env.prog.shapes ys tb ∧
-        Star P venv (M (q + 1) [] (L ++ [x, .num (Float.ofNat i)]) (mkCb false (q + 1) stop x i rest out L.length S :: cbs) fx)
+        Star P venv (M (q + 1) [] (L ++ [x, .num (F64.ofNat i)]) (mkCb false (q + 1) stop x i rest out L.length S :: cbs) fx)
           (M stop (.list (out ++ ys) :: S) L cbs fx)) ∧
-      (Halts P venv (M (q + 1) [] (L ++ [x, .num (Float.ofNat i)]) (mkCb false (q + 1) stop x i rest out L.length S :: cbs) fx) →
+      (Halts P venv (M (q + 1) [] (L ++ [x, .num (F64.ofNat i)]) (mkCb false (q + 1) stop x i rest out L.length S :: cbs) fx) →
         ∃ ys, MapR env inFn ls ps body (x :: rest) i ys) := by
   intro rest
   induction rest with
@@ -163,7 +163,7 @@ theorem map_loop {ps body cb tb item q stop S cbs fx}
         obtain ⟨hty, hs⟩ := hb.1 y hy
         obtain ⟨htys, hs2⟩ := (ih x' (i + 1) (out ++ [y]) hx.2).1 ys' hn
         refine ⟨⟨hty, htys⟩, (hs.pc (by omega : q + 1 + cb.length = stop)).trans
-          (.cons (m' := M (q + 1) [] (L ++ [x', .num (Float.ofNat (i + 1))])
+          (.cons (m' := M (q + 1) [] (L ++ [x', .num (F64.ofNat (i + 1))])
             (mkCb false (q + 1) stop x' (i + 1) rest (out ++ [y]) L.length S :: cbs) fx) ?_ ?_)⟩
         · rw [step_end_map]
         · simpa using hs2
@@ -175,15 +175,15 @@ theorem map_loop {ps body cb tb item q stop S cbs fx}
 
 theorem filter_loop {ps body cb tb item q stop S cbs fx}
     (hbody : ∀ x i, VTy env.prog.shapes x item →
-      ExprSpec env inFn (bindParams ps x i ls) venv P (L ++ [x, .num (Float.ofNat i)]) body cb tb)
+      ExprSpec env inFn (bindParams ps x i ls) venv P (L ++ [x, .num (F64.ofNat i)]) body cb tb)
     (hroom : ∀ x i rest out, Room P cb (q + 1) (mkCb true (q + 1) stop x i rest out L.length S :: cbs)
-      (L ++ [x, .num (Float.ofNat i)]))
+      (L ++ [x, .num (F64.ofNat i)]))
     (hstop : stop = q + 1 + cb.length) :
     ∀ rest x i out, VTyAll env.prog.shapes (x :: rest) item →
       (∀ ys, FilterR env inFn ls ps body (x :: rest) i ys → VTyAll env.prog.shapes ys item ∧
-        Star P venv (M (q + 1) [] (L ++ [x, .num (Float.ofNat i)]) (mkCb true (q + 1) stop x i rest out L.length S :: cbs) fx)
+        Star P venv (M (q + 1) [] (L ++ [x, .num (F64.ofNat i)]) (mkCb true (q + 1) stop x i rest out L.length S :: cbs) fx)
           (M stop (.list (out ++ ys) :: S) L cbs fx)) ∧
-      (Halts P venv (M (q + 1) [] (L ++ [x, .num (Float.ofNat i)]) (mkCb true (q + 1) stop x i rest out L.length S :: cbs) fx) →
+      (Halts P venv (M (q + 1) [] (L ++ [x, .num (F64.ofNat i)]) (mkCb true (q + 1) stop x i rest out L.length S :: cbs) fx) →
         ∃ ys, FilterR env inFn ls ps body (x :: rest) i ys) := by
   intro rest
   induction rest with
@@ -205,9 +205,9 @@ theorem filter_loop {ps body cb tb item q stop S cbs fx}
     · obtain ⟨y, hy⟩ := hb.2 hh
       obtain ⟨_, hs⟩ := hb.1 y hy
       have hh1 := hh.star (hs.pc (by omega : q + 1 + cb.length = stop))
-      obtain ⟨st, hst⟩ : ∃ st, Vm.step P venv (M stop [y] (L ++ [x, .num (Float.ofNat i)])
+      obtain ⟨st, hst⟩ : ∃ st, Vm.step P venv (M stop [y] (L ++ [x, .num (F64.ofNat i)])
           (mkCb true (q + 1) stop x i [] out L.length S :: cbs) fx) = .ok st := by
-        cases h : Vm.step P venv (M stop [y] (L ++ [x, .num (Float.ofNat i)])
+        cases h : Vm.step P venv (M stop [y] (L ++ [x, .num (F64.ofNat i)])
           (mkCb true (q + 1) stop x i [] out L.length S :: cbs) fx) with
         | error e => exact absurd h hh1.not_error
         | ok st => exact ⟨st, rfl⟩
@@ -225,7 +225,7 @@ theorem filter_loop {ps body cb tb item q stop S cbs fx}
         obtain ⟨_, hs⟩ := hb.1 _ hy
         obtain ⟨htys, hs2⟩ := (ih x' (i + 1) (out ++ [x]) hx.2).1 ys' hn
         refine ⟨⟨hx.1, htys⟩, (hs.pc (by omega : q + 1 + cb.length = stop)).trans
-          (.cons (m' := M (q + 1) [] (L ++ [x', .num (Float.ofNat (i + 1))])
+          (.cons (m' := M (q + 1) [] (L ++ [x', .num (F64.ofNat (i + 1))])
             (mkCb true (q + 1) stop x' (i + 1) rest (out ++ [x]) L.length S :: cbs) fx) ?_ ?_)⟩
         · rw [step_end_filter]; simp
         · simpa using hs2
@@ -233,16 +233,16 @@ theorem filter_loop {ps body cb tb item q stop S cbs fx}
         obtain ⟨_, hs⟩ := hb.1 _ hy
         obtain ⟨htys, hs2⟩ := (ih x' (i + 1) out hx.2).1 _ hn
         refine ⟨htys, (hs.pc (by omega : q + 1 + cb.length = stop)).trans
-          (.cons (m' := M (q + 1) [] (L ++ [x', .num (Float.ofNat (i + 1))])
+          (.cons (m' := M (q + 1) [] (L ++ [x', .num (F64.ofNat (i + 1))])
             (mkCb true (q + 1) stop x' (i + 1) rest out L.length S :: cbs) fx) ?_ ?_)⟩
         · rw [step_end_filter]; simp
         · simpa using hs2
     · obtain ⟨y, hy⟩ := hb.2 hh
       obtain ⟨_, hs⟩ := hb.1 y hy
       have hh1 := hh.star (hs.pc (by omega : q + 1 + cb.length = stop))
-      obtain ⟨st, hst⟩ : ∃ st, Vm.step P venv (M stop [y] (L ++ [x, .num (Float.ofNat i)])
+      obtain ⟨st, hst⟩ : ∃ st, Vm.step P venv (M stop [y] (L ++ [x, .num (F64.ofNat i)])
           (mkCb true (q + 1) stop x i (x' :: rest) out L.length S :: cbs) fx) = .ok st := by
-        cases h : Vm.step P venv (M stop [y] (L ++ [x, .num (Float.ofNat i)])
+        cases h : Vm.step P venv (M stop [y] (L ++ [x, .num (F64.ofNat i)])
           (mkCb true (q + 1) stop x i (x' :: rest) out L.length S :: cbs) fx) with
         | error e => exact absurd h hh1.not_error
         | ok st => exact ⟨st, rfl⟩
@@ -262,7 +262,7 @@ theorem exec_each_nil {P : Code} {venv q S L cbs fx off} {fl : Bool} (hq : TopOk
 
 theorem exec_each_cons {P : Code} {venv q x rest S L cbs fx off} {fl : Bool} (hs : q + 1 + off ≤ P.length) :
     Vm.exec P.length venv (if fl then .filter off else .map off) (M q (.list (x :: rest) :: S) L cbs fx) =
-      .ok (.run (M (q + 1) [] (L ++ [x, .num (Float.ofNat 0)])
+      .ok (.run (M (q + 1) [] (L ++ [x, .num (F64.ofNat 0)])
         (mkCb fl (q + 1) (q + 1 + off) x 0 rest [] L.length S :: cbs) fx)) := by
   cases fl <;> simp [Vm.exec, pop1, mkCb, show ¬ (q + 1 + off > P.length) by omega]
 
@@ -278,7 +278,7 @@ theorem body_room {P cl cb : Code} {i0 pc cbs L fl x i rest out S}
     (hr : Room P (cl ++ [i0] ++ cb) pc cbs L) :
     Room P cb (pc + cl.length + 1)
       (mkCb fl (pc + cl.length + 1) (pc + cl.length + 1 + cb.length) x i rest out L.length S :: cbs)
-      (L ++ [x, .num (Float.ofNat i)]) := by
+      (L ++ [x, .num (F64.ofNat i)]) := by
   have h := hr.right
   refine ⟨by simpa [Nat.add_assoc] using h.at_, fun c hc => ?_, by simpa [Nat.add_assoc] using h.fits,
     fun c hc => ?_⟩
@@ -299,7 +299,7 @@ theorem case_each (ih : AllOk fuel) {fl : Bool} {l ps body cl tl cb tb}
   intro pc S cbs fx hr
   have ihl := ih_expr (P := P) ih hl0 hx pc S cbs fx hr.left.left
   have hbody : ∀ x i, VTy env.prog.shapes x tl.item →
-      ExprSpec env inFn (bindParams ps x i ls) venv P (L ++ [x, .num (Float.ofNat i)]) body cb tb :=
+      ExprSpec env inFn (bindParams ps x i ls) venv P (L ++ [x, .num (F64.ofNat i)]) body cb tb :=
     fun x i hx' => ih_expr ih hb0 ⟨hx.prog, hx.agree.bind hx', by simp, hx.quiet⟩
   have hroom := fun x i rest out => body_room (fl := fl) (x := x) (i := i) (rest := rest) (out := out) (S := S) hr
   have hnil := hr.left.right.step (venv := venv) (S := .list [] :: S) (fx := fx)
@@ -345,8 +345,9 @@ theorem case_each (ih : AllOk fuel) {fl : Bool} {l ps body cl tl cb tb}
 /-! ## `pending`, `failed` and the roster -/
 
 theorem stdlib_now {e₁ e₂ : Contract.Env} {f vs} (h : e₁.now = e₂.now)
-    (hr : e₁.prog.routes = e₂.prog.routes) : stdlib e₁ f vs = stdlib e₂ f vs := by
-  unfold stdlib; rw [h, hr]
+    (hr : e₁.prog.routes = e₂.prog.routes) (hs : e₁.prog.strings = e₂.prog.strings) :
+    stdlib e₁ f vs = stdlib e₂ f vs := by
+  unfold stdlib; rw [h, hr, hs]
 
 /-- What a call evaluates by, with its name a variable (so that a literal
 name never meets the unifier). -/
@@ -500,7 +501,7 @@ theorem case_stdlib (ih : AllOk fuel) {name args ca ts} (hfd : p.fns.find? (·.n
         | .error e => .error (.call e) := by
     intro vs hl
     rw [← hl, ← stdlib_now (e₁ := callEnv venv) (by simp [callEnv, hx.quiet.now])
-      (by simp [callEnv, hx.quiet.routes])]
+      (by simp [callEnv, hx.quiet.routes]) (by simp [callEnv, hx.quiet.strings])]
     simp only [Vm.exec, popN_ok]
     cases stdlib (callEnv venv) name vs <;> rfl
   refine ⟨fun v hv => ?_, fun hh => ?_⟩

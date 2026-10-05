@@ -1,6 +1,7 @@
 tap ask-3
 type field 12
 tap later
+clock data
 clock +1000
 clock +1000
 tap ask-5

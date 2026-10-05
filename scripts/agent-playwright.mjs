@@ -130,7 +130,8 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
   if (reuse) await reuse.close(); // Chrome reuse is intentionally not crossed with another engine.
   const hosted = await files({ plan, pageURL, app, webDist });
   let browserServer, browser, context, page;
-  const hostLines = [];
+  // Only Chrome keeps a named store's profile between drives (agent.mjs `openWeb`); here it is this drive's own.
+  const hostLines = storage === undefined ? [] : [`${name}: --storage ${storage} is this drive's own profile, emptied when it ends; Chrome keeps a store between drives`];
   const closeFiles = () => {
     hosted.server.close();
     if (hosted.planBuild) rmSync(hosted.planBuild, { recursive: true, force: true });
@@ -221,11 +222,13 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
     const carrier = {
       host: 'web', browser: name, phasedTouch: false, boot, hostLines, evaluate, launchFacts: facts,
       async gpuMs() { const ms = await page.locator('#exact-root').getAttribute('data-gpu-ms'); return ms == null ? null : Number(ms); },
-      async reset() {
+      /** A fresh document on this page: its origin's storage emptied, or `keep`ing it (a test's `reload`, mail F19). */
+      async reset({ keep = false } = {}) {
         for (const keys of heldKeys.values()) for (const key of [...keys].reverse()) await page.keyboard.up(key).catch(() => {});
         heldKeys.clear();
-        await page.evaluate(async () => { sessionStorage.clear(); localStorage.clear(); await Promise.all((await indexedDB.databases?.() ?? []).map(x => x.name && new Promise(ok => { const r = indexedDB.deleteDatabase(x.name); r.onsuccess = r.onerror = r.onblocked = ok; }))); });
-        await context.clearCookies(); hostLines.length = 0; await page.goto(address.href, { waitUntil: 'commit' }); this.boot = await waitForBoot(page, 'the reused page never booted');
+        await page.evaluate(async (keep) => { sessionStorage.clear(); if (keep) return; localStorage.clear(); await Promise.all((await indexedDB.databases?.() ?? []).map(x => x.name && new Promise(ok => { const r = indexedDB.deleteDatabase(x.name); r.onsuccess = r.onerror = r.onblocked = ok; }))); }, keep);
+        if (!keep) await context.clearCookies();
+        hostLines.length = 0; await page.goto(address.href, { waitUntil: 'commit' }); this.boot = await waitForBoot(page, 'the reused page never booted');
       },
       ask,
       async reveal(id) { const r = await ask({ op: 'reveal', id }); if (r.scrolled) await frame(); return r; },

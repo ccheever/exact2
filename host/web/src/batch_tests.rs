@@ -54,6 +54,7 @@ fn cases() -> Vec<(&'static str, String)> {
         canonical: None,
         robots: Some("noindex".into()),
         status: Some(404),
+        edited: false,
     };
     let bare = exact_runner::Head::default();
     let surface = exact_runner::SurfaceUpdate {

@@ -5,10 +5,26 @@ import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { open as openSession, render } from '../scripts/agent.mjs';
-import { gameNonInput } from '../scripts/agent-launch.mjs';
+import { cdpFailureContext, gameNonInput } from '../scripts/agent-launch.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, resolveApp } from '../scripts/app.mjs';
 import { closeFilesystemReader } from '../scripts/filesystem.mjs';
+
+/** Some runtime-created stacks omit the informative Error message. */
+export function formatProofError(error) {
+  const message = String(error), stack = error?.stack;
+  const rendered = typeof stack === 'string' && stack.length
+    ? stack.includes(message) ? stack : `${message}\n${stack}`
+    : message;
+  const context = cdpFailureContext(error);
+  return context ? `${rendered}\nCDP ${JSON.stringify(context)}` : rendered;
+}
+
+/** The failed operation's report row; never serialize the Error or its handles. */
+export function proofFailureRow(session, method, args, clock, error) {
+  const context = cdpFailureContext(error);
+  return {session, method, args, clock, error:error.message, steps:error.steps, ...(context ? {cdp:context} : {})};
+}
 
 // Offline diagnostics over existing state reads (LLP 1012; LLP 1046.001 D2/D5).
 // These are inspection captures, not EXSIM saves or a second simulation codec.
@@ -320,7 +336,7 @@ export function facilityReport(replies) {
 /// other games, the bench and its probes, the twins, diaries, LLPs, apps, build
 /// outputs. Source extensions, app assets, and Apple module inputs are admitted.
 /// A game's own scripts (bench.mjs, a proxy, a probe) are tools, not bake inputs:
-/// no bake reads a .mjs/.js outside its logic, data, gpu and asset folders.
+/// no bake reads a .mjs/.js outside its logic, data, gpu, presentation and asset folders.
 export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`) {
   return /^(issues|\.claude)\//.test(file)
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs|.*\.md)$/.test(file)
@@ -383,7 +399,7 @@ export function proofInputs(root, app, cachePath) {
     // Host bake depends on the declaration, not the game's implementation.
     // Shared compiler crates remain conservative inputs of both graphs.
     const own=file.startsWith(prefix) ? file.slice(prefix.length) : null;
-    const gpuOnly=own!==null ? /^(logic|gpu|art|assets|deck)\//.test(own) : /^game\/(engine|render|physics|audio|bake)\//.test(file);
+    const gpuOnly=own!==null ? /^(logic|gpu|presentation|art|assets|deck)\//.test(own) : /^game\/(engine|render|physics|audio|bake)\//.test(file);
     const hostOnly=own!==null ? /\.contract$/.test(own) : /^host\//.test(file);
     if(!hostOnly) groups.gpu.push(row);
     if(!gpuOnly) groups.host.push(row);
@@ -559,7 +575,7 @@ export async function proof(meta, script) {
           replies.push({session:id, method, args, reply, clock:target.now});
           return reply;
         } catch (error) {
-          replies.push({session:id, method, args, clock:target.now, error:error.message, steps:error.steps}); if (error.steps) say(render('type', {steps:error.steps})); throw error;
+          replies.push(proofFailureRow(id, method, args, target.now, error)); if (error.steps) say(render('type', {steps:error.steps})); throw error;
         }
       };
     }});
@@ -612,7 +628,7 @@ export async function proof(meta, script) {
         for (const section of ['ticks','saves']) for (const key of Object.keys(previousPins[section] ?? {}))
           check(`pin ${key} observed; if intentionally removed, update the proof and pins.json together`, key in pins[section]);
     }
-  } catch (error) { check('proof interrupted',false,error.stack ?? String(error)); }
+  } catch (error) { check('proof interrupted',false,formatProofError(error)); }
   finally {
     await closeSessions(monitor, sample, sessions, check);
     if (reusableWeb) await reusableWeb.close();

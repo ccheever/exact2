@@ -1,4 +1,4 @@
-import { carryRouter, clock, res, sig } from './rt.js';
+import { carryRouter, clock, launchLocation, res, sig } from './rt.js';
 
 // A render's checkpoint answers (LLP 1048.000 D4), as
 // `exact_web::document::checkpoint` writes them: JSON text, one
@@ -43,14 +43,14 @@ function dev() {
 /** A root slot carried by authored name and full declared shape. */
 export function devSignal(name, initial, type, declared, router = false) {
   const cp = dev(), kept = cp?.slots?.find(s => s[0] === name);
-  const value = kept && (router || shape(kept[1], declared)) ? (router ? carryRouter(decode(kept[2]), location.pathname + location.search) : decode(kept[2])) : initial;
-  const out = sig(value, type); out.n.devName = name; out.n.devType = declared; return out;
+  const value = kept && (router || shape(kept[1], declared)) ? (router ? carryRouter(decode(kept[2]), launchLocation()) : decode(kept[2])) : initial;
+  const out = sig(value, type, type === "s" ? name : undefined); out.n.devName = name; out.n.devType = declared; return out;
 }
 
 /** A settled resource carried only for the same source, arguments and type. */
-export function devResource(name, source, args, initial, initialArgs, type, placeholder, declared) {
+export function devResource(name, source, args, initial, initialArgs, type, placeholder, declared, elseRow = false) {
   const cp = dev(), kept = cp?.carryAnswers === false ? null : cp?.answers?.find(a => a[0] === name && a[1] === source && shape(a[4], declared));
-  const out = res(name, source, args, kept ? decode(kept[3]) : initial, kept ? decode(kept[2]) : initialArgs, type, placeholder);
+  const out = res(name, source, args, kept ? decode(kept[3]) : initial, kept ? decode(kept[2]) : initialArgs, type, placeholder, !!kept || elseRow);
   out.r.devType = declared; if (kept?.[5]) out.r.store = true; return out;
 }
 

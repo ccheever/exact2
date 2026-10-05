@@ -1,7 +1,7 @@
 // Accept fixture: `use Name from "./row.contract"` (LLP 1017 P8) — a
 // component from another file, with the shape and the style it needs
 // merged in after this file's own declarations, so `App` stays the root.
-use StationRow from "./row.contract"
+use StationRow, Station from "./row.contract"
 
 component App
   state picked = ""

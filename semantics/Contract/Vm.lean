@@ -112,7 +112,7 @@ structure Env where
   params : List Value := []
   /-- Enclosing instance scopes, innermost first. -/
   frames : List Frame := []
-  now : Float := 0
+  now : F64 := 0
   /-- The slots `StoreSlot` and `Send` may write (an action's `writes`). -/
   writable : List Nat := []
   /-- Each mutation's slot. -/
@@ -122,6 +122,8 @@ structure Env where
   pendingMutations : List Bool := []
   /-- The route table the router verbs read (the runner's `Routing`). -/
   routes : Route.Table := []
+  /-- The strings tables `t` reads (the plan's `locales`). -/
+  strings : Format.Tables := []
   deriving Inhabited
 
 /-- What a body asks for, in execution order. -/
@@ -169,10 +171,11 @@ abbrev Out := Except Trap Status
 
 /-- The semantics' environment for a roster call: only the clock and the
 route table are read. -/
-def callEnv (env : Env) : Contract.Env := { prog := { routes := env.routes }, slots := [], now := env.now }
+def callEnv (env : Env) : Contract.Env :=
+  { prog := { routes := env.routes, strings := env.strings }, slots := [], now := env.now }
 
 /-- Two numbers to one value (`Add`, `Lt`, …). -/
-def num2 (f : Float → Float → Value) (op : String) : Value → Value → Except Trap Value
+def num2 (f : F64 → F64 → Value) (op : String) : Value → Value → Except Trap Value
   | .num x, .num y => .ok (f x y)
   | _, _ => .error (.typeMismatch op)
 
@@ -184,10 +187,11 @@ def binary (i : Instr) (a b : Value) : Except Trap Value :=
   | .mul => num2 (fun x y => .num (x * y)) "Mul" a b
   | .div => num2 (fun x y => .num (x / y)) "Div" a b
   | .rem => num2 (fun x y => .num (Number.fmod x y)) "Rem" a b
-  | .lt => num2 (fun x y => .bool (x < y)) "Lt" a b
-  | .le => num2 (fun x y => .bool (x ≤ y)) "Le" a b
-  | .gt => num2 (fun x y => .bool (x > y)) "Gt" a b
-  | .ge => num2 (fun x y => .bool (x ≥ y)) "Ge" a b
+  -- Two strings by UTF-16 code units (LLP 1088 D1), as `binop`.
+  | .lt => match a, b with | .str x, .str y => .ok (.bool (Str.lt x y)) | _, _ => num2 (fun x y => .bool (x < y)) "Lt" a b
+  | .le => match a, b with | .str x, .str y => .ok (.bool !(Str.lt y x)) | _, _ => num2 (fun x y => .bool (x ≤ y)) "Le" a b
+  | .gt => match a, b with | .str x, .str y => .ok (.bool (Str.lt y x)) | _, _ => num2 (fun x y => .bool (x > y)) "Gt" a b
+  | .ge => match a, b with | .str x, .str y => .ok (.bool !(Str.lt x y)) | _, _ => num2 (fun x y => .bool (x ≥ y)) "Ge" a b
   | .eq => (Value.equal a b).elim (.error (.typeMismatch "Eq")) (fun e => .ok (.bool e))
   | .ne => (Value.equal a b).elim (.error (.typeMismatch "Ne")) (fun e => .ok (.bool !e))
   | .concat =>
@@ -227,7 +231,7 @@ def exec (size : Nat) (env : Env) (i : Instr) (m : Machine) : Out :=
   let next (s : List Value) : Out := .ok (.run { m with pc := m.pc + 1, stack := s })
   let push (v : Value) : Out := next (v :: m.stack)
   match i with
-  | .num b => push (.num (Float.ofBits b))
+  | .num b => push (.num (F64.ofBits b))
   | .bool b => push (.bool b)
   | .str s => push (.str s)
   | .none => push .none
@@ -259,7 +263,7 @@ def exec (size : Nat) (env : Env) (i : Instr) (m : Machine) : Out :=
   | .loadIndex d =>
     match env.frames[d]?.bind (·.index) with
     | Option.none => .error .badScope
-    | Option.some k => push (.num (Float.ofNat k))
+    | Option.some k => push (.num (F64.ofNat k))
   | .loadBound d =>
     match env.frames[d]?.bind (·.bound) with
     | Option.none => .error .badScope
@@ -393,7 +397,7 @@ def exec (size : Nat) (env : Env) (i : Instr) (m : Machine) : Out :=
       .ok (.run { m with pc := t, stack := .list [] :: s })
     | .list (x :: rest) =>
       .ok (.run { m with
-        pc := m.pc + 1, stack := [], locals := m.locals ++ [x, .num (Float.ofNat 0)],
+        pc := m.pc + 1, stack := [], locals := m.locals ++ [x, .num (F64.ofNat 0)],
         cbs := { filter := (match i with | .filter _ => true | _ => false),
                  start := m.pc + 1, stop, cur := x, idx := 0, rest, out := [],
                  base := m.locals.length, caller := s } :: m.cbs })
@@ -421,7 +425,7 @@ def bodyEnd (c : Callback) (cbs : List Callback) (m : Machine) : Out :=
     match c.rest with
     | x :: rest =>
       .ok (.run { m with pc := c.start, stack := [],
-                         locals := locals ++ [x, .num (Float.ofNat (c.idx + 1))],
+                         locals := locals ++ [x, .num (F64.ofNat (c.idx + 1))],
                          cbs := { c with cur := x, idx := c.idx + 1, rest, out } :: cbs })
     | [] => .ok (.run { m with pc := c.stop, stack := .list out :: c.caller, locals, cbs })
   | _ => .error .malformed
@@ -541,7 +545,7 @@ def decode (pool : Pool) (bs : ByteArray) : Except String Code := do
       .ok (t - (k + 1))
     let i ← match r.op with
       | "Number" =>
-        if Number.isFinite (Float.ofBits r.number) then pure (Instr.num r.number)
+        if Number.isFinite (F64.ofBits r.number) then pure (Instr.num r.number)
         else .error s!"a number that is not finite at {pc}"
       | "Bool" => pure (.bool (a0 != 0))
       | "Str" => do pure (.str (← str a0))
@@ -596,7 +600,7 @@ def decode (pool : Pool) (bs : ByteArray) : Except String Code := do
 /-! ## Printing -/
 
 def Instr.text : Instr → String
-  | .num b => s!"Number {Number.jsToString (Float.ofBits b)}"
+  | .num b => s!"Number {Number.jsToString (F64.ofBits b)}"
   | .bool b => s!"Bool {b}"
   | .str s => s!"Str {repr s}"
   | .none => "None" | .unit => "Unit" | .some => "Some"

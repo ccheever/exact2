@@ -190,7 +190,9 @@ responses; the public operations are unchanged.
 
 Public: what `scripts/agent.mjs` exposes as a session (`open({host, plan,
 size})`), and what the CLI runs one per argument. A target is a `testId`
-(first in preorder) or a view id; the driver resolves it through `tree`, so a
+(first in preorder on a selected route of a selected tab; a covered screen's or
+an unselected tab's copy only when no active one carries it, flagged `inactive`
+in `tree`) or a view id; the driver resolves it through `tree`, so a
 host input path only ever sees a view id. LLP 1038 D5/D11: on native, `--url` with an
 app scheme or path supplies the cold launch location; HTTP(S) retains the
 development-plan locator form only and never supplies a launch location. Apple uses the
@@ -198,7 +200,7 @@ same pre-boot fact as the OS callbacks; Linux receives the URL as argv.
 
 `tree <target>` (library `tree(target)`) returns the target and its descendants.
 The wire request adds `target`, a numeric view id or string `testId`; repeated
-`testId`s select the first node in live structural preorder. Missing, retired,
+`testId`s select the first active node in live structural preorder. Missing, retired,
 and malformed targets are refused. `roots` names the selected node; node fields,
 including the real parent and absolute tree depth, match the full response.
 The text renderer removes only the common leading indentation. Without a target,
@@ -343,6 +345,27 @@ waits for the reply under the call's deadline and advances on. A jump whose
 timers send nothing is one advance; past the deadline, or 4096 stops, the
 rest is one advance; a request with no timer after it in the jump lands when
 it lands, as a fetch does under a real clock.
+
+**Real time (2026-10-04, jukebox F14).** What runs on real time — a playing
+video (LLP 1042 §3), a store, the network — is never held or seeked to the
+clock, and a jump takes no real time, so between two operations it moves only
+as far as the drive took. `clock +N real`, a form of `clock` and of a test's
+`clock` step, is the driver's alone: it lets N ms of real time pass, moving the
+clock to the elapsed time every 50 ms (`{"op":"clock","to":…}` on the wire), so
+timers fire beside a video's `timeupdate`s; the reply adds `real`, the ms it took.
+
+**An input's end (2026-10-04, trivia F3, kanban F19).** A mutation's `then`
+is armed at the clock its answer lands at and runs at the host's next advance
+— on a wall clock at once, but the agent's clock stood still, so the screen a
+`tap` opened through `mutation … then` was there only after a `clock` step.
+Now every input the driver delivers (`tap` in each form, a contact's phase,
+`type`, a held request's answer) ends with `{"op":"clock","land":true}`:
+the `then` of every answer already landed runs, each its own commit, with the
+clock unmoved and no timer fired (`Runner::land_then`; mode 2 of
+`exact_advance` on the web and Apple ABIs; the JS target's `advance(now, …,
+timers false)`). The reply's tags are read after it. What is still on real
+time — a store's reply, the network's — is not waited for: it lands at a
+`clock` step, as before.
 
 Agent mode is opt-in per launch: `?agent=1` on the page (only then does
 `globalThis.exact` carry `agent` and `now`), `EXACT_AGENT=1` for the macOS

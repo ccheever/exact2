@@ -4,7 +4,8 @@
 // `open`). After every step it compares the runner's typed state, including
 // the document head, the tree (depth, type, testId, text, value, label, handlers,
 // focus), layout boxes
-// by testId and a screenshot. `app.test.contract` files run on both.
+// by testId, a screenshot, and the reason of each refusal for passing one of
+// the runner's evaluation bounds (LLP 1090 D7). `app.test.contract` files run on both.
 // Every failure is reported in one run; the exit code is 0 unless `--strict`,
 // which exits 1 on any failure and prints each as a `FAIL <target> <step>:`
 // line (the async lane's check, scripts/async.mjs).
@@ -28,7 +29,8 @@
 //   its state and tree compared with the wasm page's (`linux` failures).
 //   A plan marked `// linux: layout` also compares its testId boxes with the
 //   wasm page to 0.5 px. Pixels remain the Linux host's own and are not
-//   compared. The only normalization is the route stack's browser location (`linuxView`);
+//   compared. Nothing is normalized: a page launches where the Linux host
+//   does, the drive's own parameters left out of its route (feed F16);
 //   a target whose app has no Linux host, or a plan that says `// linux:
 //   <why>`, is reported as not compared (`// linux: state only (<why>)`
 //   compares its state and not its tree), and the comparison stops at the
@@ -94,12 +96,27 @@ function serve(dir) {
     let f = resolve(dir, '.' + p);
     try { if (statSync(f).isDirectory()) f = resolve(f, 'index.html'); } catch { f = resolve(dir, 'index.html'); }
     let body; try { body = readFileSync(f); } catch { res.writeHead(404); return res.end(); }
-    res.writeHead(200, { 'content-type': TYPES[extname(f)] ?? 'application/octet-stream', 'cache-control': 'no-store' }); res.end(body);
+    const type = { 'content-type': TYPES[extname(f)] ?? 'application/octet-stream', 'cache-control': 'no-store', 'accept-ranges': 'bytes' };
+    // A byte range, as the agent's server answers one: a media element seeks
+    // within what it has not buffered only by asking for one.
+    const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+    if (range && (range[1] || range[2])) {
+      const start = range[1] ? Number(range[1]) : Math.max(0, body.length - Number(range[2])), end = range[1] && range[2] ? Math.min(Number(range[2]), body.length - 1) : body.length - 1;
+      if (start > end) { res.writeHead(416, { 'content-range': `bytes */${body.length}` }); return res.end(); }
+      res.writeHead(206, { ...type, 'content-range': `bytes ${start}-${end}/${body.length}` }); return res.end(body.subarray(start, end + 1));
+    }
+    res.writeHead(200, type); res.end(body);
   });
   return new Promise(ok => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${server.address().port}/`, close: () => server.close() })));
 }
 
 // ---------------------------------------------------------------- comparisons
+// A refusal for passing one of the runner's evaluation bounds (LLP 1090 D6, D7): every target refuses that step with
+// the same reason, the `Debug` text of the runner's error, a line's prefix being each host's own. Other refusals compare
+// only as refused or not (the steps' state). A refusal repeated by a host's own deliveries counts once: a list's edge
+// is asked again at each report, and the Linux host reports a settling list more often than a page does.
+const BOUND = /Instance\(Trap\((?:IterationLimit|StringTooLong|ValueTooLarge|ValueTooDeep) \{ pc: \d+ \}\)\)|Trap\((?:IterationLimit|StringTooLong|ValueTooLarge|ValueTooDeep) \{ pc: \d+ \}\)|StringTooLong \{ name: "(?:[^"\\]|\\.)*" \}/;
+const boundReasons = async S => (await S.logs()).lines.flatMap(l => BOUND.exec(l)?.[0] ?? []).filter((r, i, all) => r !== all[i - 1]);
 const norm = t => t.nodes.map(n => [n.depth ?? 0, n.type, n.props?.testId ?? '', n.props?.text ?? '', n.props?.value ?? '', n.props?.accessibilityLabel ?? '', (n.handlers ?? []).join(' '), n.focused === true ? 'focused' : ''].join('|'));
 function diffLists(a, b, what, other = 'js', reference = 'wasm') {
   const out = [];
@@ -174,25 +191,6 @@ const STATE_KEYS = ['slots', 'derives', 'resources', 'head'];
 // allocating ids in another order and taking ids a Linux boot does not);
 // and the stack's `next` id is dropped. Everything else is
 // compared as is.
-const HARNESS = ['agent', 'seed', 'locale', 'timeZone', 'epoch'];
-const isEntry = v => v && typeof v === 'object' && !Array.isArray(v) && ['id', 'name', 'url', 'tab', 'params'].every(k => k in v);
-function linuxView(state) {
-  const rank = new Map();
-  const walk = (v, f) => { if (v && typeof v === 'object') { f(v); for (const x of Object.values(v)) walk(x, f); } };
-  walk(state, v => { if (isEntry(v) && typeof v.id === 'number' && !rank.has(v.id)) rank.set(v.id, rank.size); });
-  const map = v => {
-    if (!v || typeof v !== 'object') return v;
-    if (Array.isArray(v)) return v.map(map);
-    const o = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, map(x)]));
-    if (isEntry(v)) {
-      if (rank.has(v.id)) o.id = rank.get(v.id);
-      if (typeof v.url === 'string') { const u = new URL(v.url, 'http://x'); for (const k of HARNESS) u.searchParams.delete(k); o.url = u.pathname + u.search; }
-    }
-    if (Array.isArray(v.tabs) && 'next' in v) delete o.next;
-    return o;
-  };
-  return map(state);
-}
 
 // ---------------------------------------------------------------- one target
 async function target(t, report) {
@@ -289,8 +287,8 @@ async function drive(t, report, fail, dir, ws, js) {
       const [tw, tj] = await pair(() => W.tree(), () => J.tree());
       const o2 = diffLists(norm(tw), norm(tj), 'tree', other, reference); o2.forEach((x, i) => fail(step, x, crossBrowser ? `tree.${i}` : null)); st += o2.length;
       await onLinux(step, async L => {
-        const [sl, tl] = await Promise.all([L.state(), L.tree()]), o = [], vw = linuxView(sw), vl = linuxView(sl);
-        for (const k of STATE_KEYS) diffJSON(vw[k], vl[k], k, o, 'linux');
+        const [sl, tl] = await Promise.all([L.state(), L.tree()]), o = [];
+        for (const k of STATE_KEYS) diffJSON(sw[k], sl[k], k, o, 'linux');
         if (!linux.stateOnly) o.push(...diffLists(norm(tw), norm(tl), 'tree', 'linux').slice(0, 4));
         if (linux.layout) linuxLayout = await L.layout();
         o.forEach(x => fail(step, 'linux ' + x));
@@ -354,13 +352,21 @@ async function drive(t, report, fail, dir, ws, js) {
     const settle = async () => { await pair(() => W.clock('settle'), () => J.clock('settle')); await onLinux('settle', L => L.clock('settle')); };
     driveAt = 'boot settle';
     await settle();
+    // Each step's bound refusals, on every target (the journals read from here on).
+    const bounds = async step => {
+      const [rw, rj] = await pair(() => boundReasons(W), () => boundReasons(J));
+      const say = r => r.join(' | ') || '—';
+      if (say(rw) !== say(rj)) fail(step, `bound refusals: ${reference} «${say(rw)}» ${other} «${say(rj)}»`);
+      await onLinux(step, async L => { const rl = await boundReasons(L); if (say(rl) !== say(rw)) fail(step, `linux bound refusals: ${reference} «${say(rw)}» linux «${say(rl)}»`); });
+    };
+    await bounds('boot');
     let tree = await compare('boot');
     // Once only the reference took a step, the two pages differ by that step:
     // later compares would report its consequences, not new differences.
     let diverged = false;
     if (existsSync(script)) for (const line of readFileSync(script, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))) {
       const [op, target, ...rest] = line.split(/\s+/);
-      const run = s => op === 'tap' ? s.tap(target) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'key' ? s.type(target, { key: rest[0] }) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : op === 'prefer' ? s.prefer(Object.fromEntries([target, ...rest].flatMap((a, i, all) => i % 2 ? [] : [[a, all[i + 1]]]))) : Promise.reject(new Error(`unknown op ${op}`));
+      const run = s => op === 'tap' ? s.tap(target) : op === 'menu' ? s.tap(target, { contextmenu: true }) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'key' ? s.type(target, { key: rest[0] }) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : op === 'prefer' ? s.prefer(Object.fromEntries([target, ...rest].flatMap((a, i, all) => i % 2 ? [] : [[a, all[i + 1]]]))) : Promise.reject(new Error(`unknown op ${op}`));
       // Playwright cannot make trusted phased touches in Firefox/WebKit.
       // Skip before resolving a target or touching either page; the carrier's
       // named, side-effect-free refusals are exercised by agent.test.mjs.
@@ -380,6 +386,7 @@ async function drive(t, report, fail, dir, ws, js) {
       if (refused && !jsRefused) { diverged = true; break; }
       await onLinux(line, L => LINUX_OPS.includes(op) ? run(L).then(() => answered('linux'), e => { if (!refused) throw e; }) : Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)));
       await settle();
+      await bounds(line);
       tree = await compare(line);
     }
     const tapped = new Set();
@@ -394,6 +401,7 @@ async function drive(t, report, fail, dir, ws, js) {
       await onLinux(`tap ${id}`, L => L.tap(id));
       // What the press sent lands on both first (a fetch races the compare otherwise).
       await settle();
+      await bounds(`tap ${id}`);
       tree = await compare(`tap ${id}`);
     }
     if (!diverged) {

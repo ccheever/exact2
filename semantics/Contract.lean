@@ -1,5 +1,8 @@
 import Contract.Syntax
+import Contract.Binary64
+import Contract.Binary64Facts
 import Contract.Number
+import Contract.Format
 import Contract.Value
 import Contract.Route
 import Contract.Eval
@@ -29,4 +32,16 @@ import Contract.TypeInvariant
 import Contract.EnvSound
 import Contract.SettleSound
 import Contract.RenderSound
+import Contract.SettleComplete
 import Contract.StepSound
+import Contract.Components
+import Contract.CompSem
+import Contract.Expand
+import Contract.ExpandCheck
+import Contract.CompSemFacts
+import Contract.ExpandSubst
+import Contract.ExpandSubstRev
+import Contract.ExpandFrame
+import Contract.ExpandInstance
+import Contract.ExpandMap
+import Contract.BootSound

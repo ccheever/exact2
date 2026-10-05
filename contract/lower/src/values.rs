@@ -131,7 +131,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         ),
         StyleValueError::AutoNotAdmitted { .. } => "`auto` is not admitted here".into(),
         StyleValueError::OutOfRange { .. } => "out of the row's range".into(),
-        StyleValueError::BadColor { .. } => "a color is `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb(r, g, b)`, `rgba(r, g, b, a)`, `hsl()`, `hwb()`, a CSS color name (`gray`), or `transparent`".into(),
+        StyleValueError::BadColor { .. } => "a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, `lab()`, `oklch()`, a named colour, `transparent`, `light-dark(a, b)` of two, a role (`\"secondary-label\"`, `\"CanvasText\"`: LLP 1095), or `platform-color(ios <name>Color, …, <fallback>)` written whole as a string literal".into(),
         StyleValueError::BadShapeOutside { .. } => "expected none, circle(), ellipse(), inset() with one round radius, or polygon() with at most 64 vertices; lengths are points/px or percentages".into(),
         StyleValueError::BadClipPath { .. } => "expected none or path() with explicit absolute M/L/Q/C/Z commands and separated finite coordinates".into(),
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
@@ -144,7 +144,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadAnimationRange { .. } => "expected normal, or two distinct lengths (`0px 300px`)".into(),
         StyleValueError::BadTimelineScope { .. } => "expected none, all, or `--name`s separated by commas".into(),
         StyleValueError::BadTransition { .. } => "unsupported transition property or invalid timing components; exact2 supports transform components, opacity, paint and SVG properties, and admitted numeric height transitions; general layout interpolation is not implemented".into(),
-        StyleValueError::BadPaint { .. } => "SVG paint is `none`, `currentcolor`, or a colour (`#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `light-dark()`); paint servers (`url(#…)`) are refused (LLP 1055 D12)".into(),
+        StyleValueError::BadPaint { .. } => "SVG paint is `none`, `currentcolor`, or a colour (hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `light-dark()`); paint servers (`url(#…)`) are refused (LLP 1055 D12)".into(),
         StyleValueError::BadDashArray { .. } => "`stroke-dasharray` is `none` or non-negative numbers separated by spaces or commas".into(),
         StyleValueError::BadTransform { .. } => "`transform` is `none` or transform functions: matrix, translate, translateX/Y, scale, scaleX/Y, rotate (with SVG's optional centre), skew, skewX/Y; lengths in user units or px, angles in deg, rad, grad or turn".into(),
         StyleValueError::BadMarker { .. } => "a marker or a mask is `none` or `url(#id)`, naming a `marker` or a `mask`".into(),
@@ -163,9 +163,11 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
     }
 }
 
-/// The rows CSS's `border-color` shorthand sets: top, right, bottom, left.
-/// CSS's one-to-four-value box shorthands, rows in top, right, bottom, left order.
-const FOUR_SIDED: [[StyleId; 4]; 6] = [
+/// CSS's one-to-four-value box shorthands, rows in top, right, bottom, left
+/// order — `border-radius`'s corners in top-left, top-right, bottom-right,
+/// bottom-left order, which CSS fills from fewer values the same way
+/// (ledger2 Rough 5).
+const FOUR_SIDED: [[StyleId; 4]; 7] = [
     [
         StyleId::PaddingTop,
         StyleId::PaddingRight,
@@ -197,6 +199,12 @@ const FOUR_SIDED: [[StyleId; 4]; 6] = [
         StyleId::BorderColorLeft,
     ],
     [StyleId::Top, StyleId::Right, StyleId::Bottom, StyleId::Left],
+    [
+        StyleId::BorderRadiusTopLeft,
+        StyleId::BorderRadiusTopRight,
+        StyleId::BorderRadiusBottomRight,
+        StyleId::BorderRadiusBottomLeft,
+    ],
 ];
 
 /// Whether these rows are one of CSS's `<value>{1,4}` box shorthands.
@@ -241,9 +249,14 @@ pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<[Expr; 4]>, Lower
             Expr::Str(s, span) => {
                 let n = side_values(s).len();
                 if n > 4 {
+                    let order = if name == "border-radius" {
+                        "top-left, top-right, bottom-right, bottom-left; no `/` elliptical radii"
+                    } else {
+                        "top, right, bottom, left"
+                    };
                     return err(
                         "lower-attr-value",
-                        format!("`{name}` takes one to four values (top, right, bottom, left); \"{s}\" has {n}"),
+                        format!("`{name}` takes one to four values ({order}); \"{s}\" has {n}"),
                         *span,
                     );
                 }
@@ -378,6 +391,73 @@ fn scheme_colour(a: &Attr, rows: &[StyleId]) -> Result<(), LowerError> {
     )
 }
 
+/// Whether `e` puts a `platform-color(` literal into a value it computes.
+fn builds_platform_color(e: &Expr) -> bool {
+    let named = |t: &str| t.contains("platform-color(");
+    match e {
+        Expr::Str(t, _) => named(t),
+        Expr::Template(parts, _) => parts.iter().any(|p| match p {
+            contract_syntax::TemplatePart::Text(t) => named(t),
+            contract_syntax::TemplatePart::Expr(e) => builds_platform_color(e),
+        }),
+        Expr::Some(e, _)
+        | Expr::Member(e, _, _)
+        | Expr::NamedArg(_, e, _)
+        | Expr::Unary(_, e, _)
+        | Expr::Typed(e, _, _) => builds_platform_color(e),
+        Expr::Arrow { body, .. } => builds_platform_color(body),
+        Expr::Call(_, args, _) => args.iter().any(builds_platform_color),
+        Expr::Binary(_, l, r, _) => builds_platform_color(l) || builds_platform_color(r),
+        Expr::Ternary(c, y, n, _) => [c, y, n].iter().any(|e| builds_platform_color(e)),
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => [subject, some, none]
+            .iter()
+            .any(|e| builds_platform_color(e)),
+        Expr::Let { value, body, .. } => {
+            builds_platform_color(value) || builds_platform_color(body)
+        }
+        Expr::Number(..)
+        | Expr::Bool(..)
+        | Expr::None(_)
+        | Expr::EmptyList(_)
+        | Expr::Ident(..) => false,
+    }
+}
+
+/// The `position-area` values every host places (LLP 1021 §5), as CSS
+/// spells them; the row's enum, by name.
+const POSITION_AREAS: [&str; 8] = [
+    "none",
+    "bottom span-right",
+    "bottom",
+    "bottom span-all",
+    "top span-right",
+    "top",
+    "top span-all",
+    "center",
+];
+
+/// `position-area` places a popover against the invoker that opens it (its
+/// implicit anchor, LLP 1021 §5): there is no `anchor-name`, so on any other
+/// node it would name nothing to place against.
+pub(crate) fn check_position_area(attrs: &[Attr]) -> Result<(), LowerError> {
+    let Some(a) = attrs.iter().find(|a| a.name == "position-area") else {
+        return Ok(());
+    };
+    if attrs.iter().any(|a| a.name == "popover") {
+        return Ok(());
+    }
+    err(
+        "lower-css-position-area",
+        "`position-area` is admitted on a `popover` only: its anchor is the button whose `popovertarget` opens it. `anchor-name` and `position-anchor` are not implemented",
+        a.span,
+    )
+}
+
 pub(crate) fn check_style_value(
     a: &Attr,
     rows: &[StyleId],
@@ -417,7 +497,39 @@ pub(crate) fn check_style_value(
                 pending.push((some, some.span()));
             }
             Expr::Let { body, .. } => pending.push((body, body.span())),
+            // @ref LLP 1095 D3 — a plan's platform colours are its literals:
+            // never built from a template, a concatenation or a call.
+            Expr::Str(..) => {}
+            other if builds_platform_color(other) => {
+                return err(
+                    "lower-platform-color-literal",
+                    format!("`{}`: write `platform-color(…)` whole, as a string literal (a branch of `?:` or `match` may be one); it is never built from a template, a concatenation or data, so the platform colours a plan names are fixed when it compiles (LLP 1095 D3)", a.name),
+                    span,
+                );
+            }
             _ => {}
+        }
+        // A computed gradient is parsed where it is painted: a native host
+        // drops one its parse refuses while a browser paints it (studio
+        // diary R15). The functions a template's own text already names are
+        // refused here, on every target, as a literal's are.
+        if let Expr::Template(parts, _) = value {
+            if rows.contains(&StyleId::BackgroundImage) || rows.contains(&StyleId::MaskImage) {
+                let text: String = parts
+                    .iter()
+                    .map(|p| match p {
+                        contract_syntax::TemplatePart::Text(t) => t.as_str(),
+                        contract_syntax::TemplatePart::Expr(_) => " ",
+                    })
+                    .collect();
+                if let Some(why) = exact_kernel::gradient::refused_function(&text) {
+                    return err(
+                        "lower-attr-value",
+                        format!("`{}=…`: {why} — no host but the browser paints it, so the native ones would drop it", a.name),
+                        span,
+                    );
+                }
+            }
         }
         // @ref LLP 1043.000 §3 D1 — keep the full wire vocabulary, narrow authoring.
         if let Expr::Str(v, _) = value {
@@ -433,6 +545,9 @@ pub(crate) fn check_style_value(
                 && matches!(v.as_str(), "text" | "all" | "contain")
             {
                 return err("lower-css-user-select", "CSS user-select text/all/contain require selectable text and selection ownership on iOS and Linux; those presenters do not implement it. Supported portable values are auto and none", span);
+            }
+            if rows.contains(&StyleId::PositionArea) && !POSITION_AREAS.contains(&v.trim()) {
+                return err("lower-css-position-area", format!("`position-area=\"{v}\"`: exact2 places an invoker's popover in a subset of CSS `position-area`: {}. Other areas (left, right, a corner, span-left, logical keywords) are not implemented by the native top layers; a flip is `position-try`, also not implemented", POSITION_AREAS.join(", ")), span);
             }
             if rows.contains(&StyleId::WrapFlow) && !matches!(v.as_str(), "auto" | "both") {
                 return err("lower-attr-value", "unsupported `wrap-flow` value: CSS Exclusions defines it; exact2 v1 implements `both` (or `auto`)", span);
@@ -498,6 +613,11 @@ pub(crate) fn check_style_value(
                     span,
                 );
             }
+            if rows.contains(&StyleId::TextIndent)
+                && (v.trim().ends_with('%') || v.contains("hanging") || v.contains("each-line"))
+            {
+                return err("lower-attr-value", format!("`text-indent=\"{v}\"`: exact2 implements a length (a number of pixels, or `rem` or `em`; negative hangs the first line); a percentage of the containing block and the `hanging` and `each-line` keywords are not implemented. For a hanging indent write a negative length with the same `padding-left`"), span);
+            }
             if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
                 return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);
             }
@@ -528,6 +648,7 @@ pub(crate) fn check_style_value(
         // The compiler checks every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
         exact_kernel::style::link_segments();
+        exact_kernel::style::link_wide_colors();
         exact_kernel::timeline::link();
         let literal = match value {
             expr if numeric_literal(expr).is_some() => {
@@ -564,6 +685,22 @@ pub(crate) fn check_style_value(
             Some(v) => {
                 let mut probe = StyleProps::default();
                 for row in rows {
+                    // `unset`, or `inherit` on an inherited row: the row is
+                    // cleared where it binds (feed F1).
+                    if v.unsets(*row) {
+                        continue;
+                    }
+                    if matches!(&v, StyleValue::Text(t) if t.trim().eq_ignore_ascii_case("inherit"))
+                    {
+                        return err(
+                            "lower-attr-value",
+                            format!(
+                                "`{}=\"inherit\"`: `{}` does not inherit, and exact2 inherits only the rows CSS inherits; write the value",
+                                a.name, a.name
+                            ),
+                            span,
+                        );
+                    }
                     if let Err(e) = probe.set_dynamic(*row, &v) {
                         // A number written as a pixel string: say the number.
                         let pixels = match (&e, value) {
@@ -656,6 +793,20 @@ pub(crate) fn check_style_value(
 /// HTML's enumerated attributes whose IDL attributes are bools, as the words
 /// a bool is written: `spellcheck`'s `true`/`false`, `autocorrect`'s
 /// `on`/`off`.
+/// An ARIA state whose value is a word, a bool among them (`true`/`false`):
+/// the words it takes, a bool expression written as one of the first two.
+pub(crate) fn aria_words(prop: PropId) -> Option<(&'static str, &'static [&'static str])> {
+    Some(match prop {
+        PropId::AccessibilityPressed => ("aria-pressed", &["true", "false", "mixed"]),
+        PropId::AccessibilityInvalid => ("aria-invalid", &["true", "false", "grammar", "spelling"]),
+        PropId::AccessibilityHasPopup => (
+            "aria-haspopup",
+            &["true", "false", "menu", "listbox", "tree", "grid", "dialog"],
+        ),
+        _ => return None,
+    })
+}
+
 pub(crate) fn bool_words(prop: PropId) -> Option<(&'static str, &'static str)> {
     match prop {
         PropId::Spellcheck => Some(("true", "false")),
@@ -739,12 +890,14 @@ pub(crate) fn check_prop_value(
             }
         }
     }
-    // ARIA `aria-pressed`: `true`, `false` or `mixed`, or a bool.
-    if prop == PropId::AccessibilityPressed {
-        if matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "true" | "false" | "mixed")) {
+    // ARIA's word-valued states (`aria-pressed`'s `mixed`), or a bool.
+    if let Some((attr, words)) = aria_words(prop) {
+        if matches!(value, Expr::Str(s, _) if !words.contains(&s.as_str())) {
+            let (last, rest) = words.split_last().unwrap();
+            let rest: Vec<String> = rest.iter().map(|w| format!("\"{w}\"")).collect();
             return err(
                 "lower-attr-value",
-                "`aria-pressed` takes a bool or \"true\", \"false\" or \"mixed\"",
+                format!("`{attr}` takes a bool or {} or \"{last}\"", rest.join(", ")),
                 span,
             );
         }

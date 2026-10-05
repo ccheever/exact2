@@ -91,7 +91,7 @@ check('down before the press, up wherever the button lifts, nothing when disable
     expect(await log()).toEqual(['mic down', 'mic move', 'mic up']);
     const [down, held, up] = await records();
     const box = await evaluate(`(() => { const e = document.getElementById('mic'), r = e.getBoundingClientRect(), s = getComputedStyle(e); return [r.x + parseFloat(s.borderLeftWidth) + parseFloat(s.paddingLeft), r.y + parseFloat(s.borderTopWidth) + parseFloat(s.paddingTop)]; })()`);
-    expect(down.slice(2)).toEqual(['1', '0.5', 'mouse', '1']);
+    expect(down.slice(2)).toEqual(['1', '0.5', 'mouse', '1', '']); // no modifier held (gallery F20)
     expect([+held[0], +held[1]]).toEqual([500 - box[0], 800 - box[1]]);
     expect(held.slice(2, 5)).toEqual(['1', '0.5', 'mouse']);
     expect(up.slice(2, 4)).toEqual(['0', '0']);
@@ -100,10 +100,11 @@ check('down before the press, up wherever the button lifts, nothing when disable
     await frame();
     expect(await log()).toEqual(['mic move']);
     expect((await records())[0].slice(2, 5)).toEqual(['0', '0', 'mouse']);
-    // The secondary button is not the pointer's.
+    // The secondary button's too, as the DOM's (studio diary R22): `buttons` says which.
     await mouse('mousePressed', mic, 'right');
     await mouse('mouseReleased', mic, 'right');
-    expect((await log()).filter(l => !l.endsWith('press'))).toEqual([]);
+    expect((await log()).filter(l => !l.endsWith('press'))).toEqual(['mic down', 'mic up']);
+    expect((await records())[0][2]).toBe('2');
     // A disabled node hears nothing.
     const off = await centre('off');
     await mouse('mousePressed', off);

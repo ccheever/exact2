@@ -1,0 +1,46 @@
+// `formatTime` and `formatDate` at fixed UTC offsets: the day period,
+// midnight and noon, the epoch, negative instants (truncated toward zero),
+// the first and last formatted wall times, leap days, and the invalid (an
+// offset past 18 h, a non-finite instant, a year outside 1–9999) as "".
+fn all(t: number, o: number): string = `${formatTime(t, o, "short")} / ${formatDate(t, o, "medium")} / ${formatDate(t, o, "month-year")}`
+
+component App
+  state offset = 0
+  state shift = 0
+  state d = 0
+  derive a = `${all(0 + shift, offset)} | ${all(-0.5 + shift, offset)} | ${all(-1 + shift, offset)} | ${all(43200000 + shift, offset)} | ${all(86399999 + shift, offset)}`
+  derive b = `${all(1790000000000 + shift, offset)} | ${all(1790000000000.9 + shift, offset)} | ${all(951782400000 + shift, offset)} | ${all(1709164800000 + shift, offset)}`
+  derive edges = `${all(-62135596800000 + shift, offset)} | ${all(253402300799999 + shift, offset)} | ${all(253402300800000 + shift, offset)} | ${all(-62135596800001 + shift, offset)}`
+  derive bad = formatTime(1 / d, 0, "short") + formatDate(0, 1081, "medium") + formatDate(d / d, 0, "month-year") + formatTime(0, -1081, "short")
+  action east
+    offset = offset + 330
+  action west
+    offset = offset - 600
+  action far
+    offset = 1080
+  action step
+    shift = shift + 3600000 * 7 + 60000 * 13
+  view
+    column
+      text a testId="a"
+      text b testId="b"
+      text edges testId="edges"
+      text `[${bad}]` testId="bad"
+      button "east" press=east testId="east"
+      button "west" press=west testId="west"
+      button "far" press=far testId="far"
+      button "step" press=step testId="step"
+
+test "offsets"
+  expect text "bad" == "[]"
+  tap "east"
+  tap "west"
+  tap "west"
+  tap "far"
+  tap "step"
+  tap "step"
+
+test "clock"
+  tap "step"
+  clock +1000
+  tap "east"

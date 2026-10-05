@@ -152,7 +152,7 @@ fn a_bad_side_or_a_fifth_value_is_refused_at_compile_time() {
             "#ff0000 #00ff00 #0000ff #ffffff #000000",
             "one to four values",
         ),
-        ("#ff0000 reddish", "not a valid `border-color`"),
+        ("#ff0000 blurple", "not a valid `border-color`"),
     ] {
         let src = format!("component A\n  view\n    box border-color=\"{value}\"\n");
         let e = contract::compile(&src).unwrap_err();
@@ -206,6 +206,46 @@ fn padding_margin_border_width_and_inset_take_one_to_four_values_as_css_expands_
         .unwrap_err();
     assert!(
         format!("{e}").contains("`padding` takes one to four values"),
+        "{e}"
+    );
+}
+
+/// Ledger2 Rough 5: `border-radius` is CSS's one-to-four-value corner
+/// shorthand (top-left, top-right, bottom-right, bottom-left), in an
+/// attribute and a `style`, as `padding` is a side's.
+#[test]
+fn border_radius_takes_one_to_four_corners() {
+    let r = boot(
+        "style Sheet\n  border-radius=\"18px 9px\"\ncomponent A\n  view\n    column\n      box border-radius=\"18px 18px 0 0\" testId=\"top\" width=40 height=40\n      box border-radius=\"1px 2px 3px\" testId=\"three\" width=40 height=40\n      box class=Sheet testId=\"sheet\" width=40 height=40\n      box border-radius=\"50%\" testId=\"one\" width=40 height=40\n",
+    );
+    let corners = |id: &str| {
+        let s = style_of(&r, id);
+        [
+            s.border_radius_top_left,
+            s.border_radius_top_right,
+            s.border_radius_bottom_right,
+            s.border_radius_bottom_left,
+        ]
+        .map(|c| format!("{c:?}"))
+    };
+    let [tl, tr, br, bl] = corners("top");
+    assert!(tl == tr && br == bl && tl != br, "{:?}", corners("top"));
+    let [tl, tr, br, bl] = corners("three");
+    assert!(
+        tr == bl && tl != tr && br != tr && tl != br,
+        "{:?}",
+        corners("three")
+    );
+    let [tl, tr, br, bl] = corners("sheet");
+    assert!(tl == br && tr == bl && tl != tr, "{:?}", corners("sheet"));
+    let [tl, tr, br, bl] = corners("one");
+    assert!(tl == tr && tr == br && br == bl, "{:?}", corners("one"));
+    let e = contract::compile(
+        "component A\n  view\n    box border-radius=\"18px / 9px 1px 2px 3px\"\n",
+    )
+    .unwrap_err();
+    assert!(
+        format!("{e}").contains("`border-radius` takes one to four values (top-left"),
         "{e}"
     );
 }

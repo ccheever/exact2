@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 and 21 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21 and 26 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -788,10 +788,9 @@ table-marked root. This matches Chrome's 13 px checkbox for
 `#exact-root > input` in a 400 px wrapper rather than treating the projected
 element as an ordinary block root.
 
-The kernel uses this existing internal marker for HTML form controls. It lets
-Exact's reset `<button>` keep its authored flex-column contents while retaining
-HTML's shrink-to-fit block width; text fields and leaf controls follow the same
-path. `kernel/tests/it/browser_controls.rs` holds the Chrome 154 matrix across
+The kernel uses this existing internal marker for HTML form controls. It gives
+Exact's reset `<button>`, block, flex or grid, HTML's shrink-to-fit block
+width; text fields and leaf controls follow the same path. `kernel/tests/it/browser_controls.rs` holds the Chrome 154 matrix across
 block, flex row, flex column, grid and absolute placement.
 
 ## Patch 25: available space excludes the child's margins
@@ -817,3 +816,19 @@ flex children treated block/grid and leaf/flex widths differently.
 Both incremental/rehydrated/replayed layout differentials also pass 500 seeds
 each, 40 mutations per seed (2026-10-02); the larger loop was a temporary run,
 with the ordinary checked-in smoke counts restored afterward.
+
+## Patch 26: block `align-content` moves absolute children's static positions — to upstream
+
+**Implementer:** Claude (Opus 5.5), 2026-10-04, for the button reversal (LLP 1001 §1).
+
+Upstream shifts only in-flow children by the group offset, and none when
+nothing is in flow. CSS Box Alignment aligns the block container's content,
+and Chrome 154 places an absolutely positioned child at its static position
+within that aligned content: after a centred 20px child in a 100px box at 60
+(Taffy: 20), and a lone one at 50 (Taffy: 0). The offset is now computed
+whenever `align-content` is set and added to every absolute item's static
+position; in-flow items and the first baseline move as before.
+
+The kernel lays out a block `button`'s content with `align-content: safe
+center`, HTML's anonymous button box. **Held by**
+`browser_cases::a_button_lays_out_its_content_as_chrome_does`.

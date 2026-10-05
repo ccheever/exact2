@@ -2,7 +2,23 @@
 // globals. Host modules keep the browser's functions at every load time.
 import { fetchWith } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
-export const fetch = (input, options) => fetchWith(tsGrantSet, input, options);
+export const fetch = (input, options) => options?.exactStream === undefined ? fetchWith(tsGrantSet, input, options) : stream(input, options);
+
+// An answer that keeps coming (LLP 1016.000), with Hermes's words
+// (js/src/prelude.js): the stream is the answer's, so its fetch is made while
+// the answer is asked (`answering`, set by ts-data.js), which opens it. Its
+// promise never settles: the answer is what `exactStream` maps each event to.
+export const answering = { call: null };
+function stream(input, init) {
+  const call = answering.call;
+  // Hermes also claims a stream started after an await; this page has no
+  // turn to tie one to, so it says where to start it.
+  if (!call) return Promise.reject(new Error('fetch() with exactStream outside an answer: on the web a stream starts as its answer is asked, before the answer\'s first await'));
+  if (call.stream) return Promise.reject(new Error('an answer streams one request'));
+  // Checked and opened by ts-stream.js, which only a streaming module loads.
+  call.stream = { input, init };
+  return new Promise(() => {});
+}
 
 // Time and seeds are source arguments (LLP 1027.000 D3): the app's modules see
 // these in place of the page's Date, Math, Intl, timers and performance, each

@@ -235,28 +235,40 @@ impl Value {
     }
 
     /// Whether the value conforms to `ty` in `plan` — the `shape` check at the
-    /// data seam and the type check on compiled data.
+    /// data seam and the type check on compiled data. A number conforms
+    /// only when it is finite.
     pub fn conforms(&self, plan: &Plan, ty: TypesId) -> bool {
+        self.conforms_finite(plan, ty, true)
+    }
+
+    /// Whether the value has type `ty`, its numbers any (infinities and NaN
+    /// included): the check on an argument the compiler supplies rather
+    /// than the host, a child's captured prop (`@capture:…`).
+    pub fn typed(&self, plan: &Plan, ty: TypesId) -> bool {
+        self.conforms_finite(plan, ty, false)
+    }
+
+    fn conforms_finite(&self, plan: &Plan, ty: TypesId, finite: bool) -> bool {
         let row = plan.type_(ty);
         match (row.kind, self) {
-            (TypeKind::Number, Value::Number(n)) => n.is_finite(),
+            (TypeKind::Number, Value::Number(n)) => !finite || n.is_finite(),
             (TypeKind::Bool, Value::Bool(_)) => true,
             (TypeKind::String, Value::HeapStr(_) | Value::InlineStr(_)) => true,
             (TypeKind::Unit, Value::Unit) => true,
             (TypeKind::Option, Value::Option(None)) => true,
             (TypeKind::Option, Value::Option(Some(v))) => {
-                row.elem.is_some_and(|e| v.conforms(plan, e))
+                row.elem.is_some_and(|e| v.conforms_finite(plan, e, finite))
             }
             (TypeKind::List, Value::List(items)) => row
                 .elem
-                .is_some_and(|e| items.iter().all(|v| v.conforms(plan, e))),
+                .is_some_and(|e| items.iter().all(|v| v.conforms_finite(plan, e, finite))),
             (TypeKind::Record, Value::Record(values)) => {
                 let fields = row.fields;
                 values.len() == fields.len as usize
                     && fields
                         .iter()
                         .zip(values.iter())
-                        .all(|(f, v)| v.conforms(plan, plan.field(f).ty))
+                        .all(|(f, v)| v.conforms_finite(plan, plan.field(f).ty, finite))
             }
             _ => false,
         }

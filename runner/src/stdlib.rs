@@ -54,7 +54,56 @@ pub fn call(
         .map(|s| Value::str(&s))
         .ok_or(CallError::StringTooLong);
     }
-    call_value(f, args, now_ms, plan, router, format, geometry).ok_or(CallError::TypeMismatch)
+    if let Some(v) = text(f, args)? {
+        return Ok(v);
+    }
+    let v = call_value(f, args, now_ms, plan, router, format, geometry)
+        .ok_or(CallError::TypeMismatch)?;
+    // An encoding is a string the expression builds, bounded like the rest
+    // (LLP 1090 D6), checked after the route segment's empty and dot refusal.
+    if matches!(f, Stdlib::EncodeURIComponent | Stdlib::EncodeRouteSegment)
+        && v.as_str().is_some_and(|s| s.len() > crate::vm::MAX_STRING)
+    {
+        return Err(CallError::StringTooLong);
+    }
+    Ok(v)
+}
+
+/// The string functions that build a string (LLP 1088 D2), each bounded by
+/// `MAX_STRING` alone, as one call counted as its whole output; `None` for
+/// every other entry.
+fn text(f: Stdlib, args: &[Value]) -> Result<Option<Value>, CallError> {
+    use crate::{strings, vm::MAX_STRING};
+    let s = |i: usize| {
+        args.get(i)
+            .and_then(Value::as_str)
+            .ok_or(CallError::TypeMismatch)
+    };
+    let n = |i: usize| {
+        args.get(i)
+            .and_then(Value::as_number)
+            .ok_or(CallError::TypeMismatch)
+    };
+    Ok(Some(match f {
+        Stdlib::Slice => Value::str(&strings::slice(s(0)?, n(1)?, n(2)?)),
+        Stdlib::ReplaceAll => Value::str(
+            &strings::replace_all(s(0)?, s(1)?, s(2)?, MAX_STRING)
+                .map_err(|_| CallError::StringTooLong)?,
+        ),
+        // The case tables through `text-transform`'s link, which a web
+        // artifact holds only when its plan uses them (LLP 1047 D6 refuses
+        // one that does not at boot); unlinked, a trap.
+        Stdlib::ToLowerCase => {
+            let lower = exact_kernel::linked_lowercase().ok_or(CallError::TypeMismatch)?;
+            let out = lower(s(0)?, MAX_STRING).ok_or(CallError::StringTooLong)?;
+            if out == s(0)? {
+                args[0].clone()
+            } else {
+                Value::str(&out)
+            }
+        }
+        _ => return Ok(None),
+    }))
 }
 
 fn call_value(
@@ -169,6 +218,9 @@ fn call_value(
         Stdlib::Max => Value::Number(num(0)?.max(num(1)?)),
         Stdlib::Min => Value::Number(num(0)?.min(num(1)?)),
         Stdlib::T => unreachable!("interpolation is bounded by call"),
+        Stdlib::Slice | Stdlib::ReplaceAll | Stdlib::ToLowerCase => {
+            unreachable!("strings are bounded by call")
+        }
     })
 }
 
@@ -509,6 +561,28 @@ mod tests {
             );
         }
     }
+    /// An encoding one byte past `MAX_STRING` traps, after the route
+    /// segment's own refusal of `""` (LLP 1090 D6).
+    #[test]
+    fn the_encoders_trap_one_byte_past_the_longest_string() {
+        let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
+            .finish()
+            .unwrap();
+        let encode = |f, text: &str| call(f, &[Value::str(text)], 0.0, &plan, None, None, None);
+        let max = crate::vm::MAX_STRING;
+        for f in [Stdlib::EncodeURIComponent, Stdlib::EncodeRouteSegment] {
+            // A space encodes to `%20`: three bytes.
+            let fits = "a".repeat(max - 3) + " ";
+            assert!(encode(f, &fits).is_ok_and(|v| v.as_str().map(str::len) == Some(max)));
+            let over = "a".repeat(max - 2) + " ";
+            assert_eq!(encode(f, &over), Err(CallError::StringTooLong));
+        }
+        assert_eq!(
+            encode(Stdlib::EncodeRouteSegment, ""),
+            Err(CallError::TypeMismatch)
+        );
+    }
+
     #[test]
     fn at_answers_what_javascript_answers() {
         let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)

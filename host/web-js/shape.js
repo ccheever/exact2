@@ -1,6 +1,6 @@
 // A value's shape check by the plan's type codes (LLP 1005 §3), for rt.js.
-/** Whether `v` conforms to type code `t` (`n b s u ?T [T {T…}`), from `i`;
- * numbers are finite, as the runner's shape checks require. `o` is a value
+/** Whether `v` conforms to type code `t` (`n N b s u ?T [T {T…}`), from `i`;
+ * numbers are finite (`N`: any number), as the runner's checks require. `o` is a value
  * that conformed: a part of `v` that is the same array as its part in `o`
  * conforms as it did, unchecked (the Rust runner's `Conformed` re-checks
  * only the list items that are not the same object, runner/src/conform.rs). */
@@ -8,6 +8,7 @@ export function conforms(v, t, i = [0], o) {
   if (o !== undefined && v === o && typeof v === "object" && v !== null) { skip(t, i); return true; }
   const c = t[i[0]++];
   if (c === "n") return typeof v === "number" && isFinite(v);
+  if (c === "N") return typeof v === "number"; // any number: a hidden parameter's (emit.rs)
   if (c === "b") return typeof v === "boolean";
   if (c === "s") return typeof v === "string";
   if (c === "u") return v == null;
@@ -22,7 +23,19 @@ export function conforms(v, t, i = [0], o) {
   return true;
 }
 function skip(t, i) { const c = t[i[0]++]; if (c === "?" || c === "[") skip(t, i); else if (c === "{") { while (t[i[0]] !== "}") skip(t, i); i[0]++; } }
-/** Plan value equality: signed zero, NaN, and recursively equal lists. */
+/** Contract's `==`, and what the runner compares a resource's arguments
+ * with (runner/src/compare.rs `equal`, `Value`'s `PartialEq`): numbers as
+ * IEEE compares them (`-0` equals `0`, NaN equals nothing, itself
+ * included), lists and records item by item. */
+export function equal(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return a === b;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (!equal(a[i], b[i])) return false;
+  return true;
+}
+/** Plan value identity, for change detection (an equal value keeps its old
+ * object): signed zero told apart, NaN the same as itself, and recursively
+ * equal lists. Not Contract's `==`, which is `equal`. */
 export function eq(a, b) {
   if (a === b) return a !== 0 || 1 / a === 1 / b;
   if (typeof a === "number" && typeof b === "number") return a !== a && b !== b;

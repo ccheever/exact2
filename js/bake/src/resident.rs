@@ -17,15 +17,13 @@ pub struct Producer {
 impl Producer {
     /// Start a producer using the requested tools. Compiler overrides are not ignored.
     pub fn new(tools: Tools) -> Result<Self, String> {
+        if exact_js::ENGINE_LINKED {
+            tools.check_engine()?;
+        }
         let stage = Scratch::new(&std::env::temp_dir())?;
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let standard = |tool: &Path, name: &str| {
-            tool.canonicalize().ok()
-                == root
-                    .join("node_modules/.bin")
-                    .join(name)
-                    .canonicalize()
-                    .ok()
+            tool.canonicalize().ok() == super::hermes::package_tool(&root, name).canonicalize().ok()
                 && tool.exists()
         };
         let compiler = if standard(&tools.tsc, "tsc") && standard(&tools.rolldown, "rolldown") {
@@ -135,7 +133,7 @@ impl Drop for Compiler {
 const WORKER: &str = r#"
 import { rolldown } from 'rolldown';
 import { realpathSync, rmSync } from 'node:fs';
-import { resolve, dirname, sep } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 const stage=realpathSync(process.argv[1]);
@@ -148,14 +146,14 @@ async function compile() {
   // Generated output is not a captured input. Remove it before resolution,
   // so an app's ./app.js import follows the same TS substitution as one-shot.
   rmSync(resolve(stage,'app.js'),{force:true});
-  const { configure, check } = await import(resolve(stage,'__exact_config.mjs'));
+  const { configure, check, assertCapturedModule } = await import(resolve(stage,'__exact_config.mjs'));
   configure(stage, true);
   const checking=check(stage,tsc,libraries).then(()=>null,error=>error);
   let failed;
   try {
   const bundle=await rolldown({cwd:stage,input:resolve(stage,'__exact_entry.ts'),platform:'neutral',
     tsconfig:config,
-    plugins:[{name:'captured-sources',load(id){if(!id.startsWith(stage+sep))throw new Error('module outside captured app: '+id);return null;}}]});
+    plugins:[{name:'captured-sources',load(id){assertCapturedModule(stage,id);return null;}}]});
   try { await bundle.write({file:resolve(stage,'app.js'),format:'iife',name:'exact'}); }
   finally { await bundle.close(); }
   process.stdout.write('{"phase":"bundled"}\n');
@@ -245,8 +243,8 @@ mod tests {
         write(
             "__exact_paths.json",
             &serde_json::json!({
-                "app": stage.0.join("original/app"),
-                "mounts": [["lib", stage.0.join("original/shared")]]
+                "app": stage.0.join("original").join("app"),
+                "mounts": [["lib", stage.0.join("original").join("shared")]]
             })
             .to_string(),
         );

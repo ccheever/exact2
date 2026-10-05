@@ -309,7 +309,7 @@ component Content
             when deck
               canvas surface=stack(northBoard, focus, deck, nowMs) width="100%" height=460 testId="deck"
                 each d in northBoard key=d.id
-                  button press=focusDeparture(d.id) aria-label=`Train ${d.train}` testId=`card-${d.id}` width="100%"
+                  button press=focusDeparture(d.id) aria-label=`Train ${d.train}` testId=`card-${d.id}` width="100%" text-align="start"
                     column border-radius=16 padding=16 gap=6 background-color="#ffffff" width="100%" box-sizing="border-box"
                       row gap=8 align-items="flex-end"
                         text countdownText(d.at, nowMs) font-size="1.875em" font-weight=800
@@ -382,7 +382,7 @@ component StationRow
     hover: action
     hot: bool
   view
-    button press=press(station.id) hover=hover(station.id) aria-label=station.name testId=`station-${station.id}` width="100%"
+    button press=press(station.id) hover=hover(station.id) aria-label=station.name testId=`station-${station.id}` width="100%" text-align="start"
       // One row whose highlight is bound, not two arms: a hover then sets
       // two rows on one view instead of retiring five views and building
       // five more (`perf stations-screen during "tap station-mv hover"`,

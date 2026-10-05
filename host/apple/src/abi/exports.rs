@@ -354,11 +354,11 @@ macro_rules! host {
             $crate::abi::gesture_constant(which)
         }
 
-        /// Move the clock; nonzero `until_request` stops after a timer that
-        /// sends. Returns the batch's length.
+        /// Move the clock; `mode` as `Bridge::advance` (0 the wall clock, 1
+        /// the agent's jump, 2 an input's `then`s). Returns the batch's length.
         #[no_mangle]
-        pub extern "C" fn exact_advance(rt: u32, now_ms: f64, until_request: u32) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.advance(now_ms, until_request != 0), |n| n)
+        pub extern "C" fn exact_advance(rt: u32, now_ms: f64, mode: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.advance(now_ms, mode), |n| n)
         }
 
         /// A presented display frame at `now_ms` (LLP 1073 D5): timers due
@@ -468,6 +468,20 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_view_scheme(rt: u32, view: u32, dark: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.view_scheme(view, dark != 0), |n| n)
+        }
+
+        /// Every colour reference the presenter should resolve (LLP 1095
+        /// D1), as JSON in the output buffer; returns its length.
+        #[no_mangle]
+        pub extern "C" fn exact_color_references(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.color_references(), |n| n)
+        }
+
+        /// The presenter's colour resolutions from the input buffer (LE
+        /// records: u8 kind, u8 dark, u16 id, rgba8); returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_colors(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.colors(len), |n| n)
         }
 
         /// An image loaded (or failed: a size ≤ 0); returns the batch's length.

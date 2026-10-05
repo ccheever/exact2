@@ -64,6 +64,22 @@ private struct Shortcut {
         }
         return characters?.lowercased() == keyEquivalent.lowercased()
     }
+    /// The chords a Mac's Edit menu holds (Apple's HIG): Undo, Redo, Cut,
+    /// Copy, Paste, Select All, Duplicate, and Find with its next and
+    /// previous (studio diary R16).
+    var isEdit: Bool {
+        switch (key, modifiers) {
+        case ("z", .command), ("z", [.command, .shift]), ("x", .command), ("c", .command), ("v", .command),
+             ("a", .command), ("d", .command), ("f", .command), ("g", .command), ("g", [.command, .shift]): return true
+        default: return false
+        }
+    }
+    /// The chords a Mac's View menu holds: zoom in, out and to actual size,
+    /// and the Control-Command ones (Show Sidebar ⌃⌘S, Full Screen ⌃⌘F).
+    var isView: Bool {
+        if modifiers == [.command, .control] { return true }
+        return modifiers.subtracting(.shift) == .command && ["=", "Plus", "+", "-", "0"].contains(key)
+    }
     func permits(_ responder: NSResponder?) -> Bool {
         // A declared command can use Command/Control inside an editor. Text,
         // cursor motion and Option's text input stay with its input client;
@@ -97,15 +113,29 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     private weak var fileMenu: NSMenu?
     private weak var applicationMenu: NSMenu?
     private weak var navigationMenu: NSMenu?
+    private weak var editMenu: NSMenu?
+    private weak var viewMenu: NSMenu?
     private var items: [UInt32: NSMenuItem] = [:]
     private let fileSeparator = NSMenuItem.separator()
     private let settingsSeparator = NSMenuItem.separator()
+    private let editSeparator = NSMenuItem.separator()
+    private let viewSeparator = NSMenuItem.separator()
+    /// The host's own items an app command stands in for (Edit ▸ Undo, …),
+    /// hidden while it does; and those whose chord an app command took, with
+    /// the chord to give back (studio diary R16).
+    private var replaced: [NSMenuItem] = []
+    private var unbound: [(NSMenuItem, String, NSEvent.ModifierFlags)] = []
     init(presenter: Presenter) { self.presenter = presenter }
-    func attach(_ file: ShortcutMenu, application: ShortcutMenu? = nil, navigation: ShortcutMenu? = nil) {
-        for item in Array(items.values) + [fileSeparator, settingsSeparator] { item.menu?.removeItem(item) }
+    func attach(_ file: ShortcutMenu, application: ShortcutMenu? = nil, navigation: ShortcutMenu? = nil,
+                edit: ShortcutMenu? = nil, view: ShortcutMenu? = nil) {
+        for item in Array(items.values) + [fileSeparator, settingsSeparator, editSeparator, viewSeparator] { item.menu?.removeItem(item) }
+        replaced = []
+        unbound = []
         fileMenu = file
         applicationMenu = application
         navigationMenu = navigation
+        editMenu = edit
+        viewMenu = view
         sync()
     }
 
@@ -125,11 +155,13 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     func perform(_ event: NSEvent) -> Bool {
         // Escape belongs to the input method while composition is active.
         if event.keyCode == 53, let editor = event.window?.firstResponder as? NSTextView, editor.hasMarkedText() { return false }
+        let focus = presenter?.keyTarget(event.window?.firstResponder)
         guard event.type == .keyDown,
               (event.window?.firstResponder as? NSTextInputClient)?.hasMarkedText() != true,
-              let view = nodes().first(where: {
-                  !$0.inert && $0.window === event.window && $0.window?.attachedSheet == nil
-                      && declarations($0).contains(where: { $0.matches(event) && $0.permits(event.window?.firstResponder) })
+              let view = nodes().first(where: { node in
+                  !node.inert && node.window === event.window && node.window?.attachedSheet == nil
+                      && declarations(node).contains(where: { $0.matches(event) && $0.permits(event.window?.firstResponder) })
+                      && presenter?.shortcutAdmits(node, key: NodeView.keyName(event), held: KeyCodes.held(event.modifierFlags), focus: focus) == true
               }) else { return false }
         if !event.isARepeat && !view.disabled { presenter?.press(view.id) }
         return true
@@ -146,7 +178,10 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         var file: [NSMenuItem] = []
         var application: [NSMenuItem] = []
         var navigation: [NSMenuItem] = []
+        var editItems: [NSMenuItem] = []
+        var viewItems: [NSMenuItem] = []
         var live: Set<UInt32> = []
+        var chords: [(NSMenuItem, Shortcut?)] = []
         for view in nodes() {
             // A platform alternative does not create a second menu item.
             let shortcut = declarations(view).first(where: { $0.modifiers.contains(.command) })
@@ -157,8 +192,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             item.title = title(view)
             // A symbol a button shows is its item's image (LLP 1069.011.000 D7).
             item.image = view.isButton ? view.face?.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) } : nil
-            item.keyEquivalent = shortcut?.keyEquivalent ?? ""
-            item.keyEquivalentModifierMask = shortcut?.modifiers ?? []
+            chords.append((item, shortcut))
             item.target = self
             item.representedObject = NSNumber(value: view.id)
             item.isEnabled = !view.disabled && !view.inert && view.window?.attachedSheet == nil
@@ -170,12 +204,32 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
                 application.append(item)
             } else if navigationMenu != nil, let shortcut, isNavigation(view, shortcut: shortcut) {
                 navigation.append(item)
+            } else if editMenu != nil, let shortcut, shortcut.isEdit {
+                editItems.append(item)
+            } else if viewMenu != nil, let shortcut, shortcut.isView {
+                viewItems.append(item)
             } else {
                 file.append(item)
             }
         }
         for id in Array(items.keys) where !live.contains(id) {
             if let item = items.removeValue(forKey: id) { item.menu?.removeItem(item) }
+        }
+        // AppKit keeps one item per chord in the bar: giving an item a chord
+        // another has takes it from that one. So the host's items give theirs
+        // up before the app's take them, and get them back only once no
+        // command claims them (studio diary R16).
+        let claimed = chords.compactMap { $0.1.map { ($0.keyEquivalent.lowercased(), $0.modifiers) } }
+        release(keeping: claimed)
+        claim(claimed)
+        for (item, shortcut) in chords {
+            item.keyEquivalent = shortcut?.keyEquivalent ?? ""
+            item.keyEquivalentModifierMask = shortcut?.modifiers ?? []
+        }
+        if let editMenu { placeEdit(editItems, in: editMenu) }
+        if let viewMenu {
+            if !viewItems.isEmpty { viewItems.append(viewSeparator) } else { viewSeparator.menu?.removeItem(viewSeparator) }
+            place(viewItems, in: viewMenu, at: 0)
         }
         // Reconcile only our own items. In particular, Open… and Close must
         // survive the next plan batch. Existing command objects stay stable.
@@ -195,6 +249,75 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             place(navigation, in: navigationMenu, at: 0)
             navigationMenu.supermenu?.items.first(where: { $0.submenu === navigationMenu })?.isHidden = navigation.isEmpty
         }
+    }
+    /// Edit's commands (studio diary R16): one whose chord is a host item's
+    /// own — Undo ⌘Z, Redo ⇧⌘Z, Cut, Copy, Paste, Select All — stands in its
+    /// place, the host's hidden while it does (`claim`), so Edit ▸ Undo is
+    /// the app's "Undo Move" whatever has the focus, as its ⌘Z already is;
+    /// the rest follow the host's items, after a separator.
+    private func placeEdit(_ commands: [NSMenuItem], in menu: NSMenu) {
+        var extra: [NSMenuItem] = []
+        for item in commands {
+            if let host = unbound.first(where: { host, key, mask in
+                host.menu === menu && replaced.contains { $0 === host } && Self.same((key.lowercased(), mask), (item.keyEquivalent.lowercased(), item.keyEquivalentModifierMask))
+            })?.0 {
+                if item.menu !== menu || menu.index(of: item) != menu.index(of: host) {
+                    item.menu?.removeItem(item)
+                    menu.insertItem(item, at: menu.index(of: host))
+                }
+            } else {
+                extra.append(item)
+            }
+        }
+        if extra.isEmpty { editSeparator.menu?.removeItem(editSeparator); return }
+        let tail = [editSeparator] + extra
+        for item in tail where item.menu === menu { menu.removeItem(item) }
+        for item in tail { menu.addItem(item) }
+    }
+    /// The host's items whose chord no command claims any longer get it
+    /// back, and come back into view.
+    private func release(keeping claimed: [(String, NSEvent.ModifierFlags)]) {
+        let held = { (key: String, mask: NSEvent.ModifierFlags) in claimed.contains { Self.same($0, (key.lowercased(), mask)) } }
+        unbound.removeAll { host, key, mask in
+            guard !held(key, mask) else { return false }
+            host.keyEquivalent = key
+            host.keyEquivalentModifierMask = mask
+            host.isHidden = false
+            replaced.removeAll { $0 === host }
+            return true
+        }
+    }
+    /// No chord twice in the bar: a host item whose chord a command declares
+    /// gives it up and keeps its place (File ▸ New Window beside the app's
+    /// ⌘N, Develop ▸ App Info beside its ⌘D) — or, for Edit's own roles,
+    /// steps aside for the command (`placeEdit`).
+    private func claim(_ claimed: [(String, NSEvent.ModifierFlags)]) {
+        guard let bar = fileMenu?.supermenu else { return }
+        var menus = bar.items.compactMap(\.submenu)
+        while let menu = menus.popLast() {
+            for host in menu.items where !(host.target is ShortcutHost) {
+                if let sub = host.submenu { menus.append(sub) }
+                guard !host.keyEquivalent.isEmpty,
+                      claimed.contains(where: { Self.sameChord(host, key: $0.0, $0.1) }) else { continue }
+                unbound.append((host, host.keyEquivalent, host.keyEquivalentModifierMask))
+                if menu === editMenu, Self.editRoles.contains(host.action ?? Selector("")) {
+                    host.isHidden = true
+                    replaced.append(host)
+                }
+                host.keyEquivalent = ""
+            }
+        }
+    }
+    /// The host's Edit items an app command may stand in for.
+    private static let editRoles: Set<Selector> = [Selector(("undo:")), Selector(("redo:")), #selector(NSText.cut(_:)),
+                                                   #selector(NSText.copy(_:)), #selector(NSText.paste(_:)), #selector(EditMenuTarget.selectAll(_:))]
+    private static let chordMask: NSEvent.ModifierFlags = [.command, .shift, .option, .control]
+    private static func same(_ a: (String, NSEvent.ModifierFlags), _ b: (String, NSEvent.ModifierFlags)) -> Bool {
+        a.0 == b.0 && a.1.intersection(chordMask) == b.1.intersection(chordMask)
+    }
+    /// Whether `item` answers `key` with `mask`.
+    private static func sameChord(_ item: NSMenuItem, key: String, _ mask: NSEvent.ModifierFlags) -> Bool {
+        !key.isEmpty && same((item.keyEquivalent.lowercased(), item.keyEquivalentModifierMask), (key.lowercased(), mask))
     }
     private func place(_ items: [NSMenuItem], in menu: NSMenu, at start: Int) {
         for (offset, item) in items.enumerated() {

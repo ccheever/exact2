@@ -70,7 +70,8 @@ pub(crate) fn leftover(tag: &str, a: &Attr) -> bool {
 /// binds before the module (LLP 1024 D1), so a known word on a module tag
 /// binds to its box, and the box uses only what any leaf box uses: layout,
 /// box and paint rows, the handlers, `testId`, `id`, `role`, ARIA,
-/// `disabled` and `inert` (the module's interaction suppression reads them)
+/// `disabled` and `inert` (the module's interaction suppression reads them),
+/// and `tabindex`
 /// — an allow-list (@ref LLP 1088 D7.2, paint F7: `command` set a host
 /// command the module never saw). Every other known word is refused, naming
 /// what it is: a text row (`color`), a form control's row (`appearance`)
@@ -118,12 +119,12 @@ pub(crate) fn refused(tag: &str, a: &Attr) -> Option<LowerError> {
 }
 
 /// The props besides ARIA's that any leaf box takes, so a module's too.
-const BOX_PROPS: [&str; 5] = ["testId", "id", "role", "disabled", "inert"];
+const BOX_PROPS: [&str; 6] = ["testId", "id", "role", "disabled", "inert", "tabindex"];
 
 /// The form-control props (LLP 1069.001, LLP 1069.002) a module's box has
 /// no use for. `checked` is refused on every tag but `input` before this
 /// runs (`controls::control`); it is listed so the set reads whole.
-const CONTROL_PROPS: [&str; 17] = [
+const CONTROL_PROPS: [&str; 18] = [
     "value",
     "placeholder",
     "autofocus",
@@ -135,6 +136,7 @@ const CONTROL_PROPS: [&str; 17] = [
     "multiple",
     "readonly",
     "inputmode",
+    "enterkeyhint",
     "autocapitalize",
     "autocorrect",
     "spellcheck",
@@ -323,6 +325,7 @@ mod tests {
             "role",
             "inert",
             "disabled",
+            "tabindex",
             "aria-hidden",
             "load",
             "press",

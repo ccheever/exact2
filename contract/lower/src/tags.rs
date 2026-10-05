@@ -31,169 +31,6 @@ pub enum AttrTarget {
     /// A canvas's surface binding: `surface=name(args)` (LLP 1009 D3).
     Surface,
 }
-/// The rows that make a box the containing block of its absolutely
-/// positioned descendants on some host, whatever its `position` (LLP 1074
-/// T1): a box with one is lowered `position: relative` unless it names a
-/// position.
-///
-/// - `overflow`: a native host clips and scrolls a box's view subtree, so a
-///   descendant placed against an ancestor outside it would still be clipped
-///   and scrolled by it. CSS does not make a clipping box a containing block;
-///   this is the declared deviation.
-/// - The transforms, `filter` and `backdrop-filter`: CSS's own rule.
-/// - Motion (an animation, a transition, a press scale, a timeline): the
-///   browser makes the box a containing block while a transform runs, so it
-///   is one at rest too.
-pub const CONTAINS_ABSOLUTE: [StyleId; 16] = [
-    StyleId::OverflowX,
-    StyleId::OverflowY,
-    StyleId::Translate,
-    StyleId::Scale,
-    StyleId::Rotate,
-    StyleId::Transform,
-    StyleId::Filter,
-    StyleId::BackdropBlur,
-    StyleId::Animation,
-    StyleId::Transition,
-    StyleId::LayoutTransition,
-    StyleId::ExitAnimation,
-    StyleId::PressScale,
-    StyleId::DragTimeline,
-    StyleId::AnimationTimeline,
-    // CSS: `perspective` makes a containing block too (LLP 1077 D8).
-    StyleId::Perspective,
-];
-/// Whether an attribute makes its box a containing block (see
-/// [`CONTAINS_ABSOLUTE`]): one of those rows, a material (a backdrop filter),
-/// a navigation screen or modal (which the host moves), or a context
-/// preview (which the host transforms).
-pub fn contains_absolute(name: &str, value: &contract_syntax::Expr) -> bool {
-    // A literal that clips nothing and transforms nothing makes no containing block.
-    if matches!(value, contract_syntax::Expr::Str(v, _) if v == "visible" || v == "none") {
-        return false;
-    }
-    match attr(name) {
-        Some(AttrTarget::Styles(rows)) => rows.iter().any(|row| CONTAINS_ABSOLUTE.contains(row)),
-        _ => matches!(
-            name,
-            "backgroundMaterial" | "navigationKey" | "navigationPresentation" | "contextTarget"
-        ),
-    }
-}
-/// A Contract button has one cross-host inner layout: the flex column fixed
-/// by [`tag`]. Chrome gives a block/inline `<button>` an anonymous box that
-/// centres its contents, which the kernel cannot represent as that display.
-pub(crate) fn validate_button_display(
-    name: &str,
-    attrs: &[contract_syntax::Attr],
-) -> Result<(), crate::LowerError> {
-    use contract_syntax::Expr;
-    if name != "button" {
-        return Ok(());
-    }
-    let Some(display) = attrs.iter().rev().find(|a| a.name == "display") else {
-        return Ok(());
-    };
-    if matches!(&display.value, Expr::Str(v, _) if v == "block" || v.starts_with("inline")) {
-        return crate::err(
-            "lower-attr-value",
-            "a `button` is a flex column on every host; remove `display`, or use `display=\"flex\"`",
-            display.span,
-        );
-    }
-    Ok(())
-}
-/// An element's attributes with `position: relative` added, when it is the
-/// containing block of its absolutely positioned descendants on every host
-/// and names no position: it has a [`contains_absolute`] attribute, scrolls
-/// by its tag, is a canvas (whose surface the page positions) or a Markdown
-/// editor (whose line markers it holds). `None` otherwise. An authored
-/// `position: static` there is refused.
-pub(crate) fn positioned(
-    tag: &Tag,
-    attrs: &[contract_syntax::Attr],
-    in_svg: bool,
-    span: contract_syntax::Span,
-    host_transform: bool,
-    holds_nothing: bool,
-) -> Result<Option<Vec<contract_syntax::Attr>>, crate::LowerError> {
-    use contract_syntax::Expr;
-    let literal =
-        |a: &contract_syntax::Attr, v: &str| matches!(&a.value, Expr::Str(s, _) if s == v);
-    let contains = !in_svg
-        && !tag.node_type.is_svg_element()
-        && (host_transform
-            || attrs.iter().any(|a| contains_absolute(&a.name, &a.value))
-            || tag.node_type.scrolls_by_default()
-            || tag.node_type == NodeType::Canvas
-            || attrs
-                .iter()
-                .any(|a| a.name == "markup" && literal(a, "markdown")));
-    if !contains {
-        return Ok(None);
-    }
-    match attrs.iter().find(|a| a.name == "position") {
-        Some(a) if literal(a, "static") => crate::err(
-            "lower-attr-value",
-            "`position: static` on a box that clips, scrolls, transforms or animates: such a box is the containing block of its absolutely positioned descendants on every host, so it is `relative`; remove `position`",
-            a.span,
-        ),
-        // A bound position is fine when every value it can take is positioned.
-        Some(a) if !always_positioned(&a.value) => crate::err(
-            "lower-attr-value",
-            "a bound `position` on a box that clips, scrolls, transforms or animates: such a box is the containing block of its absolutely positioned descendants on every host, so every value its position can take must be `relative`, `absolute` or `sticky`",
-            a.span,
-        ),
-        Some(_) => Ok(None),
-        None if tag.fixed_styles.iter().any(|(id, _)| *id == StyleId::PositionType) => Ok(None),
-        // Only its own rows (it clips, transforms or animates) and nothing
-        // absolute can be under it (`Lowerer::may_hold_absolute`): it is the
-        // containing block of nothing, and a positioned box costs a host a
-        // layer to paint and hit-test (10,000 grid rows' clipping cells: a 25 ms hit test a pointer event).
-        None if holds_nothing
-            && !host_transform
-            && !tag.node_type.scrolls_by_default()
-            && tag.node_type != NodeType::Canvas
-            && !attrs.iter().any(|a| {
-                (a.name == "markup" && literal(a, "markdown"))
-                    || matches!(
-                        a.name.as_str(),
-                        "backgroundMaterial"
-                            | "navigationKey"
-                            | "navigationPresentation"
-                            | "contextTarget"
-                            | "z-index"
-                            | "top"
-                            | "right"
-                            | "bottom"
-                            | "left"
-                    )
-            }) =>
-        {
-            Ok(None)
-        }
-        None => {
-            let mut attrs = attrs.to_vec();
-            attrs.push(contract_syntax::Attr {
-                name: "position".into(),
-                value: Expr::Str("relative".into(), span),
-                span,
-            });
-            Ok(Some(attrs))
-        }
-    }
-}
-/// Whether every value a `position` expression can take is positioned: a
-/// `relative`, `absolute` or `sticky` literal, or a choice between such. A
-/// value from run time (a state, a field, a call) is not.
-fn always_positioned(value: &contract_syntax::Expr) -> bool {
-    use contract_syntax::Expr;
-    match value {
-        Expr::Str(v, _) => v == "relative" || v == "absolute" || v == "sticky",
-        Expr::Ternary(_, a, b, _) => always_positioned(a) && always_positioned(b),
-        _ => false,
-    }
-}
 /// A tag's node type, its fixed rows, and how positional arguments land.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tag {
@@ -241,6 +78,8 @@ pub fn tag(name: &str) -> Option<Tag> {
             &[(StyleId::PositionType, "absolute")],
             &[(PropId::SemanticTag, "dialog")],
         ),
+        // @ref LLP 1021 D1 — HTML's separator, its UA sheet's rows; void.
+        "hr" => view(crate::menus::HR, &[(PropId::SemanticTag, "hr")]),
         "main" => view(&[], &[(PropId::SemanticTag, "main")]),
         "header" => view(&[], &[(PropId::SemanticTag, "header")]),
         "nav" => view(&[], &[(PropId::SemanticTag, "nav")]),
@@ -266,17 +105,17 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: Some(PropId::Text),
         },
-        // A pressable `column` (Charlie, 2026-09-23: "One native button, flex
-        // column"): a block <button> would centre its content in an anonymous
-        // box, which a flex one does not, so the web lays it out as the
-        // kernel does (LLP 1006 §3, LLP 1007 §1).
+        // Chrome's `<button>` (Charlie, 2026-10-04, reversing 2026-09-23's
+        // "One native button, flex column"; LLP 1001 §1): a block whose
+        // content the kernel centres as HTML's anonymous button box does,
+        // with the UA sheet's `text-align: center`. An authored `display`
+        // makes it a flex or grid container, as in Chrome.
         // @ref LLP 1069.011 D1 — Exact's UA sheet: a button is the author's
         // box (`appearance: none`); `appearance="auto"` asks for the platform's.
         "button" => Tag {
             node_type: NodeType::Pressable,
             fixed_styles: &[
-                (StyleId::Display, "flex"),
-                (StyleId::FlexDirection, "column"),
+                (StyleId::TextAlign, "center"),
                 (StyleId::Appearance, "none"),
             ],
             fixed_props: &[(PropId::AccessibilityRole, "button")],
@@ -325,6 +164,7 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: Some(PropId::Src),
         },
+        "audio" => crate::media::AUDIO,
         "image" => Tag {
             node_type: NodeType::Image,
             fixed_styles: &[],
@@ -561,6 +401,16 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "pointerdown" => AttrTarget::Handler("pointerdown"), // LLP 1005 §Events, DOM's own
         "pointerup" => AttrTarget::Handler("pointerup"),
         "pointermove" => AttrTarget::Handler("pointermove"), // LLP 1056 §3 stage 3
+        // DOM's `beforeunload` (studio diary R17): the window is closing or
+        // the app quitting; an action that calls `preventDefault()` keeps it.
+        "beforeunload" => AttrTarget::Handler("beforeunload"),
+        // DOM's `wheel` (studio diary R3) and `drop` of files (R19).
+        "wheel" => AttrTarget::Handler("wheel"),
+        "drop" => AttrTarget::Handler("drop"),
+        "copy" => AttrTarget::Handler("copy"),
+        "cut" => AttrTarget::Handler("cut"),
+        "paste" => AttrTarget::Handler("paste"),
+        "selectionchange" => AttrTarget::Handler("selectionchange"),
         "reachstart" => AttrTarget::Handler("reachstart"),
         "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),
@@ -621,6 +471,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "canonical" => AttrTarget::Prop(p("headCanonical")),
         "robots" => AttrTarget::Prop(p("headRobots")),
         "status" => AttrTarget::Prop(p("headStatus")),
+        "edited" => AttrTarget::Prop(p("headEdited")),
         // `scroll document=(expr)`: the page's scroller when it holds (LLP 1048.003 D4); bare is `=true`.
         "document" => AttrTarget::Prop(p("scrollDocument")),
         "virtualized" => AttrTarget::Prop(p("virtualized")),
@@ -661,6 +512,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // HTML's attribute is `inputmode`; the kernel's prop keeps the DOM
         // property's spelling, as the schema does for every prop.
         "inputmode" => AttrTarget::Prop(p("inputMode")),
+        "enterkeyhint" => AttrTarget::Prop(p("enterKeyHint")),
+        // An image's accessible name by HTML's spelling (feed F1).
+        "alt" => AttrTarget::Prop(p("accessibilityLabel")),
         "autocapitalize" => AttrTarget::Prop(p("autocapitalize")),
         "autocorrect" => AttrTarget::Prop(p("autocorrect")),
         "spellcheck" => AttrTarget::Prop(p("spellcheck")),
@@ -728,6 +582,16 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-pressed" => AttrTarget::Prop(p("accessibilityPressed")),
         "aria-modal" => AttrTarget::Prop(p("accessibilityModal")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
+        "aria-invalid" => AttrTarget::Prop(p("accessibilityInvalid")), // onboarding F22, spreadsheet F20
+        "aria-describedby" => AttrTarget::Prop(p("accessibilityDescribedBy")),
+        // ARIA's name by reference (ledger2 Rough 3): the ids, space-separated,
+        // of the elements whose text names this one, before `aria-label`.
+        "aria-labelledby" => AttrTarget::Prop(p("accessibilityLabelledBy")),
+        // HTML's `tabindex`, no alias (LLP 1088 D7.3): present makes a box
+        // focusable, `>= 0` a Tab stop; absent is never `0`.
+        "tabindex" => AttrTarget::Prop(p("tabIndex")),
+        "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
+        "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),
@@ -776,7 +640,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "feScale" => AttrTarget::Prop(p("feScale")),
         "xChannelSelector" => AttrTarget::Prop(p("xChannelSelector")),
         "yChannelSelector" => AttrTarget::Prop(p("yChannelSelector")),
-        "order" => AttrTarget::Prop(p("order")),
+        "feOrder" => AttrTarget::Prop(p("feOrder")),
         "kernelMatrix" => AttrTarget::Prop(p("kernelMatrix")),
         "divisor" => AttrTarget::Prop(p("divisor")),
         "bias" => AttrTarget::Prop(p("bias")),
@@ -889,6 +753,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         | "border-left" => AttrTarget::Shorthand,
         "resize" => styles(&[StyleId::Resize]),
         "user-select" => styles(&[StyleId::UserSelect]),
+        // @ref LLP 1021 §5 — on a popover, its implicit anchor the invoker.
+        "position-area" => styles(&[StyleId::PositionArea]),
         "text-decoration-line" => styles(&[StyleId::TextDecorationLine]),
         // @ref LLP 1064 D5
         "text-transform" => styles(&[StyleId::TextTransform]),
@@ -925,6 +791,11 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // CSS's filter functions are refused by name.
         "backdrop-filter" => styles(&[StyleId::BackdropBlur]),
         "letter-spacing" => styles(&[StyleId::LetterSpacing]),
+        // The reader diary: book typography's first-line indent and CSS's
+        // hyphenation (`manual` honours soft hyphens; `auto` adds the
+        // language's own points where the host has a dictionary).
+        "text-indent" => styles(&[StyleId::TextIndent]),
+        "hyphens" => styles(&[StyleId::Hyphens]),
         "line-height" => styles(&[StyleId::LineHeight]),
         "text-align" => styles(&[StyleId::TextAlign]),
         "gap" => styles(&[StyleId::RowGap, StyleId::ColumnGap]),
@@ -1043,6 +914,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "overscroll-behavior-y" => styles(&[StyleId::OverscrollBehaviorY]),
         "scroll-behavior" => styles(&[StyleId::ScrollBehavior]),
         "z-index" => styles(&[StyleId::ZIndex]),
+        "order" => styles(&[StyleId::Order]),
         "transition" => styles(&[StyleId::Transition]),
         // @ref LLP 1063 — played as the node leaves; its names resolve against
         // the plan's keyframes as `animation`'s do (LLP 1055 D5).
@@ -1132,9 +1004,11 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "zIndex" => "z-index",
         "accessibilityOrientation" => "aria-orientation",
         "label" | "accessibilityLabel" => "aria-label",
+        "tabIndex" => "tabindex",
         "hint" | "accessibilityHint" => "aria-description",
         "headingLevel" => "aria-level",
         "inputMode" | "keyboardType" => "inputmode",
+        "enterKeyHint" | "returnKeyType" => "enterkeyhint",
         "viewportFit" | "safeArea" | "safeAreaView" => "viewport-fit",
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",
@@ -1228,6 +1102,8 @@ pub const HEAD_FIELDS: &[&str] = &[
     "canonical",
     "robots",
     "status",
+    // LLP 1069.010 D6: the document has unsaved changes (a declared deviation).
+    "edited",
 ];
 /// Suggest one unambiguous single-edit spelling from the existing attribute
 /// lookup. No second vocabulary is maintained, and this never admits an alias.

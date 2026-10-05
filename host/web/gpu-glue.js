@@ -614,7 +614,13 @@ function listen(entry) {
   window.addEventListener("keyup", pressedUp, true);
   on("keydown", event => {
     const target = event.target instanceof Element ? event.target : null;
-    if (event.defaultPrevented || event.isComposing || event.code === "Tab" || event.metaKey || event.ctrlKey || editable(target)) return;
+    if (event.defaultPrevented || event.isComposing || event.code === "Tab" || editable(target)) return;
+    // The focused game's own canvas owns Ctrl/Meta chords (RTS control groups).
+    // An editor or ordinary HUD control keeps its browser shortcuts.
+    if (event.metaKey || event.ctrlKey) {
+      if (target !== el && target !== entry.el) return;
+      event.preventDefault();
+    }
     const button = control(target);
     if (button && ["Space", "Enter", "NumpadEnter"].includes(event.code)) {
       event.preventDefault();

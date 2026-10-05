@@ -138,6 +138,20 @@ Linux skips Thai word breaking (Charlie, 2026-09-28): with no segmenter
 there, flowed Thai, Lao, Khmer and Myanmar text breaks only at spaces; no
 ICU4X dictionaries. Web and Apple take their platforms' words (LLP 1043.000 §8).
 
+**Expanded (orchestrator for Charlie, 2026-10-05, LLP 1093 §8: "admission via
+your offered trade"):** CSS multi-column (`columns`, `column-count`,
+`column-width`, `column-gap: normal`, `column-fill`, solid `column-rule`) and
+the break rules that only mean something inside it (`widows`, `orphans`,
+`break-before`/`-after`/`-inside` without page or region values). Native hosts
+fragment through the kernel's cut, and the web is the browser's own multicol,
+held to Chrome. The reader app's diary is the consumer: pagination and a
+two-page spread from one flow. Unblocks book pagination without a polled
+height or a duplicated chapter. Take: LLP 1043.000 stage 5
+(`shape-outside: <image>`, the dancer's traced silhouette) moves behind
+LLP 1093 stage 2. Still out: `column-span`, regions, paged media and `@page`,
+`box-decoration-break: clone`, and slicing decorated, fixed-height, flex-row
+and grid boxes (LLP 1093 §5).
+
 **Expanded (Charlie, 2026-09-21: "design and build a markdown editor that works
 across all Exact platforms"):** WYSIWYG Markdown editing and one-node Markdown
 reading (LLP 1045), Interview first. Unblocks rich posts that stay plain text
@@ -343,6 +357,16 @@ change can break.
   benchmark app, scheduler, core feature matrix or second application-state graph.
   Production ABI changes, arbitrary object unification and a default shared heap
   remain unselected.
+- Notifications were never on the doing list (LLP 1069 §1 ranked them first of
+  the "next"). **Expanded (waived by the orchestrator under Charlie's 2026-10-04
+  delegation, "make decisions without me"):** local notifications by the web's
+  Notification API names — `showNotification` now or at a time, `closeNotification`
+  by tag — under the existing `device.notifications` grant. Consumers: the Habits
+  app's reminders (x2apps habits F13) and Dash's price alerts, both faked as
+  in-app banners. Unblocks a reminder that reaches the person outside the window.
+  Take: none offered. Still refused: push delivery from a server, actions and
+  replies on a notification, badges, repeating schedules, and a readable
+  permission fact.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 **Restated (Charlie, 2026-09-27, LLP 1069.001):** the tag count guards against
@@ -359,6 +383,53 @@ reading. Nothing that isn't HTML is added by it.
   view transitions moved behind the deck lane. LLP 1020 §6. What stays no from
   exact1's webview: `top` topology, navigation policy, the controller ops, `allow`,
   author-facing `srcdoc` — each with its return trigger in LLP 1020 §5.)
+- **Expanded (LLP 1096; admitted by the orchestrator under Charlie's
+  2026-10-04 delegation, "make decisions without me"):** short sounds an
+  action can schedule: a `sound` declaration (a WAV in `assets/`, at most 10
+  s), `playSound(src, at=, gain=, group=)`, `playSounds(hits)` and
+  `stopSounds(group=)`. The runner keeps the voice table; the web plays
+  through Web Audio, Apple through one mixer in an arm loaded on demand;
+  Linux and Windows keep the record; `app.json`'s `audio_session` picks the
+  Apple session. Consumers: drums (R1–R3), snake (F1), trivia (F5).
+  Unblocks a retriggered, sample-accurate hit without two media elements per
+  voice or a 2 ms poll. Take (offered in LLP 1096 §9 Q1, accepted): the
+  `audio` element stops being the sound-effect path — R1's retrigger change
+  to the media glue is not built, and the guide's "Ding" recipe and LLP 1042
+  §8's sound-effect paragraph are deleted. Round-1 review A held that neither
+  is doing-list work; to the extent it is not, the admission stands on the
+  orchestrator's waiver under the same delegation. Still out: synthesis,
+  pitch and rate, pan, loops, fades and gain automation, effects, a handle to
+  one voice, a stop at a future time, compressed formats, sound produced by a
+  data module, microphone input, and output on Linux and Windows (LLP 1096
+  §7). No tag is added.
+- **Expanded (LLP 1098; admitted by the orchestrator under Charlie's
+  2026-10-04 delegation, "make decisions without me"):** the media session,
+  by the Media Session API's names, on HTML's media element:
+  `metadata=MediaMetadata(title=, artist=, album=, artwork=)` on an `audio`
+  or `video` claims it; `seekbackward`, `seekforward`, `seekto`,
+  `previoustrack`, `nexttrack` and `stop` are that element's events, with
+  `MediaSessionActionDetails`; the platform's play and pause act on the
+  element; position and playback state are the player's. The web publishes
+  through `navigator.mediaSession`, Apple through `MPNowPlayingInfoCenter`
+  and `MPRemoteCommandCenter` in the video arm; Linux and Windows keep the
+  record. On iOS it needs `audio_session: "playback"` and the `audio`
+  background mode. Consumers: podcast (F13, Top 5 #1), jukebox (media keys).
+  Unblocks media keys, Now Playing, the lock screen and Control Center, a
+  headset's buttons and the browser's media hub. Take (offered in LLP 1098
+  §9 Q1, accepted): LLP 1042 §5's "Complete-player extension design
+  (unimplemented)", a spec with no implementer or date, is deleted, and
+  `QUEUE.md`'s "Video (LLP 1042)" lines lose "complete the designed
+  track/controller and app audio-session ownership APIs"; to the extent that
+  is not doing-list work, the admission stands on the orchestrator's waiver
+  under the same delegation. Still out, each until a consumer asks: the
+  other actions (`skipad`, slides, calls, picture in picture), Apple's
+  scanning, rate, rating and like commands, an app-set `playbackState` or
+  position, more than one artwork size, `app:/` artwork, resuming the
+  player after an interruption and route policy, MPRIS on Linux and
+  Windows's transport controls; and from LLP 1042 §5's deleted design,
+  `source` and `track` children, a media controller (play, load, seek,
+  fullscreen and PiP requests with results), DRM, and downloads and caches
+  (LLP 1098 §7). No tag is added.
 - No camera anything.
 - ~~No gradient style rows. A gradient with anything on it is a canvas surface with
   children (LLP 1014 §5 — the take for widening `canvas`; the three rows return when a
@@ -457,12 +528,31 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   offset, buttons, pressure, type and id) on these two and a new
   `pointermove`, on any node. The paint app's diary (F1) is the consumer.
   Take: none offered.
+  **Expanded (LLP 1094; waived by the orchestrator under Charlie's
+  2026-10-04 delegation, "make decisions without me"):** a reorder spanning
+  vertical virtualized lists that share a `reorderGroup`, in one session,
+  with a host-drawn top-layer ghost, a drop hold, keyboard and
+  custom-action moves, the action read `elementFromPoint`, and
+  `PointerEvent`'s `clientX`/`clientY`. Consumers: the two kanban builds
+  (F4). Unblocks moving cards on a board without a hand-built drag. Take:
+  none offered. Still out: reorder on row and nested lists (LLP 1094 §7),
+  drags into or out of the app, multi-item drags, grids, a gesture arena.
   **Expanded (Charlie, 2026-09-29: "Yeah add the every frame task"; take
   waived, none offered; waiver confirmed by Charlie 2026-09-30):** one root task form, `every(frame, action)`
   (LLP 1073): the action once per presented frame, never caught up, and on
   the agent's seekable clock a virtual 60 Hz display. Unblocks a ticker or
   an animation loop in step with the display (the web-framework bench's
   grid ticker). Per-node frame callbacks and frame arguments stay out.
+  **Expanded (LLP 1092; waived by the orchestrator under Charlie's
+  2026-10-04 delegation, "make decisions without me"):** a gated root task,
+  `task NAME when COND [key=EXPR]`, whose timer exists only while its
+  condition holds and restarts when its key changes; nothing runs when the
+  gate changes. Consumers: ledger2's undo toast, chat's and chat2's bots and
+  toasts, trivia's round (their diaries' Top-5). Unblocks an app that does
+  no work at rest while nothing is showing. Take: none offered. Still out:
+  a reaction to a state change (LLP 1017 P4c's `task … when [dep]`),
+  component-scoped and action-started timers, computed intervals, a gate
+  that reads `now()`, and cancelling a queued send.
 - **A second value graph.** No shared-value plane, derived values, bindings, or
   plan node graph. The style row is the binding.
   **Expanded (Charlie, 2026-09-27, LLP 1057.003: "approve those"; take waived, none

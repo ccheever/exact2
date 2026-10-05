@@ -119,6 +119,9 @@ pub struct Presenter<D: DataSource> {
     hovered: Vec<ViewId>,
     /// The node holding the pointer's `pointerdown` until it lifts.
     pointer_held: Option<exact_kernel::NodeKey>,
+    /// The held pointer's buttons as DOM counts them: 1 primary, 2
+    /// secondary, 4 middle (review b5-b 1).
+    pointer_buttons: u8,
     pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
@@ -413,6 +416,7 @@ impl<D: DataSource> Presenter<D> {
             pointer: None,
             hovered: Vec::new(),
             pointer_held: None,
+            pointer_buttons: 0,
             control_contact: None,
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
@@ -467,11 +471,10 @@ impl<D: DataSource> Presenter<D> {
                     Some(v) if v.as_str() == Some("light") => Some(false),
                     _ => None,
                 }),
-                "copyText" => eprintln!("exact: copyText unsupported on the headless/DRM host"),
                 // No haptic engine here (LLP 1077 D14): nothing to feel.
                 "haptic" => {}
-                // Outside a `key` event (`key_event` takes a key's), nothing to prevent.
-                "preventDefault" => {}
+                // Outside a `key` event (`key_event` takes a key's), nothing to prevent or stop.
+                "preventDefault" | "stopPropagation" => {}
                 // No share sheet here: refused into the journal, or held for
                 // the agent like every host (LLP 1069.003 D6).
                 "share" => {
@@ -479,21 +482,12 @@ impl<D: DataSource> Presenter<D> {
                     let runner = self.host.runner_mut();
                     exact_runner::share::arm(runner, share, c.source, self.agent, false);
                 }
-                // `blur()` drops the focus; `blur(id)` only when that node holds it.
-                "blur" => {
-                    let holds = |name: &str| {
-                        self.focus
-                            .and_then(|id| self.host.kernel().node(id))
-                            .is_some_and(|n| n.props.str(PropId::Id) == Some(name))
-                    };
-                    if match c.args.first().and_then(exact_plan::Value::as_str) {
-                        Some(s) => holds(s),
-                        None => true,
-                    } {
-                        self.blur();
-                    }
-                }
-                "selectText" => eprintln!("exact: selectText unsupported on the headless/DRM host"),
+                // No notification centre here: refused, or listed for the agent.
+                "showNotification" | "closeNotification" => self.notify(&c.name, &c.args),
+                "blur" => self.blur_command(&c.args),
+                "focus" => self.focus_command(&c.args),
+                // An element's, by its id (minesweeper F3); a row's is the runner's.
+                "scrollIntoView" => self.scroll_element_into_view(&c.args),
                 // The inverse of `message=`: text into the named surface's
                 // canvas, stamped now and delivered in order with its input.
                 "postMessage" => {
@@ -520,6 +514,11 @@ impl<D: DataSource> Presenter<D> {
                 // `cancel`, or held for the agent.
                 name @ ("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
                     self.document_picker(name, &c.args)
+                }
+                // No clipboard, text selection, browser, editor, dev menu or
+                // window to close here: known, and named so.
+                name @ ("copyText" | "selectText" | "openURL" | "format" | "reload" | "close") => {
+                    eprintln!("exact: {name} unsupported on the headless/DRM host")
                 }
                 other => eprintln!("exact: unknown command {other}"),
             }
@@ -584,6 +583,13 @@ impl<D: DataSource> Presenter<D> {
             return Err(HostError::Layout(error));
         }
         self.restore_time(&mut host)?;
+        let shaders = self
+            .surfaces
+            .prepare_shaders(&self.compat, &self.assets)
+            .map_err(HostError::Asset)?;
+        self.surfaces
+            .commit_shaders(shaders)
+            .map_err(HostError::Asset)?;
         self.host = host;
         self.replaced();
         if self.display.new_session() {
@@ -1206,7 +1212,10 @@ impl<D: DataSource> Presenter<D> {
         {
             return;
         }
-        if self.surface_wheel(x, y, dx, dy, self.pointer_now()) {
+        // A canvas that wants input takes the wheel, and the nodes' own
+        // `wheel` is still heard (review b5-b 2), as the web's element hears it.
+        let canvas = self.surface_wheel(x, y, dx, dy, self.pointer_now());
+        if self.wheel_event(x, y, dx, dy) || canvas {
             return;
         }
         // A UI wheel can take over a UI gesture, but does not release a game's

@@ -77,13 +77,27 @@ private final class VideoArm: NSObject {
     var generation = 0
     var posterGeneration = 0
     var pendingSeek: Double?
+    /// A seek in flight: HTML's official playback position, which `currentTime`
+    /// reads at once, while AVPlayer still reports where it was (jukebox F20).
+    var seekTarget: Double?
+    var seeks = 0
+    /// Whether the current item reached readyToPlay: a failure before it is
+    /// HTML's "source not supported", one after it a network or decode error.
+    var itemReady = false
     var naturalSize = CGSize.zero
     var wantsPlay = false
+    /// The item played to its end (HTML's "ended playback"): the next play
+    /// starts it over, as HTML's play() does (LLP 1042 §8: a sound effect
+    /// replays by asking to play again).
+    var atEnd = false
     var lastPaused = true
     var lastTimeStatus = AVPlayer.TimeControlStatus.paused
     /// The playback rate last reported by `ratechange` (HTML's playbackRate):
     /// starting and pausing change the player's rate, not this.
     var reportedRate: Float = 1
+    /// The volume and muting last reported by `volumechange`: AVPlayer's KVO
+    /// also fires when a value is set to what it was (the web's never does).
+    var reportedVolume: (Float, Bool) = (1, false)
     /// The media events the node handles. Only these, and state snapshots,
     /// cross the ABI, as the web glue sends only handled events.
     var listeners: Set<String> = []
@@ -109,8 +123,8 @@ private final class VideoArm: NSObject {
         playerObservations = [
             player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in self?.timeStatusChanged() },
             player.observe(\.rate, options: [.new]) { [weak self] _, _ in self?.rateChanged() },
-            player.observe(\.volume, options: [.new]) { [weak self] _, _ in self?.emit("volumechange") },
-            player.observe(\.isMuted, options: [.new]) { [weak self] _, _ in self?.emit("volumechange") }
+            player.observe(\.volume, options: [.new]) { [weak self] _, _ in self?.volumeChanged() },
+            player.observe(\.isMuted, options: [.new]) { [weak self] _, _ in self?.volumeChanged() }
         ]
     }
     /// The periodic observer runs only while `timeupdate` is handled; `state`
@@ -119,12 +133,20 @@ private final class VideoArm: NSObject {
         let wants = listeners.contains("timeupdate") && !invalidated
         if wants && tick == nil {
             tick = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] _ in
-                guard let self, !self.invalidated else { return }
+                // A seek in flight reports its own time when it lands.
+                guard let self, !self.invalidated, self.seekTarget == nil else { return }
                 self.emit("timeupdate", payload: String(self.seconds))
             }
         } else if !wants, let tick {
             player.removeTimeObserver(tick); self.tick = nil
         }
+    }
+    func volumeChanged() {
+        guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.volumeChanged() }; return }
+        let now = (player.volume, player.isMuted)
+        guard !invalidated, now != reportedVolume else { return }
+        reportedVolume = now
+        emit("volumechange")
     }
     func rateChanged() {
         guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.rateChanged() }; return }
@@ -133,7 +155,7 @@ private final class VideoArm: NSObject {
         reportedRate = rate
         emit("ratechange")
     }
-    var seconds: Double { let s = player.currentTime().seconds; return s.isFinite ? s : 0 }
+    var seconds: Double { if let seekTarget { return seekTarget }; let s = player.currentTime().seconds; return s.isFinite ? s : 0 }
     func bool(_ name: String, _ fallback: Bool = false) -> Bool { props[name].map { $0 == "true" } ?? fallback }
     func number(_ name: String, _ fallback: Double) -> Double { props[name].flatMap(Double.init) ?? fallback }
     var rate: Float { Float(number("playbackRate", 1)) }
@@ -159,10 +181,26 @@ private final class VideoArm: NSObject {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in self?.emit(event, payload: payload) }; return
         }
-        if event == "error" { lastError = payload }
         guard event == "snapshot" || listeners.contains(event) else { return }
         guard let data = try? JSONSerialization.data(withJSONObject: ["event": event, "payload": payload, "state": snapshot]) else { return }
         data.withUnsafeBytes { callback(context, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
+    }
+    /// `error`'s payload is a stable code, never AVFoundation's text (jukebox
+    /// F6): the web glue's (media-glue.js) MediaError words, `invalid-value`
+    /// for a number out of range. The text stays in `state.media`.
+    func fail(_ code: String, _ message: String) {
+        guard !invalidated else { return }
+        lastError = message
+        emit("error", payload: code)
+    }
+    static func code(_ error: Error?, ready: Bool) -> String {
+        guard ready else { return "src-not-supported" }
+        var next = error as NSError?
+        while let current = next {
+            if current.domain == NSURLErrorDomain { return "network" }
+            next = current.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return "decode"
     }
     func timeStatusChanged() {
         guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.timeStatusChanged() }; return }
@@ -184,23 +222,23 @@ private final class VideoArm: NSObject {
         let changed = { (name: String) in old[name] != values[name] }
         for (name, min, max) in [("volume", 0.0, 1.0), ("playbackRate", 0.25, 4.0), ("currentTime", 0.0, Double.greatestFiniteMagnitude), ("preferredPeakBitRate", 0.0, Double.greatestFiniteMagnitude), ("preferredForwardBufferDuration", 0.0, Double.greatestFiniteMagnitude)] {
             if let text = props[name], let value = Double(text), value.isFinite, value >= min, value <= max { continue }
-            if props[name] != nil { emit("error", payload: "Invalid \(name)"); props.removeValue(forKey: name) }
+            if props[name] != nil { fail("invalid-value", "Invalid \(name)"); props.removeValue(forKey: name) }
         }
         #if os(macOS)
         presentation.controlsStyle = bool("controls") ? .inline : .none
         presentation.showsFullScreenToggleButton = !(props["controlslist"] ?? "").split(separator: " ").contains("nofullscreen")
         presentation.showsSharingServiceButton = false
         presentation.showsTimecodes = bool("showsTimecodes")
-        presentation.allowsPictureInPicturePlayback = !bool("disablepictureinpicture") && bool("allowsPictureInPicturePlayback", true)
+        presentation.allowsPictureInPicturePlayback = props["semanticTag"] != "audio" && !bool("disablepictureinpicture") && bool("allowsPictureInPicturePlayback", true)
         presentation.allowsVideoFrameAnalysis = bool("allowsVideoFrameAnalysis", true)
         #else
         configurePresentation()
         controller?.showsPlaybackControls = bool("controls")
-        controller?.allowsPictureInPicturePlayback = !bool("disablepictureinpicture") && bool("allowsPictureInPicturePlayback", true)
+        controller?.allowsPictureInPicturePlayback = props["semanticTag"] != "audio" && !bool("disablepictureinpicture") && bool("allowsPictureInPicturePlayback", true)
         // tvOS playback is always full screen and has no inline PiP or frame analysis.
         #if !os(tvOS)
         controller?.canStartPictureInPictureAutomaticallyFromInline = bool("canStartPictureInPictureAutomaticallyFromInline")
-        controller?.entersFullScreenWhenPlaybackBegins = bool("entersFullScreenWhenPlaybackBegins", !bool("playsinline"))
+        controller?.entersFullScreenWhenPlaybackBegins = props["semanticTag"] != "audio" && bool("entersFullScreenWhenPlaybackBegins", !bool("playsinline"))
         controller?.exitsFullScreenWhenPlaybackEnds = bool("exitsFullScreenWhenPlaybackEnds")
         #endif
         controller?.requiresLinearPlayback = bool("requiresLinearPlayback")
@@ -232,7 +270,7 @@ private final class VideoArm: NSObject {
         }
         if changed("currentTime"), props["currentTime"] != nil { seek(number("currentTime", 0)) }
         configureItem()
-        if let error = props["sourceError"], error != old["sourceError"] { emit("error", payload: error) }
+        if let error = props["sourceError"], error != old["sourceError"] { fail("src-not-supported", error) }
         layout()
         emit()
     }
@@ -255,6 +293,7 @@ private final class VideoArm: NSObject {
         notifications.removeAll()
         player.replaceCurrentItem(with: nil)
         naturalSize = .zero
+        itemReady = false; seekTarget = nil; atEnd = false
         pendingSeek = props["currentTime"].flatMap(Double.init)
         guard let source = props["src"], !source.isEmpty, let url = URL(string: source) else { return }
         // preload is a hint: AVKit may prepare an item so its native Play control works.
@@ -267,9 +306,10 @@ private final class VideoArm: NSObject {
                 guard let self, let item, !self.invalidated, self.generation == token else { return }
                 if item.status == .failed {
                     SharedAssets.forget(url)
-                    self.emit("error", payload: item.error?.localizedDescription ?? "Media could not be loaded")
+                    self.fail(Self.code(item.error, ready: self.itemReady), item.error?.localizedDescription ?? "Media could not be loaded")
                 }
                 if item.status == .readyToPlay {
+                    self.itemReady = true
                     self.naturalSize = item.presentationSize
                     self.emit(self.listeners.contains("loadedmetadata") ? "loadedmetadata" : "snapshot")
                     if item.duration.seconds.isFinite { self.emit("durationchange", payload: String(item.duration.seconds)) }
@@ -289,19 +329,32 @@ private final class VideoArm: NSObject {
             guard let self, !self.invalidated, self.generation == token else { return }
             // The player keeps its rate at the end (`actionAtItemEnd` is none);
             // the seek reports seeking, seeked and timeupdate, as Chrome does.
-            if self.bool("loop") { self.seek(0) } else { self.wantsPlay = false; self.emit("ended") }
+            // HTML's end without loop: `pause`, then `ended` (AVPlayer's
+            // own pause arrives after this notification; it is the same one).
+            guard !self.bool("loop") else { self.seek(0); return }
+            self.wantsPlay = false; self.atEnd = true
+            if !self.lastPaused { self.lastPaused = true; self.emit("pause") }
+            self.emit("ended")
         })
         if wantsPlay { play() }
     }
-    func play() { player.defaultRate = rate; player.play() }
+    func play() {
+        player.defaultRate = rate
+        if atEnd { atEnd = false; seek(0) }
+        player.play()
+    }
     func seek(_ time: Double) {
         guard player.currentItem?.status == .readyToPlay else { pendingSeek = time; return }
         poster.isHidden = true
+        seekTarget = time; seeks += 1; atEnd = false
         emit("seeking")
-        let token = generation
+        let token = generation, mine = seeks
         player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] completed in
             DispatchQueue.main.async {
-                guard let self, completed, !self.invalidated, self.generation == token else { return }
+                // A seek another replaced completes unfinished; the last one lands.
+                guard let self, !self.invalidated, self.generation == token, mine == self.seeks else { return }
+                self.seekTarget = nil
+                guard completed else { return }
                 self.emit("seeked"); self.emit("timeupdate", payload: String(self.seconds))
             }
         }
@@ -333,12 +386,15 @@ private final class VideoArm: NSObject {
     /// until this node is destroyed.
     private func configurePresentation() {
         guard props["src"] != nil || presentation != nil else { return }
-        let needsController = bool("controls")
-            || (!bool("disablepictureinpicture") && props["allowsPictureInPicturePlayback"] == "true")
+        // An `audio` has no picture to take full screen or to picture in
+        // picture: only its `controls` ask for AVKit (LLP 1042 §8).
+        let audio = props["semanticTag"] == "audio"
+        let needsController = bool("controls") || !audio && (
+            (!bool("disablepictureinpicture") && props["allowsPictureInPicturePlayback"] == "true")
             || bool("canStartPictureInPictureAutomaticallyFromInline")
             || bool("entersFullScreenWhenPlaybackBegins", !bool("playsinline"))
             || bool("exitsFullScreenWhenPlaybackEnds") || bool("requiresLinearPlayback")
-            || props["allowsVideoFrameAnalysis"] == "true"
+            || props["allowsVideoFrameAnalysis"] == "true")
         if controller == nil && needsController {
             let native = AVPlayerViewController()
             native.player = player

@@ -28,6 +28,7 @@ const APP: &str = r#"component App
   state submits = 0
   state lastKey = ""
   state presses = 0
+  state outerKeys = ""
   mutation kept as shape bool
   action edit(value)
     text = value
@@ -39,13 +40,21 @@ const APP: &str = r#"component App
     submits = submits + 1
   action keyed(value)
     lastKey = value
+    if value == "Escape"
+      stopPropagation()
+  action outer(value: string)
+    outerKeys = `${outerKeys}${value}`
   action pressed
     presses = presses + 1
   action keep
     send kept = keep()
+  action goField
+    focus("entry")
   view
-    column width=400 height=400
-      input value=text input=edit submit=sent focus=focused blur=blurred key=keyed testId="field" height=32
+    column width=400 height=400 key=outer
+      text outerKeys testId="outer" height=20
+      input value=text input=edit submit=sent focus=focused blur=blurred key=keyed testId="field" id="entry" height=32
+      button "Focus" press=goField testId="go-field" height=32
       button "Other" press=pressed testId="other" height=32
       box opacity=0 width=200 height=40
         button "Ghost" press=pressed testId="ghost" width=200 height=40
@@ -152,6 +161,42 @@ fn keys_submit_focus_and_blur_reach_their_handlers() {
         log(&p),
         "1 1 1 Enter 1",
         "a press elsewhere blurs the field"
+    );
+}
+
+/// `stopPropagation()` (files diary F8): the field's handler is the last
+/// to hear the key; an ancestor's hears every other.
+#[test]
+fn a_stopped_key_reaches_no_ancestor() {
+    let mut p = boot();
+    let field = id(&p, "field");
+    p.type_key(field, "KeyA", "a", true, false).unwrap();
+    p.type_key(field, "Escape", "Escape", true, false).unwrap();
+    p.type_key(field, "KeyB", "b", true, false).unwrap();
+    let k = p.host().kernel();
+    let outer = k.node_by_key(k.find_by_test_id("outer")[0]).unwrap();
+    assert_eq!(outer.props.str(PropId::Text), Some("ab"));
+    assert!(
+        log(&p).contains(" b "),
+        "the field heard them all: {}",
+        log(&p)
+    );
+}
+
+#[test]
+fn focus_from_an_action_moves_the_focus() {
+    let mut p = boot();
+    p.tap(id(&p, "go-field")).unwrap();
+    p.run_commands(|| Keeps);
+    assert_eq!(
+        p.focus(),
+        Some(id(&p, "field")),
+        "focus(\"entry\") is the field's"
+    );
+    assert!(
+        log(&p).starts_with("1 0 "),
+        "its focus handler ran: {}",
+        log(&p)
     );
 }
 
@@ -331,6 +376,63 @@ fn the_pointer_events_carry_their_record_from_the_content_box() {
         " m5,5/0 d10,10/1 m20,20/1 m290,250/1 u300,240/0",
         "a held pointer is the pad's wherever it goes"
     );
+    // Any button holds the pointer, as in a browser (review b5-b 1): the
+    // secondary's down, moves and up with `buttons` 2, a middle chord 6.
+    p.pointer_move(20., 60., 6.).unwrap();
+    p.pointer_aux(2, true, 20., 60., 7.);
+    p.pointer_move(25., 65., 8.).unwrap();
+    p.pointer_aux(4, true, 25., 65., 9.);
+    p.pointer_move(26., 66., 10.).unwrap();
+    p.pointer_aux(2, false, 26., 66., 11.);
+    p.pointer_aux(4, false, 26., 66., 12.);
+    assert!(
+        log(&p).ends_with(" m10,10/0 d10,10/2 m15,15/2 m16,16/6 u16,16/0"),
+        "{}",
+        log(&p)
+    );
+}
+
+/// A `wheel` is heard by a disabled box (it means nothing on a `<div>`, as
+/// in Chrome) and a disabled link (an `<a>`), and not by a disabled button
+/// (review b5-b 4, b5-delta).
+#[test]
+fn a_disabled_box_hears_the_wheel_and_a_disabled_button_does_not() {
+    const WHEELS: &str = r#"component App
+  state seen = ""
+  action box(e: WheelEvent)
+    seen = `${seen} box${e.deltaY}`
+  action button(e: WheelEvent)
+    seen = `${seen} button${e.deltaY}`
+  action link(e: WheelEvent)
+    seen = `${seen} link${e.deltaY}`
+  view
+    column width=400 height=400
+      box wheel=box disabled=true testId="pad" width=200 height=100
+      button "Off" wheel=button disabled=true testId="off" height=40
+      link href="/docs" wheel=link disabled=true testId="docs" height=40
+        text "Docs"
+      text seen testId="log" height=20
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(WHEELS).unwrap().encode(),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.boxes();
+    let (x, y, _, _) = p.rect_of(id(&p, "pad")).unwrap();
+    p.wheel_at(x + 10., y + 10., 0., 30.);
+    let (x, y, _, _) = p.rect_of(id(&p, "off")).unwrap();
+    p.wheel_at(x + 10., y + 10., 0., 40.);
+    // A disabled link is the web's `<a>`: `disabled` means nothing there
+    // either (review b5-delta).
+    let (x, y, _, _) = p.rect_of(id(&p, "docs")).unwrap();
+    p.wheel_at(x + 10., y + 10., 0., 50.);
+    assert_eq!(log(&p), " box30 link50");
 }
 
 /// LLP 1051.000 D1 (changed 2026-10-04; the kanban diary's F4): `frame()`
@@ -366,4 +468,104 @@ fn frame_reads_a_box_with_the_scroll_above_it_applied() {
     p.boxes();
     p.tap(id(&p, "read")).unwrap();
     assert_eq!(log(&p), "220", "the pane's 120 px of scrolling");
+}
+
+/// HTML's `tabindex` and Tab (LLP 1088 D7.3): an explicit value makes a plain
+/// box focusable and, ≥ 0, a Tab stop, positive values first; a negative
+/// one takes a tap and `autofocus` but Tab skips it; absent is never `0`;
+/// a disabled button, inert and hidden boxes are skipped, and a disabled
+/// box is not (`disabled` means nothing on a div, as in Chrome); a bound value moves a box
+/// in and out; Tab and Shift-Tab walk and wrap, from no focus to the first
+/// or the last; an ancestor's `key` hears a key the focused box bubbles.
+#[test]
+fn tabindex_makes_tab_stops_and_tab_walks_them() {
+    const TABS: &str = r#"component App
+  state open = false
+  state keys = ""
+  action reveal
+    open = true
+  action heard(key: string)
+    keys = `${keys}${key};`
+  view
+    column width=400 height=400 key=heard
+      text keys testId="keys" height=20
+      box tabindex=0 testId="zero" width=40 height=20
+      box testId="plain" width=40 height=20
+      box tabindex=-1 autofocus=true testId="minus" width=40 height=20
+      button "Reveal" press=reveal testId="reveal" height=20
+      box tabindex=2 testId="two" width=40 height=20
+      box tabindex=1 testId="one" width=40 height=20
+      box tabindex=(open ? 0 : -1) testId="bound" width=40 height=20
+      box tabindex=0 disabled=true testId="disabled" width=40 height=20
+      button "Off" disabled=true tabindex=0 testId="off" height=20
+      box inert=true
+        box tabindex=0 testId="inert" width=40 height=20
+      box tabindex=0 display="none" testId="hidden" width=40 height=20
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(TABS).unwrap().encode(),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.advance(16.);
+    assert_eq!(p.focus(), Some(id(&p, "minus")), "autofocus takes -1");
+    let tab = |p: &mut Presenter<Keeps>, shift: bool| {
+        if shift {
+            p.hold_modifier("ShiftLeft", true);
+        }
+        p.hardware_key("Tab", "Tab", true, false);
+        p.hardware_key("Tab", "Tab", false, false);
+        if shift {
+            p.hold_modifier("ShiftLeft", false);
+        }
+        let k = p.host().kernel();
+        p.focus()
+            .and_then(|f| k.node(f))
+            .and_then(|n| n.props.str(PropId::TestId))
+            .unwrap_or("")
+            .to_string()
+    };
+    let walked: Vec<String> = (0..7).map(|_| tab(&mut p, false)).collect();
+    assert_eq!(
+        walked,
+        ["one", "two", "", "zero", "reveal", "disabled", "one"],
+        "positive first, then tree order (the column hears keys, so the web makes it a stop); \
+         -1, plain, the disabled button, inert, hidden skipped; the disabled box is a stop; wraps"
+    );
+    assert_eq!(
+        tab(&mut p, true),
+        "disabled",
+        "Shift-Tab walks back, wrapping"
+    );
+    let keys = |p: &Presenter<Keeps>| {
+        let k = p.host().kernel();
+        let n = k.node_by_key(k.find_by_test_id("keys")[0]).unwrap();
+        n.props.str(PropId::Text).unwrap_or("").to_string()
+    };
+    assert!(
+        keys(&p).contains("Tab;"),
+        "the column heard Tab bubble: {}",
+        keys(&p)
+    );
+    p.tap(id(&p, "reveal")).unwrap();
+    assert_eq!(
+        tab(&mut p, false),
+        "bound",
+        "a bound tabindex joins the order"
+    );
+    p.tap(id(&p, "minus")).unwrap();
+    assert_eq!(p.focus(), Some(id(&p, "minus")), "a tap focuses -1");
+    p.focus = None;
+    assert_eq!(
+        tab(&mut p, false),
+        "one",
+        "from no focus, Tab takes the first"
+    );
+    p.focus = None;
+    assert_eq!(tab(&mut p, true), "disabled", "and Shift-Tab the last");
 }

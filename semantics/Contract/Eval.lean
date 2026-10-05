@@ -10,6 +10,7 @@ construct (`contract/lower/src/expr.rs`, `stmts.rs`).
 import Contract.Syntax
 import Contract.Value
 import Contract.Route
+import Contract.Format
 
 namespace Contract
 
@@ -30,7 +31,7 @@ structure Env where
   derives : List (String × Value) := []
   resources : List (String × Value) := []
   rows : List (String × Value) := []
-  now : Float := 0
+  now : F64 := 0
   deriving Inhabited
 
 namespace Env
@@ -59,13 +60,60 @@ def fieldIndex (env : Env) (s field : String) : Option Nat :=
 
 end Env
 
+/-- A format entry on evaluated arguments. A style the compiler would have
+refused is refused as unsupported. -/
+def formatting (f : String) (args : List Value) : Result Value :=
+  match f, args with
+  | "formatTime", [.num e, .num o, .str "short"] => .ok (.str (Format.formatTime e o))
+  | "formatDate", [.num e, .num o, .str "medium"] => .ok (.str (Format.formatDate e o false))
+  | "formatDate", [.num e, .num o, .str "month-year"] => .ok (.str (Format.formatDate e o true))
+  | "formatNumber", [.num n, .str "compact"] => .ok (.str (Format.compact n))
+  | f, _ => .error (.unsupported s!"roster entry `{f}` of arguments it does not take")
+
+/-- The name/value pairs of a `t` call: one list (the VM's) or the
+arguments themselves (the embedding's); a value that is not a string
+fills nothing. -/
+def pairStrs (rest : List Value) : List (Option String) :=
+  let pairs := match rest with
+    | [.list ps] => ps
+    | ps => ps
+  pairs.map fun | .str s => Option.some s | _ => Option.none
+
+/-- `t(locale, key, pairs)`: the VM's call has the name/value pairs as one
+list, the embedding's (`contract lean`) as the arguments after the key. A
+key no table has traps. -/
+def text (tables : Format.Tables) (args : List Value) : Result Value :=
+  match args with
+  | .str loc :: .str key :: rest =>
+    match Format.text tables loc key (pairStrs rest) with
+    | .some s => .ok (.str s)
+    | .none => .error (.refused s!"no table has the text `{key}`")
+  | _ => .error (.unsupported "`t` of arguments it does not take")
+
+theorem formatting_str {f args v} (h : formatting f args = .ok v) : ∃ s, v = .str s := by
+  unfold formatting at h; split at h <;> simp at h <;> exact ⟨_, h.symm⟩
+
+theorem text_str {tables args v} (h : text tables args = .ok v) : ∃ s, v = .str s := by
+  unfold text at h; split at h
+  · split at h <;> simp at h; exact ⟨_, h.symm⟩
+  · simp at h
+
+theorem formatting_err {f args e} (h : formatting f args = .error e) : ∃ w, e = .unsupported w := by
+  unfold formatting at h; split at h <;> simp at h; exact ⟨_, h.symm⟩
+
+theorem text_err {tables args e} (h : text tables args = .error e) :
+    (∃ w, e = .refused w) ∨ ∃ w, e = .unsupported w := by
+  unfold text at h; split at h
+  · split at h <;> simp at h; exact .inl ⟨_, h.symm⟩
+  · simp at h; exact .inr ⟨_, h.symm⟩
+
 /-- A roster entry applied to evaluated arguments. `map` and `filter` are
 not here: their callback is evaluated by `eval`. -/
 def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   match f, args with
   | "now", [] => .ok (.num env.now)
-  | "length", [.list xs] => .ok (.num (Float.ofNat xs.length))
-  | "length", [.str s] => .ok (.num (Float.ofNat (Str.utf16Length s)))
+  | "length", [.list xs] => .ok (.num (F64.ofNat xs.length))
+  | "length", [.str s] => .ok (.num (F64.ofNat (Str.utf16Length s)))
   | "isEmpty", [.list xs] => .ok (.bool xs.isEmpty)
   | "isEmpty", [.str s] => .ok (.bool s.isEmpty)
   | "toString", [v] => Value.str <$> v.display
@@ -75,10 +123,10 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   | "first", [.list xs] => .ok (match xs with | [] => .none | x :: _ => .some x)
   | "at", [.list xs, .num i] =>
     let i := if Number.isNaN i then 0 else Number.trunc i
-    let len := Float.ofNat xs.length
+    let len := F64.ofNat xs.length
     let j := if i < 0 then len + i else i
     if 0 ≤ j && j < len then
-      .ok (match xs[j.toUInt64.toNat]? with | .some v => .some v | .none => .none)
+      .ok (match xs[j.toNat]? with | .some v => .some v | .none => .none)
     else .ok .none
   | "includes", [.str a, .str b] => .ok (.bool (Str.includes a b))
   | "startsWith", [.str a, .str b] => .ok (.bool (Str.startsWith a b))
@@ -96,7 +144,7 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   | "stack", [r] => Route.read env.prog.routes r fun x =>
       Option.some (.list ((Route.stack x).map (Route.entryValue env.prog.routes)))
   | "top", [r] => Route.read env.prog.routes r fun x => (Route.top x).map (Route.entryValue env.prog.routes)
-  | "depth", [r] => Route.read env.prog.routes r fun x => Option.some (.num (Float.ofNat (Route.depth x)))
+  | "depth", [r] => Route.read env.prog.routes r fun x => Option.some (.num (F64.ofNat (Route.depth x)))
   | "params", [r, .str n] => Route.read env.prog.routes r fun x =>
       Option.some (.list ((Route.params x n).map .str))
   | "searchParam", [e, .str n] =>
@@ -116,16 +164,26 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
         | v@(.str _) | v@(.num _) | v@(.bool _) => v.display
         | _ => .error (.type "join of an item that is not a string, number or bool")
       .ok (.str (sep.intercalate parts))
+  -- LLP 1088 D2: over UTF-16 code units, well formed. `toLowerCase` is
+  -- left out (its case tables are Unicode's).
+  | "slice", [.str s, .num a, .num b] => .ok (.str (Str.slice s a b))
+  | "replaceAll", [.str s, .str find, .str w] => .ok (.str (Str.replaceAll s find w))
+  -- Formatting and localized text (`Contract.Format`).
+  | "formatTime", vs => formatting "formatTime" vs
+  | "formatDate", vs => formatting "formatDate" vs
+  | "formatNumber", vs => formatting "formatNumber" vs
+  | "t", vs => text env.prog.strings vs
   | "length", _ | "isEmpty", _ | "floor", _ | "max", _ | "min", _ | "first", _ | "at", _
   | "includes", _ | "startsWith", _ | "endsWith", _ | "trim", _ | "join", _
-  | "encodeURIComponent", _ => .error (.type s!"`{f}` of arguments it does not take")
+  | "encodeURIComponent", _ | "slice", _ | "replaceAll", _ =>
+    .error (.type s!"`{f}` of arguments it does not take")
   | f, _ => .error (.unsupported s!"roster entry `{f}`")
 
 /-- A binary operator other than `and`/`or`, on evaluated operands. `+`
 concatenates two strings and adds two numbers (the compiler picks `Concat`
 by the left operand's static type). -/
 def binop (op : BinOp) (a b : Value) : Result Value :=
-  let num2 (f : Float → Float → Value) : Result Value :=
+  let num2 (f : F64 → F64 → Value) : Result Value :=
     match a, b with
     | .num x, .num y => .ok (f x y)
     | _, _ => .error (.type "arithmetic or comparison on values that are not numbers")
@@ -139,10 +197,11 @@ def binop (op : BinOp) (a b : Value) : Result Value :=
   | .mul => num2 fun x y => .num (x * y)
   | .div => num2 fun x y => .num (x / y)
   | .rem => num2 fun x y => .num (Number.fmod x y)
-  | .lt => num2 fun x y => .bool (x < y)
-  | .le => num2 fun x y => .bool (x ≤ y)
-  | .gt => num2 fun x y => .bool (x > y)
-  | .ge => num2 fun x y => .bool (x ≥ y)
+  -- Two strings compare by UTF-16 code units (LLP 1088 D1).
+  | .lt => match a, b with | .str x, .str y => .ok (.bool (Str.lt x y)) | _, _ => num2 fun x y => .bool (x < y)
+  | .le => match a, b with | .str x, .str y => .ok (.bool !(Str.lt y x)) | _, _ => num2 fun x y => .bool (x ≤ y)
+  | .gt => match a, b with | .str x, .str y => .ok (.bool (Str.lt y x)) | _, _ => num2 fun x y => .bool (x > y)
+  | .ge => match a, b with | .str x, .str y => .ok (.bool !(Str.lt x y)) | _, _ => num2 fun x y => .bool (x ≥ y)
   | .eq => (Value.equal a b).elim (.error (.type "`==` on values of two types")) (.ok ∘ .bool)
   | .ne => (Value.equal a b).elim (.error (.type "`!=` on values of two types")) (fun e => .ok (.bool !e))
   | .and | .or => .error (.type "short-circuit operator evaluated strictly")
@@ -152,7 +211,7 @@ def bindParams (ps : List String) (item : Value) (i : Nat) (ls : Locals) : Local
   match ps with
   | [] => ls
   | [p] => (p, item) :: ls
-  | p :: q :: _ => (q, .num (Float.ofNat i)) :: (p, item) :: ls
+  | p :: q :: _ => (q, .num (F64.ofNat i)) :: (p, item) :: ls
 
 /-- The expression written for field `f`, if any. -/
 def lookupField (f : String) : List (String × Expr) → Option Expr
@@ -174,7 +233,7 @@ def eval : Nat → Env → Bool → Locals → Expr → Result Value
   | 0, _, _, _, _ => .error outOfFuel
   | fuel + 1, env, inFn, ls, e =>
   match e with
-  | .num b => .ok (.num (Float.ofBits b))
+  | .num b => .ok (.num (F64.ofBits b))
   | .str s => .ok (.str s)
   | .bool b => .ok (.bool b)
   | .none => .ok .none

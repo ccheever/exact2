@@ -591,11 +591,18 @@
     agent: "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)",
     unsupported: "storage is unsupported by this host",
   };
-  // Rust's `io::Error` ends with its errno; these are the same on Darwin and
-  // Linux but ENOTEMPTY (66, 39).
-  var ERRNO = { 2: "ENOENT", 16: "EBUSY", 17: "EEXIST", 20: "ENOTDIR", 21: "EISDIR", 39: "ENOTEMPTY", 66: "ENOTEMPTY" };
+  // Rust's error numbers are platform-specific. Never treat Windows access
+  // denial (5) as EISDIR, or its 17/39 as Unix EEXIST/ENOTEMPTY.
+  var windowsStorage = global.__exact_windows_storage === true;
+  delete global.__exact_windows_storage;
+  var ERRNO = windowsStorage
+    ? { 2: "ENOENT", 3: "ENOENT", 32: "EBUSY", 33: "EBUSY", 80: "EEXIST", 145: "ENOTEMPTY", 170: "EBUSY", 183: "EEXIST", 267: "ENOTDIR" }
+    : { 2: "ENOENT", 16: "EBUSY", 17: "EEXIST", 20: "ENOTDIR", 21: "EISDIR", 39: "ENOTEMPTY", 66: "ENOTEMPTY" };
   function storageCode(message) {
     if (/^denied: /.test(message)) return "denied";
+    // The Windows document adapter emits this only after same-handle type
+    // inspection; incidental text and numeric access denial are insufficient.
+    if (windowsStorage && /\(filesystem code EISDIR\)$/.test(message)) return "EISDIR";
     var errno = /\(os error (\d+)\)$/.exec(message);
     if (errno && ERRNO[errno[1]]) return ERRNO[errno[1]];
     return /\bbusy\b|database is locked/.test(message) ? "EBUSY" : "failed";
@@ -617,7 +624,10 @@
       return Promise.reject(refused);
     }
     var refused;
-    try { refused = host(5, "", "") || (receiver ? undefined : "unsupported"); }
+    // A file operation names its path: a document the person chose
+    // (`doc:/`) needs no app storage (LLP 1069.010 D1).
+    var path = receiver && nativeStorage && receiver === nativeStorage.fs && typeof args[0] === "string" ? args[0] : "";
+    try { refused = host(5, path, "") || (receiver ? undefined : "unsupported"); }
     catch (e) { refused = "bake"; } // no filesystem or database effects during bake
     if (refused) return Promise.reject(storageError(REFUSED[refused], refused));
     call.storage++;

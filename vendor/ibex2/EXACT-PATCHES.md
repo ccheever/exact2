@@ -7,8 +7,8 @@
   sibling `../ibex` checkout. The compiler includes `src/bindings/storage.d.ts`
   as text, `exact-js` compiles `src/engine/ibex2_jsi.cc` and the binding
   scripts, and seven manifests depend on the crates.
-- **Patches:** two Exact-only patches below and the Windows connection backport
-  described next. Otherwise the copy is the commit's tracked tree, byte for byte,
+- **Patches:** three Exact-only patches below and the Windows connection and native
+  filesystem backports described next. Otherwise the copy is the commit's tracked tree, byte for byte,
   plus this file.
 - **Not vendored:** the Hermes engine and `hermesc` builds. They are
   hand-built outputs in the ibex checkout (`ios/Frameworks-vanilla`,
@@ -22,8 +22,10 @@
   ```
 
   then restore this file with the new commit and date, and reapply patches
-  3 and 4 (`git show ae0c186a9 a268b5512 001e43d03 -- vendor/ibex2`).
+  3, 4 and 5 (`git show ae0c186a9 a268b5512 001e43d03 -- vendor/ibex2`, and
+  patch 5's commit, `git log -1 --format=%h -S run_document -- vendor/ibex2`).
   Keep the Windows connection backport unless the new snapshot contains it.
+  Keep the native filesystem backport and its shared-parser adaptation too.
   Patch 4 replaces `src/grant.rs` wholesale, so keep the vendored file
   rather than merging upstream's: a grant-grammar change upstream must be
   ported to `grants/src/lib.rs` by hand.
@@ -38,6 +40,51 @@ polling on the caller's thread. The new module and tests match upstream; the
 WinSock feature and Windows dispatch are added here. Exact patch 3's Unix poll
 implementation remains unchanged, and its helper is compiled only off Windows.
 No grant, TLS, Hermes ABI or SQLite changes accompany this backport.
+
+## Windows native filesystem grants — bounded upstream backport
+
+Backport only Ibex `cc71b185`'s filesystem slice (2026-10-04), reviewed in Exact
+LLP 1027.001 D2 and upstream LLP 0068. The snapshot remains `e3e00690`; no other
+runtime, binding, Events, Blob/FormData, Hermes or native SQLite change follows.
+
+- `src/stdlib/{app_fs_windows,fs,windows_directory}.rs` and new
+  `windows_fs.rs`, `windows_fs_tests.rs` carry the retained drive/ancestor/operand
+  backend, strict native leaves, locality and reparse refusal, native case policy,
+  pre-mutation regularity/identity checks and focused Windows regressions.
+  `mod.rs` enables only those Windows modules. `Cargo.toml` adds only the two
+  Windows API feature families needed for retained-drive device qualification.
+- Exact patch 4 still owns the grammar. `src/grant.rs` keeps its exact-grants
+  reexport; its realization helper is the unchanged lexical set on Windows.
+  `fs.rs` retains the Exact realization helper call on the existing admission
+  path. No upstream `grant.rs` replacement was copied.
+- `src/stdlib/windows_path.rs` reexports the pure `exact_grants::WindowsPath`.
+  Exact moved the upstream lexical parser and quoted filesystem-target grammar
+  into `grants/`, retaining its `doc:/` namespace and source-line scopes. Native
+  syntax is recognized on all build hosts; execution remains Windows-only.
+- Exact's native NT leaf open/rename calls also use that shared component
+  validator before their existing encoding checks. This avoids a divergent
+  control-character/UTF-16 boundary; an added Windows test couples parser and
+  NT leaf refusal. Legacy `app:/` names retain their existing checks.
+
+Native SQLite execution remains refused. The existing app SQLite provider and
+its trusted-embedder/stable-ancestry contract are unchanged. Raw Rust remains
+trusted; filesystem grants govern capability calls rather than forming an OS
+sandbox. Native paths pin identities per operation, and hard links retain their
+ordinary shared contents. Browser builds carry native tuples inertly.
+
+## Windows chosen-document read errors — Exact patch
+
+LLP 1027.006 qualifies the native TypeScript executor on Windows. Its existing
+public storage contract requires EISDIR for reading a chosen directory. The
+Windows document ReadFile arm in `src/stdlib/fs.rs` now opens one read handle
+with BACKUP_SEMANTICS and uses metadata from that same handle to identify a
+directory. Only this proven case emits `(filesystem code EISDIR)`, consumed by
+Exact's trusted storage prelude. Actual access-denied5 remains unchanged; no
+global numeric remapping, precheck race, grant change or physical-path leak is
+introduced. The document namespace is an existing Exact-specific patch.
+Tests cover ordinary bytes, directory refusal, grant-before-resolution and a
+real owned-file ACL denial with original DACL restoration. This is not a broad
+Ibex refresh; any corresponding upstream operation fix is reviewed separately.
 
 ## Upstreamed (no longer patches)
 
@@ -110,3 +157,20 @@ with database and sidecar reparse preflight. See Exact LLP 1027.001 D2 and
 [Ibex LLP 0068](https://github.com/expo/ibex/blob/e3e00690/llp/0068-the-standard-library-for-a-rust-consumer.spec.md).
 Exact still disables Ibex's default features; the refresh does not automatically
 enable the new crypto implementation or claim a Windows Exact TypeScript engine.
+
+## Patch 5: documents the person chose (`doc:`) — Exact only
+
+2026-10-04, LLP 1069.010 D1 (files F2): a TypeScript source's `storage.fs`
+reaches a `doc:/<n>/<name>` path as a Rust source's storage request does,
+under the same `fs.read doc:/` / `fs.write doc:/` grants.
+
+- `src/stdlib/fs.rs`: `Document`, `Documents` (the embedder's table, a
+  `doc:` path to its real location) and `run_document`, the one executor
+  both languages run on a native host: the grant checked on the path as
+  spelt, `rename`/`copyFile`/`realpath` refused, `rm` one file or empty
+  folder beneath the chosen document, the real path never in an error.
+  `run` refuses a `doc:` path instead of calling it relative.
+- `src/task.rs`, `src/bindings.rs`: `set_documents` on the runtime state
+  and the `Context`; `src/boundary_abi.rs`'s `run_fs` sends a `doc:` path
+  to `run_document`.
+- Not for upstream until Ibex has a picker that mints such paths.

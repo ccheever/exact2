@@ -73,14 +73,22 @@ def Ty.lePrefix : List Ty → List Ty → Bool
   | t :: ts, u :: us => t.le u && lePrefix ts us
   | _ :: _, [] => false
 
-/-- The roster entries the semantics refuses as unsupported (formats,
-geometry), at the types the roster spells. -/
+/-- The roster entries whose result is a string or a refusal on any
+arguments (the formats and `t`), and those the semantics refuses as
+unsupported (geometry), at the types the roster spells. `t` is typed as
+`contract lean` writes it: the locale slot, the key, then each
+placeholder's name and its value as `toString` prints it. -/
 def unsupportedTy (name : String) (ts : List Ty) : Option Ty :=
   if name = "formatTime" ∨ name = "formatDate" then
     match ts with | [.number, .number, .string] => .some .string | _ => .none
   else if name = "formatNumber" then match ts with | [.number, .string] => .some .string | _ => .none
+  else if name = "t" then
+    match ts with
+    | .string :: .string :: rest => if rest.all (· == .string) then .some .string else .none
+    | _ => .none
   else if name = "frame" ∨ name = "measure" then
     match ts with | [.string] => .some (.record "Geometry") | _ => .none
+  else if name = "toLowerCase" then match ts with | [.string] => .some .string | _ => .none
   else .none
 
 /-- The router's verbs and reads (LLP 1038, `Contract.Route`), at the
@@ -133,10 +141,14 @@ def rosterTy (name : String) (ts : List Ty) : Option Ty :=
     | [.list a, s] =>
       if (a.displayable || decide (a = .unknown)) && s.le .string then .some .string else .none
     | _ => .none
+  else if name = "slice" then
+    match ts with | [.string, .number, .number] => .some .string | _ => .none
+  else if name = "replaceAll" then
+    match ts with | [.string, .string, .string] => .some .string | _ => .none
   else routerTy name ts
 
 /-- A binary operator's result on operands of these types (`infer`'s
-`Binary`): `+` on numbers or strings, arithmetic and comparisons on
+`Binary`): `+` and comparisons on numbers or strings, arithmetic on
 numbers, `==`/`!=` on unifiable types, `and`/`or` on bools. -/
 def binTy (op : BinOp) (a b : Ty) : Option Ty :=
   let nums := a.le .number && b.le .number
@@ -145,9 +157,24 @@ def binTy (op : BinOp) (a b : Ty) : Option Ty :=
     if nums then .some .number
     else if a.le .string && b.le .string then .some .string else .none
   | .sub | .mul | .div | .rem => if nums then .some .number else .none
-  | .lt | .le | .gt | .ge => if nums then .some .bool else .none
+  | .lt | .le | .gt | .ge =>
+    if nums then .some .bool
+    else if a.le .string && b.le .string then .some .bool else .none
   | .eq | .ne => if a.compat b then .some .bool else .none
   | .and | .or => if a.le .bool && b.le .bool then .some .bool else .none
+
+/-- A use of data source `src` with arguments of types `ts`, answering
+`res`, against the source's one signature (`record_source`): as many
+arguments, each meeting its parameter, the answer meeting the source's. -/
+def sourceOk (p : Program) (src : String) (ts : List Ty) (res : Ty) : Bool :=
+  match p.sources.find? (·.1 == src) with
+  | .none => true
+  | .some (_, ps, r) =>
+    ps.length == ts.length && (ts.zip ps).all (fun (t, u) => t.compat u) && res.compat r
+
+/-- A mutation's answer type (`unknown` for a name that is none). -/
+def mutationTy (p : Program) (x : String) : Ty :=
+  ((p.mutations.find? (·.name == x)).map (·.ty)).getD .unknown
 
 /-- A shape's field types, by name. -/
 def shapeTys (p : Program) (s : String) : Option (List Ty) :=
@@ -226,11 +253,14 @@ inductive HasTy (p : Program) (G : Scope) : Scope → Expr → Ty → Prop
   | filter : p.fns.find? (·.name == "filter") = .none → ps.length ≤ 2 → HasTy p G Γ l (.list a) →
       HasTy p G (bindTy ps a Γ) body b → b.le .bool = true →
       HasTy p G Γ (.call "filter" [l, .arrow ps body]) (.list a)
-  /-- `pending(x)` names a resource or a mutation. -/
+  /-- `pending(x)` names a resource or a mutation in scope (the checker's
+  `scope.lookup`: no local shadows it, and the component scope has it). -/
   | pending : p.fns.find? (·.name == "pending") = .none → (isResource p x || isMutation p x) = true →
+      lookupTy x Γ = .none → (lookupTy x G).isSome = true →
       HasTy p G Γ (.call "pending" [.var x]) .bool
-  /-- `failed(x)` names a resource. -/
+  /-- `failed(x)` names a resource in scope. -/
   | failed : p.fns.find? (·.name == "failed") = .none → isResource p x = true →
+      lookupTy x Γ = .none → (lookupTy x G).isSome = true →
       HasTy p G Γ (.call "failed" [.var x]) .bool
   | roster : p.fns.find? (·.name == name) = .none → ListTy p G Γ args ts → rosterTy name ts = .some t →
       HasTy p G Γ (.call name args) t
@@ -277,15 +307,17 @@ end
 /-- An action body is well typed. Assignments are to states and mutations
 at types at most theirs (`slotTy`); a `send` targets a mutation and a
 `refresh` a resource; `if` tests a bool and `match` an option. A `let`
-scopes over the rest of its block. -/
+scopes over the rest of its block. A call names an action and passes
+each of its parameters a value of its type. -/
 def StmtsTy (p : Program) (G : Scope) : Scope → List Stmt → Prop
   | _, [] => True
   | Γ, .letS x e :: rest => ∃ t, HasTy p G Γ e t ∧ StmtsTy p G ((x, t) :: Γ) rest
   | Γ, .assign x e :: rest =>
     isSlot p x = true ∧ (∃ t, HasTy p G Γ e t ∧ t.le (slotTy p x) = true) ∧ StmtsTy p G Γ rest
   | Γ, .command _ args :: rest => (∃ ts, ListTy p G Γ args ts) ∧ StmtsTy p G Γ rest
-  | Γ, .send x _ args :: rest =>
-    isMutation p x = true ∧ (∃ ts, ListTy p G Γ args ts) ∧ StmtsTy p G Γ rest
+  | Γ, .send x src args :: rest =>
+    isMutation p x = true ∧ (∃ ts, ListTy p G Γ args ts ∧ sourceOk p src ts (mutationTy p x) = true) ∧
+      StmtsTy p G Γ rest
   | Γ, .refresh x :: rest => isResource p x = true ∧ StmtsTy p G Γ rest
   | Γ, .ifS c thn els :: rest =>
     (∃ t, HasTy p G Γ c t ∧ t.le .bool = true) ∧ StmtsTy p G Γ thn ∧ StmtsTy p G Γ els ∧
@@ -293,6 +325,11 @@ def StmtsTy (p : Program) (G : Scope) : Scope → List Stmt → Prop
   | Γ, .matchS s x sm nn :: rest =>
     (∃ a, HasTy p G Γ s (.option a) ∧ StmtsTy p G ((x, a) :: Γ) sm) ∧ StmtsTy p G Γ nn ∧
       StmtsTy p G Γ rest
+  /- A call (LLP 1089 D9) names an action, its arguments each at most its
+  parameter's type; the callee's body is typed as the action it is. -/
+  | Γ, .call a args :: rest =>
+    (∃ ad, p.actions.find? (·.name == a) = .some ad ∧
+      ∃ ts, ListTy p G Γ args ts ∧ Ty.leAll ts (ad.params.map (·.2)) = true) ∧ StmtsTy p G Γ rest
 
 /-! ## Views -/
 
@@ -344,6 +381,17 @@ def lateScope (p : Program) (i : Nat) : Scope :=
   p.derives.map (fun d => (d.name, d.ty)) ++ p.resources.map (fun r => (r.name, r.ty)) ++
   p.mutations.map (fun m => (m.name, Ty.option m.ty))
 
+/-- A state lifted from a child component: a late root slot or one an arm
+owns. Its name (`x#N`) cannot be written in the root's source. -/
+def lifted (p : Program) (x : String) : Bool :=
+  p.states.any fun s => s.name == x && (s.late || s.owner.isSome)
+
+/-- What a derive's body or a resource's argument reads: the root's own
+names — no lifted state (the expander substitutes a child's derive where
+it is read, and a resource lives in the root). So settlement, which boot
+runs before the late slots are initialized, reads none of them. -/
+def settleScope (p : Program) : Scope := (compScope p).filter fun q => !lifted p q.1
+
 /-- The names a component declares. -/
 def compNames (p : Program) : List String :=
   p.states.map (·.name) ++ p.derives.map (·.name) ++ p.resources.map (·.name) ++
@@ -370,14 +418,22 @@ structure WellTyped (p : Program) : Prop where
     p.router ≠ .some st.name → ∃ t, HasTy p (rootScope p i) [] st.init t ∧ t.le st.ty = true
   lateInits : ∀ i st, p.states[i]? = .some st → st.owner = .none → st.late = true →
     ∃ t, HasTy p (lateScope p i) [] st.init t ∧ t.le st.ty = true
-  derives : ∀ d ∈ p.derives, ∃ t, HasTy p (compScope p) [] d.body t ∧ t.le d.ty = true
-  /-- A source's signature is free: its arguments need only type. -/
-  resources : ∀ r ∈ p.resources, ∃ ts, ListTy p (compScope p) [] r.args ts
+  derives : ∀ d ∈ p.derives, ∃ t, HasTy p (settleScope p) [] d.body t ∧ t.le d.ty = true
+  /-- A resource's arguments type, and meet its source's one signature. -/
+  resources : ∀ r ∈ p.resources, ∃ ts, ListTy p (settleScope p) [] r.args ts ∧
+    sourceOk p r.source ts r.ty = true
   actions : ∀ a ∈ p.actions, StmtsTy p (compScope p) a.params.reverse a.body
   tasks : ∀ t ∈ p.tasks, ∃ u, HasTy p (compScope p) [] t.ms u ∧ u.le .number = true
   /-- A task names an action, which takes no parameters (the analyzer's
   `analyze-unknown-action`, `analyze-handler-arity`): a timer passes none. -/
   taskActions : ∀ t ∈ p.tasks, ∃ a, p.actions.find? (·.name == t.action) = .some a ∧ a.params = []
+  /-- A task's interval is a number literal (the compiler's
+  `lower-timer-literal`). -/
+  taskLiterals : ∀ t ∈ p.tasks, ∃ b, t.ms = .num b
+  /-- A mutation's `then` names an action that takes no parameters: the
+  clock runs it with none. -/
+  thenActions : ∀ m ∈ p.mutations, ∀ a, m.andThen = .some a →
+    ∃ ad, p.actions.find? (·.name == a) = .some ad ∧ ad.params = []
   view : NodesTy p (compScope p) [] p.view
 
 end Contract

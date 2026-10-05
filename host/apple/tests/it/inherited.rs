@@ -210,7 +210,7 @@ fn a_node_read_names_where_each_value_came_from() {
         "{reply}"
     );
     assert!(
-        reply.contains("\"text_color\":{\"value\":\"#000000\",\"source\":\"initial\"}"),
+        reply.contains("\"text_color\":{\"value\":\"CanvasText\",\"source\":\"initial\"}"),
         "{reply}"
     );
     // A box row never appears unless authored.
@@ -255,7 +255,7 @@ fn caret_color_reaches_editors_and_explicit_auto_stops_inheritance() {
     )
     .unwrap();
     assert!(op(&first, view(&host, "inherited")).contains("\"caret_color\":[255,255,255,255]"));
-    assert!(!op(&first, view(&host, "auto")).contains("[255,255,255,255]"));
+    assert!(!op(&first, view(&host, "auto")).contains("\"caret_color\":[255,255,255,255]"));
     assert!(op(&first, view(&host, "transparent")).contains("\"caret_color\":[0,0,0,0]"));
     let changed = host.dispatch_at(view(&host, "toggle"), Event::Press, 0.0);
     assert!(op(&changed, view(&host, "inherited")).contains("\"caret_color\":[0,170,255,255]"));
@@ -414,6 +414,184 @@ try {
   writeFileSync(binary, embedded('org.foreign.app') + a.id);
   assert.throws(()=>assertAppleIdentity(a,binary), /embedded app identity/);
   writeFileSync(binary, a.id); assert.throws(()=>assertAppleIdentity(a,binary), /missing/);
+} finally { rmSync(run,{recursive:true,force:true}); }
+"#])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+fn a_kept_module_is_taken_only_by_a_checkout_of_the_same_bytes() {
+    // @ref LLP 1036.000 §10 — the host's Rust modules, kept for the machine.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let result = std::process::Command::new("bun")
+        .current_dir(root)
+        .args(["--input-type=module", "-e", r#"
+import assert from 'node:assert/strict';
+import {mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync, readdirSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {resolve} from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {keptModules} from './host/apple/modules.mjs';
+const run = mkdtempSync(resolve(tmpdir(), 'exact-kept-modules-')), home = resolve(run, 'home');
+const git = (cwd, ...args) => assert.equal(spawnSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], {encoding:'utf8'}).status, 0, args.join(' '));
+const past = new Date(Date.now() - 60_000);
+// A checkout: a workspace of one path crate with a shader directory, and one registry crate.
+const checkout = (name, source = 'pub fn draw() {}\n') => {
+  const root = resolve(run, name);
+  for (const [file, text] of Object.entries({
+    'Cargo.toml': '[workspace]\nmembers = ["canvas", "apps/' + name + '"]\n[profile.host-dev]\ninherits = "release"\n',
+    'Cargo.lock': 'version = 4\n[[package]]\nname = "exact-canvas-vello"\nversion = "0.1.0"\ndependencies = ["dep"]\n[[package]]\nname = "dep"\nversion = "1.0.0"\nsource = "registry+x"\nchecksum = "abc"\n',
+    'canvas/Cargo.toml': '[package]\nname = "exact-canvas-vello"\n', 'canvas/src/lib.rs': source, 'canvas/shaders/a.wgsl': 'fn a() {}\n',
+  })) { mkdirSync(resolve(root, file, '..'), {recursive:true}); writeFileSync(resolve(root, file), text); utimesSync(resolve(root, file), past, past); }
+  git(root, 'init', '-q'); git(root, 'add', '-A'); git(root, 'commit', '-q', '-m', 'one');
+  return root;
+};
+// What Cargo leaves after compiling the module there: the dylib, its dep-info, a build script's output.
+const compiled = (root, bytes) => {
+  const moduleTarget = resolve(root, 'target/apple-modules'), lib = resolve(moduleTarget, 'aarch64-apple-darwin/host-dev');
+  mkdirSync(resolve(lib, 'build/dep-1/out'), {recursive:true});
+  writeFileSync(resolve(lib, 'build/dep-1/output'), 'cargo:rerun-if-env-changed=DEP_FLAVOR\n');
+  writeFileSync(resolve(lib, 'build/dep-1/out/made.rs'), '');
+  writeFileSync(resolve(lib, 'libexact_canvas_vello.dylib'), bytes);
+  writeFileSync(resolve(lib, 'libexact_canvas_vello.d'), `${resolve(lib, 'libexact_canvas_vello.dylib')}: ${resolve(root, 'canvas/src/lib.rs')} ${resolve(root, 'canvas/shaders')} ${resolve(lib, 'build/dep-1/out/made.rs')}\n`);
+};
+const kept = (root, env = {}) => keptModules({root, moduleTarget: resolve(root, 'target/apple-modules'), target: 'aarch64-apple-darwin', profile: 'host-dev',
+  env: {HOME: home, PATH: process.env.PATH, MACOSX_DEPLOYMENT_TARGET: '14.0', ...env}, sdk: resolve(run, 'no-sdk'), metal: 'metal 1'});
+const entries = () => { const dir = resolve(home, '.cache/exact/apple-modules'); return existsSync(dir) ? readdirSync(dir).flatMap(g => readdirSync(resolve(dir, g))) : []; };
+const crate = 'exact-canvas-vello';
+try {
+  const first = checkout('first'), started = Date.now() - 1000;
+  assert.equal(kept(first).find(crate), null, 'nothing is kept yet');
+  compiled(first, 'module of one');
+  // Cargo linked nothing since: nothing is kept. An uncommitted input: nothing is kept.
+  kept(first).keep(crate, Date.now() + 60_000); assert.deepEqual(entries(), []);
+  writeFileSync(resolve(first, 'canvas/shaders/b.wgsl'), ''); utimesSync(resolve(first, 'canvas/shaders/b.wgsl'), past, past);
+  kept(first).keep(crate, started); assert.deepEqual(entries(), []);
+  rmSync(resolve(first, 'canvas/shaders/b.wgsl'));
+  // An input written after the compile started: nothing is kept.
+  kept(first).keep(crate, past.getTime() - 1000); assert.deepEqual(entries(), []);
+  kept(first).keep(crate, started); assert.equal(entries().length, 1);
+  // The checkout that compiled it asks Cargo, not the cache.
+  assert.equal(kept(first).find(crate), null);
+  // Another checkout of the same bytes takes it, whatever else its workspace holds; again without a search.
+  const second = checkout('second'), taken = kept(second).find(crate);
+  assert.equal(readFileSync(taken, 'utf8'), 'module of one');
+  assert.equal(kept(second).find(crate), taken);
+  // Not with another deployment target, nor a variable a build script reads.
+  assert.equal(kept(second, {MACOSX_DEPLOYMENT_TARGET: '15.0'}).find(crate), null);
+  assert.equal(kept(second, {DEP_FLAVOR: 'other'}).find(crate), null);
+  // Not once a source, a file of a directory Cargo watches, the crate's manifest, or a pinned registry crate differs.
+  for (const [file, text] of [['canvas/src/lib.rs', 'pub fn draw() { }\n'], ['canvas/shaders/a.wgsl', 'fn b() {}\n'], ['canvas/Cargo.toml', '[package]\nname = "exact-canvas-vello"\nedition = "2021"\n']]) {
+    const was = readFileSync(resolve(second, file), 'utf8');
+    writeFileSync(resolve(second, file), text); assert.equal(kept(second).find(crate), null, file);
+    writeFileSync(resolve(second, file), was); assert.equal(kept(second).find(crate), taken, `${file} restored`);
+  }
+  writeFileSync(resolve(second, 'canvas/shaders/new.wgsl'), ''); assert.equal(kept(second).find(crate), null, 'a new shader');
+  rmSync(resolve(second, 'canvas/shaders/new.wgsl')); assert.equal(kept(second).find(crate), taken);
+  const lock = readFileSync(resolve(second, 'Cargo.lock'), 'utf8');
+  writeFileSync(resolve(second, 'Cargo.lock'), lock.replace('abc', 'abd')); assert.equal(kept(second).find(crate), null, 'a registry crate');
+  writeFileSync(resolve(second, 'Cargo.lock'), lock); assert.equal(kept(second).find(crate), taken);
+  // A checkout of other bytes compiles its own and keeps it beside the first.
+  const third = checkout('third', 'pub fn draw() { let _ = 1; }\n');
+  assert.equal(kept(third).find(crate), null);
+  compiled(third, 'module of three'); kept(third).keep(crate, started);
+  assert.equal(entries().length, 2);
+  assert.equal(readFileSync(kept(checkout('fourth', 'pub fn draw() { let _ = 1; }\n')).find(crate), 'utf8'), 'module of three');
+  assert.equal(readFileSync(kept(checkout('fifth')).find(crate), 'utf8'), 'module of one');
+} finally { rmSync(run,{recursive:true,force:true}); }
+"#])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+fn kept_registry_crates_are_one_target_directory_at_a_time() {
+    // @ref LLP 1036.000 §11 — compiled registry crates, kept for the machine.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let result = std::process::Command::new("bun")
+        .current_dir(root)
+        .args(["--input-type=module", "-e", r#"
+import assert from 'node:assert/strict';
+import {mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync, readdirSync, statSync, realpathSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {resolve, dirname} from 'node:path';
+import {keptCrates, registryPackages} from './host/apple/crates.mjs';
+const run = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-kept-crates-'))), home = resolve(run, 'home');
+const put = (file, text, at) => { mkdirSync(dirname(file), {recursive:true}); writeFileSync(file, text); if (at) utimesSync(file, at, at); };
+const lock = resolve(run, 'Cargo.lock');
+put(lock, ['kernel', 'vendored'].map(n => `[[package]]\nname = "${n}"\nversion = "1.0.0"\n`).join('')
+  + '[[package]]\nname = "vendored"\nversion = "0.9.0"\nsource = "registry+x"\n'
+  + '[[package]]\nname = "plain"\nversion = "1.0.0"\nsource = "registry+x"\n'
+  + '[[package]]\nname = "over-plain"\nversion = "1.0.0"\nsource = "registry+x"\ndependencies = ["plain"]\n'
+  + '[[package]]\nname = "over-path"\nversion = "1.0.0"\nsource = "registry+x"\ndependencies = ["plain", "vendored 1.0.0"]\n'
+  + '[[package]]\nname = "over-over-path"\nversion = "1.0.0"\nsource = "registry+x"\ndependencies = ["over-path"]\n');
+// A registry package is kept unless a version of it is a path crate or has one under it.
+assert.deepEqual([...registryPackages(lock)].sort(), ['over-plain', 'plain']);
+const TRIPLE = 'aarch64-apple-darwin/host-dev', HOST = 'host-dev', then = new Date(Date.now() - 3_600_000);
+// What Cargo leaves for one compiled unit: its fingerprint, its files, rustc's dep-info naming the target directory.
+const unit = (target, dir, pkg, hash, build = false) => {
+  const at = resolve(target, dir), lib = pkg.replaceAll('-', '_');
+  put(resolve(at, '.fingerprint', `${pkg}-${hash}`, `lib-${lib}`), hash, then);
+  put(resolve(at, 'deps', `lib${lib}-${hash}.rlib`), `${pkg} compiled in ${target}`, then);
+  put(resolve(at, 'deps', `${lib}-${hash}.d`), `${at}/deps/lib${lib}-${hash}.rlib: /registry/${pkg}/src/lib.rs\n`, then);
+  if (build) { put(resolve(at, 'build', `${pkg}-${hash}`, 'output'), 'cargo:rustc-cfg=x\n', then); put(resolve(at, 'build', `${pkg}-${hash}`, `build_script_build-${hash}.d`), `${at}/build/${pkg}-${hash}/build_script_build-${hash}: /registry/${pkg}/build.rs\n`, then); }
+};
+const A = '0'.repeat(15), kept = (lockFile = lock) => keptCrates({root: run, env: {HOME: home, RUSTUP_TOOLCHAIN: '1.0.0'}, profile: 'host-dev'});
+const store = resolve(home, '.cache/exact/apple-crates/1.0.0-host-dev/app'), generations = () => existsSync(store) ? readdirSync(store).filter(n => n.startsWith('gen-')).sort() : [];
+const units = (target, dir) => existsSync(resolve(target, dir, '.fingerprint')) ? readdirSync(resolve(target, dir, '.fingerprint')).sort() : [];
+try {
+  // The first directory to build makes the first generation: its registry units, not its own crates nor what stands on them.
+  const first = resolve(run, 'first/target');
+  kept().take(first, 'app'); assert.ok(!existsSync(first), 'nothing is kept yet');
+  for (const [dir, pkg, hash, build] of [[TRIPLE, 'plain', A + '1', true], [TRIPLE, 'over-plain', A + '2'], [TRIPLE, 'kernel', A + '3'], [TRIPLE, 'over-path', A + '4'], [TRIPLE, 'vendored', A + '5'], [HOST, 'plain', A + '6', true]]) unit(first, dir, pkg, hash, build);
+  kept().keep(first, 'app', lock);
+  assert.equal(generations().length, 1);
+  const one = resolve(store, generations()[0]);
+  assert.deepEqual(units(one, TRIPLE), [`over-plain-${A}2`, `plain-${A}1`]); assert.deepEqual(units(one, HOST), [`plain-${A}6`]);
+  assert.deepEqual(readdirSync(resolve(one, TRIPLE, 'deps')).sort(), [`libover_plain-${A}2.rlib`, `libplain-${A}1.rlib`, `over_plain-${A}2.d`, `plain-${A}1.d`]);
+  for (const file of [`deps/plain-${A}1.d`, `build/plain-${A}1/build_script_build-${A}1.d`]) assert.ok(readFileSync(resolve(one, TRIPLE, file), 'utf8').startsWith('@exact-target@/aarch64-apple-darwin/host-dev/'), file);
+  kept().keep(first, 'app', lock); assert.equal(generations().length, 1, 'nothing new, no new generation');
+  // A directory that has compiled nothing starts with that generation: its files, their times, and dep-info naming this directory.
+  const second = resolve(run, 'second/target');
+  kept().take(second, 'app');
+  assert.deepEqual(units(second, TRIPLE), units(one, TRIPLE)); assert.deepEqual(units(second, HOST), units(one, HOST));
+  assert.equal(readFileSync(resolve(second, TRIPLE, 'deps', `libplain-${A}1.rlib`), 'utf8'), `plain compiled in ${first}`);
+  for (const file of [`deps/plain-${A}1.d`, `build/plain-${A}1/build_script_build-${A}1.d`]) {
+    assert.ok(readFileSync(resolve(second, TRIPLE, file), 'utf8').startsWith(`${second}/aarch64-apple-darwin/host-dev/`), file);
+    assert.equal(Math.round(statSync(resolve(second, TRIPLE, file)).mtimeMs), Math.round(statSync(resolve(first, TRIPLE, file)).mtimeMs), `${file} keeps its time`);
+  }
+  assert.equal(Math.round(statSync(resolve(second, TRIPLE, 'deps', `libplain-${A}1.rlib`)).mtimeMs), then.getTime());
+  // One that has compiled is left alone, and one that compiled apart from every generation adds nothing to them.
+  const apart = resolve(run, 'apart/target');
+  unit(apart, HOST, 'plain', A + '7'); unit(apart, TRIPLE, 'over-plain', A + '8');
+  kept().take(apart, 'app'); assert.deepEqual(units(apart, TRIPLE), [`over-plain-${A}8`]);
+  kept().keep(apart, 'app', lock); assert.equal(generations().length, 1);
+  // One that took a generation and compiled a new registry unit makes the next: everything it has, taken or compiled.
+  unit(second, TRIPLE, 'over-plain', A + '9'); unit(second, TRIPLE, 'kernel', A + 'a');
+  kept().keep(second, 'app', lock);
+  assert.equal(generations().length, 2);
+  const two = resolve(store, generations()[1]);
+  assert.deepEqual(units(two, TRIPLE), [`over-plain-${A}2`, `over-plain-${A}9`, `plain-${A}1`]);
+  assert.ok(readFileSync(resolve(two, TRIPLE, 'deps', `plain-${A}1.d`), 'utf8').startsWith('@exact-target@/'));
+  // A unit it took is carried on even where its own lock no longer names the package.
+  const other = resolve(run, 'other.lock'); put(other, '[[package]]\nname = "plain"\nversion = "1.0.0"\nsource = "registry+x"\n');
+  const third = resolve(run, 'third/target');
+  kept().take(third, 'app'); unit(third, TRIPLE, 'plain', A + 'b');
+  kept().keep(third, 'app', other);
+  assert.deepEqual(units(resolve(store, generations().at(-1)), TRIPLE), [`over-plain-${A}2`, `over-plain-${A}9`, `plain-${A}1`, `plain-${A}b`]);
+  // Two generations stay: the newest, and the one a build may still be cloning.
+  assert.equal(generations().length, 2); assert.ok(!existsSync(one));
 } finally { rmSync(run,{recursive:true,force:true}); }
 "#])
         .output()
@@ -602,4 +780,48 @@ fn text_transform_crosses_as_the_measured_string_and_box_shadow_as_its_rows() {
         );
     }
     assert!(!changed.contains("\"value\":\"TYPED\""), "{changed}");
+}
+
+/// `pointer-events` is inherited (CSS): a box under a `none` parent says
+/// `none` too, so a host that hits it outside its parent's box (a toast
+/// translated over the tab bar) lets the pointer through, as the web does
+/// (x2apps feed repro pointer-events-inherit-translate). A child that sets
+/// `auto` again keeps it; a parent's change re-sends the child.
+#[test]
+fn pointer_events_none_reaches_a_box_that_inherits_it() {
+    let plan = contract::compile(
+        r##"component Toast
+  state through = true
+  action toggle
+    through = not through
+  view
+    column
+      button press=toggle testId="toggle"
+        text "Toggle"
+      row pointer-events=(through ? "none" : "auto") testId="row"
+        box testId="toast" width=300 height=60 translate="0px -80px"
+        box testId="again" width=10 height=10 pointer-events="auto"
+"##,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let (toast, again) = (view(&host, "toast"), view(&host, "again"));
+    assert!(
+        op(&first, toast).contains("\"pointer_events\":\"none\""),
+        "{}",
+        op(&first, toast)
+    );
+    assert!(op(&first, again).contains("\"pointer_events\":\"auto\""));
+    let changed = host.dispatch_at(view(&host, "toggle"), Event::Press, 0.0);
+    assert!(
+        op(&changed, toast).contains("\"pointer_events\":\"auto\""),
+        "{changed}"
+    );
 }

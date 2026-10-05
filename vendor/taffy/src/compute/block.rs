@@ -640,9 +640,16 @@ fn compute_inner(
         let inflow_content_height = intrinsic_outer_height - resolved_content_box_inset.vertical_axis_sum();
         let free_space = container_inner_height - inflow_content_height;
         let any_in_flow = items.iter().any(|item| item.final_layout.is_some());
+        let keyword = apply_alignment_fallback(free_space, 1, align_content);
+        let group_offset = compute_alignment_offset(free_space, 1, 0.0, keyword, false, true);
+        // EXACT PATCH 26: an absolutely positioned child's static position
+        // moves with the group, which is empty when nothing is in flow
+        // (Chrome 154: the static position of a box after a centred 20px
+        // child in 100px is 60, and of a lone one 50).
+        for item in items.iter_mut().filter(|item| item.position == Position::Absolute) {
+            item.static_position.y += group_offset;
+        }
         if any_in_flow {
-            let keyword = apply_alignment_fallback(free_space, 1, align_content);
-            let group_offset = compute_alignment_offset(free_space, 1, 0.0, keyword, false, true);
             first_baseline = first_baseline.map(|baseline| baseline + group_offset);
             for item in items.iter_mut() {
                 if let Some(layout) = item.final_layout.as_mut() {

@@ -291,6 +291,28 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(pressed, [])
     }
 
+    /// `position-area: center` on the sheet (LLP 1021 "Placement"): anchored
+    /// at the whole invoker, no arrow, allowed over it; UIKit centres the
+    /// sheet across the invoker and picks its vertical position itself.
+    func testACentredSheetSitsOverItsInvoker() throws {
+        let (p, controller, scene) = chooser({ Self.providers })
+        defer { p.menus.reset(); window.isHidden = true }
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["position_area": "center"]],
+                           ["op": "frame", "id": 1, "x": 100.0, "y": 150.0, "w": 200.0, "h": 40.0]]))
+        let source = try XCTUnwrap(p.views[1])
+        XCTAssertEqual(p.menus.activate(source), true)
+        let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        let presentation = try XCTUnwrap(alert.popoverPresentationController)
+        XCTAssertEqual(presentation.sourceRect, source.bounds, "the whole invoker, not its label")
+        XCTAssertEqual(presentation.permittedArrowDirections, [])
+        XCTAssertTrue(presentation.canOverlapSourceViewRect)
+        try XCTSkipUnless(scene, "a presentation completes only in a scene's window")
+        settle(p) { !p.menus.inTransition }
+        let sheet = alert.view.convert(alert.view.bounds, to: nil), invoker = source.convert(source.bounds, to: nil)
+        print("position-area center: sheet \(sheet), invoker \(invoker)")
+        XCTAssertEqual(sheet.midX, invoker.midX, accuracy: 2, "centred across it")
+    }
+
     /// A shape the sheet cannot present, two cancels, opens nothing. (Its
     /// logged reason needs a session; this presenter has none.)
     func testAChooserTheSheetCannotPresentIsRefused() throws {
@@ -311,6 +333,30 @@ final class NativeContextsIOSTests: XCTestCase {
                 + [["op": "children", "id": 2, "ids": [3, 4, 5]], ["op": "roots", "ids": [1, 2]]]))
         XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), false)
         XCTAssertNil(controller.presentedViewController)
+    }
+
+    /// HTML's `hr` (LLP 1021 D1) arrives as a row like any other and, having
+    /// no press, breaks the menu into inline sections; the cancel after it,
+    /// a hide-only row, is no item (the menu closes itself).
+    func testAnHrRowIsASectionBreak() throws {
+        let row = { (id: Int) -> [[String: Any]] in
+            [["op": "create", "id": id, "kind": "button", "handlers": ["press"], "props": ["popovertarget": "open-in", "popovertargetaction": "hide"], "style": [:]],
+             ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0]]
+        }
+        let p = presenter(
+            view(1, ["popover": "auto", "id": "open-in", "accessibilityRole": "menu"])
+                + row(2) + row(3)
+                + view(4, ["semanticTag": "hr"], style: ["border_width_top": 1, "border_width_bottom": 1], h: 2)
+                + row(5)
+                + [["op": "create", "id": 6, "kind": "button", "handlers": [], "props": ["popovertarget": "open-in", "popovertargetaction": "hide"], "style": [:]],
+                   ["op": "frame", "id": 6, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+                   ["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6]], ["op": "roots", "ids": [1]]],
+            faces: [2: face("Apple Maps"), 3: face("Google Maps"), 5: face("Waze"), 6: face("Cancel")])
+        let pop = try XCTUnwrap(p.views[1])
+        XCTAssertTrue(pop.container.subviews.contains { $0 === p.views[4] }, "the hr is a NodeView row of the popover")
+        let sections = p.menus.items(of: pop).compactMap { $0 as? UIMenu }
+        XCTAssertEqual(sections.map { $0.children.compactMap { ($0 as? UIAction)?.title } }, [["Apple Maps", "Google Maps"], ["Waze"]])
+        XCTAssertTrue(sections.allSatisfy { $0.options.contains(.displayInline) })
     }
 
     /// A menu is titled by its popover's `aria-label`; a row whose image is

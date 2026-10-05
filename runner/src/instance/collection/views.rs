@@ -19,7 +19,7 @@ pub(super) fn patch(plan: &Plan, rows: &[(&str, Value)]) -> Result<StyleProps, I
     let mut patch = StyleProps::default();
     for (name, value) in rows {
         let id = StyleId::from_name(name).unwrap_or_else(|| panic!("unknown kernel style: {name}"));
-        bridge::set_style(&mut patch, id as u16, value, plan.stacks.len())
+        bridge::set_plan_style(&mut patch, id as u16, value, plan)
             .map_err(InstanceError::Bridge)?;
     }
     Ok(patch)
@@ -285,11 +285,12 @@ pub(super) fn validate_row(plan: &Plan, roots: &[Child]) -> Result<(), InstanceE
         let Some(value) = root.last[i].as_ref() else {
             continue;
         };
+        // A transform or a relative offset moves the row's box where it
+        // paints and leaves its flow, and so its wrapper's measure, as CSS
+        // does: a lifted row being dragged is `translate` and `z-index`
+        // (files F14: "0px 0px" was refused and the list drew nothing).
         let allowed = match style.name() {
             "position_type" => value == &Value::str("relative") || value == &Value::str("static"),
-            "top" | "bottom" | "left" | "right" | "rotate" => value.as_number() == Some(0.0),
-            "scale" => value.as_number() == Some(1.0),
-            "translate" => value == &Value::str("0 0"),
             "margin_top" | "margin_bottom" => value.as_number().is_some_and(|n| n >= 0.0),
             _ => true,
         };

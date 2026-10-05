@@ -183,6 +183,14 @@ component NativeFixture
     draft = text
   action selectTab(name: string)
     nav = select(nav, name)
+  // A root overlay with a z-index after the tabs (docs/agent-pitfalls.md's
+  // pattern for full-screen overlays): it paints and takes touches over the
+  // native tab container (LLP 1083.000 D4).
+  state overlayShown = false
+  action showOverlay
+    overlayShown = true
+  action hideOverlay
+    overlayShown = false
   action openSheet
     nav = push(nav, "/sheet")
   // LLP 1075.003 §9.10: a pressable title with an avatar and a subtitle, a
@@ -197,6 +205,10 @@ component NativeFixture
     titlePresses = titlePresses + 1
   action toggleSubtitle
     subtitle = subtitle == "" ? "Online" : ""
+  // A subtitle as a line of symbols and texts (§9.10).
+  state muted = false
+  action toggleMuted
+    muted = not muted
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#111111" font-family="system-ui"
       column testId="panels" flex=1 min-height=0 position="relative"
@@ -238,15 +250,21 @@ component NativeFixture
                           text "CD" font-size=13 color="#166534"
                         column
                           text "Chat" aria-level=2 testId="title-chat" font-weight=700 font-size=17
-                          when subtitle != ""
+                          when subtitle != "" and not muted
                             text subtitle testId="subtitle-chat" font-size=12 color="#6b7280"
+                          when muted
+                            row gap=3 align-items="center" testId="subtitle-glyphs" aria-label="Muted, disappearing messages after 1 week"
+                              image "symbol:sf/bell.slash" width=12 height=12 object-fit="contain"
+                              text "Muted" font-size=12 color="#6b7280"
+                              image "symbol:sf/timer" width=12 height=12 object-fit="contain"
+                              text "1w" font-size=12 color="#6b7280"
                     when e.name != "chat"
                       text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : "Second") aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
                     button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
                       image "symbol:compose" width=20 height=20
                 when e.name == "home"
                   column id="bar-menu" popover="auto" position="absolute" role="menu" width=200 padding=8 background-color="#ffffff"
-                    button press=bump popovertarget="bar-menu" popovertargetaction="hide" role="menuitem" testId="bar-menu-bump" height=44
+                    button press=bump popovertarget="bar-menu" popovertargetaction="hide" role="menuitem" testId="bar-menu-bump" height=44 text-align="start"
                       text "Bump from the bar"
                 when e.name == "home"
                   column testId="fixture" gap=8 padding=12
@@ -283,6 +301,8 @@ component NativeFixture
                     // titled by its aria-label, each row its provider's icon,
                     // the remembered one checked; the same rows as a sheet
                     // when the popover asks for one (role="alertdialog").
+                    button press=showOverlay testId="show-overlay" padding=6 background-color="#e5e7eb"
+                      text "Overlay"
                     row gap=6 flex-wrap="wrap"
                       button press=refreshProviders popovertarget="open-in" testId="open-in" padding=6 background-color="#e5e7eb"
                         text "Open in Maps"
@@ -294,6 +314,9 @@ component NativeFixture
                         button press=openIn(p.id) aria-checked=(p.id == remembered) popovertarget="open-in" popovertargetaction="hide" role="menuitemradio" testId=`open-in-${p.id}` height=44 display="flex" flex-direction="row" align-items="center" gap=8
                           image p.icon width=24 height=24
                           text p.name
+                      // HTML's separator: a section break in the native menu;
+                      // a flex item, so its auto side margins are zeroed.
+                      hr testId="open-in-rule" margin-left=0 margin-right=0
                       button popovertarget="open-in" popovertargetaction="hide" testId="open-in-cancel" height=44
                         text "Cancel"
                     column id="open-in-sheet" popover="auto" position="absolute" role="alertdialog" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
@@ -361,6 +384,26 @@ component NativeFixture
                     column padding=12 gap=8
                       text ("composed " + toString(composed)) testId="composed-detail"
                       column testId="tall" height=1600 background-color="#f3f4f6"
+                // An "Open in…" at the foot of a card (LLP 1021 §5): its
+                // chooser above it, centred on it (`top span-all`), as a menu
+                // and as a sheet. Below the Detail screen's scroll, so it stays at
+                // the foot whatever the screen's height.
+                when e.name == "detail"
+                  row testId="open-above-card" gap=6 padding=12 flex-shrink=0 justify-content="center"
+                    button press=refreshProviders popovertarget="open-above" testId="open-above" padding=6 background-color="#e5e7eb"
+                      text "Open in (above)"
+                    button press=refreshProviders popovertarget="open-above-sheet" testId="open-above-sheet" padding=6 background-color="#e5e7eb"
+                      text "Open in (sheet above)"
+                    column id="open-above" testId="open-above-menu" popover="auto" position="absolute" position-area="top span-all" margin-bottom=12 role="menu" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
+                      each p in providerItems key=p.id
+                        button press=openIn(p.id) aria-checked=(p.id == remembered) popovertarget="open-above" popovertargetaction="hide" role="menuitemradio" testId=`open-above-${p.id}` height=44
+                          text p.name
+                    column id="open-above-sheet" popover="auto" position="absolute" position-area="top span-all" role="alertdialog" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
+                      each p in providerItems key=p.id
+                        button press=openIn(p.id) popovertarget="open-above-sheet" popovertargetaction="hide" testId=`open-above-sheet-${p.id}` height=44
+                          text p.name
+                      button popovertarget="open-above-sheet" popovertargetaction="hide" testId="open-above-sheet-cancel" height=44
+                        text "Cancel"
                 when e.name == "chat"
                   scroll id="list-chat" testId="list-chat" flex=1 min-height=0
                     column padding=12 gap=8
@@ -368,6 +411,8 @@ component NativeFixture
                         text "Photo"
                       button press=toggleSubtitle testId="toggle-subtitle" padding=6 background-color="#e5e7eb"
                         text "Subtitle"
+                      button press=toggleMuted testId="toggle-muted" padding=6 background-color="#e5e7eb"
+                        text "Muted"
                       text ("title presses " + toString(titlePresses)) testId="title-presses"
                       column testId="tall-chat" height=1600 background-color="#f0fdf4"
                 when e.name == "photo"
@@ -385,8 +430,9 @@ component NativeFixture
                       exact-screen testId="screen" width="100%" height=96
                       text "Second" testId="second-top"
                       column testId="tall-second" height=1600 background-color="#eef2ff"
-      // Hidden on Chat and Photo, so the tab bar hides for them (§9.10).
-      row role="tablist" aria-label="Tabs" testId="tabs" display=(top(nav).name == "chat" or top(nav).name == "photo" ? "none" : "flex") flex-shrink=0 height=56 border-top-width=1 border-top-style="solid" border-color="#e5e7eb" align-items="stretch"
+      // Hidden on Chat and Photo, so the tab bar hides for them (§9.10);
+      // its accent tints the bar's selected item.
+      row role="tablist" aria-label="Tabs" testId="tabs" accent-color="#3838f5" display=(top(nav).name == "chat" or top(nav).name == "photo" ? "none" : "flex") flex-shrink=0 height=56 border-top-width=1 border-top-style="solid" border-color="#e5e7eb" align-items="stretch"
         button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=selectTab("home") testId="tab-home" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=2
           image (nav.tab == "home" ? "symbol:home-fill" : "symbol:home") width=22 height=22
           text "Home" font-size=11
@@ -405,6 +451,10 @@ component NativeFixture
           when count > 0
             column testId="badge-second" position="absolute" top=4 right=24 min-width=16 height=16 padding-left=4 padding-right=4 border-radius=8 background-color="#ef4444" align-items="center" justify-content="center"
               text toString(count) font-size=10 color="#ffffff"
+      when overlayShown
+        column testId="root-overlay" role="dialog" aria-label="Overlay" position="absolute" top=0 right=0 bottom=0 left=0 z-index=10 background-color="#000000cc" align-items="center" justify-content="center"
+          button press=hideOverlay testId="hide-overlay" padding=12 background-color="#ffffff"
+            text "Close"
 
 component HookedRows
   props

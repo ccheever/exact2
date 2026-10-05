@@ -7,7 +7,7 @@
 /** Every host's display preferences at launch under the agent (LLP 1069.007 D2). */
 export const LAUNCH_MEDIA = { 'prefers-reduced-motion': 'no-preference', 'prefers-reduced-transparency': 'no-preference', 'prefers-color-scheme': 'light', 'prefers-contrast': 'no-preference' };
 export const PREFERENCES = { 'prefers-reduced-motion': ['reduce', 'no-preference'], 'prefers-reduced-transparency': ['reduce', 'no-preference'], 'prefers-contrast': ['more', 'less', 'custom', 'no-preference'], 'prefers-color-scheme': ['dark', 'light'] }; // `prefer`'s CSS media features and values
-export const PAGE_FACTS = { 'visibility-state': ['visible', 'hidden'], online: ['true', 'false'], 'can-share': ['true', 'false'], 'root-font-size': ['<px>'] }; // `prefer`'s page group (LLP 1069.000 D2, D3, D6; LLP 1069.007 D2)
+export const PAGE_FACTS = { 'visibility-state': ['visible', 'hidden'], online: ['true', 'false'], 'can-share': ['true', 'false'], 'can-open-files': ['true', 'false'], 'root-font-size': ['<px>'] }; // `prefer`'s page group (LLP 1069.000 D2, D3, D6; LLP 1069.007 D2)
 export const FOLD_FACTS = { posture: ['folded', 'continuous'], segments: ['<cols>x<rows>'], gap: ['<points>'] }; // `prefer`'s fold group (LLP 1078 D7): a host without a fold splits its viewport evenly; one with a fold refuses
 
 /** The CLI's facts (`prefer <name> <value> …`) as the wire's three groups; an unknown fact or value is refused naming what is expected. */

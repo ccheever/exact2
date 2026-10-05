@@ -90,7 +90,7 @@ generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.
 | `app.contract` | Menus, HUD, layout, accessibility and app actions |
 | `proof.mjs`, `logic/tests/*.rs` | Real-host assertions and hostless simulation tests |
 | `pins.json` | Verified tick/save baselines, written by `prove.mjs` |
-| `app.json` (optional) | Authored keys only: a title, bundle id, `game.audio`, `game.assets`, a data crate |
+| `app.json` (optional) | Authored keys only: a title, bundle id, `game.audio`, `game.assets`, data and presentation crates |
 | `logic/Cargo.toml`, `Cargo.lock` (optional) | Only when the game adds dependencies ([below](#exact2-integration)) |
 
 The crate is `<Game::ID>-logic` and the bundle id `com.exact.<Game::ID>`; the title
@@ -98,6 +98,46 @@ follows the directory name. Run the Rust tests with
 `bun game/app/shells.mjs ./my-game --test` — in a fresh clone too, with no bake and
 no environment variables. It generates `.shells/`, resolves offline and locked, runs
 the determinism lints and then `cargo test` on the game's crates.
+The generated workspace carries the SDK's Rust toolchain pin, including for games
+outside the SDK. Explicit `cargo +toolchain` and `RUSTUP_TOOLCHAIN` overrides still
+apply. Run direct Cargo commands from the game's `.shells/` directory so they also load its deterministic compiler
+flags and lint configuration; `--manifest-path` alone does not load that config
+when Cargo starts elsewhere. Regenerate the shells after updating the SDK.
+
+### Authored render hooks
+
+Use `game.presentation` to add game-owned passes through the existing
+`exact_game_render::Hooks` API. Keep GPU resources in an authored `presentation/`
+crate; its Cargo package must match the declaration and set
+`workspace = "../.shells"` under `[package]`:
+
+```json
+{"game":{"presentation":{"crate":"my-game-presentation","type":"Fog","shaders":"SHADERS"}},
+ "gpu":{"shaderRoots":["presentation/shaders"]}}
+```
+
+`type` and optional `shaders` are Rust paths exported by that crate. Omit `shaders`
+for the empty registry. Shader files and preludes use the existing `gpu.shaderRoots`
+and `gpu.shaderPreludes` declarations; the registry has type
+`&'static [(&'static str, u64)]`, holding shader names and reflected interface hashes.
+The generated GPU shell combines these hooks with `game.audio` and `game.assets`.
+Never edit `.shells/` to install hooks.
+Presentation games also expose `exact-gpu.workspace = true` and
+`exact-gpu-reflect.workspace = true` (the latter as a build dependency). A
+`presentation/build.rs` can call `exact_gpu_reflect::generate` on its shader
+directory, write the generated Rust to `OUT_DIR`, and export its `SHADERS` table.
+Generated registry keys are file stems such as `fog`, without `.wgsl`.
+
+Presentation may depend on logic to read component/resource types through
+`RenderWorld`. Logic, data, native/web host adapters and build-time metadata must
+not depend on presentation, including indirectly or behind target-specific/build
+dependencies. The bake checks Cargo's unfiltered dependency graph. Hooks cannot
+mutate the saved world through `RenderWorld`; gameplay state stays in logic.
+Presentation receives normal strict Clippy and package tests, while the simulation
+determinism lints remain scoped to logic. Run the ordinary bake after declaring the
+crate, or `bun game/app/shells.mjs ./my-game --update-lock` when adding dependencies.
+Source/manifest edits invalidate GPU builds and proof inputs; declared shaders keep
+their existing reflection, delivery and live-reload behavior.
 
 ## The programming model
 

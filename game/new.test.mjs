@@ -176,6 +176,7 @@ test('shell test CLI honors an app path and keeps the no-path SDK sweep', () => 
     mkdirSync(bin);
     for (const file of ['Cargo.toml', '.cargo/config.toml', 'app/shells.mjs', 'app/shells.lock'])
       cpSync(resolve(import.meta.dir, file), resolve(sdk, file));
+    cpSync(resolve(import.meta.dir, '../rust-toolchain.toml'), resolve(parent, 'rust-toolchain.toml'));
     cpSync(resolve(import.meta.dir, 'new'), resolve(sdk, 'new'), {recursive:true});
     const fixture = resolve(sdk, 'games/fixture'), bench = resolve(sdk, 'bench/example');
     for (const app of [external, fixture, bench]) {

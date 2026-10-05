@@ -26,6 +26,13 @@ const panelsOf = nav => {
   return [];
 };
 const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? panels.map(routesIn) : [nav ? routesIn(nav) : []]; };
+/** What a navigation root leaves unselected, by `project`'s rule read from attributes: every tabpanel but the one
+ * holding the selected route, and that stack's other routes (the runner's `unselected`; the agent's `inactive`). */
+export function unselected(nav) {
+  const key = nav.getAttribute("navigationKey"), panels = panelsOf(nav), stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
+  const at = stacks.findIndex(routes => routes.some(r => r.getAttribute("navigationKey") === key));
+  return at < 0 ? [] : [...panels.filter((_, i) => i !== at), ...stacks[at].filter(r => r.getAttribute("navigationKey") !== key)];
+}
 const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
@@ -194,7 +201,7 @@ export const navigation = {
       if (at < 0) {
         if (refused.get(nav) !== key) {
           refused.set(nav, key);
-          log(`navigationKey "${key}" matches no route; the stack is unchanged`);
+          log(`navigationKey "${key}" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged`);
         }
         continue;
       }
@@ -213,7 +220,9 @@ export const navigation = {
         for (const [index, route] of routes.entries()) {
           const active = index === selected;
           if (!active && route.contains(document.activeElement)) document.activeElement.blur();
-          route.style.visibility = active || (modal && index === selected - 1) ? "" : "hidden";
+          const covered = modal && index === selected - 1;
+          route.style.visibility = active || covered ? "" : "hidden";
+          route.toggleAttribute("data-exact-covered", covered);
           route.inert = !active || !!route.authoredInert;
         }
       }
@@ -585,6 +594,11 @@ export function focusController({ready, elements, inert}) {
 // node and value in it is committed (a focus handler may dispatch an action).
 export function runFocusCommands(commands, { root, ready, inertAncestor, log }) {
   for (const { name, args } of commands) {
+    if (name === "scrollIntoView") { // `Element.scrollIntoView()` by the element's id, after the batch's layout (minesweeper F3)
+      const el = [...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]);
+      if (el) el.scrollIntoView({ block: args[1] ?? "start", inline: args[2] ?? "nearest", behavior: args[3] ?? "auto" }); else log(`scrollIntoView "${args?.[0]}" refused: no live node with that id`);
+      continue;
+    }
     if (name === "blur") { // `blur()` drops whatever holds focus; `blur(id)` only when that node holds it.
       const active = document.activeElement;
       if (ready && active && active !== document.body && (!args?.length || active.id === args[0])) active.blur();
@@ -710,23 +724,25 @@ export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventL
 
 // @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them:
 // bit 0 `document.visibilityState == "hidden"`, bit 1 `!navigator.onLine`,
-// bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5). Under the
-// agent the drive's values stand in (visible, online, a share sheet: LLP
-// 1069.000 D6), set by `prefer`'s `page` group; the machine is never read.
+// bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3
+// `typeof showOpenFilePicker === "function"` (LLP 1069.010 D2; studio diary
+// R31). Under the agent the drive's values stand in (visible, online, a
+// share sheet, the pickers: LLP 1069.000 D6), set by `prefer`'s `page`
+// group; the machine is never read.
 export function pageReporter(agent, platform = globalThis) {
-  const facts = { "visibility-state": "visible", online: true, "can-share": true, "root-font-size": 16 };
+  const facts = { "visibility-state": "visible", online: true, "can-share": true, "can-open-files": true, "root-font-size": 16 };
   // @ref LLP 1069.000 D3 — the root font size: the document element's
   // computed `font-size`, the browser's setting unless a page sets it; under
   // the agent the drive sets it on the element (`prefer root-font-size`).
   const rootFontSize = () => agent ? facts["root-font-size"] : parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16;
-  const read = () => agent ? { ...facts } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function" };
-  const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0); };
+  const read = () => agent ? { ...facts } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-open-files": typeof platform.showOpenFilePicker === "function" };
+  const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0); };
   const prefer = (page) => {
     const next = { ...facts };
     for (const [name, raw] of Object.entries(page ?? {})) {
       const value = String(raw);
       if (name === "visibility-state" && (value === "visible" || value === "hidden")) next[name] = value;
-      else if ((name === "online" || name === "can-share") && (value === "true" || value === "false")) next[name] = value === "true";
+      else if ((name === "online" || name === "can-share" || name === "can-open-files") && (value === "true" || value === "false")) next[name] = value === "true";
       else if (name === "root-font-size" && Number(value) > 0 && Number.isFinite(Number(value))) next[name] = Number(value);
       else throw new Error(`prefer: ${name}: ${value} is not a page fact this host sets`);
     }
@@ -769,6 +785,17 @@ export function timeReporter(params, platform = globalThis) {
     for (const {type, value} of new Intl.DateTimeFormat('en-US', {timeZone: params.get('timeZone') ?? 'UTC', hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric'}).formatToParts(epoch + elapsed)) at[type] = Number(value);
     return [epoch, (Date.UTC(at.year, at.month - 1, at.day, at.hour, at.minute, at.second) - Math.floor((epoch + elapsed) / 1000) * 1000) / 60000];
   };
+}
+// Where the page launches (LLP 1038 D5): its path and query, less a drive's
+// own parameters, which are the host's facts and not a route's — a driven
+// page numbers its visits as a native host does (feed F16). The JS target
+// launches here too (rt.js re-exports it).
+export function launchLocation(platform = globalThis) {
+  const { pathname, search } = platform.location, q = new URLSearchParams(search);
+  if (!(AGENT_ADMITTED && q.has('agent'))) return pathname + search;
+  for (const k of ['agent', 'seed', 'locale', 'timeZone', 'epoch', 'storage']) q.delete(k);
+  const rest = q.toString();
+  return pathname + (rest ? '?' + rest : '');
 }
 // The drive's facts are the launch URL's: a route the app pushed before the
 // first ask has no `?agent&…` (storage-environment.js `launchHref`).
@@ -942,17 +969,22 @@ export function reveal(el, id) {
     if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
   }
   if (seen) return { revealed: id, scrolled: false };
-  (getComputedStyle(el).display === "contents" ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
   return { revealed: id, scrolled: true, from: [x, y], to: middle() };
 }
 
-// A view's box as the agent reports it. A text folded into its box's content
-// (LLP 1007.001, `display: contents`) makes no box of its own: its box is the
-// anonymous block its text is, as a style-less block child's was — its line
-// boxes along the main axis, and its box's content box across when the box
-// stretches its items (a block, or a flex or grid box that stretches).
+// A text folded into its box's content (LLP 1007.001): `display: contents`,
+// or an inline box under a box that restricts touch. A paragraph's inline
+// runs are not `data-exact-text`; only the paragraph is.
+const folded = el => { const d = getComputedStyle(el).display; return d === "contents" || d === "inline" && el.hasAttribute("data-exact-text"); };
+
+// A view's box as the agent reports it. A folded text has no block box of its
+// own: its box is the anonymous block its text is, as a style-less block
+// child's was — its line boxes along the main axis, and its box's content box
+// across when the box stretches its items (a block, or a flex or grid box
+// that stretches).
 export function viewBox(el) {
-  if (getComputedStyle(el).display !== "contents") return el.getBoundingClientRect();
+  if (!folded(el)) return el.getBoundingClientRect();
   const range = document.createRange();
   range.selectNodeContents(el);
   const t = range.getBoundingClientRect(), p = el.parentElement;
@@ -1010,6 +1042,14 @@ const validGrantName = name => typeof name === 'string' && name.length >= 1 && n
 const rustSpace = '[\\u0009-\\u000d\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]';
 const rustTrim = value => String(value).replace(new RegExp(`^${rustSpace}+|${rustSpace}+$`, 'g'), '');
 const rustWords = value => rustTrim(value).split(new RegExp(`${rustSpace}+`)).filter(Boolean);
+const nativeNamespace = value => typeof value === 'string' && /^win:[A-Z]$/.test(value);
+const nativeLeaf = value => {
+  if (typeof value !== 'string' || !value || value.length > 255 || value === '.' || value === '..'
+      || /[\\/:*?"<>|\u0000-\u001f\u007f-\u009f]/.test(value) || /[. ]$/.test(value)
+      || /[\ud800-\udfff]/u.test(value)) return false;
+  const base = value.split('.')[0].replace(/[a-z]/g, char => char.toUpperCase());
+  return !/^(?:CON|PRN|AUX|NUL|CLOCK\$|(?:COM|LPT)[1-9¹²³])$/.test(base);
+};
 const grantTupleValid = grant => {
   if (!Array.isArray(grant) || typeof grant[0] !== 'string') return false;
   if (networkGrants.has(grant[0])) {
@@ -1022,13 +1062,19 @@ const grantTupleValid = grant => {
     && (grant[0] !== 'fetch-subdomains' || !address && !grant[2].endsWith('.') && grant[2].split('.').filter(Boolean).length >= 2);
   }
   if (pathGrants.has(grant[0])) return grant.length >= 2
-    && ['', 'app:', 'doc:'].includes(grant[1])
-    && grant.slice(2).every(component => typeof component === 'string' && component && component !== '.' && component !== '..' && !component.includes('/'));
+    && (['', 'app:', 'doc:'].includes(grant[1]) || nativeNamespace(grant[1]))
+    && grant.slice(2).every(component => nativeNamespace(grant[1]) ? nativeLeaf(component)
+      : typeof component === 'string' && component && component !== '.' && component !== '..' && !component.includes('/'));
   if (!nameGrants.has(grant[0]) || grant.length !== 2 || typeof grant[1] !== 'string') return false;
   return grant[0] === 'env-read' || validGrantName(grant[1]);
 };
 
 const pathTuple = (kind, target) => {
+  const native = target.startsWith('\\\\?\\') ? target.slice(4) : target;
+  if (/^[a-z]:[/\\]/i.test(native)) {
+    const parts = native.slice(3).split(/[/\\]/).filter(Boolean);
+    return parts.every(nativeLeaf) ? [kind, `win:${native[0].toUpperCase()}`, ...parts] : null;
+  }
   const at = target.indexOf(':/');
   const namespace = at < 0 ? target.startsWith('/') ? '' : null : target.slice(0, at) + ':';
   if (namespace == null || !['', 'app:', 'doc:'].includes(namespace)) return null;
@@ -1051,8 +1097,21 @@ const networkTuple = (kind, target) => {
 };
 const sourceTuple = source => {
   const words = rustWords(source);
+  const capability = words[0];
+  if (capability === 'fs.read' || capability === 'fs.write') {
+    const rest = rustTrim(source.slice(capability.length));
+    if (rest.startsWith('"')) {
+      try {
+        const target = JSON.parse(rest);
+        // serde_json refuses lone UTF-16 surrogates; JSON.parse does not.
+        if (typeof target !== 'string' || /[\u0000-\u001f\u007f-\u009f]/.test(target)
+            || /[\ud800-\udfff]/u.test(target)) return null;
+        return pathTuple(capability === 'fs.read' ? 'fs-read' : 'fs-write', target);
+      } catch { return null; }
+    }
+  }
   if (words.length !== 2) return null;
-  const [capability, target] = words;
+  const target = words[1];
   if (capability === 'net.fetch') return networkTuple(target.includes('://*.') ? 'fetch-subdomains' : 'fetch', target);
   if (capability === 'net.websocket') return target.includes('*') ? null : networkTuple('websocket', target);
   if (capability === 'fs.read') return pathTuple('fs-read', target);
@@ -1187,4 +1246,24 @@ export function coversPath(set, capability, path) {
   if (grantError(set)) return false;
   const target = grantPathParts(path), kind = ({ 'fs.read': 'fs-read', 'fs.write': 'fs-write', 'sqlite.open': 'sqlite-open' })[capability];
   return !!target && set.entries.some(([, , grant]) => grant?.[0] === kind && grant.slice(1).every((part, index) => target[index] === part));
+}
+
+// `selectionchange` on a `text` (the reader diary), on both web targets: its
+// part of the page's selection, reported as the text and its UTF-16 start and
+// end in the element's own text when that part changes; nothing selected
+// there is "" at 0, 0. One document listener serves every such element.
+const selectedTexts = new Map();
+export function onSelection(e, report) {
+  if (!selectedTexts.size) document.addEventListener("selectionchange", () => {
+    const s = getSelection(), r = s.rangeCount && !s.isCollapsed ? s.getRangeAt(0) : null;
+    for (const [e, h] of selectedTexts) {
+      if (!e.isConnected) { selectedTexts.delete(e); continue; }
+      const at = (n, o) => { const p = document.createRange(); p.selectNodeContents(e); const c = p.comparePoint(n, o); if (!c) p.setEnd(n, o); return c < 0 ? 0 : p.toString().length; };
+      let a = 0, b = 0;
+      if (r?.intersectsNode(e)) { a = at(r.startContainer, r.startOffset); b = at(r.endContainer, r.endOffset); }
+      if (a === b) a = b = 0;
+      if (h.a !== a || h.b !== b) { h.a = a; h.b = b; h.report(e.textContent.slice(a, b), a, b); }
+    }
+  });
+  selectedTexts.set(e, { report, a: 0, b: 0 });
 }

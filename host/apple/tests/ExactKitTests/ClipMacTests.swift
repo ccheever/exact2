@@ -37,6 +37,30 @@ final class ClipMacTests: XCTestCase {
         XCTAssertEqual(n.layer?.cornerRadius, 0)
     }
 
+    /// An ellipsized label (`overflow-x: hidden`, whose other axis CSS
+    /// computes to `auto`) clips its own text and holds no scroll view: one
+    /// took the clicks its button should hear (files diary F15).
+    func testAnEllipsizedLabelClipsAndLeavesItsButtonTheClick() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "button", "handlers": ["press"], "style": ["display": "flex"]],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "A rather long label that clips"],
+             "style": ["overflow_x": "hidden", "overflow_y": "auto", "text_overflow": "ellipsis", "white_space": "nowrap"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 28.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 28.0],
+        ]))
+        let button = try XCTUnwrap(p.views[1]), label = try XCTUnwrap(p.views[2])
+        XCTAssertNil(label.scroll, "a paragraph has nothing a scroll view would hold")
+        XCTAssertTrue(label.clipsToBounds, "its overflow clips")
+        let hit = button.hitTest(button.superview!.convert(NSPoint(x: 100, y: 14), from: button))
+        XCTAssertTrue(hit === label, "the label is hit, and hands its press to the button: \(String(describing: hit))")
+        XCTAssertTrue(label.hasPressableAncestor)
+    }
+
     /// Visible overflow is hit where it paints, as CSS hit-tests it: a
     /// popup positioned beyond its parent's box takes the click (ledger
     /// F13), and a raised sibling's overflow is hit over the content after
@@ -65,6 +89,66 @@ final class ClipMacTests: XCTestCase {
         XCTAssertTrue(at(300, 140) === p.views[4], "beside the popup, the content")
         bar.applyStyle(["z_index": 5.0, "overflow_x": "hidden", "overflow_y": "hidden"])
         XCTAssertTrue(at(100, 140) === p.views[4], "a clipped popup is not hit beyond the clip")
+    }
+
+    /// `pointer-events` is inherited: a box under a `none` parent carries the
+    /// parent's `none` (the Apple host's computed row) and passes the click
+    /// through wherever it paints, out in the parent's visible overflow too
+    /// (feed's toast translated over the tab bar, x2apps repro
+    /// pointer-events-inherit-translate); one that sets `auto` again is hit.
+    func testAnInheritedPointerEventsNoneInVisibleOverflowLetsTheClickThrough() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": [:]],
+            ["op": "create", "id": 2, "kind": "button", "handlers": ["press"], "style": ["position_type": "absolute"]],
+            ["op": "create", "id": 3, "kind": "view", "style": ["position_type": "absolute", "pointer_events": "none"]],
+            ["op": "create", "id": 4, "kind": "view", "style": ["pointer_events": "none"]],
+            ["op": "children", "id": 3, "ids": [4]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "frame", "id": 2, "x": 20.0, "y": 220.0, "w": 200.0, "h": 40.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 300.0, "w": 300.0, "h": 60.0],
+            // Painted 80 above the row's box, over the button.
+            ["op": "frame", "id": 4, "x": 0.0, "y": -80.0, "w": 300.0, "h": 60.0],
+        ]))
+        let root = try XCTUnwrap(p.views[1]), toast = try XCTUnwrap(p.views[4])
+        let at = { (x: CGFloat, y: CGFloat) in root.hitTest(root.superview!.convert(NSPoint(x: x, y: y), from: root)) }
+        XCTAssertTrue(at(100, 240) === p.views[2], "through the inheriting toast to the button")
+        toast.applyStyle(["pointer_events": "auto"])
+        XCTAssertTrue(at(100, 240) === toast, "a toast that sets auto again takes the click")
+    }
+
+    /// A placement (or a projection) that hides a `display: none` box and
+    /// later restores it restores what the host had said, not CSS's bit: the
+    /// box shows once its `display` does (review B1).
+    func testADisplayNoneBoxHiddenAndRestoredByTheHostShowsOnceDisplayed() {
+        let n = node("view", ["display": "none"])
+        XCTAssertTrue(n.isHidden, "display: none hides it")
+        XCTAssertFalse(n.hiddenByHost)
+        n.placementHidden = true
+        n.placementHidden = false
+        let saved = n.hiddenByHost // a tablist projection's save, then its restore
+        n.isHidden = true
+        n.isHidden = saved
+        XCTAssertTrue(n.isHidden, "still display: none")
+        n.applyStyle(["display": "block"])
+        XCTAssertFalse(n.isHidden, "displayed again, nothing the host said hides it")
+    }
+
+    /// Writing back what `isHidden` read of a `display: none` box is not the
+    /// host hiding it (review B1's setter guard).
+    func testWritingBackADisplayNoneBoxsHiddenIsNotTheHostsWord() {
+        let n = node("view", ["display": "none"])
+        n.isHidden = n.isHidden
+        XCTAssertFalse(n.hiddenByHost)
+        n.applyStyle(["display": "block"])
+        XCTAssertFalse(n.isHidden)
+        n.isHidden = true // the host's own word still holds
+        n.applyStyle(["display": "none"]); n.applyStyle(["display": "block"])
+        XCTAssertTrue(n.isHidden)
     }
 
     /// A native module's view inside a `pointer-events: none` box takes no

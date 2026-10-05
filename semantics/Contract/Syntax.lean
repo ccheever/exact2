@@ -67,8 +67,8 @@ inductive Expr where
   | letE (x : String) (value body : Expr)
   /-- An authored named argument (`share(title: …)`), outside a record. -/
   | named (name : String) (e : Expr)
-  /-- `e` read at a declared type (the expander's, for a prop's argument):
-  a type ascription, with no effect on the value. -/
+  /-- `e` read at a declared type (the expander's, for a prop's or an
+  inject's argument): a type ascription, with no effect on the value. -/
   | typed (e : Expr) (ty : Ty)
   deriving Repr, Inhabited
 
@@ -81,6 +81,13 @@ inductive Stmt where
   | refresh (target : String)
   | ifS (c : Expr) (thn els : List Stmt)
   | matchS (subject : Expr) (x : String) (some none : List Stmt)
+  /-- A call of the program's action `action` (LLP 1089 D9). `args` is
+  its whole parameter list: a lifted callee's capture parameters, the
+  arguments curried where it was passed, then the call's own. The callee
+  runs in the caller's commit, reading the state the action started with;
+  its meaning is given here, not by the compiler's expansion, so the
+  differential tests check that expansion. -/
+  | call (action : String) (args : List Expr)
   deriving Repr, Inhabited
 
 /-- A view node. `props` are an element's attributes that are values;
@@ -195,6 +202,17 @@ structure Program where
   /-- The router's slot: the root state `routes <slot>` names (the
   expander puts it first), of type `Router`. -/
   router : Option String := .none
+  /-- The strings tables `t(...)` reads (LLP 1060), the base first: each
+  locale's (key, text) pairs. -/
+  strings : List (String × List (String × String)) := []
+  /-- The slot holding the resolved locale, when the program has strings
+  tables (the plan's `locale` slot): a root state the observation leaves
+  out. -/
+  locale : Option String := .none
+  /-- Each data source's one signature (`type-source-signature`): its
+  parameter types and its answer's, unified across every use. A source
+  the runner answers itself has none (each reader has its own shape). -/
+  sources : List (String × List Ty × Ty) := []
   deriving Repr, Inhabited
 
 namespace Expr

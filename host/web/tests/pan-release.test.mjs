@@ -2,7 +2,7 @@
 // pan, driven by CDP mouse and touch events. A pan that began ends with one
 // release carrying the tracker's velocity over the contact's samples (each at
 // its event's own timestamp); a pan that never left the slop releases nothing;
-// a cancelled contact releases at rest. The tracker itself is the engine's
+// a cancelled contact releases at rest, and the journal says why. The tracker itself is the engine's
 // (host/web/src/pan_velocity.rs); here a stand-in records what the glue feeds it.
 import { test, expect } from 'bun:test';
 import { spawn } from 'node:child_process';
@@ -41,7 +41,7 @@ const page = `<!doctype html>
   };
   const handlers = createInputHandlers({ root, views, retiredViews: new Set(), ready: () => true, inertAncestor: () => false,
     dispatch: (id, payload) => window.log.push(['pan', id, payload]),
-    release: (id, payload) => window.log.push(['panrelease', id, payload]), velocity });
+    release: (id, payload) => window.log.push(['panrelease', id, payload]), velocity, log: (line) => window.log.push(['journal', line]) });
   views.get(1).exactHandlers = ['pan', 'panrelease'];
   views.get(2).exactHandlers = ['pan'];
   for (const [id, el] of views) { const on = (type, handle) => el.addEventListener(type, handle); el.addEventListener('pointerdown', handlers.pan(el, id, on)); }
@@ -114,6 +114,8 @@ check('a pan that began releases once with its velocity; a tap none; a cancel at
     log = await take();
     expect(kinds(log)).toContain('pan');
     expect(log.filter(([kind]) => kind === 'panrelease')).toEqual([['panrelease', 1, '0,0']]);
+    // The journal says the browser took it, and what keeps it (files diary F10).
+    expect(log.filter(([kind]) => kind === 'journal').map(([, line]) => line)).toEqual([expect.stringMatching(/^pan cancelled: the browser took the touch contact .*touch-action="none"/)]);
   } finally {
     child.kill();
     server.close();

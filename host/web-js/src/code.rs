@@ -9,8 +9,15 @@
 //! callback body is its own arrow function over `l<base>`, `l<base+1>`.
 //!
 //! Values: numbers, strings and bools are JavaScript's; a record or list is
-//! an array; `none` is `null` and `some(x)` is `x` (the JS target does not
-//! represent `some(none)`); unit is `null`.
+//! an array; `none` is `null` and `some(x)` is `x` (the checker refuses an
+//! option directly inside an option, LLP 1090 D2); unit is `null`.
+//!
+//! The runner's evaluation bounds (LLP 1090 D1, D3) are checked where the VM
+//! checks them, in its order: a body with a list step (a `Map`, `Filter` or
+//! `join`) is *metered*, its function counting steps in a local `$s` from 0,
+//! so each call is one evaluation; a `Map`/`Filter` is a loop that steps and
+//! sums its result's extent; a `Record`/`List` is `K`, a `Concat` `cc`, and
+//! the roster's string builders take their pc (budget.js).
 
 use exact_plan::{Opcode, Plan, Stdlib};
 use exact_runner::vm::{instructions, Instruction};
@@ -37,10 +44,12 @@ pub struct Frame {
     pub bound: Option<String>,
 }
 
-/// Runtime names the generated code uses (for the import list).
+/// Runtime names the generated code uses (for the import lists).
 #[derive(Default)]
 pub struct Uses {
     pub names: BTreeSet<String>,
+    /// budget.js's (LLP 1090 D3).
+    pub budget: BTreeSet<String>,
 }
 
 impl Uses {
@@ -48,6 +57,33 @@ impl Uses {
         self.names.insert(name.to_string());
         name.to_string()
     }
+
+    pub fn budget(&mut self, name: &str) -> String {
+        self.budget.insert(name.to_string());
+        name.to_string()
+    }
+}
+
+/// The roster entries that build a string past `MAX_STRING`'s reach: budget.js
+/// checks their result at the call's pc.
+fn checked(f: Stdlib) -> bool {
+    matches!(
+        f,
+        Stdlib::Join
+            | Stdlib::T
+            | Stdlib::EncodeURIComponent
+            | Stdlib::EncodeRouteSegment
+            | Stdlib::ReplaceAll
+            | Stdlib::ToLowerCase
+    )
+}
+
+/// Whether `ins` takes list steps, so its function counts them (D1).
+fn metered(ins: &[Instruction]) -> bool {
+    ins.iter().any(|i| {
+        matches!(i.op, Opcode::Map | Opcode::Filter)
+            || i.op == Opcode::Call && i.args[0] == Stdlib::Join as u64
+    })
 }
 
 /// Whether `code` reads or writes a row slot.
@@ -83,7 +119,17 @@ pub fn function(
     };
     let body = t.range(&ins, 0, ins.len())?;
     let ps: Vec<String> = (0..params).map(|i| format!("p{i}")).collect();
-    Ok(wrap(&format!("({})", ps.join(",")), &t, body))
+    let head = format!("({})", ps.join(","));
+    if metered(&ins) {
+        // One call, one evaluation: its own steps from 0, whatever it reads.
+        let out = t.out.strip_suffix("return;").unwrap_or(&t.out);
+        let ret = match body {
+            Body::Expr(e) => format!("return {e};"),
+            Body::Stmts => String::new(),
+        };
+        return Ok(format!("{head}=>{{let $s=0;{}{out}{ret}}}", t.decls()));
+    }
+    Ok(wrap(&head, &t, body))
 }
 
 /// `code` as one JavaScript expression evaluated where it is written: the
@@ -325,13 +371,21 @@ impl Translator<'_> {
                 Opcode::Record => {
                     let n = self.plan.types[x.args[0] as usize].fields.len as usize;
                     let f = self.popn(n)?;
-                    self.push(format!("[{}]", f.join(",")))
+                    let k = self.uses.budget("K");
+                    self.push(format!("{k}([{}],{})", f.join(","), x.pc))
                 }
                 Opcode::List => {
                     let f = self.popn(x.args[0] as usize)?;
-                    self.push(format!("[{}]", f.join(",")))
+                    let k = self.uses.budget("K");
+                    self.push(format!("{k}([{}],{})", f.join(","), x.pc))
                 }
-                Opcode::Add | Opcode::Concat => self.bin("+")?,
+                Opcode::Add => self.bin("+")?,
+                Opcode::Concat => {
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    let cc = self.uses.budget("cc");
+                    self.push(format!("{cc}({a},{b},{})", x.pc))
+                }
                 Opcode::Sub => self.bin("-")?,
                 Opcode::Mul => self.bin("*")?,
                 Opcode::Div => self.bin("/")?,
@@ -347,7 +401,7 @@ impl Translator<'_> {
                     if primitive(&a) || primitive(&b) {
                         self.push(format!("({a}{}{b})", if not { "!==" } else { "===" }))
                     } else {
-                        let eq = self.uses.rt("eq");
+                        let eq = self.uses.rt("equal");
                         self.push(format!("{}{eq}({a},{b})", if not { "!" } else { "" }))
                     }
                 }
@@ -361,9 +415,33 @@ impl Translator<'_> {
                 }
                 Opcode::Call => {
                     let f = Stdlib::from_wire(x.args[0] as u8).ok_or("unknown stdlib entry")?;
-                    let args = self.popn(f.arity())?;
-                    let name = self.uses.rt(&format!("x_{}", f.name()));
-                    self.push(format!("{name}({})", args.join(",")))
+                    let mut args = self.popn(f.arity())?;
+                    if f == Stdlib::Join {
+                        // Its steps, taken before it joins (vm.rs): the list's
+                        // length on this evaluation's `$s`.
+                        self.flush();
+                        let d = self.stack.len();
+                        let (list, sep) = (reg(d), reg(d + 1));
+                        self.max_depth = self.max_depth.max(d + 2);
+                        let (t, join) = (self.uses.budget("$T"), self.uses.budget("x_join"));
+                        for (r, e) in [(&list, &args[0]), (&sep, &args[1])] {
+                            if r != e {
+                                self.out.push_str(&format!("{r}={e};"));
+                            }
+                        }
+                        self.out.push_str(&format!(
+                            "if(($s+={list}.length)>65536){t}(\"IterationLimit\",{pc});{list}={join}({list},{sep},{pc});",
+                            pc = x.pc
+                        ));
+                        self.push(list);
+                    } else if checked(f) {
+                        args.push(x.pc.to_string());
+                        let name = self.uses.budget(&format!("x_{}", f.name()));
+                        self.push(format!("{name}({})", args.join(",")))
+                    } else {
+                        let name = self.uses.rt(&format!("x_{}", f.name()));
+                        self.push(format!("{name}({})", args.join(",")))
+                    }
                 }
                 Opcode::Jump => {
                     self.flush();
@@ -430,8 +508,8 @@ impl Translator<'_> {
                         Body::Stmts => format!("{{{}{}}}", inner.decls(), inner.out),
                     };
                     let f = format!("(l{base},l{})=>{body}", base + 1);
-                    let m = if x.op == Opcode::Map { "map" } else { "filter" };
-                    self.push(format!("{list}.{m}({f})"));
+                    let looped = self.looped(x.op == Opcode::Map, &list, &f, x.pc);
+                    self.push(looped);
                     i = j;
                     continue;
                 }
@@ -514,8 +592,8 @@ impl Translator<'_> {
                 // JSON object of strings, as `stdlib::native_props` writes it.
                 Opcode::NativeProps => {
                     let f = self.popn(x.args[0] as usize * 2)?;
-                    let np = self.uses.rt("NP");
-                    self.push(format!("{np}([{}])", f.join(",")))
+                    let np = self.uses.budget("NP");
+                    self.push(format!("{np}([{}],{})", f.join(","), x.pc))
                 }
             }
             i += 1;
@@ -553,6 +631,49 @@ impl Translator<'_> {
             }
             None => Ok(Body::Stmts),
         }
+    }
+
+    /// A `Map` or `Filter` at `pc` over `list`, its body `f`, as the VM runs
+    /// one (D3): an empty list is itself and takes no step; each item takes a
+    /// step, then runs the body, then adds what it keeps to the result's
+    /// extent, trapping where the VM does. A filter that keeps every item is
+    /// its list. What came before is flushed first, so it runs first; the
+    /// result is the register at this depth.
+    fn looped(&mut self, map: bool, list: &str, f: &str, pc: usize) -> String {
+        self.flush();
+        let r = reg(self.stack.len());
+        self.max_depth = self.max_depth.max(self.stack.len() + 1);
+        let t = self.uses.budget("$T");
+        let (p, q, eb, u) = (
+            self.uses.budget("$p"),
+            self.uses.budget("$x"),
+            self.uses.budget("EB"),
+            self.uses.budget("utf8"),
+        );
+        // `$c` values and `$b` bytes so far, `$e` once those bytes are exact
+        // (then a part counts its own exactly); a scalar part inline.
+        let kept = if map { "$k+1" } else { "$o.length" };
+        let add = format!(
+            "if(typeof $v===\"string\"){{$c++;$b+=$e?{u}($v):3*$v.length}}else if(typeof $v===\"object\"&&$v!==null){{$c+={p}($v,$e);$b+={eb}}}else $c++;if($c>16777216||$b>67108864&&($e||($e=1,$b={q}($o,{kept}))>67108864)){t}(\"ValueTooLarge\",{pc})"
+        );
+        let step = format!("if(++$s>65536){t}(\"IterationLimit\",{pc});");
+        let each = if map {
+            format!("const $v=$f($a[$k],$k);$o[$k]=$v;{add}")
+        } else {
+            format!("if($f($a[$k],$k)){{const $v=$a[$k];$o.push($v);{add}}}")
+        };
+        let out = if map { "new Array($n)" } else { "[]" };
+        // The result's extent is remembered, as the runner's `remember`.
+        let m = self.uses.budget("$m");
+        let done = if map {
+            format!("{r}={m}($o,$c,$b,$e)")
+        } else {
+            format!("if($o.length<$n){r}={m}($o,$c,$b,$e)")
+        };
+        self.out.push_str(&format!(
+            "{{const $a={list},$f={f},$n=$a.length;{r}=$a;if($n){{const $o={out};let $c=1,$b=0,$e=0;for(let $k=0;$k<$n;$k++){{{step}{each}}}{done}}}}}"
+        ));
+        r
     }
 
     fn bin(&mut self, op: &str) -> Result<(), String> {
@@ -593,12 +714,20 @@ mod tests {
     use exact_plan::Stdlib;
 
     /// Every roster entry an `Opcode::Call` can name has its `x_` export in
-    /// rt.js; `at`, `formatDate` and `formatNumber` compiled and then failed
+    /// rt.js (or roster.js and router.js, which it re-exports, or budget.js,
+    /// the checked string builders); `at`, `formatDate` and `formatNumber` compiled and then failed
     /// the bundle for want of one (an app's diary, 2026-10-04). `map` and
     /// `filter` are opcodes with a callback body, never a call.
     #[test]
     fn every_called_roster_entry_has_a_runtime_export() {
-        let rt = [include_str!("../rt.js"), include_str!("../format.js")].concat();
+        let rt = [
+            include_str!("../rt.js"),
+            include_str!("../roster.js"),
+            include_str!("../router.js"),
+            include_str!("../format.js"),
+            include_str!("../budget.js"),
+        ]
+        .concat();
         let exported = |name: &str| {
             rt.match_indices(name).any(|(at, _)| {
                 !rt[at + name.len()..]

@@ -18,11 +18,12 @@ mod vocab;
 const USAGE: &str = "usage:
   contract build <file.contract> [-o <file.plan>] [--json] [--map (requires -o)]
   contract symbols <file.contract> [--name <exact-name>]
+  contract sources <file.contract>
   contract fmt [--check | --stdout] <file.contract>
   contract types <file.contract> [-o <app.d.ts>]
   contract rust <file.contract> [-o <shapes.rs>]
   contract test <file.test.contract>
-  contract lean <file.contract> [--name <ident>] [-o <file.lean>]
+  contract lean <file.contract> [--components] [--name <ident>] [-o <file.lean>]
   contract verify <file.contract> [--types] [--prove <Module>]
   contract vocab [--json] [<name>]";
 
@@ -53,6 +54,7 @@ fn run() -> ExitCode {
         }
         Some("build") => build::run(&args[1..]),
         Some("symbols") => symbols(&args[1..]),
+        Some("sources") => sources(&args[1..]),
         Some("fmt") => fmt(&args[1..]),
         Some("test") => tests(&args[1..]),
         Some("lean") => lean(&args[1..]),
@@ -92,6 +94,82 @@ fn symbols(args: &[String]) -> ExitCode {
             eprintln!("{error}");
             ExitCode::from(1)
         }
+    }
+}
+
+/// `contract sources`: every file compiling the root reads, as JSON, even
+/// when loading stops (LLP 1091 D10) — what a capture, a watch and a deploy
+/// take with the app. Exits 1 when the loader refused.
+fn sources(args: &[String]) -> ExitCode {
+    const USAGE: &str = "usage: contract sources <file.contract>";
+    let input = match args {
+        [flag] if matches!(flag.as_str(), "--help" | "-h") => {
+            println!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        [input] if !input.starts_with('-') => input,
+        _ => {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    let graph = contract::source_graph(std::path::Path::new(input));
+    let sources: Vec<_> = graph
+        .sources
+        .iter()
+        .map(|source| {
+            let path = source.path.display().to_string();
+            match &source.origin {
+                contract::Origin::App => serde_json::json!({"path": path, "origin": "app"}),
+                contract::Origin::Builtin => {
+                    serde_json::json!({"path": path, "origin": "builtin"})
+                }
+                contract::Origin::Package {
+                    name,
+                    version,
+                    root,
+                    manifest,
+                } => serde_json::json!({
+                    "path": path,
+                    "origin": "package",
+                    "package": name,
+                    "version": version,
+                    "root": root.display().to_string(),
+                    "manifest": manifest.display().to_string(),
+                }),
+            }
+        })
+        .collect();
+    let errors: Vec<serde_json::Value> = graph
+        .errors
+        .iter()
+        .map(|e| serde_json::from_str(&e.to_json()).unwrap_or_default())
+        .collect();
+    let packages: Vec<_> = graph
+        .packages
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "name": p.name,
+                "version": p.version,
+                "root": p.root.display().to_string(),
+                "manifest": p.manifest.display().to_string(),
+            })
+        })
+        .collect();
+    let consulted: Vec<_> = graph
+        .consulted
+        .iter()
+        .map(|m| m.display().to_string())
+        .collect();
+    println!(
+        "{}",
+        serde_json::json!({"sources": sources, "packages": packages, "consulted": consulted, "errors": errors})
+    );
+    if graph.errors.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
     }
 }
 
@@ -231,10 +309,12 @@ fn fmt(args: &[String]) -> ExitCode {
 /// term of the Lean semantics (`semantics/`), after the whole compiler
 /// accepts it.
 fn lean(args: &[String]) -> ExitCode {
-    const USAGE: &str = "usage: contract lean <file.contract> [--name <ident>] [-o <file.lean>]";
+    const USAGE: &str =
+        "usage: contract lean <file.contract> [--components] [--name <ident>] [-o <file.lean>]";
     let mut input = None;
     let mut name = "program".to_string();
     let mut output = None;
+    let mut components = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -242,6 +322,7 @@ fn lean(args: &[String]) -> ExitCode {
                 println!("{USAGE}");
                 return ExitCode::SUCCESS;
             }
+            "--components" => components = true,
             "--name" => match it.next() {
                 Some(n) => name = n.clone(),
                 None => {
@@ -267,7 +348,13 @@ fn lean(args: &[String]) -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
-    match contract::lean::lean_path(std::path::Path::new(&input), &name) {
+    let path = std::path::Path::new(&input);
+    let emitted = if components {
+        contract::lean::lean_components_path(path, &name)
+    } else {
+        contract::lean::lean_path(path, &name)
+    };
+    match emitted {
         Ok(text) => {
             let text = format!("import Contract\n\n{text}");
             match output {

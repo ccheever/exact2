@@ -22,7 +22,7 @@ impl Assets {
         for (entity, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
             let Mesh::Asset(name) = mesh else { continue };
             let Some(nodes) = r.model(name) else { continue };
-            if w.get::<Visible>(entity).is_some_and(|v| !v.0) {
+            if !w.is_visible(entity) {
                 continue;
             }
             if !nodes.is_empty() {

@@ -102,12 +102,12 @@ fn commands(args: &Value) -> Result<Vec<(String, sqlite::Command)>, String> {
 }
 fn execute(
     grants: &GrantSet,
-    directories: &AppDirectories,
+    directories: Option<&AppDirectories>,
     op: &str,
     args: &Value,
 ) -> Result<Value, String> {
     let path = text(args, "path")?;
-    if !path.starts_with("app:/") {
+    if !path.starts_with("app:/") && !native_filesystem(op, args) {
         return Err("portable storage needs an app:/ path".into());
     }
     if op == "sqlite" || op == "sqlite.transaction" {
@@ -115,7 +115,7 @@ fn execute(
         if op == "sqlite.transaction" && commands.iter().any(|(k, _)| k != "execute") {
             return Err("SQLite write transaction requires execute commands".into());
         }
-        let path = app_fs::resolve_sqlite(grants, Some(directories), path).map_err(error)?;
+        let path = app_fs::resolve_sqlite(grants, directories, path).map_err(error)?;
         let db = sqlite::Database::new(
             ibex2_sqlite::SqliteProvider
                 .open(Location { path })
@@ -139,7 +139,25 @@ fn execute(
             Err(e) => Err(e),
         };
     }
-    let (operation, destination, data) = match op {
+    let (operation, destination, data) = operation(op, args)?;
+    if path.starts_with("app:/") && destination.is_some_and(|d| !d.starts_with("app:/")) {
+        return Err("portable storage needs an app:/ destination".into());
+    }
+    let result = fs::run(
+        grants,
+        directories,
+        operation,
+        path,
+        destination,
+        data.as_deref(),
+    )
+    .map_err(error)?;
+    Ok(fs_value(result))
+}
+/// A filesystem request's operation, its destination, and its bytes.
+type Operation<'a> = (FsOp, Option<&'a str>, Option<Vec<u8>>);
+fn operation<'a>(op: &str, args: &'a Value) -> Result<Operation<'a>, String> {
+    Ok(match op {
         "fs.readFile" => (FsOp::ReadFile, None, None),
         "fs.writeFile" => (FsOp::WriteFile, None, Some(bytes(args)?)),
         "fs.atomicWriteFile" => (FsOp::AtomicWriteFile, None, Some(bytes(args)?)),
@@ -149,33 +167,13 @@ fn execute(
         "fs.stat" => (FsOp::Stat, None, None),
         "fs.readdir" => (FsOp::ReadDir, None, None),
         "fs.realpath" => (FsOp::Realpath, None, None),
-        "fs.rename" | "fs.copyFile" => {
-            let destination = text(args, "destination")?;
-            if !destination.starts_with("app:/") {
-                return Err("portable storage needs an app:/ destination".into());
-            }
-            (
-                if op == "fs.rename" {
-                    FsOp::Rename
-                } else {
-                    FsOp::CopyFile
-                },
-                Some(destination),
-                None,
-            )
-        }
+        "fs.rename" => (FsOp::Rename, Some(text(args, "destination")?), None),
+        "fs.copyFile" => (FsOp::CopyFile, Some(text(args, "destination")?), None),
         _ => return Err(format!("unsupported storage operation {op}")),
-    };
-    let result = fs::run(
-        grants,
-        Some(directories),
-        operation,
-        path,
-        destination,
-        data.as_deref(),
-    )
-    .map_err(error)?;
-    Ok(match result {
+    })
+}
+fn fs_value(result: FsResult) -> Value {
+    match result {
         FsResult::Done => Value::Null,
         FsResult::Bytes(bytes) => {
             json!({"base64":exact_runner::agent::base64(&bytes)})
@@ -188,14 +186,54 @@ fn execute(
             "isDirectory": stat.is_directory,
             "modifiedMs": stat.modified_ms
         }),
+    }
+}
+/// A `doc:` path (LLP 1069.010 D1): the file or folder the person chose,
+/// through ibex2's one executor for documents, the one a TypeScript
+/// source's `storage.fs` runs, so a grant means the same in either language.
+fn document_request(grants: &GrantSet, op: &str, args: &Value) -> Result<Value, String> {
+    let path = text(args, "path")?;
+    let (operation, _, data) = operation(op, args)?;
+    fs::run_document(grants, Some(&documents), operation, path, data.as_deref())
+        .map(fs_value)
+        .map_err(error)
+}
+/// [`exact_data::documents`] as ibex2's table.
+fn documents(path: &str) -> Result<fs::Document, String> {
+    use exact_data::documents::{resolve, Resolved};
+    Ok(match resolve(path)? {
+        Resolved::Root(name) => fs::Document::Root(name),
+        Resolved::Real(real) => fs::Document::Real(real),
     })
 }
-/// Whether a storage request names a `doc:` path (LLP 1069.010 D1).
-pub(super) fn document(payload: &[u8]) -> bool {
+/// A scripted drive's answer when it names no scratch store: the web's
+/// refusal, word for word (`storage-environment.js`, `storage-request.js`),
+/// as a TypeScript module's `agent` refusal says it (trivia F7).
+pub(super) fn agent_refusal() -> Outcome {
+    Outcome::Storage(
+        serde_json::to_vec(&json!({"error": "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"}))
+            .unwrap(),
+    )
+}
+/// Native disk operations do not need (or initialize) the app storage roots.
+/// Classify malformed disk spellings too: the filesystem adapter refuses them
+/// after source/grant admission, before opening any handle. This is not authority.
+fn native_filesystem(op: &str, args: &Value) -> bool {
+    cfg!(windows)
+        && op.starts_with("fs.")
+        && args["path"].as_str().is_some_and(|path| {
+            !path.starts_with("app:/") && !exact_data::documents::is_document(path)
+        })
+}
+/// Chosen documents and Windows disk requests require no app directories.
+pub(super) fn independent_storage(payload: &[u8]) -> bool {
     serde_json::from_slice::<Value>(payload).is_ok_and(|r| {
         r["args"]["path"]
             .as_str()
             .is_some_and(exact_data::documents::is_document)
+            || r["op"]
+                .as_str()
+                .is_some_and(|op| native_filesystem(op, &r["args"]))
     })
 }
 pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> Outcome {
@@ -214,11 +252,13 @@ pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> 
             .as_str()
             .is_some_and(exact_data::documents::is_document)
         {
-            let data = match op {
-                "fs.writeFile" | "fs.atomicWriteFile" | "fs.appendFile" => Some(bytes(args)?),
-                _ => None,
-            };
-            return super::documents::execute(&grants, op, args, data);
+            return document_request(&grants, op, args);
+        }
+        if native_filesystem(op, args) {
+            return execute(&grants, None, op, args);
+        }
+        if !text(args, "path")?.starts_with("app:/") {
+            return Err("portable storage needs an app:/ path".into());
         }
         let paths = paths.ok_or("storage is unavailable in an unconfigured host")?;
         for path in [&paths.data, &paths.cache, &paths.temporary] {
@@ -226,7 +266,7 @@ pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> 
         }
         let directories =
             AppDirectories::new(&paths.data, &paths.cache, &paths.temporary).map_err(error)?;
-        execute(&grants, &directories, op, &request["args"])
+        execute(&grants, Some(&directories), op, &request["args"])
     })();
     match result {
         Ok(v) => {

@@ -106,6 +106,26 @@ final class DialogMacTests: XCTestCase {
         XCTAssertEqual(heard, ["4 Escape", "4 Tab", "4 Tab", "4 Escape"])
         XCTAssertNil(p.dialogs.active, "an unprevented Escape closes it")
     }
+    /// `stopPropagation()` (files diary F8): a field's handler that calls it
+    /// is the last to hear the key, and the key's default still happens.
+    func testAStoppedKeyReachesNoAncestorAndKeepsItsDefault() throws {
+        let p = fixture()
+        let opener = p.views[2]!, node = p.views[4]!, field = try XCTUnwrap(node.field)
+        node.handlers.insert("key")
+        p.views[3]!.handlers.insert("key")
+        var heard: [String] = [], stop = true
+        p.onKey = { id, name in heard.append("\(id) \(name)"); if stop, id == 4 { p.propagationStopped = true } }
+        window.makeFirstResponder(opener)
+        click(opener)
+        XCTAssertTrue(field.currentEditor() === window.firstResponder)
+        XCTAssertTrue(p.routeKey(key(48, character: "\t"), focused: true))
+        XCTAssertEqual(heard, ["4 Tab"], "the dialog's own handler does not hear a stopped key")
+        XCTAssertTrue(window.firstResponder === p.views[5], "its default, the dialog's Tab, still happens")
+        stop = false
+        window.makeFirstResponder(field)
+        XCTAssertTrue(p.routeKey(key(48, character: "\t"), focused: true))
+        XCTAssertEqual(heard, ["4 Tab", "4 Tab", "3 Tab"])
+    }
     func testDismissalPoliciesAndBackgroundPointerBlocking() {
         let p = fixture()
         let modal = p.views[3]!
@@ -211,14 +231,25 @@ final class DialogMacTests: XCTestCase {
         menu.isHidden = true // NSMenu projects the rows of a hidden popover.
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
-        let item = NSMenuItem(title: "Action", action: nil, keyEquivalent: "")
-        item.representedObject = NSNumber(value: action.id)
-        _ = p.menus.perform(NSSelectorFromString("pick:"), with: item)
+        func pick() {
+            let item = p.menus.menu(of: menu).items[0]
+            _ = p.menus.perform(item.action, with: item)
+        }
+        pick()
+        turn()
         XCTAssertEqual(pressed, [21])
+        pick()
         p.press(2)
-        _ = p.menus.perform(NSSelectorFromString("pick:"), with: item)
+        turn()
         XCTAssertEqual(pressed, [21], "a modal blocks a queued background menu selection")
         p.dialogs.close(p.views[3]!)
+    }
+    /// A picked menu item presses on the next main-queue turn: let every
+    /// turn queued so far run (the main queue is FIFO).
+    private func turn() {
+        let turned = expectation(description: "the next turn")
+        DispatchQueue.main.async { turned.fulfill() }
+        wait(for: [turned], timeout: 5)
     }
 
     func testNativeMenuDialogCommandsUseTheProjectedRows() throws {
@@ -239,11 +270,15 @@ final class DialogMacTests: XCTestCase {
             XCTAssertNil(p.dialogs.active, "ordinary hidden-node activation stays blocked")
             presses.removeAll()
             _ = p.menus.perform(try XCTUnwrap(item.action), with: item)
+            turn()
             XCTAssertTrue(p.dialogs.active === p.views[3])
             XCTAssertEqual(presses, withHandler ? [2] : [])
             p.dialogs.close(p.views[3]!)
+            // An item shown enabled, its row disabled before it is picked.
+            let again = try XCTUnwrap(p.menus.menu(of: popover).items.first)
             p.views[2]!.props["disabled"] = "true"
-            _ = p.menus.perform(try XCTUnwrap(item.action), with: item)
+            _ = p.menus.perform(try XCTUnwrap(again.action), with: again)
+            turn()
             XCTAssertNil(p.dialogs.active)
             p.views[2]!.props.removeValue(forKey: "disabled")
         }
@@ -472,6 +507,64 @@ final class DialogMacTests: XCTestCase {
         XCTAssertFalse(p.viewport.subviews.contains { $0 is DialogBackdrop })
     }
 
+    /// With nothing focused a bare-key shortcut still presses its button, as
+    /// a page's do; a field's `focus` and `blur` arrive when it takes and
+    /// loses the focus, not at its first edit (jukebox F11, F23).
+    func testBareShortcutsWithNothingFocusedAndFieldFocusEvents() throws {
+        _ = NSApplication.shared
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = """
+        component App
+          state heard = ""
+          action note(what: string)
+            heard = `${heard} ${what}`
+          view
+            column width="100%" height="100%"
+              button "Play" testId="play" aria-keyshortcuts="Space" press=note("space")
+              input testId="field" aria-label="Search" focus=note("focus") blur=note("blur")
+              textarea testId="notes" aria-label="Notes" focus=note("tfocus") blur=note("tblur")
+
+        """
+        let input = directory.appendingPathComponent("app.contract")
+        let output = directory.appendingPathComponent("app.plan")
+        try source.write(to: input, atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
+        compiler.arguments = ["build", input.path, "-o", output.path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        let session = ExactApp.shared.makeSession(label: "bare-shortcuts")
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: output), size: CGSize(width: 500, height: 400)).error)
+        let view = ExactView(session: session)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        let p = session.presenter
+        func heard() -> String {
+            let text = session.agent(#"{"op":"state"}"#)
+            let json = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
+            return (json?["slots"] as? [String: Any])?["heard"] as? String ?? ""
+        }
+        func node(_ testId: String) throws -> NodeView { try XCTUnwrap(p.views.values.first { $0.props["testId"] == testId }) }
+        let space = key(49, character: " ")
+        window.makeFirstResponder(nil)
+        XCTAssertTrue(window.firstResponder === window)
+        XCTAssertTrue(view.ownsShortcutFocus(), "with nothing focused the window's keys are the page's")
+        XCTAssertTrue(p.routeKey(space, focused: view.ownsShortcutFocus(), in: window))
+        XCTAssertEqual(heard(), " space")
+        let field = try XCTUnwrap(try node("field").field)
+        window.makeFirstResponder(field)
+        XCTAssertEqual(heard(), " space focus", "focus arrives as the field takes it, before any edit")
+        XCTAssertFalse(p.routeKey(space, focused: view.ownsShortcutFocus(), in: window), "a field's Space is its text")
+        let notes = try XCTUnwrap(try node("notes").textArea)
+        window.makeFirstResponder(notes)
+        XCTAssertEqual(heard(), " space focus blur tfocus")
+        window.makeFirstResponder(nil)
+        XCTAssertEqual(heard(), " space focus blur tfocus tblur")
+    }
 }
 
 private final class MarkedInputClient: NSView, NSTextInputClient {

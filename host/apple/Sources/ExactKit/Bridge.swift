@@ -30,6 +30,8 @@ public struct Batch {
     public var frames = false
     /// A canvas draw is owed to a turn of its own (LLP 1072 §8.5).
     public var canvasOwed = false
+    /// A control's viewless contents changed (LLP 1069.011 §9).
+    public var controls = false
     /// Image handles a 2D canvas asked for, to decode (LLP 1056 D9).
     public var canvasImages: [String] = []
     /// The kernel transactions it carries, while the runner measures (LLP 1079 D3).
@@ -204,12 +206,15 @@ final class Runtime {
             return read(exact_fulfill_surface(rt, ticket, kind, n, now))
         }
     }
-    func press(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 0, 0, now)) } }
+    /// A press, with the modifiers held as a chord prefix (`KeyCodes.held`).
+    func press(_ view: UInt32, held: String = "", now: Double) -> Batch { on { read(exact_dispatch(rt, view, 0, write(held), now)) } }
     /// The pointer over the view (`true`) or gone from it.
     func hover(_ view: UInt32, over: Bool, now: Double) -> Batch { on { read(exact_dispatch(rt, view, over ? 2 : 3, 0, now)) } }
     func focus(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 4, 0, now)) } }
     func blur(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 5, 0, now)) } }
     func contextmenu(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 10, 0, now)) } }
+    /// DOM's `beforeunload` (36) at a node that hears it (studio diary R17).
+    func beforeunload(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 36, 0, now)) } }
     func holdBegin(_ view: UInt32, property: UInt32, now: Double) -> (NativeHold?, Batch) {
         return on(busy: (nil, Runtime.busy)) {
             let batch = read(exact_hold_begin(rt, view, property, now))
@@ -284,9 +289,11 @@ final class Runtime {
             exact_scrolled(rt, view == nil ? 1 : 0, view ?? 0, left, top)
         }
     }
-    func scroll(_ view: UInt32, left: Double, top: Double, now: Double) -> Batch {
+    /// A scroll event: left, top, then the scroller's `scrollWidth`,
+    /// `scrollHeight`, `clientWidth` and `clientHeight` (`ScrollEvent`, chat F4).
+    func scroll(_ view: UInt32, metrics: [Double], now: Double) -> Batch {
         return on {
-            let n = write("\(left),\(top)")
+            let n = write(metrics.map { "\($0)" }.joined(separator: ","))
             return read(exact_dispatch(rt, view, 13, n, now))
         }
     }
@@ -334,6 +341,17 @@ final class Runtime {
     /// record (LLP 1005 §3, LLP 1056 §3 stage 3).
     func pointer(_ view: UInt32, _ kind: PointerKind, _ sample: PointerSample, now: Double) -> Batch {
         on { read(exact_dispatch(rt, view, kind.rawValue, write(sample.line), now)) }
+    }
+    /// The clipboard's `copy` (32), `cut` (33) or `paste` (34) with its
+    /// plain text; a `contextmenu` (10) with its pointer line, a `wheel`
+    /// (37) or a `drop` (38) with theirs (`Event::of_host_kind`).
+    func clipboard(_ view: UInt32, _ kind: UInt32, _ text: String, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, kind, write(text), now)) }
+    }
+    /// `selectionchange` (35): a `text`'s part of the selection, its source
+    /// UTF-16 offsets and then its text.
+    func selectionChange(_ view: UInt32, _ text: String, start: Int, end: Int, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, 35, write("\(start),\(end),\(text)"), now)) }
     }
     func submit(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 7, 0, now)) } }
     func media(_ view: UInt32, event: String, payload: String, now: Double) -> Batch {
@@ -425,6 +443,8 @@ final class Runtime {
         }
     }
     func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
+    /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
+    func landThen() -> Batch { on { read(exact_advance(rt, 0, 2)) } }
     func frame(now: Double) -> Batch { on { read(exact_frame(rt, now)) } }
     func presentFrames(_ yes: Bool) { on { () -> Void in _ = exact_present_frames(rt, yes ? 1 : 0) } }
     func resize(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_resize(rt, Float(width), Float(height))) } }
@@ -461,6 +481,33 @@ final class Runtime {
     func tick(now: Double) -> Batch { on { read(exact_tick(rt, now)) } }
     func scheme(dark: Bool) -> Batch { on { read(exact_scheme(rt, dark ? 1 : 0)) } }
     func viewScheme(_ view: UInt32, dark: Bool) -> Batch { on { read(exact_view_scheme(rt, view, dark ? 1 : 0)) } }
+    /// @ref LLP 1095 D1 — every colour reference the kernel resolves itself
+    /// (paint motion, gradients, SVG scenes), resolved by the platform in
+    /// both appearances under the current contrast and reported, so none of
+    /// them is a frozen fallback. A name the platform lacks is left out: the
+    /// kernel keeps its fallback pair. `tint` is the app's tint,
+    /// light then dark (`SystemColor.tintPair`), read on main: the owner
+    /// thread has no window to read it from; without one `@tint` is not
+    /// reported, and the kernel keeps what it had.
+    func reportColors(tint: [[Double]]?) -> Batch {
+        on {
+            let len = exact_color_references(rt)
+            let json = Data(bytes: exact_out(rt), count: Int(len))
+            let refs = (try? JSONSerialization.jsonObject(with: json)) as? [[Any]] ?? []
+            var bytes = Data(capacity: refs.count * 16)
+            for r in refs {
+                guard r.count == 3, let kind = r[0] as? Int, let id = r[1] as? Int, let name = r[2] as? String,
+                      tint != nil || !name.hasPrefix("@tint") else { continue }
+                for dark in [false, true] {
+                    guard let c = SystemColor.channels(name, dark: dark, tint: tint?[dark ? 1 : 0], fallback: nil), c.count == 4 else { continue }
+                    bytes.append(UInt8(kind)); bytes.append(dark ? 1 : 0)
+                    withUnsafeBytes(of: UInt16(id).littleEndian) { bytes.append(contentsOf: $0) }
+                    for v in c { bytes.append(UInt8(max(0, min(255, v.rounded())))) }
+                }
+            }
+            return read(exact_colors(rt, write(bytes)))
+        }
+    }
     /// A button's face, custom or native (LLP 1069.011.000 D1).
     func buttonFace(_ view: UInt32) -> ButtonFace {
         return on(busy: ButtonFace()) {
@@ -593,5 +640,7 @@ enum PointerKind: UInt32 { case down = 29, up = 30, move = 31 }
 /// (`mouse`, `pen`, `touch`) and its id (the mouse is 1, as browsers number it).
 struct PointerSample {
     var x: Double, y: Double, buttons: Int, pressure: Double, type: String, id: Int
-    var line: String { "\(x),\(y),\(buttons),\(min(1, max(0, pressure))),\(type),\(id)" }
+    /// The modifiers held, a chord prefix (`KeyCodes.held`): a `MouseEvent`'s.
+    var held = ""
+    var line: String { "\(x),\(y),\(buttons),\(min(1, max(0, pressure))),\(type),\(id),\(held)" }
 }

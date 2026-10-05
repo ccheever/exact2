@@ -5,7 +5,7 @@ use super::{
 };
 use contract_syntax::{
     one_spelling_edit, Attr, Binding, Component, Expr, File, Node, Owner, Span, TemplatePart,
-    TypeExpr,
+    TypeExpr, HOST_COMMANDS,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -149,9 +149,15 @@ pub(super) fn call_arity<P: std::fmt::Display>(
     params: impl IntoIterator<Item = P>,
 ) -> String {
     let params: Vec<_> = params.into_iter().map(|p| p.to_string()).collect();
+    // A trailing optional parameter is spelled `number?` (LLP 1088 D2).
+    let required = params.iter().filter(|p| !p.ends_with('?')).count();
+    let count = if required == params.len() {
+        params.len().to_string()
+    } else {
+        format!("{required} to {}", params.len())
+    };
     format!(
-        "`{name}` takes {} argument(s), given {given}; expected `{name}({})`",
-        params.len(),
+        "`{name}` takes {count} argument(s), given {given}; expected `{name}({})`",
         params.join(", ")
     )
 }
@@ -737,44 +743,6 @@ fn check_inject_nodes(
     Ok(())
 }
 
-/// The commands a host answers (LLP 1005 §3): every name an action body may
-/// call. The web host's `command` op, the Apple session's queue, and the Linux
-/// presenter's `run_commands` match these by name; any other name would reach
-/// them and be refused there, silently to the author, so it is refused here.
-pub(super) const HOST_COMMANDS: &[&str] = &[
-    "blur",
-    "copyText",
-    "deliveryActivate",
-    "deliveryCheck",
-    "focus",
-    "format",
-    // @ref LLP 1077 D14 — `haptic("success" | "warning" | "error" | …)`.
-    "haptic",
-    "openURL",
-    // `reload()`: the development host boots the app again, as its dev
-    // menu's Reload does; a host without a dev menu refuses it.
-    "reload",
-    "selectText",
-    "setScheme",
-    // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
-    "showPicker",
-    "share",
-    // @ref LLP 1069.010 D3 — export: the host copies an `app:/` file out.
-    "saveFile",
-    // @ref LLP 1069.010 D2 — the File System Access API's pickers.
-    "showOpenFilePicker",
-    "showDirectoryPicker",
-    "showSaveFilePicker",
-    // @ref LLP 1070.000 — a virtualized list's row brought into view, by key.
-    "scrollIntoView",
-    // The inverse of a canvas's `message=`: `postMessage(text, "world")` queues
-    // text into the surface of that name, delivered in order, never coalesced.
-    "postMessage",
-    // `event.preventDefault()` for the `key` event that ran the action: the
-    // host skips the key's default action (docs/contract-grammar.md#events).
-    "preventDefault",
-];
-
 /// The three pickers' positional arguments (LLP 1069.010 D2): an element
 /// id, then `multiple` (a bool) for `showOpenFilePicker` or
 /// `suggestedName` (a string) for `showSaveFilePicker`.
@@ -904,27 +872,131 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
     Ok(())
 }
 
+/// `showNotification(title=, body=, tag=, showTrigger=)`: the Notification
+/// API's title and options by name, named only, `title` required; strings,
+/// and `showTrigger` a number (when to show it, in epoch milliseconds: the
+/// Notification Triggers draft's `TimestampTrigger`). `closeNotification(tag)`:
+/// one string. Whether the grants name `device.notifications` is the host's
+/// to refuse, as `fetch`'s grants are.
+fn notification_args(
+    name: &str,
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> Result<(), TypeError> {
+    const USAGE: &str = "`showNotification(title=…, body=…, tag=…, showTrigger=…)`";
+    if name == "closeNotification" {
+        let one = matches!(args, [tag] if !matches!(tag, Expr::NamedArg(..)));
+        if !one || Ty::String.unify(&infer(&args[0], scope, shapes)?).is_none() {
+            return err(
+                "type-notification-argument",
+                "`closeNotification` takes the tag it closes: `closeNotification(\"reminder-1\")`",
+                span,
+            );
+        }
+        return Ok(());
+    }
+    let mut seen = BTreeSet::new();
+    for arg in args {
+        let Expr::NamedArg(arg_name, value, at) = arg else {
+            return err(
+                "type-notification-argument",
+                format!("`showNotification` takes named arguments: {USAGE}"),
+                arg.span(),
+            );
+        };
+        let want = match arg_name.as_str() {
+            "title" | "body" | "tag" => Ty::String,
+            "showTrigger" => Ty::Number,
+            other => {
+                return err(
+                    "type-notification-argument",
+                    format!("`showNotification` has no argument `{other}`; it takes title=, body=, tag= and showTrigger="),
+                    *at,
+                )
+            }
+        };
+        if !seen.insert(arg_name.as_str()) {
+            return err(
+                "type-notification-argument",
+                format!("`{arg_name}=` is given twice"),
+                *at,
+            );
+        }
+        let t = infer(value, scope, shapes)?;
+        if want.unify(&t).is_none() {
+            let what = match want {
+                Ty::Number => "a number: epoch milliseconds",
+                _ => "a string",
+            };
+            return err(
+                "type-notification-argument",
+                format!("`{arg_name}=` is {what}, not `{t}`"),
+                value.span(),
+            );
+        }
+    }
+    if !seen.contains("title") {
+        return err(
+            "type-notification-argument",
+            format!("`showNotification` needs `title=`: {USAGE}"),
+            span,
+        );
+    }
+    Ok(())
+}
+
 /// `scrollIntoView("list-id", key, block=, inline=, behavior=, row=)` (LLP
 /// 1070.000 §1): a virtualized list's `id` as a literal, a row key, and the
 /// web's `ScrollIntoViewOptions` by name with literal values; `row=` names an
 /// inner list's outer row. Whether the list exists is the runner's to find.
+/// With one positional argument, `scrollIntoView("element-id", block=,
+/// inline=, behavior=)` is `Element.scrollIntoView()` on any element by its
+/// HTML `id`, as `focus("id")` names one (minesweeper F3): its scroll
+/// containers, innermost first, then the page; the host finds it.
 fn into_view_args(
     args: &[Expr],
     scope: &Scope,
     shapes: &Shapes,
     span: Span,
 ) -> Result<(), TypeError> {
-    const USAGE: &str = "`scrollIntoView(\"list-id\", key, block=\"start\", inline=\"nearest\", behavior=\"auto\", row=outerKey)`";
+    const USAGE: &str = "`scrollIntoView(\"element-id\", block=\"start\", inline=\"nearest\", behavior=\"auto\")`, or a virtualized list's row by key: `scrollIntoView(\"list-id\", key, …, row=outerKey)`";
     let positional: Vec<_> = args
         .iter()
         .filter(|a| !matches!(a, Expr::NamedArg(..)))
         .collect();
-    let [list, key] = positional.as_slice() else {
-        return err(
-            "type-scroll-into-view",
-            format!("{USAGE}: a list's `id` and a row's key, then options by name"),
-            span,
-        );
+    let (list, key) = match positional.as_slice() {
+        [element] => (element, None),
+        [list, key] => (list, Some(key)),
+        _ => {
+            return err(
+                "type-scroll-into-view",
+                format!("{USAGE}: an element's `id`, or a list's `id` and a row's key, then options by name"),
+                span,
+            )
+        }
+    };
+    let Some(key) = key else {
+        // Any string names the element, as `focus` takes one.
+        if infer(list, scope, shapes)? != Ty::String {
+            return err(
+                "type-scroll-into-view",
+                format!("the element is named by its `id`, a string: {USAGE}"),
+                list.span(),
+            );
+        }
+        if let Some(Expr::NamedArg(_, _, at)) = args
+            .iter()
+            .find(|a| matches!(a, Expr::NamedArg(name, ..) if name == "row"))
+        {
+            return err(
+                "type-scroll-into-view",
+                "`row=` names an inner list's outer row: it goes with a list's `id` and a row's key",
+                *at,
+            );
+        }
+        return into_view_options(args, scope, shapes, USAGE);
     };
     if !matches!(list, Expr::Str(..)) {
         return err(
@@ -934,6 +1006,16 @@ fn into_view_args(
         );
     }
     infer(key, scope, shapes)?;
+    into_view_options(args, scope, shapes, USAGE)
+}
+
+/// The web's `ScrollIntoViewOptions` by name, literal values, each once.
+fn into_view_options(
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    usage: &str,
+) -> Result<(), TypeError> {
     let mut seen = BTreeSet::new();
     for arg in args {
         let Expr::NamedArg(name, value, at) = arg else {
@@ -956,7 +1038,7 @@ fn into_view_args(
             _ => {
                 return err(
                     "type-scroll-into-view",
-                    format!("`scrollIntoView` has no option `{name}`: {USAGE}"),
+                    format!("`scrollIntoView` has no option `{name}`: {usage}"),
                     *at,
                 )
             }
@@ -981,15 +1063,16 @@ pub(super) fn check_command(
     args: &[Expr],
     scope: &Scope,
     shapes: &Shapes,
+    component: &str,
     span: Span,
 ) -> Result<(), TypeError> {
     if !HOST_COMMANDS.contains(&name) {
-        let message = match scope.lookup(name) {
-            Some((Ref::Action(_), Ty::Action(_))) => format!(
-                "`{name}` is an action, not a host command: an action is not callable from an action; put its statements here, or bind it to an element (`press={name}`)"
-            ),
-            Some((Ref::Prop(_), Ty::Action(_))) => format!(
-                "`{name}` is an action prop: an action calls one only as its last statement (its tail call), or binds it to an element (`press={name}`)"
+        // A name some component declares as an action is told where it is
+        // (LLP 1089 D10): this component's own and its action props and
+        // injects are calls, which never reach here.
+        let message = match shapes.actions.get(name) {
+            Some(owner) if owner != component => format!(
+                "`{name}` is an action of `{owner}`, not in `{component}`'s scope; pass it as an `action` prop or `provide` it"
             ),
             _ => format!(
                 "`{name}` is not a host command; the hosts answer {}",
@@ -1001,7 +1084,21 @@ pub(super) fn check_command(
     if name == "preventDefault" && !args.is_empty() {
         return err(
             "type-prevent-default",
-            "`preventDefault()` takes no arguments: it prevents the default action of the key event that ran this action",
+            "`preventDefault()` takes no arguments: it prevents the default action of the event that ran this action (a key's, a wheel's scroll, a `beforeunload`'s close)",
+            span,
+        );
+    }
+    if name == "close" && !args.is_empty() {
+        return err(
+            "type-close",
+            "`close()` takes no arguments: it closes the window this session shows, without asking its `beforeunload` again",
+            span,
+        );
+    }
+    if name == "stopPropagation" && !args.is_empty() {
+        return err(
+            "type-stop-propagation",
+            "`stopPropagation()` takes no arguments: it stops the key event that ran this action at this handler, so no ancestor's `key` handler hears it",
             span,
         );
     }
@@ -1010,6 +1107,9 @@ pub(super) fn check_command(
     }
     if name == "saveFile" {
         return save_file_args(args, scope, shapes, span);
+    }
+    if name == "showNotification" || name == "closeNotification" {
+        return notification_args(name, args, scope, shapes, span);
     }
     if name.starts_with("show") && name.ends_with("Picker") && name != "showPicker" {
         return picker_args(name, args, scope, shapes, span);

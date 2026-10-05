@@ -206,7 +206,12 @@ Linux host.
   cache (`~/.cache/exact/hermes-macos`) or in an [expo/ibex](https://github.com/expo/ibex)
   checkout beside this repository; `setup --check` says which, or that neither is there.
   To build it: `git clone https://github.com/expo/ibex ../ibex && (cd ../ibex && ./scripts/build-hermes.sh --vanilla)`.
-  The iOS build makes its own lean copy from it the first time.
+  iOS also needs **CMake** (`brew install cmake`): the first iOS build fetches the
+  pinned Hermes source and builds its lean VM once for the machine.
+  On Windows x64, use an x64 Visual Studio developer shell with PowerShell 7,
+  CMake and Ninja, then run `pwsh -File js/build-windows.ps1 -Jobs 2`. This builds
+  Exact's pinned lean VM and static ICU into a separate, verified local cache;
+  existing installs are preserved. See the [Windows TypeScript setup and limits](docs/reference.md#windows-typescript).
 
 To install the pinned Bun beside any existing installation:
 `curl -fsSL https://bun.sh/install | BUN_INSTALL=~/.bun-1.4.2 bash -s bun-v1.4.2`.
@@ -269,6 +274,7 @@ bun scripts/exact.mjs new ../hello          # or run `bun link` once, then `exac
 cd ../hello
 bun exact.mjs contract types app.contract -o app.contract.d.ts   # first run builds the compiler
 bun exact.mjs web                           # the dev loop, at http://127.0.0.1:8765/
+bun exact.mjs test web tests/*.test.contract # app.test.contract, or the test files named
 bun exact.mjs mac --run                     # this Mac
 bun exact.mjs ios --run                     # an iOS Simulator
 ```
@@ -509,7 +515,7 @@ To learn from, read these four first:
     <td><img src="docs/screenshots/video-player.webp" width="200" alt="Video Player"></td>
   </tr>
   <tr valign="top">
-    <td><a href="examples/ios/calendar"><b>Calendar</b></a><br>Month pages, draggable sheets, events dragged between days, wallpaper themes, SQLite. It lives outside <code>apps/</code>, so set <code>EXACT_APP_DIR</code> to run it.</td>
+    <td><a href="examples/calendar"><b>Calendar</b></a><br>Month pages, draggable sheets, events dragged between days, wallpaper themes, SQLite. It lives outside <code>apps/</code>, so set <code>EXACT_APP_DIR</code> to run it.</td>
     <td><a href="apps/sparkline"><b>Sparkline</b></a><br>A market list of animated SVG charts that draw in and pulse.</td>
     <td><a href="apps/photo-editor"><b>Photo Editor</b></a><br>Rotate, pan, and crop, through a native module.</td>
     <td><a href="apps/video-player"><b>Video Player</b></a><br>A bundled clip that shrinks out of the way when the keyboard opens.</td>

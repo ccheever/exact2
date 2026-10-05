@@ -80,7 +80,7 @@ impl Event {
         match self {
             Event::Tap(t) => format!("(.tap {})", string(t)),
             Event::Type(t, s) => format!("(.change {} {})", string(t), string(s)),
-            Event::Clock(ms) => format!("(.clock (Float.ofBits 0x{:016x}))", ms.to_bits()),
+            Event::Clock(ms) => format!("(.clock (F64.ofBits 0x{:016x}))", ms.to_bits()),
         }
     }
 }
@@ -132,12 +132,16 @@ pub fn test_case(
         items.push(match step {
             Step::Tap {
                 target,
-                hover: false,
+                form: contract_syntax::TapForm::Press,
+                modifiers,
                 ..
-            } => Item::Event(Event::Tap(target.clone())),
-            Step::Type { target, text, .. } => {
-                Item::Event(Event::Type(target.clone(), text.clone()))
-            }
+            } if modifiers.is_empty() => Item::Event(Event::Tap(target.clone())),
+            Step::Type {
+                target,
+                text,
+                append: false,
+                ..
+            } => Item::Event(Event::Type(target.clone(), text.clone())),
             Step::Clock { arg, .. } => match arg.strip_prefix('+').map(str::parse::<f64>) {
                 Some(Ok(ms)) if ms.is_finite() && ms >= 0.0 => Item::Event(Event::Clock(ms)),
                 _ => {

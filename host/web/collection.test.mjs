@@ -280,6 +280,17 @@ test('collection read reuse: eligible nested correction alone reads geometry, la
   expect(result.repeated).toEqual({top:200,reads:[1,1,0,0]});
   expect(result.newer).toEqual({top:260,reads:[1,1,0,0]});
 });
+// Review B5: an absolute correction planned before the port resized in the same commit still lands (Apple's
+// and Linux's rule): the composer shrinks back after a send while the list follows its end.
+test('an absolute correction lands in the commit that resizes its port', async () => {
+  const result=await evaluate(`(() => {const f=fixture();
+    f.controller.commit([f.snapshot()]);f.port.scrollTop=160;f.port.dispatchEvent(new Event('scroll'));f.flush();
+    const seq=f.reports.at(-1).sequence;
+    f.port.style.height='150px';
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:140}})]);
+    return {top:f.port.scrollTop};})()`);
+  expect(result).toEqual({top:200});
+});
 test('an anchor correction (from) moves the port by its shift after a later user scroll, once', async () => {
   const result=await evaluate(`(() => {const f=fixture();
     f.controller.commit([f.snapshot()]);f.port.scrollTop=160;f.port.dispatchEvent(new Event('scroll'));f.flush();
@@ -1297,6 +1308,16 @@ test('Arrange pointer-up during unaccepted geometry cancels once without losing 
   const r=await evaluate(`(async()=>{f.controller.reorderMapping=f.savedMapping;for(const el of [f.source,f.views.get(2)])for(const a of el.getAnimations())a.finish();await new Promise(r=>setTimeout(r,0));f.flush();return {cancel:f.calls.filter(r=>r.op==='reorder-cancel').length,drop:f.calls.filter(r=>r.op==='reorder-terminal').length,rebase:f.calls.filter(r=>r.op==='reorder-rebase').length,finish:f.finished??0,pin:f.reports.at(-1).interaction};})()`);
   await evaluate('f.arrange.reset()');
   expect(r).toEqual({cancel:1,drop:0,rebase:1,finish:1,pin:0});
+});
+// habits F10: a touch is implicitly captured by the grip's child it lands on; taking capture to the grip bubbles that child's loss.
+test('Arrange touch on a grip\'s child drops once: the child\'s lost capture is not the release',async()=>{
+  const at=await evaluate(`(()=>{const f=(${arrangeFixture})(),g=document.createElement('div'),c=document.createElement('span');g.dataset.view='5';c.textContent='row';g.append(c);f.grip.replaceWith(g);f.views.set(5,f.grip=g);f.arrange.binding(f.binding);const r=c.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+  await protocol('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1});
+  for(const [type,dy] of [['touchStart',0],['touchMove',-10],['touchMove',-30]])await protocol('Input.dispatchTouchEvent',{type,touchPoints:[{x:at.x,y:at.y+dy}]});
+  await protocol('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  const r=await evaluate(`(()=>{f.flush();return {drop:f.calls.filter(r=>r.op==='reorder-terminal').length,cancel:f.calls.filter(r=>r.op==='reorder-cancel').length};})()`);
+  await protocol('Emulation.setTouchEmulationEnabled',{enabled:false});await evaluate('f.arrange.reset()');
+  expect(r).toEqual({drop:1,cancel:0});
 });
 test('Arrange destruction retires its binding listener and touch policy without waiting for reset',async()=>{
   const r=await evaluate(`(()=>{const f=(${arrangeFixture})();f.arrange.reset();f.grip.style.touchAction='pan-y';f.arrange.binding(f.binding);

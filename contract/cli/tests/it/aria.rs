@@ -97,3 +97,104 @@ fn aria_modal_lowers_and_follows_state() {
     r.dispatch(close, Event::Press).unwrap();
     assert_eq!(modal(&r, "sheet"), Some(false));
 }
+
+/// A form's states (onboarding F22) and a menu button's (spreadsheet F20),
+/// by their ARIA names: `aria-invalid` and `aria-haspopup` take their words
+/// or a bool, `aria-required` a bool, `aria-describedby` ids.
+#[test]
+fn form_states_and_haspopup_lower_by_their_aria_names() {
+    let mut r = boot(
+        "component App\n  state bad = false\n  action check\n    bad = true\n  view\n    column\n      input aria-invalid=bad aria-required=true aria-describedby=\"email-error\" testId=\"email\"\n      text \"Enter an email\" id=\"email-error\"\n      button press=check aria-haspopup=\"menu\" aria-expanded=false testId=\"menu\"\n        text \"File\"\n      button press=check aria-haspopup=bad aria-invalid=\"spelling\" testId=\"other\"\n        text \"Other\"\n",
+    );
+    let required = r
+        .kernel()
+        .node(view_of(&r, "email"))
+        .unwrap()
+        .props
+        .bool(PropId::AccessibilityRequired);
+    assert_eq!(required, Some(true));
+    assert_eq!(
+        prop(&r, "email", PropId::AccessibilityDescribedBy).as_deref(),
+        Some("email-error")
+    );
+    assert_eq!(
+        prop(&r, "email", PropId::AccessibilityInvalid).as_deref(),
+        Some("false")
+    );
+    assert_eq!(
+        prop(&r, "menu", PropId::AccessibilityHasPopup).as_deref(),
+        Some("menu")
+    );
+    assert_eq!(
+        prop(&r, "other", PropId::AccessibilityHasPopup).as_deref(),
+        Some("false")
+    );
+    assert_eq!(
+        prop(&r, "other", PropId::AccessibilityInvalid).as_deref(),
+        Some("spelling")
+    );
+    let menu = view_of(&r, "menu");
+    r.dispatch(menu, Event::Press).unwrap();
+    assert_eq!(
+        prop(&r, "email", PropId::AccessibilityInvalid).as_deref(),
+        Some("true")
+    );
+    for (attr, value, says) in [
+        (
+            "aria-invalid",
+            "\"wrong\"",
+            "`aria-invalid` takes a bool or \"true\", \"false\", \"grammar\" or \"spelling\"",
+        ),
+        (
+            "aria-haspopup",
+            "\"popup\"",
+            "`aria-haspopup` takes a bool or \"true\", \"false\", \"menu\", \"listbox\", \"tree\", \"grid\" or \"dialog\"",
+        ),
+        ("aria-required", "\"yes\"", "`aria-required` takes a bool"),
+    ] {
+        let e = contract::compile(&format!(
+            "component App\n  view\n    input {attr}={value}\n"
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains(says), "{attr}={value}: {e}");
+    }
+}
+
+/// HTML's `tabindex` (LLP 1088 D7.3) and ARIA's `aria-labelledby` (ledger2
+/// Rough 3) on any element and on a module tag's box: `tabindex` is the
+/// kernel's `tabIndex`, absent when unwritten, and may follow state; its
+/// DOM-property spelling is refused naming the attribute.
+#[test]
+fn tabindex_and_labelledby_bind_by_their_html_names() {
+    let mut r = boot(
+        "component App\n  state open = false\n  action reveal\n    open = true\n  view\n    column\n      text \"Currency\" id=\"currency-heading\"\n      row role=\"radiogroup\" aria-labelledby=\"currency-heading\" testId=\"group\"\n        box tabindex=0 testId=\"stop\" width=10 height=10\n        button press=reveal tabindex=(open ? 0 : -1) testId=\"delete\"\n          text \"Delete\"\n        box testId=\"plain\" width=10 height=10\n      map-view tabindex=-1 testId=\"module\" width=10 height=10\n",
+    );
+    let index = |r: &Runner<NoData>, id: &str| {
+        r.kernel()
+            .node(view_of(r, id))
+            .unwrap()
+            .props
+            .get(PropId::TabIndex)
+            .and_then(|v| v.as_int())
+    };
+    assert_eq!(index(&r, "stop"), Some(0));
+    assert_eq!(index(&r, "delete"), Some(-1));
+    assert_eq!(index(&r, "plain"), None, "absent is not 0");
+    assert_eq!(index(&r, "module"), Some(-1), "a module tag's box takes it");
+    assert_eq!(
+        prop(&r, "group", PropId::AccessibilityLabelledBy).as_deref(),
+        Some("currency-heading")
+    );
+    let delete = view_of(&r, "delete");
+    r.dispatch(delete, Event::Press).unwrap();
+    assert_eq!(
+        index(&r, "delete"),
+        Some(0),
+        "a bound tabindex follows state"
+    );
+    let e = contract::compile("component App\n  view\n    box tabIndex=0 width=1 height=1\n")
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("`tabIndex` is spelled `tabindex` here"), "{e}");
+}

@@ -50,6 +50,19 @@ impl<D: DataSource> Presenter<D> {
         self.after_commit()
     }
 
+    /// The local zone's offset now, told when it is not the runner's: the
+    /// display loop asks before each advance, so a DST change or a new zone
+    /// reaches the timer that fires after it (habits F6). An agent drive's
+    /// offset is the drive's (`agent.rs` `retell_offset`), never this.
+    pub fn follow_local_offset(&mut self) -> Option<String> {
+        let time = self.host.runner().wall_time();
+        let offset = crate::zone::local_offset_minutes();
+        if time.epoch_at_zero <= 0.0 || offset == time.utc_offset {
+            return None;
+        }
+        self.set_time(time.epoch_at_zero, offset)
+    }
+
     /// `prefers-reduced-motion`, `-reduced-transparency`, `-contrast` and
     /// `-color-scheme`, as `exactViewport()` answers them: re-answered in
     /// one commit.

@@ -309,3 +309,125 @@ component App
     assert_eq!(text(&r, "len"), "3");
     assert_eq!(text(&r, "c"), "0", "the answer does not run it again");
 }
+
+/// A slot component that shows its fill under a `when` of its own, twice,
+/// and once per row of an `each` over `items()` (two rows).
+const SLOTS: &str = r#"
+component Hide
+  slot
+  state open = true
+  action flip
+    open = not open
+  view
+    column
+      text "flip" press=flip testId="flip"
+      when open
+        children
+
+component Twice
+  slot
+  view
+    column
+      children
+      children
+
+component Rows
+  props
+    items: list<P>
+  slot
+  view
+    column
+      each p in items key=toString(p.n)
+        children
+"#;
+
+#[test]
+fn a_fills_child_is_owned_by_the_arm_around_children_not_the_use_site() {
+    let src = format!(
+        r#"
+shape P
+  n: number
+component App
+  view
+    column
+      Hide()
+        Counter(start=0, id="c")
+{COUNTER}{SLOTS}"#
+    );
+    let mut r = boot(&src);
+    press(&mut r, "c").unwrap();
+    press(&mut r, "c").unwrap();
+    assert_eq!(text(&r, "c"), "2");
+    // The slot component's own `when` hides `children`: the fill's child
+    // goes with it, though its use site never stopped rendering.
+    press(&mut r, "flip").unwrap();
+    assert!(texts(&r, "c").is_empty());
+    press(&mut r, "flip").unwrap();
+    assert_eq!(text(&r, "c"), "0", "shown again: a new instance");
+}
+
+#[test]
+fn each_children_is_its_own_instance_twice_or_once_per_row() {
+    let src = format!(
+        r#"
+shape P
+  n: number
+component App
+  resource items = items() as shape list<P>
+  view
+    column
+      Twice()
+        Counter(start=0, id="twice")
+      Rows(items=items)
+        Counter(start=10, id="row")
+{COUNTER}{SLOTS}"#
+    );
+    let mut r = boot(&src);
+    assert_eq!(texts(&r, "twice"), ["0", "0"]);
+    assert_eq!(texts(&r, "row"), ["10", "10"]);
+    // A press reaches the first of each: the other copy keeps its own count.
+    press(&mut r, "twice").unwrap();
+    press(&mut r, "twice").unwrap();
+    assert_eq!(texts(&r, "twice"), ["2", "0"]);
+    press(&mut r, "row").unwrap();
+    assert_eq!(texts(&r, "row"), ["11", "10"]);
+}
+
+#[test]
+fn a_non_finite_prop_refuses_no_action_of_the_child() {
+    let src = r#"
+component App
+  state d = 1
+  action zero
+    d = 0
+  view
+    column
+      Meter(ratio=1 / d, odd=d / d)
+
+component Meter
+  props
+    ratio: number
+    odd: number
+  state taps = 0
+  state big = false
+  state same = true
+  action tap
+    taps = taps + 1
+  action check
+    big = ratio > 1
+    same = odd == odd
+  view
+    column
+      text "tap" press=tap testId="tap"
+      text "check" press=check testId="check"
+      text `${taps} ${big} ${same}` testId="meter"
+"#;
+    let mut r = boot(src);
+    r.act("zero", vec![]).unwrap();
+    // `ratio` is now Infinity and `odd` NaN: the captured props are the
+    // compiler's arguments, not the host's, so neither is refused.
+    press(&mut r, "tap").unwrap();
+    assert_eq!(text(&r, "meter"), "1 false true");
+    press(&mut r, "check").unwrap();
+    assert_eq!(text(&r, "meter"), "1 true false");
+}
