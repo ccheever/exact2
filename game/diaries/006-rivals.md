@@ -1311,3 +1311,37 @@ Periodic merge `eb6f02c98` includes main through `96f781472` (Windows deploy
 path admission and two draft proposals). The added path suite passes its
 five applicable tests, with three platform skips, in 2.43 s. It changes no
 game or host runtime code. Logs: `/tmp/exact2-bandage-main-paths.log`.
+
+Feature commit `80af3cb1a` passes all five root checks in 50.713 s: build
+0.248, tests 48.053 (2,374 passed in 81 binaries, nine ignored), Clippy
+0.245, formatting 2.069, caps 0.083 and boot 0.014 s. No game proof ran
+concurrently with the checks. Logs: `/tmp/exact2-bandage-root-*.log`.
+
+Web/macOS candidates finish with zero failures in 96.033/62.755 s, including
+builds. Their source inputs, all pins, twelve world observations and seventeen
+saves agree exactly. Both process audits pass. Both mid-bandage captures were
+inspected: the countdown and progress remain readable, and the moved control
+clears the health card. Artifacts: `artifacts/bandage-{web,macos}/`.
+
+Jev's fixed web/macOS recovery pair both choose the bandage on decision one,
+recover from 76 to 100 HP, spend exactly one charge, then finish the drill.
+Web scores 12,200 with 24 targets in 39 decisions (ten waits, three reloads);
+macOS scores 13,300 with 26 targets in 42 decisions (twelve waits, two reloads).
+Both finish at 98% displayed accuracy. Median/p95 decision latency is
+379/707 ms on web and 313/469 ms on macOS; input/output tokens are
+35,498/1,503 and 38,225/1,616. Complete runs take 37.624/60.151 s, including
+launch/build work, with no proof failures or recorded children remaining.
+Both final captures were inspected. Artifacts: `artifacts/jev-bandage-{web,macos}/`.
+This closes the two-run feedback batch without retuning its policy. It proves
+the visible recovery control works with the existing pointer motor in a safe
+range; it does not establish healing tactics under fire, human aim or a success
+rate. No engine API or additional playtest service was needed.
+
+Strict acceptance in `artifacts/prove/run-1zaDHg/` passes all seven runs:
+Linux Off/Save/FreshGame in 6.085/9.939/9.882 s, web in
+97.948/100.399/121.066 s, and release Linux in 60.979 s including its build.
+Every run agrees with the independent macOS candidate on inputs, pins,
+twelve world observations and seventeen saves; all process audits pass.
+Only that collector updates `pins.json`, adding the bandage continuation.
+The subsequent ordinary Linux proof checks the accepted pins and passes in
+6.250 s, with no children remaining (`artifacts/bandage-accepted-linux/`).

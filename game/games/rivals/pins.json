@@ -1,21 +1,22 @@
 {
   "ticks": {
-    "0": "0xbcff254ac8104249",
-    "1080": "0xb0a25be427e9e19c"
+    "0": "0x63d52c78e68a74c3",
+    "1080": "0x24e1caa4939ee624"
   },
   "saves": {
-    "continuation": "82d8d11fd1ba7043b6a7944ae1ebf7c19afa202c221aa121b53f645800a38ea0",
-    "mayhem": "c5b5ea36ac7282110cab4d0c604e93a754e879dbe22b5f20b0293a4c5ed0ab32",
-    "mayhem-round": "491bf1588bb2cedd5222278e82ab367ec0a294d655c4aa963d1be386c88a88a0",
-    "drill": "38a57adf73f984a3b773bed5603ed2b16a22f858e7e7df14d20d99cfc3a4bb04"
+    "continuation": "ea06815539d333d9b0a3c7cc72b8c12afe8a606f17c620967436898ede05f9ce",
+    "mayhem": "43f5ef2a20033d167212e42ab29bd37482ac991653cc8d9e40f3aef8c444fff6",
+    "mayhem-round": "0dd1583955153f6ba24f3f52fbaa7f1e4b3fdb7cbc550a61189b53eec3740c68",
+    "drill": "3fd47755915c39bc2cccc0d300dfcc3f73e425ba4d50fa728ab03a3600665630",
+    "bandage": "4b31da3d12e7b62b07d00adb0ad75c4e6b80997cfc3cfb9dc939a68b8d193f98"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "18e872fd79ee40bd1db446f0c0da4ab3407021eb91fe1399e77f7e363d49e8bf",
+  "inputs": "3212035ee6d00bf1db2b8d61a0fb774fbd17253d0fcffd766cb6193087504065",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "745a6665297e7abe5379011022ae459e1286e650",
-  "reason": "Readable anchored nameplates in crowded fights"
+  "at": "80af3cb1a92c670adf554429463b2f9694b45c82",
+  "reason": "Add interruptible bandages, shared bot recovery and held-action save continuation"
 }
