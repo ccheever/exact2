@@ -94,14 +94,24 @@ impl<D: DataSource> Runner<D> {
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            update.reuse = self.reuse;
             tree.update_collection(&mut update, feedback, fill)
-                .map(|changed| (changed, update.ops, update.surfaces, update.notes))
+                .map(|changed| {
+                    (
+                        changed,
+                        update.ops,
+                        update.surfaces,
+                        update.notes,
+                        update.renewed,
+                    )
+                })
         };
         self.tree = Some(tree);
         self.ids = ids;
         let ((changed, edge), ops, surfaces) = match result {
-            Ok((changed, ops, surfaces, notes)) => {
+            Ok((changed, ops, surfaces, notes, renewed)) => {
                 self.notes = notes;
+                self.renewed = renewed;
                 (changed, ops, surfaces)
             }
             Err(error) => {

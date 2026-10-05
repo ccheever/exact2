@@ -46,7 +46,7 @@ impl PaintMotion {
         receipt: &CommitReceipt,
         engine: &mut Engine,
     ) -> Vec<(u64, Property)> {
-        for key in &receipt.destroyed {
+        for key in receipt.destroyed.iter().chain(&receipt.renewed) {
             let node = motion_node(*key);
             self.views.remove(&node);
             self.current.remove(&node);

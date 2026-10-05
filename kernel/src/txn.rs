@@ -73,6 +73,13 @@ pub struct CommitReceipt {
     /// 1057.003 D4): a node inserted, removed or moved, or a row set on
     /// another node, can change what a name finds.
     pub timelines: Vec<NodeKey>,
+    /// Live nodes a producer reused for a new mount (LLP 1078: a list row
+    /// rebound to another item), whatever else the batch did to them: to
+    /// motion and to a host's per-node state each is a node destroyed and
+    /// created by this commit (no transition from what it showed, its
+    /// animations from their start). The kernel never fills it; the producer
+    /// that rebinds does.
+    pub renewed: Vec<NodeKey>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

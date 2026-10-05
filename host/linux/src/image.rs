@@ -249,6 +249,29 @@ impl Images {
         reports.extend(self.poll());
         reports
     }
+    /// Views a commit renewed (LLP 1078): one that shows a picture of a
+    /// source its node no longer names starts as a new image does, with no
+    /// picture and no natural size; one whose source is the same keeps its
+    /// picture, as a new one would find it decoded. A symbol is resolved
+    /// from its source at every sync.
+    pub fn renew(&mut self, kernel: &Kernel, ids: &[ViewId]) -> Vec<Report> {
+        let mut reports = Vec::new();
+        for id in ids {
+            let Some(view) = self.views.get(id) else {
+                continue;
+            };
+            let source = kernel
+                .node(*id)
+                .and_then(|n| n.props.str(PropId::ImageSource).map(str::to_owned))
+                .unwrap_or_default();
+            if view.symbol_size.is_some() || view.source == source {
+                continue;
+            }
+            self.remove(*id);
+            reports.push((*id, None));
+        }
+        reports
+    }
     fn remove(&mut self, id: ViewId) {
         if let Some(view) = self.views.remove(&id) {
             if let Some((request, _)) = view.request {

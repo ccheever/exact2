@@ -799,7 +799,8 @@ impl<D: DataSource> Presenter<D> {
             self.commands.extend(commands);
             self.executor.notify();
         }
-        let mut error = self.sync_images();
+        let renewed = self.renew();
+        let mut error = renewed.or(self.sync_images());
         if !self.booting {
             error = error.or_else(|| {
                 self.assets
@@ -895,6 +896,24 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         size
+    }
+
+    /// Views commits renewed (LLP 1078) start as new ones: a scroller at its
+    /// start, a picture only of the source its node names.
+    fn renew(&mut self) -> Option<String> {
+        let renewed = self.host.take_renewed();
+        if renewed.is_empty() {
+            return None;
+        }
+        for id in &renewed {
+            self.dirty |= self.scroll.remove(id).is_some();
+        }
+        let reports = self.images.renew(self.host.kernel(), &renewed);
+        if reports.is_empty() {
+            return None;
+        }
+        self.dirty = true;
+        self.host.set_intrinsics(reports)
     }
 
     fn clamp_scroll(&mut self) -> bool {

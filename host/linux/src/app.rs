@@ -442,11 +442,27 @@ pub fn run_with_content_region<D: DataSource + Default>(
     run_registered::<D>(baked, compat, Some(region))
 }
 
+static ROW_REUSE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the runners this process boots rebind list rows to new items
+/// (LLP 1078): `EXACT_ROW_REUSE` (`1` on, `0` off), else `default`. This
+/// host resets what it keeps by view for every renewed one.
+pub(crate) fn row_reuse_from_env(default: bool) {
+    let on = std::env::var("EXACT_ROW_REUSE").map_or(default, |v| v != "0");
+    ROW_REUSE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// What [`row_reuse_from_env`] decided.
+pub(crate) fn row_reuse() -> bool {
+    ROW_REUSE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 fn run_registered<D: DataSource + Default>(
     baked: &[u8],
     compat: &str,
     region: Option<crate::content_region::ContentRegionRegistration>,
 ) -> i32 {
+    row_reuse_from_env(false);
     if print_baked_receipt(compat) {
         return 0;
     }

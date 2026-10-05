@@ -108,6 +108,15 @@ pub(super) fn row_wrapper(
     Ok(view)
 }
 
+/// A rebound row's wrapper takes its new item's key (LLP 1078).
+pub(super) fn rekey(u: &mut Update<'_>, wrapper: ViewId, key: &str) {
+    u.ops.push(Op::SetProp {
+        id: wrapper,
+        prop: PropId::ListItemKey,
+        value: PropValue::Str(key.into()),
+    });
+}
+
 /// A row whose item left the data, before the list detaches and destroys its
 /// wrapper: an empty `listItemKey` tells the kernel it leaves (and plays its
 /// root's `exit-animation`, LLP 1063), where a row that scrolled away simply

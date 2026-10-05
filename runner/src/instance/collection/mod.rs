@@ -7,6 +7,7 @@ mod nest;
 mod rekey;
 mod reorder;
 mod reorder_api;
+mod reuse;
 #[cfg(test)]
 mod tests;
 mod traversal;
@@ -176,6 +177,9 @@ pub(crate) struct Collection {
     /// Where the window starts before the host reports: 0, or a restored
     /// position.
     start_offset: f64,
+    /// What a retiring row may be rebound to another item under (LLP 1078):
+    /// `None` when no row of this list can be.
+    reuse: Option<Rc<reuse::Reuse>>,
 }
 fn index_error(e: index::IndexError) -> InstanceError {
     InstanceError::Collection(e.to_string())
@@ -351,6 +355,7 @@ impl Collection {
             return Err(invalid("collection row needs one flow root"));
         }
         let inner = traversal::validate_nesting(plan, u.sites, region)?;
+        let reuse = reuse::Reuse::new(plan, u.sites, region);
         let nested = inner.is_some();
         let port = declared[match axis {
             ListAxis::Vertical => 0,
@@ -426,6 +431,7 @@ impl Collection {
             target: None,
             into_view_status: None,
             start_offset: 0.0,
+            reuse,
         });
         this.update_data(u, frames, true)?;
         Ok(Some(this))
@@ -815,6 +821,10 @@ impl Collection {
             pending = optional.len() > limit as usize;
             admitted.extend(optional.into_iter().take(limit as usize).map(|(_, _, p)| p));
         }
+        // With reuse, the rows nothing mounts are built once the retiring
+        // rows are known, so one can be rebound to each (LLP 1078).
+        let reusing = self.reusing(u);
+        let mut needed: Vec<(usize, String)> = Vec::new();
         for position in ranges.into_iter().flatten() {
             let text = self.index.key(position).unwrap().to_owned();
             let mounted = match old.remove(&text) {
@@ -832,25 +842,11 @@ impl Collection {
                     if building.is_some() && !is_owed(position) && !admitted.contains(&position) {
                         continue;
                     }
-                    let token = self.index.invalidate_row(&text).map_err(index_error)?;
-                    let mut row = self.create_row(u, position, frames)?;
-                    self.adopt_nested(u, &mut row, &text, frames)?;
-                    let wrapper = views::row_wrapper(
-                        u,
-                        self.axis,
-                        roots_of(&row.roots),
-                        &text,
-                        self.reorderable,
-                    )?;
-                    Mounted {
-                        position,
-                        wrapper,
-                        epoch: advance(&mut self.next_epoch)?,
-                        token,
-                        preview_target: None,
-                        published: (usize::MAX, usize::MAX),
-                        row,
+                    if reusing {
+                        needed.push((position, text));
+                        continue;
                     }
+                    self.build_row(u, position, &text, frames)?
                 }
             };
             self.settle_mounted(u, mounted, &text)?;
@@ -858,6 +854,7 @@ impl Collection {
         // A build-only report retires nothing (LLP 1072 §5): rows past the
         // window stay, and the report is pending until an immediate one.
         if fill.create_only && !update {
+            self.build_needed(u, needed, Vec::new(), Vec::new(), frames)?;
             let mut kept = false;
             for (text, mut mounted) in old {
                 match self.index.position(&text) {
@@ -885,20 +882,22 @@ impl Collection {
         }
         // Rows past the window: all retire, unless a limited report bounds it.
         let mut leaving: Vec<(f64, String, Mounted)> = Vec::new();
+        let mut retiring: Vec<Mounted> = Vec::new();
+        let mut kept: Vec<(f64, String, Mounted)> = Vec::new();
         for (text, mut mounted) in old {
             match (limited, self.index.position(&text)) {
                 (Some((_, (top, end))), Some(p)) => {
                     leaving.push((self.distance(p, top, end).1, text, mounted))
                 }
-                (_, position) => {
-                    if position.is_none() {
-                        views::item_left(u, mounted.wrapper);
-                    } else {
-                        self.keep_positions(&mut mounted, &text);
-                    }
+                (_, None) => {
+                    views::item_left(u, mounted.wrapper);
                     u.ops.push(Op::DestroyView {
                         id: mounted.wrapper,
                     })
+                }
+                (_, Some(_)) => {
+                    self.keep_positions(&mut mounted, &text);
+                    retiring.push(mounted);
                 }
             }
         }
@@ -917,22 +916,29 @@ impl Collection {
             // viewport of rows (a thousand on an iPad at 48,000 pt/s, each
             // with its canvas's Metal layer and surface) until the list
             // stopped, and every report and frame walked them all.
-            let cap = cap.max(leaving.len().saturating_sub(self.mounted.len()));
+            let cap = cap.max(
+                leaving
+                    .len()
+                    .saturating_sub(self.mounted.len() + needed.len()),
+            );
             leaving.sort_by(|a, b| b.0.total_cmp(&a.0));
             let far = leaving.partition_point(|row| row.0 > FAR_VIEWPORTS * (end - top));
-            let kept = leaving.split_off(far.max(cap).min(leaving.len()));
+            kept = leaving.split_off(far.max(cap).min(leaving.len()));
             for (_, text, mut gone) in leaving {
                 self.keep_positions(&mut gone, &text);
-                u.ops.push(Op::DestroyView { id: gone.wrapper });
+                retiring.push(gone);
             }
-            pending |= !kept.is_empty();
-            for (_, text, mut mounted) in kept {
-                let position = self.index.position(&text).unwrap();
-                self.reposition(&mut mounted, position);
-                self.settle_mounted(u, mounted, &text)?;
-            }
-            self.mounted.sort_by_key(|row| row.position);
         }
+        // Rows still needed after the retiring ones may take the kept rows
+        // past the window, farthest first.
+        let kept = self.build_needed(u, needed, retiring, kept, frames)?;
+        pending |= !kept.is_empty();
+        for (_, text, mut mounted) in kept {
+            let position = self.index.position(&text).unwrap();
+            self.reposition(&mut mounted, position);
+            self.settle_mounted(u, mounted, &text)?;
+        }
+        self.mounted.sort_by_key(|row| row.position);
         self.pending = pending;
         self.emit_children(u)?;
         self.emit_preview(u)?;
@@ -989,6 +995,29 @@ impl Collection {
         } else {
             (false, (start - end).max(0.0))
         }
+    }
+    /// Build the row for `position` (key `text`) and its wrapper.
+    fn build_row(
+        &mut self,
+        u: &mut Update<'_>,
+        position: usize,
+        text: &str,
+        frames: &[Frame],
+    ) -> Result<Mounted, InstanceError> {
+        let token = self.index.invalidate_row(text).map_err(index_error)?;
+        let mut row = self.create_row(u, position, frames)?;
+        self.adopt_nested(u, &mut row, text, frames)?;
+        let wrapper =
+            views::row_wrapper(u, self.axis, roots_of(&row.roots), text, self.reorderable)?;
+        Ok(Mounted {
+            position,
+            wrapper,
+            epoch: advance(&mut self.next_epoch)?,
+            token,
+            preview_target: None,
+            published: (usize::MAX, usize::MAX),
+            row,
+        })
     }
     fn create_row(
         &self,

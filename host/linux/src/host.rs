@@ -115,6 +115,8 @@ pub struct Host<D: DataSource> {
     presses: BTreeMap<NodeKey, press::Feedback>,
     /// The 2D canvases' bitmaps (LLP 1056 D7).
     canvas2d: crate::canvas2d::Canvases,
+    /// Views commits renewed (LLP 1078) the presenter has yet to reset.
+    renewed: Vec<ViewId>,
 }
 
 impl<D: DataSource> Host<D> {
@@ -243,9 +245,11 @@ impl<D: DataSource> Host<D> {
             presence: Default::default(),
             presses: Default::default(),
             canvas2d: Default::default(),
+            renewed: Vec::new(),
         };
         host.runner
             .set_canvas_limits(exact_runner::Limits::native(physical_memory(), false));
+        host.runner.set_row_reuse(crate::app::row_reuse());
         // The engine hears the whole tree once: values, no transitions; an
         // `animation` starts now, as a browser starts one on a new element.
         host.lowering_from_env();
@@ -978,6 +982,11 @@ impl<D: DataSource> Host<D> {
         self.set_intrinsics([(view, size)])
     }
 
+    /// Views commits renewed since the last call (LLP 1078).
+    pub(crate) fn take_renewed(&mut self) -> Vec<ViewId> {
+        std::mem::take(&mut self.renewed)
+    }
+
     /// Several nodes' natural sizes (pictures a sync decoded), then one
     /// layout, when any of them changed: not a layout per picture.
     pub fn set_intrinsics(
@@ -1157,6 +1166,15 @@ impl<D: DataSource> Host<D> {
             for key in &r.created {
                 if let Some(node) = self.runner.kernel().node_by_key(*key) {
                     self.keys.insert(*key, node.id);
+                }
+            }
+            // A renewed node is a new mount (LLP 1078): nothing presented
+            // or pressed carries over; the presenter resets the rest.
+            for key in &r.renewed {
+                self.presses.remove(key);
+                if let Some(id) = self.keys.get(key).copied() {
+                    self.presented.remove(&id);
+                    self.renewed.push(id);
                 }
             }
         }
