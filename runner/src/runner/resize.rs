@@ -112,13 +112,16 @@ impl<D: DataSource> Runner<D> {
                     .laid_out_frame(key)
                     .and_then(|_| self.kernel.node(view))
                     .map_or(ResizeRect::default(), |node| {
-                        let (x, y, width, height) = exact_kernel::svg::scene::content_box(&node);
-                        ResizeRect {
-                            x: x.into(),
-                            y: y.into(),
-                            width: width.into(),
-                            height: height.into(),
-                        }
+                        // A percentage padding is of the containing block's
+                        // width, its parent's content box.
+                        let block = (!arena.is_root(key.index))
+                            .then(|| arena.parent(key.index))
+                            .flatten()
+                            .and_then(|up| self.kernel.node(arena.local_id(up)))
+                            .map_or(node.frame.width, |up| {
+                                exact_kernel::svg::scene::content_box(&up).2
+                            });
+                        content_rect(&node, block)
                     });
                 let last = self
                     .resized
@@ -179,5 +182,39 @@ mod tests {
         for refused in ["", "1,2,3", "1,2,3,4,5", "0,0,-1,4", "0,0,NaN,1", "a,0,1,1"] {
             assert_eq!(ResizeRect::parse(refused), None, "{refused}");
         }
+    }
+}
+
+/// ResizeObserver's `contentRect` of `node` (b6 review B2): `x` and `y` the
+/// used padding's left and top — the border is outside the padding box the
+/// rect is placed in — and the size the border box less padding and border.
+fn content_rect(node: &exact_kernel::NodeRef<'_>, block: f32) -> ResizeRect {
+    use exact_kernel::{BorderStyle, Dimension};
+    let s = node.style;
+    let pad = |d: Dimension| match d {
+        Dimension::Points(p) => p,
+        Dimension::Percent(p) => block * p / 100.0,
+        _ => 0.0,
+    };
+    let border = |w: f32, style: BorderStyle| match style {
+        BorderStyle::None | BorderStyle::Hidden => 0.0,
+        _ => w,
+    };
+    let (left, top) = (pad(s.padding_left), pad(s.padding_top));
+    let width = node.frame.width
+        - left
+        - pad(s.padding_right)
+        - border(s.border_width_left, s.border_style_left)
+        - border(s.border_width_right, s.border_style_right);
+    let height = node.frame.height
+        - top
+        - pad(s.padding_bottom)
+        - border(s.border_width_top, s.border_style_top)
+        - border(s.border_width_bottom, s.border_style_bottom);
+    ResizeRect {
+        x: left.into(),
+        y: top.into(),
+        width: width.max(0.0).into(),
+        height: height.max(0.0).into(),
     }
 }

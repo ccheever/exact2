@@ -377,3 +377,50 @@ fn element_from_point_names_the_front_most_box_by_its_nearest_id() {
     // Off every box.
     assert_eq!(at(&mut r, 10.0, 5000.0), "none");
 }
+
+/// b6 review B2: `contentRect`'s `x` and `y` are the padding's left and
+/// top, as ResizeObserver reports them; the border is outside the padding
+/// box the rect is placed in. A percentage padding is of the containing
+/// block's width.
+#[test]
+fn a_resize_rect_is_placed_by_padding_not_border() {
+    let plan = contract::compile(
+        r#"component App
+  state seen = ""
+  action fit(w: number, h: number, r: DOMRectReadOnly)
+    seen = `${w}`
+  view
+    column width=200
+      column id="framed" width=100 height=40 padding=8 border-width=4 border-style="solid" resize=fit
+      column id="ratio" width=100 height=40 padding-left="10%" resize=fit
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    let due = r.resize_due(0);
+    let rect = |id: &str| {
+        let key = r.kernel().find_by_id(id)[0];
+        let view = r.kernel().arena().local_id(key.index);
+        due.iter().find(|d| d.0 == view).expect(id).1
+    };
+    // `width=100` is the content box's (`box-sizing: content-box`).
+    let framed = rect("framed");
+    assert_eq!(
+        (framed.x, framed.y, framed.width, framed.height),
+        (8.0, 8.0, 100.0, 40.0)
+    );
+    let ratio = rect("ratio");
+    assert_eq!(
+        (ratio.x, ratio.width),
+        (20.0, 100.0),
+        "10% of the column's 200"
+    );
+}
