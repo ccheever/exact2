@@ -15,6 +15,11 @@ component VideoPlayer
   // so it is sent 1 ms later.
   state seekTo = 0
   state fullscreen = false
+  // Where the bar shows: a pending Back or Forward target before its seek.
+  derive shown = pending ? target : position
+  derive filled = duration > 0 ? min(100, shown / duration * 100) : 0
+  // Whole seconds left, so elapsed and remaining add up to the length.
+  derive remaining = max(0, floor(duration) - floor(shown))
   action edit(value)
     note = value
   action toggle
@@ -76,6 +81,12 @@ component VideoPlayer
           button testId="fullscreen" press=enterFullscreen aria-label="Full screen" padding=12 background-color="#273244" border-radius=12
             text "Full screen" font-size=14
       video "assets/motion.mp4" id="video" testId="video" aria-label="An animated color study" controls=true autoplay=true muted=true loop=true playsinline=true preload="auto" paused=paused currentTime=seekTo play=playing pause=stopped error=failed timeupdate=timed durationchange=measured fullscreenchange=fullscreenChanged width="100%" flex=1 min-height=0 object-fit="contain" overflow="hidden" background-color="#000000" border-radius=16
+      // Progress: the elapsed time, the share played, the time left.
+      row gap=12 align-items="center" flex-shrink=0 testId="progress"
+        TimeLabel(seconds=shown, sign="")
+        view flex=1 height=6 border-radius=3 background-color="#273244" overflow="hidden" aria-label="Playback position"
+          view height="100%" width=`${filled}%` background-color="#bed6ff" testId="progress-fill"
+        TimeLabel(seconds=remaining, sign="-")
       when failure != ""
         text failure testId="video-error" color="#fca5a5" font-size=12 flex-shrink=0
       column gap=10 flex-shrink=0
@@ -85,3 +96,13 @@ component VideoPlayer
           button id="done" testId="done" press=done padding=14 background-color="#bed6ff" border-radius=12
             text "Done" color="#102540" font-weight=600
         text "The picture makes room while you type." font-size=12 color="#94a3b8"
+
+// Seconds as m:ss, after `sign` ("-" for the time left).
+component TimeLabel
+  props
+    seconds: number
+    sign: string
+  derive minutes = floor(seconds / 60)
+  derive rest = floor(seconds) - minutes * 60
+  view
+    text `${sign}${minutes}:${rest < 10 ? "0" : ""}${rest}` font-size=13 color="#94a3b8"
