@@ -1,4 +1,4 @@
-//! Reflect the shader pack under `shaders/` (game.presentation.shaders): naga validates
+//! Reflect the shader pack under `shaders/` (game.render.shaders): naga validates
 //! each one at build, and `SHADERS` names their interfaces for the module.
 fn main() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders");

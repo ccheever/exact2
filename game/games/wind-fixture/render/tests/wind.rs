@@ -3,7 +3,7 @@ mod gpu_test;
 use exact_game_render::exact_gpu::{self, fixture, Frame, Surface};
 use exact_game_render::{Hooks, ModelPresentation, WorldSurface};
 use wind_fixture_logic::WindGame;
-use wind_fixture_presentation::{shader_dir, shaders, Wind};
+use wind_fixture_render::{shader_dir, shaders, Wind};
 
 fn frame(now_ms: f64) -> Frame {
     Frame {

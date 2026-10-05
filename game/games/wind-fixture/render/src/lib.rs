@@ -1,11 +1,11 @@
-//! The wind fixture's render hooks (app.json `game.presentation`): reeds sway in a
+//! The wind fixture's render hooks (app.json `game.render`): reeds sway in a
 //! custom vertex material and a dusk sky replaces the engine's. Presentation
 //! only: the hooks read the world and never step or change it.
 use exact_game_render::hooks::{CustomMaterial, Pipelines, MATERIAL_SHADOWS_WGSL, MATERIAL_WGSL};
 use exact_game_render::{FrameView, HookGpu, Hooks, Needs, RenderError, RenderWorld};
 use exact_gpu::wgpu;
 
-/// The shader pack under `shaders/` (game.presentation.shaders), reflected at build.
+/// The shader pack under `shaders/` (game.render.shaders), reflected at build.
 /// Its text travels as assets and reloads live; `sky::module()` reads it.
 pub mod shaders {
     include!(concat!(env!("OUT_DIR"), "/shaders.rs"));

@@ -277,7 +277,7 @@ export function receiptChanges(receipt, app) {
 export function gameNonInput(path) {
   path = path.replaceAll('\\', '/');
   return /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.md)$/.test(path)
-    || (/\.m?js$/.test(path) && !/^(logic|data|gpu|presentation|art|assets|deck)\//.test(path));
+    || (/\.m?js$/.test(path) && !/^(logic|data|gpu|render|art|assets|deck)\//.test(path));
 }
 /** What a web build of `app` reads, modified after `since` (every file by default):
  * the app's own files and the shared host/runtime roots, as shown paths. */

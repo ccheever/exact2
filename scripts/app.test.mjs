@@ -339,11 +339,11 @@ test('build graph refuses a requested GPU surface that Cargo cannot find', () =>
 
 test('deploy excludes generated shells and regenerates them from captured game source', () => fixture(({app, root, write, run, game, dir, update}) => {
   const manifest = JSON.parse(readFileSync(resolve(dir,'app.json'),'utf8'));
-  manifest.game.presentation = {crate:'foo-presentation',type:'Hooks'};
+  manifest.game.render = {crate:'foo-render',hooks:'Hooks'};
   write('game/games/foo/app.json', JSON.stringify(manifest));
-  write('game/games/foo/presentation/Cargo.toml','[package]\nname="foo-presentation"\nversion="0.1.0"\nedition="2021"\nworkspace="../.shells"\n');
-  write('game/games/foo/presentation/src/lib.rs','pub struct Hooks;');
-  write('game/games/foo/presentation/shaders/fog.wgsl','// captured shader');
+  write('game/games/foo/render/Cargo.toml','[package]\nname="foo-render"\nversion="0.1.0"\nedition="2021"\nworkspace="../.shells"\n');
+  write('game/games/foo/render/src/lib.rs','pub struct Hooks;');
+  write('game/games/foo/render/shaders/fog.wgsl','// captured shader');
   update();
   const resolved = app();
   resolved.cargoPackage('gpu');
@@ -366,10 +366,10 @@ test('deploy excludes generated shells and regenerates them from captured game s
     assert.ok(gpu,'materialized source must regenerate the GPU shell');
     assert.ok(gpu.manifest_path.startsWith(staged.sourceRoot));
     assert.ok(readFileSync(resolve(dirname(gpu.manifest_path),'src/lib.rs'),'utf8').includes('SmallGame'));
-    assert.ok(readFileSync(resolve(dirname(gpu.manifest_path),'src/lib.rs'),'utf8').includes('game_presentation::Hooks'));
-    const presentation = metadata.packages.find(p=>p.name==='foo-presentation');
-    assert.ok(presentation.manifest_path.startsWith(staged.sourceRoot));
-    assert.equal(readFileSync(resolve(dirname(presentation.manifest_path),'shaders/fog.wgsl'),'utf8'),'// captured shader');
+    assert.ok(readFileSync(resolve(dirname(gpu.manifest_path),'src/lib.rs'),'utf8').includes('game_render::Hooks'));
+    const hooks = metadata.packages.find(p=>p.name==='foo-render');
+    assert.ok(hooks.manifest_path.startsWith(staged.sourceRoot));
+    assert.equal(readFileSync(resolve(dirname(hooks.manifest_path),'shaders/fog.wgsl'),'utf8'),'// captured shader');
   } finally { disposeSnapshot(snapshot); }
 }), 60000); // Three lockfiles, a commit, a capture and Cargo metadata; Windows filesystem cost is higher.
 
@@ -571,34 +571,34 @@ test('R12 authored logic belongs only to its app workspace and locked edits refu
   assert.equal(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),captured);
 }));
 
-test('presentation isolation checks renamed transitive normal, build and inactive-target Cargo edges', () => fixture(({app, dir, root, run, write, update, pkg}) => {
+test('render crate isolation checks renamed transitive normal, build and inactive-target Cargo edges', () => fixture(({app, dir, root, run, write, update, pkg}) => {
   const previousDeclaration = app();
   const manifest = JSON.parse(readFileSync(resolve(dir,'app.json'),'utf8'));
-  manifest.game.presentation = {crate:'foo-presentation',type:'Hooks'};
+  manifest.game.render = {crate:'foo-render',hooks:'Hooks'};
   write('game/games/foo/app.json', JSON.stringify(manifest));
-  pkg('game/games/foo/presentation','foo-presentation','pub struct Hooks;');
-  const presentation = 'game/games/foo/presentation/Cargo.toml';
-  write(presentation, readFileSync(resolve(root,presentation),'utf8') + '\nworkspace="../.shells"\n');
+  pkg('game/games/foo/render','foo-render','pub struct Hooks;');
+  const renderManifest = 'game/games/foo/render/Cargo.toml';
+  write(renderManifest, readFileSync(resolve(root,renderManifest),'utf8') + '\nworkspace="../.shells"\n');
   update();
   const graph = app().prepare();
-  const hooks = graph.packages.find(p=>p.name==='foo-presentation');
+  const hooks = graph.packages.find(p=>p.name==='foo-render');
   assert.ok(graph.workspace_members.includes(hooks.id));
   const original = readFileSync(resolve(dir,'logic/Cargo.toml'),'utf8');
   pkg('game/deps/bridge','bridge');
-  write('game/deps/bridge/Cargo.toml', readFileSync(resolve(root,'game/deps/bridge/Cargo.toml'),'utf8') + '\n[dependencies]\nrenamed-hook={package="foo-presentation",path="../../games/foo/presentation"}\n');
+  write('game/deps/bridge/Cargo.toml', readFileSync(resolve(root,'game/deps/bridge/Cargo.toml'),'utf8') + '\n[dependencies]\nrenamed-hook={package="foo-render",path="../../games/foo/render"}\n');
   for (const table of ['dependencies','build-dependencies', 'target.\'cfg(target_os = "haiku")\'.dependencies']) {
     write('game/games/foo/logic/Cargo.toml', `${original}\n[${table}]\nbridge-alias={package="bridge",path="../../../deps/bridge"}\n`);
-    assert.throws(update, /GPU-only: foo-logic -> bridge -> foo-presentation/);
+    assert.throws(update, /GPU-only: foo-logic -> bridge -> foo-render/);
   }
   // Capture the otherwise valid lock as an author could, then ask for a Windows
   // bake. Filtering out Haiku before checking would incorrectly admit this graph.
   write('game/games/foo/Cargo.lock', readFileSync(resolve(dir,'.shells/Cargo.lock'),'utf8'));
-  assert.throws(() => app().prepare(true,{target:'x86_64-pc-windows-msvc'}), /GPU-only: foo-logic -> bridge -> foo-presentation/);
-  assert.throws(() => previousDeclaration.prepare(true,{target:'x86_64-pc-windows-msvc'}), /GPU-only: foo-logic -> bridge -> foo-presentation/);
+  assert.throws(() => app().prepare(true,{target:'x86_64-pc-windows-msvc'}), /GPU-only: foo-logic -> bridge -> foo-render/);
+  assert.throws(() => previousDeclaration.prepare(true,{target:'x86_64-pc-windows-msvc'}), /GPU-only: foo-logic -> bridge -> foo-render/);
   write('game/games/foo/logic/Cargo.toml', original);
   update();
   // Presentation is permitted to read logic resource types in the opposite direction.
-  write(presentation, readFileSync(resolve(root,presentation),'utf8') + '\n[dependencies]\ngame-logic={package="foo-logic",path="../logic"}\n');
+  write(renderManifest, readFileSync(resolve(root,renderManifest),'utf8') + '\n[dependencies]\ngame-logic={package="foo-logic",path="../logic"}\n');
   update();
   assert.ok(app().prepare().packages.some(p=>p.id===hooks.id));
 }), 60000);
