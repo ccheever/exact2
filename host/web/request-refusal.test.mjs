@@ -317,6 +317,7 @@ test('the production file command refuses a source outside the admitted fs.read 
     .replace("from './rt.js'", "from './rt-stub.js'").replace("from './navigation.js'", "from './navigation-stub.js'"));
   writeFileSync(resolve(dir, 'rt-stub.js'), `export const journal=[],clock={now:0,agent:true},inflight={n:0},Hosts={},OnHooks={},Views=new Map(),data={appId:'test.files'};export const nextTicket=()=>1,viewId=()=>1;\n`);
   writeFileSync(resolve(dir, 'navigation-stub.js'), `export const reportPlace=()=> ['en','UTC','1'].join(String.fromCharCode(0));\n`);
+  cpSync(resolve(ROOT, 'host/web-js/pointer.js'), resolve(dir, 'pointer.js'));
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
   for (const name of ['grant-admission.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
   const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'document');
@@ -736,11 +737,14 @@ test('module-glue prepare accepts normalized formatting and exact-only grants', 
 
 test('ts-data always supplies storage, refusing ungranted operations without loading adapters', async () => {
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
-  for (const spec of ['', 'net.fetch https://api.example']) {
+  for (const spec of ['', 'net.fetch https://api.example']) for (const query of ['', '?agent=1', '?agent=1&storage=test']) {
+    const locationDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'location');
+    Object.defineProperty(globalThis, 'location', { configurable: true, value: { href: `http://localhost/${query}` } });
     const dir = mkdtempSync(resolve(tmpdir(), 'exact-no-storage-'));
     writeFileSync(resolve(dir, 'source.js'), `export const appId='test.no-storage';
 export function answer(name, args, store, storage) {
   if (name === 'work') return storage.work(Promise.resolve('done'));
+  if (name === 'document') return storage.fs.readFile('doc:/picked/file').catch(error => error.kind + ':' + error.code);
   if (name === 'directories') return JSON.stringify(storage.fs.directories);
   return (name === 'open' ? storage.sqlite.open('app:/data/test.db')
     : storage.fs[name]('app:/data/file', new Uint8Array([1])))
@@ -749,18 +753,22 @@ export function answer(name, args, store, storage) {
     writeFileSync(resolve(dir, 'ts-data.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-data.js'), 'utf8')
       .replace('__APP_TS__', './source.js').replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', ''));
     writeFileSync(resolve(dir, 'rt.js'), 'export const clock={now:0},journal=[],Resources=[];export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();');
-    writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes=${JSON.stringify(Object.fromEntries([...methods, 'open', 'work', 'directories'].map(n => [n, [[], 's']])))};`);
+    writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes=${JSON.stringify(Object.fromEntries([...methods, 'open', 'work', 'directories', 'document'].map(n => [n, [[], 's']])))};`);
     writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
     writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(normalized(spec))});`);
-    for (const name of ['grant-admission.js', 'navigation.js', 'http-body.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+    for (const name of ['grant-admission.js', 'navigation.js', 'http-body.js', 'storage-environment.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
     cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), resolve(dir, 'ts-fetch.js'));
     // No storage adapters are installed: a grant refusal must not need them.
     try {
       const ts = await import(pathToFileURL(resolve(dir, 'ts-data.js')).href), data = { q: [] };
       ts.install(data);
-      for (const name of [...methods, 'open']) expect(await data.answer(name, [], new Map()).promise, name).toBe('Unavailable:denied');
+      for (const name of [...methods, 'open']) expect(await data.answer(name, [], new Map()).promise, name).toBe(query === '?agent=1' ? 'Unavailable:agent' : 'Unavailable:denied');
+      expect(await data.answer('document', [], new Map()).promise).toBe('Unavailable:denied');
       expect(await data.answer('work', [], new Map()).promise).toBe('done');
       expect(JSON.parse(data.answer('directories', [], new Map()).v)).toEqual({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
-    } finally { rmSync(dir, { recursive: true, force: true }); }
+    } finally {
+      if (locationDescriptor) Object.defineProperty(globalThis, 'location', locationDescriptor); else delete globalThis.location;
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 });

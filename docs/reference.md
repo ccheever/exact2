@@ -354,8 +354,10 @@ interface. Native `storage.fs` provides byte-oriented files under `app:/data`,
 statements, and batch transactions. Declare grants such as `fs.read app:/data`,
 `fs.write app:/data`, and `sqlite.open app:/data/notes.db` in `app.ts`’s exported
 `grants` string. The TypeScript module always receives `storage`, including
-when no storage grants are declared: operations reject with `Unavailable` and
-code `denied`, without loading the browser storage adapters.
+when no storage grants are declared. Once storage is available, ungranted
+operations reject with `Unavailable` and code `denied`, without loading the
+browser storage adapters. A drive without a scratch store still gets `agent`
+for app-storage operations; `doc:/` handles do not need that store.
 Generated declarations export Ibex2's `Storage` and related types; Rust sources
 can use the same implementations through `ibex2::host`.
 
