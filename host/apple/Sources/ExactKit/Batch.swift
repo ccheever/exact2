@@ -59,6 +59,7 @@ public struct BatchOp {
         case flight, land // LLP 1013.000 D4: a shared element's flight, and its end
         case rank // LLP 1083.000: twice the sibling paint rank
         case sticky // LLP 1083: a sticky box's constraint, or none
+        case fragments // LLP 1093 D7: a box's column fragments or a container's columns
     }
     let op: Kind
     var nodeID: UInt32?

@@ -461,7 +461,7 @@ extension Agent {
         }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
-        let b = box(v)
+        let b = v.tapBox(box(v))
         // The middle of the box as seen — through a surface's placement when
         // there is one (LLP 1014 D5) — as a point in the window.
         let clip = presenter.viewport.contentView

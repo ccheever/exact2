@@ -35,6 +35,28 @@ final class TextParityMacTests: XCTestCase {
 
     func testIntrinsicWidthsAreChromes() { assertChromeWidths() }
 
+    /// LLP 1093 D6: a paragraph in a multi-column flow breaks once, at the
+    /// column width, and the kernel cuts between its line boxes. Chrome 154
+    /// on this Mac, `column-count: 3; column-gap: 24px; width: 600px; font:
+    /// 14px/20px system-ui`: the first paragraph's lines, four in each of two
+    /// columns (each word's client rect). The line boxes the hook answers
+    /// are the ones the kernel cuts between: 20px apart.
+    func testAParagraphInColumnsBreaksAsChromesColumns() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let text = "One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty-one twenty-two twenty-three twenty-four twenty-five twenty-six."
+        let run = Run(text: text, size: 14, weight: 400, family: 0, italic: false, lineHeight: 20, letterSpacing: 0)
+        let p = engine.paragraph(Spec(runs: [run], align: 0, lineClamp: 0, color: [0, 0, 0, 255], strut: run), width: 184)
+        let chrome = ["One two three four five six", "seven eight nine ten eleven", "twelve thirteen fourteen", "fifteen sixteen seventeen",
+                      "eighteen nineteen twenty", "twenty-one twenty-two", "twenty-three twenty-four", "twenty-five twenty-six."]
+        let source = text as NSString
+        XCTAssertEqual(p.lines.count, chrome.count)
+        for (line, words) in zip(p.lines, chrome) {
+            let r = CTLineGetStringRange(line)
+            XCTAssertEqual(source.substring(with: NSRange(location: r.location, length: r.length)).trimmingCharacters(in: .whitespaces), words)
+        }
+        XCTAssertEqual(p.lineBottoms, (1...8).map { CGFloat($0 * 20) })
+    }
+
     /// The reader diary's book typography, against Chrome 154 on this Mac at
     /// scale 1 (`font: 16px/24px system-ui`, Range client rects): justified
     /// lines end at the box's edge but the last; a line broken at a soft

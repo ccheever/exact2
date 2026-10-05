@@ -194,7 +194,7 @@ extension NodeView {
         // does, and a `line-clamp`'s last line is made again from the range
         // it broke at (`LineGeometry.clamped`), as on iOS (873cec46e): a
         // clamped or ellipsized label no longer paints on the main thread.
-        guard kind == "text", isParagraph, flowShapes.isEmpty, !hasBoxPaint, !Capture.capturing, backgroundClip != "text",
+        guard kind == "text", isParagraph, flowShapes.isEmpty, columnRecord == nil, !hasBoxPaint, !Capture.capturing, backgroundClip != "text",
               bounds.width > 0, bounds.height > 0, bounds.height <= TextRasterizer.maxHeight, !textIsSmall,
               window != nil, readerParagraph == nil, let presenter else { return false }
         if presenter.selection.isActive, let selected = presenter.selection.range(self), selected.length > 0 { return false }
