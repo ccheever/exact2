@@ -60,6 +60,7 @@ pub struct Hud {
     pub logs: u32,
     pub scrap: u32,
     pub food: u32,
+    pub drop_hint: String,
     pub prompt: String,
     pub rescued: u32,
     pub children: u32,
@@ -90,6 +91,7 @@ impl Game for Forest {
             .button("eat", &["KeyQ"])
             .button("light", &["KeyF"])
             .button("build", &["KeyR"])
+            .button("drop", &["KeyG"])
     }
     fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
         physics::register(w);
@@ -115,15 +117,21 @@ impl Game for Forest {
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
         let mut build = input.pressed("build");
+        let mut drop = input.pressed("drop");
         for command in input.messages() {
             if command == "build windbreak" {
                 build = true;
+            } else if command == "drop supply" {
+                drop = true;
             } else {
                 player::track(w, command);
             }
         }
         if build {
             player::build_windbreak(w);
+        }
+        if drop {
+            player::drop_carried(w);
         }
         let colliders = !args.lite;
         let was_dead = w.require::<Player>("player").dead;
@@ -214,6 +222,10 @@ fn hud(w: &World, act: Action, rescued: u32, chasing: u32) {
         logs: count(Kind::Log),
         scrap: count(Kind::Scrap),
         food: count(Kind::Food),
+        drop_hint: p.pack.last().map_or_else(
+            || "G Drop supply".into(),
+            |&e| format!("G Drop {}", w.require::<Item>(e).kind.label()),
+        ),
         prompt: act.prompt(w),
         rescued,
         children,

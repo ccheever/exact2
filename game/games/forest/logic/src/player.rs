@@ -28,6 +28,13 @@ impl Kind {
             Kind::Food => "food",
         }
     }
+    fn fuel(self) -> f32 {
+        match self {
+            Kind::Log => 12.0,
+            Kind::Scrap => 20.0,
+            Kind::Food => 0.0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Component)]
@@ -167,19 +174,24 @@ fn item_look(kind: Kind) -> (Mesh, Material, f32) {
     }
 }
 
-pub fn drop_item(w: &mut World, kind: Kind, x: f32, z: f32) -> Entity {
-    let (mesh, material, lift) = item_look(kind);
+fn ground_item(kind: Kind, x: f32, z: f32) -> Transform {
+    let (_, _, lift) = item_look(kind);
     let rotation = if kind == Kind::Log {
         Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)
     } else {
         Quat::IDENTITY
     };
+    Transform {
+        position: Vec3::new(x, height(x, z) + lift, z),
+        rotation,
+        scale: Vec3::ONE,
+    }
+}
+
+pub fn drop_item(w: &mut World, kind: Kind, x: f32, z: f32) -> Entity {
+    let (mesh, material, _) = item_look(kind);
     w.spawn((
-        Transform {
-            position: Vec3::new(x, height(x, z) + lift, z),
-            rotation,
-            scale: Vec3::ONE,
-        },
+        ground_item(kind, x, z),
         mesh,
         material,
         Item {
@@ -277,6 +289,7 @@ pub fn spawn(w: &mut World, colliders: bool, children: u32) {
 pub enum Action {
     None,
     Feed,
+    FullFire,
     Take(Entity, Kind),
     Rescue(Entity),
     Chop(u32),
@@ -296,6 +309,7 @@ impl Action {
             match self {
                 Action::None => String::new(),
                 Action::Feed => "E: feed the fire".into(),
+                Action::FullFire => "No room for carried fuel · G drops one supply".into(),
                 Action::Take(_, kind) => format!("E: pick up {}", kind.label()),
                 Action::Rescue(_) => "E: take the child".into(),
                 Action::Chop(_) => "Hold E: chop".into(),
@@ -321,7 +335,14 @@ pub fn action(w: &World, at: Vec3) -> Action {
         .pack
         .iter()
         .any(|&e| w.get::<Item>(e).is_some_and(|i| i.kind != Kind::Food));
-    if carrying_fuel && Vec3::new(at.x, 0.0, at.z).length() < FIRE_REACH {
+    let at_fire = carrying_fuel && at.with_y(0.0).length() < FIRE_REACH;
+    let fuel = w.resource::<Fire>().fuel;
+    if at_fire
+        && p.pack.iter().any(|&e| {
+            let amount = w.require::<Item>(e).kind.fuel();
+            amount > 0.0 && fuel + amount <= MAX_FUEL
+        })
+    {
         return Action::Feed;
     }
     if p.pack.len() < PACK {
@@ -334,6 +355,7 @@ pub fn action(w: &World, at: Vec3) -> Action {
     }
     match w.resource::<Grove>().nearest(at.x, at.z, CHOP_REACH) {
         Some((cell, _)) => Action::Chop(cell),
+        None if at_fire => Action::FullFire,
         None => Action::None,
     }
 }
@@ -347,6 +369,28 @@ fn restack(w: &mut World) {
         t.rotation = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)
             * Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
     }
+}
+
+/// Put the last carried item back in the world, keeping its identity and look.
+pub fn drop_carried(w: &mut World) {
+    if w.require::<Player>("player").dead {
+        return;
+    }
+    let Some(e) = w.require_mut::<Player>("player").pack.pop() else {
+        return;
+    };
+    let at = w.require::<Transform>("player").position;
+    let facing = w.require::<Player>("player").facing;
+    let (x, z) = w
+        .resource::<Grove>()
+        .resolve(at.x + facing.x * 1.2, at.z + facing.z * 1.2, 0.3);
+    let kind = w.require::<Item>(e).kind;
+    w.remove::<Parent>(e);
+    w.require_mut::<Item>(e).carried = false;
+    w.teleport(e, ground_item(kind, x, z));
+    restack(w);
+    update_trail(w, true);
+    w.log(format!("Dropped {} for later", kind.label()));
 }
 
 /// A separate action from feeding: choose long-term shelter or immediate fuel.
@@ -413,22 +457,27 @@ pub fn interact(w: &mut World, act: Action, eat: bool) {
         Action::Feed => {
             let pack = std::mem::take(&mut w.require_mut::<Player>(player).pack);
             let mut keep = Vec::new();
+            let mut used = 0;
             for e in pack {
                 let kind = w.require::<Item>(e).kind;
-                if kind == Kind::Food {
+                let amount = kind.fuel();
+                if amount == 0.0 || w.resource::<Fire>().fuel + amount > MAX_FUEL {
                     keep.push(e);
                     continue;
                 }
                 {
                     let mut f = w.resource_mut::<Fire>();
-                    f.fuel = (f.fuel + if kind == Kind::Log { 12.0 } else { 20.0 }).min(MAX_FUEL);
+                    f.fuel += amount;
                     f.fed += 1;
                 }
                 w.despawn(e);
+                used += 1;
             }
             w.require_mut::<Player>(player).pack = keep;
             restack(w);
-            w.log("fed the fire");
+            if used > 0 {
+                w.log("fed the fire");
+            }
         }
         Action::Take(e, _) => {
             w.require_mut::<Item>(e).carried = true;
@@ -462,7 +511,7 @@ pub fn interact(w: &mut World, act: Action, eat: bool) {
                 w.require_mut::<Player>(player).chopped += 1;
             }
         }
-        Action::None => {}
+        Action::None | Action::FullFire => {}
     }
     if eat {
         let food = {

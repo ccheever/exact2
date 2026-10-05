@@ -1342,3 +1342,48 @@ the old and new rescued-dawn snapshots have identical world hashes and
 publications but different journal histories (1,817/1,822 lines). Saved
 continuations include that history, so hash agreement alone would have missed
 the changed save bytes; the exact cross-host comparison remains necessary.
+
+## Keep spare supplies useful (2026-10-04)
+
+The recorded Jev trials expose inventory loss beyond the failure to wait.
+At web decision 82, Fire 99% plus two carried logs and one scrap becomes
+Fire 100% with an empty pack. At native decision 89, Fire 98% consumes one
+log and two scrap for the same capped result. The code feeds every material
+and clamps after each, so a single press can destroy most of the load's value.
+These are observations from the completed pair, not a new attempt. A periodic
+fetch at this clean checkpoint finds no newer main commits to integrate.
+
+Feeding now scans the pack in order and burns only whole items whose fuel
+fits below 100, preserving everything else in order. A later smaller log
+can fit even when an earlier scrap does not. When no carried fuel fits,
+the prompt explains the capacity limit; a nearby supply or child remains
+interactable. Refused feeding changes neither inventory nor journal.
+
+G and the visible **Drop last supply** button leave the last packed item
+on the ground in front of the player, avoiding trunks. Its entity, material
+and kind survive; the existing Parent removal and teleport operations put
+it back into the world, and the selected material compass refreshes. The
+item can be collected again after saving or leaving camp. Holding G drops
+only once. Empty and dead-player drops do nothing. This gives surplus fuel
+and meals a place to wait without wasting them or filling every pack slot.
+The exploratory driver offers the new enabled button; the previous closed
+Jev pairs remain closed and are not rerun with that extra choice.
+
+All 26 simulation tests pass in 2.06 s. New cases cover exact and near-full
+fuel boundaries, mixed packs, identity/material/parent restoration, both
+collision modes, held keys, the message/button path, and refused drops.
+All-target Clippy passes after replacing a test's redundant Material clone
+with a copy; the determinism lint and formatting also pass. The native
+preflight (`artifacts/supplies-preflight/`) takes 8.098 s with no failed
+assertions, proving a normal-input fill/drop/leave/retrieve/refuel sequence
+and an identical fresh-process continuation. Its UNVERIFIED status correctly
+means collection, with strict baseline acceptance and web/macOS checks pending.
+
+All root checks pass in 44.839 s, within the 60 s budget for this warm run:
+build 0.241, tests 42.198, Clippy 0.232, formatting 2.069, caps 0.085 and
+boot 0.015 s. The 81 test binaries pass 2,436 tests with nine ignored and
+report 40.64 s execution. No game drive overlaps those checks. This is a
+passing observation, not evidence that prior process-launch variance is
+fixed. The final Forest test source also passes all 26 cases after the
+Material-copy cleanup. Logs: `/tmp/exact2-forest-supplies-checks.json` and
+`/tmp/exact2-forest-supplies-logic-tests.log`.

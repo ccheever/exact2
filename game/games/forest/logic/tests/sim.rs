@@ -733,6 +733,134 @@ fn carry(sim: &mut Sim<Forest>, kind: Kind) -> exact_game::Entity {
 }
 
 #[test]
+fn feeding_preserves_whole_supplies_that_do_not_fit() {
+    for (fuel, expected, fed, retained) in [
+        (60.0, 92.0, 2, vec![Kind::Food, Kind::Scrap]),
+        (80.0, 100.0, 1, vec![Kind::Food, Kind::Log, Kind::Scrap]),
+        (88.0, 100.0, 1, vec![Kind::Scrap, Kind::Food, Kind::Scrap]),
+        (
+            88.01,
+            88.01,
+            0,
+            vec![Kind::Scrap, Kind::Food, Kind::Log, Kind::Scrap],
+        ),
+        (
+            100.0,
+            100.0,
+            0,
+            vec![Kind::Scrap, Kind::Food, Kind::Log, Kind::Scrap],
+        ),
+    ] {
+        let mut sim = game(500, true);
+        for kind in [Kind::Scrap, Kind::Food, Kind::Log, Kind::Scrap] {
+            carry(&mut sim, kind);
+        }
+        sim.world_mut().resource_mut::<Fire>().fuel = fuel;
+        let before = sim.save().unwrap();
+        let action = player::action(
+            sim.world(),
+            sim.world().require::<Transform>("player").position,
+        );
+        assert_eq!(
+            action,
+            if fed == 0 {
+                player::Action::FullFire
+            } else {
+                player::Action::Feed
+            }
+        );
+        if fed == 0 {
+            assert!(action
+                .prompt(sim.world())
+                .starts_with("No room for carried fuel"));
+        }
+        // The action itself guards capacity, including an obsolete Feed command.
+        player::interact(sim.world_mut(), player::Action::Feed, false);
+        assert_eq!(sim.world().resource::<Fire>().fuel, expected);
+        assert_eq!(sim.world().resource::<Fire>().fed, fed);
+        let kept: Vec<_> = player(&sim)
+            .pack
+            .iter()
+            .map(|&e| sim.world().require::<Item>(e).kind)
+            .collect();
+        assert_eq!(kept, retained);
+        if fed == 0 {
+            assert_eq!(
+                sim.save().unwrap(),
+                before,
+                "refusal changes neither inventory nor history"
+            );
+        }
+    }
+}
+
+#[test]
+fn dropped_supplies_keep_their_identity_and_restore_for_pickup() {
+    for lite in [false, true] {
+        let mut sim = game(500, lite);
+        place(&mut sim, "player", Vec3::new(4.5, 0.95, 0.0));
+        let log = carry(&mut sim, Kind::Log);
+        let food = carry(&mut sim, Kind::Food);
+        let look = *sim.world().require::<exact_game::Material>(food);
+        sim.post("track food");
+        sim.run(TICK);
+        sim.hold("KeyG", 500.0);
+        assert_eq!(player(&sim).pack, vec![log], "holding drops only one item");
+        assert!(!sim.world().require::<Item>(food).carried);
+        assert!(sim.world().get::<exact_game::Parent>(food).is_none());
+        assert_eq!(*sim.world().require::<exact_game::Material>(food), look);
+        assert_eq!(sim.world().resource::<Trail>().target, Some(food));
+        assert_eq!(player::guidance(sim.world()), "Gather food · within reach");
+        let ground = *sim.world().require::<Transform>(food);
+        assert!(
+            (ground.position - sim.world().require::<Transform>("player").position)
+                .with_y(0.0)
+                .length()
+                < 1.8
+        );
+        let saved = sim.save().unwrap();
+        let mut restored = game(500, lite);
+        restored.restore(&saved).unwrap();
+        for run in [&mut sim, &mut restored] {
+            assert_eq!(*run.world().require::<Transform>(food), ground);
+            run.tap("KeyE");
+            run.run(TICK);
+            assert_eq!(player(run).pack, vec![log, food]);
+            assert!(run.world().require::<Item>(food).carried);
+            assert!(run.world().get::<exact_game::Parent>(food).is_some());
+            run.post("drop supply");
+            run.run(TICK);
+            assert_eq!(player(run).pack, vec![log]);
+            assert!(!run.world().require::<Item>(food).carried);
+        }
+        assert_eq!(sim.save().unwrap(), restored.save().unwrap());
+        sim.world_mut().require_mut::<Player>("player").dead = true;
+        let before = sim.save().unwrap();
+        player::drop_carried(sim.world_mut());
+        assert_eq!(
+            sim.save().unwrap(),
+            before,
+            "a dead player cannot drop supplies"
+        );
+    }
+}
+
+#[test]
+fn empty_drop_does_nothing_and_full_fire_does_not_block_a_nearby_supply() {
+    let mut sim = game(500, true);
+    let before = sim.save().unwrap();
+    player::drop_carried(sim.world_mut());
+    assert_eq!(sim.save().unwrap(), before);
+    carry(&mut sim, Kind::Log);
+    sim.world_mut().resource_mut::<Fire>().fuel = 100.0;
+    let food = player::drop_item(sim.world_mut(), Kind::Food, 0.0, 2.5);
+    sim.tap("KeyE");
+    sim.run(TICK);
+    assert!(player(&sim).pack.contains(&food));
+    assert_eq!(sim.world().resource::<Fire>().fed, 0);
+}
+
+#[test]
 fn windbreak_build_is_atomic_one_time_and_saved_with_its_appearance() {
     for lite in [false, true] {
         let mut sim = game(500, lite);

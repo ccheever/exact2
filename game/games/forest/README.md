@@ -38,6 +38,11 @@ Food points to an uncollected meal. The chosen landmark stays fixed while you
 walk and survives saving; collecting it selects another. A full pack containing
 fuel points home. The campfire's bearing is always visible, and newly supplied
 food refreshes an empty search. Logs add 12 fuel, scrap 20, and food 35 hunger.
+Feeding uses only whole logs or scrap that fit below the fire's 100-fuel
+capacity; it keeps the rest in your pack. When none fit, the prompt explains
+why. **G** or **Drop last supply** puts the last packed item on the ground
+in front of you. Leave spare fuel or meals at camp and pick them up later
+with **E**; the compass can find them, and saving preserves the dropped items.
 The nights-survived score stops when you die.
 
 Build a **camp windbreak** with **R** or its HUD button while standing by the
@@ -72,7 +77,8 @@ after the decision loop; these hidden observations are never supplied to Jev.
 `--playtest --build-camp` is a separate 96-decision scenario: build the
 windbreak and reach the first dawn alive. Jev reads its visible recipe and
 build status, chooses the same material compasses, and can press the enabled
-build button. After building, its wait action advances ten seconds. This is
+build button. An enabled Drop button also offers leaving the last supply
+for later pickup. After building, its wait action advances ten seconds. This is
 an exploratory feature playtest; it leaves the earlier survival goal and
 decision limit unchanged.
 

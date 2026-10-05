@@ -12,6 +12,7 @@ shape Hud
   logs: number
   scrap: number
   food: number
+  drop_hint: string
   prompt: string
   rescued: number
   children: number
@@ -78,6 +79,9 @@ component Forest
   action build
     postMessage("build windbreak", "world")
 
+  action drop
+    postMessage("drop supply", "world")
+
   view
     main width="100%" height="100%" background-color="#070b0a" color="#eef2e8"
       when playing
@@ -133,6 +137,8 @@ component Forest
             text `Hunger ${hud.hunger}` testId="hunger" color=(hud.hunger < 25 ? "#ff7a59" : "#eef2e8")
             text `Flashlight ${hud.flashlight ? "on" : "off"} · ${hud.battery}%` testId="battery"
             text `Carrying ${hud.logs} logs · ${hud.scrap} scrap · ${hud.food} food` testId="pack"
+            button press=drop disabled=(hud.dead or (hud.logs + hud.scrap + hud.food == 0)) aria-label="Drop last supply" testId="drop-supply" padding=8 border-radius=8 background-color="#2d3a33"
+              text hud.drop_hint testId="drop-hint"
             text `Children ${hud.rescued} of ${hud.children} rescued` testId="children"
           column position="absolute" right=16 bottom=16 gap=4 padding=12 border-radius=12 background-color="#070b0acc" align-items="flex-end"
             text `Deer: ${hud.deer}` testId="deer" color=(hud.deer == "Chase" ? "#ff7a59" : "#a7b0a3")
@@ -151,7 +157,7 @@ component Forest
           text "99 Nights in the Forest" font-size=44 font-weight=800
           column width="100%" max-width=420 align-items="center" gap=6
             text "WASD moves · Hold E to chop · Tap E to interact" width="100%" text-align="center"
-            text "F flashlight · Q eats" width="100%" text-align="center"
+            text "F flashlight · Q eats · G drops the last supply" width="100%" text-align="center"
             text "R builds a windbreak · 2 logs + 1 scrap · Half the fuel use" width="100%" text-align="center" color="#f6d77a"
             text "Keep the fire lit. The Deer hunts outside its light." width="100%" text-align="center" color="#a7b0a3"
             text "Follow the compass to lost children. Escort them home for supplies." width="100%" text-align="center" color="#a8d9ff"

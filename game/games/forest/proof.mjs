@@ -71,6 +71,9 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
       if (node(tree,'build-windbreak')?.props?.disabled === false) {
         choices.build = 'Build the camp windbreak: spend two carried logs and one scrap to halve fuel consumption permanently';
       }
+      if (node(tree,'drop-supply')?.props?.disabled === false) {
+        choices.drop = 'Drop the last packed supply on the ground for later pickup; it remains available through the material or food compass';
+      }
       if (state.battery.startsWith('Flashlight on') || Number(state.battery.match(/(\d+)%/)?.[1]) > 5) {
         choices.flashlight = 'Toggle the flashlight; it protects against creatures but uses battery';
       }
@@ -89,6 +92,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
           ? stalled + 1 : 0;
       } else if (decision.choice === 'wait') await game.run(wait);
       else if (decision.choice === 'build') { await s.tap('build-windbreak'); await game.run(100); }
+      else if (decision.choice === 'drop') { await s.tap('drop-supply'); await game.run(100); }
       else if (decision.choice.startsWith('track-')) { await s.tap(decision.choice); await game.run(100); stalled = 0; }
       else if (['north','east','south','west'].includes(decision.choice)) {
         await game.hold({north:'KeyW',east:'KeyD',south:'KeyS',west:'KeyA'}[decision.choice],1000);
@@ -473,6 +477,72 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await builtBack.world('world').save(resolve(out,'windbreak-dawn-restored.world'));
   check('built-camp dawn saves are byte-identical', readFileSync(resolve(out,'windbreak-dawn.world')).equals(readFileSync(resolve(out,'windbreak-dawn-restored.world'))));
   await builtBack.close();
+
+  // Spare fuel stays useful: fill the fire, bring one more log, and leave it
+  // at camp through the HUD. Later retrieve it, exercise G too, and refuel.
+  const cache = await open({fresh:true,world:resolve(out,'craft.world')});
+  await cache.tap('trees-1k'); await cache.tap('play');
+  const cached = cache.world('world');
+  await cache.tap('track-camp'); await cached.run(100);
+  check('the carried recipe can instead be brought to the fire', await reachCraft(cache,
+    tree => node(tree,'prompt')?.props?.text === 'E: feed the fire'));
+  await cached.tap('KeyE'); await cached.run(100);
+  check('the first fuel load fits in full', node(await cache.tree(),'pack')?.props?.text === 'Carrying 0 logs · 0 scrap · 0 food');
+  await cache.tap('track-logs'); await cached.run(100);
+  check('the logs compass reaches the remaining loose log', await reachCraft(cache,
+    tree => node(tree,'prompt')?.props?.text === 'E: pick up log'));
+  await cached.tap('KeyE'); await cached.run(100);
+  const spare = (await cached.snapshot({all:true})).entities.find(e => e.components?.Item?.carried);
+  check('one spare log is carried', spare && Object.hasOwn(spare.components.Item.kind, 'Log'));
+  await cache.tap('track-camp'); await cached.run(100);
+  check('a nearly full fire explains why the spare log cannot fit', await reachCraft(cache,
+    tree => node(tree,'prompt')?.props?.text === 'No room for carried fuel · G drops one supply'));
+  await cached.tap('KeyE'); await cached.run(100);
+  const full = await cache.tree();
+  check('an extra feed press preserves the spare supply', node(full,'pack')?.props?.text === 'Carrying 1 logs · 0 scrap · 0 food'
+    && node(full,'drop-hint')?.props?.text === 'G Drop log');
+  if (host !== 'linux') await cache.screenshot(resolve(out,'spare-fuel.png'));
+  await cache.tap('drop-supply'); await cached.run(100);
+  const loose = (await cached.snapshot({all:true})).entities.find(e => e.id === spare.id);
+  check('the drop button detaches the same item and empties the pack', loose && !loose.components.Item.carried
+    && !Object.hasOwn(loose.components,'Parent') && node(await cache.tree(),'drop-supply')?.props?.disabled === true);
+  await cache.tap('track-logs'); await cached.run(100);
+  check('the material compass finds the deposited supply', node(await cache.tree(),'objective')?.props?.text === 'Gather log · within reach');
+  await cached.save(resolve(out,'cached-supply.world'));
+  if (host !== 'linux') await cache.screenshot(resolve(out,'cached-supply.png'));
+  const retrieve = async session => {
+    const world = session.world('world');
+    await world.hold('KeyS',1000); await world.run(40_000);
+    const left = (await world.snapshot({all:true})).entities.find(e => e.id === spare.id);
+    check('the saved ground supply stays at camp while the player leaves',
+      JSON.stringify(left?.components.Transform) === JSON.stringify(loose.components.Transform));
+    check('the compass brings the player back to the cached log', await reachCraft(session,
+      tree => node(tree,'prompt')?.props?.text === 'E: pick up log'));
+    await world.tap('KeyE'); await world.run(100);
+    await world.tap('KeyG'); await world.run(100);
+    check('the keyboard drops the retrieved supply once', node(await session.tree(),'pack')?.props?.text === 'Carrying 0 logs · 0 scrap · 0 food');
+    await world.tap('KeyE'); await world.run(100);
+    check('the same supply can be picked up again', node(await session.tree(),'pack')?.props?.text === 'Carrying 1 logs · 0 scrap · 0 food');
+    await session.tap('track-camp'); await world.run(100);
+    check('the fire accepts the spare log after burning room for it', await reachCraft(session,
+      tree => node(tree,'prompt')?.props?.text === 'E: feed the fire'));
+    const before = Number(node(await session.tree(),'fuel')?.props?.text.match(/\d+/)?.[0]);
+    await world.tap('KeyE'); await world.run(100);
+    check('stored fuel retains its full value', Number(node(await session.tree(),'fuel')?.props?.text.match(/\d+/)?.[0]) >= before + 11
+      && node(await session.tree(),'pack')?.props?.text === 'Carrying 0 logs · 0 scrap · 0 food');
+    return await world.snapshot();
+  };
+  const retrieved = await retrieve(cache);
+  await cached.save(resolve(out,'cached-supply-continued.world'));
+  pinSave('cached-supply',resolve(out,'cached-supply-continued.world'));
+  await cache.close();
+  const cacheBack = await open({fresh:true,world:resolve(out,'cached-supply.world')});
+  await cacheBack.tap('trees-1k'); await cacheBack.tap('play');
+  check('a fresh process retrieves and uses the saved supply identically',
+    JSON.stringify(await retrieve(cacheBack)) === JSON.stringify(retrieved));
+  await cacheBack.world('world').save(resolve(out,'cached-supply-restored.world'));
+  check('cached-supply continuation saves are byte-identical', readFileSync(resolve(out,'cached-supply-continued.world')).equals(readFileSync(resolve(out,'cached-supply-restored.world'))));
+  await cacheBack.close();
 });
 
 async function followCompass(session, objective) {
