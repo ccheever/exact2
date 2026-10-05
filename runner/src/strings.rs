@@ -280,6 +280,10 @@ mod tests {
     fn replace_all_counts_split_pairs_at_the_byte_boundary() {
         assert_eq!(replace_all("😀😀", "", "", 8).as_deref(), Ok("😀😀"));
         assert_eq!(replace_all("😀😀", "", "", 7), Err(TooLong));
+        // A result that ends on a completed pair past the limit (the JS
+        // target's budget.js holds the same: review b5-a 1).
+        assert_eq!(replace_all("xxx", "x", "😀", 8), Err(TooLong));
+        assert_eq!(replace_all("xx", "x", "😀", 8).as_deref(), Ok("😀😀"));
         let many = "😀".repeat(100);
         assert_eq!(
             replace_all(&many, "", "", 400).as_deref(),
