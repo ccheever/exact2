@@ -251,6 +251,16 @@ guide's rules don't make obvious.
   two builders, about 10 minutes each, 2026-10-04; t1-tip, a normalized count,
   2026-10-05.)
 
+- **A checkbox bound to a resource field does not tick until the save answers.** With
+  `checked=form.terms change=editTerms`, where `editTerms` sends a mutation that
+  `refreshes form`, a click shows the box unchecked again at once on the web and
+  checked only when the refreshed answer lands, so a slow store shows no tick, and a
+  test that clicks and reads `checked` at once (Playwright's `check()`) fails. Cause:
+  the field is re-set to its binding, `form.terms`, which is still `false` until the
+  answer. Fix: bind it to state the action writes at once (`terms = value`, then
+  `send`), and seed that state from the saved record as a form does. (Authoring bench,
+  LLP 1087, codex17 t7-wizard, 2026-10-05.)
+
 - **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
   is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats
   a touch as the finger leaving clears the hover the next assertion still wants.
