@@ -261,9 +261,9 @@ guide's rules don't make obvious.
 
 - **A checkbox bound to a resource field does not tick until the save answers.** With
   `checked=form.terms change=editTerms`, where `editTerms` sends a mutation that
-  `refreshes form`, a click shows the box unchecked again at once and checked only
-  when the refreshed answer lands, so a slow store shows no tick, and a test that
-  clicks and reads `checked` at once fails. Cause: every host (both web targets, iOS,
+  `refreshes form`, a click shows the box unchecked again while the save's answer is
+  out and checked only when the refreshed answer lands, so a slow store shows no tick,
+  and a test that clicks and reads `checked` before the answer fails. Cause: every host (both web targets, iOS,
   macOS) re-sets the box to its binding, `form.terms`, which is still `false` until
   the answer. Fix: bind it to state the action writes at once (`terms = value`, then
   `send`), and seed that state from the saved record as a form does. (Authoring bench,
