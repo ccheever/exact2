@@ -347,7 +347,8 @@ frame the renderer picks one level per entity from its displayed position, with 
 while one streams in. Every other level's records carry a hidden word the GPU cull
 reads, in every view and keep-all group (shadow cascades and spot shadows too);
 the blended pass skips them, and their skinning jobs are not dispatched, so a far
-crowd skins nothing. Direct drawing (no indirect execution, or lists past the
+crowd skins nothing. A level change uploads only what it changed: the hidden words
+of the records that changed and the places in the dispatched job list it filled. Direct drawing (no indirect execution, or lists past the
 device's storage limits) has no per-instance cull and selects level 0 for every
 entity, so the level it draws is the one skinned and blended. Levels
 share the pose, looks and opacity. Distances must be finite, increasing and

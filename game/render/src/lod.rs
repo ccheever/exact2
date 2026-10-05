@@ -248,11 +248,8 @@ mod gpu_tests {
         };
         renderer.draw(&texture.create_view(&Default::default()), (32, 32), &frame);
     }
-    #[test]
-    fn far_levels_skip_their_skinning_and_direct_draws_keep_level_zero() {
-        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
-            return;
-        };
+    // A skinned fox near, the same geometry unskinned (a rock) from 10 m.
+    fn crowd_models(renderer: &mut crate::Renderer) -> Pose {
         let fox = crate::test_model::skinned_model();
         let mut rock = fox.clone();
         rock.skins.clear();
@@ -264,26 +261,32 @@ mod gpu_tests {
             mesh.joints.clear();
             mesh.weights.clear();
         }
-        let mut renderer =
-            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
         renderer.prepare_model("fox.model", &fox).unwrap();
         renderer.prepare_model("rock.model", &rock).unwrap();
-        let mut w = World::new(60, 0);
         let mut pose = Pose::default();
         pose.local = exact_game::animation::bind_pose(&fox);
         pose.previous = pose.local.clone();
-        w.spawn((
-            Transform::default(),
-            Mesh::asset("fox.model"),
-            pose,
-            ModelLod {
-                levels: vec![exact_game::LodLevel {
-                    distance: 10.,
-                    model: "rock.model".into(),
-                }],
-                hide: None,
-            },
-        ));
+        pose
+    }
+    fn lod() -> ModelLod {
+        ModelLod {
+            levels: vec![exact_game::LodLevel {
+                distance: 10.,
+                model: "rock.model".into(),
+            }],
+            hide: None,
+        }
+    }
+    #[test]
+    fn far_levels_skip_their_skinning_and_direct_draws_keep_level_zero() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut renderer =
+            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        let pose = crowd_models(&mut renderer);
+        let mut w = World::new(60, 0);
+        w.spawn((Transform::default(), Mesh::asset("fox.model"), pose, lod()));
         let mut feed = crate::Feed::default();
         feed.feed(&w, &mut renderer).unwrap();
         draw(&mut renderer, 3.);
@@ -314,5 +317,60 @@ mod gpu_tests {
             .all(|(&level, &hidden)| hidden == (level != 0)));
         let direct = renderer.models.skinning.as_ref().unwrap().active_jobs();
         assert_eq!(direct, near, "direct draws skin level 0 at any distance");
+    }
+    #[test]
+    fn a_level_change_uploads_only_what_changed() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut renderer =
+            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        let pose = crowd_models(&mut renderer);
+        // Eight foxes in a line, the first farthest from the camera.
+        let mut w = World::new(60, 0);
+        for i in 0..8 {
+            let z = -0.5 * (7 - i) as f32;
+            w.spawn((
+                Transform::at(0., 0., z),
+                Mesh::asset("fox.model"),
+                pose.clone(),
+                lod(),
+            ));
+        }
+        let mut feed = crate::Feed::default();
+        feed.feed(&w, &mut renderer).unwrap();
+        draw(&mut renderer, 3.);
+        draw(&mut renderer, 3.);
+        let jobs = renderer.models.skinning.as_ref().unwrap().active_jobs();
+        assert_eq!(jobs, 8, "every fox is near and skins");
+        let before = (
+            renderer.cull.hidden_bytes,
+            renderer.models.skinning.as_ref().unwrap().job_bytes,
+        );
+        // Only the first fox crosses 10 m (and its 5% band); the rest hold.
+        draw(&mut renderer, 7.2);
+        assert!(
+            renderer.levels.hidden[0],
+            "the first fox's near level hides"
+        );
+        assert_eq!(renderer.levels.hidden.iter().filter(|&&h| h).count(), 8);
+        let skinning = renderer.models.skinning.as_ref().unwrap();
+        assert_eq!(skinning.active_jobs(), 7);
+        let records = renderer.cull.hidden_bytes - before.0;
+        let jobs = skinning.job_bytes - before.1;
+        eprintln!("one level change: {records} record bytes, {jobs} job bytes");
+        // Its two records' hidden words, and the one job moved into its place.
+        assert!(records <= 2 * 32, "{records} record bytes");
+        assert!(jobs <= 16, "{jobs} job bytes");
+        // Through every swap the list dispatches exactly the drawn records' jobs.
+        for camera in [3., 7.2, 50., 3., 8., 7.2, 3.] {
+            draw(&mut renderer, camera);
+            let drawn: Vec<usize> = (0..renderer.models.records.len())
+                .filter(|&r| renderer.models.records[r].skin.is_some())
+                .filter(|&r| !renderer.levels.hidden[r])
+                .collect();
+            let skinning = renderer.models.skinning.as_ref().unwrap();
+            assert_eq!(skinning.dispatched_records(), drawn, "camera at {camera}");
+        }
     }
 }

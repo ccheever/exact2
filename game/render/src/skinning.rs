@@ -40,10 +40,17 @@ pub(crate) struct Skinning {
     pose_words: Vec<f32>,
     jobs_words: Vec<u32>,
     // Each job's record, and the jobs dispatched (levels of detail not drawn
-    // this frame skip theirs).
+    // this frame skip theirs): the uploaded list's words, each job's place in
+    // it (u32::MAX: not dispatched) and the job at each place.
     job_records: Vec<usize>,
     active_words: Vec<u32>,
+    job_places: Vec<u32>,
+    place_jobs: Vec<u32>,
+    dirty_places: Vec<u32>,
     active: u32,
+    /// Bytes `activate` has written.
+    #[cfg(test)]
+    pub job_bytes: u64,
     pipeline: Option<wgpu::ComputePipeline>,
     joint_capacity: usize,
     layout: Option<wgpu::BindGroupLayout>,
@@ -69,7 +76,12 @@ impl Skinning {
             jobs_words: vec![],
             job_records: vec![],
             active_words: vec![],
+            job_places: vec![],
+            place_jobs: vec![],
+            dirty_places: vec![],
             active: 0,
+            #[cfg(test)]
+            job_bytes: 0,
             pipeline: None,
             joint_capacity: 0,
             layout: None,
@@ -311,6 +323,10 @@ impl Skinning {
         ));
         self.jobs.write(queue, 0, bytes(&self.jobs_words));
         self.active = self.job_records.len() as u32;
+        self.active_words.clone_from(&self.jobs_words);
+        self.job_places.clear();
+        self.job_places.extend(0..self.active);
+        self.place_jobs.clone_from(&self.job_places);
         if let Some(layout) = &self.layout {
             let buffers = (
                 layout.clone(),
@@ -382,24 +398,82 @@ impl Skinning {
         }
     }
     /// Dispatch only the jobs of records drawn this frame (`hidden[record]`
-    /// false): a crowd's far levels cost no skinning.
+    /// false): a crowd's far levels cost no skinning. A job keeps its place in
+    /// the dispatched list: one that stops takes the last job into its place,
+    /// one that starts goes last, and only those places are uploaded.
     pub fn activate(&mut self, queue: &wgpu::Queue, hidden: &[bool]) {
-        self.active_words.clear();
-        for (job, &record) in self.job_records.iter().enumerate() {
-            if !hidden.get(record).copied().unwrap_or(false) {
+        let mut dirty = std::mem::take(&mut self.dirty_places);
+        dirty.clear();
+        for job in 0..self.job_records.len() {
+            let wanted = !hidden.get(self.job_records[job]).copied().unwrap_or(false);
+            let place = self.job_places[job];
+            if wanted == (place != u32::MAX) {
+                continue;
+            }
+            if wanted {
+                self.job_places[job] = self.place_jobs.len() as u32;
+                dirty.push(self.place_jobs.len() as u32);
+                self.place_jobs.push(job as u32);
                 self.active_words
                     .extend_from_slice(&self.jobs_words[job * 4..job * 4 + 4]);
+            } else {
+                let last = self.place_jobs.len() - 1;
+                let moved = self.place_jobs.swap_remove(place as usize);
+                debug_assert_eq!(moved as usize, job);
+                self.active_words
+                    .copy_within(last * 4..last * 4 + 4, place as usize * 4);
+                self.active_words.truncate(last * 4);
+                self.job_places[job] = u32::MAX;
+                if let Some(&taken) = self.place_jobs.get(place as usize) {
+                    self.job_places[taken as usize] = place;
+                    dirty.push(place);
+                }
             }
         }
-        self.active = (self.active_words.len() / 4) as u32;
-        if self.active > 0 {
-            self.jobs.write(queue, 0, bytes(&self.active_words));
+        self.active = self.place_jobs.len() as u32;
+        dirty.sort_unstable();
+        dirty.dedup();
+        dirty.retain(|&p| p < self.active);
+        // One write per run of adjacent places.
+        let mut i = 0;
+        while i < dirty.len() {
+            let first = dirty[i] as usize;
+            while i + 1 < dirty.len() && dirty[i + 1] == dirty[i] + 1 {
+                i += 1;
+            }
+            let end = dirty[i] as usize + 1;
+            i += 1;
+            #[cfg(test)]
+            {
+                self.job_bytes += (end - first) as u64 * 16;
+            }
+            self.jobs.write(
+                queue,
+                first as u64 * 16,
+                bytes(&self.active_words[first * 4..end * 4]),
+            );
         }
+        self.dirty_places = dirty;
     }
     /// Jobs dispatched per frame.
     #[cfg(test)]
     pub fn active_jobs(&self) -> u32 {
         self.active
+    }
+    /// The records whose jobs the uploaded list dispatches, in record order.
+    #[cfg(test)]
+    pub fn dispatched_records(&self) -> Vec<usize> {
+        let mut records: Vec<usize> = (self.active_words.chunks_exact(4))
+            .map(|words| {
+                let job = (self.jobs_words.chunks_exact(4))
+                    .position(|j| j == words)
+                    .expect("an uploaded job");
+                self.job_records[job]
+            })
+            .collect();
+        assert_eq!(records.len(), self.active as usize);
+        records.sort_unstable();
+        records
     }
     pub fn feed(&mut self, queue: &wgpu::Queue, w: &World, entities: &[Entity], initial: bool) {
         self.pack(w, entities, initial);
