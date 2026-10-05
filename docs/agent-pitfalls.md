@@ -252,8 +252,10 @@ guide's rules don't make obvious.
   re-reads, which drops a request, and the forced refresh comes when the mutation's
   reply lands; a source that answers synchronously never lands a reply later (QUEUE).
   A resource whose re-read answers synchronously is not affected. Fix until then:
-  make the mutation's source answer with a promise (`async`), or have the refreshed
-  resource answer its updated value synchronously once loaded. (Authoring bench,
+  have the refreshed resource answer its updated value synchronously once loaded
+  (works on every host). Making the mutation's source `async` is enough on the web,
+  but natively a promise already resolved when the call returns still answers at
+  once: there it must still wait on a storage or fetch step. (Authoring bench,
   LLP 1087, t2-todo on web and iOS: about 40 minutes, 2026-10-05.)
 
 - **Two quick sends to one mutation lost the first write on iOS.** Two adds in a
