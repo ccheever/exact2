@@ -393,10 +393,7 @@ macro_rules! host {
         /// A threshold exact2 defines itself, by index (`exact_motion::gesture::CONSTANTS`); NaN past the end.
         #[no_mangle]
         pub extern "C" fn exact_gesture_constant(which: u32) -> f64 {
-            exact_motion::gesture::CONSTANTS
-                .get(which as usize)
-                .copied()
-                .unwrap_or(f64::NAN)
+            $crate::abi::gesture_constant(which)
         }
 
         /// Move the clock; `mode` as `Bridge::advance` (0 the wall clock, 1
@@ -649,4 +646,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.svg_islands(), |_| 0)
         }
     };
+}
+
+/// `exact_gesture_constant`: a threshold by index, NaN past the end.
+pub fn gesture_constant(which: u32) -> f64 {
+    exact_motion::gesture::CONSTANTS
+        .get(which as usize)
+        .copied()
+        .unwrap_or(f64::NAN)
 }

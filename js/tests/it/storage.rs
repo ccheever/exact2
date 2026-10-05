@@ -1032,9 +1032,8 @@ fn a_discarded_re_read_leaves_the_read_in_flight_its_steps() {
                                     panic!("released work runs");
                                 };
                                 let outcome = std::thread::spawn(work).join().unwrap();
-                                next = Some(
-                                    m.parse_for(target, &mut s, "work", &a, outcome).unwrap(),
-                                );
+                                next =
+                                    Some(m.parse_for(target, &mut s, "work", &a, outcome).unwrap());
                             }
                             if next.is_some() {
                                 break;
