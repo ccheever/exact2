@@ -437,11 +437,13 @@ store}`), and the web's journal says `storage refused (agent): …` the first ti
 a refusal lands. A Rust module's storage request in such a drive is answered
 with the same message, never refused outright (trivia F7).
 
-An answer's storage and `fetch` steps run whether or not it awaits them: a save
-started and not awaited (queued behind the module's own promise chain, say)
-lands on every host. In the browser the answer is given at once and the save
-finishes behind it; on Hermes the answer is given once the steps it started
-have landed (kanban F22). A storage or `fetch` call made when no answer is in
+An answer's storage and `fetch` steps run whether or not it awaits them once
+they have begun. In the browser the answer is given at once and a save left
+running finishes behind it; on Hermes the answer is given once the steps it
+started have landed (kanban F22). A save started and not awaited that is still
+queued behind the module's own promise chain when the answer is given has been
+seen lost on iOS (two authoring-bench trials, 2026-10-05; QUEUE): await it before
+answering, or carry it in a request of its own. A storage or `fetch` call made when no answer is in
 flight is refused and logged, never silently dropped. An answer the runner
 lets go between storage steps (a refresh it discards before a mutation lands, a
 read whose arguments changed or that a `refresh` replaced) still runs the steps it began, and the chain
