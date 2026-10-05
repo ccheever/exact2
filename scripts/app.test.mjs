@@ -92,6 +92,16 @@ import { HERMES_IOS_ARCHIVES, provisionHermesIos } from '../host/apple/hermes.mj
 import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, macReleaseEntitlements, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
 
+test('the driver grammar names an unquoted mediasession action beside pinch', () => {
+  const source = readFileSync(new URL('./agent.mjs', import.meta.url), 'utf8');
+  const header = source.split('\n').slice(0, 16).join('\n');
+  const form = 'pinch <scale> [at <x> <y>] | mediasession <action> [seconds]';
+  assert.ok(header.includes(form), header);
+  const usage = spawnSync(process.execPath, [resolve(import.meta.dir, 'agent.mjs')], { encoding: 'utf8' });
+  assert.equal(usage.status, 2, usage.stderr);
+  assert.ok(usage.stderr.includes(form), usage.stderr);
+});
+
 // Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
 test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('native bakes stay fresh and retain unit source and environment evidence', () => {
   const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact native cache-')));
