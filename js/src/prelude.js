@@ -685,10 +685,16 @@
     promise.then(function (value) { landed(op, true, value); }, function (error) { landed(op, false, error); });
   }
   function landed(op, ok, value) {
-    head = null;
-    // The next operation was issued before anything this one's reaction
-    // issues: it starts first.
-    if (queue.length) issue(queue.shift());
+    // A late completion of an operation already failed (a timed-out
+    // continuation the store then finishes) must not clear the new head.
+    if (op.settled) return;
+    op.settled = true;
+    if (head === op) {
+      head = null;
+      // The next operation was issued before anything this one's reaction
+      // issues: it starts first.
+      if (queue.length) issue(queue.shift());
+    }
     op.settle(ok, value);
   }
   // The operation in flight's owner, or null.
@@ -1192,7 +1198,13 @@
     }
     if (result && typeof result.then === "function") {
       calls.set(call.id, call);
-      result.then(function (v) { call.status = "done"; call.value = v; }, function (e) { call.status = "failed"; call.error = e; });
+      result.then(function (v) {
+        if (call.lost) return;
+        call.status = "done"; call.value = v;
+      }, function (e) {
+        if (call.lost) return;
+        call.status = "failed"; call.error = e;
+      });
       return JSON.stringify({ tag: 3, call: call.id });
     }
     // A value given at once is replied after the microtask checkpoint that
@@ -1296,8 +1308,17 @@
   global.__exact_enter_background = function () { currentCall = background; };
   global.__exact_storage_failed = function (id, outcomeJson) {
     var call = calls.get(Number(id));
-    // Its storage steps will not land: refuse the answer without them.
-    if (call) { call.status = "failed"; call.lost = true; storing.delete(call); call.error = storageError(JSON.parse(outcomeJson).failed.message, "failed"); }
+    if (!call) return;
+    // The continuation will not land. Settle the head now, as a failed
+    // operation, so the queue advances. `lost` first: the answer's own
+    // rejection must not report success, and a later delivery of this same
+    // operation is ignored.
+    var message = JSON.parse(outcomeJson).failed.message;
+    call.lost = true;
+    if (head && head.call === call) landed(head, false, storageError(message, "failed"));
+    call.status = "failed";
+    storing.delete(call);
+    call.error = storageError(message, "failed");
   };
   global.__exact_fulfill = function (ticket, outcomeJson) {
     var p = settled(Number(ticket));

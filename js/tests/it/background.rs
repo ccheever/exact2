@@ -8,8 +8,8 @@ use exact_js::Module;
 use exact_kernel::{Kernel, PropId};
 use exact_plan::Value;
 use exact_runner::{
-    Answer, DataError, DataSource, Dispatch, Outcome, Placement, Request, Runner, Store, Work,
-    BACKGROUND,
+    Answer, DataError, DataSource, Dispatch, FailureKind, Outcome, Placement, Request, Runner,
+    Store, Work, BACKGROUND,
 };
 use std::collections::{HashMap, VecDeque};
 
@@ -596,4 +596,53 @@ fn a_let_go_chain_behind_a_background_write_finishes() {
     host.settle();
     assert_eq!(host.result().as_deref(), Some("b:2"));
     assert!(!host.runner.has_pending());
+}
+
+/// A storage continuation that fails (the 30s timeout, here passed in)
+/// settles the head. The answer fails, the failure is journaled, and a
+/// later storage call is issued instead of waiting on that promise.
+#[test]
+fn a_failed_storage_continuation_releases_the_queue() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let a = args("file", "first");
+    assert!(matches!(
+        m.answer(&mut s, "work", &a).unwrap(),
+        Answer::Later(_)
+    ));
+    let err = m
+        .parse(
+            &mut s,
+            "work",
+            &a,
+            Outcome::Failed {
+                kind: FailureKind::Aborted,
+                message: "storage continuation timed out".into(),
+            },
+        )
+        .unwrap_err();
+    let DataError::Unavailable(message) = err else {
+        panic!("{err:?}");
+    };
+    assert!(message.contains("timed out"), "{message}");
+    let logs = DataSource::take_logs(&mut m);
+    assert!(
+        logs.iter()
+            .any(|l| l.contains("storage failed:") && l.contains("timed out")),
+        "{logs:?}"
+    );
+    let saved = args("save", "after");
+    assert!(matches!(
+        m.answer(&mut s, "work", &saved).unwrap(),
+        Answer::Now(_)
+    ));
+    // The timed-out write's task can still complete. Its delivery is ignored
+    // (`op.settled`); the save, issued after the head was cleared, lands in
+    // a later round.
+    assert!(rounds(&mut m, &s) >= 1, "the save was never delivered");
+    assert_eq!(read_file(&root, "song"), "after");
+    let state = m.background_state().unwrap();
+    assert_eq!(state.queued + state.in_flight, 0);
 }
