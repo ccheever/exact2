@@ -43,6 +43,9 @@ pub struct Size {
     pub depth: usize,
     /// Script events.
     pub events: usize,
+    /// Whether a mutation may be `queue` and a task gated (LLP 1092): the
+    /// component-level semantics has neither (`difftest expansion`).
+    pub schedule: bool,
 }
 
 impl Default for Size {
@@ -53,6 +56,7 @@ impl Default for Size {
             actions: 4,
             depth: 3,
             events: 12,
+            schedule: true,
         }
     }
 }
@@ -128,6 +132,8 @@ pub(crate) struct Mutation {
     pub(crate) name: String,
     pub(crate) source: String,
     pub(crate) args: Vec<Ty>,
+    /// `queue` (LLP 1092 D1): a path may send it more than once.
+    pub(crate) queue: bool,
 }
 
 /// A child component as a use site needs it.

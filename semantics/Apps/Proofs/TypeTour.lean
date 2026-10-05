@@ -52,7 +52,7 @@ theorem screen_boot : ∀ v, SlotOrigin typeTour "screen" v → ScreenOK v := by
 /-- **The phone is always on one of its five screens**, after any sequence
 of taps, inputs and clock moves, whatever its data sources answer. -/
 theorem screen_always : ∀ c, Reachable typeTour c → SlotIn "screen" ScreenOK c.slots := by
-  refine Reachable.slotIn screen_boot ?_ (fun _ a ha => by simp [typeTour, clockActions, thenActions] at ha)
+  refine Reachable.slotIn (by decide) screen_boot ?_ (fun _ a ha => by simp [typeTour, clockActions, thenActions] at ha)
   intro c ev a args env ls vs payload rows _ hh hvs
   refine BodyKeeps.of_wp fun ad had hname => ?_
   subst hname

@@ -30,6 +30,7 @@ mod posts;
 pub mod records;
 pub mod routes;
 mod selection;
+mod tasks;
 pub use bounds::MAX_TYPE_DEPTH;
 pub use selection::event_record;
 /// The strings call and the tables it is checked against (LLP 1060).

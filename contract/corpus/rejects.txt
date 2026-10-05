@@ -266,6 +266,48 @@ component A
   view
     text "a"
 ---
+== syntax-task-start
+component A
+  state n = 1
+  action tick
+    n = n + 1
+  task t
+    after(60, tick)
+  view
+    text "a"
+---
+== type-task-gate
+component A
+  state toast = ""
+  action tick
+    toast = ""
+  task t when toast
+    after(60, tick)
+  view
+    text "a"
+---
+== type-task-key
+shape P
+  x: number
+component A
+  state p = P(x=1)
+  action tick
+    p = P(x=2)
+  task t key=p
+    after(60, tick)
+  view
+    text "a"
+---
+== analyze-task-gate-clock
+component A
+  state n = 1
+  action tick
+    n = n + 1
+  task t when now() < 1000
+    every(60, tick)
+  view
+    text "a"
+---
 == lower-leaf-children
 component A
   state q = ""

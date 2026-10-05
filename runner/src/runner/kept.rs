@@ -183,6 +183,7 @@ impl<D: DataSource> Runner<D> {
         };
         self.conclude(checkpoint, &result, was_poisoned);
         self.arm_then(result.is_ok());
+        self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         result.map(Some)
     }

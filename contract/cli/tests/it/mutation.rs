@@ -1150,10 +1150,10 @@ fn two_sends_to_one_mutation_on_one_path_are_refused() {
     let app = |body: &str| {
         format!("shape Ack\n  op: string\ncomponent App\n  state open = true\n  state mode = \"a\"\n  mutation edited as shape Ack then afterEdit\n  action afterEdit\n    open = false\n  action commitEdit(k: string)\n{body}  view\n    button \"s\" press=commitEdit(\"1\")\n")
     };
-    let message = "`commitEdit` sends `edited` twice; only the last send's reply reaches `then afterEdit` (LLP 1016 D5). Send once, or use a mutation per request".to_string();
+    let message = "`commitEdit` sends `edited` twice; only the last send's reply reaches `then afterEdit` (LLP 1016 D5). Send once, use a mutation per request, or declare `mutation edited … queue` to run both in order".to_string();
     // A send in an arm says why both can run (chess #2).
     let armed = |a: u32, b: u32| {
-        format!("`commitEdit` sends `edited` twice on one path, at lines {a} and {b}: every `if` is read as one that can run, unless the two sends are arms of one `if`/`else` or `match`, or sit in `if`s testing one unchanged name against different literals. Only the last send's reply reaches `then afterEdit` (LLP 1016 D5): send once, make the sends arms of one `if … else if`, or use a mutation per request")
+        format!("`commitEdit` sends `edited` twice on one path, at lines {a} and {b}: every `if` is read as one that can run, unless the two sends are arms of one `if`/`else` or `match`, or sit in `if`s testing one unchanged name against different literals. Only the last send's reply reaches `then afterEdit` (LLP 1016 D5): send once, make the sends arms of one `if … else if`, use a mutation per request, or declare `mutation edited … queue` to run both in order")
     };
     for (body, message) in [
         // Flashcards' `commitEdit`.

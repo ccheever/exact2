@@ -577,6 +577,15 @@ Requests use newest-request-wins behavior; stale answers do not overwrite newer
 requests. A failed resource keeps its retained value or placeholder and clears
 pending. A changed argument or explicit refresh allows another attempt.
 
+A write log wants every send, not the newest. Declare the mutation `queue`
+(`mutation saved as shape SaveResult queue then afterSave`): one request is in
+flight, and each later send waits, in order, with the arguments it was made
+with, until the reply before it has landed and its `then` has run. The source
+sees one request at a time, `then` runs once per reply, and `pending(saved)`
+stays true while anything waits. Assigning `saved = none` forgets nothing under
+`queue`: every reply still lands. Keep newest-wins for a sign-in or a draft whose
+late reply should be dropped (LLP 1092).
+
 A source sometimes needs current context to answer a question whose last answer
 is still suitable to show. For example, a stored car status may need the current
 minute to decide whether it must be fetched again:
@@ -1104,6 +1113,30 @@ fires once, `ms` after boot. Intervals are whole-number literals of at least 1.
 `every(frame, action)` runs once per presented frame without catching up missed
 frames. Each task body contains one schedule. Tasks are root-owned, not child
 lifecycle hooks.
+
+A task can wait for state instead of starting at mount:
+
+```contract
+component Undo
+  state toast = ""
+  state toastUntil = 0
+  action deleted
+    toast = "Deleted"
+    toastUntil = now() + 5000
+  action hideToast
+    toast = ""
+  task hide when toast != "" key=toastUntil
+    after(5000, hideToast)
+  view
+    text toast testId="toast"
+```
+
+The timer exists while `toast != ""` holds, as a `when` arm's nodes do, and a new
+`toastUntil` restarts it, as a new key makes a new `each` row: a replaced toast
+gets its whole five seconds. Nothing runs when the gate changes, and an idle task
+keeps no host awake. The action runs at the deadline exactly, so it clears the
+toast without testing the time again. Gates and keys read state, never `now()`
+(LLP 1092).
 
 `now()` reads milliseconds since boot on the runner's clock (the driver's clock
 under the agent); it is not a date. For the date, read the reserved `exactTime`

@@ -22,6 +22,8 @@ mod motion;
 mod regions;
 #[path = "rows.rs"]
 mod rows;
+#[path = "timers.rs"]
+mod timers;
 use regions::root_slot;
 
 #[derive(Clone, Copy, Debug)]
@@ -400,13 +402,15 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             .map(|x| format!("r_{}", plan.mutation_refreshes[x.0 as usize].resource.0))
             .collect();
         let mt = em.uses.rt("mut");
+        // A queue's sends wait their turn (LLP 1092 D6; schedule.js).
         let _ = write!(
             body,
-            "const m_{i}={mt}({},s_{},[{}],{});",
+            "const m_{i}={mt}({},s_{},[{}],{}{});",
             serde_json::to_string(plan.str(m.name)).unwrap(),
             m.slot.0,
             refreshes.join(","),
-            serde_json::to_string(&type_code(plan, m.ty)).unwrap()
+            serde_json::to_string(&type_code(plan, m.ty)).unwrap(),
+            if m.queue { ",1" } else { "" }
         );
     }
     // A child's state used outside every region: initialized as the root
@@ -562,20 +566,12 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         list("d", plan.derives.len()),
         list("r", plan.resources.len())
     );
-    for t in plan.timers.iter() {
-        if t.frame {
-            // LLP 1073: once per presented frame, virtual frames on a seek.
-            let frames = em.uses.rt("frames");
-            let _ = write!(body, "{frames}(a_{});", t.action.0);
-            continue;
-        }
-        let every = em.uses.rt("every");
-        let _ = write!(
-            body,
-            "{every}({},a_{},{});",
-            t.interval_ms, t.action.0, t.once as u8
-        );
+    // The queues read the state a stalled `next` saw (LLP 1092 D3).
+    if plan.mutations.iter().any(|m| m.queue) {
+        let queues = em.uses.rt("queues");
+        let _ = write!(body, "{queues}($state);");
     }
+    timers::timers(&mut em, &mut body)?;
     let viewport = em.parts[sites.root as usize].as_ref().and_then(|p| {
         let fit = p.props.get("viewportFit");
         let widget = p.props.get("interactiveWidget");

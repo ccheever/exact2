@@ -40,6 +40,7 @@ mod stmts;
 mod strings;
 mod svg;
 pub mod tags;
+mod timers;
 mod values;
 pub mod vocab;
 
@@ -50,7 +51,7 @@ pub use native::{is_module_tag, module_tags};
 pub use sites::{Declared, NodeSite, Origin, Sites};
 
 use contract_analyze::Analysis;
-use contract_syntax::{Attr, Expr, File, FnDecl, Node, Owner, Span, TaskKind};
+use contract_syntax::{Attr, Expr, File, FnDecl, Node, Owner, Span};
 use contract_types::{Checked, Ref, Scope, Ty, Types};
 use exact_kernel::{NodeType, StyleId};
 use exact_plan::asm::Asm;
@@ -466,41 +467,15 @@ fn lower_with_sites(
         l.b.set_action_body(l.actions[i], code);
     }
     for (i, m) in root.mutations.iter().enumerate() {
+        if m.queue {
+            l.b.set_mutation_queue(l.mutations[i]);
+        }
         if let Some((name, _)) = &m.then {
             let action = l.actions[root.actions.iter().position(|a| &a.name == name).unwrap()];
             l.b.set_mutation_then(l.mutations[i], action);
         }
     }
-    for t in &root.tasks {
-        let action = l.actions[root
-            .actions
-            .iter()
-            .position(|a| a.name == t.timer.1)
-            .unwrap()];
-        let word = match t.kind {
-            TaskKind::Every => "every",
-            TaskKind::After => "after",
-            TaskKind::Frame => {
-                l.b.frame_timer(action);
-                continue;
-            }
-        };
-        let Expr::Number(ms, _) = &t.timer.0 else {
-            return Err(err_one(
-                "lower-timer-literal",
-                format!("`{word}` needs a literal number of milliseconds"),
-                t.timer.2,
-            ));
-        };
-        if !(ms.is_finite() && ms.fract() == 0.0 && *ms >= 1.0 && *ms <= u32::MAX as f64) {
-            return Err(err_one(
-                "lower-timer-interval",
-                format!("`{word}` needs a whole number of milliseconds, at least 1; given {ms}"),
-                t.timer.2,
-            ));
-        }
-        l.b.timer(*ms as u32, action, t.kind == TaskKind::After);
-    }
+    l.timers(&root.tasks, &scope)?;
     // The view, inlined (by `expand`, above).
     let view = &root.view;
     if view.len() != 1 {

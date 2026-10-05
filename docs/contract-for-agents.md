@@ -181,9 +181,9 @@ compile complete examples, parse authored tests, and check local links.
 | `state name = expr` | Component | Stored state |
 | `derive name = expr` | Component | Dependency-driven computed value |
 | `resource name = source(args) as shape T` | Root component | Reactive data request |
-| `mutation name as shape T` | Root component | Optional reply slot for explicit sends |
+| `mutation name as shape T [queue]` | Root component | Optional reply slot for explicit sends |
 | `action name(args)` | Component | Event transaction; effects inferred |
-| `task name mount` | Root component | One timer/frame schedule |
+| `task name mount` / `task name when cond [key=expr]` | Root component | One timer/frame schedule, always or while `cond` holds |
 | `view` | Component | UI tree |
 
 Top-level declarations begin in column 1. Indent with spaces. Comments use `//`.
@@ -411,6 +411,8 @@ Choose the mechanism from its lifetime:
 | Re-request current resource arguments | `refresh result` |
 | Refresh reads around a mutation | `mutation … refreshes resourceA, resourceB` |
 | React once to a settled mutation | `mutation … then actionName` |
+| Writes that must all land, in order | `mutation … queue`: one in flight, later sends wait their turn |
+| A timer while something shows | `task … when cond`, restarted by `key=` |
 | Pending indicator | `pending(resourceOrMutationName)` |
 | Resource request failed without an answer | `failed(resourceName)` |
 | Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
@@ -435,7 +437,17 @@ sends one mutation twice on one path is refused (`analyze-send-twice`), counting
 the sends of the actions it calls. Every `if` is read as one that can run: two
 sends are separate paths only as arms of one `if … else if … else` or `match`,
 or in `if`s testing one unchanged name against different literals. Send one
-combined request, or use a mutation per request. `refreshes` re-reads
+combined request, use a mutation per request, or declare the mutation `queue`
+([LLP 1092](../llp/1092-sends-that-queue-and-timers-that-wait.rfc.md)). A
+`queue` mutation (`mutation wrote as shape Ack queue then afterWrote`) keeps one
+request in flight; every later send waits, in order, with the arguments it was
+made with, and is asked after the reply before it and that reply's `then`, so
+`then` runs once per reply, in send order. `pending(m)` is true while a send is
+in flight or waits: send while it is pending, since `not pending(m)` means the
+spinner is off, not that a send may be skipped. Assigning a queue's slot forgets
+nothing — every reply still lands over it — so a mutation that must drop a late
+reply (a session's sign-in) does not declare `queue`. At most 64 sends wait; the
+65th refuses its action. `refreshes` re-reads
 its resources when the mutation is sent (an answer the source gives at once shows
 immediately) and forces them again when the reply lands; a mutation the source
 answers at once has landed, so its resources are forced in the sending commit (an
@@ -692,6 +704,21 @@ A root task has one `every(ms, action)`, `after(ms, action)`, or
 are whole-number literals of at least 1. The frame form has no delta-time argument and does not
 catch up missed display frames. For deterministic tests, use the driver's clock.
 
+`task hide when toast != "" key=toastUntil` with `after(5000, expire)` has its
+timer only while the gate holds, as a `when` arm has its nodes, and a new key
+restarts it, as a new `each` key makes a new row
+([LLP 1092](../llp/1092-sends-that-queue-and-timers-that-wait.rfc.md)). Nothing
+runs when the gate changes: turning true arms the timer from that commit's time,
+turning false drops it, and an idle task keeps no host awake and commits
+nothing at rest. `key=expr` alone means `when true key=expr`. An `after` fires
+at its deadline exactly, so its action sees `now()` equal to the deadline: clear
+without re-testing the time (a strict `now() > until` does nothing there). The
+gate is a bool and the key a string, number or bool; neither may read `now()`
+(`analyze-task-gate-clock`): gate on state and let the timer measure time. A
+toast, a debounce (`when draft != saved key=draft` with `after(800, save)`), a
+round's tick (`when screen == "play"`) and a flight's frames
+(`when flying` with `every(frame, step)`) are each one gated task.
+
 `now()` is the runner's clock in milliseconds since boot (the driver's clock under
 the agent), not a date. For the date, read the reserved `exactTime` source and add
 `time.epochAtZero + now()`. A read does not itself schedule a future render. Use a timer if a displayed value must keep changing without other
@@ -791,7 +818,9 @@ The driver has ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 commands. Use `tree` to find targets, `state` for data and delivery, `layout` for
 geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: per
 plan site, evaluations, unchanged results, instances created and retired), and
-screenshots for rendered output. Logs name refused operations and data errors.
+screenshots for rendered output. `state.tasks` gives each task's next due time
+(`null` while a gated task is idle or an `after` is spent) and `state.queued` each
+queue mutation's waiting sends. Logs name refused operations and data errors.
 Under the driver's clock no frame is presented, so `perf frames` measures a
 live window instead: `perf frames live 3000` lets the page's clock follow the
 wall for 3 s and reports the frames it presented (p50/p95/p99, late frames)
@@ -946,11 +975,12 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `state item = none` with no usable type | Supply a typed use/write or rethink whether it is mutable state |
 | Read a slot after writing it to get the new value | Compute `let next` before the assignments |
 | Dynamic navigation template | `path("route", args…)` |
-| Unconditional per-frame app work | CSS/presentation motion where possible; bounded root frame task where needed |
+| Unconditional per-frame app work | CSS/presentation motion where possible; a frame task gated on the state that needs it (`task fly when flying`) |
+| An always-on `every` that checks whether a toast expired | `task hide when toast != "" key=toastUntil` with `after(ms, clear)` |
 | Add a function because it exists in JavaScript | Check the roster or put the operation in the data module; `len`, `split`, `push(xs, x)` and their kind are refused naming what to write |
 | `background-color: "#fff"` in a `style` | `background-color="#fff"` |
 | `change=flip(t.id)` on a checkbox, `action flip(id: string)` | The event appends its payload: `action flip(id: string, checked: bool)` (the refusal spells it) |
-| Two `send`s to one mutation in one action | One combined request, or a mutation per request |
+| Two `send`s to one mutation in one action | One combined request, a mutation per request, or `mutation … queue` to run both in order |
 
 What compiles and then misbehaves (an image tile at its intrinsic size, native bars
 the agent does not show, a back gesture refused) is in

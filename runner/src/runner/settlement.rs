@@ -9,6 +9,7 @@ use exact_plan::{ResourcesRow, TypeKind, Value};
 
 /// What the published derives were computed against: an input equal to
 /// its value here has not changed since the last successful settlement.
+#[derive(Clone)]
 pub(super) struct Settled {
     slots: Vec<Value>,
     now_ms: f64,
@@ -72,9 +73,12 @@ impl<D: DataSource> Runner<D> {
         let result = if self.poisoned {
             Err(RunnerError::Poisoned)
         } else {
-            self.settle(false).and_then(|_| self.update())
+            self.settle(false)
+                .and_then(|_| self.gate_step())
+                .and_then(|_| self.update())
         };
         self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         result
     }

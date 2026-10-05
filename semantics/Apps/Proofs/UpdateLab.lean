@@ -15,7 +15,9 @@ theorem advance_keeps_user_state {c o t c' out} (hc : Reachable updateLab c)
     (h : advance updateLab o c t = (c', out)) :
     ∀ x ∈ ["counter", "note", "live"], lookup x c'.slots = lookup x c.slots := by
   intro x hx
-  refine hc.advance_untouched (fun a ha hname => ?_) h
+  refine hc.advance_untouched ?_ (fun a ha hname => ?_) h
+  · simp only [List.mem_cons, List.mem_nil_iff, or_false] at hx
+    rcases hx with rfl | rfl | rfl <;> decide
   simp only [updateLab, clockActions, thenActions, List.map_cons, List.map_nil, List.filterMap_cons,
     List.filterMap_nil, List.nil_append, List.cons_append, List.mem_cons, List.mem_nil_iff, or_false] at ha hname hx
   rcases hx with rfl | rfl | rfl <;>
@@ -33,7 +35,7 @@ theorem results_shape : ∀ m ∈ ["tsResult", "rustResult", "rustExecutorResult
   have hn : ∀ a ∈ updateLab.actions, Stmt.noAssigns m a.body = true := by
     simp only [List.mem_cons, List.mem_nil_iff, or_false] at hm
     rcases hm with rfl | rfl | rfl <;> decide
-  refine Reachable.slotIn ?_ (fun _ _ _ _ _ _ _ _ _ _ _ _ => .of_noAssign hn fun v => .inr ⟨v, rfl⟩)
+  refine Reachable.slotIn (by simp only [List.mem_cons, List.mem_nil_iff, or_false] at hm; rcases hm with rfl | rfl | rfl <;> decide) ?_ (fun _ _ _ _ _ _ _ _ _ _ _ _ => .of_noAssign hn fun v => .inr ⟨v, rfl⟩)
     (fun _ _ _ _ => .of_noAssign hn fun v => .inr ⟨v, rfl⟩)
   rintro v (⟨st, hst, hname, -⟩ | ⟨_, -, -, rfl⟩ | ⟨hr, -⟩)
   · simp only [updateLab, List.mem_cons, List.mem_nil_iff, or_false] at hst
@@ -141,7 +143,7 @@ sequence of taps, inputs and clock moves. It never reaches a non-integer,
 zero, a negative number or infinity, however many times `increment` runs:
 past `2^53` adding one rounds back (ties to even). -/
 theorem counter_always : ∀ c, Reachable updateLab c → SlotIn "counter" CounterOK c.slots :=
-  Reachable.slotIn counter_boot (fun _ _ _ _ _ _ _ _ _ hc _ _ => counter_keeps hc)
+  Reachable.slotIn (by decide) counter_boot (fun _ _ _ _ _ _ _ _ _ hc _ _ => counter_keeps hc)
     (fun _ _ _ hc => counter_keeps hc)
 
 /-- **The counter is at least one**, in the IEEE order the program's `<`

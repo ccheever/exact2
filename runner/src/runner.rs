@@ -43,6 +43,7 @@ pub use device::{Hold, HoldAnswer};
 pub use device_links::{AuthLinks, DeviceLinks, PickerLinks};
 pub mod picker;
 pub use picker::{Picked, PickerRequest, PICKED};
+mod gates;
 mod into_view;
 mod kept;
 #[cfg(test)]
@@ -51,6 +52,8 @@ mod lines;
 mod lists;
 mod page;
 mod perf;
+mod queue;
+pub use queue::QUEUE_BOUND;
 pub mod router;
 pub use lists::ListTextPosition;
 mod settlement;
@@ -176,6 +179,14 @@ pub enum RunnerError {
     TimerFireLimit {
         limit: usize,
     },
+    /// A send would be the 65th waiting for a `queue` mutation (LLP 1092 D4).
+    QueueFull {
+        mutation: String,
+    },
+    /// A gated task's `key=` is no key (a non-finite number; LLP 1092 D8).
+    TaskKey {
+        task: String,
+    },
     /// A region sits at the plan root; v1 requires one root node.
     RootRegion,
     /// A slot initializer or write does not conform to the slot's declared type.
@@ -284,10 +295,16 @@ impl PendingReq {
     }
 }
 
+#[derive(Clone)]
 struct Timer {
-    /// The next due time; infinite once a one-shot timer has fired; a frame
-    /// task's next virtual frame (LLP 1073 D3), `virtual_frame(base, k)`.
+    /// The next due time; infinite once a one-shot timer has fired, and
+    /// while a gated task is idle (LLP 1092 D8); a frame task's next
+    /// virtual frame (LLP 1073 D3), `virtual_frame(base, k)`.
     next_ms: f64,
+    /// Whether the task's gate holds (always, for `mount`).
+    armed: bool,
+    /// The key it was armed with (`key=`), as `each` compares keys.
+    key: Option<String>,
     /// A frame task's last presented frame (or mount) …
     base: f64,
     /// … and which virtual frame after it is next.
@@ -355,6 +372,8 @@ pub struct Runner<D: DataSource> {
     /// When each mutation's `then` action is due, as a one-shot timer:
     /// infinite until an answer lands.
     then_due: Vec<f64>,
+    /// `queue` mutations' waiting sends, `next`s and stalls (LLP 1092).
+    queues: queue::Queues,
     next_ticket: u64,
     /// Files picked this run, for `app:/tmp/picked/` names (LLP 1069.002 D3).
     picked_count: u64,
@@ -641,6 +660,7 @@ impl<D: DataSource> Runner<D> {
                 .collect(),
             now_ms: self.now_ms,
             store: self.store.snapshot(),
+            forgot_waiting: self.queued(),
         }
     }
 
@@ -805,6 +825,7 @@ impl<D: DataSource> Runner<D> {
             landed: Vec::new(),
             unsent: Vec::new(),
             then_due: Vec::new(),
+            queues: Default::default(),
             next_ticket: 1,
             picked_count: 0,
             forgot: false,
@@ -943,25 +964,33 @@ impl<D: DataSource> Runner<D> {
         runner.watching = vec![Vec::new(); runner.plan.resources.len()];
         runner.failed_args = vec![None; runner.plan.resources.len()];
         runner.then_due = vec![f64::INFINITY; runner.plan.mutations.len()];
+        runner.queues = queue::Queues::new(runner.plan.mutations.len());
         // A carried boot never takes compiled data: it was baked for the
         // initial state, and the carried state is not that.
         runner.settle(carried.is_none())?;
         runner.init_late_slots(carried)?;
         let now = runner.now_ms;
+        // A gated task starts idle; the gate step arms the ones whose gate
+        // holds, over the settled state (LLP 1092 D8).
         runner.timers = runner
             .plan
             .timers
             .iter()
             .map(|t| Timer {
-                next_ms: if t.frame {
+                next_ms: if t.gated || t.keyed {
+                    f64::INFINITY
+                } else if t.frame {
                     virtual_frame(now, 1)
                 } else {
                     now + t.interval_ms as f64
                 },
+                armed: !(t.gated || t.keyed),
+                key: None,
                 base: now,
                 k: 1,
             })
             .collect();
+        runner.gate_step()?;
         // First frame.
         let mut ids = std::mem::take(&mut runner.ids);
         let (tree, ops, surfaces, notes) = {
@@ -977,6 +1006,12 @@ impl<D: DataSource> Runner<D> {
         runner.publish_surfaces(surfaces);
         let line = lines::boot(carried.is_some(), runner.kernel.live_count(), receipt.epoch);
         runner.log(line);
+        for (name, n) in carried
+            .map(|c| c.forgot_waiting.as_slice())
+            .unwrap_or_default()
+        {
+            runner.log(lines::forgot_waiting(*n, name));
+        }
         if !note.is_empty() {
             runner.log(note);
         }
@@ -1213,34 +1248,6 @@ impl<D: DataSource> Runner<D> {
         );
         self.lookup_rows.set(scanned);
         found
-    }
-
-    /// Whether the plan has timers (a host then drives `advance`).
-    pub fn has_timers(&self) -> bool {
-        !self.plan.timers.is_empty() || self.plan.mutations.iter().any(|m| m.then.is_some())
-    }
-
-    /// Whether the plan has a frame task (LLP 1073 D4): a host keeps its
-    /// frame source running and calls [`Runner::frame`] each frame.
-    pub fn wants_frames(&self) -> bool {
-        self.plan.timers.iter().any(|t| t.frame)
-    }
-
-    /// Soonest timer deadline in this runner's clock domain; no host polling.
-    /// A frame task's next virtual frame counts only while the host doesn't
-    /// present frames: then its frame source wakes it (LLP 1073 D4).
-    /// @ref LLP 1043.000 §3 D8 — hosts wake near the authored timer's due time.
-    pub fn timer_due_ms(&self) -> Option<f64> {
-        self.timers
-            .iter()
-            .zip(&self.plan.timers)
-            .filter(|(_, row)| !(row.frame && self.presenting))
-            .map(|(timer, _)| timer.next_ms)
-            .chain(self.then_due.iter().copied())
-            // A drop's hold waits a second for its move (LLP 1094 D8).
-            .chain(self.reorder_deadline())
-            .filter(|ms| ms.is_finite())
-            .reduce(f64::min)
     }
 
     /// The kernel roots.

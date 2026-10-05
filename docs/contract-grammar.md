@@ -76,7 +76,7 @@ Every other keyword is contextual: a keyword only where its construct starts, a
 name at every binder and in every expression. They are `component`, `font`,
 `shape`, `style`, `from`, `state`, `derive`, `resource`, `mutation`, `action`,
 `task`, `mount`, `view`, `props`, `provide`, `inject`, `slot`, `children`, `key`,
-`refresh`, `writes`, `test` and `expect`. `refresh`, like `send` and `let`, begins
+`queue`, `refresh`, `writes`, `test` and `expect`. `refresh`, like `send` and `let`, begins
 a statement only before a name, so `action refresh`, `press=refresh` and
 `refresh feed` each have one parse. Shape fields, named arguments
 (`Flags(none=1)`), members after `.` and attribute names (SVG's `in`) admit every
@@ -161,13 +161,14 @@ provider      = FIELD [ "=" expr ] NL ;
 resource      = "resource" IDENT "=" source-call
                 [ "with" expr { "," expr } ] "as" "shape" type
                 [ "else" source-call ] NL ;
-mutation      = "mutation" IDENT "as" "shape" type
+mutation      = "mutation" IDENT "as" "shape" type [ "queue" ]
                 [ "refreshes" IDENT { "," IDENT } ]
                 [ "then" IDENT ] NL ;
 action        = "action" IDENT [ "(" [ action-params ] ")" ] block(statement) ;
 action-params = action-param { "," action-param } [ "," ] ;
 action-param  = IDENT [ ":" type ] ;
-task          = "task" IDENT "mount" block(schedule) ;
+task          = "task" IDENT ( "mount" | gate ) block(schedule) ;
+gate          = "when" expr [ "key" "=" expr ] | "key" "=" expr ;
 schedule      = "every" "(" ( expr | "frame" ) "," IDENT ")" NL
               | "after" "(" expr "," IDENT ")" NL ;
 statement     = IDENT "=" expr NL
@@ -186,7 +187,12 @@ source-call   = IDENT "(" [ arguments ] ")" ;
 
 There is one `props`, `inject`, `provide`, `slot`, and `view` section at most in
 a component. Only the root may own resources, mutations, and tasks. A task's
-body has exactly one schedule. The named timer action takes no parameters;
+body has exactly one schedule. A gated task (`when cond`, LLP 1092) has its
+timer only while `cond` holds, armed from the commit that made it true; `key=`
+re-arms it from the commit that changed the key (compared as an `each` key),
+and `key=` alone is `when true key=…`. The gate is a bool (`type-task-gate`), the
+key a string, number or bool (`type-task-key`), and neither reads `now()`,
+directly or through a derive or a `fn` (`analyze-task-gate-clock`). The named timer action takes no parameters;
 a millisecond interval is a literal whole number of at least 1.
 
 `else if c` is `else` around one nested `if c`, and `else when c` in a view
@@ -218,7 +224,9 @@ A resource's `else` is a placeholder. `else empty()` is the resource type's zero
 with `field=constant` overrides for a record. `else source(values…)` names a source
 whose arguments are plain values, not state; it is answered once at build.
 A mutation's `then` names a parameterless action and follows `refreshes` when
-both are present. Action effects are inferred: `writes` clauses are refused.
+both are present. `queue`, right after the shape, makes every send of the
+mutation wait its turn (LLP 1092): one request in flight, later sends asked in
+order, each after the reply before it and its `then`. Action effects are inferred: `writes` clauses are refused.
 Component `contract` sections are also refused.
 
 ## Views
@@ -997,7 +1005,8 @@ Syntax is only the first layer. In particular:
   resource, derive, mutation, action or later state it names is
   `type-initializer-scope` (LLP 1088 D4).
 - An action sends one mutation at most once on any path: a second send forgets
-  the first's reply (LLP 1016 D5), so it is `analyze-send-twice`. Exclusive
+  the first's reply (LLP 1016 D5), so it is `analyze-send-twice` — unless the
+  mutation is `queue`, whose sends each wait their turn (LLP 1092 D6). Exclusive
   `if`/`match` arms, and sequential `if`s testing one unchanged name against
   different literals, are separate paths (LLP 1088 D8). The walk reads the root's
   actions with every call expanded, where a caller and its callees are one commit.

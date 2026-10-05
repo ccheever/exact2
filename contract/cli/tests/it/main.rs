@@ -64,6 +64,7 @@ mod placeholder;
 mod pointer;
 mod post_message;
 mod presence;
+mod queue;
 mod realworld_then;
 mod records;
 mod refreshes;

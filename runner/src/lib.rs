@@ -101,7 +101,7 @@ pub use runner::{
     HoldAnswer, InFlight, Interrupt, KeyModifiers, Limits, ListTextPosition, Native, NativeCall,
     NativeHandler, Picked, PickerLinks, PickerRequest, PointerEvent, ResizeRect, RouterChange,
     RouterLink, Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, StreamCount, SurfaceAnswer,
-    Target, Timed, WheelEvent, JOURNAL_RING, MAX_CLOCK_MS, PICKED, RESIZE_UNDELIVERED,
+    Target, Timed, WheelEvent, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED,
     TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
 pub use store::{Store, StoreError, StoreWrite};

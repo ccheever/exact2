@@ -476,8 +476,11 @@ impl Emitter<'_> {
                     Some((a, _)) => format!(".some {}", string(a)),
                     None => ".none".into(),
                 };
+                // `queue` (LLP 1092 D1) only where declared: the embedding
+                // of every other program is as it was.
+                let queue = if m.queue { ", queue := true" } else { "" };
                 format!(
-                    "{{ name := {}, ty := {}, refreshes := [{}], andThen := {then} }}",
+                    "{{ name := {}, ty := {}, refreshes := [{}], andThen := {then}{queue} }}",
                     string(&m.name),
                     ty(&ct.mutations[i]),
                     refreshes.join(", ")
@@ -524,8 +527,16 @@ impl Emitter<'_> {
                 TaskKind::After => ".after",
                 TaskKind::Frame => ".frame",
             };
+            // A gated task's gate and key (LLP 1092 D12), as D9 lowers them.
+            let mut gate = String::new();
+            if let Some(g) = &t.gate {
+                gate += &format!(", gate := .some ({})", self.expr(g)?);
+            }
+            if let Some(k) = &t.key {
+                gate += &format!(", key := .some ({})", self.expr(k)?);
+            }
             tasks.push(format!(
-                "{{ name := {}, kind := {kind}, ms := {}, action := {} }}",
+                "{{ name := {}, kind := {kind}, ms := {}, action := {}{gate} }}",
                 string(&t.name),
                 self.expr(&t.timer.0)?,
                 string(&t.timer.1)

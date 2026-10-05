@@ -256,6 +256,9 @@ impl Rewriter<'_> {
         }
         for t in tasks {
             self.expr(&mut t.timer.0)?;
+            for e in t.gate.iter_mut().chain(t.key.iter_mut()) {
+                self.expr(e)?;
+            }
         }
         self.nodes(view)?;
         self.locals.truncate(mark);

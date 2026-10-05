@@ -92,9 +92,15 @@ guide's rules don't make obvious.
   post-apply pass (navigation, controls, menus, every scroller's position) four
   times a second; before `32805146` this also cut the reader's scrolling. Fix:
   write state only when it changes (a minute-resolution clock; poll fast only while
-  something is in flight), and remove `scroll=` handlers left over from
-  experiments: each commits per scroll frame. (Signal Clone, build 2; QUEUE has
-  the host side.)
+  something is in flight: `task poll when inFlight every(200, tick)`), and remove
+  `scroll=` handlers left over from experiments: each commits per scroll frame.
+  (Signal Clone, build 2; QUEUE has the host side.)
+- **A gate reads state at commits.** A gated task (`task hide when toast != ""
+  key=toastUntil`) is armed or dropped by the commit that changes its gate or
+  key, never as the clock moves: so a gate cannot read `now()` (refused), and the
+  `after`'s action runs at its deadline exactly, `now()` equal to it. An action
+  that re-tests `now() > toastUntil` there does nothing and the toast stays up
+  forever; clear it unconditionally. (LLP 1092 D8; ledger2 #1, chat F7.)
 
 - **A custom row in a grouped list overflows its card on the right.** Cause:
   the sheet already gives each row its margin (16 pt, or 56 pt after an icon)

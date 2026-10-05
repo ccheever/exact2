@@ -131,6 +131,16 @@ fn state(r: &mut Runner<Oracle>, plan: &Plan, out: &mut Vec<String>) {
             out.push(format!("resource {name} {}", value(v)));
         }
     }
+    // Each queue's waiting sends (LLP 1092 D12), in declaration order.
+    let queued = r.queued();
+    for m in plan.mutations.iter().filter(|m| m.queue) {
+        let name = plan.str(m.name);
+        let n = queued
+            .iter()
+            .find(|(q, _)| q == name)
+            .map_or(0, |(_, n)| *n);
+        out.push(format!("queued {name} {n}"));
+    }
     for c in r.take_commands() {
         let args: String = c.args.iter().map(|a| format!(" {}", value(a))).collect();
         out.push(format!("command {}{args}", c.name));

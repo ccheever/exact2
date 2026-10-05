@@ -1027,7 +1027,7 @@ fn repeated(region: RegionsId, key: &Value, ident: &str) -> String {
 
 /// One canonical key text: strings, finite numbers (`-0` is `0`, matching the
 /// VM's equality), bools. NaN is not a key.
-fn key_text(v: &Value) -> Option<String> {
+pub(crate) fn key_text(v: &Value) -> Option<String> {
     match v {
         v @ exact_plan::str_value!() => Some(exact_num::text!("s:{}", v.text())),
         Value::Number(n) if n.is_finite() => Some(exact_num::text!(

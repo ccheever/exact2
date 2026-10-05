@@ -1,0 +1,45 @@
+// A gated `after` (LLP 1092 D7, D8): idle while its gate is false, armed
+// from the commit that makes it true, dropped by one that makes it false,
+// and restarted by a new key. It fires at its deadline exactly.
+component App
+  state toast = ""
+  state until = 0
+  state fired = 0
+  state at = 0
+  action show(t: string)
+    toast = t
+    until = now() + 500
+  action hide
+    toast = ""
+  action expire
+    fired = fired + 1
+    at = now()
+    toast = ""
+  task gone when toast != "" key=until
+    after(500, expire)
+  view
+    column
+      text toast testId="toast"
+      button "a" press=show("a") testId="a"
+      button "b" press=show("b") testId="b"
+      button "hide" press=hide testId="hide"
+
+test "on then off fires nothing"
+  clock +100
+  tap "a"
+  clock +300
+  tap "hide"
+  clock +1000
+  expect state fired == 0
+
+test "a new key restarts it"
+  tap "a"
+  clock +300
+  tap "b"
+  clock +400
+  expect state fired == 0
+  clock +100
+  expect state fired == 1
+  expect state at == 800
+  clock +2000
+  expect state fired == 1

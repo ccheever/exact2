@@ -623,6 +623,9 @@ pub struct MutationDecl {
     pub name: String,
     /// The reply's shape, `T`.
     pub shape: TypeExpr,
+    /// `queue`: one send in flight, later sends wait their turn in order
+    /// (LLP 1092 D1, D2); otherwise the newest send wins (LLP 1016 §4).
+    pub queue: bool,
     /// `refreshes a, b`: resources the runner re-asks, forced, when a send
     /// to this mutation runs and when its reply lands (LLP 1054.000.000 D1).
     pub refreshes: Vec<(String, Span)>,
@@ -837,14 +840,20 @@ impl Stmt {
     }
 }
 
-/// `task name mount` with `every(ms, action)`, `every(frame, action)` or
-/// `after(ms, action)`.
+/// `task name mount` (or `when cond [key=expr]`, or `key=expr`) with
+/// `every(ms, action)`, `every(frame, action)` or `after(ms, action)`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Task {
     /// Name.
     pub name: String,
     /// Whether the timer repeats or fires once.
     pub kind: TaskKind,
+    /// `when cond`: the timer exists while `cond` holds (LLP 1092 D7);
+    /// `None` for `mount` and for `key=` alone (`when true`).
+    pub gate: Option<Expr>,
+    /// `key=expr`: a new key restarts the timer, as a new `each` key makes
+    /// a new row (LLP 1092 D7).
+    pub key: Option<Expr>,
     /// `(ms, action)` and the entry's span.
     pub timer: (Expr, String, Span),
     /// Where.

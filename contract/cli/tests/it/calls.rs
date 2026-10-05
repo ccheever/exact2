@@ -812,18 +812,18 @@ fn a_mutation_sent_twice_through_calls_names_the_calls() {
     says(
         "component App\n  mutation saved as shape string\n  action commitEdit\n    send saved = save(\"a\")\n  action openSheet(id: string)\n    send saved = save(id)\n  action enter\n    commitEdit()\n    openSheet(\"b\")\n  view\n    button press=enter testId=\"go\"\n      text \"go\"\n",
         "analyze-send-twice",
-        "`enter` sends `saved` twice on one path: in `commitEdit` (called at line 8) and in `openSheet` (called at line 9). Only the last send's reply reaches `saved` (LLP 1016 D5): send once, or use a mutation per request",
+        "`enter` sends `saved` twice on one path: in `commitEdit` (called at line 8) and in `openSheet` (called at line 9). Only the last send's reply reaches `saved` (LLP 1016 D5): send once, use a mutation per request, or declare `mutation saved … queue` to run both in order",
     );
     says(
         "component App\n  mutation saved as shape string\n  action save\n    send saved = save(\"a\")\n  action enter\n    save()\n    save()\n  view\n    button press=enter testId=\"go\"\n      text \"go\"\n",
         "analyze-send-twice",
-        "`enter` sends `saved` twice on one path: in `save` (called at line 6) and in `save` (called at line 7). Only the last send's reply reaches `saved` (LLP 1016 D5): send once, or use a mutation per request",
+        "`enter` sends `saved` twice on one path: in `save` (called at line 6) and in `save` (called at line 7). Only the last send's reply reaches `saved` (LLP 1016 D5): send once, use a mutation per request, or declare `mutation saved … queue` to run both in order",
     );
     // A call in an arm says why both can run (chess #2).
     says(
         "component App\n  state n = 0\n  mutation saved as shape string\n  action save\n    send saved = save(\"a\")\n  action enter\n    if n > 0\n      save()\n    save()\n  view\n    button press=enter testId=\"go\"\n      text \"go\"\n",
         "analyze-send-twice",
-        "`enter` sends `saved` twice on one path, in `save` (called at line 8) and in `save` (called at line 9): every `if` is read as one that can run, unless the two sends are arms of one `if`/`else` or `match`, or sit in `if`s testing one unchanged name against different literals. Only the last send's reply reaches `saved` (LLP 1016 D5): send once, make the sends arms of one `if … else if`, or use a mutation per request",
+        "`enter` sends `saved` twice on one path, in `save` (called at line 8) and in `save` (called at line 9): every `if` is read as one that can run, unless the two sends are arms of one `if`/`else` or `match`, or sit in `if`s testing one unchanged name against different literals. Only the last send's reply reaches `saved` (LLP 1016 D5): send once, make the sends arms of one `if … else if`, use a mutation per request, or declare `mutation saved … queue` to run both in order",
     );
     says(
         "component App\n  mutation saved as shape string then after\n  action commit\n    send saved = save(\"a\")\n  action after\n    commit()\n  view\n    button press=commit testId=\"go\"\n      text \"go\"\n",

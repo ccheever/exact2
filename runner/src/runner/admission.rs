@@ -65,6 +65,8 @@ impl<D: DataSource> Runner<D> {
             "request {ticket} ({name}) was refused admission: {next}"
         ));
         if self.has_ordered_request_refusals() {
+            // No commit: a queue whose send ended here is free now (LLP 1092 D3).
+            self.arm_next(false);
             return Ok(None);
         }
         let which = std::mem::take(&mut self.refused_asks);
