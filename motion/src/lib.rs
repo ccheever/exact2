@@ -24,6 +24,8 @@
 //! - [`animation`] — CSS `@keyframes` and `animation`, sampled in closed form
 //!   (LLP 1055 D5).
 //! - [`engine`] — per-node presentation state under a seekable clock.
+//! - [`uikit`] — UIKit's spring parameterisations, resolved to the springs
+//!   UIKit builds (LLP 1099).
 //! - [`velocity`] — a pointer-velocity estimate for hosts without one.
 //! - [`math`] — pinned transcendentals, so the same input yields the same bits.
 //!
@@ -45,6 +47,7 @@ pub mod parse;
 pub mod property;
 pub mod spring;
 pub mod transition;
+pub mod uikit;
 pub mod velocity;
 
 pub use animation::link as link_animations;
