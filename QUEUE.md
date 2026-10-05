@@ -1,5 +1,25 @@
 # Queue
 
+- **Generated models carry no material** (2026-10-05, garden looks). `World::generated` takes one `MeshData` and a fixed default material (metallic 0, roughness 1), and a model entity's `Material` only tints it, so code-made art cannot be glossy, metallic or emissive per part: golden/storybook paint highlights into vertex colours, and the art pass baked glTF to get materials. Let a generated model carry materials per mesh part.
+
+- **Custom materials are opaque-only, see no model textures and are never culled** (2026-10-05, Forest art pass). A wind-sway vertex shader on leaves would lose alpha cutouts, textures and `ModelLod`, so sway stayed per-tree `Offset` in `present`.
+
+- **Only `Game::ASSETS` models animate** (2026-10-05, Rivals and Forest art passes). An animated model must be required before setup, which makes every look wait on it; soldiers and survivors are rigid parts posed in `present` instead of skinned models.
+
+- **`Game::present` cannot swap a mesh, move a light or change the sky** (2026-10-05, garden art pass). `Mesh`, lights and the `Environment` resource are simulation, and presentation resources are unsupported, so plant stage models, day/night sun and moon, and weather fog are saved and move pins although gameplay never reads them.
+
+- **Changing a look restarts the game** (2026-10-05, garden `art`). Generated models register only at tick 0, so a look is a setup argument and switching it rebuilds the world; a presentation-only look should switch live.
+
+- **`Game::ASSETS`/`STREAMED` are fixed per game** (2026-10-05, garden art pass). The classic look downloads and prepares the art pass's 200+ streamed models; its first drawn frame went from ~170–410 ms to ~500 ms with 671 mesh uploads. Prepare streamed models after the first frame, or let declarations depend on arguments.
+
+- **Generated and streamed model names share one namespace and collide late** (2026-10-05, garden). Golden/storybook generated `meadow.model` while the art pass streams one; setup refused only once the streamed bytes had landed (macOS crash on choosing Golden hour), and hostless tests never load streamed bytes. Refuse the collision at registration, against every declared name.
+
+- **Pins move for reasons outside the game** (2026-10-05, the main merge re-pinned ten games). Saves carry every bound canvas argument, so adding an argument moves every save pin; registering new built-in components moved garden's world hash. Pins should measure the game's own state.
+
+- **Game proofs read exact visible strings** (2026-10-05, garden HUD restyle). Restyling had to keep every HUD sentence word for word because `proof.mjs` and the Jev playtests assert display text; proofs should assert published values and leave copy free to change.
+
+- **Game tooling papercuts** (2026-10-05). Contract fonts must live under `assets/`, which the bake also writes (garden needs a `.gitignore` exception); `scripts/agent.mjs web` refuses the dev loop's dist and needs a separate full build; garden's offscreen `tests/render.rs` no longer applies its `fill` message (25 entities, any look); arming perf counters through a session returned nothing; main's `scripts/app.mjs` `cargoOnPath` skips `~/.cargo/bin` when cargo is found elsewhere, losing `wasm-bindgen`; `game/proof.test.mjs` 'game pin literals stay in fixture pins' flags `game/engine/tests/rig.rs`.
+
 - **The web dev loop dies when a directory appears under a game's `assets/`** (2026-10-05, garden fonts). Moving fonts into `game/games/garden/assets/fonts/` while `bun game/dev.mjs garden` ran crashed it at `host/web/dev.mjs:911` (`rmSync(directory)`: `TypeError: path must be a string or TypedArray`): the restart path removes `gpuVersions` values that are not paths. Restarting the loop recovers.
 
 - **Generated game models repeat the same mesh assembly** (2026-10-04, Garden `logic/src/art.rs` and Forest `logic/src/deer_art.rs`): both copy flat-shaded triangle emission, vertex colors, ellipsoid tessellation and bounds calculation. Consider a small renderer-independent helper only if migrating both consumers deletes those copies and preserves their existing geometry and deterministic saves; keep each game's shapes and art direction local.
