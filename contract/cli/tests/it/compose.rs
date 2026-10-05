@@ -238,7 +238,7 @@ fn position_fixed_says_how_to_pin_a_box() {
 
 #[test]
 fn an_expression_continued_on_an_indented_line_is_told_to_wrap_it() {
-    let wrap = "an expression goes on over lines only inside parentheses";
+    let wrap = "an indented line that starts with an operator continues the line above";
     let derive = "component App\n  state done = false\n  derive label = done\n    ? \"Done\"\n    : \"Open\"\n  view\n    text label\n";
     let error = contract::compile(derive).unwrap_err();
     assert_eq!(error.id, "syntax-expected-section");

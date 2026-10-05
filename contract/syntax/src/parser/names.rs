@@ -64,8 +64,9 @@ impl Parser {
         continues.then(|| {
             self.err(
                 id,
-                "an expression goes on over lines only inside parentheses: wrap the whole \
-                 expression in `(` … `)`, as in `derive label = (done\n    ? \"Done\"\n    : \"Open\")`",
+                "an indented line that starts with an operator continues the line above, and \
+                 a declaration is one line: if the line above is an expression, wrap the whole \
+                 expression in parentheses, as in `derive label = (done\n    ? \"Done\"\n    : \"Open\")`",
             )
         })
     }
