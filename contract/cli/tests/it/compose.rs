@@ -329,3 +329,19 @@ fn flex_none_beside_another_error_is_not_refused() {
         "{errors:?}"
     );
 }
+
+#[test]
+fn a_shape_named_like_a_built_in_says_so() {
+    let error =
+        contract::compile("shape Geometry\n  x: number\ncomponent App\n  view\n    text \"a\"\n")
+            .unwrap_err();
+    assert_eq!(
+        error.message,
+        "`Geometry` is a shape the compiler declares; name the app's shape another way"
+    );
+    let error = contract::compile(
+        "shape A\n  x: number\nshape A\n  y: number\ncomponent App\n  view\n    text \"a\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(error.message, "shape `A` declared twice");
+}

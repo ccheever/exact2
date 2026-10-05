@@ -1135,11 +1135,17 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
     geometry::declare(&mut shapes);
     for s in &file.shapes {
         if shapes.map.contains_key(&s.name) {
-            return err(
-                "type-duplicate-shape",
-                format!("shape `{}` declared twice", s.name),
-                s.span,
-            );
+            // A compiler-declared shape (`Geometry`, `Router`, …) is not a second declaration
+            // of the app's own (authoring bench).
+            let message = if shapes.declared.contains(&s.name) {
+                format!("shape `{}` declared twice", s.name)
+            } else {
+                format!(
+                    "`{}` is a shape the compiler declares; name the app's shape another way",
+                    s.name
+                )
+            };
+            return err("type-duplicate-shape", message, s.span);
         }
         shapes.map.insert(s.name.clone(), Vec::new());
         shapes.declared.insert(s.name.clone());
