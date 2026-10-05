@@ -200,8 +200,10 @@ final class TextSelection {
         if !dragged, anchor === node, let reader = node.readerParagraph {
             let current = gesture
             reader.resolveOffset(at: node.local(event.locationInWindow), node: node) { [weak self] _, url in
+                // A route of this app navigates in it, as a short paragraph's
+                // link does (b6 review B5); the rest is the containing app's.
                 guard let self, self.gesture == current, let url, let session = self.presenter?.session else { return }
-                session.delegate?.exactSession(session, command: "openURL", args: [url])
+                session.follow(url)
             }
             return
         }
