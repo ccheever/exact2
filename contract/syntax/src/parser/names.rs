@@ -8,6 +8,8 @@
 //! a section line, `refresh` before a name in a body) and a name everywhere
 //! else. A shape field, a named argument, a member after `.` and an
 //! attribute name can never head an expression, so they admit every word.
+//! A state's or derive's name takes no type annotation: its type is inferred
+//! (`type_annotation`).
 
 use super::*;
 
@@ -33,6 +35,39 @@ pub(super) fn reserved_message(w: &str) -> String {
 }
 
 impl Parser {
+    /// A TypeScript-style `: T` before a state's or derive's `=`, or `as T` after its
+    /// initializer (authoring bench): its type is inferred.
+    pub(super) fn type_annotation(&self, w: &str, name: &str, form: &str) -> R<()> {
+        let state = w == "state";
+        if form == ":" && self.at_punct(":") {
+            let from = if state {
+                "; an empty start is `none` or `[]`, and the writes give it its type"
+            } else {
+                ", which is its expression's"
+            };
+            return self.err(
+                "syntax-expected",
+                format!(
+                    "a {w}'s type is inferred, so `{w} {name}` takes no `: type`: \
+                     write `{w} {name} = …`{from}"
+                ),
+            );
+        }
+        if form == "as" && self.at_ident("as") {
+            let from = if state {
+                "its initializer and the writes to it (a `none` becomes an option of what is \
+                 written into it)"
+            } else {
+                "its expression"
+            };
+            return self.err(
+                "syntax-expected-newline",
+                format!("a {w} takes no `as`: its type is inferred from {from}"),
+            );
+        }
+        Ok(())
+    }
+
     /// A name a binder introduces, or one that refers to a binder's name: any
     /// word but the sixteen reserved ones.
     pub(super) fn ident(&mut self) -> R<(String, Span)> {

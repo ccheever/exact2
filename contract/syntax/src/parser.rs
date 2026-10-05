@@ -716,38 +716,10 @@ impl Parser {
                         "state" | "derive" => {
                             let t = self.next();
                             let name = self.named_ident(t.span)?;
-                            // A TypeScript-style annotation (authoring bench).
-                            if self.at_punct(":") {
-                                let from = if w == "state" {
-                                    "; an empty start is `none` or `[]`, and the writes give it its type"
-                                } else {
-                                    ", which is its expression's"
-                                };
-                                return self.err(
-                                    "syntax-expected",
-                                    format!(
-                                        "a {w}'s type is inferred, so `{w} {name}` takes no \
-                                         `: type`: write `{w} {name} = …`{from}"
-                                    ),
-                                );
-                            }
+                            self.type_annotation(&w, &name, ":")?;
                             self.expect_punct("=")?;
                             let expr = self.expr()?;
-                            // A TypeScript-style `as` on the initializer (authoring bench).
-                            if self.at_ident("as") {
-                                let from = if w == "state" {
-                                    "its initializer and the writes to it (a `none` becomes an \
-                                     option of what is written into it)"
-                                } else {
-                                    "its expression"
-                                };
-                                return self.err(
-                                    "syntax-expected-newline",
-                                    format!(
-                                        "a {w} takes no `as`: its type is inferred from {from}"
-                                    ),
-                                );
-                            }
+                            self.type_annotation(&w, &name, "as")?;
                             self.newline()?;
                             let b = Binding {
                                 name,
