@@ -201,6 +201,15 @@ guide's rules don't make obvious.
   `apps/messages/app.contract`'s inbox row (`thread-swipe-…`). (Ledger2 DIARY, "Needed:
   swipe gesture", about 15 minutes, 2026-10-04.)
 
+- **A write left running after a source answers never lands on iOS or macOS.** The
+  web saves it; the native host does not, and a list is empty after a relaunch. Cause:
+  the native data executor runs a source's promises only while a request waits on
+  them, and one request at a time, so a `promise` started and not awaited (a
+  fire-and-forget SQLite write) never finishes, and an answer queues behind any
+  request still in flight. Fix: await the write before answering, or carry it in a
+  request of its own that the view sends (a `flush` source called with the change).
+  (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
+
 ## Driving and testing
 
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
