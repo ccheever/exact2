@@ -449,12 +449,15 @@ use jni_sys::{jobject, JNIEnv};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicU8, Ordering};
 
-/// An app's allocator: the system's, or mimalloc (2.x) with
-/// `EXACT_MALLOC=mimalloc`, which spends less per call than Android's scudo
-/// (half of a cold boot's CPU, LLP 1076) but showed more variable launches,
-/// ~25 MB more PSS, and (its 3.x) a crash in a new thread's first allocation.
-/// Chosen once, at the first allocation, so every block is freed by the
-/// allocator that made it.
+/// An app's allocator: mimalloc (2.x), which spends less per call than
+/// Android's scudo (half of a cold boot's CPU, LLP 1076: heavy's cold start
+/// 98 -> 69 ms on a Pixel 10 Pro XL); the reader sets
+/// `MIMALLOC_PURGE_DELAY=0` before the library loads (mimalloc reads its
+/// options from a constructor as it loads), so freed memory goes back at once
+/// (decoded pictures otherwise stay held, ~110 MB more on heavy); the system's with
+/// `EXACT_MALLOC=system`, to compare. Chosen once, at the first allocation, so
+/// every block is freed by the allocator that made it. (mimalloc 3.x crashed
+/// in a new thread's first allocation; 2.x ran clean.)
 pub struct Allocator;
 
 static CHOSEN: AtomicU8 = AtomicU8::new(0);
@@ -466,9 +469,9 @@ fn mimalloc_chosen() -> bool {
         _ => {
             // getenv does not allocate.
             let chosen_name = unsafe { libc_getenv(c"EXACT_MALLOC".as_ptr()) };
-            let use_mimalloc = !chosen_name.is_null()
-                && unsafe { std::ffi::CStr::from_ptr(chosen_name) }.to_bytes() == b"mimalloc";
-            let chosen = if use_mimalloc { 1 } else { 2 };
+            let use_system = !chosen_name.is_null()
+                && unsafe { std::ffi::CStr::from_ptr(chosen_name) }.to_bytes() == b"system";
+            let chosen = if use_system { 2 } else { 1 };
             // Two threads' first allocations agree on one choice.
             match CHOSEN.compare_exchange(0, chosen, Ordering::Relaxed, Ordering::Relaxed) {
                 Ok(_) => chosen == 1,
