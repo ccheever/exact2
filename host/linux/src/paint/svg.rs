@@ -67,6 +67,25 @@ pub struct SvgPaint<'a> {
     pub phase: f32,
 }
 
+thread_local! {
+    /// Each role's path, parsed once: the schema's `d` strings are static,
+    /// so the address names the path (a row of icons painted again parsed
+    /// every one, 4% of the easy list's thread).
+    static SYMBOL_PATHS: std::cell::RefCell<std::collections::HashMap<usize, std::rc::Rc<Path>>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// The parsed path of a schema `d` string.
+fn parsed_symbol(d: &'static str) -> std::rc::Rc<Path> {
+    SYMBOL_PATHS.with(|paths| {
+        paths
+            .borrow_mut()
+            .entry(d.as_ptr() as usize)
+            .or_insert_with(|| std::rc::Rc::new(exact_kernel::svg::parse_d(d)))
+            .clone()
+    })
+}
+
 impl Painter {
     /// A portable symbol role (LLP 1035.004 D1) as the web draws it: the
     /// role's path in a 24-unit box at the image's font size, placed by
@@ -96,7 +115,7 @@ impl Painter {
         let Some((x, y, w, h)) = super::object_fit(natural, style.object_fit, content) else {
             return;
         };
-        let path = exact_kernel::svg::parse_d(d);
+        let path = parsed_symbol(d);
         // An untinted symbol is the row's initial, `AccentColor` (LLP 1095 D8).
         let colour = tint.unwrap_or_else(|| {
             rgba(
