@@ -25,7 +25,7 @@ use exact_kernel::{
     Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId, StyleId, StyleMask,
     StyleProps, ViewId,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
@@ -39,6 +39,7 @@ mod inline;
 mod layer;
 mod native;
 pub use native::NativeKind;
+mod order;
 mod placed;
 mod presented;
 mod region;
@@ -478,6 +479,9 @@ pub struct Painter {
     /// Retained until the kernel commits; scroll and damage paints reuse it.
     pub(crate) paint_epoch: Option<u64>,
     ranks: Rc<BTreeMap<ViewId, i64>>,
+    /// This epoch's walked nodes' potentials, and passes since a full one.
+    fresh_order: HashMap<ViewId, exact_kernel::paint_order::Potentials>,
+    rank_increments: u32,
     pub(crate) placements: BTreeMap<ViewId, crate::placement::Placement>,
     /// Each 2D canvas's latest bitmap (LLP 1056).
     pub(crate) canvases: BTreeMap<ViewId, crate::canvas2d::CanvasPaint>,
@@ -574,6 +578,8 @@ impl Painter {
             #[cfg(test)]
             rank_passes: 0,
             paint_epoch: None,
+            fresh_order: HashMap::new(),
+            rank_increments: 0,
             ranks: Rc::default(),
             accepted_text: BTreeMap::new(),
             arrange_lift: None,
@@ -745,14 +751,7 @@ impl Painter {
         self.damage.next.clear();
         self.damage.unsupported = false;
         if self.paint_epoch != Some(scene.kernel.epoch()) {
-            self.ranks = Rc::new(
-                scene
-                    .kernel
-                    .paint_order()
-                    .into_iter()
-                    .map(|(id, p)| (id, p.rank))
-                    .collect(),
-            );
+            self.refresh_ranks(scene.kernel);
             self.paint_epoch = Some(scene.kernel.epoch());
             #[cfg(test)]
             {
@@ -890,7 +889,8 @@ impl Painter {
         };
         walk.boxes.push(PaintedBox {
             id,
-            pointer_hit: node.computed_style(StyleMask::INHERITED).pointer_events
+            pointer_hit: node
+                .computed_row(exact_kernel::StyleId::PointerEvents, |s| s.pointer_events)
                 != exact_kernel::PointerEvents::None,
             projective: None,
             affine: Some((ts, (x, y, w, h))),
@@ -1217,19 +1217,24 @@ impl Painter {
         // @ref LLP 1083.000 D5 — a canvas's placed children first, by
         // projective depth, as the web gives them negative indices by
         // depth; then every other child by its rank, then tree order.
+        // All in flow and none placed (most parents): tree order as it is.
+        let ordered =
+            self.placements.is_empty() && !children.iter().any(|c| walk.ranks.contains_key(c));
         let order: Vec<(ViewId, usize)> = children.iter().copied().zip(0..).collect();
         let mut order = order;
-        order.sort_by(
-            |(a, i), (b, j)| match (self.placements.get(a), self.placements.get(b)) {
-                (Some(a), Some(b)) => a.depth().total_cmp(&b.depth()).then(i.cmp(j)),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                _ => {
-                    let rank = |id: &ViewId| walk.ranks.get(id).copied().unwrap_or(0);
-                    rank(a).cmp(&rank(b)).then(i.cmp(j))
+        if !ordered {
+            order.sort_by(|(a, i), (b, j)| {
+                match (self.placements.get(a), self.placements.get(b)) {
+                    (Some(a), Some(b)) => a.depth().total_cmp(&b.depth()).then(i.cmp(j)),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    _ => {
+                        let rank = |id: &ViewId| walk.ranks.get(id).copied().unwrap_or(0);
+                        rank(a).cmp(&rank(b)).then(i.cmp(j))
+                    }
                 }
-            },
-        );
+            });
+        }
         let children: Vec<ViewId> = order.into_iter().map(|(id, _)| id).collect();
         let rows = self.has_rows(walk, node);
         // A scroller's rows are its children; a scroller holding one

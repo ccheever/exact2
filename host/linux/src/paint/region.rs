@@ -382,7 +382,8 @@ impl Picture {
                 ordinal,
                 key: node.key,
                 id,
-                pointer_hit: node.computed_style(StyleMask::INHERITED).pointer_events
+                pointer_hit: node
+                    .computed_row(exact_kernel::StyleId::PointerEvents, |s| s.pointer_events)
                     != exact_kernel::PointerEvents::None,
                 paint,
                 payload,
