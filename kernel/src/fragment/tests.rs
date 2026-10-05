@@ -284,3 +284,27 @@ fn multicol_probe() {
     println!("  one cut {cut:.3} ms; a one-word edit in the last column {edit:.3} ms");
     println!("  balanced into 3 columns: {walks} walks");
 }
+
+#[test]
+fn a_paragraph_the_host_cannot_break_is_never_cut_shorter() {
+    // A host with no line boxes (Apple, before its hook) keeps a paragraph
+    // whole: the balanced height is at least that paragraph's, as Chrome's
+    // is never below its tallest unbreakable piece.
+    let mut flow = Flow::default();
+    flow.paras.push(Para {
+        slot: 0,
+        content_top: 0.0,
+        width: 100.0,
+        orphans: 2,
+        widows: 2,
+        avoid: false,
+        lines: Some(Vec::new()),
+    });
+    flow.atoms.push(atom(0.0, 160.0, Some(0)));
+    flow.atoms.push(atom(160.0, 220.0, None));
+    let arena = NodeArena::default();
+    let mut measurer = MonospaceMeasurer::default();
+    let mut cutter = Cutter::new(flow, &arena, &mut measurer, 0.0);
+    let (h, walk) = cutter.balance(3, 220.0);
+    assert_eq!((h, walk.starts.len()), (160.0, 2));
+}

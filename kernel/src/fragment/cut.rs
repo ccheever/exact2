@@ -59,6 +59,10 @@ pub(super) struct Walk {
     pub shortage: Option<f32>,
     /// Kernel-only monolithic atoms that did not fit their column.
     pub refused: Vec<usize>,
+    /// The tallest unit a column took whole although it was taller than the
+    /// column: a piece nothing could break (a paragraph whose host gave no
+    /// lines is one), which a balanced height is never lower than.
+    pub unbroken: f32,
 }
 
 pub(super) struct Cutter<'a> {
@@ -258,7 +262,11 @@ impl<'a> Cutter<'a> {
                         Some((_, at, restart)) => break Some((at, restart)),
                         // The first unit is taller than the column: it
                         // starts the column and overflows it.
-                        None => match self.next(pos) {
+                        None => match {
+                            let (top, _) = self.unit(pos);
+                            out.unbroken = out.unbroken.max(bottom - top);
+                            self.next(pos)
+                        } {
                             Some(n) => {
                                 let (_, forced, restart) = self.candidate(n, first);
                                 let _ = forced;
@@ -329,6 +337,10 @@ impl<'a> Cutter<'a> {
         let mut h = guess.max(tallest).min(cap);
         loop {
             let walk = self.walk(h);
+            if walk.unbroken > h + EPSILON && h < cap - EPSILON {
+                h = walk.unbroken.min(cap);
+                continue;
+            }
             match walk.shortage {
                 Some(more) if walk.starts.len() > n && h < cap - EPSILON && more > 0.0 => {
                     h = (h + more).min(cap);
