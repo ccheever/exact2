@@ -20,6 +20,8 @@ extension NodeView {
     override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
         super.didUpdateFocus(in: context, with: coordinator)
         if context.nextFocusedItem === self {
+            presenter?.focusKey = props["testId"]
+            presenter?.focusGuides.focused(self)
             showFocusRing(true)
             repaintThrough()
             if handlers.contains("focus") { presenter?.focus(id) }
@@ -35,6 +37,73 @@ extension NodeView {
         guard presses.contains(where: { $0.type == .select }), !disabled, handlers.contains("press") else { return false }
         if down { presenter?.press(id) }
         return true
+    }
+}
+
+extension Presenter {
+    /// The shown, focusable node with the `testId` that last held the focus.
+    var focusReturn: NodeView? {
+        guard let key = focusKey else { return nil }
+        return views.values.first { $0.props["testId"] == key && $0.window != nil && $0.canBecomeFocused }
+    }
+}
+
+extension ExactView {
+    /// When the focused view goes (a branch that swaps its subtree), the
+    /// focus engine asks where focus belongs: the replacement with the same
+    /// `testId`, rather than whatever the engine would pick.
+    override public var preferredFocusEnvironments: [any UIFocusEnvironment] {
+        if let node = session.presenter.focusReturn { return [node] }
+        return super.preferredFocusEnvironments
+    }
+}
+
+/// `focusGuide="auto"`: a focus guide over each such node, so a remote move
+/// that enters its box from outside lands on the descendant that last held
+/// the focus, else on the node (the engine then picks its first focusable
+/// item) — react-native-tvos's TVFocusGuideView `autoFocus`. A guide is off
+/// while the focus is inside its node, so moves within it stay the engine's.
+final class FocusGuides {
+    unowned let presenter: Presenter
+    private var guides: [UInt32: (node: NodeView, guide: UIFocusGuide)] = [:]
+    private var last: [UInt32: WeakNode] = [:]
+    private final class WeakNode { weak var node: NodeView?; init(_ node: NodeView) { self.node = node } }
+
+    init(presenter: Presenter) { self.presenter = presenter }
+
+    func sync() {
+        let wanted = Set(presenter.chrome.ids("focusGuide").filter { presenter.views[$0]?.props["focusGuide"] == "auto" })
+        for (id, entry) in guides where !wanted.contains(id) || presenter.views[id] !== entry.node {
+            entry.node.removeLayoutGuide(entry.guide)
+            guides[id] = nil
+            last[id] = nil
+        }
+        for id in wanted where guides[id] == nil {
+            guard let node = presenter.views[id] else { continue }
+            let guide = UIFocusGuide()
+            node.addLayoutGuide(guide)
+            NSLayoutConstraint.activate([
+                guide.leadingAnchor.constraint(equalTo: node.leadingAnchor), guide.trailingAnchor.constraint(equalTo: node.trailingAnchor),
+                guide.topAnchor.constraint(equalTo: node.topAnchor), guide.bottomAnchor.constraint(equalTo: node.bottomAnchor),
+            ])
+            guides[id] = (node, guide)
+        }
+        let window = presenter.session?.view?.window
+        update(window.flatMap { UIFocusSystem.focusSystem(for: $0)?.focusedItem } as? UIView)
+    }
+
+    /// `view` took the focus: each guide around it remembers it.
+    func focused(_ view: NodeView) {
+        for (id, entry) in guides where view.isDescendant(of: entry.node) { last[id] = WeakNode(view) }
+        update(view)
+    }
+
+    private func update(_ focused: UIView?) {
+        for (id, entry) in guides {
+            entry.guide.isEnabled = !(focused?.isDescendant(of: entry.node) ?? false)
+            let remembered = last[id]?.node.flatMap { $0.window != nil && $0.isDescendant(of: entry.node) && $0.canBecomeFocused ? $0 : nil }
+            entry.guide.preferredFocusEnvironments = [remembered ?? entry.node]
+        }
     }
 }
 

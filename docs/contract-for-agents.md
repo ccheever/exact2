@@ -141,6 +141,13 @@ and drive. A stale
 artifact is a failed verification; rebuild what the driver names. A successful
 Cargo rlib build does not prove a native app launches or behaves correctly.
 
+tvOS uses the iOS presenter and plan: `bun host/apple/build.mjs --tvos
+caltrain-apple --run` builds and launches on an Apple TV simulator. TypeScript
+apps provision lean Hermes for `tvos-simulator` once per machine. On a container,
+`focusGuide="auto"` makes an entering remote move return to its last focused
+descendant, or its first focusable descendant. Other hosts ignore it, including
+when the value is bound. The agent driver has no tvOS target yet.
+
 A script drives the same session in JavaScript: `const s = await open({ host:
 'web', app, epoch, timeZone, storage, size: [390, 844] })` from `scripts/agent.mjs`
 (`size` is `[width, height]`, or the CLI's `'390x844'`), then

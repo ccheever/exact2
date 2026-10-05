@@ -615,12 +615,14 @@ archive from `ibex/linux-vanilla` and compiles with the matching
 compiler, run `cargo clean -p exact-js` before rebuilding native apps so a warm
 build cannot reuse captured archives or bytecode from the previous installation.
 
-iOS uses lean bytecode-only Hermes archives, not the compiler-containing
-framework. `bun host/apple/build.mjs --ios` (or `--device`) builds the one it
+iOS and tvOS use lean bytecode-only Hermes archives, not the compiler-containing
+framework. `bun host/apple/build.mjs --ios` (or `--device`, or `--tvos`) builds the one it
 needs from ibex's Hermes source, once per machine, into
 `~/.cache/exact/hermes/<pin>-lean-ios` (override with `EXACT_HERMES_IOS_DIR`,
 LLP 1036.001 D5); the recipe and archive layout are in
 [LLP 1027 D6](../llp/1027-typescript-data-sources.rfc.md#d6--the-web-the-browser-is-the-executor-one-wasm-import-the-same-module-under-two-loaders).
+The platform directories are `ios`, `ios-simulator` and `tvos-simulator`;
+`--tvos` builds for an Apple TV simulator and bakes the manifest's iOS plan.
 The normal Apple build captures the linked archives in its receipt.
 `smoke.mjs --app-only` runs the selected app and its tests without unrelated
 bare-plan host fixtures. The driver supports `ios --device [--phone <name|udid>]`:

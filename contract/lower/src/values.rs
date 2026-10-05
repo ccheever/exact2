@@ -852,6 +852,9 @@ pub(crate) fn check_prop_value(
             span,
         );
     }
+    if prop == PropId::FocusGuide && matches!(value, Expr::Str(s, _) if s != "auto") {
+        return err("lower-attr-value", "`focusGuide` takes \"auto\"", span);
+    }
     if prop == PropId::AccessibilityLive
         && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "off" | "polite" | "assertive"))
     {

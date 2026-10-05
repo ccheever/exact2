@@ -126,6 +126,10 @@ func agentReady() {
 let launchColor = UIColor(named: "ExactLaunch") ?? .white
 
 final class Controller: UIViewController {
+    #if os(tvOS)
+    // The session's view decides where focus returns (`ExactView`).
+    override var preferredFocusEnvironments: [any UIFocusEnvironment] { [exactView] }
+    #endif
     // tvOS has no pointer lock.
     #if !os(tvOS)
     override var prefersPointerLocked: Bool { ExactPointerLock.preferred }
