@@ -2,8 +2,6 @@
 
 - **Custom materials are opaque-only, see no model textures and are never culled** (2026-10-05, Forest art pass). A wind-sway vertex shader on leaves would lose alpha cutouts, textures and `ModelLod`, so sway stayed per-tree `Offset` in `present`.
 
-- **Only `Game::ASSETS` models animate** (2026-10-05, Rivals and Forest art passes). An animated model must be required before setup, which makes every look wait on it; soldiers and survivors are rigid parts posed in `present` instead of skinned models.
-
 - **`Game::present` cannot swap a mesh, move a light or change the sky** (2026-10-05, garden art pass). `Mesh`, lights and the `Environment` resource are simulation, and presentation resources are unsupported, so plant stage models, day/night sun and moon, and weather fog are saved and move pins although gameplay never reads them.
 
 - **Changing a look restarts the game** (2026-10-05, garden `art`). Generated models register only at tick 0, so a look is a setup argument and switching it rebuilds the world; a presentation-only look should switch live.
@@ -21,8 +19,6 @@
 - **The web dev loop dies when a directory appears under a game's `assets/`** (2026-10-05, garden fonts). Moving fonts into `game/games/garden/assets/fonts/` while `bun game/dev.mjs garden` ran crashed it at `host/web/dev.mjs:911` (`rmSync(directory)`: `TypeError: path must be a string or TypedArray`): the restart path removes `gpuVersions` values that are not paths. Restarting the loop recovers.
 
 - **Generated game models repeat the same mesh assembly** (2026-10-04, Garden `logic/src/art.rs` and Forest `logic/src/deer_art.rs`): both copy flat-shaded triangle emission, vertex colors, ellipsoid tessellation and bounds calculation. Consider a small renderer-independent helper only if migrating both consumers deletes those copies and preserves their existing geometry and deterministic saves; keep each game's shapes and art direction local.
-
-- **An animated presentation `Offset` makes the render feed re-derive the whole world** (2026-10-05, Forest `art="pass"`, `bench.mjs` in headless Chrome). Any change in `Offset` content sets `offset_changed` in `render/src/world.rs`, which rebuilds every parented override and passes `Moved::All` to model poses, so a few dozen walk cycles cost the feed O(entities) per tick: 1.0 ms at 2k trees, 1.9 at 5k, 5.6 at 20k (0.18 ms at 20k with `present` off). Patch only the changed offsets' subtrees, as transform writes already do by pose block.
 
 - **Rivals reload feedback is not understood in the first Jev pair** (2026-10-04, game diary 006): both `--reload-drill` trials reach 96 decisions with fifteen targets, five missed attempts and no quick reloads. Both reload at 21/30 rounds and immediately press again on “R again in green · 1.6s”. The actual green-window HUD press and restoration pass on web/macOS. Investigate clearer waiting/expired feedback separately; the wording is a hypothesis, not a demonstrated human failure. This pair is closed (`artifacts/jev-quick-reload-{web,macos}/`); do not retune its controller to win. The one explicit-wait wording follow-up also misses five times on each host, with zero quick reloads; web/macOS reach eleven/fifteen targets at the cap. That pair is closed too (`artifacts/jev-reload-wait-{web,macos}/`); wording alone did not solve the observed behavior.
 

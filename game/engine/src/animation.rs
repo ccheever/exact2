@@ -9,8 +9,10 @@ use crate::{
 };
 use glam::Mat4;
 mod layers;
+mod shown;
 mod sockets;
 pub use layers::{Layer, Layers};
+pub use shown::{drawn_model, ShownClip, ShownClips, ShownPose};
 use sockets::SocketCache;
 pub use sockets::{socket, socket_matrix, socket_node, socket_stale, Motion, SocketFollow};
 use std::{any::TypeId, collections::BTreeMap, sync::Arc};
@@ -1188,10 +1190,21 @@ pub fn pose_json(w: &World, e: Entity) -> Result<String, String> {
     let Mesh::Asset(name) = &*mesh else {
         return Err("pose needs a model".into());
     };
-    let model = w.model(name).ok_or("pose needs a declared model")?;
+    // A ShownClips pose is drawn from whichever model arrived; a simulated one
+    // only from a declared model.
+    let shown_model = (w.has::<ShownClips>(e))
+        .then(|| drawn_model(w, name))
+        .flatten();
+    let model = match shown_model {
+        Some(model) => model,
+        None => w.model(name).ok_or("pose needs a declared model")?,
+    };
     let bind;
+    let mut shown = ShownPose::default();
     let pose = w.get::<Pose>(e);
-    let local = if let Some(p) = &pose {
+    let local = if shown_model.is_some() && shown.sample(w, e, &bind_pose(model))? {
+        &shown.local
+    } else if let Some(p) = &pose {
         &p.local
     } else {
         bind = bind_pose(model);
@@ -1366,6 +1379,9 @@ pub fn inspect(w: &World, e: Entity, pose: bool) -> Result<String, String> {
     }
 }
 pub(crate) fn status_json(w: &World, e: Entity) -> Result<String, String> {
+    Ok(shown::status_json(w, e)? + &controller_json(w, e)?)
+}
+fn controller_json(w: &World, e: Entity) -> Result<String, String> {
     if let Some(a) = w.get::<Animation>(e) {
         return crate::json::to_string(&*a)
             .map(|s| format!(",\"animation\":{s}"))

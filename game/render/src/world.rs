@@ -4,6 +4,7 @@ use exact_game::{Material, Mesh, Parent, Transform, ViewModel, Visible, World, P
 use std::collections::BTreeMap;
 
 pub(crate) mod assets;
+mod offsets;
 pub(crate) mod scene;
 mod upload;
 pub(crate) use scene::snap as trace_snap;
@@ -275,8 +276,6 @@ struct Versions {
     lod: u64,
     // An animated rig moves its socket followers' subtrees without a Transform write.
     pose: u64,
-    // Presentation offsets (exact_game::Offset) patch drawn poses like parents do.
-    offset: u64,
     // Presentation tints (exact_game::Tint), by content for the same reason.
     tint: u64,
     live: u64,
@@ -320,24 +319,6 @@ fn effective_opacity(w: &World, out: &mut Vec<(u32, f32)>) {
     out.sort_by_key(|&(slot, _)| slot);
     out.dedup_by_key(|&mut (slot, _)| slot);
 }
-/// Content of every presentation offset: present rewrites the rows each tick,
-/// so their revision moves even when no offset changed.
-fn offsets(w: &World) -> u64 {
-    let mut h = 0xcbf2_9ce4_8422_2325u64;
-    for (e, o) in w.query::<&exact_game::Offset>().iter() {
-        let t = o.0;
-        let words = [t.position.to_array(), t.scale.to_array()]
-            .into_iter()
-            .flatten()
-            .chain(t.rotation.to_array())
-            .map(f32::to_bits)
-            .chain([e.index(), e.generation()]);
-        for word in words {
-            h = (h ^ u64::from(word)).wrapping_mul(0x100_0000_01b3);
-        }
-    }
-    h
-}
 /// Content of every presentation `Tint`.
 fn tints(w: &World) -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64;
@@ -378,7 +359,6 @@ impl Versions {
             material_overrides: w.revision::<exact_game::MaterialOverrides>(),
             lod: w.revision::<exact_game::ModelLod>(),
             pose: w.revision::<exact_game::Pose>(),
-            offset: offsets(w),
             tint: tints(w),
             live: w.entities_revision(),
             membership: w.membership::<Transform>(),
@@ -426,6 +406,8 @@ pub struct Feed {
     fades_next: Vec<(u32, f32)>,
     // Each tinted slot's Tint, rebuilt when their content changes.
     tints: BTreeMap<u32, exact_game::Tint>,
+    // Presentation offsets by content, and the drawn subtrees they moved.
+    offsets: offsets::Offsets,
     scene: Scene,
     glows: Vec<crate::GlowInput>,
 }
@@ -459,6 +441,7 @@ impl Default for Feed {
             fades: Vec::new(),
             fades_next: Vec::new(),
             tints: BTreeMap::new(),
+            offsets: Default::default(),
             scene: Scene::default(),
             glows: Vec::new(),
         }
@@ -492,6 +475,7 @@ impl Feed {
         self.override_cursor = None;
         self.buffer_cursors = [None; 2];
         self.model_cursor = None;
+        self.offsets.reset();
         self.assets.records.clear();
         self.assets.entities.clear();
     }
@@ -552,11 +536,13 @@ impl Feed {
         let next = Versions::of(w, r.assets_revision());
         let initial = self.versions.is_none();
         let old = self.versions.unwrap_or_default();
+        // Present rewrites every Offset row each tick: compare content.
+        let offset_change = self.offsets.diff(w);
         let moved = initial
             || next.transform != old.transform
             || next.parent != old.parent
             || next.pose != old.pose
-            || next.offset != old.offset;
+            || offset_change != offsets::Change::None;
         let material = initial
             || next.material != old.material
             || next.tint != old.tint
@@ -589,16 +575,16 @@ impl Feed {
             }
         }
         let parent_changed = next.parent != old.parent;
-        let offset_changed = next.offset != old.offset;
         if moved || (self.history_pending && w.tick() != self.tick) {
             r.begin_tick();
             self.current = 1 - self.current;
             // Parented global poses: every one when the hierarchy changed, else
-            // only those in blocks whose poses changed since the last pass.
-            // Membership too: a parented entity can gain its Transform later.
+            // only those in blocks whose poses changed since the last pass, and
+            // the subtrees under offsets whose content changed. Membership too:
+            // a parented entity can gain its Transform later.
             let rebuilt = initial
                 || parent_changed
-                || offset_changed
+                || offset_change == offsets::Change::Rows
                 || next.membership != old.membership
                 || self.override_cursor.is_none();
             if rebuilt {
@@ -630,6 +616,8 @@ impl Feed {
                     }
                     self.override_pages[page].end = i + 1;
                 }
+                self.offsets.index(w);
+                self.offsets.subtrees(w);
             } else {
                 changed_blocks(w, self.override_cursor, &mut self.changed_blocks);
                 for &block in &self.changed_blocks {
@@ -644,6 +632,18 @@ impl Feed {
                         }
                     }
                 }
+                // An offset moves only its own drawn subtree, all of it overridden.
+                self.offsets.subtrees(w);
+                for e in &self.offsets.moved {
+                    if let Ok(i) = self
+                        .overrides
+                        .binary_search_by_key(&e.index(), |(o, _)| o.index())
+                    {
+                        if let Some(t) = scene::pose(w, *e) {
+                            self.overrides[i].1 = floats(t);
+                        }
+                    }
+                }
             }
             self.override_cursor = Some(w.pose_cursor());
             // This history buffer was last written at its cursor: a parented
@@ -653,7 +653,7 @@ impl Feed {
                 self.buffer_cursors[self.current],
                 &mut self.changed_blocks,
             );
-            if parent_changed || offset_changed {
+            if parent_changed {
                 // Pages patched before, and those patched now, are rewritten.
                 for e in self
                     .parents
@@ -662,6 +662,10 @@ impl Feed {
                 {
                     self.transforms[self.current].invalidate(e.index() as usize / PAGE);
                 }
+            }
+            // Pages an offset moved, now or since this buffer was last written.
+            for page in self.offsets.take_pending(self.current) {
+                self.transforms[self.current].invalidate(page);
             }
             let pages = w.pages::<Transform>();
             let mut run = 0;
@@ -927,8 +931,15 @@ impl Feed {
             self.changed_pages.clear();
             self.changed_pages
                 .extend(self.changed_blocks.iter().map(|&b| b as usize / PAGE));
-            // An offset moves drawn model poses without a simulated pose write.
-            let moved = if initial || parent_changed || offset_changed || batches {
+            // An offset moves drawn model poses without a simulated pose write:
+            // its subtree's pages, not every instance.
+            let offset_pages = self.offsets.moved.iter().map(|e| e.index() as usize / PAGE);
+            if offset_pages.len() > 0 {
+                self.changed_pages.extend(offset_pages);
+                self.changed_pages.sort_unstable();
+                self.changed_pages.dedup();
+            }
+            let moved = if initial || parent_changed || batches {
                 crate::models::Moved::All
             } else {
                 crate::models::Moved::Pages {

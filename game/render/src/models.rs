@@ -16,6 +16,10 @@ pub(crate) fn model_hash_count() -> usize {
 }
 #[cfg(test)]
 thread_local! { static POSE_STEPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
+pub(crate) fn pose_step_count() -> usize {
+    POSE_STEPS.with(|n| n.get())
+}
 pub(crate) fn model_digest(model: &Model) -> u64 {
     #[cfg(test)]
     MODEL_HASHES.with(|n| n.set(n.get() + 1));

@@ -708,6 +708,8 @@ pub(crate) struct Attachments {
     pub(crate) diagnostics: AttachmentDiagnostics,
     pub output: Vec<DisplayedAttachment>,
     pub(crate) model_digests: std::collections::BTreeMap<String, u64>,
+    // An owner's presentation playback (`animation::ShownClips`), sampled per follower.
+    shown: exact_game::animation::ShownPose,
 }
 impl Attachments {
     pub fn reset(&mut self) {
@@ -795,7 +797,11 @@ impl Attachments {
             let exact_game::Mesh::Asset(name) = &*mesh else {
                 continue;
             };
-            let Some(model) = w.model(name) else { continue };
+            // Drawn sockets follow the drawn rig: any arrived model, so a
+            // streamed owner's `ShownClips` pose carries its props too.
+            let Some(model) = exact_game::animation::drawn_model(w, name) else {
+                continue;
+            };
             let fresh = initial
                 || !self
                     .items
@@ -845,16 +851,27 @@ impl Attachments {
             };
             item.offset = follow.offset;
             item.chain.clear();
-            let sampled = w.get::<exact_game::Pose>(target).filter(|p| {
-                p.local.len() == model.nodes.len() * 10 && p.previous.len() == p.local.len()
-            });
+            let pose = w.get::<exact_game::Pose>(target);
+            let shown = w.has::<exact_game::animation::ShownClips>(target)
+                && (self.shown)
+                    .sample(w, target, &exact_game::animation::bind_pose(model))
+                    .unwrap_or(false);
+            let sampled = if shown {
+                Some((&self.shown.previous[..], &self.shown.local[..]))
+            } else {
+                pose.as_ref()
+                    .map(|p| (&p.previous[..], &p.local[..]))
+                    .filter(|(previous, local)| {
+                        local.len() == model.nodes.len() * 10 && previous.len() == local.len()
+                    })
+            };
             let snap = initial
                 || model_changed
                 || exact_game::animation::socket_stale(w, target)
                 || snap(w, target, parent_changed);
             let nodes = std::iter::successors(Some(node), |&i| model.nodes[i as usize].parent);
-            if let Some(p) = &sampled {
-                let prev = if snap { &p.local } else { &p.previous };
+            if let Some((previous, local)) = sampled {
+                let prev = if snap { local } else { previous };
                 item.chain.extend(nodes.map(|i| {
                     let start = i as usize * 10;
                     let read = |values: &[f32]| Transform {
@@ -862,7 +879,7 @@ impl Attachments {
                         rotation: glam::Quat::from_slice(&values[start + 3..]).normalize(),
                         scale: Vec3::from_slice(&values[start + 7..]),
                     };
-                    [read(prev), read(&p.local)]
+                    [read(prev), read(local)]
                 }));
             } else {
                 item.chain.extend(nodes.map(|i| {

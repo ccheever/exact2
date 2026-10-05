@@ -230,7 +230,11 @@ Model instances keep a CPU pose history only for translucent ordering and windin
 a completed tick steps the instances in blocks whose local or propagated poses
 changed since the last step (`World::poses_changed_since`) and those still
 interpolating, so static instances, parented or not, cost nothing per tick or
-frame. Parented global poses are retained and recomputed only in changed blocks. A model batch stays one draw group per view unless an
+frame. Parented global poses are retained and recomputed only in changed blocks.
+A presentation `Offset` whose content changed (present rewrites every row each
+tick; values are compared) re-poses only its entity's drawn subtree: those
+instances, those pages, in both transform histories, so a few walkers in a
+forest cost their own subtrees, not the forest. A model batch stays one draw group per view unless an
 instance has a negative scale axis or an attachment.
 
 Feed checks storage write generations against each target history and reads only
@@ -535,7 +539,10 @@ Animated unskinned mesh nodes use one hierarchy matrix per draw, with no vertex
 weights or authored skin. They share interpolation, culling and shadow transforms
 with skinned nodes.
 The feed copies the saved previous/current **local** TRS into retained buffers on
-completed ticks, even when the entity Transform did not move. Rendering allocates
+completed ticks, even when the entity Transform did not move. An entity with a
+presentation `animation::ShownClips` draws that instead, sampled once per entity per
+completed tick from the model the renderer has (streamed and on-sight models
+included) at its clip times and one tick earlier; sockets drawn on it follow. Rendering allocates
 no new collections for these histories. Skin templates retain parent-first node
 order without changing glTF's joint indices.
 
