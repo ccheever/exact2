@@ -381,7 +381,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
         if !ASSETS {
             return;
         }
-        if !self.assets_dirty && self.format == Some(format) {
+        // A game's custom material on a merged draw needs its model's parts.
+        let parts = (self.render.as_ref()).is_some_and(|(r, _)| r.wants_parts());
+        if !self.assets_dirty && !parts && self.format == Some(format) {
             return;
         }
         let Some(sim) = &mut self.sim else { return };

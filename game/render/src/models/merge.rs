@@ -2,7 +2,7 @@
 //! pre-transformed into model space, animated parts as a mesh whose vertices
 //! each follow their node's palette matrix, as a skin with weight one.
 use super::ModelNode;
-use crate::{MeshId, Vertex};
+use crate::{buffers::bytes, MaterialId, MeshId, RenderError, Vertex};
 use exact_game::asset::{AlphaMode, MeshData, Model, Skin};
 use glam::{Mat3, Mat4, Vec3};
 use std::collections::BTreeMap;
@@ -42,6 +42,76 @@ pub(super) fn animated_groups(model: &Model) -> Vec<(u32, Skin)> {
         })
         .collect()
 }
+/// Static rigid parts (a model without clips or skins) sharing a material, two
+/// or more: each group's drawn-node indices, by model material.
+fn static_groups(model: &Model) -> BTreeMap<u32, Vec<usize>> {
+    let mut groups: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+    if !model.skins.is_empty() || !model.clips.is_empty() {
+        return groups;
+    }
+    let drawn = model.nodes.iter().filter_map(|n| n.mesh);
+    for (i, mesh) in drawn.enumerate() {
+        if mergeable(model, mesh) {
+            let material = model.meshes[mesh as usize].material;
+            groups.entry(material).or_default().push(i);
+        }
+    }
+    groups.retain(|_, members| members.len() > 1);
+    groups
+}
+/// Per model mesh: every node that draws it merges, so its own mesh is needed
+/// only to draw the parts unmerged.
+pub(super) fn merged_away(model: &Model) -> Vec<bool> {
+    let drawn: Vec<usize> = (0..model.nodes.len())
+        .filter(|&n| model.nodes[n].mesh.is_some())
+        .collect();
+    let mut grouped = vec![false; drawn.len()];
+    for &i in static_groups(model).values().flatten() {
+        grouped[i] = true;
+    }
+    for (_, skin) in animated_groups(model) {
+        for n in skin.joints {
+            grouped[drawn.binary_search(&(n as usize)).unwrap()] = true;
+        }
+    }
+    let mut away: Vec<Option<bool>> = vec![None; model.meshes.len()];
+    for (&node, grouped) in drawn.iter().zip(grouped) {
+        let mesh = &mut away[model.nodes[node].mesh.unwrap() as usize];
+        *mesh = Some(mesh.unwrap_or(true) && grouped);
+    }
+    away.into_iter().map(|a| a.unwrap_or(false)).collect()
+}
+/// Each drawn node's draw: its mesh, material, offset (identity when skinned)
+/// and skin template. A part not uploaded has no mesh (`usize::MAX`).
+pub(super) fn draw_nodes(
+    model: &Model,
+    parts: &[Option<MeshId>],
+    materials: &[MaterialId],
+    skins: &[u32],
+) -> Result<Vec<ModelNode>, RenderError> {
+    let mut rigid = skins.iter().skip(model.skins.len());
+    let offsets = model.offsets().map_err(RenderError::scene)?;
+    Ok((model.nodes.iter().zip(offsets))
+        .filter_map(|(n, local)| {
+            n.mesh.map(|m| {
+                let skin = n
+                    .skin
+                    .map(|s| skins[s as usize])
+                    .or_else(|| rigid.next().copied());
+                (
+                    parts[m as usize].unwrap_or(MeshId(usize::MAX)),
+                    materials[model.meshes[m as usize].material as usize],
+                    if skin.is_some() {
+                        Mat4::IDENTITY
+                    } else {
+                        local
+                    },
+                    skin,
+                )
+            })
+        })
+        .collect())
+}
 fn vertex(mesh: &MeshData, v: usize, local: Mat4, normal: Mat3) -> Vertex {
     let p = Vec3::from_slice(&mesh.positions[v * 3..v * 3 + 3]);
     let n = Vec3::from_slice(&mesh.normals[v * 3..v * 3 + 3]);
@@ -75,13 +145,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         skins: &[u32],
     ) -> Merged {
         // Static: unskinned, unanimated nodes sharing a material.
-        let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-        for (i, node) in nodes.iter().enumerate() {
-            if node.3.is_none() && mergeable(model, meshes[i]) {
-                groups.entry(node.1 .0).or_default().push(i);
-            }
-        }
-        groups.retain(|_, members| members.len() > 1);
+        let groups = static_groups(model);
         if groups.is_empty() && animated.is_empty() {
             return (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         }
@@ -160,6 +224,77 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         }
         (draws, parts, ranges, merged)
     }
+    /// Whether a `CustomMaterial` shades a merged draw of a model whose parts
+    /// are not resident: preparing that model again uploads them.
+    pub(crate) fn wants_parts(&self) -> bool {
+        (self.models.loaded.keys()).any(|name| self.parts_wanted(name))
+    }
+    fn parts_wanted(&self, name: &str) -> bool {
+        self.models.loaded.get(name).is_some_and(|m| {
+            m.active
+                && m.nodes.is_empty()
+                && m.merged.iter().any(|n| self.models.custom.contains(&n.1))
+        })
+    }
+    /// Upload a model's merged-away parts once a `CustomMaterial` needs them
+    /// (its vertex shader sees node-local positions, which a merge has not).
+    pub(super) fn upload_parts(&mut self, name: &str, model: &Model) -> Result<(), RenderError> {
+        if !self.parts_wanted(name) {
+            return Ok(());
+        }
+        let mut parts = self.models.loaded[name].parts.clone();
+        for (part, mesh) in parts.iter_mut().zip(&model.meshes) {
+            if part.is_none() {
+                let id = self.add_model_mesh(mesh);
+                self.meshes[id.0].asset = true;
+                *part = Some(id);
+            }
+        }
+        let m = &self.models.loaded[name];
+        let nodes = draw_nodes(model, &parts, &m.materials, &m.skins)?;
+        let m = self.models.loaded.get_mut(name).unwrap();
+        m.meshes.extend(
+            (parts.iter().zip(&m.parts))
+                .filter(|(_, old)| old.is_none())
+                .map(|(new, _)| new.unwrap()),
+        );
+        m.parts = parts;
+        m.nodes = nodes;
+        self.models.revision += 1;
+        Ok(())
+    }
+    /// Upload one model mesh, and its joints and weights when skinned.
+    pub(super) fn add_model_mesh(&mut self, mesh: &MeshData) -> MeshId {
+        let vertices: Vec<_> = (mesh.positions.chunks_exact(3).enumerate())
+            .map(|(i, p)| Vertex {
+                position: [p[0], p[1], p[2]],
+                normal: mesh.normals[i * 3..i * 3 + 3].try_into().unwrap(),
+                uv: mesh.uvs[i * 2..i * 2 + 2].try_into().unwrap(),
+                color: if mesh.colors.is_empty() {
+                    [1.; 4]
+                } else {
+                    mesh.colors[i * 4..i * 4 + 4].try_into().unwrap()
+                },
+            })
+            .collect();
+        let id = self.add_mesh(&vertices, &mesh.indices);
+        if !mesh.joints.is_empty() {
+            let start = self.meshes[id.0].base_vertex as u64 * 32;
+            let mut words = Vec::with_capacity(mesh.joints.len() * 2);
+            for (j, w) in (mesh.joints.chunks_exact(4)).zip(mesh.weights.chunks_exact(4)) {
+                words.extend(j.iter().map(|j| u32::from(*j)));
+                words.extend(w.iter().map(|w| w.to_bits()));
+            }
+            let weights = &mut self.models.skinning.as_mut().unwrap().weights;
+            self.models.reallocations += u64::from(weights.grow(
+                &self.device,
+                &self.queue,
+                start + (words.len() * 4) as u64,
+            ));
+            weights.write(&self.queue, start, bytes(&words));
+        }
+        id
+    }
     /// An animated merged mesh: each vertex follows its part's node as a
     /// weight-one joint.
     fn merged_mesh(&mut self, vertices: &[Vertex], indices: &[u32], parts: &[u32]) -> MeshId {
@@ -173,7 +308,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         let buffer = &mut self.models.skinning.as_mut().unwrap().weights;
         self.models.reallocations +=
             u64::from(buffer.grow(&self.device, &self.queue, start + (words.len() * 4) as u64));
-        buffer.write(&self.queue, start, crate::buffers::bytes(&words));
+        buffer.write(&self.queue, start, bytes(&words));
         id
     }
 }
@@ -216,6 +351,14 @@ mod tests {
         let loaded = &renderer.models.loaded["prop.model"];
         assert_eq!(loaded.merged.len(), 1, "one merged draw");
         assert_eq!(loaded.starts[0].len(), 64);
+        // Only the merged mesh is uploaded and resident: the parts are not.
+        let resident: u64 = renderer.meshes.iter().map(|m| m.vertex_bytes).sum();
+        eprintln!(
+            "64-part prop: {} mesh uploads, {resident} resident vertex bytes",
+            renderer.mesh_uploads
+        );
+        assert_eq!(renderer.mesh_uploads, 1);
+        assert_eq!(resident, 64 * 4096 * 48);
         let weights = &renderer.models.skinning.as_ref().unwrap().weights;
         assert!(
             weights.raw.size() <= 64,
@@ -264,14 +407,29 @@ mod tests {
         let mut feed = crate::Feed::default();
         feed.feed(&w, &mut renderer).unwrap();
         assert_eq!(renderer.models.records.len(), 1, "merged");
+        assert_eq!(renderer.mesh_uploads, 1, "the parts are not uploaded");
+        assert!(!renderer.wants_parts());
         // A game's vertex shader now shades the material: its parts keep their nodes.
         let material = renderer.models.loaded["reeds.model"].materials[0];
         renderer.models.custom.insert(material);
         renderer.models.revision += 1;
+        // Until the model is prepared again its parts are not resident: it
+        // draws merged and asks for them.
+        feed.feed(&w, &mut renderer).unwrap();
+        assert_eq!(renderer.models.records.len(), 1, "still merged");
+        assert!(renderer.wants_parts());
+        renderer.prepare_model("reeds.model", &model).unwrap();
+        assert!(!renderer.wants_parts());
+        assert_eq!(renderer.mesh_uploads, 3, "both parts uploaded once");
         feed.feed(&w, &mut renderer).unwrap();
         let records = &renderer.models.records;
         assert_eq!(records.len(), 2, "unmerged");
         assert_eq!(records[1].local.w_axis.x, 1., "the node offset survives");
+        renderer.prepare_model("reeds.model", &model).unwrap();
+        assert_eq!(
+            renderer.mesh_uploads, 3,
+            "resident parts are not uploaded again"
+        );
     }
     #[test]
     fn changed_part_looks_patch_the_instance_buffer_without_rebatching() {
