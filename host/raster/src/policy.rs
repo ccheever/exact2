@@ -169,20 +169,27 @@ impl SessionState {
                 .filter(|id| !self.entries.values().any(|e| e.id == **id))
                 .count()
     }
+    fn is_cold(e: &Entry) -> bool {
+        e.requests.is_empty()
+            && matches!(
+                &e.phase,
+                Phase::Ready {
+                    image,
+                    delivery: false,
+                } if image.output.pins() == 0
+            )
+    }
+    /// How many entries are cold, without gathering and sorting them: a
+    /// request and a cancel check the limit, and a list's every new and
+    /// departing picture makes one.
+    fn cold_count(&self) -> usize {
+        self.entries.values().filter(|e| Self::is_cold(e)).count()
+    }
     fn cold_keys(&self) -> Vec<RasterKey> {
         let mut cold: Vec<_> = self
             .entries
             .iter()
-            .filter(|(_, e)| {
-                e.requests.is_empty()
-                    && matches!(
-                        &e.phase,
-                        Phase::Ready {
-                            image,
-                            delivery: false,
-                        } if image.output.pins() == 0
-                    )
-            })
+            .filter(|(_, e)| Self::is_cold(e))
             .map(|(key, entry)| (entry.touched, *key))
             .collect();
         cold.sort_unstable();
@@ -735,7 +742,7 @@ impl RasterSession {
             stats.delivery_cells = s.cells;
             stats.pending_jobs = s.pending();
             stats.subscribers = s.requests.len();
-            stats.cold_entries = s.cold_keys().len();
+            stats.cold_entries = s.cold_count();
             stats.dedup_hits = s.dedup_hits;
             stats.cancelled = s.cancelled;
             stats.evicted = s.evicted;
@@ -960,6 +967,9 @@ fn cancel_request(s: &mut SessionState, request: RequestId, garbage: &mut Vec<Ar
     true
 }
 fn enforce_cold_limit(s: &mut SessionState, garbage: &mut Vec<Arc<Image>>) {
+    if s.cold_count() <= COLD_ENTRIES {
+        return;
+    }
     let cold = s.cold_keys();
     let excess = cold.len().saturating_sub(COLD_ENTRIES);
     for key in cold.into_iter().take(excess) {

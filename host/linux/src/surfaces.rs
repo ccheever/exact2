@@ -145,7 +145,8 @@ impl Abi {
         const { assert!(std::mem::size_of::<T>() == std::mem::size_of::<usize>()) };
         let cached = self.symbols.borrow().get(name).copied();
         let address = cached.unwrap_or_else(|| {
-            let address = *unsafe { self.library.get::<usize>(name) }.expect("validated module ABI");
+            let address =
+                *unsafe { self.library.get::<usize>(name) }.expect("validated module ABI");
             self.symbols.borrow_mut().insert(name, address);
             address
         });
