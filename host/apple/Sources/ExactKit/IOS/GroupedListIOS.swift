@@ -132,6 +132,43 @@ final class GroupedListHost {
     /// button): the agent finds it in UIKit's cell, not the hidden row.
     func draws(_ id: UInt32) -> Bool { list(drawing: id) != nil }
 
+    /// Where a real finger aimed at `node` lands, for a row this host draws
+    /// (LLP 1080.000 D4): the row's cell; on its toggle's control, the cell's
+    /// switch; on its detail button's, that accessory, with the collection
+    /// view whose port the point must be in. A refusal when the cell is off
+    /// that port or the accessory is not shown; nil for any node this host
+    /// does not draw, which the ordinary aim takes.
+    enum Aim { case view(UIView, port: UIScrollView), refused(String) }
+    func shown(_ node: NodeView) -> Aim? {
+        guard let (list, row) = list(drawing: node.id) else { return nil }
+        guard let cell = list.cell(row.view), list.collection.bounds.intersects(cell.frame) else {
+            return .refused("its cell is outside the list's port; scroll it into view first")
+        }
+        guard row.view != node.id else { return .view(cell, port: list.collection) }
+        // Never the row in its place: its press is not the control's.
+        guard let control = list.accessory(row.view) else {
+            return .refused("its \(row.accessory == "toggle" ? "switch" : "detail button") is not shown")
+        }
+        return .view(control, port: list.collection)
+    }
+
+    /// The row and part of a grouped list's cell that `view` is in: the
+    /// cell, its switch, or its detail button; nil outside every list cell.
+    static func part(_ view: UIView?) -> [String: Any]? {
+        var at = view, control: UIView?
+        while let v = at, !(v is GroupedCell) {
+            if v is UIControl { control = v }
+            at = v.superview
+        }
+        guard let cell = at as? GroupedCell, let row = cell.row else { return nil }
+        #if os(tvOS)
+        let part = control == nil ? "cell" : "detail"
+        #else
+        let part = control == nil ? "cell" : control is UISwitch ? "switch" : "detail"
+        #endif
+        return ["row": Int(row), "part": part]
+    }
+
     /// The agent's `tap` on a row UIKit draws: the cell's own selection, as a
     /// finger's; on a toggle's control, its switch's flip; on a detail
     /// button, its accessory's action. Refused, having done nothing, when
@@ -356,6 +393,24 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     func cell(_ id: UInt32) -> UICollectionViewCell? {
         source.indexPath(for: id).flatMap { collection.cellForItem(at: $0) }
+    }
+
+    /// The control a row's accessory shows: its switch, or UIKit's detail
+    /// button (a control in the cell outside its content). Nil for any other.
+    func accessory(_ id: UInt32) -> UIView? {
+        switch rows[id]?.accessory {
+        #if !os(tvOS)
+        case "toggle": return switches[id].flatMap { $0.window != nil ? $0 : nil }
+        #endif
+        case "detail":
+            guard let cell = cell(id) as? UICollectionViewListCell else { return nil }
+            func control(_ v: UIView) -> UIControl? {
+                if v === cell.contentView { return nil }
+                return (v as? UIControl) ?? v.subviews.lazy.compactMap(control).first
+            }
+            return control(cell)
+        default: return nil
+        }
     }
 
     /// Whether the section holding `id` draws its card.

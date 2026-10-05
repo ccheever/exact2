@@ -233,8 +233,31 @@ Proofs: `contract/cli/tests/it/grouped_list.rs`
 `a_cardless_section_draws_no_separators_and_takes_only_transparent`;
 `GroupedListIOSTests.testACardlessSectionsCellsAreClear`.
 
+## 6.3 A real touch on what the list draws (2026-10-04, Signal Clone)
+
+Under `--touch platform` (LLP 1080.000), `tap` on a row, its toggle's control
+or its detail button was aimed at the hidden authored node and refused
+(`_UISystemBackgroundView covers its middle`). The aim (D4) now takes the view
+UIKit draws for it, as D8's host activation does: the row's cell, the cell's
+switch, or UIKit's detail button (a control in the cell outside its content).
+It is refused when the cell is outside the list's port, when the point is,
+when anything but that view (an ancestor beside a clipped cell included) is
+hit there, and when the switch or detail button is not shown: never the row
+in its place. The node the dispatch log must see the touch land on is the
+list's for every row, so the log and the aim also carry `projected: {row,
+part}` (`cell`, `switch` or `detail`) and the driver refuses a touch that
+landed on another row or part. Unlike host activation it does not refuse a disabled row or control:
+the finger lands, and UIKit declines it, as on a device. A custom row needs
+nothing: its views are carried into the cell.
+
+Proofs: `GroupedListIOSTests.testARealTouchAimsAtTheCellOrAccessoryUIKitDraws`;
+`scripts/smoke-touch.mjs` taps `contract/corpus/grouped-touch.contract`'s
+switch twice, its detail button and a row with real touches, each read back
+from the app's state.
+
 ## 7. Open
 
+- **A real touch's identity when a row's control is replaced.** §6.3's `projected: {row, part}` tells rows and parts apart, not the authored control behind one switch: a `when` that replaces a row's control between the aim and the touch passes as the old one (the switch the finger meets is the same one). Carrying the target id needs the host's model in the dispatch log's landing (astra, round 3 of `code-2026-10-04-grouped-platform-tap`, deferred).
 - **`sidebar` and `sidebarPlain`.** These are UIKit's other two appearances. They wait for an iPad or Mac consumer.
 - **The large title.** The route's content scroll view (LLP 1075.003 §3.7) should be the collection view when a grouped list is the scroller after the header.
 - **Swipe actions on rows.** `UICollectionLayoutListConfiguration`'s own `trailingSwipeActionsConfigurationProvider` would replace the one-row table for a grouped list's rows.

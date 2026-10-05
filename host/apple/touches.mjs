@@ -347,6 +347,8 @@ export async function realTap({ ask, touches, id, at, drag, abandon }) {
     if (began && end) {
       if (began.session !== a.session || began.generation !== a.generation) throw new Error(`${what}: the touch landed in session ${began.session} (generation ${began.generation}), not ${a.session}`);
       if (began.node !== a.hit) throw new Error(`${what}: the touch landed on ${began.node == null ? began.view : `node #${began.node}`}, not on node #${a.hit} the aim hit-tested`);
+      // A grouped list's cells are all the list's node: the row and part too (LLP 1084).
+      if (a.projected && (began.projected?.row !== a.projected.row || began.projected?.part !== a.projected.part)) throw new Error(`${what}: the touch landed on ${JSON.stringify(began.projected ?? null)} in the grouped list, not on ${JSON.stringify(a.projected)} the aim hit-tested`);
       const moved = seen.filter((e) => e.phase === 'moved');
       const travel = [end.at[0] - began.at[0], end.at[1] - began.at[1]];
       if (drag) {
