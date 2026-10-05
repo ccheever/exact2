@@ -119,10 +119,12 @@ another viewport, and a test's first step `size <w>x<h>` does the same for that 
 `resize <w>x<h>`, an operation and a test step, resizes it mid-drive as a person
 dragging the window's edge would: the browser's viewport, a macOS window, the
 Linux presenter. An iOS app's viewport is the device's screen, so iOS refuses it.
-`--storage <name>` keeps a named scratch store between drives on every host (on
-the web, a kept browser profile served on one port per name); without it a web
-drive is a fresh profile, so its storage ends with the drive. To show what
-survives a restart on any host, use an authored test's `reload` step (below).
+`--storage <name>` gives a drive a named scratch store, kept between drives on
+every host (on the web, a kept browser profile served on one port per name).
+Without it a drive has no storage at all: a source's storage request is refused
+(`storage is unavailable in agent mode unless the drive names a scratch store`),
+so an app that keeps data does nothing on a write. An authored test has its own
+store; to show what survives a restart on any host, use its `reload` step (below).
 
 Inside the exact2 checkout, for Caltrain:
 
@@ -429,6 +431,8 @@ bun exact.mjs contract rust app.contract -o /tmp/shapes.rs
 ```
 
 Use those generated declarations with the existing TypeScript/Rust integration.
+A shape has no exported name in the `.d.ts`: name one by its source,
+`type Recipe = Result<'recipe'>` (a list's element: `Result<'recipes'>[number]`).
 The [human guide's data-module section](contract-for-humans.md#writing-the-data-module)
 has a complete `app.ts`: synchronous, `fetch` and SQLite sources, the grants
 each needs, and how to drive it with storage.

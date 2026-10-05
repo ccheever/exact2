@@ -1123,7 +1123,10 @@ pub(crate) fn similar_tag(name: &str) -> Option<String> {
 pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
     Some(match name {
         "div" => "a flex container is `column` or `row`, and a plain box `view`",
-        "span" | "p" | "label" | "strong" | "em" | "b" | "i" => "text is `text`",
+        "span" | "p" | "strong" | "em" | "b" | "i" => "text is `text`",
+        "label" => {
+            "a label is `text` beside its field, and the field is named by `aria-label` (or `aria-labelledby` with the text's `id`)"
+        }
         "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
             "a heading is `text role=\"heading\" aria-level=1` (2 and on for the level)"
         }

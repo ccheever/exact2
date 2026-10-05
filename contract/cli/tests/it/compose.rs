@@ -165,3 +165,29 @@ fn failed_names_why_a_mutation_is_not_its_argument() {
     assert_eq!(error.id, "type-failed-argument");
     assert!(error.message.starts_with("`save` is a mutation, and `failed` takes a resource: a mutation whose request fails without an answer keeps its previous value"), "{error}");
 }
+
+#[test]
+fn an_annotated_state_or_derive_is_told_its_type_is_inferred() {
+    let state = "shape Task\n  id: string\ncomponent App\n  state deleted: option<Task> = none\n  view\n    text \"a\"\n";
+    let error = contract::compile(state).unwrap_err();
+    assert_eq!(
+        (error.id.as_str(), error.message.as_str()),
+        ("syntax-expected", "a state's type is inferred, so `state deleted` takes no `: type`: write `state deleted = …`; an empty start is `none` or `[]`, and the writes give it its type")
+    );
+    let derive = "component App\n  derive n: number = 2\n  view\n    text \"a\"\n";
+    let error = contract::compile(derive).unwrap_err();
+    assert_eq!(
+        error.message,
+        "a derive's type is inferred, so `derive n` takes no `: type`: write `derive n = …`, which is its expression's"
+    );
+}
+
+#[test]
+fn an_html_label_names_the_text_and_the_field_name() {
+    let src = "component App\n  view\n    label \"Name\"\n";
+    let error = contract::compile(src).unwrap_err();
+    assert!(
+        error.message.contains("a label is `text` beside its field, and the field is named by `aria-label`"),
+        "{error}"
+    );
+}
