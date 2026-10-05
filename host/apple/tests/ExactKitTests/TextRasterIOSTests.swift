@@ -48,6 +48,70 @@ final class TextRasterIOSTests: XCTestCase {
         while p.textRasters.inFlight > 0 && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
     }
 
+    func testAlignedExtentsKeepTheirPhysicalPixelSpan() {
+        let bounds = CGRect(x: 0, y: 0, width: 402, height: 874)
+        func extent(_ physical: CGRect, scale: CGFloat = 3, clip: CGRect? = nil) -> TextRasterExtent {
+            TextRasterJob.alignedExtent(
+                CGRect(x: physical.minX / scale, y: physical.minY / scale,
+                       width: physical.width / scale, height: physical.height / scale),
+                bounds: bounds, clip: clip, scale: scale)
+        }
+
+        let hero = extent(CGRect(x: -2, y: -6, width: 787, height: 274))
+        XCTAssertEqual(hero.rect.minX, -2 / 3, accuracy: 1e-12)
+        XCTAssertEqual(hero.rect.width, 787 / 3, accuracy: 1e-12)
+        XCTAssertEqual(hero.rect.height, 274 / 3, accuracy: 1e-12)
+        XCTAssertEqual(hero.pixels, CGSize(width: 787, height: 274),
+                       "787 physical pixels allocate 787, not 788")
+
+        XCTAssertEqual(extent(CGRect(x: 1, y: 3, width: 781, height: 5)).pixels,
+                       CGSize(width: 781, height: 5), "positive thirds retain their edge span")
+        XCTAssertEqual(extent(CGRect(x: -700, y: 0, width: 600, height: 5)).pixels,
+                       CGSize(width: 600, height: 5), "negative overflow retains its edge span")
+        XCTAssertEqual(extent(CGRect(x: -700, y: 0, width: 781, height: 5)).pixels,
+                       CGSize(width: 781, height: 5), "an extent crossing zero retains its edge span")
+        XCTAssertEqual(extent(CGRect(x: 1, y: 3, width: 782, height: 5)).pixels,
+                       CGSize(width: 782, height: 5), "adjacent positive thirds retain their edge span")
+
+        for scale: CGFloat in [1, 2] {
+            let ordinary = extent(CGRect(x: -7, y: -5, width: 263, height: 91), scale: scale)
+            XCTAssertEqual(ordinary.pixels, CGSize(width: 263, height: 91), "\(scale)x")
+        }
+
+        let clipped = TextRasterJob.alignedExtent(
+            CGRect(x: -20, y: -20, width: 300, height: 160), bounds: bounds,
+            clip: CGRect(x: CGFloat(1) / 3, y: CGFloat(2) / 3,
+                         width: CGFloat(781) / 3, height: CGFloat(274) / 3), scale: 3)
+        XCTAssertEqual(clipped.pixels, CGSize(width: 781, height: 274))
+        XCTAssertEqual(clipped.rect.minX, 1 / 3, accuracy: 1e-12)
+
+        let unaligned = CGRect(x: 0.2, y: 0.1, width: 1, height: 1.1)
+        let unchanged = TextRasterJob.alignedExtent(unaligned, bounds: unaligned, clip: nil, scale: 3)
+        XCTAssertEqual(unchanged.rect, unaligned)
+        XCTAssertNil(unchanged.pixels, "an unchanged layout box keeps width-only allocation")
+        XCTAssertEqual((unchanged.rect.width * 3).rounded(.up), 3)
+    }
+
+    func testCroppedRenderAllocatesOnePixelPerAlignedPhysicalPixel() throws {
+        let engine = TextEngine(resolve: { _ in nil })
+        let run = Run(text: "Finder Apple Health", size: 40, weight: 900, family: 0,
+                      italic: true, lineHeight: 44, letterSpacing: -0.5)
+        let spec = Spec(runs: [run], align: 0, lineClamp: 0, color: [255, 255, 255, 255])
+        let paragraph = engine.paragraph(spec, width: 360)
+        let geometry = try XCTUnwrap(engine.measuredBreaks(spec, width: 360))
+        let box = CGRect(x: 0, y: 0, width: 360, height: paragraph.height)
+        let job = TextRasterJob(source: engine.attributed(spec), ranges: geometry.ranges,
+                                baselines: geometry.baselines, flush: 0, box: box,
+                                size: box.size, scale: 3, crop: true)
+        let raster = try XCTUnwrap(job.render(lines: paragraph.lines))
+        XCTAssertNotEqual(raster.frame, box, "crop exercises the aligned-ink path")
+        XCTAssertEqual(raster.frame.minX * 3, (raster.frame.minX * 3).rounded(), accuracy: 1e-9)
+        XCTAssertEqual(raster.frame.minY * 3, (raster.frame.minY * 3).rounded(), accuracy: 1e-9)
+        XCTAssertEqual(raster.image.width, Int((raster.frame.width * 3).rounded()))
+        XCTAssertEqual(raster.image.height, Int((raster.frame.height * 3).rounded()))
+        XCTAssertTrue(raster.covered.contains(raster.frame), "crop keeps the larger covered region")
+    }
+
     func testAParagraphThatShowsBeforeItsWorkerBeganIsPaintedBeforeTheCommit() throws {
         let session = fixture("text-visible-paint")
         defer { session.destroy(); RegionTextExecutor.queue.isSuspended = false }
