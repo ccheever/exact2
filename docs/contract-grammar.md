@@ -360,7 +360,9 @@ module activated, every request in flight answered and each answer's `then`
 landed, the clock unmoved); `before data` skips the wait. `tap "id" drag dx dy` is the driver's `tap … drag` (from the
 node's middle, or `from x y` in its box, in points; `press`, `over`, `hold` in
 milliseconds; each once). It is a finger where the carrier has one (the web,
-iOS); `mouse` makes it the left button on the web, with the page's pointer
+iOS: on a simulator the touch runner's real gesture, LLP 1080.000 §11, which a
+test with a drag starts for its session; a phone has none yet and fails the
+step); `mouse` makes it the left button on the web, with the page's pointer
 `fine`, so a desktop path is what runs (iOS refuses it; macOS and Linux drag
 with the mouse anyway). A finger's drag the browser takes to scroll an
 ancestor ends in `panrelease` and a `pan cancelled` journal line naming the
@@ -551,7 +553,10 @@ from the left. Declared: it is block-level, not `inline-block`, so buttons in
 a block parent stack (put them in a `row` to set them side by side).
 
 A link (`link href`, a text run's `href`, a Markdown link) to a path in the
-app navigates in it; one to an absolute URL (`https://…`, `//…`) leaves the
+app (`/note/3`, one of its declared routes) navigates in it, through the
+navigation root's `navigate`, on every host; a path that names no route (a
+file beside a document) is the browser's, or natively the app's document to
+open. A relative path (`note/3`) has no base natively; write it from `/`. One to an absolute URL (`https://…`, `//…`) leaves the
 app: natively it opens in the system browser, and on the web in a new
 browsing context (`target="_blank" rel="external noopener"`), so the app is
 still there when the reader comes back. On the web, `target="_self"` keeps

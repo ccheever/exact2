@@ -123,6 +123,7 @@ extension NodeView {
         while let view = next {
             if let node = view as? NodeView, !node.disabled, node.wantsPointer {
                 presenter.pointerHeld = node.id
+                presenter.pointerSource = self
                 if node.handlers.contains("pointerdown") { presenter.pointer(node.id, .down, node.pointerSample(event)) }
                 return
             }
@@ -131,16 +132,19 @@ extension NodeView {
     }
     /// `pointerup` for the node the button went down on.
     func pointerReleased(_ event: NSEvent?) {
-        presenter?.flushHoverMove()
-        guard let presenter, let held = presenter.pointerHeld else { return }
+        holdPresenter?.flushHoverMove()
+        guard let presenter = holdPresenter, let held = presenter.pointerHeld else { return }
         presenter.pointerHeld = nil
+        let source = presenter.pointerSource
+        presenter.pointerSource = nil
+        defer { source?.releaseHold() }
         if let node = presenter.views[held], node.handlers.contains("pointerup") { presenter.pointer(held, .up, node.pointerSample(event, lifted: true)) }
     }
     /// A drag of the held pointer: its node's `pointermove`. AppKit
     /// coalesces drags to one a frame.
     func pointerDragged(_ event: NSEvent) {
         // A drag a view passes up its superviews is one move.
-        guard let presenter, presenter.pointerDrag !== event, let held = presenter.pointerHeld,
+        guard let presenter = holdPresenter, presenter.pointerDrag !== event, let held = presenter.pointerHeld,
               let node = presenter.views[held], node.handlers.contains("pointermove") else { return }
         presenter.pointerDrag = event
         presenter.pointer(held, .move, node.pointerSample(event))
@@ -160,6 +164,15 @@ extension NodeView {
         }
         guard view === self else { return }
         presenter.hoverMoved(id, pointerSample(event))
+    }
+    /// The presenter this view's held button reports to. AppKit sends the
+    /// drags and the up to the view the button went down on even after it
+    /// leaves the tree, a `when` having removed the child of the held node
+    /// the press landed on (a board square's piece, the chess diary via
+    /// fix/syntax6): the hold is the node's, as on the web, so the gone view
+    /// keeps reaching its presenter until the button comes up.
+    var holdPresenter: Presenter? {
+        presenter ?? (objc_getAssociatedObject(self, &holdKey) as? HoldBox)?.presenter
     }
     var wantsPointer: Bool { handlers.contains("pointerdown") || handlers.contains("pointerup") || handlers.contains("pointermove") }
     /// The record of `event` (the current one when nil) as this node sees it:
@@ -215,5 +228,53 @@ extension Presenter {
         hoverMoves = []
         for (id, sample) in moves where views[id] != nil { pointer(id, .move, sample) }
     }
+}
+extension NodeView {
+    /// AppKit sends the held button's drags and up only to the view it went
+    /// down on, and only while that view is in its window: one taken out
+    /// leaves the hold deaf. So the view the button went down on stays,
+    /// transparent, until the button comes up, when a batch removes it (a `when`
+    /// dropping the piece a board square was pressed on), and the held node
+    /// keeps hearing its moves and its up, as on the web (`holdPresenter`).
+    /// Removing it then is AppKit's `removeFromSuperview`, the one way the
+    /// presenter takes a view out.
+    override func removeFromSuperview() {
+        if let presenter = holdPresenter, presenter.pointerHeld != nil, presenter.pointerSource === self, superview != nil {
+            // Transparent, not hidden: AppKit sends a hidden view no drags either.
+            let box = holdBox(presenter)
+            if !box.hid { box.hid = true; box.alpha = alphaValue; alphaValue = 0 }
+            return
+        }
+        super.removeFromSuperview()
+    }
+    private func holdBox(_ presenter: Presenter) -> HoldBox {
+        if let box = objc_getAssociatedObject(self, &holdKey) as? HoldBox { return box }
+        let box = HoldBox(presenter)
+        objc_setAssociatedObject(self, &holdKey, box, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return box
+    }
+    /// Leaving the tree while it is the source of a hold (`forget`).
+    func keepHold() {
+        guard let presenter, presenter.pointerHeld != nil, presenter.pointerSource === self else { return }
+        _ = holdBox(presenter)
+    }
+    /// The button came up: a source a batch removed under the hold goes now,
+    /// and one the tree still has shows again.
+    func releaseHold() {
+        guard let box = objc_getAssociatedObject(self, &holdKey) as? HoldBox else { return }
+        objc_setAssociatedObject(self, &holdKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        guard box.hid else { return }
+        alphaValue = box.alpha
+        if presenter?.views[id] !== self { super.removeFromSuperview() }
+    }
+}
+private var holdKey: UInt8 = 0
+private final class HoldBox {
+    weak var presenter: Presenter?
+    /// The batch removed the view under the hold: it stayed, transparent,
+    /// its own opacity kept here.
+    var hid = false
+    var alpha: CGFloat = 1
+    init(_ presenter: Presenter) { self.presenter = presenter }
 }
 #endif

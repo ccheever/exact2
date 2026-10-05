@@ -22,6 +22,15 @@ enum MarkupRuns {
         return url.absoluteURL
     }
 
+    /// A link's target as the reader follows it: an absolute path is a
+    /// location in the app (`ExactSession.follow`, LLP 1038 §7), which needs
+    /// no document base, as the web's `[Ideas](/note/3)` needs none (notes
+    /// diary); otherwise `navigationURL`'s, or nothing.
+    static func target(_ href: String) -> String? {
+        if href.hasPrefix("/"), !href.hasPrefix("//") { return href }
+        return navigationURL(href)?.absoluteString
+    }
+
     /// Expand `source` into runs over `base` (the node's own run style).
     /// `color` is the node's ink; nil keeps the paragraph colour.
     static func expand(_ source: String, base: Run, color: [Double]?) -> [Run] {
@@ -43,7 +52,7 @@ enum MarkupRuns {
                 if p.mono != 0 { run.family = monospaceFamily }
                 if let href = p.href, p.href_len > 0 {
                     let target = String(decoding: UnsafeBufferPointer(start: href, count: p.href_len), as: UTF8.self)
-                    run.href = navigationURL(target)?.absoluteString ?? ""
+                    run.href = MarkupRuns.target(target) ?? ""
                 }
                 var decoration = p.strike != 0 ? "line-through" : ""
                 if p.role == 2, !run.href.isEmpty { decoration = decoration.isEmpty ? "underline" : decoration + " underline" }

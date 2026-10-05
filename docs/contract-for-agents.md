@@ -470,7 +470,9 @@ A bake runs initial data work and packages first-frame values. A first-frame
 value is not the answer: every host asks the TypeScript module again at launch,
 natively once it loads after first pixel, even a source with no arguments
 (`logs`: `<resource> shows its build-time answer until its source answers`, then
-`<resource> answered: …`). Live requests run after that under host scheduling. Do not assume a secret store, disk database,
+`<resource> answered: …`). A `send` an action makes before the module loads (a
+document opened at launch) waits for it, `pending` meanwhile (`logs`: `send <name>:
+waits until the data source is ready`). Live requests run after that under host scheduling. Do not assume a secret store, disk database,
 or authenticated network session is available while baking. See
 [the data-module reference](reference.md#generate-typescript-data-source-types).
 

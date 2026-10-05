@@ -315,6 +315,9 @@ uint32_t exact_fulfill_surface(ExactRuntime rt, uint64_t ticket, uint32_t kind, 
 /* LLP 1038 D5/D8: input URL -> UTF-8 canonical location in exact_out.
  * The launch setter takes that location before any boot/prepare call. */
 uint32_t exact_location_of(ExactRuntime rt, size_t len);
+/* LLP 1038 §7: 1 when the input location names a declared route (a followed
+ * link to it navigates in the app), else 0. */
+uint32_t exact_route_matches(ExactRuntime rt, size_t len);
 uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,

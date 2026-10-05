@@ -48,6 +48,8 @@ component Text
       text slice("a😀b", 1, 2) testId="cut"
       text replaceAll("😀", "", "-") testId="halves"
       text replaceAll("😀😀", "", "") testId="joined"
+      // A literal Markdown source is built into pieces as a bound one is (it painted nothing).
+      text "Go to [the other page](/other), **now**." markup="markdown" testId="markdown"
       text replaceAll("abc", "b", "[$&|$`|$'|$$|$1]") testId="subst"
       text `${length(grown)}` testId="grown"
       text join(map(close, s => toLowerCase(s.name)), " < ") testId="join"

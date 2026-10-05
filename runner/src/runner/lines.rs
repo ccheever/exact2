@@ -111,6 +111,18 @@ pub(super) fn dropped(ticket: u64, summary: &str) -> String {
     )
 }
 
+pub(super) fn unsent(name: &str) -> String {
+    text!("send {}: waits until the data source is ready", name)
+}
+
+pub(super) fn unsent_refused(name: &str, error: &str) -> String {
+    text!(
+        "send {}, made before the data source was ready, refused: {}",
+        name,
+        error
+    )
+}
+
 pub(super) fn one_more(name: &str) -> String {
     text!("{}: the reply asks for one more request", name)
 }

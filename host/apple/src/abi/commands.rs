@@ -2,12 +2,26 @@
 //! system UI about to run (`share`, LLP 1069.003; `saveFile`, LLP 1069.010),
 //! an auth session's arm and report (LLP 1069.006), a host line into the
 //! runner's journal, a select's options for the menu the presenter
-//! builds (LLP 1069.001 D5), and a grouped list's sections (LLP 1084).
+//! builds (LLP 1069.001 D5), a grouped list's sections (LLP 1084), and
+//! whether a followed link names one of the app's routes (LLP 1038 §7).
 use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// `exact_route_matches`: whether the location in the input buffer names
+    /// a pattern the plan's route table declares (LLP 1038 §7) — a link to
+    /// it is followed in the app, as the web's same-document link is; any
+    /// other path (a file beside a document) is the containing app's.
+    pub fn route_matches(&self, len: usize) -> u32 {
+        let location = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        u32::from(
+            self.host
+                .as_ref()
+                .is_some_and(|h| h.runner().route_matches(&location)),
+        )
+    }
+
     /// `exact_scrolled`: a scroller the presenter shows, or the page, now
     /// stands at `(left, top)` CSS px, for `frame` (LLP 1051.000 D1).
     pub fn scrolled(&mut self, page: bool, view: u32, left: f64, top: f64) {

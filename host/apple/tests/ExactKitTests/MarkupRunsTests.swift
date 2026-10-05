@@ -15,12 +15,17 @@ final class MarkupRunsTests: XCTestCase {
             XCTAssertNotNil(MarkupRuns.navigationURL(href), href)
         }
         let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
-        for href in ["javascript:probe", "data:text/plain,probe", "file:///tmp/probe", "custom:probe", "/relative"] {
+        for href in ["javascript:probe", "data:text/plain,probe", "file:///tmp/probe", "custom:probe", "relative", "../sibling", "//example.test/path"] {
             let runs = MarkupRuns.expand("[visible](\(href))", base: base, color: nil)
             XCTAssertEqual(runs.map(\.text).joined(), "visible", href)
             XCTAssertTrue(runs.allSatisfy { $0.href.isEmpty }, href)
             XCTAssertTrue(runs.allSatisfy { !$0.decoration.contains("underline") }, href)
         }
+        // An absolute path needs no document base: a location in the app,
+        // followed through the navigation root (notes diary, LLP 1045 D4).
+        let path = MarkupRuns.expand("[Ideas](/note/3)", base: base, color: nil)
+        XCTAssertEqual(path.first { $0.text == "Ideas" }?.href, "/note/3")
+        XCTAssertEqual(path.first { $0.text == "Ideas" }?.decoration, "underline")
     }
 
     func testASourceExpandsIntoStyledRunsAgainstTheNodesFont() {

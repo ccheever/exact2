@@ -241,9 +241,7 @@ guide's rules don't make obvious.
   - Draw the ghost as a later sibling of the squares inside a `position="relative"`
     board (`position="absolute"`, `pointer-events="none"`): `z-index` orders siblings
     only, so a ghost inside a square cannot float over the next one.
-  - Keep the piece in its square while it is dragged, dimmed with `opacity`. On macOS
-    a `when` that removes it from the held square ends the hold, and the `pointerup`
-    never comes; the web carries on.
+  - Keep the piece in its square while it is dragged, dimmed with `opacity`.
 
   ```text
   action down(i: number, e: PointerEvent)

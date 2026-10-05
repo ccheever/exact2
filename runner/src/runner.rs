@@ -340,6 +340,9 @@ pub struct Runner<D: DataSource> {
     /// Mutations whose answer landed in the commit being made; their `then`
     /// actions are armed once it stands (LLP 1016.001).
     landed: Vec<usize>,
+    /// Sends made before the data source was ready, by mutation, sent at
+    /// `data_ready` (LLP 1027 D4): pending meanwhile, one per mutation.
+    unsent: Vec<(usize, String, Vec<Value>)>,
     /// When each mutation's `then` action is due, as a one-shot timer:
     /// infinite until an answer lands.
     then_due: Vec<f64>,
@@ -788,6 +791,7 @@ impl<D: DataSource> Runner<D> {
             native: Native::default(),
             watching: Vec::new(),
             landed: Vec::new(),
+            unsent: Vec::new(),
             then_due: Vec::new(),
             next_ticket: 1,
             picked_count: 0,
