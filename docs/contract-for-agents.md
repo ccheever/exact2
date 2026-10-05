@@ -546,6 +546,65 @@ of `gain`, `ends` and `by end|group|cut|stop|cancelled`, or `expect sound missin
 `state sounds` lists the last 64 voices. `audio` stays HTML's player for long media
 (a song, a podcast: `video`'s props and events with no picture, LLP 1042 §8).
 
+To be the system's Now Playing app (the media keys, the lock screen, Control
+Center, a headset's buttons, the browser's media hub), give the player the Media
+Session's `metadata=MediaMetadata(…)` and bind its actions as the element's events
+([LLP 1098](../llp/1098-the-media-session.rfc.md)):
+
+```contract
+component Episode
+  state paused = true
+  state seek = 0
+  state at = 0
+  state part = 1
+  action ticked(t: number)
+    at = t
+  action skipBy(sign: number, d: MediaSessionActionDetails)
+    seek = max(0, at + sign * d.seekOffset)
+  action seekAt(d: MediaSessionActionDetails)
+    seek = d.seekTime
+  action restart
+    seek = 0
+  action nextPart
+    part = part + 1
+  action hostPaused
+    paused = true
+  action hostPlaying
+    paused = false
+  view
+    audio "assets/episode.mp3" paused=paused currentTime=seek timeupdate=ticked
+      metadata=MediaMetadata(title=`Episode 12, part ${part}`, artist="The Show", album="", artwork="assets/art.png")
+      seekbackwardOffset=15 seekforwardOffset=30
+      seekbackward=skipBy(-1) seekforward=skipBy(1) seekto=seekAt
+      previoustrack=restart nexttrack=nextPart
+      pause=hostPaused playing=hostPlaying
+```
+
+- Every field is named (`album=""` when there is none); `artwork` is one image,
+  an `https:` URL or an app asset path.
+- The six actions are `setActionHandler`'s names: `seekbackward`, `seekforward`,
+  `seekto`, `previoustrack`, `nexttrack`, `stop`. Each offers a last
+  `MediaSessionActionDetails` (`action`, `seekOffset`, `seekTime`, `fastSeek`) to
+  take or leave. A bound action is an offered control; the lock screen shows no
+  skip button for an app that does not bind one.
+- `seekbackwardOffset`/`seekforwardOffset` are what the lock screen shows and
+  the `seekOffset` when the platform gives none (default 10). Keep an action that
+  ignores the record (`seekforward=skip(30)`) at the offset it declares.
+- Play and pause are the element's own: the platform plays and pauses the player
+  and the app hears `play`, `playing` and `pause`. With `paused` bound, mirror
+  them, as above.
+- A Mac's previous and next keys send `previoustrack` and `nexttrack`, not the
+  seeks: bind both.
+- One element owns the session: the claimant that most recently started playing,
+  kept while it is paused.
+- On iOS the build refuses a claimant without `"audio_session": "playback"` and
+  `"audio"` in `host.ios.backgroundModes` in `app.json`.
+
+Tests trigger an action as the platform would and read what is published:
+`tap "audio" mediasession "seekto" 600` (the seconds are a seek's `seekOffset`,
+`seekto`'s time), `expect mediasession title == "Episode 12, part 1"`, `expect
+mediasession has "nexttrack"`; `state mediaSession` is the whole record.
+
 Keep `id` and `testId` separate:
 
 - `id`: host command target, geometry, cross-node references.

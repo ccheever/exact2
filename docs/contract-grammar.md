@@ -322,7 +322,7 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "seed" NUMBER NL                     (* 0 through 2^53 - 1 *)
               | "before" "data" NL ;                 (* the first step does not wait for data *)
 step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu" | "into" STRING
-                  | "modifiers" STRING ] NL
+                  | "modifiers" STRING | "mediasession" STRING [ NUMBER ] ] NL
               | "tap" STRING "drag" [ "-" ] NUMBER [ "-" ] NUMBER
                   { ( "press" | "over" | "hold" ) NUMBER
                   | "from" NUMBER NUMBER | "mouse" } NL
@@ -337,7 +337,9 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu" | "into" STR
               | "expect" "text" STRING "==" STRING NL
               | "expect" "state" IDENT { "." IDENT } "==" test-value NL
               | "expect" "sound" ( "has" | "missing" ) STRING
-                  [ "at" NUMBER ] [ "gain" NUMBER ] [ "ends" NUMBER ] [ "by" IDENT ] NL ;
+                  [ "at" NUMBER ] [ "gain" NUMBER ] [ "ends" NUMBER ] [ "by" IDENT ] NL
+              | "expect" "mediasession" ( IDENT "==" ( STRING | "none" )
+                  | ( "has" | "missing" ) STRING ) NL ;
 test-value    = NUMBER | STRING | "true" | "false" | "none" | "[" "]" ;
 ```
 
@@ -390,7 +392,15 @@ clock) holds one of that source matching each clause given: its start (`at`,
 runner milliseconds), its `gain`, its end (`ends`), and how it ended (`by
 end|group|cut|stop|cancelled`); `missing` is the negation. A dropped call is not
 a voice, and a test that asks about a voice the 1,024-voice record no longer
-holds fails and says so. The test compiler emits steps as JSON;
+holds fails and says so. `tap "audio" mediasession "seekforward"` calls the
+handler the platform would call for that media session action ([LLP
+1098](../llp/1098-the-media-session.rfc.md) D10): `play`, `pause` or one of the
+six; its number is a seek's `seekOffset` (absent: the element's own) and
+`seekto`'s time (required there). It is never a press, needs no box, and is
+refused when the element does not own the session or does not offer the action.
+`expect mediasession` reads `state.mediaSession`: `owner` (by testId, or
+`none`), `title`, `artist`, `album`, `artwork` (as authored) or `playbackState`
+`==` a string, or `has`/`missing` an offered action. The test compiler emits steps as JSON;
 the agent driver executes them. The nine-operation interactive API is larger
 than this test-file grammar.
 
@@ -544,7 +554,7 @@ expression grammar. Platform looks and stand-ins are documented in
 ## Events
 
 An event binding is an action reference or partially applied action. Captured
-arguments precede the event payload. The table contains all 50 handler names.
+arguments precede the event payload. The table contains all 56 handler names.
 Numeric multi-argument payload ordering should be copied from the feature's
 working fixture, not inferred from JavaScript's Event interface.
 
@@ -567,6 +577,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | Zero or one `DragEvent` (the action takes it or leaves it) | `drop` |
 | Zero or one `ClipboardEvent` (the action takes it or leaves it) | `copy`, `cut`, `paste` ([clipboard](#clipboard)) |
 | Zero or one `Selection` (the action takes it or leaves it) | `selectionchange`, on a `text` ([text selection](#text-selection)) |
+| Zero or one `MediaSessionActionDetails` (the action takes it or leaves it) | `seekbackward`, `seekforward`, `seekto`, `previoustrack`, `nexttrack`, `stop`, on an `audio` or `video` with `metadata=` ([media session](#media-session)) |
 | Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation) |
 | None | `beforeunload`, `cancel`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
@@ -580,6 +591,24 @@ A `video`'s or `audio`'s `error` appends a stable code, never the engine's text:
 of range). A play interrupted by a pause or a new source is no error. A `video` the
 tree removed reports nothing more, on every host
 ([LLP 1042](../llp/1042-video.spec.md) §3).
+
+### Media session
+
+`metadata=MediaMetadata(title=…, artist=…, album=…, artwork=…)` on an `audio`
+or `video` claims the platform's media session (Now Playing, the media keys, the
+lock screen; [LLP 1098](../llp/1098-the-media-session.rfc.md)). `MediaMetadata`
+is a compiler shape an app builds as it builds its own records (every field a
+string, each named once; `artwork` is one image's source), so a `fn` may return
+one; an app's own `shape MediaMetadata` or `fn MediaMetadata` is refused. The
+element's six actions append a `MediaSessionActionDetails { action: string,
+seekOffset: number, seekTime: number, fastSeek: bool }` to an action that takes
+one: `seekOffset` is the platform's, else the element's `seekbackwardOffset` or
+`seekforwardOffset` (seconds, greater than 0, default 10), 0 for the other four;
+`seekTime` is `seekto`'s. An action or an offset on an element without
+`metadata=` is `lower-media-session`. The platform's play and pause act on the
+element, whose own `play` and `pause` events report them; the session's position
+and playback state are the player's. Of several claimants, the one that most
+recently started playing owns the session (else the latest mounted).
 `scroll` appends left then top offsets, and to an action that takes one more
 parameter a `ScrollEvent`: the scroller's own `scrollLeft`, `scrollTop`,
 `scrollWidth`, `scrollHeight`, `clientWidth` and `clientHeight` as the event

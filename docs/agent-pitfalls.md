@@ -166,6 +166,23 @@ guide's rules don't make obvious.
   action), then each tick the next (`[scheduledTo, now() + 100)`). (Drums; LLP
   1096 D3.)
 
+## Media session
+
+- **A remote pause leaves a bound `paused` false.** The lock screen's or a media
+  key's pause pauses the element; an app that binds `paused` and does not mirror
+  the element's `pause` event still holds `paused = false`, so its play button
+  and its next commit disagree with the player. Fix: `pause=hostPaused
+  playing=hostPlaying`, each setting `paused`. (LLP 1098 D3.)
+- **The lock screen's skip is not your action's.** The lock screen shows
+  `seekbackwardOffset`/`seekforwardOffset` (default 10), not the number in
+  `seekforward=skip(30)`. Fix: keep the two equal, or take the record and seek
+  by `d.seekOffset`. (LLP 1098 D2.)
+- **On iOS a media session needs a playback session and background audio.**
+  `build.mjs --ios` refuses a `metadata=` without `"audio_session": "playback"`
+  and `"audio"` in `host.ios.backgroundModes`: the lock screen shows only a
+  playback session's media, and audio stops at the lock without the mode. (LLP
+  1098 D8.)
+
 ## Input
 
 - **A hold's `pointerup` never arrives.** Cause: the press started on a node that a
