@@ -408,17 +408,15 @@ fn edge_scroll_authored_deletion_and_width_reflow_still_cancel_before_drop() {
 
 #[test]
 fn eager_and_disabled_grips_do_not_admit_physical_reorder() {
-    for source in [
-        APP.replace("virtualized=true", "virtualized=false"),
-        APP.replace("state disabled = false", "state disabled = true"),
-    ] {
-        let mut p = boot_source(&source);
-        let rect = p.rect_of(id(&p, "grip-0")).unwrap();
-        p.pointer_down(rect.0 + 10., rect.1 + 10., 0.).unwrap();
-        assert!(!p.pointer_move(rect.0 + 10., rect.1 + 40., 10.).unwrap());
-        assert!(!p.pointer_up(rect.0 + 10., rect.1 + 40., 20.).unwrap());
-        assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(0.)));
-    }
+    // An eager list never reorders: the compiler refuses it (425f97dab, LLP 1094).
+    let eager = contract::compile(&APP.replace("virtualized=true", "virtualized=false"));
+    assert_eq!(eager.unwrap_err().id, "lower-reorder-collection");
+    let mut p = boot_source(&APP.replace("state disabled = false", "state disabled = true"));
+    let rect = p.rect_of(id(&p, "grip-0")).unwrap();
+    p.pointer_down(rect.0 + 10., rect.1 + 10., 0.).unwrap();
+    assert!(!p.pointer_move(rect.0 + 10., rect.1 + 40., 10.).unwrap());
+    assert!(!p.pointer_up(rect.0 + 10., rect.1 + 40., 20.).unwrap());
+    assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(0.)));
 }
 
 #[test]
