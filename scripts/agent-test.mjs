@@ -100,9 +100,17 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const data = async () => { if (!beforeData) await s.clock('data'); };
     // `reload`: the app restarts on the store it had (mail F19, kanban F25): the web page loads again in its
     // profile, keeping what the origin stored; a native app relaunches on the same scratch store, not emptied.
+    // It asks what persists, so storage the app started and did not await finishes first, as `clock data` lands it
+    // (LLP 1097 D9): a write lost at `reload` is what a crash does. The next `logs` begins with what it waited for.
     const reload = async () => {
-      if (s.host === 'web') { await s.carrier.reset({ keep: true }); s.now = 0; s.logCursor = 0; return; }
-      await s.close(); s = await launch(env);
+      const b = (await s.state().catch(() => ({}))).background, waiting = b ? b.queued + b.inFlight : 0;
+      if (waiting) {
+        const r = await s.clock('data');
+        if (r.settled === false) throw new Error(`reload: the app's storage did not finish before the restart: ${r.diagnostic ?? r.reason}`);
+      }
+      const notes = waiting ? [`reload: waited for ${waiting} storage operation${waiting === 1 ? '' : 's'}`] : [];
+      if (s.host === 'web') { await s.carrier.reset({ keep: true }); s.now = 0; s.logCursor = 0; s.notes = notes; return; }
+      await s.close(); s = await launch(env); s.notes = notes;
     };
     // The clock stands still between steps: what an input started (a reply,
     // a mutation's `then`, a timer, a transition) lands at a clock step. A

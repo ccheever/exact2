@@ -817,6 +817,13 @@ fn clock_within<D: DataSource>(
                 r.pop();
                 r.push_str(&format!(",\"inflight\":{inflight}}}"));
             }
+            // The module's storage still queued or in flight (LLP 1097 D9),
+            // beside the count of requests.
+            let background = p.host().runner().background_operations();
+            if background > 0 {
+                r.pop();
+                r.push_str(&format!(",\"background\":{background}}}"));
+            }
             return r;
         }
         if p.pending() {

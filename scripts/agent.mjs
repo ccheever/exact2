@@ -963,7 +963,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const r = await s.op({ op: 'logs', since: s.logCursor });
       const dropped = Math.max(0, r.from - s.logCursor);
       s.logCursor = r.next;
-      return { lines: r.lines, host: carrier.hostLines.splice(0), from: r.from, next: r.next, dropped, ...(r.world ? { world: r.world } : {}) };
+      // What the driver did that the journal could not keep (a test's `reload` waiting for storage, LLP 1097 D9).
+      const notes = s.notes?.splice(0) ?? [];
+      return { lines: [...notes, ...r.lines], host: carrier.hostLines.splice(0), from: r.from, next: r.next, dropped, ...(r.world ? { world: r.world } : {}) };
     },
     /** `perf [<target>]` (LLP 1079 D2): the plan sites under a view (every root's without one), each with its work across its instances' lifetimes and its source line; `{frames:true}` is the host's presented frames (D4). */
     async perf(target, frames) {
