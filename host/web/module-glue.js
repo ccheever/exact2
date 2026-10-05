@@ -1,7 +1,7 @@
 // A private browser realm per data-module incarnation. @ref LLP 1027 D6;
 // LLP 1027.000 D3. Trusted app code, NOT a security sandbox. No page or
 // guest builtin is patched. Loaded only after the page's first pixel.
-import { bindAnswerStorage, createStorage } from './storage.js';
+import { bindAnswerStorage, createStorage, finishLetGo } from './storage.js';
 import { agentSeed, agentStream, keyStore, storageKey } from './storage-environment.js';
 import { admitsNetwork, grantError, sameGrantDeclaration, scopedGrantSet } from './grant-admission.js';
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -176,6 +176,26 @@ export async function prepare(payload, admitted, id = nextId++) {
     // settle what they await.
     const backgroundOwner = {};
     const backgroundContext = () => ({owner:backgroundOwner,store:new Map(),grants:new Set(),reads:[],writes:[],externalRead:false,entropy:false,topics:[],requests:new Map(),early:new Map()});
+    // Calls the runner let go between storage steps. Their owners stay until
+    // the chain has been delivered, as `finish_let_go` does natively.
+    const owed = new Map();
+    const scratch = owner => ({owner,store:new Map(),grants:new Set(),reads:[],writes:[],externalRead:false,entropy:false,topics:[],requests:new Map(),early:new Map()});
+    const letGoHooks = {
+      letGo: () => win.__exact_let_go('', ''),
+      disposed: () => disposed,
+      deliver: async owner => {
+        const prev = context;
+        context = scratch(owner);
+        try { await storage.deliver(owner); await checkpoint(); }
+        finally { context = prev; }
+      },
+    };
+    const release = (owner, callId) => {
+      if (win.__exact_forget(String(callId)) !== 'storage') { storage.retire(owner); return; }
+      owed.set(callId, owner);
+      const run = tail.then(() => finishLetGo(storage, owed, letGoHooks));
+      tail = run.catch(() => {});
+    };
     let parked = [];
     const finish = (answer, request) => {
       const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead,entropy:context.entropy,topics:context.topics};
@@ -238,6 +258,10 @@ export async function prepare(payload, admitted, id = nextId++) {
         win.__exact_enter_background();
         const delivered = storage.deliverNow(backgroundOwner);
         await checkpoint();
+        if (disposed) throw new Error('module environment disposed');
+        // A let-go chain this delivery just issued is finished before the
+        // round returns, while storage is not refused.
+        await finishLetGo(storage, owed, letGoHooks);
         if (disposed) throw new Error('module environment disposed');
         context = null;
         await resettle();
@@ -312,7 +336,7 @@ export async function prepare(payload, admitted, id = nextId++) {
         context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],externalRead:false,entropy:false,topics:[],requests:new Map(),early:new Map()};
         try {
           const answer = JSON.parse(win.__exact_message(String(open.call), JSON.stringify(request.outcome)));
-          if (!request.outcome.message) { streams.delete(k); storage.retire(open.owner); win.__exact_forget(String(open.call)); }
+          if (!request.outcome.message) { streams.delete(k); release(open.owner, open.call); }
           return finish(answer, request);
         } catch (error) { context = null; return { error: String(error?.message ?? error) }; }
       },
@@ -322,15 +346,15 @@ export async function prepare(payload, admitted, id = nextId++) {
         const keep = new Set(inFlight.map(key));
         for (const [parkedKey, parked] of pending) {
           if (JSON.parse(parkedKey)[0] === null || keep.has(parkedKey)) continue;
-          pending.delete(parkedKey); storage.retire(parked.owner); win.__exact_forget(String(parked.call));
+          pending.delete(parkedKey); release(parked.owner, parked.call);
         }
         for (const [streamKey, open] of streams) {
           if (JSON.parse(streamKey)[0] === null || keep.has(streamKey)) continue;
-          streams.delete(streamKey); storage.retire(open.owner); win.__exact_forget(String(open.call));
+          streams.delete(streamKey); release(open.owner, open.call);
         }
         parked = parked.filter(p => {
           if ((p.request.target ?? null) === null || keep.has(key(p.request))) return true;
-          storage.retire(p.context.owner); win.__exact_forget(String(p.answer.call));
+          release(p.context.owner, p.answer.call);
           p.done.reject(new Error('the runner let this answer go'));
           return false;
         });

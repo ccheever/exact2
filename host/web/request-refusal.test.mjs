@@ -909,3 +909,153 @@ try {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// A realm worker with the real prelude and a filesystem that lands when the
+// test says. `body` posts one verdict.
+async function realmVerdict(body) {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-letgo-'));
+  const prelude = JSON.stringify(resolve(ROOT, 'js/src/prelude.js'));
+  writeFileSync(resolve(dir, 'worker.mjs'), `
+import { readFileSync } from 'node:fs';
+import * as api from './storage.js';
+const realSetTimeout = setTimeout;
+const checkpoint = () => new Promise(resolve => {
+  const channel = new MessageChannel();
+  channel.port1.onmessage = () => { channel.port1.close(); channel.port2.close(); resolve(); };
+  channel.port2.postMessage(null);
+});
+const wait = ms => new Promise(resolve => realSetTimeout(resolve, ms));
+async function until(pred) {
+  for (let i = 0; i < 50 && !pred(); i++) await wait(10);
+}
+self.land = [];
+self.writes = 0;
+let context = null;
+self.__exact_host = op => {
+  if (!context) throw new Error('host call outside an answer');
+  if (op === 5) return;
+  if (op === 13) return '1';
+};
+const storage = api.createStorage(self, { appId: 'test', grantSet: null }, () => context.owner, 'k');
+if (typeof api.bindAnswerStorage === 'function') api.bindAnswerStorage(self, storage, () => context.owner);
+eval(readFileSync(${prelude}, 'utf8'));
+self.__exact_storage = storage.capability;
+self.__exact_install_storage();
+self.__exact_main_thread();
+const scratch = owner => ({ owner });
+(async () => {
+${body}
+})();
+`);
+  writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const storageKey = () => 'k';");
+  writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => ({
+  writeFile: () => new Promise(ok => { globalThis.writes++; globalThis.land.push(() => ok('')); }),
+  readFile: () => new Promise(ok => globalThis.land.push(() => ok('contents'))),
+});`);
+  cpSync(resolve(ROOT, 'host/web/storage.js'), resolve(dir, 'storage.js'));
+  const worker = new Worker(pathToFileURL(resolve(dir, 'worker.mjs')), { type: 'module' });
+  try {
+    return await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('worker hung')), 5000);
+      worker.on('message', value => { clearTimeout(timer); resolve(value); });
+      worker.on('error', error => { clearTimeout(timer); reject(error); });
+    });
+  } finally {
+    await worker.terminate();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// A send between its own storage steps is superseded. The step in flight has
+// to finish and the step chained on it has to run; retiring the owner drops
+// the step and the module's later storage never starts (LLP 1097, ios7).
+test('a superseded send between storage steps still writes on the wasm realm', async () => {
+  const verdict = await realmVerdict(`
+self.exact = { abi: 1, appId: 'test', answer(name, _a, _s, cap) {
+  if (name === 'pair') return cap.fs.writeFile('app:/data/a', '1').then(() => cap.fs.writeFile('app:/data/b', '2')).then(() => 'pair');
+  return cap.fs.readFile('app:/data/b');
+}};
+try {
+  const owner = {};
+  context = scratch(owner);
+  const started = JSON.parse(self.__exact_call('pair', '[]'));
+  await until(() => self.land.length >= 1);
+  const owed = new Map();
+  let pumping = false;
+  const pump = async () => { while (pumping) { if (self.land.length) self.land.shift()(); await wait(1); } };
+  if (typeof api.finishLetGo === 'function') {
+    if (self.__exact_forget(String(started.call)) !== 'storage') throw new Error('forget did not keep the chain');
+    owed.set(started.call, owner);
+    pumping = true; pump();
+    await api.finishLetGo(storage, owed, {
+      letGo: () => self.__exact_let_go('', ''),
+      disposed: () => false,
+      deliver: async (at) => {
+        const prev = context; context = scratch(at);
+        try { await storage.deliver(at); await checkpoint(); }
+        finally { context = prev; }
+      },
+    });
+    pumping = false;
+  } else {
+    storage.retire(owner);
+    self.__exact_forget(String(started.call));
+    pumping = true; const running = pump();
+    await wait(80); pumping = false; await running;
+  }
+  let verdict = 'dropped';
+  if (self.writes >= 2) {
+    context = scratch({});
+    const read = JSON.parse(self.__exact_call('read', '[]'));
+    await until(() => self.land.length >= 1);
+    const pending = storage.deliver(context.owner);
+    self.land.shift()();
+    await checkpoint();
+    const settled = JSON.parse(self.__exact_settle(String(read.call)));
+    const delivered = await Promise.race([pending.then(() => 'answer', () => 'rejected'), wait(250).then(() => 'stuck')]);
+    verdict = settled.tag === 0 && delivered === 'answer' ? 'answer' : 'stuck:' + JSON.stringify(settled) + ':' + delivered;
+  }
+  postMessage(verdict + ':' + self.writes);
+} catch (error) {
+  postMessage('error: ' + (error && error.stack || error));
+}
+`);
+  expect(verdict).toBe('answer:2');
+});
+
+// Retire can still race a completion already in flight. That completion has
+// to reject the promise the prelude is waiting on, so the head clears and
+// the next operation is issued.
+test('retiring an in-flight storage owner settles the prelude head', async () => {
+  const verdict = await realmVerdict(`
+self.exact = { abi: 1, appId: 'test', answer(name, _a, _s, cap) {
+  if (name === 'lose') return cap.fs.writeFile('app:/data/a', '1');
+  return cap.fs.readFile('app:/data/a');
+}};
+try {
+  const owner = {};
+  context = scratch(owner);
+  const started = JSON.parse(self.__exact_call('lose', '[]'));
+  await until(() => self.land.length >= 1);
+  storage.retire(owner);
+  self.land.shift()();
+  await checkpoint();
+  const lost = JSON.parse(self.__exact_settle(String(started.call)));
+  if (lost.tag !== 2) { postMessage('stuck:' + JSON.stringify(lost)); return; }
+  context = scratch({});
+  const read = JSON.parse(self.__exact_call('read', '[]'));
+  await checkpoint();
+  await until(() => self.land.length >= 1);
+  if (!self.land.length) { postMessage('not-issued'); return; }
+  const pending = storage.deliver(context.owner);
+  self.land.shift()();
+  await checkpoint();
+  const delivered = await Promise.race([pending.then(() => 'answer', () => 'rejected'), wait(250).then(() => 'stuck')]);
+  const settled = JSON.parse(self.__exact_settle(String(read.call)));
+  postMessage(delivered === 'answer' && settled.tag === 0 ? 'advanced' : 'stuck:' + delivered + ':' + JSON.stringify(settled));
+} catch (error) {
+  postMessage('error: ' + (error && error.stack || error));
+}
+`);
+  expect(verdict).toBe('advanced');
+});

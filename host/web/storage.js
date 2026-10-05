@@ -61,11 +61,13 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
     return sqlite = createSqlite(key, admitted.grantSet);
   });
   // A completion waits in its owner's queue until that owner's checkpoint.
-  const completion = cell => (complete, cleanup = () => {}) => {
+  // One that arrives after the owner was retired rejects the caller, so the
+  // prelude's head clears and the next operation can be issued.
+  const completion = cell => (complete, cleanup = () => {}, fail = () => {}) => {
     untrack(cell);
     const owner = cell.owner;
-    if (disposed || retired.has(owner)) { cleanup(); return; }
-    const queue = queues.get(owner) || []; queue.push({complete, cleanup}); queues.set(owner, queue);
+    if (disposed || retired.has(owner)) { cleanup(); fail(); return; }
+    const queue = queues.get(owner) || []; queue.push({complete, cleanup, fail}); queues.set(owner, queue);
     waiters.get(owner)?.(); waiters.delete(owner);
   };
   // Host work an answer waits on that is not storage (a browser digest, LLP
@@ -75,7 +77,11 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
     if (disposed) return win.Promise.reject(unavailable());
     const ready = completion(track(scope()));
     return new win.Promise((resolve, reject) => {
-      Promise.resolve(promise).then(value => ready(() => resolve(value)), e => ready(() => reject(e)));
+      const fail = () => reject(unavailable());
+      Promise.resolve(promise).then(
+        value => ready(() => resolve(value), () => {}, fail),
+        e => ready(() => reject(e), () => {}, fail),
+      );
     });
   }
   function enqueue(invoke, convert = clone, discard = () => {}, keyed = true) {
@@ -92,9 +98,10 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
     const active = () => { if (disposed || retired.has(cell.owner)) throw unavailable(); };
     return new win.Promise((resolve, reject) => {
       const ready = completion(cell);
+      const fail = () => reject(unavailable());
       Promise.resolve().then(() => { active(); return invoke(active); }).then(
-        value => ready(() => { try { resolve(convert(value)); } catch(e) { discard(value); reject(error(e)); } }, () => discard(value)),
-        e => ready(() => reject(error(e))),
+        value => ready(() => { try { resolve(convert(value)); } catch(e) { discard(value); reject(error(e)); } }, () => discard(value), fail),
+        e => ready(() => reject(error(e)), () => {}, fail),
       );
     });
   }
@@ -149,6 +156,35 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
       if (!queues.get(owner)?.length) await new Promise(resolve => waiters.set(owner,resolve));
       if (disposed || retired.has(owner)) throw unavailable();
     },
+    // The first of `owners` that has a completion waiting. Losers do not keep
+    // a waiter, so a later `ready` is not resolved by this race.
+    async waitFor(owners) {
+      if (disposed) throw unavailable();
+      const queued = () => owners.find(owner => !retired.has(owner) && queues.get(owner)?.length);
+      const hit = queued();
+      if (hit) return hit;
+      let done = false;
+      const picked = await new Promise(resolve => {
+        const wrapped = new Map();
+        const finish = owner => {
+          if (done) return;
+          done = true;
+          for (const [other, fn] of wrapped) if (waiters.get(other) === fn) waiters.delete(other);
+          wrapped.clear();
+          resolve(owner);
+        };
+        for (const owner of owners) {
+          const prev = waiters.get(owner);
+          const fn = () => { prev?.(); finish(owner); };
+          wrapped.set(owner, fn);
+          waiters.set(owner, fn);
+        }
+        const raced = queued();
+        if (raced) finish(raced);
+      });
+      if (disposed || retired.has(picked)) throw unavailable();
+      return picked;
+    },
     // Its first waiting completion, now; whether there was one.
     deliverNow(owner) {
       const queue = queues.get(owner), complete = queue?.shift();
@@ -177,7 +213,7 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
     retire(owner) {
       if (!owner) return;
       retired.add(owner);
-      for (const entry of queues.get(owner) || []) entry.cleanup();
+      for (const entry of queues.get(owner) || []) { entry.cleanup(); entry.fail?.(); }
       queues.delete(owner);
       waiters.get(owner)?.(); waiters.delete(owner);
     },
@@ -194,4 +230,24 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
 export function bindAnswerStorage(target, storage, ownerOf) {
   target.__exact_reserve_storage = () => storage.reserve(ownerOf());
   target.__exact_abandon_storage = cell => storage.abandon(cell);
+}
+
+// Deliver a let-go chain until `__exact_let_go` says nothing is left, then
+// retire its owners. `"queued"` means the head is someone else's operation:
+// stop, and leave the owners in `owed` for the delivery that makes this
+// chain the head. Calling `letGo` when it returns `""` drops the calls, so
+// this does not call it again.
+export async function finishLetGo(storage, owed, hooks) {
+  let status;
+  while ((status = hooks.letGo()) === 'storage') {
+    const owners = [...owed.values()];
+    if (!owners.length) break;
+    const owner = owners.length === 1 ? owners[0] : await storage.waitFor(owners);
+    await hooks.deliver(owner);
+    if (hooks.disposed()) return;
+  }
+  if (status === '') {
+    for (const owner of owed.values()) storage.retire(owner);
+    owed.clear();
+  }
 }
