@@ -129,7 +129,10 @@ export async function checkResidency(probe, session, check, say) {
   const delta = (a,b,key) => b.gpu.afterReady[key]-a.gpu.afterReady[key];
   const changed = await probe.run(session, 'KeyC');
   if(changed.error) throw new Error(changed.error);
-  check('changed texture carry uploads exactly one texture', changed.after.ready && delta(changed.before,changed.after,'textureUploads') === 1, changed);
+  // Declared assets (Game::ASSETS) stay resident while unshown, so swapping the
+  // scene away and back retires nothing and nothing is refetched: the changed
+  // texture bytes are never requested, and no texture uploads.
+  check('a declared model and its texture stay resident across a scene swap: no texture uploads', changed.after.ready && delta(changed.before,changed.after,'textureUploads') === 0, changed);
   check('changed texture carry reuses geometry, pipelines and model/skin capacity',
     ['meshUploads','pipelineCreations','modelSkinBufferReallocations'].every(key=>delta(changed.before,changed.after,key)===0), changed.after.gpu);
   const repeated = await probe.run(session, 'KeyC');
