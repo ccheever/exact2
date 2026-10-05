@@ -746,3 +746,29 @@ fn data_ready_s_sends_open_a_gate_and_a_bad_key_refuses_them() {
     ));
     assert_eq!(r.slot("loaded"), Some(&Value::NONE), "the commit as it was");
 }
+
+/// b6 review A4: after a queued send refused by its own ask, the commit
+/// that tells the view `pending` ended reaches the host when it refuses,
+/// as a failed reply's commit made again does.
+#[test]
+fn the_commit_after_a_refused_queued_ask_reports_its_refusal() {
+    let src = APP.replace("  state ticks = 0\n", "  state ticks = 0\n  state armed = false\n").replace(
+        "  view\n",
+        "  action arm\n    armed = true\n    send rec = save(\"x\")\n    send rec = broken(\"z\")\n  task watch key=armed and not pending(rec) ? 0 / 0 : 1\n    after(100000, bump)\n  view\n",
+    );
+    let mut r = boot_with(
+        &src,
+        Desk {
+            later: true,
+            ..Desk::default()
+        },
+    );
+    r.act("arm", vec![]).unwrap();
+    let t = tickets(&mut r);
+    r.fulfill(t[0], reply("ok")).unwrap();
+    assert!(matches!(
+        r.advance(1.0),
+        Err(RunnerError::TaskKey { task }) if task == "watch"
+    ));
+    assert!(r.journal().any(|l| l.contains("rec queued send refused")));
+}

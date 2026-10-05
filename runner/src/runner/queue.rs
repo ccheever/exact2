@@ -207,6 +207,9 @@ impl<D: DataSource> Runner<D> {
         };
         self.conclude(checkpoint, &result, was_poisoned);
         self.arm_then(result.is_ok());
+        // A refusal of the commit that tells the view `pending` ended is
+        // the host's to hear, as a failed reply's is (b6 review A4).
+        let mut ended = None;
         if let Err(e) = &result {
             if self.poisoned {
                 self.log_outcome(&format!("{name} next"), &result, was_poisoned);
@@ -218,7 +221,7 @@ impl<D: DataSource> Runner<D> {
                 // Nothing waits behind it and nothing is in flight: the
                 // view hears `pending` end, as after a failed reply.
                 if was && !self.pending_mut[m] {
-                    let _ = self.commit_again(Vec::new(), "a refused queued send");
+                    ended = self.commit_again(Vec::new(), "a refused queued send").err();
                 }
             } else {
                 self.queues.stalled[m] = Some(Rc::new(Basis {
@@ -230,7 +233,10 @@ impl<D: DataSource> Runner<D> {
             }
         }
         self.arm_next(result.is_ok());
-        result
+        match ended {
+            Some(e) => Err(e),
+            None => result,
+        }
     }
 
     fn next_inner(
