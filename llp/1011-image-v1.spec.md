@@ -130,7 +130,8 @@ font-size=17 font-weight=600 tint-color="#007aff"` uses one of the seven
 schema roles: back, close, compose, add, microphone, send and search. Literal
 unknown roles are `lower-attr-value`; a dynamic unknown role paints empty,
 clears intrinsic size and logs a refusal. Symbols are decorative: the surrounding
-control carries its accessible name, the symbol does not carry another one.
+control carries its accessible name, the symbol does not carry another one,
+unless its author names it (`alt` or `aria-label`, 2026-10-04: then that is its name).
 No network or asset load resolves a symbol. Definite dimensions still size its
 box; inherited font size/weight configure its natural glyph dimensions.
 
