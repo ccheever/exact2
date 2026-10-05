@@ -552,7 +552,13 @@ and the embedded map, and `agent.mjs trace` read it back with no app running.
 - Under `EXACT_AGENT_TIMING=platform` it read real frames, `seq` joined
   through the trailer.
 - The Save Trace menu items were built on both platforms but not clicked by
-  hand.
+  hand. (2026-10-05: on iOS it was, on a simulator. A phone's trace leaves
+  it two ways: the saved alert's **Share…** (AirDrop to the Mac, or Files),
+  and `bun scripts/agent.mjs trace --phone <name>` over the cable, which
+  copies `tmp/trace-latest.json`, the last trace under a fixed name, with
+  `devicectl` as a phone's screenshots are copied, into the app's
+  `target/traces/` and reads it (a simulator's from its container, which
+  `devicectl` cannot copy). Neither has been run on a phone.)
 - `BorderParityMacTests.testEveryCaseMatchesChromeOnScreen` fails the same
   way at the base commit; it is not this change's.
 
