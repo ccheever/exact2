@@ -3,7 +3,7 @@
 //! compared with. `reload` replaces the declaration in the running game; the
 //! next present draws it, with no build and nothing in the world changed.
 use exact_game::Present;
-use exact_game_look::{Externs, Live, Stats};
+use exact_game_look::{Externs, Live, Stats, Stopwatch};
 use std::cell::{Cell, RefCell};
 
 /// The look this build ships.
@@ -23,21 +23,18 @@ thread_local! {
     static SPENT: RefCell<Option<Vec<f64>>> = const { RefCell::new(None) };
 }
 
-// A visible exception to the determinism lints: the clock times the present
-// for `spent` (examples/look_cost.rs) and never reaches the world or a row.
-#[allow(clippy::disallowed_types)]
 pub(crate) fn present(p: &mut Present<'_>) {
-    let started = std::time::Instant::now();
+    // Timed only while a diagnostic asks (`spent`, examples/look_cost.rs); the
+    // time reaches no row and nothing in the world.
+    let watch = SPENT.with(|s| s.borrow().is_some()).then(Stopwatch::start);
     if RUST.with(Cell::get) {
         crate::look::present(p);
     } else {
         LIVE.with(|live| live.borrow_mut().present(p));
     }
-    SPENT.with(|s| {
-        if let Some(spent) = s.borrow_mut().as_mut() {
-            spent.push(started.elapsed().as_secs_f64() * 1e6);
-        }
-    });
+    if let Some(watch) = watch {
+        SPENT.with(|s| s.borrow_mut().as_mut().map(|spent| spent.push(watch.us())));
+    }
 }
 
 /// Microseconds each present on this thread has taken since the last call

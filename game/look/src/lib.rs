@@ -24,14 +24,36 @@ pub use eval::{Cache, Stats};
 pub use syntax::{Error, Span};
 
 use exact_game::{Present, Registered};
-use std::time::Instant;
+
+/// Elapsed time for diagnostics, where there is a clock: wasm32's std has none
+/// (`Instant::now` panics there), so on the web it reads zero.
+pub struct Stopwatch {
+    #[cfg(not(target_arch = "wasm32"))]
+    started: std::time::Instant,
+}
+impl Stopwatch {
+    pub fn start() -> Self {
+        Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            started: std::time::Instant::now(),
+        }
+    }
+    /// Microseconds since `start`.
+    pub fn us(&self) -> f64 {
+        #[cfg(not(target_arch = "wasm32"))]
+        let us = self.started.elapsed().as_secs_f64() * 1e6;
+        #[cfg(target_arch = "wasm32")]
+        let us = 0.0;
+        us
+    }
+}
+
+/// A pure function of numbers.
+pub type Pure = fn(&[f32]) -> f32;
 
 /// The game's own pure functions and constants a look may call by name: an
 /// escape hatch to Rust that cannot read or write the world (numbers in,
 /// a number out).
-/// A pure function of numbers.
-pub type Pure = fn(&[f32]) -> f32;
-
 #[derive(Clone, Default)]
 pub struct Externs {
     functions: Vec<(&'static str, usize, Pure)>,
@@ -158,9 +180,9 @@ impl Live {
     /// Present: compile a waiting replacement first.
     pub fn present(&mut self, p: &mut Present<'_>) {
         if let Some(source) = self.pending.take() {
-            let started = Instant::now();
+            let watch = Stopwatch::start();
             let compiled = Look::compile(&source, &p.registered(), &self.externs);
-            self.compile_us = started.elapsed().as_secs_f64() * 1e6;
+            self.compile_us = watch.us();
             self.errors.clear();
             match compiled {
                 Ok(look) => {

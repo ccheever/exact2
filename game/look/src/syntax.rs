@@ -515,11 +515,7 @@ pub fn parse(src: &str) -> Result<File, Error> {
     Ok(file)
 }
 
-fn fn_block(
-    lines: &[Line],
-    i: &mut usize,
-    at: Span,
-) -> Result<(Lets, Expr), Error> {
+fn fn_block(lines: &[Line], i: &mut usize, at: Span) -> Result<(Lets, Expr), Error> {
     let Some(indent) = lines.get(*i).map(|l| l.indent).filter(|n| *n > 0) else {
         return Err(error(
             at,

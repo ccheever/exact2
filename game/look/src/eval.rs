@@ -132,9 +132,9 @@ pub(crate) fn present(
         }
         ev.sink.clear();
         ev.stats.run += 1;
-        let started = std::time::Instant::now();
+        let watch = crate::Stopwatch::start();
         let outcome = ev.exec(st);
-        timing.push((*rule, started.elapsed().as_secs_f64() * 1e6));
+        timing.push((*rule, watch.us()));
         let ok = match outcome {
             Ok(_) => true,
             Err(e) => {
