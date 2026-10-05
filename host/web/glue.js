@@ -1014,8 +1014,7 @@ function nodeDetail(id, plan = false) {
   if (!el || !el.isConnected) return { error: `stale node #${id}` };
   const node = ask({ op: "node", id, ...(plan ? { plan: true } : {}) });
   if (node.error) return node;
-  // The kernel's layout never runs on the web (LLP 1007 §9): its frames are
-  // not observations here, so they are absent rather than zeros.
+  if (node.type === "TextInput" && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) node.props = { ...node.props, value: el.value };
   delete node.frame;
   delete node.absolute;
   delete node.content;
@@ -1063,6 +1062,7 @@ function tree(request) {
   const reply = ask(request);
   for (const node of reply.nodes ?? []) {
     const el = views.get(node.id);
+    if (node.type === "TextInput" && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) node.props = { ...node.props, value: el.value };
     node.focused = el === document.activeElement;
     if (el?.exactNative) node.module = el.exactNative.status();
     if (!(el instanceof HTMLIFrameElement)) continue;

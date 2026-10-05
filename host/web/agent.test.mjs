@@ -1024,6 +1024,26 @@ test('tree forwards its target and preserves host annotations and runner errors'
   expect(f.exact.agent({op:'tree',target:'missing'})).toEqual({error:'no view matches missing'});
 });
 
+// Uncontrolled fields live in the presenter; inspection must read what the
+// person typed without writing it into Contract state.
+test('wasm tree and node detail report live text field values without mutating runner props', () => {
+  const f = fixture();
+  vm.runInContext(declaration('tree'), f);
+  for (const C of [f.HTMLInputElement, f.HTMLTextAreaElement]) {
+    const field = Object.assign(new C(), f.views.get(1), { localName: C === f.HTMLInputElement ? 'input' : 'textarea', value: 'typed text' });
+    f.views.set(1, field);
+    const props = { testId: 'field', value: 'initial' };
+    f.ask = req => req.op === 'tree'
+      ? { nodes: [{ id: 1, type: 'TextInput', props: { ...props } }] }
+      : { id: 1, type: 'TextInput', props: { ...props } };
+    expect(f.exact.agent({ op: 'tree' }).nodes[0].props.value).toBe('typed text');
+    expect(f.exact.agent({ op: 'layout', id: 1 }).node.props.value).toBe('typed text');
+    expect(props.value).toBe('initial');
+    field.value = '';
+    expect(f.exact.agent({ op: 'tree' }).nodes[0].props.value).toBe('');
+  }
+});
+
 function listFixture() {
   const frames = [], listeners = new Map();
   const document = { activeElement: null,

@@ -867,7 +867,6 @@ export function worldView(session, name) {
     hold: (code, ms) => session.type(name, {key:code, for:ms}),
   };
 }
-
 /** Explain a refused placed-child tap using the world's own visibility. */
 export async function tapRefusal(session, target, error) {
   if (error.transport) return error; // the carrier failed: no diagnostic read can answer
@@ -887,7 +886,6 @@ export async function tapRefusal(session, target, error) {
   } catch { /* Preserve the original refusal if the diagnostic target also vanished. */ }
   return error;
 }
-
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
@@ -1360,7 +1358,6 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
 // ---------------------------------------------------------------- the CLI
 // Authored tests (LLP 1017 P7): agent-test.mjs drives a file's `test` blocks through `open`.
 export { runTests, textOf } from './agent-test.mjs';
-
 async function main(argv) {
   const { flags, rest } = parseFlags(argv);
   const [host, ...ops] = rest;
