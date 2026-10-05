@@ -1,7 +1,8 @@
 //! Form controls, painted (LLP 1069.001 D7): Linux has no platform
-//! controls, so a checkbox is Chrome's rounded square and a switch a pill
-//! with a thumb, filled with `accent-color`. `appearance: none` draws
-//! nothing here: the author's box is the whole look (D6).
+//! controls, so a checkbox is Chrome's rounded square, a radio its circle
+//! and a switch a pill with a thumb, filled with `accent-color`.
+//! `appearance: none` draws nothing here: the author's box is the whole
+//! look (D6).
 
 use super::{rgba, Backend, Rect4, Shape};
 use exact_kernel::{Appearance, NodeRef, PropId, StyleMask};
@@ -268,6 +269,22 @@ pub(super) fn paint(
         backend.fill(&thumb, dim([0xff, 0xff, 0xff, 0xff]), ts);
         return;
     }
+    let (border, fill) = if dark {
+        ([0x85, 0x85, 0x85, 0xff], [0x3b, 0x3b, 0x3b, 0xff])
+    } else {
+        ([0x76, 0x76, 0x76, 0xff], [0xff, 0xff, 0xff, 0xff])
+    };
+    // A radio is Chrome's circle (x2apps survey #2): checked, an accent
+    // ring around the field's own fill and an accent dot a fifth in.
+    if node.props.str(PropId::Type) == Some("radio") {
+        let circle = Shape::new(content, [w.min(h) / 2.0; 4]);
+        backend.fill(&circle, dim(if on { accent } else { border }), ts);
+        backend.fill(&circle.inset(1.0), dim(fill), ts);
+        if on {
+            backend.fill(&circle.inset(w.min(h) * 0.2), dim(accent), ts);
+        }
+        return;
+    }
     let square = Shape::new(content, [2.0; 4]);
     if on {
         backend.fill(&square, dim(accent), ts);
@@ -289,11 +306,6 @@ pub(super) fn paint(
             ts.pre_concat(long),
         );
     } else {
-        let (border, fill) = if dark {
-            ([0x85, 0x85, 0x85, 0xff], [0x3b, 0x3b, 0x3b, 0xff])
-        } else {
-            ([0x76, 0x76, 0x76, 0xff], [0xff, 0xff, 0xff, 0xff])
-        };
         backend.fill(&square, dim(border), ts);
         backend.fill(&square.inset(1.0), dim(fill), ts);
     }

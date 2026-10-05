@@ -496,8 +496,11 @@ impl<D: DataSource> Presenter<D> {
                     || n.props.str(PropId::Action).is_some()
                     || n.node_type == NodeType::TextInput
                     // A native button is a button under any role (LLP 1069.011.000 D1).
-                    || exact_kernel::ControlKind::of(n.node_type, n.props)
-                        == Some(exact_kernel::ControlKind::Button)
+                    || matches!(
+                        exact_kernel::ControlKind::of(n.node_type, n.props),
+                        // A radio takes the focus its arrows move (x2apps survey #2).
+                        Some(exact_kernel::ControlKind::Button | exact_kernel::ControlKind::Radio)
+                    )
                     || matches!(
                         n.props.str(PropId::AccessibilityRole),
                         Some("button" | "link")
@@ -587,6 +590,10 @@ impl<D: DataSource> Presenter<D> {
                 eprintln!("exact: {e}");
             }
             self.queue_collections();
+        }
+        // A press in a text field puts its caret there (x2apps codeedit #2).
+        if let Some(id) = focus.filter(|id| self.focus == Some(*id)) {
+            self.press_field(id);
         }
     }
 

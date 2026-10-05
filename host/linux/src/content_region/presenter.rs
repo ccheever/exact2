@@ -80,6 +80,7 @@ impl<D: DataSource> Presenter<D> {
         );
         let model_scroll = deferred.then(|| self.collection_paint_scroll()).flatten();
         let menu = self.menu_paint();
+        let selection = self.focus.map(|id| self.field_selection(id));
         let host = &self.host;
         let presented = |id: ViewId| host.presented(id);
         let scene = Scene {
@@ -91,6 +92,7 @@ impl<D: DataSource> Presenter<D> {
             page: self.page,
             images: &self.images.bitmaps,
             focus: self.focus,
+            selection,
             pointer: self.pointer,
             controls: &self.controls,
             chosen: &self.chosen,

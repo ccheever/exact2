@@ -41,10 +41,14 @@ mod control;
 mod delivery;
 mod display_frame;
 mod events;
+mod field;
+#[cfg(test)]
+mod field_tests;
 mod group;
 mod pan_release;
 mod picker;
 mod pointer;
+mod radio;
 #[cfg(test)]
 mod save_tests;
 mod svg_hit;
@@ -109,9 +113,9 @@ pub struct Presenter<D: DataSource> {
     /// The text field typed into since it took the focus: its `change`
     /// fires on blur or Enter, HTML's commit (LLP 1069.001 D4).
     pub(crate) edited: Option<ViewId>,
-    /// The field whose whole text `selectText` selected: the next key it
-    /// types replaces the text, as at a browser's selection (files diary F5).
-    pub(crate) selected: Option<ViewId>,
+    /// Each text field's selection (x2apps codeedit #2), kept for the value
+    /// it indexes, focused or not: the next key there edits at it.
+    pub(crate) fields: BTreeMap<ViewId, field::FieldMark>,
     /// The modifier keys held, each side a bit (Shift, Control, Alt, Meta,
     /// left then right): a `key` event's flags (`KeyboardEvent.shiftKey`…).
     pub(crate) held: u8,
@@ -421,7 +425,7 @@ impl<D: DataSource> Presenter<D> {
             hosts: 0,
             focus: None,
             edited: None,
-            selected: None,
+            fields: BTreeMap::new(),
             held: 0,
             controls: BTreeMap::new(),
             chosen: BTreeMap::new(),
