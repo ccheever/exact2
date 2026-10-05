@@ -1477,7 +1477,7 @@ impl Collection {
                 .take(rows)
                 .map(|row| CollectionRow {
                     view: row.wrapper,
-                    root: roots_of(&row.row.roots)[0],
+                    root: first_root(&row.row.roots).expect("a row has a root"),
                     index: row.position,
                     start: self.index.prefix(row.position).unwrap(),
                     size: self.index.height(row.position).unwrap(),

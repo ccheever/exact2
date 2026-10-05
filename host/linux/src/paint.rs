@@ -500,6 +500,8 @@ pub struct Painter {
     rows: rows::Rows,
     /// The `svg` painting now: its elements the reader animates.
     svg_layers: Vec<(ViewId, Presented)>,
+    /// How many boxes the last walk painted: the next one's room.
+    boxes_hint: usize,
 }
 
 // O(painted owners) references and numeric publication metadata, not copied
@@ -586,6 +588,7 @@ impl Painter {
             cpu_ms: None,
             flatten: None,
             rows: Default::default(),
+            boxes_hint: 0,
             svg_layers: Vec::new(),
         }
     }
@@ -758,7 +761,7 @@ impl Painter {
         }
         let mut walk = Walk {
             scene,
-            boxes: Vec::new(),
+            boxes: Vec::with_capacity(self.boxes_hint),
             text: BTreeMap::new(),
             skip,
             replay,
@@ -775,6 +778,7 @@ impl Painter {
         if let Some((px, py)) = scene.pointer {
             self.backend.pointer(px, py);
         }
+        self.boxes_hint = walk.boxes.len();
         let finished = self.backend.finish();
         if self.backend.name() == "cpu" {
             self.cpu_ms = Some(started.elapsed().as_secs_f64() * 1000.);
@@ -1227,7 +1231,7 @@ impl Painter {
             },
         );
         let children: Vec<ViewId> = order.into_iter().map(|(id, _)| id).collect();
-        let rows = self.has_rows(node);
+        let rows = self.has_rows(walk, node);
         // A scroller's rows are its children; a scroller holding one
         // container (a column of settings) keeps that container's children
         // apart instead, so one of them changing records only itself.

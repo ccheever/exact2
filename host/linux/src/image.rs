@@ -5,7 +5,7 @@ use exact_raster::{
     Demand, Gate, PixelSize, Priority, RasterKey, RasterLease, Refusal, RequestId, RequestStatus,
     Stats, ViewKey, SESSION_BYTES, SUBSCRIPTIONS,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -63,6 +63,10 @@ pub struct Images {
     /// The image nodes in preorder, as of a kernel epoch: the walk
     /// [`Images::sync_visible`] needs, redone only after a commit.
     pub(crate) order: Option<(u64, Vec<ViewId>)>,
+    /// Where each of those nodes' and each row group's first painted box is,
+    /// for the painted boxes of a serial and the order of an epoch: one walk
+    /// of the boxes a paint, not one a pass.
+    pub(crate) box_index: Option<(u64, u64, std::collections::HashMap<ViewId, usize>)>,
 }
 
 /// Accepted pixels and natural size, or explicit empty-source removal.
@@ -87,6 +91,7 @@ impl Images {
             decode_enabled: true,
             deferred: 0,
             order: None,
+            box_index: None,
         }
     }
     pub(crate) fn candidate(&self, assets: Assets) -> Self {
@@ -141,7 +146,7 @@ impl Images {
         visible: impl Fn(ViewId) -> bool,
     ) -> Vec<Report> {
         let mut reports = Vec::new();
-        let mut seen = BTreeSet::new();
+        let mut seen = std::collections::HashSet::with_capacity(live.len().min(SUBSCRIPTIONS));
         self.deferred = 0;
         for id in live {
             let Some(node) = kernel.node(*id) else {
@@ -179,7 +184,6 @@ impl Images {
                 symbol_size: None,
             });
             view.desired = (node.frame.width * scale, node.frame.height * scale);
-            view.visible = visible(*id);
             // LLP 1035.004.000: a symbol is an em square no file fills (the
             // paint walk strokes a portable role's path into it, `symbol`),
             // never a file request and never the previously accepted raster.
@@ -193,9 +197,8 @@ impl Images {
                 view.refusal = None;
                 view.displayed_source.clear();
                 self.bitmaps.remove(id);
-                let size = node
-                    .computed_style(exact_kernel::StyleMask::INHERITED)
-                    .font_size;
+                // The one row, read where it is set: no style copied a pass.
+                let size = node.computed_row(exact_kernel::StyleId::FontSize, |s| s.font_size);
                 if view.source != source || view.symbol_size != Some(size) {
                     reports.push((*id, (size > 0.).then_some((size, size))));
                     view.source = source.to_owned();
@@ -203,6 +206,8 @@ impl Images {
                 }
                 continue;
             }
+            // Only a picture loads by whether it shows: a symbol's never asked.
+            view.visible = visible(*id);
             if view.symbol_size.take().is_some() {
                 reports.push((*id, None));
             }

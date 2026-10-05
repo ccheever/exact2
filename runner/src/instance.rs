@@ -658,6 +658,14 @@ fn roots_of(children: &[Child]) -> Vec<ViewId> {
     out
 }
 
+/// The first of [`roots_of`], without collecting the rest.
+fn first_root(children: &[Child]) -> Option<ViewId> {
+    children.iter().find_map(|c| match c {
+        Child::Node(n) => Some(n.view),
+        Child::Region(r) => r.first_root(),
+    })
+}
+
 fn push_roots(children: &[Child], out: &mut Vec<ViewId>) {
     for c in children {
         match c {
