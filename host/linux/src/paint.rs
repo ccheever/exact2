@@ -639,8 +639,10 @@ struct Walk<'a, 'b> {
     /// Each node's rank among its siblings (LLP 1083.000 §2.4), twice its
     /// value, from the kernel's one definition.
     ranks: Rc<BTreeMap<ViewId, i64>>,
-    /// Painting a ghost: what `visibility` hides there shows (`lift.rs`).
-    reveal: bool,
+    /// Painting a ghost, whose root this is: the `visibility: hidden` the
+    /// row inherits from its wrapper shows, one its own nodes set does not
+    /// (`lift.rs`; b6 review B4).
+    reveal: Option<ViewId>,
 }
 
 impl Painter {
@@ -881,7 +883,7 @@ impl Painter {
             skip,
             replay,
             ranks: self.ranks.clone(),
-            reveal: false,
+            reveal: None,
         };
         for root in scene.roots {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
@@ -991,9 +993,12 @@ impl Painter {
             ox != Overflow::Visible || oy != Overflow::Visible
         };
         // CSS `visibility` (inherited) hides a box from paint and from hits;
-        // a descendant's own `visible` is not honoured under a hidden one.
+        // a descendant's own `visible` shows under a hidden one.
         let inherited = node.computed_style(StyleMask::INHERITED);
-        let visible = walk.reveal || inherited.visibility == exact_kernel::Visibility::Visible;
+        let visible = match walk.reveal {
+            Some(root) => revealed(walk.scene.kernel, id, root),
+            None => inherited.visibility == exact_kernel::Visibility::Visible,
+        };
         walk.boxes.push(PaintedBox {
             id,
             pointer_hit: inherited.pointer_events != exact_kernel::PointerEvents::None && visible,
@@ -1468,3 +1473,22 @@ pub const POINTER: [(f32, f32); 7] = [
 
 #[cfg(test)]
 mod paragraph_tests;
+
+/// Whether `id` shows in the ghost of `root`: the nearest `visibility` set
+/// on it or an ancestor below the ghost's root decides, as in the web's
+/// clone whose root alone is made visible (`group-glue.js`); none set shows.
+pub(crate) fn revealed(kernel: &Kernel, id: ViewId, root: ViewId) -> bool {
+    let arena = kernel.arena();
+    let mut at = arena.key_of(id).map(|k| k.index);
+    while let Some(slot) = at {
+        if arena.local_id(slot) == root {
+            return true;
+        }
+        let style = arena.style(slot);
+        if style.mask.has(exact_kernel::StyleId::Visibility) {
+            return style.visibility == exact_kernel::Visibility::Visible;
+        }
+        at = arena.parent(slot);
+    }
+    true
+}

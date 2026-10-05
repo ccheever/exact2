@@ -310,7 +310,8 @@ component App
             list id=`col-${col}` testId=`list-${col}` virtualized=true reorderGroup="cards" reorderdrop=dropCard(col) width=120 height=180 flex-shrink=0
               each card in filter(cards, k => k.col == col) key=card.id
                 box height=40 width=120 reorderFor=`col-${col}` testId=`grip-${card.id}`
-                  text card.id
+                  text card.id testId=`label-${card.id}`
+                  text "!" visibility="hidden" testId=`badge-${card.id}`
       button testId="stall" press=stall
         text "stall"
 "#;
@@ -387,6 +388,23 @@ fn a_cross_list_drag_drops_on_the_target_and_the_ghost_lands_then_goes() {
         "the row hides"
     );
     let row_id = row.id;
+    // b6 review B4: the ghost shows what the row inherits hidden from its
+    // wrapper, not what its own nodes set hidden (the web's clone).
+    let named = |p: &Presenter<Board>, name: &str| {
+        let k = p.host.kernel();
+        k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+    };
+    let kernel = p.host.kernel();
+    assert!(crate::paint::revealed(
+        kernel,
+        named(&p, "label-a1"),
+        row_id
+    ));
+    assert!(!crate::paint::revealed(
+        kernel,
+        named(&p, "badge-a1"),
+        row_id
+    ));
     // The ghost paints, and is not hit.
     p.frame();
     assert!(p.boxes().iter().all(|b| b.id != row_id || !b.pointer_hit));
