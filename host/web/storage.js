@@ -15,6 +15,11 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
   // storage lands hands it to the background (`rehome`), so a completion
   // still in flight finds its new owner and is never dropped as retired.
   const issued = new Map();
+  // Cells accepted while the answer is still current, before the adapter
+  // runs. Issue order is accept order, so the operation in flight takes the
+  // oldest one: a read queued behind a background write keeps the answer
+  // that asked, even though the background is current when it is issued.
+  const reserved = [];
   const track = owner => {
     const cell = {owner};
     let cells = issued.get(owner);
@@ -27,6 +32,17 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
     cells?.delete(cell);
     if (cells && !cells.size) issued.delete(cell.owner);
   };
+  const reserve = owner => { const cell = track(owner); reserved.push(cell); return cell; };
+  const abandon = cell => {
+    const at = reserved.indexOf(cell);
+    if (at < 0) return;
+    reserved.splice(at, 1);
+    untrack(cell);
+  };
+  // A reserved cell, or null when the caller did not reserve (a direct call,
+  // or a host with no hook). Early returns drop a reserved cell so the next
+  // operation does not take it.
+  const claim = () => reserved.shift() || null;
   let disposed = false;
   const error = e => Object.assign(new win.Error(e?.message || String(e)), {kind:e?.kind || 'Unavailable', code:e?.code});
   const unavailable = () => error({kind:'Unavailable',message:'storage environment disposed'});
@@ -63,13 +79,16 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
     });
   }
   function enqueue(invoke, convert = clone, discard = () => {}, keyed = true) {
-    if (disposed) return win.Promise.reject(unavailable());
+    const reservedCell = claim();
+    const drop = () => { if (reservedCell) untrack(reservedCell); };
+    if (disposed) { drop(); return win.Promise.reject(unavailable()); }
     if (keyed && key == null) {
+      drop();
       // Said once, as on every host (trivia F7): the page's console reaches the driver's logs.
       if (!toldAgent) { toldAgent = true; console.warn(`storage refused (agent): ${agentStorageRefusal}`); }
       return win.Promise.reject(error({message:agentStorageRefusal, code:'agent'}));
     }
-    const cell = track(scope());
+    const cell = reservedCell || track(scope());
     const active = () => { if (disposed || retired.has(cell.owner)) throw unavailable(); };
     return new win.Promise((resolve, reject) => {
       const ready = completion(cell);
@@ -115,6 +134,7 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
     };
   }
   return {
+    reserve, abandon,
     capability: Object.freeze({fs:Object.freeze(files),sqlite:Object.freeze({open:path => enqueue(async active => {
       const backend = await databaseSystem(); active(); return backend.open(path);
     }, database, closeDiscarded)}),work}),
@@ -166,4 +186,12 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
       for (const wake of waiters.values()) wake(); waiters.clear();
     },
   };
+}
+
+// The prelude reserves a cell when the app calls storage, while the answer
+// is still current, and abandons it if the call throws before `enqueue`
+// takes the cell. Hermes has no such hook; its adapter runs at the call.
+export function bindAnswerStorage(target, storage, ownerOf) {
+  target.__exact_reserve_storage = () => storage.reserve(ownerOf());
+  target.__exact_abandon_storage = cell => storage.abandon(cell);
 }

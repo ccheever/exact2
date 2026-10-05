@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
+import { Worker } from 'node:worker_threads';
 import { Cdp } from '../../scripts/agent.mjs';
 import { request } from './http-body.js';
 import { deferredFulfill, refusal } from './navigation.js';
@@ -807,6 +808,104 @@ test('storage re-homes an answer\'s writes to the background before retiring it'
     expect(results).toEqual(['first', 'second']);
   } finally {
     delete globalThis.landWrite;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A read queued behind a write the answer did not await is issued later, in
+// the background round that delivers the write (LLP 1097 D7). The cell has
+// to belong to the answer that asked, which is current when the read is
+// accepted. Attributing it when the adapter runs attributes it to the
+// background, and the parked answer's deliver waits forever.
+test('a read queued behind a background write stays the answer\'s', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-queued-owner-'));
+  const workerPath = resolve(dir, 'worker.mjs');
+  writeFileSync(workerPath, `
+import { readFileSync } from 'node:fs';
+import * as api from './storage.js';
+const realSetTimeout = setTimeout;
+self.land = [];
+const checkpoint = () => new Promise(resolve => {
+  const channel = new MessageChannel();
+  channel.port1.onmessage = () => { channel.port1.close(); channel.port2.close(); resolve(); };
+  channel.port2.postMessage(null);
+});
+const wait = ms => new Promise(resolve => realSetTimeout(resolve, ms));
+async function until(pred) {
+  for (let i = 0; i < 50 && !pred(); i++) await wait(10);
+}
+let context = null;
+const backgroundOwner = {};
+self.__exact_host = op => {
+  if (!context) throw new Error('host call outside an answer');
+  if (op === 5) return;
+  if (op === 13) return '1';
+};
+const storage = api.createStorage(self, { appId: 'test', grantSet: null }, () => context.owner, 'k');
+if (typeof api.bindAnswerStorage === 'function') api.bindAnswerStorage(self, storage, () => context.owner);
+eval(readFileSync(${JSON.stringify(resolve(ROOT, 'js/src/prelude.js'))}, 'utf8'));
+self.__exact_storage = storage.capability;
+self.__exact_install_storage();
+self.__exact_main_thread();
+self.exact = { abi: 1, appId: 'test', answer(name, _args, _store, cap) {
+  if (name === 'write') { cap.fs.writeFile('app:/data/note', 'x'); return 'wrote'; }
+  return cap.fs.readFile('app:/data/note');
+}};
+try {
+  const writeOwner = {};
+  context = { owner: writeOwner };
+  const started = JSON.parse(self.__exact_call('write', '[]'));
+  const wrote = JSON.parse(self.__exact_settle(String(started.call)));
+  if (wrote.tag !== 0) throw new Error('write did not reply: ' + JSON.stringify(wrote));
+  storage.rehome(writeOwner, backgroundOwner);
+  storage.retire(writeOwner);
+  context = null;
+  await until(() => self.land.length >= 1);
+
+  const readOwner = {};
+  context = { owner: readOwner };
+  const read = JSON.parse(self.__exact_call('read', '[]'));
+  await checkpoint();
+  const parked = JSON.parse(self.__exact_settle(String(read.call)));
+  if (!parked.waiting) throw new Error('read did not park: ' + JSON.stringify(parked));
+  context = null;
+
+  context = { owner: backgroundOwner };
+  self.__exact_enter_background();
+  self.land.shift()();
+  await checkpoint();
+  if (!storage.deliverNow(backgroundOwner)) throw new Error('background write was not waiting');
+  await checkpoint();
+  await until(() => self.land.length >= 1);
+  const pending = storage.deliver(readOwner);
+  await checkpoint();
+  let verdict = 'not-issued';
+  if (self.land.length) {
+    self.land.shift()();
+    await checkpoint();
+    verdict = await Promise.race([pending.then(() => 'answer', () => 'rejected'), wait(250).then(() => 'stuck')]);
+  }
+  postMessage(verdict);
+} catch (error) {
+  postMessage('error: ' + (error && error.stack || error));
+}
+`);
+  writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const storageKey = () => 'k';");
+  writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => ({
+  writeFile: () => new Promise(ok => globalThis.land.push(() => ok(''))),
+  readFile: () => new Promise(ok => globalThis.land.push(() => ok('contents'))),
+});`);
+  cpSync(resolve(ROOT, 'host/web/storage.js'), resolve(dir, 'storage.js'));
+  const worker = new Worker(pathToFileURL(workerPath), { type: 'module' });
+  try {
+    const verdict = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('worker hung')), 5000);
+      worker.on('message', value => { clearTimeout(timer); resolve(value); });
+      worker.on('error', error => { clearTimeout(timer); reject(error); });
+    });
+    expect(verdict).toBe('answer');
+  } finally {
+    await worker.terminate();
     rmSync(dir, { recursive: true, force: true });
   }
 });

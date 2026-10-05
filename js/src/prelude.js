@@ -920,9 +920,20 @@
     }
     call.storage++;
     storing.add(call);
+    // The web realm attributes the cell now, while this answer is current.
+    // The adapter runs at issue, and a background round may be current then
+    // (LLP 1097 D7). Hermes has no hook and runs the adapter at the call.
+    var held = null;
+    if (typeof global.__exact_reserve_storage === "function") held = global.__exact_reserve_storage();
     var argv = Array.prototype.slice.call(args);
     return new Promise(function (resolve, reject) {
-      var op = { call: call, run: function () { return receiver[method].apply(receiver, argv); } };
+      var op = { call: call, run: function () {
+        try { return receiver[method].apply(receiver, argv); }
+        catch (e) {
+          if (held != null && typeof global.__exact_abandon_storage === "function") global.__exact_abandon_storage(held);
+          throw e;
+        }
+      } };
       op.settle = function (ok, value) {
         var at = owner(op.call);
         currentCall = at;

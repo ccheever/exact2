@@ -1,7 +1,7 @@
 // A private browser realm per data-module incarnation. @ref LLP 1027 D6;
 // LLP 1027.000 D3. Trusted app code, NOT a security sandbox. No page or
 // guest builtin is patched. Loaded only after the page's first pixel.
-import { createStorage } from './storage.js';
+import { bindAnswerStorage, createStorage } from './storage.js';
 import { agentSeed, agentStream, keyStore, storageKey } from './storage-environment.js';
 import { admitsNetwork, grantError, sameGrantDeclaration, scopedGrantSet } from './grant-admission.js';
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -141,6 +141,9 @@ export async function prepare(payload, admitted, id = nextId++) {
   };
   try {
     storage = createStorage(win, admitted, () => context.owner);
+    // A cell belongs to the answer that accepted the call. The adapter runs
+    // later, when the operation is issued, which may be a background round.
+    bindAnswerStorage(win, storage, () => context.owner);
     // Disable accidental browser I/O before the module captures globals; the
     // prelude refuses timers and the clock, by name, as Hermes does.
     for (const key of ['XMLHttpRequest', 'WebSocket', 'EventSource']) {
