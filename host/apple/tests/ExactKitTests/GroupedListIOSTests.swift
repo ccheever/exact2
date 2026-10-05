@@ -270,6 +270,25 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(try cell(p, 20).backgroundConfiguration?.backgroundColor, .clear, "and gone again")
     }
 
+    /// A row moved between a card-less section and a carded one, with
+    /// neither section's card changing, is configured for its new section.
+    func testARowMovedIntoACardlessSectionLosesItsCard() throws {
+        var moved = false
+        let p = presenter {
+            var m = self.model()
+            m.sections[1].card = false
+            if moved {
+                let row = m.sections[0].rows.removeFirst()
+                m.sections[1].rows.insert(row, at: 0)
+            }
+            return m
+        }
+        XCTAssertNotEqual(try cell(p, 10).backgroundConfiguration?.backgroundColor, .clear)
+        moved = true
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["testId": "s0"], "clear": [String]()]]))
+        XCTAssertEqual(try cell(p, 10).backgroundConfiguration?.backgroundColor, .clear, "in the card-less section now")
+    }
+
     func testCustomRowsGoBackInTheirOrder() throws {
         let p = presenter {
             var m = self.model(custom: true)

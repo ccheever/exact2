@@ -445,11 +445,11 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
         ]);
     }
     if inset {
-        group.extend([
-            n("margin-left", 16.0, span),
-            n("margin-right", 16.0, span),
-            n("border-radius", 26.0, span),
-        ]);
+        group.extend([n("margin-left", 16.0, span), n("margin-right", 16.0, span)]);
+        // No card, no card corners to clip a header image to.
+        if !cardless {
+            group.push(n("border-radius", 26.0, span));
+        }
     }
     // Every row draws the separator under it and overlaps the next by its
     // width; the group clips the last one away (`row`).

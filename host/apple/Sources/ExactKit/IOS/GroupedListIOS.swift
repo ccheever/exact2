@@ -260,6 +260,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             #if !os(tvOS)
             c.showsSeparators = s?.card ?? true
             #endif
+            // No section fill behind a card-less section's clear cells.
+            if s?.card == false { c.backgroundColor = .clear }
             let section = NSCollectionLayoutSection.list(using: c, layoutEnvironment: environment)
             // A plain list's footer stays under its rows, as its header
             // stays at their top: UIKit pins both by default.
@@ -288,9 +290,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // is, as its views may have changed size.
         // A standard row whose symbol's authored tint changed is too (D7).
         let tints: [UInt32: BatchValue?] = Dictionary(uniqueKeysWithValues: snapshot.itemIdentifiers.map { ($0, tint(of: $0)) })
-        // A section that gained or lost its card configures its rows again.
-        let carded = Dictionary(previous.sections.map { ($0.view, $0.card) }, uniquingKeysWith: { a, _ in a })
-        let recarded = Set(next.sections.filter { s in carded[s.view].map { $0 != s.card } ?? false }.flatMap { $0.rows.map(\.view) })
+        // A row whose card changed (its section gained or lost one, or the
+        // row moved between sections) is configured again.
+        let wasCarded = Dictionary(previous.sections.flatMap { s in s.rows.map { ($0.view, s.card) } }, uniquingKeysWith: { a, _ in a })
+        let recarded = Set(next.sections.flatMap { s in s.rows.compactMap { r in wasCarded[r.view].flatMap { $0 != s.card ? r.view : nil } } })
         let changed = snapshot.itemIdentifiers.filter { id in old[id].map { $0 != rows[id] || $0.custom || tints[id] != looks[id] || recarded.contains(id) } ?? false }
         looks = tints
         // A row whose switch is firing is reconfigured once its action has
@@ -354,6 +357,11 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         source.indexPath(for: id).flatMap { collection.cellForItem(at: $0) }
     }
 
+    /// Whether the section holding `id` draws its card.
+    private func card(of id: UInt32) -> Bool {
+        model.sections.first { $0.rows.contains { $0.view == id } }?.card ?? true
+    }
+
     private func configure(_ cell: GroupedCell, _ id: UInt32) {
         cell.row = id
         guard let row = rows[id] else { return }
@@ -361,8 +369,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         cell.accessibilityIdentifier = host.presenter.views[id]?.props["testId"]
         // A card-less section's rows sit on the list's background; a
         // pressable standard row still shows UIKit's highlight while pressed.
-        let card = model.sections.first { $0.rows.contains { $0.view == id } }?.card ?? true
-        if card {
+        if card(of: id) {
             cell.configurationUpdateHandler = nil
             cell.backgroundConfiguration = cell.defaultBackgroundConfiguration()
         } else {
@@ -513,7 +520,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             carriedOrder.append(id)
         }
         guard let place = carried[id] else { return }
-        let separator = CGFloat(row.style["border_width_bottom"]?.number ?? 0)
+        // A card-less section has no UIKit separator to stand in for the
+        // row's own border, so the row keeps its full height (§6.2).
+        let separator = card(of: id) ? CGFloat(row.style["border_width_bottom"]?.number ?? 0) : 0
         let height = max(0, place.frame.height - separator)
         // Never invalidated here: a cell is configured inside the data
         // source's update; `mount` lays the list out after it.
