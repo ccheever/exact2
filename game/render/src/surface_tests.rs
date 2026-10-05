@@ -1130,6 +1130,8 @@ struct SocketLook {
     owner_x: f64,
     #[live]
     prop_y: f64,
+    #[live]
+    carrier_x: f64,
 }
 impl Game for Socketed {
     const ID: &'static str = "offset-socket";
@@ -1142,9 +1144,15 @@ impl Game for Socketed {
             fog: None,
             ..Default::default()
         });
+        // The rig rides a carrier: the carrier's offset moves the rig as drawn.
+        let carrier = w.spawn_named("carrier", Transform::default());
         w.spawn_named(
             "rig",
-            (Transform::at(-3., 0., 0.), Mesh::asset("fox.model")),
+            (
+                Transform::at(-3., 0., 0.),
+                exact_game::Parent(carrier),
+                Mesh::asset("fox.model"),
+            ),
         );
         w.spawn_named(
             "prop",
@@ -1176,17 +1184,29 @@ impl Game for Socketed {
             prop,
             exact_game::Offset(Transform::at(0., look.prop_y as f32, 0.)),
         );
+        let carrier = w.named("carrier").unwrap();
+        w.insert(
+            carrier,
+            exact_game::Offset(Transform::at(look.carrier_x as f32, 0., 0.)),
+        );
     }
 }
 #[test]
 fn offsets_move_socketed_props_with_their_owner_and_alone() {
     let Some(gpu) = gpu() else { return };
     // The blue prop's pixel centre, (x, y).
-    let drawn = |owner_x: f64, prop_y: f64| {
+    let drawn = |owner_x: f64, prop_y: f64, carrier_x: f64| {
         let mut surface = WorldSurface::<Socketed, crate::ModelExecutor, true>::default();
         surface.device_ready(exact_gpu::wgpu::Features::empty());
         surface
-            .bind(&[Value::Number(owner_x), Value::Number(prop_y)], None)
+            .bind(
+                &[
+                    Value::Number(owner_x),
+                    Value::Number(prop_y),
+                    Value::Number(carrier_x),
+                ],
+                None,
+            )
             .unwrap();
         surface.asset(
             "fox.model",
@@ -1220,9 +1240,15 @@ fn offsets_move_socketed_props_with_their_owner_and_alone() {
             blue.iter().map(|p| f64::from(p.1)).sum::<f64>() / n,
         )
     };
-    let still = drawn(0., 0.);
-    let owner = drawn(2., 0.);
-    let prop = drawn(0., 1.);
+    let still = drawn(0., 0., 0.);
+    let owner = drawn(2., 0., 0.);
+    let prop = drawn(0., 1., 0.);
+    // An offset on the owner's parent moves the drawn rig and its socket.
+    let carried = drawn(0., 0., 2.);
+    assert!(
+        (carried.0 - still.0 - 40.).abs() < 3. && (carried.1 - still.1).abs() < 3.,
+        "{still:?} -> {carried:?}"
+    );
     // 8 world units span 160 pixels: 20 pixels a unit.
     assert!(
         (owner.0 - still.0 - 40.).abs() < 3. && (owner.1 - still.1).abs() < 3.,

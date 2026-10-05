@@ -605,8 +605,9 @@ struct Owner {
     // First valid follower this feed; emits the owner override in item order.
     first_attachment: Option<u32>,
     chain: Vec<History>,
-    // The owner's presentation Offset: its socketed props move with it.
-    offset: History,
+    // Each chain link's presentation Offset, leaf to root: socketed props
+    // follow the drawn rig, drawn(parent) · local · offset at every link.
+    offsets: Vec<History>,
 }
 /// An entity's presentation offset, or the identity.
 fn offset_of(w: &World, e: Entity) -> Transform {
@@ -618,17 +619,12 @@ impl Owner {
         let mut owner = Self {
             first_attachment: None,
             chain: Vec::new(),
-            offset: History::new(entity, offset_of(w, entity)),
+            offsets: Vec::new(),
         };
         owner.update(w, entity, false, true);
         owner
     }
     fn update(&mut self, w: &World, entity: Entity, next_tick: bool, parent_changed: bool) {
-        self.offset.update_to(
-            offset_of(w, entity),
-            next_tick,
-            snap(w, entity, parent_changed),
-        );
         // Keep leaf-to-root history in place; ancestor edits snap the changed chain.
         let mut at = entity;
         let mut length = 0;
@@ -638,20 +634,23 @@ impl Owner {
                 .as_deref()
                 .copied()
                 .unwrap_or_default();
-            if self.chain.get(length).is_none_or(|h| h.entity != at) {
-                if let Some(found) = self.chain[length..].iter().position(|h| h.entity == at) {
-                    self.chain.swap(length, length + found);
-                } else {
-                    self.chain.insert(length, History::new(at, curr));
+            let offset = offset_of(w, at);
+            for (list, value) in [(&mut self.chain, curr), (&mut self.offsets, offset)] {
+                if list.get(length).is_none_or(|h| h.entity != at) {
+                    if let Some(found) = list[length..].iter().position(|h| h.entity == at) {
+                        list.swap(length, length + found);
+                    } else {
+                        list.insert(length, History::new(at, value));
+                    }
                 }
-            }
-            let h = &mut self.chain[length];
-            if next_tick {
-                h.prev = h.curr;
-            }
-            h.curr = curr;
-            if snap(w, at, parent_changed) {
-                h.prev = curr;
+                let h = &mut list[length];
+                if next_tick {
+                    h.prev = h.curr;
+                }
+                h.curr = value;
+                if snap(w, at, parent_changed) {
+                    h.prev = value;
+                }
             }
             length += 1;
             let Some(parent) = w.get::<Parent>(at).map(|p| p.0).filter(|e| w.contains(*e)) else {
@@ -660,6 +659,7 @@ impl Owner {
             at = parent;
         }
         self.chain.truncate(length);
+        self.offsets.truncate(length);
     }
 }
 #[derive(Default)]
@@ -897,26 +897,17 @@ impl Attachments {
             * matrix(item.drawn.at(alpha))
     }
     fn owner_matrix(&self, owner: &Owner, alpha: f32, remaining: usize) -> Mat4 {
-        let chain = owner.chain.iter().rev().fold(Mat4::IDENTITY, |m, h| {
+        // A link that is itself a follower is already drawn, offset included.
+        let links = owner.chain.iter().zip(&owner.offsets).rev();
+        links.fold(Mat4::IDENTITY, |m, (h, offset)| {
             self.items
                 .binary_search_by_key(&h.entity, |v| v.history.entity)
                 .ok()
                 .map_or_else(
-                    || m * matrix(h.at(alpha)),
+                    || m * matrix(h.at(alpha)) * matrix(offset.at(alpha)),
                     |i| self.matrix(i, alpha, remaining - 1),
                 )
-        });
-        // An owner that is itself a follower already carries its offset.
-        let follower = owner.chain.first().is_some_and(|leaf| {
-            self.items
-                .binary_search_by_key(&leaf.entity, |v| v.history.entity)
-                .is_ok()
-        });
-        if follower {
-            chain
-        } else {
-            chain * matrix(owner.offset.at(alpha))
-        }
+        })
     }
     pub fn frame(&mut self, alpha: f32) {
         self.output.clear();
