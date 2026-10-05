@@ -1462,9 +1462,9 @@ async function main(argv) {
   // journal; say so the first time, beside the op that caused it (authoring bench, LLP 1087).
   // The web carrier only: its journal read is an in-page call, where a native carrier's
   // could time out and fail the transport for the ops after it.
-  let peek = 0, warned = host !== 'web' || flags.json || flags.storage !== undefined;
+  let peek = 0, probes = 0, warned = host !== 'web' || flags.json || flags.storage !== undefined;
   const storageNote = async () => {
-    if (warned) return;
+    if (warned || ++probes > 20) return; // a missing store shows at the first writes
     try {
       const j = await s.op({ op: 'logs', since: peek });
       if (!Array.isArray(j?.lines)) return;
