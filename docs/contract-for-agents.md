@@ -122,7 +122,7 @@ Linux presenter. An iOS app's viewport is the device's screen, so iOS refuses it
 `--storage <name>` keeps a named scratch store between drives on every host (on
 the web, a kept browser profile served on one port per name); without it a web
 drive is a fresh profile, so its storage ends with the drive. That store includes
-a Rust source's `secret.keep`: files in the named scratch tree on Apple and Linux,
+a data module's `secret.keep`: files in the named scratch tree on Apple and Linux,
 and the page's `localStorage` on the web (the JS host always; the wasm page when
 the drive names a store). A nameless drive keeps those secrets in memory only.
 Firefox and WebKit open a fresh browser each drive, so a name there lasts for
@@ -718,7 +718,8 @@ geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: p
 plan site, evaluations, unchanged results, instances created and retired), and
 screenshots for rendered output. Logs name refused operations and data errors.
 For a game canvas, JavaScript `s.tap("world", {mouse:true, at:[x,y]})` sends one
-primary mouse click on web, Windows, and Linux. `{contextmenu:true, at:[x,y]}`
+primary mouse click on web, macOS, Windows, and Linux (on macOS any node takes
+it, so a click can land on a link inside a paragraph). `{contextmenu:true, at:[x,y]}`
 sends a right-click. Coordinates are relative to the target's top-left; omit
 `at` for its center. Both refuse invalid, covered, or offscreen points and held
 contacts. The CLI forms are `tap world mouse` and `tap world contextmenu`, or use

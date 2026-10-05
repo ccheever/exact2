@@ -381,7 +381,7 @@ message: `catch (e) { if (e.code === 'ENOENT') return empty; throw e; }`.
 A drive's app storage is a scratch store it names (`--storage <name>`) or none,
 kept between drives (on the web, Chrome's profile for the name and its page's
 origin; a Firefox or WebKit drive's is its own); an authored test gets a fresh
-one of its own, removed after it. A Rust source's `secret.keep` rides that same
+one of its own, removed after it. A data module's `secret.keep` rides that same
 store: files under the named tree on Apple and Linux, `localStorage` in the named
 web profile. A drive with no `--storage` keeps those secrets in memory and leaves
 nothing behind. The driver's `state.storage` says
