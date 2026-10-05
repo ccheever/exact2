@@ -392,7 +392,7 @@ test('a clean JS dist imports every lazy storage and document entry with its com
   } finally { rmSync(dist, { recursive: true, force: true }); }
 }, 60_000);
 
-test('a built TypeScript source reaches fetch through the app grant binding', async () => {
+test('a built TypeScript source refuses fetch and storage without grants', async () => {
   if (!process.env.CHROME || !existsSync(process.env.CHROME)) return;
   let destinationHits = 0;
   const destination = Bun.serve({ port: 0, fetch() { destinationHits++; return new Response('raw browser fetch', { headers: { 'access-control-allow-origin': '*' } }); } });
@@ -401,7 +401,7 @@ test('a built TypeScript source reaches fetch through the app grant binding', as
   writeFileSync(resolve(dir, 'app.contract'), `shape Result\n  value: string\ncomponent Probe\n  resource result = probe() as shape Result\n  view\n    text result.value testId="result"\n`);
   // The app dependency must be rewritten; copied host modules must retain browser
   // globals. Rewriting both would make the generated appGlobal self-referential.
-  writeFileSync(resolve(dir, 'fetch-request.ts'), `export async function attempt(){try{await fetch(${JSON.stringify(destination.url.href)});return {value:'raw browser fetch'};}catch(error:any){return {value:error.name+':'+error.kind};}}\n`);
+  writeFileSync(resolve(dir, 'fetch-request.ts'), `export async function attempt(_args:any,_store:any,storage:any){const results=[];try{await fetch(${JSON.stringify(destination.url.href)});results.push('raw browser fetch');}catch(error:any){results.push(error.name+':'+error.kind);}for(const call of [()=>storage.fs.readFile('app:/data/file'),()=>storage.sqlite.open('app:/data/test.db')]){try{await call();results.push('unexpected storage');}catch(error:any){results.push(error.kind+':'+error.code);}}return {value:results.join('|')};}\n`);
   writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nimport { attempt } from './fetch-request.ts';\nexport const appId='test.grant-probe',grants='';\nconst sources: Sources = { probe: attempt };\nexport const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;\n`);
   const built = spawnSync(process.execPath, ['host/web-js/build.mjs', 'grant-probe', '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
   let page, child, cdp, exited;
@@ -424,7 +424,9 @@ test('a built TypeScript source reaches fetch through the app grant binding', as
     await call('Page.navigate', { url: page.url.href });
     const result = await call('Runtime.evaluate', { expression: `(async()=>{for(let i=0;i<120;i++){await new Promise(r=>requestAnimationFrame(r));const value=document.querySelector('[data-testid="result"]')?.textContent;if(value)return value;}return document.body.innerText;})()`, returnByValue: true, awaitPromise: true });
     expect(result.exceptionDetails).toBeUndefined();
-    expect(result.result.value).toBe('FetchError:Refused');
+    expect(result.result.value).toBe('FetchError:Refused|Unavailable:denied|Unavailable:denied');
+    expect(existsSync(resolve(dist, 'storage-fs.js'))).toBe(false);
+    expect(existsSync(resolve(dist, 'storage-sqlite.js'))).toBe(false);
     expect(destinationHits).toBe(0);
   } finally {
     if (child?.pid) { try { if (process.platform === 'win32') child.kill(); else process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
@@ -729,5 +731,36 @@ test('module-glue prepare accepts normalized formatting and exact-only grants', 
       if (descriptor) Object.defineProperty(globalThis, name, descriptor); else delete globalThis[name];
     }
     delete globalThis.exact;
+  }
+});
+
+test('ts-data always supplies storage, refusing ungranted operations without loading adapters', async () => {
+  const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
+  for (const spec of ['', 'net.fetch https://api.example']) {
+    const dir = mkdtempSync(resolve(tmpdir(), 'exact-no-storage-'));
+    writeFileSync(resolve(dir, 'source.js'), `export const appId='test.no-storage';
+export function answer(name, args, store, storage) {
+  if (name === 'work') return storage.work(Promise.resolve('done'));
+  if (name === 'directories') return JSON.stringify(storage.fs.directories);
+  return (name === 'open' ? storage.sqlite.open('app:/data/test.db')
+    : storage.fs[name]('app:/data/file', new Uint8Array([1])))
+    .then(() => 'unexpected success', error => error.kind + ':' + error.code);
+}`);
+    writeFileSync(resolve(dir, 'ts-data.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-data.js'), 'utf8')
+      .replace('__APP_TS__', './source.js').replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', ''));
+    writeFileSync(resolve(dir, 'rt.js'), 'export const clock={now:0},journal=[],Resources=[];export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();');
+    writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes=${JSON.stringify(Object.fromEntries([...methods, 'open', 'work', 'directories'].map(n => [n, [[], 's']])))};`);
+    writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
+    writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(normalized(spec))});`);
+    for (const name of ['grant-admission.js', 'navigation.js', 'http-body.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+    cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), resolve(dir, 'ts-fetch.js'));
+    // No storage adapters are installed: a grant refusal must not need them.
+    try {
+      const ts = await import(pathToFileURL(resolve(dir, 'ts-data.js')).href), data = { q: [] };
+      ts.install(data);
+      for (const name of [...methods, 'open']) expect(await data.answer(name, [], new Map()).promise, name).toBe('Unavailable:denied');
+      expect(await data.answer('work', [], new Map()).promise).toBe('done');
+      expect(JSON.parse(data.answer('directories', [], new Map()).v)).toEqual({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   }
 });
