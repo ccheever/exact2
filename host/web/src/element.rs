@@ -570,8 +570,8 @@ pub fn css_style_of<'a>(
     if as_attributes.is_empty()
         && !url(&node.style.fill)
         && !url(&node.style.stroke)
-        && node.style.clip_path.url().is_none()
-        && node.style.svg_mask.url().is_none()
+        && node.style.rare.clip_path.url().is_none()
+        && node.style.rare.svg_mask.url().is_none()
         && node.style.filter.is_none()
         && [
             &node.style.marker_start,
@@ -590,9 +590,14 @@ pub fn css_style_of<'a>(
     }
     style.clear(mask);
     // @ref LLP 1055.000 D10 — a clipPath by the id the page gives it.
-    if let Some(target) = style.clip_path.url().and_then(|id| resolve(node.id, id)) {
+    if let Some(target) = style
+        .rare
+        .clip_path
+        .url()
+        .and_then(|id| resolve(node.id, id))
+    {
         if let Some(c) = exact_kernel::clip::ClipPath::parse(&format!("url(#{})", dom_id(target))) {
-            style.clip_path = c;
+            style.rare.clip_path = c;
         }
     }
     // @ref LLP 1055.000 D14 — a filter by the id the page gives it.
@@ -604,8 +609,13 @@ pub fn css_style_of<'a>(
         }
     }
     // @ref LLP 1055.000 D10 — a mask by the id the page gives it.
-    if let Some(target) = style.svg_mask.url().and_then(|id| resolve(node.id, id)) {
-        style.svg_mask = exact_kernel::svg::MarkerRef(Some(dom_id(target).into()));
+    if let Some(target) = style
+        .rare
+        .svg_mask
+        .url()
+        .and_then(|id| resolve(node.id, id))
+    {
+        style.rare.svg_mask = exact_kernel::svg::MarkerRef(Some(dom_id(target).into()));
     }
     // @ref LLP 1055.000 D9 — a marker by the id the page gives it.
     for marker in [

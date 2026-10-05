@@ -231,14 +231,14 @@ pub fn color_targets(
     dark: bool,
 ) -> Vec<(Property, Option<Value>)> {
     let s = node.style;
-    if s.transition.0.is_empty() && s.animation.0.is_empty() && s.exit_animation.0.is_empty() {
+    if s.transition.0.is_empty() && s.animation.0.is_empty() && s.rare.exit_animation.0.is_empty() {
         return Vec::new();
     }
     let animated: Vec<Property> = s
         .animation
         .properties()
         .into_iter()
-        .chain(s.exit_animation.properties())
+        .chain(s.rare.exit_animation.properties())
         .collect();
     // `fill` and `stroke` paint only in an `svg`; a box's computed paint
     // is the initial one and moves nothing.
@@ -345,7 +345,10 @@ impl Kernel {
     /// CSS starts no transition from `display: none`.
     pub fn layout_box(&self, key: NodeKey) -> Option<Value> {
         let node = self.node_by_key(key)?;
-        node.style.layout_transition.matching(Property::Layout)?;
+        node.style
+            .rare
+            .layout_transition
+            .matching(Property::Layout)?;
         let arena = self.arena();
         let mut slot = Some(key.index);
         while let Some(s) = slot {
@@ -713,7 +716,8 @@ impl Kernel {
                     });
                 }
             }
-            sync.layout.push((id, node.style.layout_transition.clone()));
+            sync.layout
+                .push((id, node.style.rare.layout_transition.clone()));
             // An empty row is how a removed animation reaches the engine; an
             // empty row on a node that never had one costs one map lookup.
             // A hidden node runs none (LLP 1055.000 D15).
@@ -722,8 +726,14 @@ impl Kernel {
             } else {
                 node.style.animation.clone()
             };
-            sync.clocks
-                .push((id, node.style.animation_timeline.clock().map(str::to_owned)));
+            sync.clocks.push((
+                id,
+                node.style
+                    .rare
+                    .animation_timeline
+                    .clock()
+                    .map(str::to_owned),
+            ));
             sync.animations.push((id, row));
             sync.timelines
                 .push(crate::timeline::rows(self.arena(), key.index));

@@ -195,7 +195,7 @@ impl Painter {
             let d = parent.style.perspective;
             if d > 0.0 {
                 let (px, py, pw, ph) = paint_rect(parent.frame, offset);
-                let (pox, poy) = parent.style.perspective_origin.resolve(pw, ph);
+                let (pox, poy) = parent.style.rare.perspective_origin.resolve(pw, ph);
                 let (ax, ay) = (px + pox, py + poy);
                 let mut persp = translate(ax, ay, 0.0);
                 persp = mul(

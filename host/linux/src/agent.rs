@@ -170,8 +170,8 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     .iter()
                     .filter_map(|b| {
                         let node = p.host().kernel().node(b.id)?;
-                        if node.style.layout_transition.0.is_empty()
-                            && node.style.exit_animation.0.is_empty()
+                        if node.style.rare.layout_transition.0.is_empty()
+                            && node.style.rare.exit_animation.0.is_empty()
                         {
                             return None;
                         }

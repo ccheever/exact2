@@ -355,7 +355,7 @@ pub(crate) fn send_keyframes(
         return;
     };
     let press = press_composes(style);
-    for a in style.animation.0.iter().chain(&style.exit_animation.0) {
+    for a in style.animation.0.iter().chain(&style.rare.exit_animation.0) {
         let name = (link.name)(a, press);
         if !sent.contains(&name) {
             batch.keyframes(&name, &(link.body)(a, press));
@@ -424,7 +424,7 @@ fn apple_corner(style: &StyleProps, id: StyleId) -> bool {
         StyleId::BorderRadiusBottomRight => 2,
         _ => 3,
     };
-    style.corner_shape.0[i] == exact_kernel::corner::Corner::AppleContinuous
+    style.rare.corner_shape.0[i] == exact_kernel::corner::Corner::AppleContinuous
 }
 
 /// One row → one declaration, by the CSS rule for its name and codec.

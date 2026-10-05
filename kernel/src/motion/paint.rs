@@ -97,7 +97,7 @@ impl PaintMotion {
                 .animation
                 .properties()
                 .into_iter()
-                .chain(style.exit_animation.properties())
+                .chain(style.rare.exit_animation.properties())
                 .collect();
             let pending = self
                 .pending

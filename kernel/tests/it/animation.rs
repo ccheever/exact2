@@ -31,7 +31,7 @@ fn through_the_wire(row: &Animations) -> Animations {
 fn patch(id: StyleId, animations: &Animations) -> Box<StyleProps> {
     let mut s = StyleProps::default();
     match id {
-        StyleId::ExitAnimation => s.exit_animation = animations.clone(),
+        StyleId::ExitAnimation => s.rare.exit_animation = animations.clone(),
         _ => s.animation = animations.clone(),
     }
     s.mask.set(id);

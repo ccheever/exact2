@@ -62,7 +62,7 @@ impl Resolver<'_, '_> {
         vp: Viewport,
         depth: usize,
     ) -> Option<Clip> {
-        let id = node.style.clip_path.url()?;
+        let id = node.style.rare.clip_path.url()?;
         let target = self.kernel.resolve_id(node.id, id)?;
         let clip = self.kernel.node(target)?;
         if clip.node_type != NodeType::SvgClipPath || depth > 8 {

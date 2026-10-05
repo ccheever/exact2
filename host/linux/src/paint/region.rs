@@ -311,7 +311,7 @@ impl Picture {
                 };
                 cost += 2 * usize::from(opacity < 1.)
                     + 2 * usize::from(clips)
-                    + 2 * usize::from(!node.style.clip_path.commands().is_empty())
+                    + 2 * usize::from(!node.style.rare.clip_path.commands().is_empty())
                     + 2 * usize::from(scroll_offset.is_some());
             }
             command_cost = command_cost
@@ -389,7 +389,7 @@ impl Picture {
                 payload,
                 opacity,
                 clips,
-                css_clip: node.style.clip_path.clone(),
+                css_clip: node.style.rare.clip_path.clone(),
                 scroll: scroll_offset,
                 action,
             });

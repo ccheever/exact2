@@ -14,7 +14,7 @@ fn patch(rows: &[(StyleId, &str)]) -> Box<StyleProps> {
         if text.contains("@keyframes") {
             let row = crate::keyframed(text);
             match id {
-                StyleId::ExitAnimation => s.exit_animation = row,
+                StyleId::ExitAnimation => s.rare.exit_animation = row,
                 _ => s.animation = row,
             }
             s.mask.set(*id);

@@ -205,7 +205,7 @@ impl BoxPaint {
                 s.border_radius_bottom_left,
             ]
             .map(|d| d.resolve(&env)),
-            corners: Some(s.corner_shape).filter(|c| !c.is_round()),
+            corners: Some(s.rare.corner_shape).filter(|c| !c.is_round()),
             clip: s.background_clip,
             widths,
             colors: colors.map(|c| rgba(c.resolve(dark))),
@@ -917,10 +917,10 @@ impl Painter {
             self.backend.push_mask(&Shape::rect((x, y, w, h)), ts);
         }
         // @ref LLP 1043.000 §3 D7 — polygon demo ink and exclusion share an outline.
-        let path_clip = !node.style.clip_path.commands().is_empty()
+        let path_clip = !node.style.rare.clip_path.commands().is_empty()
             && self
                 .backend
-                .push_css_clip(&node.style.clip_path, ts.pre_translate(x, y));
+                .push_css_clip(&node.style.rare.clip_path, ts.pre_translate(x, y));
         let previous = self.dark;
         self.dark = p.dark.unwrap_or(previous);
         self.content(walk, &node, (x, y, w, h), ts, offset, clip_rect);

@@ -198,11 +198,11 @@ fn empty(parent: u32, ids: &[u32]) -> Vec<(u32, u32, Rows)> {
 fn grid(rows: Rows, columns: &[GridTrack], track_rows: &[GridTrack]) -> StyleProps {
     let mut p = props(&[vec![(Display, t("grid")), (Width, n(400.0))], rows].concat());
     if !columns.is_empty() {
-        p.grid_template_columns = GridTracks::from_tracks(columns.to_vec());
+        p.rare.grid_template_columns = GridTracks::from_tracks(columns.to_vec());
         p.mask.set(GridTemplateColumns);
     }
     if !track_rows.is_empty() {
-        p.grid_template_rows = GridTracks::from_tracks(track_rows.to_vec());
+        p.rare.grid_template_rows = GridTracks::from_tracks(track_rows.to_vec());
         p.mask.set(GridTemplateRows);
     }
     p

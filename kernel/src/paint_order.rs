@@ -235,9 +235,9 @@ pub fn own_from(f: Facts<'_>) -> Own {
         || (m.has(StyleId::PressScale) && s.press_scale != 1.0)
         || (m.has(StyleId::Filter) && !s.filter.is_none())
         || (m.has(StyleId::BackdropBlur) && s.backdrop_blur > 0.0)
-        || (m.has(StyleId::ClipPath) && s.clip_path != crate::clip::ClipPath::default())
+        || (m.has(StyleId::ClipPath) && s.rare.clip_path != crate::clip::ClipPath::default())
         || (m.has(StyleId::MaskImage)
-            && s.mask_image != crate::gradient::BackgroundImage::default())
+            && s.rare.mask_image != crate::gradient::BackgroundImage::default())
         || (m.has(StyleId::Perspective) && s.perspective > 0.0)
         || s.mix_blend_mode != MixBlendMode::Normal
         || s.isolation == Isolation::Isolate

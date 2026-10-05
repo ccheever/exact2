@@ -2285,24 +2285,28 @@
     {
       "bit": 37,
       "field": "grid_template_columns",
+      "rare": true,
       "codec": "tracks",
       "layout": true
     },
     {
       "bit": 38,
       "field": "grid_template_rows",
+      "rare": true,
       "codec": "tracks",
       "layout": true
     },
     {
       "bit": 39,
       "field": "grid_column",
+      "rare": true,
       "codec": "placement",
       "layout": true
     },
     {
       "bit": 40,
       "field": "grid_row",
+      "rare": true,
       "codec": "placement",
       "layout": true
     },
@@ -2598,6 +2602,7 @@
     {
       "bit": 84,
       "field": "clip_path",
+      "rare": true,
       "codec": "clip-path"
     },
     {
@@ -2654,6 +2659,7 @@
     {
       "bit": 93,
       "field": "shape_outside",
+      "rare": true,
       "codec": "shape-outside",
       "default": "none",
       "layout": true
@@ -2837,6 +2843,7 @@
     {
       "bit": 121,
       "field": "stop_color",
+      "rare": true,
       "codec": "paint",
       "default": "black",
       "_comment": "@ref LLP 1055.000 D7: SVG 2 stop-color (a colour or currentcolor; `none` is refused) and stop-opacity, not inherited."
@@ -2844,6 +2851,7 @@
     {
       "bit": 122,
       "field": "stop_opacity",
+      "rare": true,
       "codec": "f32",
       "default": 1
     },
@@ -2903,6 +2911,7 @@
     {
       "bit": 131,
       "field": "svg_mask",
+      "rare": true,
       "codec": "marker",
       "_comment": "@ref LLP 1055.000 D10: CSS `mask` on SVG elements: none or url(#id) naming a `mask` (the CSS property is `mask`; `mask` is the row mask's own name here)."
     },
@@ -2921,6 +2930,7 @@
     {
       "bit": 134,
       "field": "flood_color",
+      "rare": true,
       "codec": "paint",
       "default": "black",
       "_comment": "@ref LLP 1055.000 D14: flood-color and flood-opacity (feFlood, feDropShadow), lighting-color, not inherited; color-interpolation-filters, inherited."
@@ -2928,12 +2938,14 @@
     {
       "bit": 135,
       "field": "flood_opacity",
+      "rare": true,
       "codec": "f32",
       "default": 1
     },
     {
       "bit": 136,
       "field": "lighting_color",
+      "rare": true,
       "codec": "paint",
       "default": "white"
     },
@@ -2971,6 +2983,7 @@
     {
       "bit": 142,
       "field": "exit_animation",
+      "rare": true,
       "codec": "animations",
       "ends": true,
       "_comment": "@ref LLP 1063: an `animation` the node plays as it leaves; the outermost removed node stays as a ghost until it ends, so every one must end. Grammar: `_animations`."
@@ -2978,6 +2991,7 @@
     {
       "bit": 143,
       "field": "layout_transition",
+      "rare": true,
       "codec": "transitions",
       "_comment": "@ref LLP 1063: how the node's laid-out origin in its parent moves when layout moves it; the last declaration naming no property governs. Grammar: `_transitions`."
     },
@@ -3006,12 +3020,14 @@
     {
       "bit": 147,
       "field": "drag_timeline",
+      "rare": true,
       "codec": "drag-timeline",
       "_comment": "@ref LLP 1057.003 D1: `none | <dashed-ident> [x | y]?`, a timeline the node's presented translate drives (a drag's held value, then its release spring); CSS scroll-timeline's shape with a drag as its source, a deviation LLP 1001 declares."
     },
     {
       "bit": 148,
       "field": "animation_timeline",
+      "rare": true,
       "codec": "animation-timeline",
       "_comment": "@ref LLP 1057.003 D1: CSS `animation-timeline`, `auto | <dashed-ident>`: the node's animations are held at the named drag timeline's progress, never played on the clock. @ref LLP 1055.002 D2: a third value, `clock(<ident>)`, keeps them on the clock from a start every animation on that clock timeline shares, a deviation LLP 1001 declares."
     },
@@ -3024,6 +3040,7 @@
     {
       "bit": 150,
       "field": "timeline_scope",
+      "rare": true,
       "codec": "timeline-scope",
       "_comment": "@ref LLP 1057.003 D4: CSS `timeline-scope`, `none | all | <dashed-ident>#`: names a timeline declared below the node (its single declaring descendant, else an inactive timeline) in scope for the node's subtree. Not inherited, as in CSS."
     },
@@ -3037,12 +3054,14 @@
     {
       "bit": 152,
       "field": "mask_image",
+      "rare": true,
       "codec": "mask-image",
       "_comment": "@ref LLP 1077 D2: CSS `mask-image`, `none` or one gradient in background-image's grammar (LLP 1066), its alpha over the border box. Not inherited."
     },
     {
       "bit": 153,
       "field": "corner_shape",
+      "rare": true,
       "codec": "corner-shape",
       "_comment": "@ref LLP 1077 D1: CSS `corner-shape`, one to four of round | squircle | square | bevel | scoop | notch | superellipse(K), plus -apple-continuous (Apple's continuous curve on every host; declared in LLP 1001). Shapes the corners `border-radius` sizes."
     },
@@ -3091,6 +3110,7 @@
     {
       "bit": 160,
       "field": "perspective_origin",
+      "rare": true,
       "codec": "transform-origin",
       "_comment": "@ref LLP 1077 D8: CSS `perspective-origin`, the vanishing point in the parent's box; initial 50% 50%."
     },

@@ -1305,12 +1305,12 @@ impl StyleProps {
         };
 
         s.grid_auto_flow = grid_auto_flow(self.grid_auto_flow);
-        s.grid_template_columns = self.grid_template_columns.taffy_components();
-        s.grid_template_column_names = self.grid_template_columns.line_names();
-        s.grid_template_rows = self.grid_template_rows.taffy_components();
-        s.grid_template_row_names = self.grid_template_rows.line_names();
-        s.grid_column = self.grid_column.taffy();
-        s.grid_row = self.grid_row.taffy();
+        s.grid_template_columns = self.rare.grid_template_columns.taffy_components();
+        s.grid_template_column_names = self.rare.grid_template_columns.line_names();
+        s.grid_template_rows = self.rare.grid_template_rows.taffy_components();
+        s.grid_template_row_names = self.rare.grid_template_rows.line_names();
+        s.grid_column = self.rare.grid_column.taffy();
+        s.grid_row = self.rare.grid_row.taffy();
         s
     }
 }

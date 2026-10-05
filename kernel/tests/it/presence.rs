@@ -12,7 +12,7 @@ const FADE: &str = "@keyframes fade{from{opacity:1}to{opacity:0}}";
 
 fn exit(text: &str) -> Box<StyleProps> {
     let mut s = StyleProps::default();
-    s.exit_animation = keyframed(&format!("{text} {FADE}"));
+    s.rare.exit_animation = keyframed(&format!("{text} {FADE}"));
     s.mask.set(StyleId::ExitAnimation);
     Box::new(s)
 }
@@ -273,14 +273,14 @@ fn an_exit_that_never_ends_is_refused_and_applies_nothing() {
             "{text}: {result:?}"
         );
     }
-    assert!(k.node(4).unwrap().style.exit_animation.0.is_empty());
+    assert!(k.node(4).unwrap().style.rare.exit_animation.0.is_empty());
 }
 
 #[test]
 fn the_seam_hands_layout_rows_to_the_engine_and_all_never_moves_a_box() {
     let mut k = kernel();
     let mut s = StyleProps::default();
-    s.layout_transition = Transitions::parse("1s linear").unwrap();
+    s.rare.layout_transition = Transitions::parse("1s linear").unwrap();
     s.transition = Transitions::parse("all 5s").unwrap();
     s.mask.set(StyleId::LayoutTransition);
     s.mask.set(StyleId::Transition);

@@ -904,7 +904,7 @@ impl NodeInst {
                         }
                         // An exit names keyframes as `animation` does (LLP 1063).
                         Ok(exact_kernel::StyleId::ExitAnimation) => {
-                            let dropped = u.sites.keyframes.resolve(&mut p.exit_animation);
+                            let dropped = u.sites.keyframes.resolve(&mut p.rare.exit_animation);
                             u.notes.extend(dropped);
                         }
                         Ok(_) => {}

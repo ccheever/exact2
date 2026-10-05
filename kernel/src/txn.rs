@@ -935,7 +935,7 @@ fn leaving_with(arena: &NodeArena, slot: u32) -> Option<&exact_motion::Animation
         },
         Some(_) => return None,
     };
-    Some(&arena.style(own).exit_animation).filter(|a| !a.0.is_empty())
+    Some(&arena.style(own).rare.exit_animation).filter(|a| !a.0.is_empty())
 }
 
 /// Push the arena's child list for `parent` into the layout engine. A `Text`
