@@ -74,7 +74,7 @@ spelling. Boolean false removes an HTML boolean attribute, never serializes
 
 | Property | Meaning/default and projection |
 |---|---|
-| src, poster | HTTP(S) or bundled relative asset; resolved through the existing asset owner on Apple |
+| src, poster | HTTP(S), bundled relative asset, or the app's own `app:/` file (data, cache or tmp) as an `image` takes one (podcast F19); resolved through the existing asset owner on Apple. An empty `src` fails `src-not-supported`, as HTML's resource selection does |
 | controls, autoplay, loop, muted | false by default; native controls, playback request, item loop and audio mute |
 | preload | none/metadata/auto; a hint, browser-owned on web. AVKit may prepare an item even under none so its Play control can work |
 | playsinline | false by default; true keeps iPhone playback inline |
@@ -84,13 +84,25 @@ spelling. Boolean false removes an HTML boolean attribute, never serializes
 | volume | 0–1, default 1; iPhone hardware volume remains system-owned |
 | playbackRate | positive playback speed; this implementation supports 0.25–4 on both hosts |
 | preservesPitch | true; native spectral/varispeed audio time pitch |
-| currentTime | seconds; seek on a changed assignment, not on every unrelated commit; pending seek waits for metadata |
+| currentTime | seconds; seek on a changed assignment, not on every unrelated commit; pending seek waits for metadata. `fastSeek(id, seconds)` seeks on every call, to the same time too (below) |
 | paused | optional Exact writable projection of DOM's read-only observation; changed true pauses, changed false requests play; unbound lets native controls own it |
 
 Autoplay remains a request. Browsers can reject it. The sample is muted and
 inline so it can start without surprise audio; rejected play reaches `error`.
 An app observing play/pause may mirror those events into `paused`; equality
-prevents a feedback seek or repeated play call. A loop is a seek: `seeking`,
+prevents a feedback seek or repeated play call.
+
+**Commands (podcast F8, F18, 2026-10-04).** Two of HTML's methods are host
+commands naming the element by its `id`, as `focus(id)` does. `fastSeek(id,
+seconds)` seeks each time it runs: a bound `currentTime` compared by value
+drops a second "back to 1:00", which a skip button, a scrubber let go where it
+was grabbed and "start over" all need. Every host seeks to the exact time,
+which HTML's approximate-for-speed flag allows, so the web (Chrome has no
+`fastSeek`) and Apple land alike; before metadata it waits, as the binding
+does. `load(id)` loads the source again, as a changed `src` does: the bound
+`currentTime` waits for the new metadata and a bound `paused` false plays; an
+`app:/` source is resolved again first, so a file written since plays. Linux
+journals both as unsupported. A loop is a seek: `seeking`,
 `waiting`, `seeked`, `canplay`, `playing`, never `pause`, `play` or `ended`,
 and `paused` stays false (Chrome 154).
 
@@ -178,7 +190,9 @@ the engine's text (jukebox F6, 2026-10-04): MediaError's `aborted`, `network`,
 `decode` and `src-not-supported` (any failure before metadata, as HTML's
 dedicated media source failure), `not-allowed` for a `play()` the browser
 refused, `invalid-value` for a number out of range. A play interrupted by a
-pause or a new load (AbortError) is not an error. The text is in `state.media`.
+pause or a new load (AbortError) is not an error. A source refused before the
+web glue had the element (it attaches after first paint) is reported when it
+does (podcast F19). The text is in `state.media`.
 A node the tree removed reports nothing more on any host, a late rejected play
 or `timeupdate` included. Native events are useful playback
 observations, not an assertion that AVFoundation reproduces HTML's complete
@@ -242,7 +256,8 @@ Keep three owners instead of putting every control on the leaf:
    Read-only track inventories carry stable engine ids; selection asks the
    owning engine and reports the actual selection. Caption accessibility follows
    the user's system preferences unless explicitly overridden.
-2. **Media controller:** play, pause, load, seek, fullscreen and PiP requests
+2. **Media controller:** (`load` and `fastSeek` are built as commands, §3,
+   without outcomes) play, pause, load, seek, fullscreen and PiP requests
    address the mounted node id plus incarnation and return accepted/refused
    outcomes. DOM user-activation requirements and native presentation owners
    remain authoritative. A controller is invalid after unmount. `buffered`,

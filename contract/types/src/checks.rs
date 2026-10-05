@@ -1135,6 +1135,9 @@ pub(super) fn check_command(
     if name == "scrollIntoView" {
         return into_view_args(args, scope, shapes, span);
     }
+    if name == "fastSeek" || name == "load" {
+        return super::media::command_args(name, args, scope, shapes, span);
+    }
     if name == "postMessage" {
         // The web's argument order, `postMessage(message, target)`: the target
         // is a surface's literal name, checked against the app's canvases.

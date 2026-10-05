@@ -943,8 +943,8 @@ negative value and keeps UIKit's geometric order.
 
 The current command name inventory is:
 
-`blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `focus`, `format`,
-`openURL`, `selectText`, `setScheme`, `showPicker`, `share`, `saveFile`,
+`blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `fastSeek`, `focus`, `format`,
+`load`, `openURL`, `selectText`, `setScheme`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`,
 `showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `close`
 ([pointer](#pointer): a window's `beforeunload`), `preventDefault` and
@@ -970,12 +970,13 @@ argument validation. Use the working implementation when selecting arguments:
 | `showDirectoryPicker(id)` | Same corpus |
 | `showSaveFilePicker(id, suggestedName)` | Same corpus |
 | `scrollIntoView(id, block=, inline=, behavior=)`: `Element.scrollIntoView()` on any element by its `id` (a string, dynamic as `focus`'s): every scroll container above it, innermost first, then the page, align it by the web's `ScrollIntoViewOptions` (`block` default `start`, `inline` `nearest`). `scrollIntoView("list-id", key, …, row=)`: a virtualized list's row by key, built and measured first (LLP 1070.000). Native hosts land `smooth` at once on the element form | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
+| `fastSeek(id, seconds)`, `load(id)`: a `video` or `audio`, by HTML's method names (LLP 1042 §3). `fastSeek` seeks each time it runs, where a bound `currentTime` seeks only when its value changes; every host seeks to the exact time, which HTML's approximate-for-speed allows. `load` loads the source again, as a changed `src` does: the bound `currentTime` waits for its metadata and a bound `paused` false plays | [media tests](../contract/cli/tests/it/media.rs), [media conformance plan](../host/web-js/conformance/media.contract) |
 | `deliveryCheck`, `deliveryActivate` | [delivery corpus](../contract/corpus/delivery.contract) |
 
 The web (its JS target) and the Apple hosts carry every command. The
 headless Linux host has no browser, clipboard, editor or dev menu: its
-`openURL`, `copyText`, `format`, `reload` and `close` are journaled as
-unsupported there, `haptic` does nothing, and `showNotification` is refused
+`openURL`, `copyText`, `format`, `reload`, `close`, `fastSeek` and `load` are
+journaled as unsupported there (it has no media player), `haptic` does nothing, and `showNotification` is refused
 (`showNotification: refused: unavailable`). Its `selectText` focuses the field
 with its whole text selected, which the next typed key or Backspace replaces.
 iOS closes no window either: its `close` is journaled as unsupported. On the web,

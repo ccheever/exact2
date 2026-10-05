@@ -269,6 +269,17 @@ private final class VideoArm: NSObject {
             if player.rate != 0 { player.rate = rate }
         }
         if changed("currentTime"), props["currentTime"] != nil { seek(number("currentTime", 0)) }
+        // `load(id)`: the source again, as a changed `src` loads it (a retry
+        // after an error, or a file written since); `fastSeek(id, seconds)`
+        // seeks each time, to the exact time, which HTML's approximate-for-
+        // speed allows (podcast F8, F18). Each is a numbered request.
+        if changed("exactLoad"), props["exactLoad"] != nil {
+            wantsPlay = props["paused"].map { $0 == "false" } ?? bool("autoplay")
+            loadSource()
+        }
+        if changed("exactSeek"), let request = props["exactSeek"]?.split(separator: " ").last.flatMap({ Double($0) }) {
+            if request.isFinite, request >= 0 { seek(request) } else { fail("invalid-value", "Invalid fastSeek") }
+        }
         configureItem()
         if let error = props["sourceError"], error != old["sourceError"] { fail("src-not-supported", error) }
         layout()

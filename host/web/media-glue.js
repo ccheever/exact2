@@ -58,6 +58,26 @@ function update(el) {
   syncVisibility(el);
   syncPlayback(el);
   state.applied = { ...props };
+  for (const [name, seconds] of el.exactMedia.commands?.splice(0) ?? []) run(el, name, seconds);
+}
+// The commands by HTML's method names (podcast F8, F18), queued on the
+// element by the host until the glue has it. `fastSeek` seeks every time,
+// where the bound `currentTime` seeks only on a changed value; every host
+// seeks to the exact time, which HTML's approximate-for-speed allows.
+// `load` loads the source again as a changed `src` does: the bound
+// `currentTime` waits for metadata and a bound `paused` false plays.
+function run(el, name, seconds) {
+  const state = states.get(el), props = el.exactMedia.props;
+  if (name === 'fastSeek') {
+    if (!Number.isFinite(seconds) || seconds < 0) state.error('invalid-value', `Invalid fastSeek: ${seconds}`);
+    else if (!el.readyState) state.seek = seconds;
+    else el.currentTime = seconds;
+    return;
+  }
+  el.load();
+  state.seek = props.currentTime == null ? null : Number(props.currentTime);
+  state.paused = undefined;
+  syncPlayback(el);
 }
 globalThis.exact.installMedia = (el, send) => {
   if (states.has(el)) { update(el); return; }
@@ -75,6 +95,9 @@ globalThis.exact.installMedia = (el, send) => {
   });
   update(el);
   if (el.readyState) { emit('loadedmetadata'); if (Number.isFinite(el.duration)) emit('durationchange', String(el.duration)); }
+  // A source refused before the glue had the element (an unknown scheme, a
+  // missing `app:/` file) failed while no one listened (podcast F19).
+  else if (el.error) emit('error', errorCodes[el.error.code] ?? 'src-not-supported');
 };
 
 globalThis.exact.removeMedia = el => {

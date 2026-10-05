@@ -24,6 +24,7 @@ mod checks;
 mod component;
 mod geometry;
 mod lists;
+mod media;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod placeholder;
 mod posts;

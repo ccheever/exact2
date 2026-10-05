@@ -83,11 +83,15 @@ pub const HOST_COMMANDS: &[&str] = &[
     "copyText",
     "deliveryActivate",
     "deliveryCheck",
+    // A media element's, by HTML's method names (podcast F8, F18):
+    // `fastSeek(id, seconds)` seeks each time, `load(id)` loads its source again.
+    "fastSeek",
     "focus",
     "format",
     // @ref LLP 1077 D14 — `haptic("success" | "warning" | "error" | …)`.
     "haptic",
     "openURL",
+    "load",
     // `reload()`: the development host boots the app again, as its dev
     // menu's Reload does; a host without a dev menu refuses it.
     "reload",
