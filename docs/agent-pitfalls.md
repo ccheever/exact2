@@ -377,6 +377,20 @@ guide's rules don't make obvious.
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
   `scripts/agent.mjs` for dates that read as intended and stay reproducible; in a test
   file, `epoch "…"` and `time-zone "…"` lines, so a run without the flags still means it.
+- **A simulator measurement shows a 100–200 ms stall the app never makes.** A
+  plain launch's frames hold 16.7 ms, but a run driven with `axe` shows one
+  stall with no batch applied about 0.4 s after `axe` first reads the screen
+  (`describe-ui`, `swipe`, `tap` by label), and every push afterwards is 30+ ms
+  slower. Cause: an accessibility client turns on UIKit's accessibility runtime
+  in the app; Time Profiler puts the whole stall in
+  `-[UIApplication _accessibilityInit]` (loading the accessibility bundles,
+  starting the server), and from then on UIKit keeps accessibility state for
+  every view it moves. A phone pays this only with an assistive technology on
+  (VoiceOver, Voice Control, Switch Control). `xctrace` and `sample` attached to
+  the app stall it too. Fix: time a plain launch; drive taps with `axe touch`
+  (HID, no accessibility) or have the host press a row itself, and read frames
+  from Save Trace or a temporary log, not from a run an accessibility client
+  touched. (x2-perf, 2026-10-05.)
 - **`axe` stops delivering taps.** Use `axe` only as a last resort, for native
   chrome only a normal launch presents (bars, `UIMenu`s); drive everything else
   with `agent ios` by `testId`. After `axe touch --down --up --delay` (a long
