@@ -62,6 +62,7 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.edited = None;
+        self.selected = None;
         let e = self.after_commit();
         if let Some(e) = error.or(e) {
             return Err(e);
@@ -391,6 +392,15 @@ impl<D: DataSource> Presenter<D> {
         }
         let textarea = node.props.str(PropId::SemanticTag) == Some("textarea");
         let mut value = node.props.str(PropId::Value).unwrap_or("").to_string();
+        // A selected text is what an edit replaces: Backspace deletes it.
+        let selected = self.selected == Some(id)
+            && (name == "Backspace"
+                || name == "Enter" && textarea
+                || name.chars().count() == 1 && self.held & 0b1100_1100 == 0);
+        if selected {
+            self.selected = None;
+            value.clear();
+        }
         match name {
             "Enter" if !textarea => {
                 if let Some(Some(e)) = self.commit_text(id, now_ms) {
@@ -403,7 +413,7 @@ impl<D: DataSource> Presenter<D> {
             }
             "Enter" => value.push('\n'),
             "Backspace" => {
-                if value.pop().is_none() {
+                if value.pop().is_none() && !selected {
                     return;
                 }
             }

@@ -1068,7 +1068,9 @@ fn agent_primary_mouse_after_touch_preserves_device_identity_and_refusal_atomici
         r#""at":null"#,
         r#""at":[25]"#,
         r#""at":[1e100,75]"#,
-        r#""phase":"down""#,
+        // A phase with `mouse` is a held contact (9d75806c8, review A1),
+        // which takes x/y, never a click's `at`.
+        r#""phase":"down","at":[25,75]"#,
         r#""contextmenu":true"#,
         r#""resize":[200,200]"#,
     ] {

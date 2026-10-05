@@ -319,10 +319,14 @@ function minifyCss(css) {
 const pageNative = app.modules.web;
 // The page in the app's first-frame background from its first paint (the
 // manifest's background colours, as the iOS launch screen), so nothing lighter or
-// darker shows before the first frame.
+// darker shows before the first frame. Only until then: from the first frame
+// the app paints its own, and the canvas beyond it is the browser's for the
+// page's colour scheme, as on the JS target (a launch white kept under an
+// app that chose dark showed beside its root; Markdown's conformance).
 const launchLight = app.manifest.background_color, launchDark = app.manifest.background_color_dark;
 const hex = (value) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value ?? '') ? value : null;
-const launchCss = hex(launchLight) ? `html{background-color:${launchLight}}${hex(launchDark) ? `@media (prefers-color-scheme:dark){html{background-color:${launchDark}}}` : ''}` : '';
+const launchHtml = 'html:has(#exact-root:empty)';
+const launchCss = hex(launchLight) ? `${launchHtml}{background-color:${launchLight}}${hex(launchDark) ? `@media (prefers-color-scheme:dark){${launchHtml}{background-color:${launchDark}}}` : ''}` : '';
 writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.html'), 'utf8')
   .replace(/<style>([\s\S]*?)<\/style>/, (_, css) => `<style>${minifyCss(css)}${launchCss}</style>`)
   .replace('<html lang="en">', `<html lang="${escapeHtml(webManifest.lang)}">`)

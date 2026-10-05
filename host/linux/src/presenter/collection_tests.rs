@@ -394,29 +394,32 @@ fn ordinary_authored_scroll_events_wait_for_ack_and_coalesce_with_reader_input()
     let port = named(&p, "ordinary");
     let observed = |p: &Presenter<Rows>| p.host.runner().slot("observed").cloned();
     let count = |p: &Presenter<Rows>| p.host.runner().slot("count").cloned();
-    assert_eq!(observed(&p), Some(Value::Number(200.)));
-    assert_eq!(count(&p), Some(Value::Number(1.)));
-    // The `ScrollEvent`'s extents: what is left below the port (chat F4).
-    let away = p.host.runner().slot("away").cloned();
-    assert_eq!(away, Some(Value::Number(1000. - 200. - 100.)));
+    // The boot's own offset is no reader's scroll: a browser page hears
+    // none (rt.js `Booting`, the conformance oracle).
+    assert_eq!(observed(&p), Some(Value::Number(0.)));
+    assert_eq!(count(&p), Some(Value::Number(0.)));
+    assert_eq!(p.scroll_of(port).1, 200.);
     let first = p.display_frame().unwrap();
     assert!(p.display_complete(&first));
     p.tap(named(&p, "jump")).unwrap();
     assert!(p.pump(p.host.now()).is_none());
-    assert_eq!(observed(&p), Some(Value::Number(200.)));
+    assert_eq!(observed(&p), Some(Value::Number(0.)));
     let next = p.display_frame().unwrap();
     assert!(p.display_complete(&next));
-    assert_eq!(observed(&p), Some(Value::Number(200.)));
+    assert_eq!(observed(&p), Some(Value::Number(0.)));
     assert!(p.pump(p.host.now()).is_none());
     assert_eq!(observed(&p), Some(Value::Number(300.)));
-    assert_eq!(count(&p), Some(Value::Number(2.)));
+    assert_eq!(count(&p), Some(Value::Number(1.)));
+    // The `ScrollEvent`'s extents: what is left below the port (chat F4).
+    let away = p.host.runner().slot("away").cloned();
+    assert_eq!(away, Some(Value::Number(1000. - 300. - 100.)));
     p.tap(named(&p, "jump")).unwrap();
     let next = p.display_frame().unwrap();
     assert!(p.display_complete(&next));
     p.wheel(port, 0., 50.).unwrap();
     assert!(p.pump(p.host.now()).is_none());
     assert_eq!(observed(&p), Some(Value::Number(450.)));
-    assert_eq!(count(&p), Some(Value::Number(3.)));
+    assert_eq!(count(&p), Some(Value::Number(2.)));
 }
 
 #[test]
@@ -605,6 +608,11 @@ fn ordinary_scroll_handler_runs_beside_collection_observation() {
     p.wheel(list, 0., 8_000.).unwrap();
     settle(&mut p);
     let key = p.host.kernel().find_by_test_id("observed")[0];
+    // The handler last heard where the port came to rest: the wheel's 8000,
+    // then the anchor correction's write, which a browser's scrollTop
+    // write reports with a `scroll` too.
+    let rest = p.scroll_of(list).1;
+    assert!(rest > 7_000.);
     assert_eq!(
         p.host
             .kernel()
@@ -612,7 +620,7 @@ fn ordinary_scroll_handler_runs_beside_collection_observation() {
             .unwrap()
             .props
             .str(PropId::Text),
-        Some("8000")
+        Some(rest.to_string().as_str())
     );
     assert!(p.host.collections()[0].rows.iter().all(|r| r.index > 100));
 }

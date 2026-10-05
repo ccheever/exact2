@@ -1,5 +1,8 @@
 use exact_game::{Sim, Transform};
-use small_game_logic::{Beacon, Options, SmallGame};
+
+// Apart, so rustfmt's order does not depend on the name a new game gives these.
+use small_game_logic::SmallGame;
+use small_game_logic::{Beacon, Options};
 
 #[test]
 fn movement_and_light() {

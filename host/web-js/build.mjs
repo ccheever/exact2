@@ -139,7 +139,10 @@ if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build
 // and entry, against this plan's declarations, so an app.ts the web builds
 // is one every host builds, refused with the same diagnostics (calc F2,
 // calendar F9/F11). It runs while the page bundles; the build waits for it.
-const typeChecked = ts ? typecheck().then(() => null, error => error) : null;
+// Not under `--data`: the plan is another one (a conformance fixture) that
+// borrows this app's module, whose own build checked it against its own plan;
+// against the fixture's declarations every source it answers is unknown.
+const typeChecked = ts && !opt('--data') ? typecheck().then(() => null, error => error) : null;
 async function typecheck() {
   const { configure, check } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
   const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');

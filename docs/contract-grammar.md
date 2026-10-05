@@ -885,11 +885,12 @@ argument validation. Use the working implementation when selecting arguments:
 | `deliveryCheck`, `deliveryActivate` | [delivery corpus](../contract/corpus/delivery.contract) |
 
 The web (its JS target) and the Apple hosts carry every command. The
-headless Linux host has no browser, clipboard, text selection, editor or dev
-menu: its `openURL`, `copyText`, `selectText`, `format`, `reload` and `close`
-are journaled as unsupported there, `haptic` does nothing, and `showNotification`
-is refused (`showNotification: refused: unavailable`). iOS closes no window
-either: its `close` is journaled as unsupported. On the web,
+headless Linux host has no browser, clipboard, editor or dev menu: its
+`openURL`, `copyText`, `format`, `reload` and `close` are journaled as
+unsupported there, `haptic` does nothing, and `showNotification` is refused
+(`showNotification: refused: unavailable`). Its `selectText` focuses the field
+with its whole text selected, which the next typed key or Backspace replaces.
+iOS closes no window either: its `close` is journaled as unsupported. On the web,
 `reload()` is the page's own reload, and `deliveryCheck` and
 `deliveryActivate` find nothing (a web build has no update store; the page is
 the newest root).
