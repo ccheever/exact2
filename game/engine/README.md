@@ -289,7 +289,8 @@ bounds the mesh. A game keeps its own shapes and palette on top (Garden's classi
 look and `sculpt.rs`, Forest's far trees and deer). It is the engine's portable
 math, so equal calls make byte-equal meshes and identities on every host.
 A material is part of the model's identity. The entity's `Material` still tints and
-adds emission to every part; its metallic and roughness do not reach a model. Materials may sample
+adds emission to every part; its metallic and roughness do not reach a model (a
+`MaterialOverride`'s do, per material: a Gold fruit's skin). Materials may sample
 textures named in `model.textures`, such as a shared `art/textures/` PNG, which become
 the model's dependencies and are requested like a baked model's. A generated name
 is the game's alone: registering one that `Game::ASSETS`, `STREAMED` or `LEVEL`
@@ -366,7 +367,10 @@ A look over every entity derives its rows per entity and keeps them:
 tuple of up to four (the entities derived are those with the first). A full present
 derives every entity; a boundary only those whose `K` rows were written, inserted or
 removed since the last, and those whose last derivation returned `Derived::Animated`
-(rows that follow the time, such as a shimmer). Rows a derivation wrote before and not
+(rows that follow the time, such as a growing plant's scale). A look that only moves
+with the clock (a glint, a flicker, a hue cycling) is a `MaterialOverride` whose
+`Shimmer` the GPU evaluates from the frame's time: written once and `Kept`, it costs
+no present and no upload. Rows a derivation wrote before and not
 again are removed, and an entity that loses the first key loses them. So Grow a
 Garden's art pass, a model and a pose per plant and fruit, costs the crops that grew:
 a tick and its present take 0.13 ms at 12,100 plants, against 4.8 when every row was
@@ -385,8 +389,8 @@ gameplay reads stays simulation state; only its look is presentation. Examples:
   `Offset` derived in `present` from ticks since `last_shot_tick`, with any jitter
   from `p.rng(salt)`.
 - Garden's mutation: the roll and the weight it sets are simulation (they change
-  sale price and growth); the shimmer of a mutated fruit is a `NodeMaterials` or
-  `Tint` derived from that saved mutation.
+  sale price and growth); the look of a mutated fruit is a `MaterialOverride`
+  derived from that saved mutation (metal for Gold, a `Shimmer` for its glint).
 - Tracers and explosions that gameplay never queries may be emitters; entities a
   tick creates or despawns (a projectile, a crater that blocks movement) stay
   simulation, because `present` cannot spawn and keeps no state of its own.

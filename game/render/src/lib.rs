@@ -48,7 +48,7 @@ pub use exact_gpu;
 pub use hooks::{
     FrameView, HookGpu, HookTime, HookWork, Hooks, Needs, PostInputs, RenderWorld, SceneCopy,
 };
-pub use models::ModelExecutor;
+pub use models::{surface_words, ModelExecutor};
 pub use surface::{Executor, WorldSurface};
 pub use world::scene::{DisplayedAttachment, PHOTOMETRIC_SCALE};
 pub use world::Feed;
@@ -125,6 +125,9 @@ pub struct DrawInstance {
     pub tint: [f32; 4],
     /// Linear emission added to this node; zero adds none.
     pub glow: [f32; 3],
+    /// `MaterialOverride`'s metallic, roughness and `Shimmer`, packed as the
+    /// model shader reads them ([`surface_words`]); `[0; 4]` changes nothing.
+    pub surface: [u32; 4],
 }
 
 /// One tightly packed, 48-byte mesh vertex.

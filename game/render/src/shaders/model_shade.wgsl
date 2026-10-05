@@ -25,8 +25,9 @@ fn model_lit(input:ModelVarying, front:bool, visibility:f32, fog:bool) -> vec4<f
     let ao=mix(1.0,textureSample(ao_texture,ao_sampler,material_uv(input.uv,4u)).r,baked.surface.w);
     let n=mapped_normal(input,front);
     if baked.flags.x==1.0 && base.a < baked.emission_cutoff.w { discard; }
-    let metallic=clamp(baked.surface.x*mr.b,0.0,1.0);
-    let roughness=clamp(baked.surface.y*mr.g,0.045,1.0);
+    let factors=select(baked.surface.xy,input.surface,input.surface>=vec2(0.0));
+    let metallic=clamp(factors.x*mr.b,0.0,1.0);
+    let roughness=clamp(factors.y*mr.g,0.045,1.0);
     let v=normalize(frame.camera_alpha.xyz-input.world);
     let i=input.slot*12u;
     let glow=vec3(materials[i+6u],materials[i+7u],materials[i+8u]);

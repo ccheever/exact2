@@ -682,41 +682,65 @@ fn hsv(h: f32, s: f32, v: f32) -> [f32; 3] {
     [f(5.0), f(3.0), f(1.0)].map(|c| c * c)
 }
 
-/// A ripe fruit's look for its saved mutations: the strongest shows, and
-/// Rainbow, Gold and Shocked move with the clock.
-fn mutation(
-    kind: u8,
-    muts: u8,
-    seconds: f32,
-    phase: f32,
-    flicker: f32,
-) -> Option<MaterialOverride> {
+/// A ripe fruit's look for its saved mutations: the strongest shows. Gold is
+/// polished metal; Rainbow, Gold and Shocked move with the clock on the GPU
+/// (a `Shimmer`), so the look is written once, when the fruit ripens.
+/// `phase` in [0, 1) sets neighbours apart; `hz` is the flicker's rate.
+fn mutation(kind: u8, muts: u8, phase: f32, hz: f32) -> Option<MaterialOverride> {
     let base = crop(kind).fruit.map(|c| c * c);
-    let (color, emissive) = if muts & crops::RAINBOW != 0 {
-        let c = hsv((seconds * 0.3 + phase).fract(), 0.7, 1.0);
-        (c, c.map(|v| v * 0.7))
+    let steady = |color: [f32; 3], emissive| (color, emissive, Shimmer::Steady);
+    let (color, emissive, shimmer) = if muts & crops::RAINBOW != 0 {
+        // Red at time zero, through every hue in three and a third seconds.
+        let c = hsv(0.0, 0.7, 1.0);
+        let rate = 0.3;
+        (c, c.map(|v| v * 0.7), Shimmer::Hue { rate, phase })
     } else if muts & crops::GOLD != 0 {
-        let glint = 0.55 + 0.45 * math::sin(seconds * 3.0 + phase * TAU);
-        ([1.0, 0.7, 0.16], [0.55 * glint, 0.36 * glint, 0.05 * glint])
+        // A glint three radians a second, between 0.1 and 1 of its glow.
+        let glint = Shimmer::Pulse {
+            rate: 3.0 / TAU,
+            phase,
+            low: 0.1,
+            high: 1.0,
+        };
+        ([1.0, 0.7, 0.16], [0.55, 0.36, 0.05], glint)
     } else if muts & crops::SHOCKED != 0 {
-        (
-            [1.0, 0.95, 0.55],
-            [2.4 * flicker, 2.1 * flicker, 0.5 * flicker],
-        )
+        let flicker = Shimmer::Flicker {
+            rate: hz,
+            phase,
+            low: 0.4,
+            high: 1.6,
+        };
+        ([1.0, 0.95, 0.55], [2.4, 2.1, 0.5], flicker)
     } else if muts & crops::FROZEN != 0 {
-        ([0.62, 0.86, 1.0], [0.08, 0.22, 0.42])
+        steady([0.62, 0.86, 1.0], [0.08, 0.22, 0.42])
     } else if muts & crops::WET != 0 {
-        (base.map(|c| c * 0.6).map(|c| c + 0.015), [0.0; 3])
+        steady(base.map(|c| c * 0.6).map(|c| c + 0.015), [0.0; 3])
     } else if muts & crops::CHILLED != 0 {
-        (mix3(base, [0.7, 0.86, 1.0], 0.45), [0.0; 3])
+        steady(mix3(base, [0.7, 0.86, 1.0], 0.45), [0.0; 3])
     } else {
         return None;
     };
+    let gold = muts & (crops::RAINBOW | crops::GOLD) == crops::GOLD;
     Some(MaterialOverride {
-        material: 0,
         color: Some([color[0], color[1], color[2], 1.0]),
         emissive,
+        shimmer,
+        ..if gold {
+            gilded()
+        } else {
+            MaterialOverride::default()
+        }
     })
+}
+
+/// A Gold fruit's skin (material 0) as polished metal, in every look.
+pub(crate) fn gilded() -> MaterialOverride {
+    MaterialOverride {
+        material: 0,
+        metallic: Some(1.0),
+        roughness: Some(0.22),
+        ..MaterialOverride::default()
+    }
 }
 
 /// Everything this look draws: the sky and camera, its models on what every
@@ -791,7 +815,7 @@ pub fn present(p: &mut Present, smooth: bool) {
         );
     }
     fence(p, now);
-    crops(p, now, seconds, smooth);
+    crops(p, now, smooth);
     // The keeper sways, nods and waves every nine seconds.
     let idle = math::sin(seconds * 1.4);
     if let Some(keeper) = p.named("keeper") {
@@ -840,7 +864,7 @@ pub fn present(p: &mut Present, smooth: bool) {
             .and_then(|farm| farm.bag.last().map(|i| (i.kind, i.muts)));
         if let (Some((kind, muts)), Some(e)) = (last, p.named("picked-fruit")) {
             p.insert(e, fruit_model(kind, true));
-            if let Some(look) = mutation(kind, muts, seconds, 0.0, 1.0) {
+            if let Some(look) = mutation(kind, muts, 0.0, p.hz() as f32) {
                 p.insert(e, MaterialOverrides(vec![look]));
             }
         }
@@ -877,6 +901,7 @@ fn fence(p: &mut Present, now: u64) {
                             material: 0,
                             color: None,
                             emissive: [3.2 * glow, 2.0 * glow, 0.8 * glow],
+                            ..MaterialOverride::default()
                         }]),
                     );
                 }
@@ -911,9 +936,8 @@ fn fence(p: &mut Present, now: u64) {
 /// Each plant's stage model standing on its tile, turned about its stem;
 /// each fruit's model on its branch, with its mutation's look when ripe.
 /// Derived per entity and kept: a present redraws the plants that grew and
-/// the fruit that appeared or ripened, plus what moves with the time (a
-/// growing plant under `smooth`, a gold, rainbow or shocked fruit's shimmer).
-fn crops(p: &mut Present, now: u64, seconds: f32, smooth: bool) {
+/// the fruit that appeared or ripened, plus a plant growing under `smooth`.
+fn crops(p: &mut Present, now: u64, smooth: bool) {
     // One model per crop and stage, cloned onto every plant of it.
     let mut models = std::collections::BTreeMap::new();
     p.each::<(Plant, Transform)>(|p, e| {
@@ -960,7 +984,9 @@ fn crops(p: &mut Present, now: u64, seconds: f32, smooth: bool) {
         }
         Derived::Kept
     });
-    // A ripe fruit's mutation, apart: only a shimmer is drawn again each present.
+    // A ripe fruit's mutation, apart: written when it ripens; a shimmer
+    // moves on the GPU.
+    let hz = p.hz() as f32;
     p.each::<Fruit>(|p, e| {
         let (kind, ripe, muts) = {
             let f = p.require::<Fruit>(e);
@@ -970,20 +996,10 @@ fn crops(p: &mut Present, now: u64, seconds: f32, smooth: bool) {
             return Derived::Kept;
         }
         let phase = (e.index() % 97) as f32 / 97.0;
-        let flicker = if muts & crops::SHOCKED != 0 {
-            let mut r = p.rng(e.index() as u64);
-            0.4 + 1.2 * r.next_f32()
-        } else {
-            0.0
-        };
-        if let Some(look) = mutation(kind, muts, seconds, phase, flicker) {
+        if let Some(look) = mutation(kind, muts, phase, hz) {
             p.insert(e, MaterialOverrides(vec![look]));
         }
-        if muts & (crops::RAINBOW | crops::GOLD | crops::SHOCKED) != 0 {
-            Derived::Animated
-        } else {
-            Derived::Kept
-        }
+        Derived::Kept
     });
 }
 

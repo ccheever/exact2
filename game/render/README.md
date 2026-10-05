@@ -338,7 +338,16 @@ themselves.
 `MaterialOverrides` replaces a model material's base colour factor, zero channels
 included (and adds emission), on one instance: it becomes that material's records'
 tint with a flag that drops the authored factor, so instances in different colours
-still share their batches.
+still share their batches. Its metallic and roughness replace the material's factors
+(textures still multiply them), and its `Shimmer` moves the record's tint and emission
+with the displayed time: a record's last four words (`surface_words`: both factors in
+eight bits, the wave, its rate and phase, and its range in 1/4096ths), which the
+vertex shader evaluates against `frame.time` (the displayed seconds, wrapped hourly)
+and hands the fragment as a flat varying. A pulsing glint is then written once, not
+at every present: with Grow a Garden's gold, rainbow and shocked fruit drawn so,
+the art pass's feed at 12,100 plants fell from 1.0 ms to 0.18 (release,
+`tests/render.rs`, on a loaded machine), which had been one `write_buffer` per
+shimmering fruit per present.
 A full present rebuilds these, and a look written at every present (a pulse) moves
 the column's revision; the feed compares each entity's content, so unchanged looks
 cost nothing and changed ones (a pulsing glow) patch that entity's

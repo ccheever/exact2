@@ -264,11 +264,13 @@ fn soldiers(p: &mut Present<'_>) {
                     material: 0,
                     color: Some([r, g, b, 1.0]),
                     emissive: [2.4 * flash, 0.6 * flash, 0.4 * flash],
+                    ..MaterialOverride::default()
                 },
                 MaterialOverride {
                     material: 2,
                     color: None,
                     emissive: [r * 6.0, g * 6.0, b * 6.0],
+                    ..MaterialOverride::default()
                 },
             ]),
         );

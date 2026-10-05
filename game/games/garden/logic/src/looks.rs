@@ -6,7 +6,7 @@
 //! game, its gestures, its saves and its scale are the same in every look.
 use crate::{
     art::{dress, hide, place},
-    crops::{Crop, CROPS},
+    crops::{self, Crop, CROPS},
     garden::paint,
     models::*,
     scenery::*,
@@ -436,9 +436,17 @@ pub fn present(p: &mut Present, style: Style) {
         p.insert(e, models[kind][0].clone());
         Derived::Kept
     });
+    // The fruit's simulated colour tints it; a ripe Gold one is metal too.
     p.each::<crate::garden::Fruit>(|p, e| {
-        let kind = p.require::<crate::garden::Fruit>(e).kind as usize;
+        let (kind, gold) = {
+            let f = p.require::<crate::garden::Fruit>(e);
+            let gold = f.ripe && f.muts & (crops::RAINBOW | crops::GOLD) == crops::GOLD;
+            (f.kind as usize, gold)
+        };
         p.insert(e, models[kind][1].clone());
+        if gold {
+            p.insert(e, MaterialOverrides(vec![crate::pass::gilded()]));
+        }
         Derived::Kept
     });
     let picked = p

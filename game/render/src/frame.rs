@@ -1,7 +1,7 @@
 use crate::{shadows::Cascades, FrameInput};
 use glam::Vec3;
 
-pub(crate) const FLOATS: usize = 184;
+pub(crate) const FLOATS: usize = 188;
 
 /// Whether the sky pass draws; `map` is a visible environment map resident.
 pub(crate) fn has_sky(frame: &FrameInput<'_>, map: bool) -> bool {
@@ -81,5 +81,8 @@ pub(crate) fn uniform(
         data[181] = map.rotation;
         data[182] = map.rgbm.max(0.);
     }
+    // The displayed seconds a `Shimmer` moves with, wrapped hourly to keep
+    // f32 precision.
+    data[184] = frame.seconds.rem_euclid(3600.) as f32;
     data
 }

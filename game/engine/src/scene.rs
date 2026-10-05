@@ -546,11 +546,65 @@ pub struct MaterialOverride {
     pub color: Option<[f32; 4]>,
     /// Linear emission added wherever the material draws.
     pub emissive: [f32; 3],
+    /// Replaces the material's metallic factor (its texture still multiplies
+    /// it), in [0, 1]. `None` keeps it.
+    pub metallic: Option<f32>,
+    /// Replaces the material's roughness factor (its texture still multiplies
+    /// it), in [0, 1]. `None` keeps it.
+    pub roughness: Option<f32>,
+    /// How this look moves with the displayed time, on the GPU: written once,
+    /// it animates every frame without another present or upload.
+    pub shimmer: Shimmer,
+}
+/// A `MaterialOverride` that moves with the displayed time (the frame's
+/// simulation seconds, which wrap each hour), evaluated by the GPU per frame,
+/// so a glinting or flickering look is one write, not one per present. It
+/// animates the instance's look on that material's parts. `rate` is cycles a
+/// second; `phase` is where this instance starts, in cycles, so neighbours
+/// differ.
+#[derive(Clone, Copy, Debug, Default, PartialEq, crate::Data)]
+pub enum Shimmer {
+    /// Still: the override's colour and emission as written.
+    #[default]
+    Steady,
+    /// The emission swells and fades along a sine, scaled from `low` to `high`.
+    Pulse {
+        /// Cycles a second.
+        rate: f32,
+        /// This instance's start, in cycles.
+        phase: f32,
+        /// The emission's scale at the trough.
+        low: f32,
+        /// The emission's scale at the crest.
+        high: f32,
+    },
+    /// The emission jumps to a random scale in [`low`, `high`] `rate` times a
+    /// second; `phase` picks this instance's sequence.
+    Flicker {
+        /// Steps a second.
+        rate: f32,
+        /// This instance's start and sequence, in steps.
+        phase: f32,
+        /// The least scale.
+        low: f32,
+        /// The greatest scale.
+        high: f32,
+    },
+    /// The colour and emission turn through every hue: `phase` turns at time
+    /// zero, `rate` turns a second (HSV hue of the colour's square root, so
+    /// `hsv(h)²` colours stay as even to the eye).
+    Hue {
+        /// Turns a second.
+        rate: f32,
+        /// This instance's hue offset, in turns.
+        phase: f32,
+    },
 }
 /// Per-material looks of a model instance: one soldier model in every team's
-/// armour colour, one crop model in each mutation's look. Every part with that
-/// material changes, merged or not, and instances with different overrides still
-/// draw together. Applies before `NodeMaterials`, under the entity's `Material`.
+/// armour colour, one crop model in each mutation's look, a gold one metallic.
+/// Every part with that material changes, merged or not, and instances with
+/// different overrides still draw together. Applies before `NodeMaterials`,
+/// under the entity's `Material`.
 /// Presentation state: write it from `Game::present`; never saved or hashed.
 #[derive(Clone, Debug, Default, PartialEq, crate::Presentation)]
 pub struct MaterialOverrides(pub Vec<MaterialOverride>);

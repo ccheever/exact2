@@ -119,6 +119,7 @@ impl Assets {
             {
                 old.tint = new.tint;
                 old.glow = new.glow;
+                old.surface = new.surface;
             }
             self.part_looks[part_first..part_first + part_count].copy_from_slice(&fresh.part_looks);
             r.patch_looks(
@@ -186,7 +187,11 @@ impl Assets {
                     .0
                     .iter()
                     .find(|o| o.material as usize == index)?;
-                Some((o.color, o.emissive))
+                Some((
+                    o.color,
+                    o.emissive,
+                    crate::surface_words(o.metallic, o.roughness, o.shimmer),
+                ))
             };
             drawn |= !nodes.is_empty();
             if !nodes.is_empty() {
@@ -232,12 +237,14 @@ impl Assets {
                 }
                 let (mut tint, mut glow) =
                     look.map_or(([1.; 4], [0.; 3]), |l| (l.color, l.emissive));
-                if let Some((color, g)) = material_look(material) {
+                let mut surface = [0; 4];
+                if let Some((color, g, words)) = material_look(material) {
                     if let Some(c) = color {
                         tint = std::array::from_fn(|i| tint[i] * c[i]);
                         base |= REPLACE;
                     }
                     glow = std::array::from_fn(|i| glow[i] + g[i]);
+                    surface = words;
                 }
                 self.part_bases.push(base);
                 self.levels.push(level as u8);
@@ -250,6 +257,7 @@ impl Assets {
                     skin,
                     tint,
                     glow,
+                    surface,
                 });
                 self.groups
                     .entry((
@@ -315,6 +323,7 @@ fn look_digests(w: &World) -> BTreeMap<u32, u64> {
             l.material.hash(h);
             l.color.map(|c| c.map(f32::to_bits)).hash(h);
             l.emissive.map(f32::to_bits).hash(h);
+            crate::surface_words(l.metallic, l.roughness, l.shimmer).hash(h);
         }
     }
     hashers.into_iter().map(|(k, h)| (k, h.finish())).collect()
