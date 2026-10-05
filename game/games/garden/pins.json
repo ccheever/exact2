@@ -1,22 +1,22 @@
 {
   "ticks": {
-    "0": "0xa9de31866d0b1f35",
-    "5136": "0x188f5b34253105ab"
+    "0": "0x31dadf6b9f435126",
+    "5136": "0x1951100bfb0557a4"
   },
   "saves": {
-    "continuation": "8c6f550a04afff455a542259c480223b6c3d076f1fa4573f2f2ae7d4420c7284",
-    "market": "ca3ec74533ab98083e7a8f53bf5c32dfb97f6be642e5943031e6d4ca4a4da8f5",
-    "recovery": "5eb0d8b25ee8a4932e0bbc9dc9a18904582cbcb776de6b5c6d9f9771b01d482f",
-    "watering": "fbcb833e7646b4b3d275349063cc6c8a42ccb7492e9f84931631916d525772b6",
-    "compost": "fd2b133046c42d1f9a108955afccb3fed55536a3697036944fc7333610b9a525"
+    "continuation": "33bf5deffafaff79ab095d92c6af79eeb819a5253d8ffc6660f62269d9e34c8d",
+    "market": "bb992249f5899754317320a6c981a0a92f737174a0daed0116528aeb4700ad48",
+    "recovery": "e64cc4b8da243a5d4ffa449889b77a201b2c867253890b9dd1c97eb3f53fed1c",
+    "watering": "791d1b81d74a506c0a107904e11c8631fafcc6300a04e4d8c3e69ea6cd62a052",
+    "compost": "82c17a014bebca996c66bd67420fdb8eebe3b334acd8f4b1464e52f77d7406a3"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "9a6cb2b6c7f2f9c316465f8b84af3785c4ac2bbc01406880d06cf2a92eb3482c",
+  "inputs": "accda8a0f1fbc9c0e7e02ad008f9e42873dff1f1eff7c20dd59ac3cb63429a03",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "e51ba0bc58450b60a41afed215c0ffd3241c52ca",
-  "reason": "The HUD's default look is now the art pass (state art = \"pass\"); classic stays selectable"
+  "at": "cda3ff1d02f6dde5a9a41e60a79c3e179d217cad",
+  "reason": "Engine lanes of 2026-10-05: resources hash and save only non-default fields, saves omit default arguments and empty tables (lane 6); garden's looks are presentation (lane 2); wind-fixture's reed is a masked, LOD'd model (lane 3)"
 }

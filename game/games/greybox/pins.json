@@ -1,18 +1,18 @@
 {
   "ticks": {
-    "0": "0x41e6f7a7fbccc126",
-    "90": "0x4d892b02503223cb"
+    "0": "0x1560851c5a95db4e",
+    "90": "0x57d547b973b47b0a"
   },
   "saves": {
-    "continuation": "2dd2b8bc170a421c00b26ccacb50267a2bdefef415caf18e41704ccfca697ec8"
+    "continuation": "d3a15997740b502998a38987064be38b22a27d2ebbd671db5dccf3b3a2273bad"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "759f18405fdd221ec40aecfd1fa0fde05b6022fb7dcb1b3f5b8c8122463aec86",
+  "inputs": "1a0397a2ca069d5454e5d0f5667acb6b87969ed7fa5538663058fba0eeb3edfa",
   "game": "greybox",
   "generated": "bun game/prove.mjs greybox --repin --hosts 'linux,web'",
-  "at": "71d1e0086d045ff2ba89b75334d702a4a2376163",
-  "reason": "EXSIM v7 save format from main: the continuation save pin; tick pins unchanged"
+  "at": "cda3ff1d02f6dde5a9a41e60a79c3e179d217cad",
+  "reason": "Engine lanes of 2026-10-05: resources hash and save only non-default fields, saves omit default arguments and empty tables (lane 6); garden's looks are presentation (lane 2); wind-fixture's reed is a masked, LOD'd model (lane 3)"
 }

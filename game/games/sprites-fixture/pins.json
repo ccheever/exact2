@@ -1,17 +1,17 @@
 {
   "ticks": {
-    "300": "0x04bd5b984fb15ee6"
+    "300": "0x630ea0bfc31fb4aa"
   },
   "saves": {
-    "continuation": "81af51c431c2fd9b0d27f1b9dfd76e49dda6aab431f405ba791fe31a8206320c"
+    "continuation": "9cc69cc477498d87bbea44475d333b239ff71d05e8ee02bc8301ebf6e988d1dd"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "360e8a0bd7ae0b21ad7bcc17c11ee8fa2ec34789eb2a4d66f82564978508975c",
+  "inputs": "a66660ae2fa19c501cd9e4c7d12603abee396bdefac619543751dd4b9a78e99d",
   "game": "sprites-fixture",
   "generated": "bun game/prove.mjs sprites-fixture --repin --hosts 'linux,web'",
-  "at": "ee47c4ec741149c7041c82cda164809ada668b3a",
-  "reason": "EXSIM v7 save format from main: the continuation save pin; tick pins unchanged"
+  "at": "cda3ff1d02f6dde5a9a41e60a79c3e179d217cad",
+  "reason": "Engine lanes of 2026-10-05: resources hash and save only non-default fields, saves omit default arguments and empty tables (lane 6); garden's looks are presentation (lane 2); wind-fixture's reed is a masked, LOD'd model (lane 3)"
 }

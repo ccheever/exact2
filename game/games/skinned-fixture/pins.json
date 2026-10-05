@@ -1,18 +1,18 @@
 {
   "ticks": {
-    "60": "0x0e6efd40d47f5dd7",
-    "120": "0xf8baf228b103fe37"
+    "60": "0xc5f6f80142dd3aed",
+    "120": "0x70cd2e99afb05e77"
   },
   "saves": {
-    "continuation": "94d92ef6986d34858999cb5988e1142172dbe67c91462c8c6daadb3ee03d1ef4"
+    "continuation": "bffd53f9e33e9d26091c4c6fdd5a841b4a6773457614e38d41d32a120875b4b9"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "a4081eaf496814524bbb7d4a82b57c2eecf7a6d5f08b27b83573d3d13487ebf4",
+  "inputs": "5d67014898cebccefbc4cf4bfea45eb615b08a35b621fc49adeb029d4e013dec",
   "game": "skinned-fixture",
   "generated": "bun game/prove.mjs skinned-fixture --repin --hosts 'linux,web'",
-  "at": "7b84e1c0578be824dc70b18c4c7a575fefd1afe1",
-  "reason": "Verify EXSIM v7 save format and refreshed shell generation after main 3394b5292"
+  "at": "cda3ff1d02f6dde5a9a41e60a79c3e179d217cad",
+  "reason": "Engine lanes of 2026-10-05: resources hash and save only non-default fields, saves omit default arguments and empty tables (lane 6); garden's looks are presentation (lane 2); wind-fixture's reed is a masked, LOD'd model (lane 3)"
 }

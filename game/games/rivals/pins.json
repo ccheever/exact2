@@ -1,24 +1,24 @@
 {
   "ticks": {
-    "0": "0xf4442d3d72bb04fe",
-    "1080": "0xa71f898787c4daa1"
+    "0": "0x28a707e9f1c2eb74",
+    "1080": "0x7d42d4b2da3e7527"
   },
   "saves": {
-    "continuation": "a9ce8deee7525cc5fb29be72d6e25c84805a4807cbd419e03ac26494313c1f44",
-    "mayhem": "1eb2e072e6240191508c9874e92ed5fef1c1666da5447936e93f5bd1bbfbf8e5",
-    "mayhem-round": "6b7952deb1d08dbab5ec898f5e1844179580ec39bf237eaaa7d657aa336a1856",
-    "drill": "4278c1ff351a98d267a2d9091299a0a6bda788a705b332de6d192a884cd78733",
-    "bandage": "506e40a9b739dd7271bad1be38e09e786f58f272c0140bcf9a0efdb49325cdff",
-    "quick-reload": "aab53d8854922acb0ea5486e43479e46ddde40748820d31a348fbcc46fee3213",
-    "shot-feedback": "4fc2c8a9b4f420c67a98988009465ea30e5ac5dd3f55c6ae4231258e008192dc"
+    "continuation": "491a4caf0ce94f1f69d344b6209b977d4921dbd604f7efc88fb2308646b28341",
+    "mayhem": "4edc2712cdf2daee7afe4b19d0856ff6d5a1e45d0c618f691299347ef866c97f",
+    "mayhem-round": "8f6718fb988eb1d9fe1f7deb23f005fc93fa915b19eed08648760f99d44e2767",
+    "drill": "2bb9b0e45ecee15d8c31945a761601bf7b4362431cdb2b694f064a2902114c0c",
+    "bandage": "4d838d361ce2258d0be1095ed6324c1d6775466220e61667bb65a83c5796a833",
+    "quick-reload": "d182c8daec7086733336828c2360b4a1d1e7f081ff331734d09d3755066732f9",
+    "shot-feedback": "d936402cc12817aaebb6a54926a7030fdce0a6cd87f8333eb2b9549eb5588ae0"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "9187a7282bcdfb85cb99deecaeaf95b8307bc3463d28db51d946af3e1e5814d4",
+  "inputs": "aad9d7b3c2613624aa54ce0d7bd5acc7d117a9d617490498979f2f0721802f91",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "2291b998162d828dd50775ccf0d136e24c8c86d4",
-  "reason": "First-person weapon viewmodels and sounds (f5f4b8a4c) moved tick pins; EXSIM v7 save format; the art argument in saves"
+  "at": "cda3ff1d02f6dde5a9a41e60a79c3e179d217cad",
+  "reason": "Engine lanes of 2026-10-05: resources hash and save only non-default fields, saves omit default arguments and empty tables (lane 6); garden's looks are presentation (lane 2); wind-fixture's reed is a masked, LOD'd model (lane 3)"
 }
