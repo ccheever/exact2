@@ -16,7 +16,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.local_groups();
         if self.cull.stale() || self.locals_stale() {
             self.write_cull_setup();
-        } else if std::mem::take(&mut self.levels.changed) {
+        } else if self.levels.changed {
             let hidden = &self.levels.hidden;
             self.cull.hide_records(&self.queue, hidden);
             for local in &mut self.local_culls {

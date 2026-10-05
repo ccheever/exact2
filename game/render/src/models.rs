@@ -1,7 +1,7 @@
 //! Baked-model instance and material buffers. Primitive draws never bind these.
 use crate::{
     buffers::{bytes, Buffer},
-    DrawInstance, MaterialId, MeshId, RenderError, Vertex,
+    DrawInstance, MaterialId, MeshId, RenderError,
 };
 use exact_game::asset::{AlphaMode, Filter, MaterialData, Model, TextureData, Wrap};
 use exact_gpu::wgpu;
@@ -51,6 +51,7 @@ pub(crate) struct Draws<'a> {
     pub custom: &'a std::collections::BTreeSet<MaterialId>,
 }
 pub(crate) struct Uploaded {
+    /// The unmerged draw list; empty while merged-away parts are not resident.
     pub nodes: Vec<ModelNode>,
     /// Each drawn node's name, for `NodeMaterials`.
     pub names: Vec<String>,
@@ -63,6 +64,9 @@ pub(crate) struct Uploaded {
     pub(crate) digest: u64,
     pub active: bool,
     pub meshes: Vec<MeshId>,
+    /// Each model mesh's own mesh; none for a part drawn only merged until a
+    /// `CustomMaterial` needs the parts.
+    pub parts: Vec<Option<MeshId>>,
     pub materials: Vec<MaterialId>,
     pub skins: Vec<u32>,
 }
@@ -253,10 +257,17 @@ impl Models {
             };
             words.push(at | (look & REPLACE));
         }
-        // A merged part's look is one record-sized entry: its tint and glow.
+        // A merged part's look is one record-sized entry: its tint and glow. A
+        // run's first entry also holds the run's part count, for the shader's
+        // binary search over the starts.
+        let mut run = words.len();
         for look in &self.part_looks.1 {
             words.extend([0; 36]);
             words.extend(look.map(f32::to_bits));
+            if look[7].to_bits() == u32::MAX {
+                words[run] = ((words.len() - run) / INSTANCE_WORDS - 1) as u32;
+                run = words.len();
+            }
         }
         if words.len() as u64 * 4 > device.limits().max_storage_buffer_binding_size {
             return Err(RenderError::scene(
@@ -320,11 +331,13 @@ fn instance_bind(
     })
 }
 impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
-    /// Upload model geometry and material textures once; return stable renderer handles.
-    pub fn add_model(
+    /// Upload model geometry and material textures once; return stable renderer
+    /// handles. Meshes `skip` marks (parts only drawn merged) are not uploaded.
+    pub(crate) fn add_model(
         &mut self,
         model: &Model,
-    ) -> Result<(Vec<MeshId>, Vec<MaterialId>), RenderError> {
+        skip: &[bool],
+    ) -> Result<(Vec<Option<MeshId>>, Vec<MaterialId>), RenderError> {
         model.validate().map_err(RenderError::scene)?;
         self.pipelines.prepare_model(&self.device, model);
         self.models
@@ -345,47 +358,9 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 },
             )?;
         }
-        let meshes = model
-            .meshes
-            .iter()
-            .map(|mesh| {
-                let vertices: Vec<_> = mesh
-                    .positions
-                    .chunks_exact(3)
-                    .enumerate()
-                    .map(|(i, p)| Vertex {
-                        position: [p[0], p[1], p[2]],
-                        normal: mesh.normals[i * 3..i * 3 + 3].try_into().unwrap(),
-                        uv: mesh.uvs[i * 2..i * 2 + 2].try_into().unwrap(),
-                        color: if mesh.colors.is_empty() {
-                            [1.; 4]
-                        } else {
-                            mesh.colors[i * 4..i * 4 + 4].try_into().unwrap()
-                        },
-                    })
-                    .collect();
-                let id = self.add_mesh(&vertices, &mesh.indices);
-
-                if !mesh.joints.is_empty() {
-                    let start = self.meshes[id.0].base_vertex as u64 * 32;
-                    let mut words = Vec::with_capacity(mesh.joints.len() * 2);
-                    for (j, w) in mesh
-                        .joints
-                        .chunks_exact(4)
-                        .zip(mesh.weights.chunks_exact(4))
-                    {
-                        words.extend(j.iter().map(|j| u32::from(*j)));
-                        words.extend(w.iter().map(|w| w.to_bits()));
-                    }
-                    let weights = &mut self.models.skinning.as_mut().unwrap().weights;
-                    self.models.reallocations += u64::from(weights.grow(
-                        &self.device,
-                        &self.queue,
-                        start + (words.len() * 4) as u64,
-                    ));
-                    weights.write(&self.queue, start, bytes(&words));
-                }
-                id
+        let meshes = (model.meshes.iter().enumerate())
+            .map(|(m, mesh)| {
+                (!skip.get(m).copied().unwrap_or(false)).then(|| self.add_model_mesh(mesh))
             })
             .collect();
         let mut materials = Vec::new();
@@ -434,14 +409,17 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 resident.active = true;
                 self.models.revision += 1;
             }
-            return Ok(());
+            return self.upload_parts(name, model);
         }
         model.validate().map_err(RenderError::scene)?;
         let replaced = self.models.loaded.remove(name).is_some();
         if replaced {
             self.reclaim_orphan_slots();
         }
-        let (meshes, materials) = self.add_model(model)?;
+        // Parts only drawn merged are uploaded only when something needs them.
+        let away = merge::merged_away(model);
+        let (parts, materials) = self.add_model(model, &away)?;
+        let mut meshes: Vec<MeshId> = parts.iter().flatten().copied().collect();
         for id in &meshes {
             self.meshes[id.0].asset = true;
         }
@@ -455,42 +433,24 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         if replaced {
             self.models.skinning.as_mut().unwrap().mark_fresh(&skins);
         }
-        let mut rigid = skins.iter().skip(model.skins.len());
         let names = model
             .nodes
             .iter()
             .filter(|n| n.mesh.is_some())
             .map(|n| n.name.clone())
             .collect();
-        let nodes = model
-            .nodes
-            .iter()
-            .zip(model.offsets().map_err(RenderError::scene)?)
-            .filter_map(|(n, local)| {
-                n.mesh.map(|m| {
-                    let skin = n
-                        .skin
-                        .map(|s| skins[s as usize])
-                        .or_else(|| rigid.next().copied());
-                    (
-                        meshes[m as usize],
-                        materials[model.meshes[m as usize].material as usize],
-                        if skin.is_some() {
-                            Mat4::IDENTITY
-                        } else {
-                            local
-                        },
-                        skin,
-                    )
-                })
-            })
-            .collect::<Vec<ModelNode>>();
+        // Merged-away parts have no mesh: the merge reads only their offsets.
+        let nodes = merge::draw_nodes(model, &parts, &materials, &skins)?;
         let drawn: Vec<u32> = model.nodes.iter().filter_map(|n| n.mesh).collect();
         let first = skins.len() - animated.len();
         let (merged, members, starts, merged_meshes) =
             self.merge_static(model, &nodes, &drawn, &animated, &skins[first..]);
-        let mut meshes = meshes;
         meshes.extend(merged_meshes);
+        let nodes = if parts.iter().all(Option::is_some) {
+            nodes
+        } else {
+            Vec::new()
+        };
         self.models.loaded.insert(
             name.into(),
             Uploaded {
@@ -502,13 +462,14 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 digest,
                 active: true,
                 meshes,
+                parts,
                 materials,
                 skins,
             },
         );
         self.reclaim_orphan_slots();
         self.models.revision += 1;
-        Ok(())
+        self.upload_parts(name, model)
     }
     pub(crate) fn retired_bytes(&self, live: &std::collections::BTreeSet<String>) -> u64 {
         let retained: std::collections::BTreeSet<_> = self

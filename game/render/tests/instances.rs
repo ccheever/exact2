@@ -460,6 +460,93 @@ fn node_materials_tint_and_light_named_nodes_of_one_instance() {
 }
 
 #[test]
+fn every_part_of_a_many_part_merge_finds_its_own_look() {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    // Eleven panels in a row, one merged draw; every fourth has no look.
+    let mut model = Model {
+        meshes: vec![panel(0); 11],
+        materials: vec![material([1., 1., 1., 1.], AlphaMode::Opaque)],
+        bounds: [-2.7, -0.8, 0., 2.7, 0.8, 0.],
+        ..Default::default()
+    };
+    let mut looks = Vec::new();
+    for i in 0..11 {
+        let name = format!("part{i}");
+        model.nodes.push(Node {
+            name: name.clone(),
+            mesh: Some(i),
+            transform: glam::Mat4::from_scale_rotation_translation(
+                Vec3::new(0.25, 1., 1.),
+                glam::Quat::IDENTITY,
+                Vec3::new(-2.5 + 0.5 * i as f32, 0., 0.),
+            )
+            .to_cols_array(),
+            ..Default::default()
+        });
+        if i % 4 != 3 {
+            let mut color = [0.05, 0.05, 0.05, 1.];
+            color[i as usize % 3] = 1.;
+            looks.push(NodeMaterial {
+                node: name,
+                color,
+                ..Default::default()
+            });
+        }
+    }
+    let mut sim = Sim::<Test>::new(()).unwrap();
+    sim.asset("panels.model", Some(&bin::to_vec(&model)))
+        .unwrap();
+    let e = sim.world().named("model").unwrap();
+    sim.world_mut().insert(e, NodeMaterials(looks));
+    let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.prepare_model("panels.model", &model).unwrap();
+    let mut feed = Feed::default();
+    feed.feed(sim.world(), &mut renderer).unwrap();
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: 192,
+            height: 64,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let eye = Vec3::new(0., 0., 5.);
+    let mut f = exact_game_render::FrameInput {
+        view: view::look_at_mat4(eye, Vec3::ZERO, Vec3::Y),
+        proj: directx::orthographic(-3., 3., -1., 1., 0.1, 20.),
+        camera_position: eye,
+        sun: None,
+        ..Default::default()
+    };
+    f.environment.fog = None;
+    f.environment.bloom = None;
+    f.environment.background = Some([0.; 3]);
+    let stats = renderer.draw(&texture.create_view(&Default::default()), (192, 64), &f);
+    assert_eq!(stats.instances, 1, "one merged draw");
+    let image = fixture::read(&gpu, &texture).unwrap();
+    for i in 0..11 {
+        // 32 pixels a unit: part i's centre.
+        let p = image.at(((0.5 + 0.5 * i as f32) * 32.) as u32, 32);
+        if i % 4 == 3 {
+            let (low, high) = (p[..3].iter().min().unwrap(), p[..3].iter().max().unwrap());
+            assert!(*low > 40 && *high < 2 * *low, "part {i} untinted: {p:?}");
+        } else {
+            let c = i % 3;
+            let other = (0..3).filter(|&k| k != c).map(|k| p[k]).max().unwrap();
+            assert!(p[c] > 2 * other.max(1), "part {i} channel {c}: {p:?}");
+        }
+    }
+}
+
+#[test]
 fn static_parts_sharing_a_material_draw_once_and_look_the_same() {
     let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
         return;

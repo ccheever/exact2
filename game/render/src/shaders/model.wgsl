@@ -5,7 +5,7 @@ struct ModelInstance {
     // 31 bits are 1 + the first per-part look of a merged draw (0: none), and
     // its top bit makes the tint replace the material's base colour factor
     // (MaterialOverrides). In a part look entry, glow.w's bits are the part's
-    // first vertex.
+    // first vertex, and a run's first entry's `transform` is its part count.
     tint: vec4<f32>, glow: vec4<f32>,
 }
 @group(3) @binding(0) var<storage, read> instances: array<ModelInstance>;
@@ -67,10 +67,14 @@ fn model_transform(position: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instan
     let word=bitcast<u32>(draw.glow.w);
     let looks=word & 2147483647u;
     if looks!=0u {
-        // A merged part's look: the last part starting at or before this vertex
-        // (a run ends at a u32::MAX start).
+        // A merged part's look: the last part starting at or before this vertex,
+        // found by binary search (the run's first entry holds its part count).
         var at=looks-1u;
-        while bitcast<u32>(instances[at+1u].glow.w)<=vertex { at+=1u; }
+        var end=at+instances[at].transform;
+        while end-at>1u {
+            let mid=(at+end)/2u;
+            if bitcast<u32>(instances[mid].glow.w)<=vertex {at=mid;} else {end=mid;}
+        }
         let look=instances[at];
         tint*=look.tint;
         glow+=look.glow.xyz;

@@ -553,11 +553,12 @@ impl Game for MaterialGame {
     }
 }
 // SHADOWS: the forward shader outputs the engine's sun visibility as green.
+// HALF: both shaders halve node-local positions (about each node's origin).
 #[derive(Default)]
-struct MaterialHooks<const SHADOWS: bool = false> {
+struct MaterialHooks<const SHADOWS: bool = false, const HALF: bool = false> {
     materials: Vec<exact_game_render::hooks::CustomMaterial>,
 }
-impl<const SHADOWS: bool> Hooks for MaterialHooks<SHADOWS> {
+impl<const SHADOWS: bool, const HALF: bool> Hooks for MaterialHooks<SHADOWS, HALF> {
     fn prepare(
         &mut self,
         gpu: &HookGpu<'_>,
@@ -585,11 +586,14 @@ impl<const SHADOWS: bool> Hooks for MaterialHooks<SHADOWS> {
             return vec4f(0.0,2.0*sun_shadow(v.world,normalize(v.normal)),0.0,1.0);
         }
         "#;
+        let offset = "p+vec3f(f32(draw_instance(i).data)*0.01,0.0,0.0)";
         let forward = if SHADOWS {
             format!(
                 "{}\n{shadowed}",
                 exact_game_render::hooks::MATERIAL_SHADOWS_WGSL
             )
+        } else if HALF {
+            forward.replace(offset, "p*0.5")
         } else {
             forward.to_owned()
         };
@@ -600,6 +604,11 @@ impl<const SHADOWS: bool> Hooks for MaterialHooks<SHADOWS> {
             return light*vec4f(v.world,1.0);
         }
         "#;
+        let shadow = if HALF {
+            shadow.replace(offset, "p*0.5")
+        } else {
+            shadow.to_owned()
+        };
         let shader = |text: &str| {
             gpu.device
                 .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -625,7 +634,7 @@ impl<const SHADOWS: bool> Hooks for MaterialHooks<SHADOWS> {
                     Some("fragment"),
                     false,
                 ),
-                shadow: gpu_materials.pipeline(&shader(shadow), &layout, "shadow", None, true),
+                shadow: gpu_materials.pipeline(&shader(&shadow), &layout, "shadow", None, true),
                 resources: gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: None,
                     layout: &layout,
@@ -698,4 +707,85 @@ fn custom_material_forward_shaders_sample_the_engine_shadow_maps() {
     eprintln!("lit panel pixels without and with the caster: {open} {shadowed}");
     assert!(open > 200, "{open}");
     assert!(shadowed + 40 < open, "{open} {shadowed}");
+}
+
+// Two panels at x = ±1 sharing one material: the model merges them.
+struct PartsGame;
+impl Game for PartsGame {
+    type Args = ();
+    const ID: &'static str = "custom-material-merged-parts";
+    fn setup(w: &mut World, _: &()) {
+        use exact_game::*;
+        let panel = asset::MeshData {
+            positions: vec![-0.4, -0.4, 0., 0.4, -0.4, 0., 0.4, 0.4, 0., -0.4, 0.4, 0.],
+            normals: [0., 0., 1.].repeat(4),
+            uvs: vec![0.; 8],
+            indices: vec![0, 1, 2, 0, 2, 3],
+            bounds: [-0.4, -0.4, 0., 0.4, 0.4, 0.],
+            ..Default::default()
+        };
+        let model = asset::Model {
+            meshes: vec![panel.clone(), panel],
+            materials: vec![asset::MaterialData::default()],
+            nodes: [-1f32, 1.]
+                .iter()
+                .enumerate()
+                .map(|(i, &x)| asset::Node {
+                    name: format!("panel{i}"),
+                    mesh: Some(i as u32),
+                    transform: glam::Mat4::from_translation(glam::Vec3::new(x, 0., 0.))
+                        .to_cols_array(),
+                    ..Default::default()
+                })
+                .collect(),
+            bounds: [-1.4, -0.4, 0., 1.4, 0.4, 0.],
+            ..Default::default()
+        };
+        let mesh = w.generated_model("panel.model", model).unwrap();
+        w.spawn((Transform::default(), mesh));
+        w.spawn((Transform::at(0., 0., 5.), Camera::default()));
+        w.insert_resource(Environment {
+            background: Some([0.; 3]),
+            fog: None,
+            bloom: None,
+            ..Default::default()
+        });
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+    fn paused(_: &()) -> bool {
+        true
+    }
+}
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_custom_material_on_merged_parts_draws_them_unmerged_through_the_surface() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let mut surface = WorldSurface::<
+        PartsGame,
+        exact_game_render::ModelExecutor,
+        true,
+        MaterialHooks<false, true>,
+    >::default();
+    surface.device_ready(exact_gpu::wgpu::Features::empty());
+    surface.bind(&[], None).unwrap();
+    let mut frame = frame();
+    let mut image = None;
+    for i in 0..3 {
+        frame.now_ms = 16. * f64::from(i);
+        image = Some(fixture::render(&gpu, &mut surface, &frame).unwrap().0);
+        assert!(surface.error().is_none(), "{:?}", surface.error());
+    }
+    let image = image.unwrap();
+    // Halved about each node's origin the panels stay centred on x = ±1; a
+    // merged mesh (model-space vertices) would pull them in to x = ±0.5.
+    let fov = exact_game::Camera::default().fov_y_degrees.to_radians();
+    let unit = 1. / (5. * (fov * 0.5).tan());
+    let green = |x: f32| image.at(((x + 1.) * 32.) as u32, 32)[1] > 100;
+    assert!(green(unit) && green(-unit), "panels centred on their nodes");
+    assert!(
+        !green(0.5 * unit) && !green(-0.5 * unit),
+        "not a merged draw"
+    );
 }

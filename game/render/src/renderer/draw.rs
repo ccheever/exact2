@@ -473,8 +473,6 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         cascades
     }
 
-    // One total translucent order; opaque/primitive batches remain retained.
-    // Blended models the camera cannot see stay out of it (NaN depth marks them).
     /// One level of detail per entity, from its displayed position.
     fn select_levels(&mut self, frame: &FrameInput<'_>) {
         if !ASSETS || self.levels.entries.is_empty() {
@@ -482,7 +480,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
         let (poses, indices) = (&self.models.poses, &self.models.pose_indices);
         let words = &self.attachment_words;
+        // Direct draws have no per-instance cull and draw level 0 only: select
+        // it, so its skinning runs and the blended pass draws the same level.
+        let direct = self.cull.direct;
         self.levels.select(|e| {
+            if direct {
+                return 0.;
+            }
             let position = attachment_matrix(words, e.slot).map_or_else(
                 || {
                     let history = poses[indices[e.record as usize]];
@@ -499,6 +503,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
     }
 
+    // One total translucent order; opaque/primitive batches remain retained.
+    // Blended models the camera cannot see stay out of it (NaN depth marks them).
     fn order_translucent(&mut self, frame: &FrameInput<'_>) {
         if !ASSETS {
             return;

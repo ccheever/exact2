@@ -334,11 +334,14 @@ part's node, through the palette rigid parts already use. A many-part prop or a
 rigid-limbed character is one draw per material. `NodeMaterials` still colours
 parts one by one: an instance's per-part looks follow its records in the instance
 buffer, each with its part's first vertex, and the record's last word points at
-them; the vertex shader takes the last part starting at or before its vertex.
-Static merges add no per-vertex data. The parts' own meshes stay resident: a model
-whose merged draw has a material a game's `CustomMaterial` shades draws its parts
-unmerged, since a custom vertex shader (wind sway about a node) sees node-local
-positions and the node's offset. Merging moves
+them; the vertex shader binary-searches them for the last part starting at or
+before its vertex (the run's first entry holds its part count).
+Static merges add no per-vertex data, and a part drawn only merged is not uploaded
+on its own. A model whose merged draw has a material a game's `CustomMaterial`
+shades draws its parts unmerged, since a custom vertex shader (wind sway about a
+node) sees node-local positions and the node's offset: the surface's next asset
+pass uploads those parts (a direct `Renderer` caller prepares the model again),
+and until then it draws merged, as on the frame the material first appears. Merging moves
 static vertices into model space on the CPU, so their pixels can differ from the
 unmerged draw by float rounding (an intended change, under 8 pixels in the tests).
 `ModelLod { levels, hide }` swaps an instance's model by camera distance. Each
@@ -347,8 +350,10 @@ frame the renderer picks one level per entity from its displayed position, with 
 while one streams in. Every other level's records carry a hidden word the GPU cull
 reads, in every view and keep-all group (shadow cascades and spot shadows too);
 the blended pass skips them, and their skinning jobs are not dispatched, so a far
-crowd skins nothing. Direct drawing (no indirect execution, or lists past the
-device's storage limits) has no per-instance cull and draws level 0 only. Levels
+crowd skins nothing. A level change uploads only what it changed: the hidden words
+of the records that changed and the places in the dispatched job list it filled. Direct drawing (no indirect execution, or lists past the
+device's storage limits) has no per-instance cull and selects level 0 for every
+entity, so the level it draws is the one skinned and blended. Levels
 share the pose, looks and opacity. Distances must be finite, increasing and
 positive, with `hide` beyond them; the feed refuses others by entity.
 `world.perf.culled.cameraTriangles` counts what the cull kept for the camera

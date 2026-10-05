@@ -73,6 +73,9 @@ pub(crate) struct Cull {
     align: u32,
     limit: u64,
     counts: Option<Counts>,
+    /// Bytes `hide_records` has written.
+    #[cfg(test)]
+    pub hidden_bytes: u64,
 }
 
 // Optional asynchronous readback of each view's instance totals (perf diagnostics).
@@ -210,6 +213,8 @@ impl Cull {
                 .max_storage_buffer_binding_size
                 .min(device.limits().max_buffer_size),
             counts: None,
+            #[cfg(test)]
+            hidden_bytes: 0,
         }
     }
 
@@ -387,19 +392,41 @@ impl Cull {
         self.indirect.grow(device, queue, sizes[3]);
     }
 
-    /// Rewrite each model record's hidden word (a level of detail not drawn this
-    /// frame) without rebuilding the setup.
+    /// Rewrite the hidden word (a level of detail not drawn this frame) of each
+    /// record whose word changed, one write per run of adjacent records, without
+    /// rebuilding the setup.
     pub fn hide_records(&mut self, queue: &wgpu::Queue, hidden: &[bool]) {
         let start = self.sections[2] as usize;
         if self.direct || start + hidden.len() * RECORD_WORDS > self.words.len() {
             return;
         }
+        let word = |i: usize| start + i * RECORD_WORDS + 2;
+        let mut run: Option<(usize, usize)> = None;
         for (i, &h) in hidden.iter().enumerate() {
-            self.words[start + i * RECORD_WORDS + 2] = u32::from(h);
+            if self.words[word(i)] == u32::from(h) {
+                continue;
+            }
+            self.words[word(i)] = u32::from(h);
+            run = match run {
+                Some((first, last)) if last + 1 == i => Some((first, i)),
+                Some(done) => {
+                    self.write_words(queue, word(done.0), word(done.1) + 1);
+                    Some((i, i))
+                }
+                None => Some((i, i)),
+            };
         }
-        let end = start + hidden.len() * RECORD_WORDS;
+        if let Some((first, last)) = run {
+            self.write_words(queue, word(first), word(last) + 1);
+        }
+    }
+    fn write_words(&mut self, queue: &wgpu::Queue, from: usize, to: usize) {
+        #[cfg(test)]
+        {
+            self.hidden_bytes += (to - from) as u64 * 4;
+        }
         self.setup
-            .write(queue, start as u64 * 4, bytes(&self.words[start..end]));
+            .write(queue, from as u64 * 4, bytes(&self.words[from..to]));
     }
 
     /// Byte offsets of group `index` in view `view`: the slot region and its draw.
