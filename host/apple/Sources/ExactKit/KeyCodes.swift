@@ -63,10 +63,16 @@ enum KeyCodes {
     static func modifier(_ code: String) -> Bool {
         ["Shift", "Control", "Alt", "Meta"].contains { code == $0 + "Left" || code == $0 + "Right" }
     }
-    /// The US punctuation `cdpKey` accepts as a key, by the character it types.
+    /// The US punctuation `cdpKey` accepts as a key, by the character it
+    /// types, a shifted one on its key as Linux's `driver_key` has it (`!` is
+    /// Digit1); the character is what the key types and what `key` hears.
     private static let punctuation = ["-": "Minus", "=": "Equal", "[": "BracketLeft", "]": "BracketRight",
                                       "\\": "Backslash", ";": "Semicolon", "'": "Quote", "`": "Backquote",
-                                      ",": "Comma", ".": "Period", "/": "Slash", "+": "Equal"]
+                                      ",": "Comma", ".": "Period", "/": "Slash", "+": "Equal",
+                                      "_": "Minus", "{": "BracketLeft", "}": "BracketRight", "|": "Backslash",
+                                      ":": "Semicolon", "\"": "Quote", "~": "Backquote", "<": "Comma", ">": "Period",
+                                      "?": "Slash", "!": "Digit1", "@": "Digit2", "#": "Digit3", "$": "Digit4",
+                                      "%": "Digit5", "^": "Digit6", "&": "Digit7", "*": "Digit8", "(": "Digit9", ")": "Digit0"]
     /// A driver's key name as its `KeyboardEvent.code`. One vocabulary on
     /// every host (scripts/agent-keys.mjs `cdpKey`): `p` and `KeyP` are the
     /// same key, `7` and `Digit7` too, and `End` is a named key, not the
