@@ -15,6 +15,7 @@
 - r8 (`d95593101`) took every round-7 finding. Round 8: Astra SOUND WITH CHANGES, Grok NEEDS REWORK (`-r8.*.md`).
 - r9 (`9eaea3c8a`) took every round-8 finding. Round 9, the last approved round: Astra SOUND WITH CHANGES, Grok NEEDS REWORK (`-r9.*.md`).
 - r10 folds every round-9 finding (§11). These changes are unreviewed: rounds were exhausted, so stage 1's code review checks them.
+- r10 also records, in Q1 and Q7, the orchestrator's separate advisory question to both families (`llp/reviews/llp-1099-q1q7.{astra,grok}.md`): the band never sees a hold release, the nearest-root fallback is shown not to reach UIKit's root, duration springs end at d either way, and Astra's scoped re-solve is listed as a possible later opt-in. Charlie has not decided.
 **Systems:** `exact-motion` (`motion/src/spring.rs`, `parse.rs`, `transition.rs`, `engine.rs`, `easing.rs`), the wire (`kernel/src/wire/codec.rs`: a new easing tag 9), the kernel's transition check (`kernel/build.rs`), the Contract compiler's literal check (`contract/lower/src/values.rs`), the web host (`host/web/src/motion.rs`, `batch.rs`, `css.rs`, `motion-glue.js`, `presence-glue.js`), the JS target (`host/web-js/motion`, `shared.js`), Apple and Linux hosts (the per-frame seek, unchanged), parity fixtures (`host/web/src/parity.rs`, `host/web/tests/fixtures/browser-motion.txt`), new measurement fixtures (`motion/tests/fixtures/uikit-springs/`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
@@ -1237,6 +1238,25 @@ springs keep LLP 1062 D3: they start from rest and interrupt as CSS does.
     k 171.05, not UIKit's 184.95. That is a 0.06 curve gap, with a left
     limit of 1.738 against 1.773, unless the author takes the warning's
     advice and writes the physical spelling.
+  - *Scope of the band.* A hold release never enters the duration solver
+    (D5: a release keeps the authored k and injects its velocity), so a
+    user's fling is never refused. The band affects literal and dynamic
+    duration-form *strings* only.
+  - Or, for dynamic strings, never refuse: run the reconstruction and, when
+    its answer is not a root, fall back to the nearest real root. Not
+    recommended, for two reasons:
+    - *The fallback does not reach UIKit's root.* At ζ 0.2, u 0.5 the
+      twelve steps diverge (W ≈ 2.9·10¹⁶). The roots are about 2.48, 2.52
+      and 26.1, and UIKit took 2.48. Nearest, by absolute or by log
+      distance, picks 26.1, a curve 1.43 moves off.
+    - *It covers only some misses.* It applies to only 27 of the 100
+      misses; the other 73 are already other-basin roots, up to 1.85 moves
+      off.
+
+    Astra, asked separately, prefers this fallback, choosing the root
+    nearest the last finite Newton iterate, at 92 % confidence. Grok
+    prefers the recommendation at 86 %. See
+    `llp/reviews/llp-1099-q1q7.{astra,grok}.md`.
   - Or authorise reverse-engineering UIKit's solver to make the band
     exact. That is a legal and licence call.
   - Or refuse every duration-form literal inside the predicate. That
@@ -1272,6 +1292,22 @@ springs keep LLP 1062 D3: they start from rest and interrupt as CSS does.
   passing it as `initialSpringVelocity` would? The recommendation is no:
   keep k from the authored velocity, so the spring a reader sees in the
   source is the one that runs.
+  - *The end does not move either way.* A duration spring ends at d either
+    way (D3). Only the path and the snap at d differ.
+  - *Why not re-solve per release.*
+    - Per release, the normalised velocity is V/Δ, which is undefined at
+      zero distance, where D5 must still start a component.
+    - A per-axis solve would give each axis its own k, which UIKit does
+      not do (rows X share one k).
+    - At ordinary flick speeds the re-solve lands in Q1's band. For
+      `spring(400ms, 0.8)` that is a normalised velocity of about 1.2 to
+      16 per second.
+  - *A possible later opt-in.* Astra, asked separately, prefers a scoped
+    re-solve at 87 % confidence: scalar releases only, v = V/Δ through
+    Q1's resolver, falling back to the authored k at zero distance or when
+    the axes' normalised velocities differ, and never for bounce. Grok
+    prefers the recommendation at 82 %. The scoped re-solve could be added
+    later as an opt-in without changing the default.
 
 ## 11. Review dispositions
 
