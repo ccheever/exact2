@@ -625,8 +625,8 @@ of the column they are dropped on ignores that key when `from != to`. A board
 is columns in a plain horizontal `scroll`, each a header, a grouped list
 (`flex=1 min-height=…`: the list is the drop target, where the lifted card's centre
 is inside its scroll box, so space below a list that only fits its rows does not
-take the card: a release there lands at the last gap the drag passed over, or goes
-home) and its quick-add; give each grip `touch-action="none"`
+take the card: a release there lands at the last gap the drag passed over, in the
+card's own column when it crossed no other list) and its quick-add; give each grip `touch-action="none"`
 and no `press`, `pan`, `pointerdown` or `key` of its own, so the host's keys
 (Space, the arrows, Enter, Escape) work on it. The host draws the lifted row,
 holds the drop until the move shows (a second at most) and scrolls the lists
