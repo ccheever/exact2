@@ -28,6 +28,9 @@ struct FlightSource {
     /// An image's fitted rectangle as a fraction of its box.
     var fit: CGRect?
     var natural: CGSize?
+    /// The root of the presentation the leaver was in: a flight from an
+    /// overlay over the routes into a route flies over that overlay.
+    weak var root: UIView?
 }
 
 final class Flight {
@@ -67,6 +70,7 @@ extension Presenter {
             source.fit = Self.fitFraction(natural: natural, box: leaver.bounds.size, fit: leaver.style["object_fit"]?.string ?? "fill")
             source.natural = natural
         }
+        source.root = presentationRoot(of: leaver)
         if let old = flights[id] { landFlight(old) }
         flights[id] = Flight(id: id, source: source)
     }
@@ -175,11 +179,22 @@ extension Presenter {
             self.scrollIntoView(slot)
             self.showFlight(f)
         }
-        guard let root = presentationRoot(of: parent) else { slot.removeFromSuperview(); flights.removeValue(forKey: f.id); return }
+        guard let own = presentationRoot(of: parent) else { slot.removeFromSuperview(); flights.removeValue(forKey: f.id); return }
+        // The flight goes in B's presentation (D4 step 3), unless A's encloses
+        // it: then in A's, so a photo closing from an overlay above the routes
+        // into a thumbnail in a route stays above that overlay as it fades,
+        // as UIKit's and Signal's zooms keep the image above their backdrops.
+        // A flight inside one modal still stays inside it.
+        let root = f.source.root.flatMap { outer in own !== outer && own.isDescendant(of: outer) ? outer : nil } ?? own
         let layer = root.subviews.last as? FlightLayer ?? {
             let l = FlightLayer(frame: root.bounds)
             l.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             root.addSubview(l)
+            // Above every ranked sibling, as a transition snapshot is: a
+            // route's document plane sits at rank ½ (LLP 1083.000 D4), and a
+            // flight layer left at depth 0 drew under it, so a flight landing
+            // in a route was never seen.
+            l.setPaintForeground()
             return l
         }()
         f.saved = (view.layer.cornerRadius, view.layer.masksToBounds, view.isUserInteractionEnabled, view.accessibilityElementsHidden)
@@ -211,10 +226,7 @@ extension Presenter {
             let natural = view.raster?.image.naturalSize ?? f.source.natural ?? .zero
             let end = Self.fitFraction(natural: natural, box: to.size, fit: view.style["object_fit"]?.string ?? "fill")
             let start = f.source.fit ?? end
-            let unit = CGRect(x: mix(start.minX, end.minX), y: mix(start.minY, end.minY),
-                              width: mix(start.width, end.width), height: mix(start.height, end.height))
-            view.flightLook = FlightLook(image: CGRect(x: unit.minX * shown.width, y: unit.minY * shown.height,
-                                                       width: unit.width * shown.width, height: unit.height * shown.height))
+            view.flightLook = FlightLook(image: Self.flightImage(from: from.size, fit: start, to: to.size, fit: end, progress: p))
             view.applyImageLayer()
         } else {
             view.flightLook = FlightLook(image: CGRect(origin: .zero, size: shown.size))
@@ -269,6 +281,18 @@ extension Presenter {
 
     private static func dropEmptyLayer(_ layer: UIView) {
         if layer.subviews.isEmpty { layer.removeFromSuperview() }
+    }
+
+    /// Where a flying image is drawn in its shown box, at `progress`: the
+    /// image moves in points from where A drew it (`fit` of A's box) to where
+    /// B draws it (`fit` of B's), as UIKit's zoom moves it, so its offset in
+    /// the box and its size are each a mix of the two ends' own. A mix of the
+    /// two fractions times the mixed box is not linear: a cover thumbnail
+    /// opening into a contain photo grew 25% taller than either end.
+    static func flightImage(from: CGSize, fit start: CGRect, to: CGSize, fit end: CGRect, progress p: CGFloat) -> CGRect {
+        func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * p }
+        return CGRect(x: mix(start.minX * from.width, end.minX * to.width), y: mix(start.minY * from.height, end.minY * to.height),
+                      width: mix(start.width * from.width, end.width * to.width), height: mix(start.height * from.height, end.height * to.height))
     }
 
     /// An image's fitted rectangle in a box, as a fraction of the box.
