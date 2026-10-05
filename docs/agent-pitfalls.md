@@ -33,8 +33,10 @@ guide's rules don't make obvious.
   becomes a paint group (`isolation: isolate`). A child cannot rise above its
   parent's later siblings. Fix: raise the ancestor that is a sibling of the others
   (the card's column, while it holds the dragged card), or draw the dragged card in
-  an overlay at the board level. (Authoring bench, LLP 1087, t4-kanban: two builders,
-  5 and 10 minutes, 2026-10-04.)
+  an overlay at the board level. For cards between lists, a `reorderGroup` on the
+  lists has the host draw the card in its top layer instead ([LLP
+  1094](../llp/1094-dropping-across-lists.rfc.md)). (Authoring bench, LLP 1087,
+  t4-kanban: two builders, 5 and 10 minutes, 2026-10-04.)
 
 - **The content of an overlay vanishes behind its own background.** Cause: a
   background box with `position="absolute"` (a dimmer, a gradient) paints

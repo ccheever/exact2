@@ -1,7 +1,7 @@
 # LLP 1094: Dropping across lists
 
 **Type:** RFC
-**Status:** Accepted (r3, by the orchestrator under Charlie's delegation after three rounds; Grok 4.7 only — Codex budget exhausted). Each round was Grok 4.7 (xhigh). r1 (`cbe16cc1e`) had two scopes, semantics and authoring (`llp/reviews/1094-r1.grok-a.md`, READY WITH CHANGES) and implementation (`llp/reviews/1094-r1.grok-b.md`, NOT READY); r2 (`e52586d26`) had a delta review (`llp/reviews/1094-r2.grok.md`, NOT READY: five MATERIAL, five MINOR, two NIT). r3 is the final edit, with no further round, and resolves every finding of r2 (§10). The orchestrator ruled r1's open questions under Charlie's 2026-10-04 delegation.
+**Status:** Accepted; stages 1–5 built 2026-10-04 (§6, "As built"). Accepted (r3, by the orchestrator under Charlie's delegation after three rounds; Grok 4.7 only — Codex budget exhausted). Each round was Grok 4.7 (xhigh). r1 (`cbe16cc1e`) had two scopes, semantics and authoring (`llp/reviews/1094-r1.grok-a.md`, READY WITH CHANGES) and implementation (`llp/reviews/1094-r1.grok-b.md`, NOT READY); r2 (`e52586d26`) had a delta review (`llp/reviews/1094-r2.grok.md`, NOT READY: five MATERIAL, five MINOR, two NIT). r3 is the final edit, with no further round, and resolves every finding of r2 (§10). The orchestrator ruled r1's open questions under Charlie's 2026-10-04 delegation.
 **Systems:** Contract compiler and the test-step parser (`contract/syntax/src/parser/steps.rs`), `kernel/tables/schema.json`, runner (`collection/reorder*.rs`, `runner/reorder.rs`, `runner/pointer.rs`, `geometry.rs`), web (`host/web/{motion,geometry,input}-glue.js`, `host/web/src/reorder_drag.rs`, `host/web-js/{reorder,arrange,pointer,rt}.js`), Apple (`Reorder{IOS,Hold}.swift`, `MouseReorderMac.swift`, `Bridge.swift`, `arrange.rs`), Linux (`presenter/{arrange,contact,pointer}.rs`, `paint.rs`), the driver, conformance (`host/web-js/{conform.mjs,conformance}`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-05
@@ -536,6 +536,112 @@ behaviour goes in a new file (D6), not in a file near the cap.
      in `LINUX_OPS`.
    - If the macOS ghost, the custom actions or `lift.rs` slip, the rest
      lands and the slipped piece gets a `QUEUE.md` line.
+
+### As built (stages 1–5, 2026-10-04)
+
+All five stages were built on one day by one lane with two sub-lanes (Apple,
+Linux) working from stage 1's commit; each stage's commits pass the five
+checks. Where the code disagreed with a decision, the decision moved, and
+each such point is listed here.
+
+- **Stage 1.** As D1, D2, D4, D8–D11, with these differences:
+  - **Two begins.** `begin_reorder` keeps today's in-list session on every
+    list, a grouped one included, so a host that has not adopted groups is
+    unchanged. A host opts in with `begin_group_reorder(binding, geometry,
+    ghost)`. A ghost session (a pointer's) hides the row through the runner's
+    `visibility: hidden` until `finish_reorder`; a key's or custom action's
+    has none and keeps its row shown, even while another list is the target.
+    Hiding it took the keys away: a hidden `NSView` resigns first responder, a
+    browser blurs the element, and the driver refuses to type at it (the Apple
+    lane found it). The source still closes the gap behind the row.
+  - **Holding only when grouped.** An ungrouped list's drop keeps today's
+    terminal path. A grouped drop holds, and offsets that move with their rows
+    in one commit apply with `transition: none`, so a landed move needs no
+    host rebase; a cancel or a timeout springs.
+  - **What the hold watches.** "Landed elsewhere" is read as "the row is no
+    longer where it was at the drop" (its list or its neighbours changed). At
+    the drop of a move within one list, the row is still in the target, so
+    the literal rule would have ended every hold at once. An unrelated edit
+    beside the row ends a hold early, and the row is then where it is.
+  - **The record.** `ReorderEvent { from, to }` is filled at dispatch from
+    the lists' `id`s; `Event::ReorderDrop` keeps its two fields.
+  - **The frame.** `ReorderFrame` gains `phase`, `ending`, `target` and
+    `row`, which is the wrapper that now holds the dragged row, where a ghost
+    lands. `state.reorder` also carries `ending`.
+  - **Steps.** `reorder_step` returns its receipts, the second one the
+    `scrollIntoView` (`nearest`) that keeps the gap in view.
+  - **String keys** are checked by `lower-reorder-group` when the key's type
+    is known.
+  - **Lean.** The semantics refuse `elementFromPoint` as unsupported, as they
+    refuse `frame`.
+- **Stage 2.**
+  - **The wire.** Op 21 names the target by its view id, not its key: the
+    page holds no other list's key. The header's spare word carries a grouped
+    begin's kind (1 for a ghost, 2 for the keys) and op 22 (`reorder-step`)
+    carries the direction. A grouped drop is op 17 with the same one record.
+    Grouped sessions take no motion holds. A `reorder-group` batch op gives
+    each grip its group, and whether the keys may drive it.
+  - **The ghost** is the wrapper's clone, carrying its computed style
+    inline: the page's rules for the app's root do not reach a top-layer
+    popover. The click a lifted drag's release makes is swallowed, since a
+    card is often also a button.
+  - **JS target fixes.** A computed `reorderFor` (`cards-${col.id}`) was
+    never bound, because the target resolved only literal names; it now
+    names its list at run time, as the runner does. A grip built after the
+    motion piece arrived was registered before its row was in the document,
+    and was dropped for good; it now waits.
+  - **Conformance.** `reorder-group.contract` runs on interaction-gallery's
+    data, which gains a small board. The steps add `drag … to`, `drag … hold`
+    and `move`. A 200 ms tick stands in for the late answer. 31 of 31 steps
+    are equal on the Chrome pair, on Firefox and WebKit (which skip pointer
+    steps), and on the Linux reference, which now also takes held contacts'
+    phases. `state.reorder` is compared everywhere.
+- **Stage 3.** Both kanban builds were converted in copies outside the
+  repository, with patches beside them.
+  - **kanban.** Its cards are the grips, and their own `press` and `key`
+    stay. `ColumnView`'s list replaces the scroll, the drop marks and the card
+    ghost; the board's columns become full height so a list is bounded. Its
+    module imports needed LLP 1091's explicit names first. A new test drags a
+    card into another list and back.
+  - **kanban2.** `grabCard`, `panCard`, the frame unrolling, eight scroll
+    slots and the card ghost are deleted. `app.ts`'s geometric `drop-card`
+    becomes `place-card`, by key. Its drag tests use `drag to`.
+  - **Results.** Every authored test passes on the JS target, on wasm and on
+    macOS: kanban 15 of 15, kanban2 7 of 7.
+  - **§9 Q1.** kanban2's `place-card` answered in 7–36 ms of wall time, so
+    1 s stands.
+- **Stage 4 (Apple).**
+  - **The calls.** `exact_reorder_group_begin`, `exact_reorder_move_into`
+    (by view id), `exact_reorder_step`, `exact_reorder_group_end` and
+    `exact_reorder_group_finish`, in `arrange_group.rs`, with
+    `ReorderGroup.swift`.
+  - **Visibility.** A box with `visibility: hidden` now hides on Apple, as
+    `display: none` does; Apple had ignored the row. Its subtree hides with
+    it, a declared deviation in LLP 1001.
+  - **Mouse.** A grouped mouse drag takes its drags from the window, since a
+    hidden grip gets no more of its contact. The macOS agent now sends its
+    contact through `NSApp.sendEvent`.
+  - **The landing** runs in real time, except under the agent, where the
+    ghost lands at once so `clock settle` sees the session finish.
+  - **Not built.** iOS has the custom actions and no keyboard.
+  - **Driven.** Both kanbans' tests pass on macOS, and one `--touch
+    platform` drag on an iOS simulator moved a card into the next list.
+- **Stage 5 (Linux).**
+  - **The lift.** The lifted subtree is painted by `paint/lift.rs`, not
+    `presenter/lift.rs`, because the paint walk is private to `paint`; the
+    session is in `presenter/group.rs`. `paint.rs` went from 1,499 to 1,472
+    lines.
+  - **The ghost** is the row's subtree painted again rather than a
+    snapshot, so a `gone` ending cannot fade it.
+  - **Visibility.** The painter now skips `visibility: hidden`, with the same
+    subtree deviation as Apple.
+  - **Escape** cancels a ghost drag whatever has the focus.
+- **Tests.** Runner: `contract/cli/tests/it/reorder_group.rs` (12), the
+  geometry test of `elementFromPoint`, and the parser's `drag to`.
+  Hosts: `host/web/src/reorder_tests.rs` (op 21),
+  `host/web/tests/group.test.mjs` (the ghost's clone),
+  `host/apple/src/arrange_group_tests.rs`, `ReorderGroupMacTests.swift`, and
+  Linux's `arrange_tests.rs` and `tests/it/arrange.rs`.
 
 ## 7. Deferred, with preconditions
 

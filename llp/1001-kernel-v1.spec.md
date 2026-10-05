@@ -536,6 +536,11 @@ box was a containing block:
   where layout put a box. `elementFromPoint(x, y)` tests the same boxes
   (LLP 1094 D10). A hand-built drag adds the pan delta it stored, and
   `PointerEvent`'s `clientX`/`clientY` give the pointer in the same space.
+- **`visibility: hidden` hides a box's subtree on Apple and Linux** (LLP
+  1094 stage 4–5). CSS shows a descendant that sets its own `visible`;
+  `NSView`/`UIView.isHidden` and the Linux painter hide the whole subtree,
+  as `display: none` does there, while the box keeps its layout. The web is
+  CSS's.
 - **The kernel paints in tree order.** A page paints its positioned boxes and
   stacking contexts after its in-flow boxes, so a web host makes a static box
   that follows one of those in tree order `isolation: isolate`
