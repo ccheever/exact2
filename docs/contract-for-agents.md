@@ -743,7 +743,10 @@ fast `every` under a long `clock +N` can reach it: tick slower or move the clock
 
 `now()` is the runner's clock in milliseconds since boot (the driver's clock under
 the agent), not a date. For the date, read the reserved `exactTime` source and add
-`time.epochAtZero + now()`. A read does not itself schedule a future render. Use a timer if a displayed value must keep changing without other
+`time.epochAtZero + now()`. Its fields, which a shape declares as it reads them:
+`epochAtZero` (Unix milliseconds when `now()` read zero), `utcOffset` (minutes east
+of UTC), `locale` (BCP 47), `timeZone` (IANA), `resolvedLocale` (the language of
+the displayed strings) and `seed` (a whole number drawn once per launch). A read does not itself schedule a future render. Use a timer if a displayed value must keep changing without other
 input. Prefer `clock settle` to waiting for a transition in real time.
 `time.utcOffset` is the zone's offset *now*: every host answers it again when the
 offset at the clock's instant changes (a DST change, a new zone), checked before a
