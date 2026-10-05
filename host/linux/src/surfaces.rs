@@ -1096,6 +1096,9 @@ impl<D: DataSource> Presenter<D> {
         let target = held.or(captured).or_else(|| self.hover_canvas(x, y));
         self.surfaces.aux_canvas = target.filter(|_| after != 0);
         let Some(view) = target else {
+            // No canvas: the node under it holds the pointer for this button
+            // too, as in a browser, `buttons` 2 or 4 (review b5-b 1).
+            self.aux_pointer(before, after, x, y, at);
             return;
         };
         let primary = u32::from(held.is_some());

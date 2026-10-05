@@ -184,10 +184,10 @@ const docs = () => Docs ??= import(new URL('./documents-glue.js', import.meta.ur
 // picker's choice is, and heard with the `DragEvent` record. A `dragover`
 // that carries files is accepted, or the browser would open them itself.
 OnHooks.drop = (e, f) => {
-  e.addEventListener('dragover', ev => { if (ev.dataTransfer?.types?.includes('Files') && !e.closest('[inert]')) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; } });
+  e.addEventListener('dragover', ev => { if (ev.dataTransfer?.types?.includes('Files') && !e.closest('[inert]') && !e.matches(':disabled')) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; } });
   e.addEventListener('drop', ev => {
     const dt = ev.dataTransfer;
-    if (!dt?.files?.length || e.closest('[inert]')) return;
+    if (!dt?.files?.length || e.closest('[inert]') || e.matches(':disabled')) return; // a disabled control, never a box (review b5-b 4)
     ev.preventDefault(); ev.stopPropagation();
     const [offsetX, offsetY] = record(e, ev), held = [ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey];
     const handles = [...dt.items].filter(i => i.kind === 'file').map(i => i.getAsFileSystemHandle?.().catch(() => null) ?? null), files = [...dt.files];

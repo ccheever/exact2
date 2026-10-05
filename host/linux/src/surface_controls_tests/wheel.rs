@@ -23,6 +23,12 @@ fn game_wheel_is_one_relative_sample_without_focus_or_contact_changes() {
     );
     assert_eq!(p.focus, Some(editor));
     assert_eq!(p.page(), (0., 0.));
+    // The canvas's own `wheel` is still heard beside the module's input
+    // (review b5-b 2), as the web's element hears it.
+    assert_eq!(
+        p.host().runner().slot("spins"),
+        Some(&exact_plan::Value::Number(1.0))
+    );
     assert!(p.pointer_down(x + 20., y + 70., 30.).unwrap());
     p.pointer_aux(2, true, x + 20., y + 70., 31.);
     let before = count(&p);

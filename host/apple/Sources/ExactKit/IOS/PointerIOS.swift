@@ -17,17 +17,32 @@ final class PointerRecognizer: UIGestureRecognizer {
     /// No touch held: a pooled row may keep it (it is synced with the
     /// handlers it is reused with).
     var idle: Bool { touch == nil }
+    /// The held contact's buttons as DOM counts them: a touch or a pencil
+    /// is the primary; an iPad's pointer says which it pressed (review
+    /// b5-b 1: a secondary or middle click is 2 or 4, as on the web).
+    private var buttons = 1
+
+    /// DOM's `buttons` for UIKit's mask: primary 1, secondary 2, middle 4.
+    static func domButtons(_ mask: UIEvent.ButtonMask) -> Int {
+        var b = 0
+        if mask.contains(.primary) { b |= 1 }
+        if mask.contains(.secondary) { b |= 2 }
+        if mask.contains(.button(3)) { b |= 4 }
+        return b == 0 ? 1 : b
+    }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesBegan(touches, with: event)
         guard touch == nil, let first = touches.first, let node, !node.disabled, !nearer(first.view) else { return }
         touch = first
         touchId += 1
+        buttons = first.type == .indirectPointer ? Self.domButtons(event.buttonMask) : 1
         if node.handlers.contains("pointerdown") { node.presenter?.pointer(node.id, .down, sample(first)) }
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesMoved(touches, with: event)
         guard let held = touch, touches.contains(held), let node, node.handlers.contains("pointermove") else { return }
+        if held.type == .indirectPointer { buttons = Self.domButtons(event.buttonMask) }
         node.presenter?.pointer(node.id, .move, sample(held))
     }
     /// The record of `t` as the node sees it, from its content box: a
@@ -39,7 +54,7 @@ final class PointerRecognizer: UIGestureRecognizer {
         let type = t.type == .pencil ? "pen" : t.type == .indirectPointer ? "mouse" : "touch"
         let pressure = lifted ? 0 : t.maximumPossibleForce > 0 ? Double(t.force / t.maximumPossibleForce) : 0.5
         // The keys a hardware keyboard holds, an iPad's ⇧ or ⌘ (gallery F20).
-        return PointerSample(x: Double(point.x - box.minX), y: Double(point.y - box.minY), buttons: lifted ? 0 : 1,
+        return PointerSample(x: Double(point.x - box.minX), y: Double(point.y - box.minY), buttons: lifted ? 0 : buttons,
                              pressure: pressure, type: type, id: type == "mouse" ? 1 : touchId, held: KeyCodes.held(modifierFlags))
     }
     /// Whether an enabled pointer node between the touched view and this

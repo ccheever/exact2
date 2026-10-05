@@ -849,9 +849,10 @@ export function on(e, kind, f) {
     case "refresh": return;
     case "dblclick": return l(kind, ev => { ev.preventDefault(); f(); }); case "pointerdown": case "pointerup": case "pointermove": return pointer(e, kind, f); // pointer.js (LLP 1005 §Events, 1056 §3)
     // UI Events' `contextmenu` is a PointerEvent: where the secondary click was (studio diary R22).
-    case "contextmenu": return l(kind, ev => { ev.preventDefault(); f(record(e, ev)); });
+    // A field's own edit menu stays the browser's; the nearest handler alone hears it, as on the wasm host and macOS (review b5-b 3).
+    case "contextmenu": return l(kind, ev => { if (ev.target.closest("input,textarea,[contenteditable]")) return; ev.preventDefault(); ev.stopPropagation(); f(record(e, ev)); });
     // DOM's own, bubbling to every ancestor's handler; one that calls `preventDefault()` keeps the scroll (a pinch is a Control-held wheel) from happening (studio diary R3).
-    case "wheel": return e.addEventListener("wheel", ev => { const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false });
+    case "wheel": return e.addEventListener("wheel", ev => { if (e.matches(":disabled") || e.closest("[inert]")) return; const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false });
     // Files dropped from outside, each a `doc:` handle (files.js, documents-glue.js; studio diary R19).
     case "drop": return OnHooks.drop?.(e, f);
     // Chrome blurs an element it is removing (still connected); a retired view's blur is dropped (glue.js).

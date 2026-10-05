@@ -1,0 +1,22 @@
+// Synthetic conformance plan (review b5-b 3, 4): a `contextmenu` is heard by
+// the nearest node that declares it, not its ancestors too, and a field's
+// own edit menu is the browser's (no handler runs there); a `wheel` reaches a
+// disabled box (`disabled` means nothing on a div) and not a disabled button.
+component Menus
+  state heard = ""
+  action outer
+    heard = `${heard}outer;`
+  action inner
+    heard = `${heard}inner;`
+  action spun(e: WheelEvent)
+    heard = `${heard}box ${e.deltaY};`
+  action pressed(e: WheelEvent)
+    heard = `${heard}button ${e.deltaY};`
+  view
+    column testId="root" contextmenu=outer gap=4 padding=8
+      text heard testId="heard"
+      row testId="row" contextmenu=inner padding=8 background-color="#ddd"
+        text "row"
+      textarea testId="area" value="" height=40
+      box testId="pad" disabled=true wheel=spun width=120 height=40 background-color="#bbb"
+      button "Off" testId="off" disabled=true wheel=pressed

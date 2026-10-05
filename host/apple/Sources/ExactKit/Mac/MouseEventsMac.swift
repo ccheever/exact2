@@ -3,7 +3,8 @@
 // (NodeViewMac's `rightMouseDown`).
 //
 // A wheel's turn or a trackpad's scroll over a node is heard by every
-// enabled node from it up that declares `wheel`, innermost first, as the
+// node from it up that declares `wheel` (a disabled box included, as a
+// `<div disabled>` in Chrome; not a disabled form control or an inert node), innermost first, as the
 // DOM's bubbles; one that calls `preventDefault()` keeps the scroll from
 // happening (a canvas zooming on ⌘-scroll). A trackpad's pinch is a wheel
 // with Control held and `deltaY` of -100 × the magnification, which is how
@@ -27,7 +28,7 @@ extension NodeView {
         var path: [NodeView] = []
         var next: NSView? = self
         while let view = next {
-            if let node = view as? NodeView, presenter.views[node.id] === node, node.handlers.contains("wheel"), !node.disabled, !node.inert {
+            if let node = view as? NodeView, presenter.views[node.id] === node, node.handlers.contains("wheel"), !node.formDisabled, !node.inert {
                 path.append(node)
             }
             next = view.superview
@@ -71,7 +72,7 @@ extension NodeView {
     /// The dragged files this node would take: file URLs of a type the
     /// manifest declares.
     private func droppable(_ info: NSDraggingInfo) -> [URL] {
-        guard handlers.contains("drop"), !disabled, !inert else { return [] }
+        guard handlers.contains("drop"), !formDisabled, !inert else { return [] }
         let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         return urls.filter(ExactDocuments.accepts)
     }
@@ -93,7 +94,7 @@ extension NodeView {
     static func dropTarget(_ view: NSView) -> NodeView? {
         var next: NSView? = view
         while let view = next {
-            if let node = view as? NodeView, node.handlers.contains("drop"), !node.disabled, !node.inert { return node }
+            if let node = view as? NodeView, node.handlers.contains("drop"), !node.formDisabled, !node.inert { return node }
             next = view.superview
         }
         return nil

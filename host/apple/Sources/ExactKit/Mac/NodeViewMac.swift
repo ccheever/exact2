@@ -1471,25 +1471,38 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func rightMouseDown(with event: NSEvent) {
         // DOM's order on a Mac: the secondary button's `pointerdown`, then
         // the `contextmenu` at its point, on the button's down (studio diary R22).
+        // A canvas that wants input takes the pointer as well; the node's
+        // own `contextmenu` still runs (review b5-b 2), and then no system
+        // menu opens.
         pointerPressed(event)
-        if canvasInput?.pointer(event, phase: "down") == true { return }
-        guard !disabled, handlers.contains("contextmenu") else { return super.rightMouseDown(with: event) }
-        presenter?.mouseEvent(id, 10, pointerSample(event).line)
+        let canvas = canvasInput?.pointer(event, phase: "down") == true
+        if !disabled, handlers.contains("contextmenu") { presenter?.mouseEvent(id, 10, pointerSample(event).line); return }
+        if !canvas { super.rightMouseDown(with: event) }
     }
+    // Any button holds the pointer, as in a browser (review b5-b 1): the
+    // secondary's moves and the middle button's down, moves and up are the
+    // held node's pointer events too, `buttons` 2 or 4 (`pointerSample`).
     override func rightMouseDragged(with event: NSEvent) {
+        pointerDragged(event)
         if canvasInput?.pointer(event, phase: "move") != true { super.rightMouseDragged(with: event) }
     }
     override func otherMouseDown(with event: NSEvent) {
+        pointerPressed(event)
         if canvasInput?.pointer(event, phase: "down") != true { super.otherMouseDown(with: event) }
     }
     override func otherMouseDragged(with event: NSEvent) {
+        pointerDragged(event)
         if canvasInput?.pointer(event, phase: "move") != true { super.otherMouseDragged(with: event) }
     }
     override func otherMouseUp(with event: NSEvent) {
+        pointerReleased(event)
         if canvasInput?.pointer(event, phase: "up") != true { super.otherMouseUp(with: event) }
     }
     override func scrollWheel(with event: NSEvent) {
-        if canvasInput?.wheel(event) != true, presenter?.mouseTransformDrag.scroll(self, event: event) != true, !wheel(event) { super.scrollWheel(with: event) }
+        // A canvas that wants input scrolls itself; the nodes' `wheel` is
+        // still heard (review b5-b 2).
+        if canvasInput?.wheel(event) == true { _ = wheel(event); return }
+        if presenter?.mouseTransformDrag.scroll(self, event: event) != true, !wheel(event) { super.scrollWheel(with: event) }
     }
     override func magnify(with event: NSEvent) {
         if presenter?.mouseTransformDrag.magnify(self, event: event) != true, !wheel(event) { super.magnify(with: event) }

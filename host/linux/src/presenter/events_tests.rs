@@ -376,6 +376,54 @@ fn the_pointer_events_carry_their_record_from_the_content_box() {
         " m5,5/0 d10,10/1 m20,20/1 m290,250/1 u300,240/0",
         "a held pointer is the pad's wherever it goes"
     );
+    // Any button holds the pointer, as in a browser (review b5-b 1): the
+    // secondary's down, moves and up with `buttons` 2, a middle chord 6.
+    p.pointer_move(20., 60., 6.).unwrap();
+    p.pointer_aux(2, true, 20., 60., 7.);
+    p.pointer_move(25., 65., 8.).unwrap();
+    p.pointer_aux(4, true, 25., 65., 9.);
+    p.pointer_move(26., 66., 10.).unwrap();
+    p.pointer_aux(2, false, 26., 66., 11.);
+    p.pointer_aux(4, false, 26., 66., 12.);
+    assert!(
+        log(&p).ends_with(" m10,10/0 d10,10/2 m15,15/2 m16,16/6 u16,16/0"),
+        "{}",
+        log(&p)
+    );
+}
+
+/// A `wheel` is heard by a disabled box (it means nothing on a `<div>`, as
+/// in Chrome) and not by a disabled button (review b5-b 4).
+#[test]
+fn a_disabled_box_hears_the_wheel_and_a_disabled_button_does_not() {
+    const WHEELS: &str = r#"component App
+  state seen = ""
+  action box(e: WheelEvent)
+    seen = `${seen} box${e.deltaY}`
+  action button(e: WheelEvent)
+    seen = `${seen} button${e.deltaY}`
+  view
+    column width=400 height=400
+      box wheel=box disabled=true testId="pad" width=200 height=100
+      button "Off" wheel=button disabled=true testId="off" height=40
+      text seen testId="log" height=20
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(WHEELS).unwrap().encode(),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.boxes();
+    let (x, y, _, _) = p.rect_of(id(&p, "pad")).unwrap();
+    p.wheel_at(x + 10., y + 10., 0., 30.);
+    let (x, y, _, _) = p.rect_of(id(&p, "off")).unwrap();
+    p.wheel_at(x + 10., y + 10., 0., 40.);
+    assert_eq!(log(&p), " box30");
 }
 
 /// LLP 1051.000 D1 (changed 2026-10-04; the kanban diary's F4): `frame()`
