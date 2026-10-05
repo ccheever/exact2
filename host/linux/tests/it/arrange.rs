@@ -408,7 +408,7 @@ fn edge_scroll_authored_deletion_and_width_reflow_still_cancel_before_drop() {
 
 #[test]
 fn eager_and_disabled_grips_do_not_admit_physical_reorder() {
-    // An eager list never reorders: the compiler refuses it (425f97dab, LLP 1094).
+    // An eager list never reorders: the compiler refuses it (3f8cbb165).
     let eager = contract::compile(&APP.replace("virtualized=true", "virtualized=false"));
     assert_eq!(eager.unwrap_err().id, "lower-reorder-collection");
     let mut p = boot_source(&APP.replace("state disabled = false", "state disabled = true"));
