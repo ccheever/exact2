@@ -57,6 +57,9 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     pub(crate) cull: crate::cull::Cull,
     pub(crate) environment: crate::ibl::EnvironmentLight,
     pub(crate) lights: crate::lights::Lights,
+    /// Timestamp pairs this frame wrote (`timing::GPU_PASS_NAMES` bits), so a
+    /// readback never reports a pass that did not run.
+    pub(crate) timed: std::cell::Cell<u64>,
     pub(crate) local: Option<crate::local_shadows::LocalMaps>,
     pub(crate) local_plan: crate::local_shadows::Plan,
     pub(crate) local_culls: Vec<local::LocalCull>,
@@ -69,10 +72,16 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     indices: Buffer,
     pub(crate) meshes: Vec<Mesh>,
     pub(crate) mesh_uploads: u64,
-    batches: Vec<Batch>,
+    pub(crate) batches: Vec<Batch>,
     /// A drawn batch is in the viewmodel layer this frame.
     viewmodels: bool,
-    targets: Targets,
+    /// Levels of detail: one per entity per frame.
+    pub(crate) levels: crate::lod::Levels,
+    // Soft particles have drawn: keep the forward depth retained.
+    soft_retained: bool,
+    // This frame's visible environment map is resident.
+    pub(crate) sky_ready: bool,
+    pub(crate) targets: Targets,
     counts: Stats,
     shadows: Option<ShadowMaps>,
     bloom: Option<BloomTargets>,
@@ -252,6 +261,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             cull,
             environment,
             lights,
+            timed: std::cell::Cell::new(0),
             local: None,
             local_plan: Default::default(),
             local_culls: Vec::new(),
@@ -265,6 +275,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             mesh_uploads: 0,
             batches: Vec::new(),
             viewmodels: false,
+            levels: Default::default(),
+            soft_retained: false,
+            sky_ready: false,
             targets,
             shadows: None,
             bloom: None,
@@ -537,7 +550,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             .models
             .loaded
             .values()
-            .flat_map(|m| m.nodes.iter().filter(|n| n.3.is_some()).map(|n| n.0 .0))
+            .flat_map(|m| m.weighted_meshes())
             .collect();
         let weight_bytes = skinned
             .iter()
@@ -640,6 +653,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     pub fn culled(&mut self) -> Option<[u64; 4]> {
         self.cull.culled(&self.device)
     }
+    /// Camera-view triangles the GPU cull kept, from the same read as `culled`.
+    pub fn culled_triangles(&self) -> Option<u64> {
+        self.cull.culled_triangles()
+    }
 
     fn check_capacity(&self, arena: &'static str, end: u64) -> Result<(), RenderError> {
         let limit = u64::from(self.max_slots());
@@ -663,6 +680,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
     }
 
+    /// Record that this frame wrote timestamp pair `pair`.
+    pub(crate) fn mark(&self, pair: u32) {
+        self.timed.set(self.timed.get() | 1 << pair);
+    }
     pub(crate) fn rebind(&mut self) {
         self.scene_binds = scene_binds(
             &self.device,
@@ -732,6 +753,9 @@ fn scene_binds(
             wgpu::BindingResource::TextureView(&environment.view),
             wgpu::BindingResource::Sampler(&environment.sampler),
             lights.buffer.raw.as_entire_binding(),
+            lights.opacity.raw.as_entire_binding(),
+            wgpu::BindingResource::TextureView(&environment.sky_view),
+            wgpu::BindingResource::Sampler(&environment.sky_sampler),
         ];
         let entries = resources.map({
             let mut binding = 0;

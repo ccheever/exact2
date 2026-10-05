@@ -17,6 +17,7 @@ mod environment;
 mod input;
 pub mod math;
 pub mod motion;
+mod particle_look;
 mod placed;
 mod present;
 pub mod rig;
@@ -37,7 +38,7 @@ pub use args::{Args, ArgumentKind};
 pub use asset::pose::Pose;
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
 pub use emitter::Emitter;
-pub use environment::{AmbientOcclusion, Bloom, Environment, EnvironmentMap, Fog};
+pub use environment::{AmbientOcclusion, AoQuality, Bloom, Environment, EnvironmentMap, Fog};
 pub use exact_game_derive::{Args, Component, Data, Presentation, Resource};
 pub use exact_motion::spring::SpringConfig;
 pub use exact_plan::Value;
@@ -45,6 +46,7 @@ pub use glam::{Affine3A, Mat4, Quat, Vec2, Vec3, Vec3Swizzles, Vec4};
 pub use input::{
     Actions, Input, InputEvent, PointerPhase, PointerState, Region, Stick, MOUSE_BUTTONS,
 };
+pub use particle_look::ParticleLook;
 pub use placed::{CanvasChild, Facing, Placed, PlacedPlane};
 pub use present::{Present, PresentationComponent};
 pub use rng::{RangeValue, Rng};

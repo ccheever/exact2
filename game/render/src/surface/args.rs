@@ -1,8 +1,8 @@
 //! Rust argument defaults and atomic timed binding for world surfaces.
-use super::{observer, Clock, Game, Perf, Presentation, Sim, SurfaceError, Value, WorldSurface};
+use super::{observer, Clock, Executor, Game, Perf, Sim, SurfaceError, Value, WorldSurface};
 use exact_game::Args;
 
-impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
+impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
     pub(super) fn surface_arguments(&self) -> Vec<(&'static str, Value)> {
         G::Args::FIELDS
             .iter()

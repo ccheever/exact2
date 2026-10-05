@@ -52,6 +52,11 @@ pub struct EnvironmentMap {
     /// RGBM range: zero reads RGB as radiance; otherwise radiance is
     /// `rgb × alpha × rgbm`, which carries HDR through an 8-bit texture.
     pub rgbm: f32,
+    /// Draw the map as the visible sky too, in place of the procedural
+    /// gradient and `background` (the sun disc and fog still apply).
+    pub visible: bool,
+    /// Yaw of the map about +Y in radians, for both the light and the sky.
+    pub rotation: f32,
 }
 impl EnvironmentMap {
     /// A plain (non-RGBM) map at unit intensity.
@@ -60,6 +65,8 @@ impl EnvironmentMap {
             texture: texture.into(),
             intensity: 1.0,
             rgbm: 0.0,
+            visible: false,
+            rotation: 0.0,
         }
     }
 }
@@ -73,12 +80,37 @@ pub struct AmbientOcclusion {
     pub radius: f32,
     /// Darkening at full coverage: 1 turns a fully covered pixel black.
     pub intensity: f32,
+    /// Cost against detail; `Medium` by default.
+    pub quality: AoQuality,
 }
 impl Default for AmbientOcclusion {
     fn default() -> Self {
         Self {
             radius: 0.5,
             intensity: 1.0,
+            quality: AoQuality::Medium,
+        }
+    }
+}
+/// How `AmbientOcclusion` trades GPU time for detail. Every level upsamples
+/// with a depth-aware blur, so edges stay crisp at half resolution.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]
+pub enum AoQuality {
+    /// Half resolution, 8 samples a pixel.
+    Low,
+    /// Half resolution, 12 samples a pixel.
+    #[default]
+    Medium,
+    /// Full resolution, 16 samples a pixel.
+    High,
+}
+impl AoQuality {
+    /// The occlusion texture's downscale and its samples a pixel.
+    pub fn plan(self) -> (u32, u32) {
+        match self {
+            Self::Low => (2, 8),
+            Self::Medium => (2, 12),
+            Self::High => (1, 16),
         }
     }
 }

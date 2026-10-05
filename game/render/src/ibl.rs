@@ -36,7 +36,11 @@ pub(crate) struct EnvironmentLight {
     map_sampler: wgpu::Sampler,
     // The authored map lighting the scene: its content digest and RGBM range,
     // and its intensity, applied at sample time through the ambient scale.
-    map: Option<(u64, f32)>,
+    map: Option<(u64, f32, f32)>,
+    /// The map lighting the scene, also sampled by the visible sky (sky.wgsl);
+    /// a one-texel placeholder without one.
+    pub sky_view: wgpu::TextureView,
+    pub sky_sampler: wgpu::Sampler,
     intensity: f32,
     key: Option<[u32; 9]>,
     // The colours the cube was last prefiltered from, and prepares since the
@@ -216,7 +220,9 @@ impl EnvironmentLight {
             module,
             sh,
             sh_pending: false,
+            sky_view: placeholder.clone(),
             placeholder,
+            sky_sampler: map_sampler.clone(),
             map_sampler,
             map: None,
             intensity: 1.,
@@ -236,16 +242,22 @@ impl EnvironmentLight {
     /// so a dusk that changes every tick costs a pass per few percent.
     /// An authored `map` replaces the sky as the source of both; it is
     /// prefiltered and projected again only when its content or scale changes.
+    /// True when the sky view changed and the scene groups must rebind.
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         environment: &exact_game::Environment,
         map: Option<MapSource<'_>>,
-    ) {
+    ) -> bool {
+        let mut rebind = false;
         // Intensity scales the filtered result: changing it filters nothing.
         self.intensity = map.as_ref().map_or(1., |m| m.intensity.max(0.));
-        let key = map.as_ref().map(|m| (m.digest, m.rgbm));
+        let key = map.as_ref().map(|m| (m.digest, m.rgbm, m.rotation));
+        if key.map(|k| (k.0, k.1)) != self.map.map(|k| (k.0, k.1)) {
+            self.sky_view = map.as_ref().map_or(&self.placeholder, |m| m.view).clone();
+            rebind = true;
+        }
         if key != self.map {
             if map.is_some() && self.sh_pipeline.is_none() {
                 self.sh_pipeline = Some(sh_pipeline(device, &self.layout, &self.module));
@@ -269,6 +281,7 @@ impl EnvironmentLight {
                         let at = (mip * 6 + face) as usize * STRIDE as usize / 4;
                         words[at + 3] = 1.;
                         words[at + 7] = m.rgbm.max(0.);
+                        words[at + 15] = m.rotation;
                         words[at + 12..at + 15].copy_from_slice(&[
                             face as f32,
                             mip as f32 / (MIPS - 1) as f32,
@@ -279,25 +292,25 @@ impl EnvironmentLight {
                 queue.write_buffer(&self.uniform, 0, bytes(&words));
                 self.pending = true;
                 self.sh_pending = true;
-                return;
+                return rebind;
             }
         }
         if self.map.is_some() {
-            return;
+            return rebind;
         }
         let colors = [environment.zenith, environment.horizon, environment.ground];
         let key: [u32; 9] = std::array::from_fn(|i| colors[i / 3][i % 3].to_bits());
         if self.key == Some(key) {
             self.still = self.still.saturating_add(1);
             if self.still != SETTLE || self.prefiltered == Some(colors) {
-                return;
+                return rebind;
             }
         } else {
             self.key = Some(key);
             self.still = 0;
             self.irradiance = Sky::of(environment).irradiance();
             if self.prefiltered.is_some_and(|old| !drifted(&old, &colors)) {
-                return;
+                return rebind;
             }
         }
         self.prefiltered = Some(colors);
@@ -317,6 +330,7 @@ impl EnvironmentLight {
         }
         queue.write_buffer(&self.uniform, 0, bytes(&words));
         self.pending = true;
+        rebind
     }
 
     /// Whether an authored map lights the scene; its SH is then `sh`.
@@ -330,7 +344,11 @@ impl EnvironmentLight {
 
     /// Render the pending prefilter: one small pass per face and mip, and an
     /// authored map's SH projection.
-    pub fn encode(&mut self, encoder: &mut wgpu::CommandEncoder) {
+    pub fn encode(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        timestamps: Option<&wgpu::QuerySet>,
+    ) -> bool {
         if std::mem::take(&mut self.sh_pending) {
             let mut pass = encoder.begin_compute_pass(&Default::default());
             pass.set_pipeline(self.sh_pipeline.as_ref().unwrap());
@@ -338,9 +356,12 @@ impl EnvironmentLight {
             pass.dispatch_workgroups(1, 1, 1);
         }
         if !std::mem::take(&mut self.pending) {
-            return;
+            return false;
         }
+        let last = self.faces.len() - 1;
         for (i, face) in self.faces.iter().enumerate() {
+            let timestamp_writes =
+                crate::timing::span(timestamps, crate::timing::ENVIRONMENT, i == 0, i == last);
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("game environment prefilter"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -353,7 +374,7 @@ impl EnvironmentLight {
                     },
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
+                timestamp_writes,
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -362,6 +383,7 @@ impl EnvironmentLight {
             pass.draw(0..3, 0..1);
         }
         self.updates += 1;
+        timestamps.is_some()
     }
 }
 
@@ -392,6 +414,8 @@ pub(crate) struct MapSource<'a> {
     pub digest: u64,
     pub intensity: f32,
     pub rgbm: f32,
+    /// Yaw about +Y in radians; a change filters again.
+    pub rotation: f32,
 }
 fn map_bind(
     device: &wgpu::Device,
@@ -691,7 +715,7 @@ mod tests {
         let mut light = EnvironmentLight::new(&gpu.device, directions);
         light.prepare(&gpu.device, &gpu.queue, e, None);
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        light.encode(&mut encoder);
+        light.encode(&mut encoder, None);
         gpu.queue.submit([encoder.finish()]);
         light
     }
@@ -803,6 +827,8 @@ mod tests {
             texture: "sky.tex",
             intensity: 1.,
             rgbm: 0.,
+            visible: false,
+            rotation: 0.,
         });
         let green = draw(&mut r, &frame);
         green.save("ibl-authored-map");
@@ -852,6 +878,7 @@ mod tests {
         let view = texture.create_view(&Default::default());
         let mut light = EnvironmentLight::new(&gpu.device, false);
         let source = || MapSource {
+            rotation: 0.,
             view: &view,
             digest: 7,
             intensity: 1.,
@@ -864,7 +891,7 @@ mod tests {
             Some(source()),
         );
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        light.encode(&mut encoder);
+        light.encode(&mut encoder, None);
         gpu.queue.submit([encoder.finish()]);
         assert!(light.mapped());
         let up = sample(&gpu, &light, 0., &[Vec3::Y, -Vec3::Y]);
@@ -889,7 +916,7 @@ mod tests {
         };
         light.prepare(&gpu.device, &gpu.queue, &sky, Some(source()));
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        light.encode(&mut encoder);
+        light.encode(&mut encoder, None);
         gpu.queue.submit([encoder.finish()]);
         assert_eq!(light.updates, updates);
         // An animated intensity scales at sample time: nothing is filtered again.
@@ -903,7 +930,7 @@ mod tests {
             }),
         );
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        light.encode(&mut encoder);
+        light.encode(&mut encoder, None);
         gpu.queue.submit([encoder.finish()]);
         assert_eq!((light.updates, light.ambient_scale()), (updates, 2.5));
         // Removing it returns to the procedural sky.
@@ -920,7 +947,7 @@ mod tests {
         let step = |light: &mut EnvironmentLight, e: &Environment| {
             light.prepare(&gpu.device, &gpu.queue, e, None);
             let mut encoder = gpu.device.create_command_encoder(&Default::default());
-            light.encode(&mut encoder);
+            light.encode(&mut encoder, None);
             gpu.queue.submit([encoder.finish()]);
             light.updates
         };

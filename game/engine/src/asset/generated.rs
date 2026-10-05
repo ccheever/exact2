@@ -103,8 +103,12 @@ impl World {
             },
         )
     }
-    /// Register a whole generated model (nodes, skins, clips) under the same rules
-    /// as [`World::generated`]; a procedural rig ([`crate::rig`]) produces one.
+    /// `generated` for a whole model: several meshes, nodes and materials, which
+    /// may sample textures by name (`model.textures`, indexed by each material's
+    /// texture slots) — shared `.tex` assets such as `art/textures/soil.png`, which
+    /// are requested as the model's dependencies. The model is drawable once they
+    /// arrive; declare them in `Game::ASSETS` to have them before setup.
+    /// Skinned rigs and clips ([`crate::rig`]) register the same way.
     pub fn generated_model(&mut self, name: &str, model: Model) -> Result<Mesh, String> {
         self.sim_writes(format_args!("generated `{name}`"));
         if self.tick() != 0 {
@@ -128,11 +132,25 @@ impl World {
             return Ok(Mesh::asset(name));
         }
         self.assets.request(name);
+        for texture in &model.textures {
+            self.assets.request(texture);
+            self.assets.required.insert(texture.clone());
+        }
+        let ready = model
+            .textures
+            .iter()
+            .all(|t| self.assets.states.get(t) == Some(&AssetState::Loaded));
         self.assets.identify(name, digest);
         self.assets.declared.insert(name.into());
+        let model_textures = model.textures.clone();
         self.assets.models.insert(name.into(), model.into());
-        self.assets.set_dependencies(name, Vec::new());
-        self.assets.states.insert(name.into(), AssetState::Loaded);
+        self.assets.set_dependencies(name, model_textures);
+        let state = if ready {
+            AssetState::Loaded
+        } else {
+            AssetState::Pending
+        };
+        self.assets.states.insert(name.into(), state);
         Ok(Mesh::asset(name))
     }
 }

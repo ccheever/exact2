@@ -83,6 +83,8 @@ struct Counts {
     groups: usize,
     views: usize,
     last: Option<[u64; VIEWS as usize]>,
+    // Camera-view triangles of the same read frame.
+    triangles: u64,
 }
 
 impl Cull {
@@ -223,6 +225,7 @@ impl Cull {
                 groups: 0,
                 views: 0,
                 last: None,
+                triangles: 0,
             });
         }
     }
@@ -271,12 +274,20 @@ impl Cull {
             if let Some(ok) = counts.done.lock().unwrap().take() {
                 if ok {
                     let data = counts.buffer.slice(..).get_mapped_range().unwrap();
+                    let word = |at: usize| {
+                        u64::from(u32::from_ne_bytes(
+                            data[at * 4..at * 4 + 4].try_into().unwrap(),
+                        ))
+                    };
                     let mut totals = [0u64; VIEWS as usize];
+                    counts.triangles = 0;
                     for (v, total) in totals.iter_mut().enumerate().take(counts.views) {
                         for g in 0..counts.groups {
-                            let at = ((v * counts.groups + g) * 5 + 1) * 4;
-                            *total +=
-                                u64::from(u32::from_ne_bytes(data[at..at + 4].try_into().unwrap()));
+                            let at = (v * counts.groups + g) * 5;
+                            *total += word(at + 1);
+                            if v == 0 {
+                                counts.triangles += word(at) / 3 * word(at + 1);
+                            }
                         }
                     }
                     drop(data);
@@ -287,6 +298,13 @@ impl Cull {
             }
         }
         counts.last
+    }
+
+    /// Camera-view triangles the GPU cull kept in the frame `culled` last read.
+    pub fn culled_triangles(&self) -> Option<u64> {
+        self.counts
+            .as_ref()
+            .and_then(|c| c.last.map(|_| c.triangles))
     }
 
     /// Whether this frame's groups differ from the uploaded setup.
@@ -367,6 +385,21 @@ impl Cull {
         self.window = u64::from(window) * 4;
         self.compacted.grow(device, queue, sizes[2]);
         self.indirect.grow(device, queue, sizes[3]);
+    }
+
+    /// Rewrite each model record's hidden word (a level of detail not drawn this
+    /// frame) without rebuilding the setup.
+    pub fn hide_records(&mut self, queue: &wgpu::Queue, hidden: &[bool]) {
+        let start = self.sections[2] as usize;
+        if self.direct || start + hidden.len() * RECORD_WORDS > self.words.len() {
+            return;
+        }
+        for (i, &h) in hidden.iter().enumerate() {
+            self.words[start + i * RECORD_WORDS + 2] = u32::from(h);
+        }
+        let end = start + hidden.len() * RECORD_WORDS;
+        self.setup
+            .write(queue, start as u64 * 4, bytes(&self.words[start..end]));
     }
 
     /// Byte offsets of group `index` in view `view`: the slot region and its draw.
@@ -485,9 +518,9 @@ impl Cull {
         encoder: &mut wgpu::CommandEncoder,
         current: usize,
         timestamps: Option<&wgpu::QuerySet>,
-    ) {
+    ) -> bool {
         if self.groups.is_empty() || self.direct {
-            return;
+            return false;
         }
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("game cull"),
@@ -508,6 +541,7 @@ impl Cull {
         pass.dispatch_workgroups(groups.0, groups.1, 1);
         pass.set_pipeline(&self.scatter);
         pass.dispatch_workgroups(chunks.0, chunks.1, 1);
+        true
     }
 }
 

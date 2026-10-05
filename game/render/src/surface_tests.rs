@@ -437,7 +437,7 @@ fn asset_refusal_is_named_without_poisoning_the_surface() {
     let Some(gpu) = gpu() else {
         return;
     };
-    let mut s = WorldSurface::<Move, crate::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Move, crate::ModelExecutor, true>::default();
     s.bind(&[Value::Bool(true), Value::Number(0.)], None)
         .unwrap();
     let w = s.sim.as_mut().unwrap().world_mut();
@@ -586,7 +586,7 @@ fn presentation_hook_follows_frames_transport_and_gestures() {
         frames: Vec<(u64, u64, bool, bool)>,
         gestures: usize,
     }
-    impl Presentation for Probe {
+    impl Executor for Probe {
         fn sync(&mut self, w: &World, generation: u64, playing: bool, seekable: bool) {
             self.frames.push((w.tick(), generation, playing, seekable));
         }
@@ -732,12 +732,12 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
     model.nodes.push(mirrored);
     let bytes = exact_game::bin::to_vec(&model);
     let fresh = || {
-        let mut s = WorldSurface::<Art, crate::ModelPresentation, true>::default();
+        let mut s = WorldSurface::<Art, crate::ModelExecutor, true>::default();
         s.device_ready(exact_gpu::wgpu::Features::empty());
         s.bind(&[], None).unwrap();
         s
     };
-    let deliver = |s: &mut WorldSurface<Art, crate::ModelPresentation, true>| {
+    let deliver = |s: &mut WorldSurface<Art, crate::ModelExecutor, true>| {
         assert_eq!(s.assets().requests, ["crate.model"]);
         s.asset("crate.model", Ok(&bytes));
         assert!(s.sim().unwrap().is_loading());
@@ -1011,7 +1011,7 @@ fn placement_and_renderer_share_warnings_across_restore_and_prune_dead_followers
     let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
         return;
     };
-    let mut s = WorldSurface::<Missing, crate::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Missing, crate::ModelExecutor, true>::default();
     s.bind(&[], None).unwrap();
     fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
     let registry = s.placed.attachments.diagnostics.clone();
@@ -1071,7 +1071,7 @@ fn a_level_declares_its_asset_requirement_without_a_model_list() {
         }
         fn tick(_: &mut World, _: &Input, _: &()) {}
     }
-    fn loaded<P: Presentation, const A: bool>() -> WorldSurface<LevelOnly, P, A> {
+    fn loaded<P: Executor, const A: bool>() -> WorldSurface<LevelOnly, P, A> {
         let mut surface = WorldSurface::<LevelOnly, P, A>::default();
         surface.bind(&[], None).unwrap();
         assert_eq!(surface.assets().requests, ["seed.level.json"]);
@@ -1106,7 +1106,7 @@ fn a_level_declares_its_asset_requirement_without_a_model_list() {
         surface
     }
     let mut primitive = loaded::<(), false>();
-    let mut models = loaded::<crate::ModelPresentation, true>();
+    let mut models = loaded::<crate::ModelExecutor, true>();
     assert_eq!(primitive.carry().unwrap(), models.carry().unwrap());
     let Some(gpu) = gpu() else { return };
     let before = fixture::render(&gpu, &mut models, &frame(0.)).unwrap();
@@ -1130,6 +1130,8 @@ struct SocketLook {
     owner_x: f64,
     #[live]
     prop_y: f64,
+    #[live]
+    carrier_x: f64,
 }
 impl Game for Socketed {
     const ID: &'static str = "offset-socket";
@@ -1142,9 +1144,15 @@ impl Game for Socketed {
             fog: None,
             ..Default::default()
         });
+        // The rig rides a carrier: the carrier's offset moves the rig as drawn.
+        let carrier = w.spawn_named("carrier", Transform::default());
         w.spawn_named(
             "rig",
-            (Transform::at(-3., 0., 0.), Mesh::asset("fox.model")),
+            (
+                Transform::at(-3., 0., 0.),
+                exact_game::Parent(carrier),
+                Mesh::asset("fox.model"),
+            ),
         );
         w.spawn_named(
             "prop",
@@ -1176,17 +1184,29 @@ impl Game for Socketed {
             prop,
             exact_game::Offset(Transform::at(0., look.prop_y as f32, 0.)),
         );
+        let carrier = w.named("carrier").unwrap();
+        w.insert(
+            carrier,
+            exact_game::Offset(Transform::at(look.carrier_x as f32, 0., 0.)),
+        );
     }
 }
 #[test]
 fn offsets_move_socketed_props_with_their_owner_and_alone() {
     let Some(gpu) = gpu() else { return };
     // The blue prop's pixel centre, (x, y).
-    let drawn = |owner_x: f64, prop_y: f64| {
-        let mut surface = WorldSurface::<Socketed, crate::ModelPresentation, true>::default();
+    let drawn = |owner_x: f64, prop_y: f64, carrier_x: f64| {
+        let mut surface = WorldSurface::<Socketed, crate::ModelExecutor, true>::default();
         surface.device_ready(exact_gpu::wgpu::Features::empty());
         surface
-            .bind(&[Value::Number(owner_x), Value::Number(prop_y)], None)
+            .bind(
+                &[
+                    Value::Number(owner_x),
+                    Value::Number(prop_y),
+                    Value::Number(carrier_x),
+                ],
+                None,
+            )
             .unwrap();
         surface.asset(
             "fox.model",
@@ -1220,9 +1240,15 @@ fn offsets_move_socketed_props_with_their_owner_and_alone() {
             blue.iter().map(|p| f64::from(p.1)).sum::<f64>() / n,
         )
     };
-    let still = drawn(0., 0.);
-    let owner = drawn(2., 0.);
-    let prop = drawn(0., 1.);
+    let still = drawn(0., 0., 0.);
+    let owner = drawn(2., 0., 0.);
+    let prop = drawn(0., 1., 0.);
+    // An offset on the owner's parent moves the drawn rig and its socket.
+    let carried = drawn(0., 0., 2.);
+    assert!(
+        (carried.0 - still.0 - 40.).abs() < 3. && (carried.1 - still.1).abs() < 3.,
+        "{still:?} -> {carried:?}"
+    );
     // 8 world units span 160 pixels: 20 pixels a unit.
     assert!(
         (owner.0 - still.0 - 40.).abs() < 3. && (owner.1 - still.1).abs() < 3.,

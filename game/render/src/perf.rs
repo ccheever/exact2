@@ -117,6 +117,9 @@ pub(crate) struct Perf {
     pub pixels: (u32, u32),
     /// Instances drawn per view (camera, cascades 0–2) in the last read frame.
     pub culled: Option<[u64; 4]>,
+    /// Camera-view triangles the GPU cull kept in that frame (levels of detail
+    /// and frustum culling applied, unlike `stats.triangles`).
+    pub culled_triangles: Option<u64>,
     /// Local lights drawn and dropped beyond `MAX_LIGHTS` in the last frame.
     lights: (usize, usize),
     warned: bool,
@@ -206,7 +209,8 @@ impl Perf {
         match self.culled {
             Some([camera, a, b, c]) => write!(
                 out,
-                ",\"culled\":{{\"camera\":{camera},\"shadows\":[{a},{b},{c}]}}}}"
+                ",\"culled\":{{\"camera\":{camera},\"cameraTriangles\":{},\"shadows\":[{a},{b},{c}]}}}}",
+                self.culled_triangles.unwrap_or(0)
             ),
             None => write!(out, ",\"culled\":null}}"),
         }

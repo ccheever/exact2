@@ -508,6 +508,75 @@ impl Default for SpotLight {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Component)]
 pub struct ViewModel;
 
+/// One model node's look on one instance: see `NodeMaterials`.
+#[derive(Clone, Debug, PartialEq, crate::Data)]
+pub struct NodeMaterial {
+    /// The model node's name.
+    pub node: String,
+    /// Linear RGBA multiplying the node's base colour. Alpha multiplies the
+    /// base alpha: it fades blended nodes, and on a MASK node it moves where
+    /// the cutout falls (alpha under the material's cutoff is cut).
+    pub color: [f32; 4],
+    /// Linear emission added to the node.
+    pub emissive: [f32; 3],
+}
+impl Default for NodeMaterial {
+    fn default() -> Self {
+        Self {
+            node: String::new(),
+            color: [1.0; 4],
+            emissive: [0.0; 3],
+        }
+    }
+}
+/// Per-node looks of a model instance, on top of the entity's `Material` (which
+/// tints and lights every node): a team colour on a soldier's uniform but not
+/// its visor, a mutation glow on one fruit part. Nodes not named keep theirs.
+/// Presentation state: write it from `Game::present`; never saved or hashed.
+#[derive(Clone, Debug, Default, PartialEq, crate::Presentation)]
+pub struct NodeMaterials(pub Vec<NodeMaterial>);
+
+/// One model material's look on one instance: see `MaterialOverrides`.
+#[derive(Clone, Debug, Default, PartialEq, crate::Data)]
+pub struct MaterialOverride {
+    /// The model's material index (the glTF material's index in its file).
+    pub material: u32,
+    /// Replaces the material's base colour factor (linear RGBA; textures and
+    /// vertex colours still multiply it), zero channels included. `None` keeps it.
+    pub color: Option<[f32; 4]>,
+    /// Linear emission added wherever the material draws.
+    pub emissive: [f32; 3],
+}
+/// Per-material looks of a model instance: one soldier model in every team's
+/// armour colour, one crop model in each mutation's look. Every part with that
+/// material changes, merged or not, and instances with different overrides still
+/// draw together. Applies before `NodeMaterials`, under the entity's `Material`.
+/// Presentation state: write it from `Game::present`; never saved or hashed.
+#[derive(Clone, Debug, Default, PartialEq, crate::Presentation)]
+pub struct MaterialOverrides(pub Vec<MaterialOverride>);
+
+/// One coarser level of a model instance: drawn from `distance` metres from the
+/// camera, up to the next level's distance.
+#[derive(Clone, Debug, Default, PartialEq, crate::Data)]
+pub struct LodLevel {
+    /// Camera distance in metres where this level takes over.
+    pub distance: f32,
+    /// The model drawn at this level (declare it in `Game::ASSETS`).
+    pub model: String,
+}
+/// Distance-based level of detail for a model entity. Its own `Mesh` is drawn
+/// nearer than the first level; each level's model from its distance on; beyond
+/// `hide` (if set) nothing. The GPU cull picks the level per instance per frame
+/// from its distance to the camera, so a walking camera changes nothing on the
+/// CPU. Levels share the entity's pose, `Material` and `Opacity`.
+#[derive(Clone, Debug, Default, PartialEq, Component)]
+pub struct ModelLod {
+    /// Coarser levels in increasing distance.
+    pub levels: Vec<LodLevel>,
+    /// Camera distance in metres beyond which the instance is not drawn.
+    pub hide: Option<f32>,
+}
+
 /// A drawn-only pose change: the entity is drawn at drawn(parent)·local·offset,
 /// so an offset on a root moves its whole displayed hierarchy, and props on a
 /// rigged entity's sockets follow it. Picking, layout and physics use the

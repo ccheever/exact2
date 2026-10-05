@@ -134,6 +134,12 @@ fn test(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocation_index) l
                 if (mask & (1u << v)) != 0u && !visible(v, sphere) { mask &= ~(1u << v); }
             }
         }
+        // A level of detail not chosen for its entity this frame draws in no view,
+        // kept-all groups included.
+        let value = slots[setup[g] + local];
+        if value >= 2147483648u && setup[cull.sections.z + (value - 2147483648u) * 8u + 2u] != 0u {
+            mask = 0u;
+        }
     }
     // One inclusive scan for four byte-packed views; a chunk counts at most 64.
     let packed = (mask & 1u) | ((mask & 2u) << 7u) | ((mask & 4u) << 14u) | ((mask & 8u) << 21u);

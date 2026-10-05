@@ -236,7 +236,7 @@ fn dev_carry_changed_blend_keeps_pose_and_open_keeps_saved_definitions() {
             SmallGame::tick(w, i, a);
         }
     }
-    fn surface<G: Game>() -> WorldSurface<G, exact_game_render::ModelPresentation, true> {
+    fn surface<G: Game>() -> WorldSurface<G, exact_game_render::ModelExecutor, true> {
         let mut s = WorldSurface::default();
         s.bind(&[Value::Number(0.)], None).unwrap();
         for _ in 0..16 {
@@ -282,7 +282,7 @@ fn moving_skin_and_shadow_pixels() {
     else {
         return;
     };
-    let mut s = WorldSurface::<SmallGame, exact_game_render::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<SmallGame, exact_game_render::ModelExecutor, true>::default();
     s.device_ready(wgpu::Features::empty());
     s.bind(&[Value::Number(0.)], None).unwrap();
     for _ in 0..16 {

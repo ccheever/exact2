@@ -595,6 +595,7 @@ fn a_viewmodel_draws_in_front_of_the_wall_it_reaches_into() {
 struct OcclusionArgs {
     on: bool,
     weapon: bool,
+    quality: u32,
 }
 struct Occlusion;
 impl Game for Occlusion {
@@ -607,7 +608,14 @@ impl Game for Occlusion {
             ..Default::default()
         });
         if args.on {
-            w.insert_resource(exact_game::AmbientOcclusion::default());
+            w.insert_resource(exact_game::AmbientOcclusion {
+                quality: [
+                    exact_game::AoQuality::Medium,
+                    exact_game::AoQuality::Low,
+                    exact_game::AoQuality::High,
+                ][args.quality as usize],
+                ..Default::default()
+            });
         }
         w.spawn((
             Transform::at(0., 2.5, 3.).looking_at(Vec3::new(0., 0.3, 0.), Vec3::Y),
@@ -701,4 +709,32 @@ fn ambient_occlusion_skips_the_viewmodel_layer_and_leaves_no_halo() {
     assert!(weapon_pixels > 500, "{weapon_pixels}");
     assert_eq!(weapon_change, 0);
     assert!(halo <= 6, "a dark ring around the weapon: {halo}");
+}
+
+#[test]
+fn every_ambient_occlusion_quality_darkens_the_same_contacts() {
+    let Some(gpu) = gpu() else { return };
+    let image = |on: bool, quality: u32| {
+        let mut s = WorldSurface::<Occlusion>::default();
+        let args = [
+            Value::Bool(on),
+            Value::Bool(false),
+            Value::Number(f64::from(quality)),
+        ];
+        s.bind(&args, None).unwrap();
+        render(&gpu, &mut s, 0., &format!("occlusion-quality-{quality}"))
+    };
+    let off = image(false, 0);
+    let lum = |p: [u8; 4]| i64::from(p[0]) + i64::from(p[1]) + i64::from(p[2]);
+    let darkening = |on: &Pixels| -> i64 {
+        (200..440)
+            .flat_map(|x| (200..300).map(move |y| (x, y)))
+            .map(|(x, y)| (lum(off.at(x, y)) - lum(on.at(x, y))).max(0))
+            .sum()
+    };
+    let dark = [1, 0, 2].map(|q| darkening(&image(true, q)));
+    eprintln!("contact darkening low, medium, high: {dark:?}");
+    assert!(dark.iter().all(|&d| d > 10_000), "{dark:?}");
+    let (lo, hi) = (*dark.iter().min().unwrap(), *dark.iter().max().unwrap());
+    assert!(lo * 2 > hi, "qualities agree within 2x: {dark:?}");
 }

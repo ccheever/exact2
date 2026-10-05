@@ -13,7 +13,7 @@ impl Game for Art {
     }
     fn tick(_: &mut World, _: &Input, _: &()) {}
 }
-fn fresh() -> WorldSurface<Art, exact_game_render::ModelPresentation, true> {
+fn fresh() -> WorldSurface<Art, exact_game_render::ModelExecutor, true> {
     let mut surface = WorldSurface::default();
     surface.bind(&[], None).unwrap();
     surface
@@ -225,8 +225,7 @@ fn replacement_device_draws_identical_pixels() {
     let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
         return;
     };
-    let mut surface =
-        WorldSurface::<VisibleArt, exact_game_render::ModelPresentation, true>::default();
+    let mut surface = WorldSurface::<VisibleArt, exact_game_render::ModelExecutor, true>::default();
     surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.bind(&[], None).unwrap();
     let path =
@@ -293,7 +292,7 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
     }
     static REGISTRY: Registry = Registry {
         surfaces: &[("world", 0, || {
-            Box::<WorldSurface<Pair, exact_game_render::ModelPresentation, true>>::default()
+            Box::<WorldSurface<Pair, exact_game_render::ModelExecutor, true>>::default()
         })],
         shaders: &[],
     };

@@ -648,7 +648,7 @@ fn custom_material_uses_engine_instances_and_paired_shadow() {
     };
     let mut surface = WorldSurface::<
         MaterialGame,
-        exact_game_render::ModelPresentation,
+        exact_game_render::ModelExecutor,
         true,
         MaterialHooks,
     >::default();
@@ -672,7 +672,7 @@ fn custom_material_forward_shaders_sample_the_engine_shadow_maps() {
     let render = |caster: bool| {
         let mut surface = WorldSurface::<
             MaterialGame,
-            exact_game_render::ModelPresentation,
+            exact_game_render::ModelExecutor,
             true,
             MaterialHooks<true>,
         >::default();

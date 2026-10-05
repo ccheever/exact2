@@ -487,3 +487,48 @@ fn one_model_using_one_image_twice_lists_it_once() {
     );
     fs::remove_dir_all(app).unwrap();
 }
+
+#[test]
+fn gltf_images_under_art_textures_sample_the_one_standalone_texture() {
+    let app = temp();
+    fs::create_dir_all(app.join("art/textures")).unwrap();
+    fs::create_dir_all(app.join("art/models")).unwrap();
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([120, 90, 60, 255]))
+        .save(app.join("art/textures/soil.png"))
+        .unwrap();
+    let mut source: serde_json::Value = serde_json::from_str(CRATE).unwrap();
+    source["images"][0]["uri"] = serde_json::json!("../textures/soil.png");
+    for stem in ["bed", "pot"] {
+        fs::write(
+            app.join(format!("art/models/{stem}.gltf")),
+            source.to_string(),
+        )
+        .unwrap();
+    }
+    let model = exact_game_bake::model(app.join("art/models/bed.gltf")).unwrap();
+    assert_eq!(model.textures, ["soil.tex"]);
+    exact_game_bake::bake_art(&app).unwrap();
+    assert!(app.join("assets/soil.tex").exists());
+    assert!(app.join("assets/pot.model").exists());
+    for stem in ["bed", "pot"] {
+        assert!(
+            !app.join(format!("assets/{stem}")).exists(),
+            "{stem} embeds a copy"
+        );
+    }
+    // A masked material keeps coverage-preserving mips: it embeds its own
+    // (shared across models by content), not the straight-alpha standalone.
+    let mut masked = source.clone();
+    masked["materials"][0]["alphaMode"] = serde_json::json!("MASK");
+    fs::write(app.join("art/models/pot.gltf"), masked.to_string()).unwrap();
+    let pot = exact_game_bake::model(app.join("art/models/pot.gltf")).unwrap();
+    assert_ne!(pot.textures, ["soil.tex"], "masked: {:?}", pot.textures);
+    fs::write(app.join("art/models/pot.gltf"), source.to_string()).unwrap();
+    // A colour texture cannot be a model's normal map.
+    let mut normal = source.clone();
+    normal["materials"][0]["normalTexture"] = serde_json::json!({ "index": 0 });
+    fs::write(app.join("art/models/bed.gltf"), normal.to_string()).unwrap();
+    let error = exact_game_bake::model(app.join("art/models/bed.gltf")).unwrap_err();
+    assert!(error.contains("art/textures/"), "{error}");
+    fs::remove_dir_all(app).unwrap();
+}

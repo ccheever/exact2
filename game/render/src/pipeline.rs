@@ -15,14 +15,15 @@ const NO_SHADOW_SAMPLE: &str = piece!("no_shadow_sample");
 const IBL: &str = piece!("ibl");
 const FORWARD: &str = piece!("forward");
 const LIGHTS: &str = piece!("lights");
+const FADE: &str = piece!("fade");
 const MODEL: &str = piece!("model");
 /// The environment prefilter, a standalone module (ibl.rs).
 pub(crate) const ENVIRONMENT: &str = piece!("environment");
 
 fn primitive_sources() -> [String; 5] {
     [
-        [FRAME, TRANSFORM, SHADOW_SAMPLE, IBL, LIGHTS, FORWARD].concat(),
-        [FRAME, TRANSFORM, piece!("shadow")].concat(),
+        [FRAME, TRANSFORM, SHADOW_SAMPLE, IBL, FADE, LIGHTS, FORWARD].concat(),
+        [FRAME, TRANSFORM, FADE, piece!("shadow")].concat(),
         [FRAME, piece!("sky")].concat(),
         [FRAME, piece!("tonemap")].concat(),
         [FRAME, piece!("bloom")].concat(),
@@ -50,7 +51,10 @@ pub(crate) fn model_source(shadow: bool) -> String {
     } else {
         (SHADOW_SAMPLE, "")
     };
-    [FRAME, TRANSFORM, sample, IBL, LIGHTS, FORWARD, MODEL, tail].concat()
+    [
+        FRAME, TRANSFORM, sample, IBL, FADE, LIGHTS, FORWARD, MODEL, tail,
+    ]
+    .concat()
 }
 
 /// Pipelines every renderer creates at construction: eight forward, two shadow,
@@ -150,6 +154,15 @@ impl Pipelines {
                 sampler(7, wgpu::SamplerBindingType::Filtering),
                 // Clustered local lights (lights.wgsl).
                 storage(8, wgpu::ShaderStages::FRAGMENT),
+                // Per-slot screen-door fade (fade.wgsl `faded`).
+                storage(9, wgpu::ShaderStages::FRAGMENT),
+                // An authored environment map drawn as the visible sky (sky.wgsl).
+                texture(
+                    10,
+                    wgpu::TextureSampleType::Float { filterable: true },
+                    wgpu::TextureViewDimension::D2,
+                ),
+                sampler(11, wgpu::SamplerBindingType::Filtering),
             ],
         );
         let tone_layout = layout(
@@ -253,22 +266,43 @@ impl Pipelines {
                 i & 4 != 0,
             )
         });
+        // Depth only, with a fragment stage that drops Opacity-faded texels so
+        // primitive shadows dither and vanish with the primitive.
         let shadow = std::array::from_fn(|i| {
-            make_pipeline(
-                device,
-                &shaders[1],
-                "game shadow",
-                "vs_shadow",
-                None,
-                &[Some(&scene_layout), Some(&camera_layout)],
-                &vertex_layout,
-                depth(true, wgpu::CompareFunction::Less, Default::default()),
-                1,
-                wgpu::TextureFormat::Rgba16Float,
-                None,
-                &[],
-                i != 0,
-            )
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("game shadow"),
+                bind_group_layouts: &[Some(&scene_layout), Some(&camera_layout)],
+                immediate_size: 0,
+            });
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("game shadow"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shaders[1],
+                    entry_point: Some("vs_shadow"),
+                    buffers: &vertex_layout,
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shaders[1],
+                    entry_point: Some("fs_shadow"),
+                    targets: &[],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    front_face: if i != 0 {
+                        wgpu::FrontFace::Cw
+                    } else {
+                        wgpu::FrontFace::Ccw
+                    },
+                    cull_mode: Some(wgpu::Face::Back),
+                    ..Default::default()
+                },
+                depth_stencil: depth(true, wgpu::CompareFunction::Less, Default::default()),
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            })
         });
         let sky = make_pipeline(
             device,

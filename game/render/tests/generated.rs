@@ -2,7 +2,7 @@
 #[path = "fixture/device.rs"]
 mod test_device;
 use exact_game::*;
-use exact_game_render::{ModelPresentation, WorldSurface};
+use exact_game_render::{ModelExecutor, WorldSurface};
 use exact_gpu::{fixture, Frame, Surface};
 
 struct Props;
@@ -53,7 +53,7 @@ fn generated_props_upload_once_share_a_draw_and_keep_vertex_colors() {
     let Some(gpu) = test_device::device_or_skip(fixture::device()) else {
         return;
     };
-    let mut surface = WorldSurface::<Props, ModelPresentation, true>::default();
+    let mut surface = WorldSurface::<Props, ModelExecutor, true>::default();
     surface
         .bind(&[Value::Number(0.), Value::Bool(false)], None)
         .unwrap();
@@ -107,7 +107,7 @@ fn generated_props_upload_once_share_a_draw_and_keep_vertex_colors() {
         draws: u32,
         instances: u32,
     }
-    let state = |s: &mut WorldSurface<Props, ModelPresentation, true>| -> State {
+    let state = |s: &mut WorldSurface<Props, ModelExecutor, true>| -> State {
         json::from_str::<Reply>(&s.agent(r#"{"op":"state"}"#).unwrap())
             .unwrap()
             .world
@@ -262,7 +262,7 @@ fn grove_frame_cpu() {
     let primitive = std::env::var("PRIMITIVE").is_ok();
     let fruit = std::env::var("FRUIT").is_ok();
     let format = exact_gpu::wgpu::TextureFormat::Rgba8Unorm;
-    let mut surface = WorldSurface::<Grove, ModelPresentation, true>::default();
+    let mut surface = WorldSurface::<Grove, ModelExecutor, true>::default();
     surface
         .bind(
             &[

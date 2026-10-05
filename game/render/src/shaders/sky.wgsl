@@ -1,3 +1,17 @@
+@group(0) @binding(10) var sky_map: texture_2d<f32>;
+@group(0) @binding(11) var sky_sampler: sampler;
+// environment.wgsl's equirectangular lookup: +Y the top row, -Z the centre
+// column, turned by the map's yaw.
+fn sky_texel(d: vec3<f32>) -> vec3<f32> {
+    let c = cos(frame.sky.y);
+    let s = sin(frame.sky.y);
+    let r = vec3(c * d.x + s * d.z, d.y, c * d.z - s * d.x);
+    let uv = vec2(0.5 + atan2(r.x, -r.z) / (2.0 * 3.141592653589793),
+        acos(clamp(r.y, -1.0, 1.0)) / 3.141592653589793);
+    let texel = textureSampleLevel(sky_map, sky_sampler, uv, 0.0);
+    let rgb = select(texel.rgb, texel.rgb * texel.a * frame.sky.z, frame.sky.z > 0.0);
+    return rgb * frame.sky.x;
+}
 struct SkyVarying {
     @builtin(position) clip: vec4<f32>,
     @location(0) ndc: vec2<f32>,
@@ -11,6 +25,7 @@ struct SkyVarying {
     let b = frame.inverse_view_proj * vec4(input.ndc, 0.5, 1.0);
     let direction = normalize(b.xyz / b.w - a.xyz / a.w);
     var color = environment(direction.y);
+    if frame.sky.x > 0.0 { color = sky_texel(direction); }
     if frame.horizon_disc.w > 0.0 && frame.sun_direction_illuminance.w > 0.0 {
         let cosine = dot(direction, normalize(-frame.sun_direction_illuminance.xyz));
         let angle = acos(clamp(cosine, -1.0, 1.0));

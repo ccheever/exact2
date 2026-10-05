@@ -181,6 +181,13 @@ where it was born instead, at the emitter's pose and scale that tick (a rocket's
 trail is one emitter). `WorldSpace` saves those birth poses, so a restored trail
 draws where the continuous one does. `Shape::Box(size)` emits over an
 area (rain, snow).
+`ParticleLook` beside an `Emitter` textures its particles from a `.tex` atlas
+(`atlas: [columns, rows]`, a flipbook at `fps`, or the frames spread over each
+lifetime) and stretches them along their motion (`stretch`: seconds of velocity
+added to the length), for sparks and streaks. `Emitter.additive` picks additive or
+straight-alpha blending for both. `soft` (metres) fades particles where they meet
+the opaque scene, so smoke does not cut a line into the ground; a frame with soft
+particles splits the forward pass to read its depth (off by default).
 For sound, `w.sounds([..])` registers synthesized (`Synth`) or sampled (`Sample`)
 definitions in setup; a sample names a `.sound` asset declared in `Game::ASSETS`, and
 registration saves its frames, rate and channels. `w.play("chime").start()` creates
@@ -247,7 +254,10 @@ JSON levels need no `game.assets` setting. Agent asset state includes their valu
 malformed fields report their path.
 
 `w.generated("island.model", mesh_data)` registers immutable geometry during setup.
-Clone the returned `Mesh` for repeated props. Saves store names and content identities,
+Clone the returned `Mesh` for repeated props. `w.generated_model(name, model)` takes a
+whole `asset::Model` (several meshes, nodes and materials); its materials may sample
+textures named in `model.textures`, such as a shared `art/textures/` PNG, which become
+the model's dependencies and are requested like a baked model's. Saves store names and content identities,
 not vertices, so reconstruct from the same level and seed before restoring. Changed
 level bytes or generated output refuse restore by name. Keep other generator inputs
 in the level or saved setup arguments; identity checks cannot prove a generator is
