@@ -1,0 +1,11 @@
+# A look: Game::present declared, checked against the game's types and run by
+# the engine (LLP 1046.009 §3.2, an experiment). Only games that link it pay.
+[package]
+name = "exact-game-look"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+exact-game.workspace = true

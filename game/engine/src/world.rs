@@ -162,6 +162,10 @@ struct Registration {
     ambient: bool,
     // A presentation component: outside saves, hashes and observation.
     presentation: bool,
+    // Its Default written, and a strict read of text, for checkers that name
+    // types as data (`named.rs`).
+    write_default: fn(&mut dyn Writer),
+    read_json: fn(&str, &mut dyn Writer) -> Result<(), DataError>,
 }
 
 #[derive(Clone, Copy)]
@@ -366,6 +370,8 @@ impl World {
             resource_size: 0,
             ambient: false,
             presentation: false,
+            write_default: named::write_default::<C>,
+            read_json: named::read_json::<C>,
         });
         assert_eq!(reg.id, id, "duplicate component name {}", name);
         reg
@@ -1315,6 +1321,9 @@ use save::Free;
 
 mod digest;
 pub(crate) use digest::Observation;
+
+mod named;
+pub use named::Registered;
 
 #[cfg(test)]
 mod nearest_xz_mut_tests {

@@ -6,6 +6,7 @@ pub mod creatures;
 mod deer_art;
 pub mod forest;
 mod look;
+pub mod motion;
 pub mod player;
 
 use camp::{Cycle, Fire};
@@ -142,7 +143,7 @@ impl Game for Forest {
     }
     fn present(p: &mut Present<'_>, args: &Options) {
         if args.art == "pass" {
-            look::present(p);
+            motion::present(p);
         }
     }
     fn paused(args: &Options) -> bool {

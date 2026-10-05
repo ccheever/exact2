@@ -2,7 +2,7 @@
 # from the root `members`, so exact2's five checks never compile it. It consumes
 # exact2 by path, as an app outside the repository does.
 [workspace]
-members = ["engine", "derive", "bake", "render", "physics", "audio", "app"]
+members = ["engine", "derive", "bake", "render", "physics", "audio", "app", "look"]
 exclude = ["games", "bench"]
 resolver = "2"
 
@@ -18,6 +18,7 @@ exact-game-derive = { path = "derive" }
 exact-game-render = { path = "render" }
 exact-game-physics = { path = "physics" }
 exact-game-audio = { path = "audio" }
+exact-game-look = { path = "look" }
 exact-game-app = { path = "app" }
 exact-data-host = { path = "../data/host" }
 # A game's Rust data source asks app storage (files, SQLite) through these,
