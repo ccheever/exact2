@@ -138,6 +138,7 @@ struct Parked {
     progress: u64,
     /// Asked again with nothing outstanding in the module: its last settle.
     last: bool,
+    deferred_args: Option<Vec<Value>>,
 }
 
 /// The ticket of an answer that has not begun: it arrived while another
@@ -213,6 +214,8 @@ pub struct Module {
     streams: Vec<(Key, Parked)>,
     /// Deferred answers whose dispatch was held, oldest first.
     held: std::collections::VecDeque<u64>,
+    retired: std::collections::VecDeque<turns::Retired>,
+    draining_retired: bool,
     /// Answers waiting on another answer's work whose dispatch was held.
     waiters: Vec<u64>,
     /// Deliveries and new answers so far: what a waiting answer waits for.
@@ -438,6 +441,8 @@ impl Module {
             parked: Vec::new(),
             streams: Vec::new(),
             held: std::collections::VecDeque::new(),
+            retired: Default::default(),
+            draining_retired: false,
             waiters: Vec::new(),
             progress: 0,
             next_deferred: FIRST_DEFERRED_TOKEN,
@@ -685,6 +690,8 @@ impl Module {
         self.host.hosted_call = None;
         self.native_slot.set(None);
         self.parked.clear();
+        self.retired.clear();
+        self.draining_retired = false;
         self.host.requests.clear();
     }
 
@@ -725,7 +732,7 @@ impl Module {
 
     /// Answers awaiting a fetch the host has yet to fulfil.
     pub fn in_flight(&self) -> usize {
-        self.parked.len() + self.streams.len()
+        self.parked.len() + self.streams.len() + self.retired.len()
     }
 
     /// Decode once, retaining metadata for async dispatch and the typed answer
@@ -842,15 +849,10 @@ impl Module {
                 "exact-js: the engine is not loaded".into(),
             ));
         }
-        // One storage turn at a time, as the browser's worker runs them (its
-        // `tail`) and as a worker placement's owner does: an answer that
-        // arrives while another is between storage steps waits for that turn
-        // to end before its JavaScript starts. Otherwise work an app chains
-        // behind the open turn's promise (a serialized database, say) would
-        // run inside the wrong answer, and this one would be pending on
-        // nothing. Its continuation is held at dispatch and released by the
-        // commit that ends the turn.
-        if self.turn_open() && self.sigs.contains_key(source) {
+        // One storage turn at a time. Forgotten deferred mutations remain
+        // queued for their external effects, even after their reply is dropped.
+        self.finish_retired();
+        if self.defer_turn(source) {
             let token = self.next_deferred;
             self.next_deferred += 1;
             self.parked.push((
@@ -861,6 +863,8 @@ impl Module {
                     work_taken: false,
                     progress: self.progress,
                     last: false,
+                    deferred_args: matches!(target, Some(Target::Mutation(_)))
+                        .then(|| args.to_vec()),
                 },
             ));
             return Ok(Answer::Later(Request::continuation(token)));
@@ -969,6 +973,7 @@ impl Module {
                 "exact-js: the engine is not loaded".into(),
             ));
         }
+        self.finish_retired();
         let key = Module::key(target, source, args);
         if self.streams.iter().any(|(k, _)| *k == key) {
             return self.message(store, source, key, outcome);
@@ -992,7 +997,7 @@ impl Module {
             if let Outcome::Failed { message, .. } = &outcome {
                 return Err(DataError::Unavailable(message.clone()));
             }
-            return self.begin(Some(store), target, source, args);
+            return self.begin_deferred(store, target, source, args);
         }
         let outcome_text = outcome_to_json(&outcome).to_string();
         self.host.store = Some(store as *mut Store);
@@ -1075,6 +1080,7 @@ impl Module {
             work_taken: false,
             progress: self.progress,
             last: false,
+            deferred_args: None,
         };
         if request.stream {
             self.streams.push((key, parked));
@@ -1198,6 +1204,7 @@ impl DataSource for Module {
 
     fn release(&mut self, store: &Store) -> Vec<(u64, Dispatch)> {
         let _ = store;
+        self.finish_retired();
         // Waiting answers whose wait may be over are asked again.
         let mut released = Vec::new();
         for token in std::mem::take(&mut self.waiters) {
@@ -1331,34 +1338,8 @@ impl DataSource for Module {
     /// call whose token is not the one in flight goes too (minesweeper F10:
     /// a read replaced by its own refresh kept its turn open forever, and the
     /// refresh, deferred behind it, never ran).
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
-        let keep: HashMap<Key, Option<u64>> = in_flight
-            .iter()
-            .map(|f| {
-                (
-                    Module::key(Some(f.target), f.source, f.args),
-                    f.continuation,
-                )
-            })
-            .collect();
-        let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.parked)
-            .into_iter()
-            .partition(|(key, parked)| {
-                key.0.is_some()
-                    && !matches!(keep.get(key), Some(None))
-                    && keep.get(key) != Some(&Some(parked.call))
-            });
-        self.parked = kept;
-        let (ended, open): (Vec<_>, Vec<_>) = std::mem::take(&mut self.streams)
-            .into_iter()
-            .partition(|(key, _)| key.0.is_some() && !keep.contains_key(key));
-        self.streams = open;
-        self.forget_calls(
-            gone.into_iter()
-                .chain(ended)
-                .map(|(_, parked)| parked.call)
-                .collect(),
-        );
+    fn forgotten(&mut self, store: &Store, in_flight: &[InFlight<'_>]) {
+        self.retire_calls(store, in_flight);
     }
 
     /// Stops the running call, or the next one to start, from any thread:

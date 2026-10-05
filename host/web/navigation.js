@@ -36,6 +36,19 @@ export function unselected(nav) {
 const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
+// Agent launch facts belong to the carrier, not the router's typed URL. Keep
+// them on every History entry so a browser reload retains its agent adapter.
+const agentParameters = ['agent', 'seed', 'locale', 'timeZone', 'epoch', 'storage'];
+function historyURL(path) {
+  if (!AGENT_ADMITTED) return location.origin + path;
+  const facts = launched();
+  if (!facts.has('agent')) return location.origin + path;
+  const url = new URL(location.origin + path);
+  for (const key of agentParameters) {
+    if (facts.has(key)) url.searchParams.set(key, facts.get(key));
+  }
+  return url.href;
+}
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 
 function pressBack(nav) {
@@ -60,11 +73,11 @@ function commit(op) {
     first = 0;
     originIndex = browserIndex();
     written[0] = stamp(0, op);
-    history.replaceState(written[0], "", location.origin + op.url);
+    history.replaceState(written[0], "", historyURL(op.url));
   } else if (written[cursor]?.id === op.top) {
     if (written[cursor].url !== op.url) {
       written[cursor] = stamp(cursor, op);
-      history.replaceState(written[cursor], "", location.origin + op.url);
+      history.replaceState(written[cursor], "", historyURL(op.url));
     }
   } else {
     let j = cursor;
@@ -80,7 +93,7 @@ function commit(op) {
     for (const index of Object.keys(written)) if (Number(index) > cursor) delete written[index];
     written.length = Math.max(0, cursor + 1);
     written[++cursor] = stamp(cursor, op);
-    history.pushState(written[cursor], "", location.origin + op.url);
+    history.pushState(written[cursor], "", historyURL(op.url));
   }
 }
 
@@ -101,19 +114,19 @@ function popped({ j, state, url }) {
       cursor = j ?? cursor;
       first = Math.min(first, cursor);
       written[cursor] = stamp(cursor, last);
-      go(cursor, j ?? cursor, () => history.replaceState(written[cursor], "", location.origin + written[cursor].url));
+      go(cursor, j ?? cursor, () => history.replaceState(written[cursor], "", historyURL(written[cursor].url)));
     } else if (pop.op) {
       const op = pop.op;
       if (j !== null && j !== cursor) go(cursor, j, () => commit(op));
       else {
-        history.replaceState(written[cursor], "", location.origin + written[cursor].url);
+        history.replaceState(written[cursor], "", historyURL(written[cursor].url));
         commit(op);
       }
     } else {
       if (back) log("history: Back refused; restoring the entry");
       else log(`history: navigate ${JSON.stringify(target)} refused; restoring the entry`);
       if (j !== null && j !== cursor) go(cursor, j);
-      else history.replaceState(written[cursor], "", location.origin + written[cursor].url);
+      else history.replaceState(written[cursor], "", historyURL(written[cursor].url));
     }
   } finally { pop = null; }
 }
@@ -145,7 +158,7 @@ export const navigation = {
       if (echo !== null && j === echo.index) {
         const finish = echo.finish; echo = null; finish(); drain(); settled(); return;
       }
-      queue.push({ j, state: event.state, url: location.pathname + location.search });
+      queue.push({ j, state: event.state, url: launchLocation() });
       if (echo !== null) {
         const pending = echo; echo = null;
         go(pending.index, j ?? cursor, pending.finish);
@@ -793,12 +806,12 @@ export function timeReporter(params, platform = globalThis) {
 export function launchLocation(platform = globalThis) {
   const { pathname, search } = platform.location, q = new URLSearchParams(search);
   if (!(AGENT_ADMITTED && q.has('agent'))) return pathname + search;
-  for (const k of ['agent', 'seed', 'locale', 'timeZone', 'epoch', 'storage']) q.delete(k);
+  for (const k of agentParameters) q.delete(k);
   const rest = q.toString();
   return pathname + (rest ? '?' + rest : '');
 }
-// The drive's facts are the launch URL's: a route the app pushed before the
-// first ask has no `?agent&…` (storage-environment.js `launchHref`).
+// The drive's facts are the launch URL's, even after a route changes the
+// address bar (storage-environment.js `launchHref`).
 const launched = () => new URL(globalThis.performance?.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams;
 let pageTime;
 export const reportTime = (elapsed) => (pageTime ??= timeReporter(launched()))(elapsed);

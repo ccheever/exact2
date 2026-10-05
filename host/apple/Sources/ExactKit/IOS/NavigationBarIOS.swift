@@ -202,6 +202,10 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
     }
 
     func navigationController(_ nav: UINavigationController, didShow controller: UIViewController, animated: Bool) {
+        // Restoring a hidden bar changes the route's safe area. Lay out its
+        // container before reporting that cover to the kernel.
+        nav.view.setNeedsLayout()
+        nav.view.layoutIfNeeded()
         host?.navigationController(nav, didShow: controller, animated: animated)
         app?.navigationController?(nav, didShow: controller, animated: animated)
     }

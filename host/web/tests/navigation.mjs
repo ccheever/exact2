@@ -41,12 +41,11 @@ function fixture(plan) {
     if (wrapped) return instantiate(...args);
     wrapped = true;
     const result = await instantiate(...args), w = result.instance.exports;
-    history.replaceState(null, '', location.origin + location.pathname);
     globalThis.historyCalls = [];
     for (const name of ['pushState', 'replaceState', 'go']) {
       const original = history[name].bind(history);
       history[name] = (...args) => {
-        if (name !== 'go' && args[2] !== location.origin + args[0].url) throw new Error('History API needs an origin-prefixed URL');
+        if (name !== 'go' && new URL(args[2]).origin !== location.origin) throw new Error('History API needs an origin-prefixed URL');
         historyCalls.push({ name, args }); return original(...args);
       };
     }
@@ -63,20 +62,17 @@ function fixture(plan) {
     } } } };
   };
 }
-// The JS target's fixture, before the runtime: agent mode, as the wasm
-// fixture sets it (the runtime reads it from the query, which the fixture
-// answers for), a clean location, as the wasm fixture leaves one at boot,
-// and the same History recorders.
+// The JS target's fixture uses real agent query parameters, as the wasm
+// fixture does, and the same History recorders.
 function jsFixture() {
   globalThis.fixtureBoot = crypto.randomUUID();
-  const Params = URLSearchParams;
-  globalThis.URLSearchParams = class extends Params { constructor(init) { super(init); if (init === location.search) this.set('agent', '1'); } };
-  history.replaceState(null, '', location.origin + location.pathname);
+  const agentURL = new URL(location.href); agentURL.searchParams.set('agent', '1');
+  history.replaceState(null, '', agentURL);
   globalThis.historyCalls = [];
   for (const name of ['pushState', 'replaceState', 'go']) {
     const original = history[name].bind(history);
     history[name] = (...args) => {
-      if (name !== 'go' && args[2] !== location.origin + args[0].url) throw new Error('History API needs an origin-prefixed URL');
+      if (name !== 'go' && new URL(args[2]).origin !== location.origin) throw new Error('History API needs an origin-prefixed URL');
       historyCalls.push({ name, args }); return original(...args);
     };
   }
@@ -124,6 +120,7 @@ try {
   };
   const fresh = async (path = '/') => {
     const before = await evaluate('globalThis.fixtureBoot ?? null');
+    await call('Page.resetNavigationHistory'); // each case owns its history; a same-URL reload keeps a forward tail
     await call('Page.navigate', { url: url + path + '?agent=1' });
     await until(`globalThis.fixtureBoot !== ${JSON.stringify(before)} && document.getElementById('exact-root')?.dataset.bootMs && globalThis.exact?.${js ? 'ready' : 'agent'}`);
     await evaluate('exact.ready');
@@ -140,9 +137,11 @@ try {
   };
   let since = 0;
   const record = async (name, path, length, depth, presses, journal = null) => {
-    const row = await evaluate(`(async()=>{const state=await exact.agent({op:'state'});return {origin:location.origin,location:location.pathname+location.search,length:history.length,stamp:history.state,navigation:state.navigation,backPresses:state.slots.backPresses,navigatePresses:state.slots.navigatePresses,logs:await exact.agent({op:'logs',since:${since}}),calls:historyCalls.splice(0),pops:popEvents.splice(0)};})()`);
+    const row = await evaluate(`(async()=>{const state=await exact.agent({op:'state'});return {origin:location.origin,location:location.pathname+location.search,agent:new URLSearchParams(location.search).get('agent'),length:history.length,stamp:history.state,navigation:state.navigation,backPresses:state.slots.backPresses,navigatePresses:state.slots.navigatePresses,logs:await exact.agent({op:'logs',since:${since}}),calls:historyCalls.splice(0),pops:popEvents.splice(0)};})()`);
     since = row.logs.next; rows.push({ name, ...row }); console.log(JSON.stringify({ name, ...row }));
-    assert.equal(row.location, path, name); assert.equal(row.length, length, name);
+    const shown = new URL(url + row.location); shown.searchParams.delete('agent');
+    assert.equal(row.agent, '1', name + ' keeps the adapter through reload');
+    assert.equal(shown.pathname + shown.search, path, name); assert.equal(row.length, length, name);
     assert.equal(row.navigation.url, path, name); assert.equal(row.navigation.stack.length, depth, name);
     assert.equal(row.backPresses, presses, name);
     if (journal !== null) assert.equal(row.logs.lines.filter(l => l.includes(journal)).length, 1, name);
@@ -268,6 +267,10 @@ try {
     await tap('back'); await until(`location.pathname==='/'`);
     const program = await record('programmatic Back echo', '/', n + 1, 1, 3);
     assert.deepEqual(program.calls.filter(c => c.name === 'go').map(c => c.args[0]), [-1]);
+    await historyTap(1);
+    const reopened = await record('Forward reopens the programmatically popped route', '/post/43', n + 1, 2, 3);
+    assert.equal(reopened.navigatePresses, 2, 'Forward dispatched another navigate');
+    assert.equal(String(reopened.stamp.id), reopened.navigation.route);
   });
   await run('same-origin links to routes are followed in place', async () => {
     const n = await fresh(), boot = await evaluate('fixtureBoot');
@@ -346,7 +349,7 @@ try {
     await record('Back replacement prelude', '/post/42', n + 1, 2, 0);
     await historyTap(-1);
     const back = await record('Back selects key with new URL', '/?from=back', n + 1, 1, 1);
-    assert.equal(back.stamp.url, back.location);
+    assert.equal(back.stamp.url, back.navigation.url);
   });
   await run('two-step Back and go(-2) echo', async () => {
     const n = await fresh(); await tap('push-post'); await tap('push-person');
@@ -407,18 +410,18 @@ try {
     await tap('open-unknown');
     const opened = await record('open //evil.invalid/x', '//evil.invalid/x', n + 1, 2, 0);
     assert.equal(await evaluate('location.origin'), url);
-    assert.equal(opened.calls.find(c => c.name === 'pushState').args[2], url + '//evil.invalid/x');
+    assert.equal(opened.calls.find(c => c.name === 'pushState').args[2], url + '//evil.invalid/x?agent=1');
     await tap('replace-unknown');
     const replaced = await record('replace //evil.invalid/y', '//evil.invalid/y', n + 1, 2, 0);
     assert.equal(replaced.stamp.id, opened.stamp.id);
-    assert.equal(replaced.calls.find(c => c.name === 'replaceState').args[2], url + '//evil.invalid/y');
+    assert.equal(replaced.calls.find(c => c.name === 'replaceState').args[2], url + '//evil.invalid/y?agent=1');
     await tap('push-post'); await record('push above notfound', '/post/42', n + 2, 3, 0);
     await historyTap(-1);
     await record('Back selects notfound', '//evil.invalid/y', n + 2, 2, 1);
     const launchedLength = await fresh('//evil.invalid/x'); since = 0;
     const launched = await record('launch //evil.invalid/x', '//evil.invalid/x', launchedLength, 2, 0);
     assert.equal(await evaluate('location.origin'), url);
-    assert.equal(launched.calls.find(c => c.name === 'replaceState').args[2], url + '//evil.invalid/x');
+    assert.equal(launched.calls.find(c => c.name === 'replaceState').args[2], url + '//evil.invalid/x?agent=1');
     assert.deepEqual(consoleLines, [], 'no browser exception for a double-slash notfound location');
   });
   await run('accepted entries before boot and queued commits', async () => {
@@ -527,9 +530,18 @@ try {
     }
     // The public session API's form runs the same page path.
     served = dist;
-    const session = await open({ host: 'web', url: url + '/' });
+    const session = await open({ host: 'web', url: url + '/', seed:42, locale:'fr-CA', timeZone:'America/Toronto' });
     try {
       let key = (await session.state()).navigation.route;
+      await session.tap('push-post-' + key);
+      const facts = await session.carrier.evaluate('Object.fromEntries(new URLSearchParams(location.search))');
+      assert.equal(facts.seed, '42'); assert.equal(facts.locale, 'fr-CA'); assert.equal(facts.timeZone, 'America/Toronto');
+      await session.carrier.reset({keep:true});
+      assert.deepEqual(await session.carrier.evaluate('Object.fromEntries(new URLSearchParams(location.search))'), facts);
+      assert.equal((await session.state()).navigation.url, '/post/42', 'authored reload keeps the current route');
+      assert.equal(await session.carrier.evaluate("new URLSearchParams(location.search).get('agent')"), '1');
+      await session.carrier.reset();
+      key = (await session.state()).navigation.route;
       await session.tap('push-post-' + key);
       assert.equal((await session.tap('navigation', { history: -1 })).delivery, 'platform');
       assert.equal((await session.state()).navigation.url, '/');

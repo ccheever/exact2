@@ -3,9 +3,8 @@ use super::*;
 use std::collections::BTreeSet;
 
 impl<D: DataSource> Presenter<D> {
-    /// Set an input's value as typing does and commit it: focused, the
-    /// value replaced, an `input` then a `change` heard by the runner, each
-    /// where the node has a handler for it (LLP 1069.001 D4).
+    /// Type into a focused field. `input` edits it now; `change` waits
+    /// for Enter or blur, as for hardware typing (LLP 1069.001 D4).
     pub fn type_text(&mut self, id: ViewId, text: &str) -> Result<String, String> {
         if self.host.route_visibility(id).1 {
             return Err(format!("view {id} is hidden or inert"));
@@ -52,16 +51,17 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = self.set_focus(Some(id), now) {
             return Err(e);
         }
-        let mut error = None;
-        for (event, kind) in [
-            (Event::Input(text.clone().into()), EventKind::Input),
-            (Event::Change(text.clone().into()), EventKind::Change),
-        ] {
-            if self.host.runner().handlers_of(id).contains(&kind) {
-                error = error.or(self.host.dispatch_at(id, event, now));
-            }
-        }
-        self.edited = None;
+        self.edited = Some(id);
+        let error = if self
+            .host
+            .runner()
+            .handlers_of(id)
+            .contains(&EventKind::Input)
+        {
+            self.host.dispatch_at(id, Event::Input(text.into()), now)
+        } else {
+            None
+        };
         let e = self.after_commit();
         if let Some(e) = error.or(e) {
             return Err(e);

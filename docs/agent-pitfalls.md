@@ -237,15 +237,6 @@ guide's rules don't make obvious.
   `apps/messages/app.contract`'s inbox row (`thread-swipe-…`). (Ledger2 DIARY, "Needed:
   swipe gesture", about 15 minutes, 2026-10-04.)
 
-- **A write left running after a source answers can be lost on iOS or macOS.** The
-  web kept it; the native host did not, and a list was empty after a relaunch. Cause:
-  the native data executor runs a source's promises while a request waits on them,
-  one request at a time, so a `promise` started and not awaited (a fire-and-forget
-  SQLite write) can stay unfinished, and an answer queues behind a request still in
-  flight. Fix: await the write before answering, or carry it in a
-  request of its own that the view sends (a `flush` source called with the change).
-  (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
-
 - **A mutation that answers at once leaves an async `refreshes` resource stale.** After
   `send added = addItem()` with `refreshes items`, the list kept its old answer and
   nothing was logged, on the web and on iOS. Cause: the refresh at the send only
@@ -257,20 +248,6 @@ guide's rules don't make obvious.
   but natively a promise already resolved when the call returns still answers at
   once: there it must still wait on a storage or fetch step. (Authoring bench,
   LLP 1087, t2-todo on web and iOS: about 40 minutes, 2026-10-05.)
-
-- **Two quick sends to one mutation lost the first write on iOS.** Two adds in a
-  row (`send changed = addTask(…)` from consecutive inputs) kept only the second:
-  the log said `forget request 11 (changed)`, and the first insert, queued behind
-  a storage turn still open, never landed; the web finished it. Cause: a second `send` to a mutation
-  forgets the request in flight (its reply is dropped by design); the native
-  executor finishes a forgotten request already in a storage step, but drops one
-  that has not reached its first (QUEUE). Fix until then: give each write that can
-  be in flight at once a mutation of its own, or keep the edits in Contract state and
-  send the whole of it each time, from the value assigned (`let next = …`, then
-  `tasks = next` and `send saved = saveTasks(next)`: a statement reads the state the
-  action started with), so a later request that supersedes an earlier one already
-  carries every change. (Authoring
-  bench, LLP 1087, t2-todo on iOS, 2026-10-05.)
 
 ## Driving and testing
 

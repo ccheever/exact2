@@ -97,6 +97,7 @@ extension NodeView {
             // Markdown source: the archive expands it into runs, the same
             // expansion the measurer used (LLP 1045 D3).
             runs = MarkupRuns.expand(source, base: textRun(""), color: channels("text_color", dark: night))
+            if style["visibility"]?.string == "hidden" { for i in runs.indices { runs[i].hidden = true } }
             // `currentcolor` in a shadow or stroke is each piece's own colour.
             let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
             for i in runs.indices { (runs[i].shadow, runs[i].stroke) = rows.resolve(dark: night, contrast: contrast, elevated: elevated, tint: tint, color: runs[i].color ?? own) }
@@ -109,7 +110,11 @@ extension NodeView {
                 let byId = Dictionary(inlineText.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
                 for (i, leaf) in inlineText.filter(\.paints).enumerated() where runs[i].background == nil {
                     var up = byId[leaf.parent]
-                    while let run = up, runs[i].background == nil { runs[i].background = run.run(dark: night, contrast: contrast, elevated: elevated, tint: tint).background; up = byId[run.parent] }
+                    while let run = up, runs[i].background == nil {
+                        let paint = run.run(dark: night, contrast: contrast, elevated: elevated, tint: tint)
+                        if !paint.hidden { runs[i].background = paint.background }
+                        up = byId[run.parent]
+                    }
                 }
             }
         }

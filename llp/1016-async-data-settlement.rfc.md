@@ -230,6 +230,14 @@ arguments still win; the duplicate fetch is what goes. A mutation's request is
 never kept. LLP 1054.000.000 D1 adds the other half: `mutation m … refreshes
 r` re-asks `r`, forced, when `m` is sent and when its reply lands.
 
+The native JavaScript executor keeps a sent mutation queued behind a storage turn
+even when a newer send forgets its reply. Such mutations run their storage work
+in submission order, before newer turns. Their reply and Store writes are dropped;
+`forgotten` receives read-only Store context for that cleanup, narrowed by each
+forwarder, and the executor uses a disposable snapshot. `discard` still cancels
+uncommitted deferred calls. This does not extend the lifetime of forgotten fetches
+or work across unload (2026-10-05, authoring-bench lost-write repair).
+
 A reload (`boot_carrying`, LLP 1005 §6) drops every ticket; the carried
 arguments re-request what has no compiled value. The agent's `clock settle`
 (LLP 1012 §2) waits for in-flight requests as it waits for motion and timers,

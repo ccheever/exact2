@@ -67,8 +67,12 @@ macro_rules! configured {
             fn native(&self) -> Option<$crate::exact_runner::Native> {
                 $crate::exact_runner::DataSource::native(&self.0)
             }
-            fn forgotten(&mut self, in_flight: &[$crate::exact_runner::InFlight<'_>]) {
-                $crate::exact_runner::DataSource::forgotten(&mut self.0, in_flight)
+            fn forgotten(
+                &mut self,
+                store: &$crate::exact_runner::Store,
+                in_flight: &[$crate::exact_runner::InFlight<'_>],
+            ) {
+                $crate::exact_runner::DataSource::forgotten(&mut self.0, store, in_flight)
             }
             fn dispatch(
                 &mut self,

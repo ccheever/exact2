@@ -159,7 +159,8 @@ not select the app, and `webDist` alone does not select an app. `s.op(request)` 
 host's wire beneath them: it addresses views by numeric `id`, and it refuses a
 request it would answer by doing nothing (a `target`, an unknown op, a web
 `tap` with no browser input behind it). A reload or a raw browser step goes
-through `s.carrier` (`evaluate`, and on Chrome `call` for CDP).
+through `s.carrier` (`reset({keep: true})` reloads the current browser route with
+its store and agent launch facts; `evaluate`, and on Chrome `call`, drive raw browser steps).
 
 Use the existing five repository checks for repository changes. Do not add a
 new global check or fixture framework for an ordinary app edit. For documentation,
@@ -948,8 +949,8 @@ above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
 what is in flight lands, with each answer's `then`, the clock unmoved), `resize
 800x600` (the window, mid-test), `reload`
 (the app restarts on the store it had, its state and clock starting over, so a
-test shows what persists; it opens at the launch URL, not the route the test had
-reached, so a deep link after a reload is a `type <root> "/path"` after it),
+test shows what persists; the web reloads its current URL, including its agent
+launch facts; a native app reopens at its launch location),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text; a control's value, so a `select` reads its chosen value, not its
 options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and

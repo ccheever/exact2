@@ -441,19 +441,19 @@ with the same message, never refused outright (trivia F7).
 
 An answer's storage and `fetch` steps run whether or not it awaits them once
 they have begun. On the JS web target the answer is given at once and a save left
-running finishes behind it; on Hermes the answer is given once the steps it
-started have landed (kanban F22). A save started and not awaited that is still
-queued behind the module's own promise chain when the answer is given has been
-seen lost on iOS (two authoring-bench trials, 2026-10-05; QUEUE): await it before
-answering, or carry it in a request of its own. A storage or `fetch` call that runs
-when no answer is in flight is refused and logged. Native console output reaches
-the agent's `logs` when the runner drains the module after an answer or reply;
-a write that never ran leaves no line. An answer the runner
-lets go between storage steps (a refresh it discards before a mutation lands, a
-read whose arguments changed or that a `refresh` replaced) still runs the steps it began, and the chain
-behind them, to their end before the next answer starts; only its answer is
-dropped, so serializing storage through one promise chain composes with
-`refreshes` and fast-changing arguments (ledger F12, minesweeper F10).
+running finishes behind it. Hermes drains the answer's microtasks before replying,
+including when it returns a synchronous value, and finishes storage started by
+that turn. Await saves that depend on future external work so their lifetime and
+failure belong to the answer. Storage called outside an answer is refused and
+logged; native console output reaches the agent's `logs` after an answer or reply.
+
+A newer send may replace a mutation's reply, but a native mutation already queued
+behind a storage turn still runs its storage effects in submission order. Its
+reply and Store writes are discarded; uncommitted sends discarded by a refused
+pass do not run. Forgotten work that reaches a fetch retains the usual cancellation
+policy, and unloading drops work that has not begun. Reads remain replaceable.
+This lets serial storage compose with `refreshes` and fast-changing arguments
+(ledger F12, minesweeper F10).
 
 An answer that keeps coming (LLP 1016.000) is a `fetch` with `exactStream`,
 returned as the answer: `return fetch(url, { exactStream: (event) => value })`.

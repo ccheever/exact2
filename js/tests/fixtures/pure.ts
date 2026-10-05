@@ -157,6 +157,7 @@ function transfer(mode:string):unknown {
 function wire(text:string,mode:string):unknown {
   const stringify=JSON.stringify;
   JSON.stringify=((value:unknown,replacer:never,space:never)=>{
+    if (!mode.startsWith('async') && (value as any)?.tag === 3) return stringify(value,replacer,space);
     JSON.stringify=stringify;
     stringify(value,replacer,space);
     return text;

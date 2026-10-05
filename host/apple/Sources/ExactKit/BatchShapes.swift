@@ -238,6 +238,7 @@ extension InlineStyle {
         case "font_style": run.italic = try BatchFields.string(value) == "italic"
         case "letter_spacing": run.letterSpacing = CGFloat(Float(try BatchFields.number(value)))
         case "font_variant_numeric": run.numeric = Int(try BatchFields.number(value)) & 0xff
+        case "visibility": run.hidden = try BatchFields.string(value) == "hidden"
         case "text_decoration_line": run.decoration = try BatchFields.string(value)
         case "text_color" where value.isSystemColor, "background_color" where value.isSystemColor:
             // @ref LLP 1095 D5 — a platform colour, kept by name and resolved

@@ -311,7 +311,7 @@ impl<D: DataSource> DataSource for Storage<D> {
     /// child's where the child handed one out (a storage request's never
     /// did, and one already dispatched can't be told any more), and an entry
     /// the runner no longer has in flight is let go.
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
+    fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
         let view: Vec<InFlight<'_>> = in_flight
             .iter()
             .map(|f| InFlight {
@@ -328,7 +328,7 @@ impl<D: DataSource> DataSource for Storage<D> {
         self.pending.retain(|outer, _| tokens.contains(outer));
         let pending = &self.pending;
         self.held.retain(|t| pending.contains_key(t));
-        self.source.forgotten(&view);
+        self.source.forgotten(store, &view);
     }
 
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
