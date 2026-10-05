@@ -66,6 +66,12 @@ shape Hud
 shape Time
   epochAtZero: number
 
+// Lilita One and Sniglet: Google Fonts, SIL Open Font License (fonts/LICENSE-*).
+font "Lilita One" = "assets/fonts/LilitaOne-Regular.ttf"
+font "Sniglet"
+  400 = "assets/fonts/Sniglet-Regular.ttf"
+  800 = "assets/fonts/Sniglet-ExtraBold.ttf"
+
 // Commands (`buy carrot`, `sell all`, …) are messages to the world.
 component Garden
   state playing = false
@@ -100,34 +106,35 @@ component Garden
     art = a
 
   view
-    main width="100%" height="100%" background-color="#1b2a1f" color="#fdfbf3" font-family="system-ui"
+    main width="100%" height="100%" background-color="#1b2a1f" color="#fdfbf3" font-family="Sniglet"
       when playing
         canvas surface=world(seed=7, paused=paused, restart=again, epoch=time.epochAtZero, smooth=smooth, art=art) testId="world" width="100%" height="100%" position="relative"
           when art == "pass"
-            text "Sam's Seeds" testId="stall-sign" width=240 padding=10 border-radius=8 background-color="#f6e7b8" background-image="linear-gradient(180deg, #fff3cf 0%, #e9cf8f 100%)" color="#5d3a1a" font-size=30 font-weight=800 text-align="center" border-width=3 border-color="#7a4b25"
+            text "Sam's Seeds" testId="stall-sign" width=240 padding=10 border-radius=8 background-color="#f6e7b8" background-image="linear-gradient(180deg, #fff3cf 0%, #e9cf8f 100%)" color="#5d3a1a" font-size=30 font-family="Lilita One" text-align="center" border-width=3 border-color="#7a4b25"
           column testId="hud" position="absolute" top=12 left=12 right=12 gap=8
             row testId="topbar" gap=8 align-items="center" flex-wrap="wrap"
-              text `${hud.sheckles}¢` testId="sheckles" aria-label=`${hud.sheckles_n} sheckles` padding=10 border-radius=10 background-color="#14532dd9" font-size=20 font-weight=800 color="#bef264"
-              text (hud.weather_left == "" ? hud.weather : `${hud.weather} · ${hud.weather_left}`) testId="weather" aria-live="polite" padding=10 border-radius=10 background-color=(hud.weather == "Clear" ? "#1e293bcc" : "#1d4ed8d9")
-              text `Restock ${hud.restock_in}` testId="restock" padding=10 border-radius=10 background-color="#1e293bcc"
-              text `${hud.plants} plants · ${hud.ripe}/${hud.fruit} ripe · ${hud.mutated} mutated` testId="census" padding=10 border-radius=10 background-color="#1e293bcc" font-size=13
-              when hud.clock == ""
-                text `Day ${hud.garden_time}` testId="garden-time" padding=10 border-radius=10 background-color="#1e293bcc" font-size=13
-              else
-                text (hud.night ? `☾ ${hud.clock}` : `☀ ${hud.clock}`) testId="garden-time" padding=10 border-radius=10 background-color=(hud.night ? "#1e1b4bd9" : "#f59e0bd9") color=(hud.night ? "#c7d2fe" : "#1f2937") font-size=13 font-weight=700
+              text `${hud.sheckles}¢` testId="sheckles" aria-label=`${hud.sheckles_n} sheckles` padding-top=6 padding-bottom=6 padding-left=14 padding-right=14 border-radius=14 background-image="linear-gradient(180deg, #4d7c0f 0%, #14532d 100%)" border-width=2 border-color="#a3e635" font-family="Lilita One" font-size=26 color="#ecfccb" text-shadow="0 1px 3px #000000b3"
+              row gap=12 align-items="center" padding-top=7 padding-bottom=7 padding-left=12 padding-right=12 border-radius=999 background-color="#0f172a8c" font-size=13
+                text (hud.weather_left == "" ? hud.weather : `${hud.weather} · ${hud.weather_left}`) testId="weather" aria-live="polite" color=(hud.weather == "Clear" ? "#f1f5f9" : "#93c5fd") font-family="Lilita One"
+                text `Restock ${hud.restock_in}` testId="restock" color="#cbd5e1"
+                text `${hud.plants} plants · ${hud.ripe}/${hud.fruit} ripe · ${hud.mutated} mutated` testId="census" color="#cbd5e1"
+                when hud.clock == ""
+                  text `Day ${hud.garden_time}` testId="garden-time" color="#cbd5e1"
+                else
+                  text (hud.night ? `☾ ${hud.clock}` : `☀ ${hud.clock}`) testId="garden-time" color=(hud.night ? "#c7d2fe" : "#fde68a") font-family="Lilita One"
               row flex=1 justify-content="flex-end" gap=8
-                button press=show("shop") testId="shop-tab" aria-label="Seed shop" padding=10 border-radius=10 background-color=(panel == "shop" ? "#65a30d" : "#1e293bcc")
-                  text "Shop"
-                button press=show("bag") testId="bag-tab" aria-label=`Backpack, ${hud.bag_count} fruit` padding=10 border-radius=10 background-color=(panel == "bag" ? "#65a30d" : "#1e293bcc")
-                  text `Backpack ${hud.bag_count}`
-                button press=show("tools") testId="tools-tab" aria-label="Garden tools" padding=10 border-radius=10 background-color=(panel == "tools" ? "#65a30d" : "#1e293bcc")
-                  text "Garden"
-                button press=togglePause testId="pause" aria-label=(paused ? "Resume" : "Pause") padding=10 border-radius=10 background-color="#1e293bcc"
-                  text (paused ? "Resume" : "Pause")
+                button press=show("shop") testId="shop-tab" aria-label="Seed shop" padding-top=7 padding-bottom=7 padding-left=12 padding-right=12 border-radius=12 background-color=(panel == "shop" ? "#65a30d" : "#0f172acc")
+                  text "Shop" font-family="Lilita One" font-size=17
+                button press=show("bag") testId="bag-tab" aria-label=`Backpack, ${hud.bag_count} fruit` padding-top=7 padding-bottom=7 padding-left=12 padding-right=12 border-radius=12 background-color=(panel == "bag" ? "#65a30d" : "#0f172acc")
+                  text `Backpack ${hud.bag_count}` font-family="Lilita One" font-size=17
+                button press=show("tools") testId="tools-tab" aria-label="Garden tools" padding-top=7 padding-bottom=7 padding-left=12 padding-right=12 border-radius=12 background-color=(panel == "tools" ? "#65a30d" : "#0f172acc")
+                  text "Garden" font-family="Lilita One" font-size=17
+                button press=togglePause testId="pause" aria-label=(paused ? "Resume" : "Pause") padding-top=7 padding-bottom=7 padding-left=12 padding-right=12 border-radius=12 background-color="#0f172acc"
+                  text (paused ? "Resume" : "Pause") font-family="Lilita One" font-size=17
             when panel == "shop"
               column testId="shop" width=340 max-height=440 padding=10 gap=6 border-radius=12 background-color="#0f172ae6"
                 row justify-content="space-between" align-items="center"
-                  text "Seed shop" font-size=18 font-weight=700
+                  text "Seed shop" font-size=22 font-family="Lilita One"
                   text `Restock in ${hud.restock_in}` font-size=13 color="#cbd5e1"
                 list testId="shop-list" max-height=380 overflow-x="hidden" overflow-y="scroll"
                   each s in hud.shop key=s.id
@@ -135,9 +142,9 @@ component Garden
             when panel == "bag"
               column testId="bag" width=340 max-height=440 padding=10 gap=6 border-radius=12 background-color="#0f172ae6"
                 row justify-content="space-between" align-items="center"
-                  text `Backpack · ${hud.bag_count}` font-size=18 font-weight=700
+                  text `Backpack · ${hud.bag_count}` font-size=22 font-family="Lilita One"
                   button press=run("sell all") testId="sell-all" aria-label=`Sell all for ${hud.bag_value} sheckles` padding=8 border-radius=8 background-color="#ca8a04"
-                    text `Sell all ${hud.bag_value}¢` font-weight=700
+                    text `Sell all ${hud.bag_value}¢` font-family="Lilita One"
                 when hud.bag_count == 0
                   text "Harvest ripe fruit with E" color="#94a3b8" testId="bag-empty"
                 when hud.bag_pages > 1
@@ -152,7 +159,7 @@ component Garden
                     BagItem(b=b, sell=run(`sell ${b.id}`), compost=run(`compost ${b.id}`), compostReady=(hud.plant_food < 3))
             when panel == "tools"
               column testId="tools" width=340 padding=12 gap=8 border-radius=12 background-color="#0f172ae6"
-                text `Garden ${hud.size}×${hud.size}` font-size=18 font-weight=700
+                text `Garden ${hud.size}×${hud.size}` font-size=22 font-family="Lilita One"
                 row gap=8 flex-wrap="wrap"
                   button press=run("harvest all") testId="harvest-all" padding=10 border-radius=8 background-color="#15803d"
                     text `Harvest all ${hud.ripe}`
@@ -186,53 +193,54 @@ component Garden
                     text "Storybook"
                   button press=look("pass") testId="look-pass" padding=8 border-radius=8 background-color=(art == "pass" ? "#65a30d" : "#334155")
                     text "Art pass"
-          column testId="market" position="absolute" top=72 right=12 width=300 padding=12 gap=6 border-radius=12 background-color="#14532de6"
-            text hud.order testId="objective" font-size=16 font-weight=700 color="#bef264"
-            text hud.order_detail testId="order-detail" font-size=13
+          column testId="market" position="absolute" top=72 right=12 width=280 padding=12 gap=5 border-radius=14 background-color="#14532dd9" border-width=2 border-color="#4d7c0f"
+            text hud.order testId="objective" font-family="Lilita One" font-size=19 color="#d9f99d"
+            text hud.order_detail testId="order-detail" font-size=12 color="#d1fae5"
             text hud.order_hint testId="order-hint" font-size=13
             when hud.order_seed != ""
               button press=run(`equip ${hud.order_seed}`) testId="equip-order" aria-label="Hold requested seed" padding=8 border-radius=8 background-color="#65a30d"
-                text "Hold requested seed" font-weight=700
+                text "Hold requested seed" font-family="Lilita One"
             when hud.orders < 5
               button press=run("deliver") testId="deliver" aria-label="Deliver market order" disabled=(not hud.order_ready) padding=8 border-radius=8 background-color=(hud.order_ready ? "#ca8a04" : "#334155")
-                text (hud.order_ready ? "Deliver order" : "Harvest into your backpack") font-weight=700
+                text (hud.order_ready ? "Deliver order" : "Harvest into your backpack") font-family="Lilita One"
           when paused
             column testId="paused" position="absolute" top=72 right=12 padding=12 gap=8 border-radius=12 background-color="#0f172ae6"
-              text "Paused" font-size=20 font-weight=700
+              text "Paused" font-size=24 font-family="Lilita One"
               button press=restart testId="restart" aria-label="Restart" padding=10 border-radius=8 background-color="#334155"
                 text "Restart"
-          column position="absolute" right=24 bottom=144 width=240 gap=6 padding=10 border-radius=12 background-color="#0f172ad9"
-            text `Watering can · ${hud.water}/3` testId="water-count" font-weight=700 color="#7dd3fc"
-            text hud.care testId="care" font-size=12
+          column position="absolute" right=24 bottom=144 width=232 gap=5 padding=10 border-radius=14 background-color="#0f172acc"
+            text `Watering can · ${hud.water}/3` testId="water-count" font-family="Lilita One" font-size=17 color="#7dd3fc"
+            text hud.care testId="care" font-size=11 color="#cbd5e1"
             row gap=8
               button action="water" testId="water" aria-label="Water this plot (Q)" disabled=(not hud.water_ready) padding=8 border-radius=8 background-color=(hud.water_ready ? "#0369a1" : "#334155")
                 text "Q Water"
               button action="refill" testId="refill" aria-label="Refill watering can (R)" disabled=(not hud.refill_ready) padding=8 border-radius=8 background-color=(hud.refill_ready ? "#0369a1" : "#334155")
                 text "R Refill"
-            text hud.refill testId="refill-hint" font-size=11 color="#bae6fd"
+            text hud.refill testId="refill-hint" font-size=10 color="#94a3b8"
             row gap=8 align-items="center" padding-top=4
-              text `Plant food · ${hud.plant_food}/3` testId="food-count" flex=1 font-weight=700 color="#d8b4fe"
+              text `Plant food · ${hud.plant_food}/3` testId="food-count" flex=1 font-family="Lilita One" font-size=17 color="#d8b4fe"
               button action="feed" testId="feed" aria-label="Feed this plot (F)" disabled=(not hud.feed_ready) padding=8 border-radius=8 background-color=(hud.feed_ready ? "#7e22ce" : "#334155")
                 text "F Feed"
-            text hud.feeding testId="feeding" font-size=11 color="#e9d5ff"
+            text hud.feeding testId="feeding" font-size=10 color="#94a3b8"
           when hud.away != ""
             text hud.away testId="away" position="absolute" top=240 right=12 max-width=320 padding=10 border-radius=10 background-color="#7c2d12e6" font-size=13
-          column position="absolute" left=150 right=150 bottom=24 align-items="center" gap=6 pointer-events="none"
-            text `${hud.plot} · W north · D east · S south · A west` testId="plot" padding=6 border-radius=8 background-color="#0f172ad9" font-size=13
+          column position="absolute" left=150 right=150 bottom=24 align-items="center" gap=5 pointer-events="none"
             when hud.planting != ""
-              text hud.planting testId="planting" padding=6 border-radius=8 background-color="#14532dd9" font-size=14 color="#bef264"
+              text hud.planting testId="planting" font-size=13 font-family="Lilita One" color="#d9f99d" text-shadow="0 1px 3px #000000b3"
             when hud.prompt != ""
-              text hud.prompt testId="prompt" aria-live="polite" padding=10 border-radius=10 background-color="#0f172ad9" font-size=16
+              text hud.prompt testId="prompt" aria-live="polite" padding-top=8 padding-bottom=8 padding-left=16 padding-right=16 border-radius=14 background-color="#0f172ae0" font-family="Lilita One" font-size=21
+            row gap=6 align-items="center" justify-content="center" flex-wrap="wrap"
+              text hud.plot testId="plot" padding-top=3 padding-bottom=3 padding-left=8 padding-right=8 border-radius=8 background-color="#0f172a99" font-size=12 color="#e2e8f0"
+              text (hud.held == "" ? "No seeds in hand" : `Holding ${hud.held}`) testId="held" padding-top=3 padding-bottom=3 padding-left=8 padding-right=8 border-radius=8 background-color="#14532dbf" font-size=12 color="#d9f99d"
             when hud.last != ""
-              text hud.last testId="last" padding=6 border-radius=8 background-color="#0f172a99" font-size=13 color="#e2e8f0"
-            text (hud.held == "" ? "No seeds in hand" : `Holding ${hud.held}`) testId="held" padding=6 border-radius=8 background-color="#14532dd9" font-size=13 color="#bef264"
+              text hud.last testId="last" font-size=12 color="#f1f5f9" text-shadow="0 1px 3px #000000b3"
           button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#ffffff33"
             text "Move"
           button action="act" testId="act" aria-label="Plant or harvest (E)" position="absolute" right=24 bottom=24 width=96 height=96 border-radius=48 background-color="#65a30d"
-            text "E" font-size=28 font-weight=800
+            text "E" font-family="Lilita One" font-size=34
       else
         column width="100%" height="100%" box-sizing="border-box" padding=24 align-items="center" justify-content="center" gap=20
-          text "Grow a Garden" font-size=52 font-weight=800 color="#bef264"
+          text "Grow a Garden" font-family="Lilita One" font-size=68 color="#bef264" text-shadow="0 4px 0 #14532d"
           column width="100%" max-width=380 align-items="center" gap=6
             text "Walk with WASD · E plants and harvests" width="100%" text-align="center"
             text "Buy seeds, sell fruit, expand the garden" width="100%" text-align="center"
@@ -242,7 +250,7 @@ component Garden
             text "Rain, snow and storms mutate ripening fruit" width="100%" text-align="center" color="#cbd5e1"
             text "It keeps growing while you are away" width="100%" text-align="center" color="#cbd5e1"
           button press=play autofocus aria-label="Play" testId="play" padding=16 border-radius=12 background-color="#65a30d"
-            text "Play" font-size=20 font-weight=700
+            text "Play" font-family="Lilita One" font-size=26
 
 component ShopItem
   props
@@ -252,7 +260,7 @@ component ShopItem
   view
     row testId=`shop-${s.id}` align-items="center" gap=8 padding=8 border-radius=8 background-color=(s.held ? "#365314" : "#1e293b") margin-bottom=6
       column flex=1 gap=2
-        text s.name font-weight=700
+        text s.name font-family="Lilita One"
         text `${s.rarity} · ${s.price}¢ · stock ${s.stock}` font-size=12 color=s.color
         text s.growth font-size=11 color="#cbd5e1"
       when s.owned > 0

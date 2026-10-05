@@ -1,5 +1,7 @@
 # Queue
 
+- **The web dev loop dies when a directory appears under a game's `assets/`** (2026-10-05, garden fonts). Moving fonts into `game/games/garden/assets/fonts/` while `bun game/dev.mjs garden` ran crashed it at `host/web/dev.mjs:911` (`rmSync(directory)`: `TypeError: path must be a string or TypedArray`): the restart path removes `gpuVersions` values that are not paths. Restarting the loop recovers.
+
 - **Generated game models repeat the same mesh assembly** (2026-10-04, Garden `logic/src/art.rs` and Forest `logic/src/deer_art.rs`): both copy flat-shaded triangle emission, vertex colors, ellipsoid tessellation and bounds calculation. Consider a small renderer-independent helper only if migrating both consumers deletes those copies and preserves their existing geometry and deterministic saves; keep each game's shapes and art direction local.
 
 - **An animated presentation `Offset` makes the render feed re-derive the whole world** (2026-10-05, Forest `art="pass"`, `bench.mjs` in headless Chrome). Any change in `Offset` content sets `offset_changed` in `render/src/world.rs`, which rebuilds every parented override and passes `Moved::All` to model poses, so a few dozen walk cycles cost the feed O(entities) per tick: 1.0 ms at 2k trees, 1.9 at 5k, 5.6 at 20k (0.18 ms at 20k with `present` off). Patch only the changed offsets' subtrees, as transform writes already do by pose block.
