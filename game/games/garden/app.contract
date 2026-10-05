@@ -79,7 +79,7 @@ component Garden
   state paused = false
   state panel = "shop"
   state smooth = false
-  state art = ""
+  state art = "pass"
   resource hud = exactSurface("world") as shape Hud
   resource time = exactTime() as shape Time
 

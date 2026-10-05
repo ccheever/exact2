@@ -1,22 +1,22 @@
 {
   "ticks": {
-    "0": "0xd436feb13a9f57a4",
-    "5136": "0xdddce38bb7a444bf"
+    "0": "0xa9de31866d0b1f35",
+    "5136": "0x188f5b34253105ab"
   },
   "saves": {
-    "continuation": "8c5326dfbaf0b6f88848b8e383315971bd2d686bb4b40c4bd5756e42e06f4fa4",
-    "market": "0f891881aa4b3d1f46e941d8247111dae8580dc9d7781268bb5b3f8887b95abf",
-    "recovery": "ba26c9a7ca7961580a765f34cf3d2a1f3c0a8ae764c48a21aa9d846143e95a4d",
-    "watering": "6cf13915fe6e1a9c4defc2314cfc6fc84cad9878abbd0a2174779b75a12b8d3b",
-    "compost": "a7d39ada58024d01ff65187daa958d4005a9e89ff77272b99237615ee378590c"
+    "continuation": "8c6f550a04afff455a542259c480223b6c3d076f1fa4573f2f2ae7d4420c7284",
+    "market": "ca3ec74533ab98083e7a8f53bf5c32dfb97f6be642e5943031e6d4ca4a4da8f5",
+    "recovery": "5eb0d8b25ee8a4932e0bbc9dc9a18904582cbcb776de6b5c6d9f9771b01d482f",
+    "watering": "fbcb833e7646b4b3d275349063cc6c8a42ccb7492e9f84931631916d525772b6",
+    "compost": "fd2b133046c42d1f9a108955afccb3fed55536a3697036944fc7333610b9a525"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "b17b5a91cd2d3fdc77e0f4fce5949678c329a287bf6958d5db10444ff0f3b1aa",
+  "inputs": "9a6cb2b6c7f2f9c316465f8b84af3785c4ac2bbc01406880d06cf2a92eb3482c",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "2291b998162d828dd50775ccf0d136e24c8c86d4",
-  "reason": "Main's merge (new built-in components move the classic hash; EXSIM v7 saves) and the art argument in saves; classic look otherwise unchanged"
+  "at": "e51ba0bc58450b60a41afed215c0ffd3241c52ca",
+  "reason": "The HUD's default look is now the art pass (state art = \"pass\"); classic stays selectable"
 }
