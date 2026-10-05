@@ -4,14 +4,15 @@
     "90": "0x70f5499729b09c87"
   },
   "saves": {
-    "continuation": "44336433d4ff343aa1308ef3568c88243bea5fc021a680d8bdc2a00353940278"
+    "continuation": "d00824193dd823776a807a39e96eac9d8cc07ab70067ecb97748e42838767aa8"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "1225f910605c30271d72ea94dce1092d6a06db126f470c31a827aee21b485d7c",
+  "inputs": "66a45e471ba19bb2a7e4a0bc6075b4a12dbdc4573e5d2375c371288d0f78bb82",
   "game": "audio-fixture",
   "generated": "bun game/prove.mjs audio-fixture --repin --hosts 'linux,web'",
-  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
+  "at": "ee47c4ec741149c7041c82cda164809ada668b3a",
+  "reason": "EXSIM v7 save format from main: the continuation save pin; tick pins unchanged"
 }

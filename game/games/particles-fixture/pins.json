@@ -3,14 +3,15 @@
     "300": "0x7bae8de8662184b9"
   },
   "saves": {
-    "continuation": "eb23ec6e4b7f1db3dd3277cc1fe3bdc56c6a4d42eb0e43e60c3fe9d961c4960b"
+    "continuation": "136aa7901c53a62097c27cfa7e59a69584d6f99f865350629aef6372e04ef185"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "414fc0687d00411b78e2b1879361c51d568155bc2eb86afb9d2fabac3e1d1fa9",
+  "inputs": "2397d8c9e000d1aa5c3bb54dd24cb685ada7e4d261b4977d1a7b143c182451f0",
   "game": "particles-fixture",
   "generated": "bun game/prove.mjs particles-fixture --repin --hosts 'linux,web'",
-  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
+  "at": "ee47c4ec741149c7041c82cda164809ada668b3a",
+  "reason": "EXSIM v7 save format from main: the continuation save pin; tick pins unchanged"
 }

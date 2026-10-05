@@ -4,14 +4,15 @@
     "1420": "0xa174a4d137ea52e7"
   },
   "saves": {
-    "continuation": "29933d08217e675510a9926956ef750c205750837b7582a01ae7bafa86b7c485"
+    "continuation": "1567547cb17da39267f6ab42176a1b7648197a842e960d9b84f2578a834eeef5"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "34c1a43e8a9e4fe85d709cab0f5b08d8a9359f1a3d776067fdf3d38b3f12c7e0",
+  "inputs": "7507ff5b329328b75cc5b8b55a9f288096c5f65b5a0765ba09f5027192ee2ba1",
   "game": "tennis",
   "generated": "bun game/prove.mjs tennis --repin --hosts 'linux,web'",
-  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
+  "at": "ee47c4ec741149c7041c82cda164809ada668b3a",
+  "reason": "EXSIM v7 save format from main: the continuation save pin; tick pins unchanged"
 }

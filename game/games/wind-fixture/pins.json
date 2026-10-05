@@ -3,14 +3,15 @@
     "300": "0x0a708c80135e921b"
   },
   "saves": {
-    "continuation": "585350599dae183d72e80ebe1d46a33b7b4ab808653c2392d93dda12b2ae16cf"
+    "continuation": "f08c499cf14fdddb4a52e923af45dd2bc16e638c7d26ed907b6967539d2689ac"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "7026f92b3dc5d2180602290693341df1c26be2c90a6827e020256a5881a9a07f",
+  "inputs": "9ac2cadaebb675dbce5989a64d705412375a2b0295c98ba6db7a919984e8d64a",
   "game": "wind-fixture",
-  "generated": "bun game/prove.mjs wind-fixture --hosts 'linux,web'",
-  "at": "f1c177036e370b462285f69337b23119d6eb7628"
+  "generated": "bun game/prove.mjs wind-fixture --repin --hosts 'linux,web'",
+  "at": "ee47c4ec741149c7041c82cda164809ada668b3a",
+  "reason": "EXSIM v7 save format from main: the continuation save pin; tick pins unchanged"
 }
