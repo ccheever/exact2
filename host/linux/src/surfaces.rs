@@ -517,13 +517,21 @@ impl Surfaces {
             if !self.attempted.insert(artifact.clone()) {
                 continue;
             }
-            match Abi::open(&compat, &artifact).and_then(|mut abi| {
-                if artifact.is_empty() {
-                    let pack = abi.prepare_shaders(&compat, assets)?;
-                    abi.commit_shaders(pack)?;
-                }
-                Ok(abi)
-            }) {
+            // A module that cannot open (none built, no baked identity) is
+            // logged and its canvases stay Contract-painted (a99d55103); a
+            // shader pack it refuses is the reply's error (LLP 1015.004).
+            let opened = Abi::open(&compat, &artifact)
+                .map_err(|e| (e, false))
+                .and_then(|mut abi| {
+                    if artifact.is_empty() {
+                        let pack = abi
+                            .prepare_shaders(&compat, assets)
+                            .map_err(|e| (e, true))?;
+                        abi.commit_shaders(pack).map_err(|e| (e, true))?;
+                    }
+                    Ok(abi)
+                });
+            match opened {
                 Ok(abi) => {
                     // Headless, a module recovers to "no device"; on Android it loaded one.
                     #[cfg(not(target_os = "android"))]
@@ -542,9 +550,11 @@ impl Surfaces {
                     }
                     self.abis.insert(artifact, abi);
                 }
-                Err(e) => {
+                Err((e, refused)) => {
                     host.log(format!("surface module unavailable: {e}"));
-                    self.error = Some(e);
+                    if refused {
+                        self.error = Some(e);
+                    }
                 }
             }
         }
