@@ -472,9 +472,18 @@ function contractGraph() {
     // then refused it.
     const inside = d => graph.packages.some(p => d === p.root || d.startsWith(p.root + '/')) || /(^|\/)node_modules(\/|$)/.test(d)
       || graph.consulted.some(c => c.endsWith('/package.json') && dirname(c) === d);
-    const dirs = new Set([...graph.packages.map(p => p.root), ...graph.consulted.map(c => nearest(dirname(c))).filter(inside)]);
-    return { files, dirs };
-  } catch { return { files: new Set(), dirs: new Set() }; }
+    // Watched where they really are: a watch root that is a link is refused.
+    const real = d => { try { return realpathSync(d); } catch { return d; } };
+    const dirs = new Set([...graph.packages.map(p => p.root), ...graph.consulted.map(c => nearest(dirname(c))).filter(inside)].map(real));
+    // Where a node_modules not made yet would be: its making is an install.
+    const shallow = new Set(graph.consulted.flatMap(c => {
+      const at = c.lastIndexOf('/node_modules/');
+      if (at < 0) return [];
+      const parent = c.slice(0, at);
+      return !existsSync(`${parent}/node_modules`) && existsSync(parent) ? [parent] : [];
+    }));
+    return { files, dirs, shallow };
+  } catch { return { files: new Set(), dirs: new Set(), shallow: new Set() }; }
 }
 
 function startModuleCompiler() {
@@ -557,10 +566,24 @@ function startModuleCompiler() {
   // dot directories are its sources too; only its node_modules is not).
   const packageDirs = new Set();
   const watchPackages = () => {
-    for (const dir of contractGraph().dirs) {
+    const graph = contractGraph();
+    for (const dir of graph.dirs) {
       if (packageDirs.has(dir) || !existsSync(dir)) continue;
       packageDirs.add(dir);
-      watches.push(watchModuleSources(dir, name => /(^|\/)node_modules(\/|$)/.test(name), moduleChanged));
+      // A package that cannot be watched is said, never a stop to the producer.
+      try {
+        const handle = watchModuleSources(dir, name => /(^|\/)node_modules(\/|$)/.test(name), moduleChanged);
+        if (handle.error) { console.error(`cannot watch ${dir}: ${handle.error.message}`); handle.close(); }
+        else watches.push(handle);
+      } catch (error) { console.error(`cannot watch ${dir}: ${error.message}`); }
+    }
+    for (const dir of graph.shallow) {
+      if (packageDirs.has(`shallow:${dir}`)) continue;
+      packageDirs.add(`shallow:${dir}`);
+      try {
+        const handle = watch(dir, (_event, name) => { if (String(name) === 'node_modules') moduleChanged(); });
+        watches.push({ error: null, close: () => handle.close() });
+      } catch (error) { console.error(`cannot watch ${dir}: ${error.message}`); }
     }
   };
   watchPackages();

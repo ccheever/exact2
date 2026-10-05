@@ -440,7 +440,8 @@ stage 1 lands, and stage 2 waits on them.
 - r4 (2026-10-05): the code review's second round (§11).
 - r5 (2026-10-05): the code review's third round (§12).
 - r6 (2026-10-05): the code review's fourth round (§13).
-- r7 (2026-10-05): the code review's fifth and last round (§14).
+- r7 (2026-10-05): the code review's fifth round (§14).
+- r8 (2026-10-05): round 6; the bake compiles in place (§15).
 
 ## 9. Review dispositions (round 1)
 
@@ -669,4 +670,21 @@ round 5's fixes themselves introduce is unreviewed.
 | Astra 4: a failed TypeScript generation installed no package watcher | The producer re-reads the graph after every generation, failed or not |
 | Astra 5: a linked package whose manifest refused was not watched | A consulted manifest's directory is watched as a package |
 | Astra 6 / Grok 3: a missing package was looked for at four ancestors; a fresh app with no `node_modules` did not see its install | Every ancestor is recorded; the JS loop watches the directory where a missing `node_modules` would be made |
+
+## 15. Code review round 6 dispositions
+
+Charlie authorized up to ten more rounds after round 5 ("let's get this right"). Round 6
+(`llp/reviews/code-2026-10-05-1091-r6.{astra,grok}.md`): Astra UNSOUND, Grok SOUND WITH CHANGES.
+Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1: a package re-exporting another split a declaration in the stage (a staged copy and its original); Grok 2: the Windows junction command split on `&` | Structural: **the TypeScript bake compiles the app's Contract where it lives**, as the web build does, and checks the capture after the compile, so the plan is built from the bytes captured or the bake is refused. The stage holds the TypeScript alone; the package links, the staged-copy rule, relocation and the Windows junction are deleted. This supersedes §5's and §12–§14's staging |
+| Astra 2: `canvas surface=chart()` named a function | A `surface` call's head is the drawing module's; only its arguments are rewritten |
+| Grok 1: a task named `t` hid a prop `t` | Tasks are not bindings (the checker's scope holds none) |
+| Astra 7: 256 times overflowed a `u8` | The count saturates |
+| Astra 4: relinking an install to another directory did not rebuild the wasm session | The install's own `package.json` path is watched as well as its real one |
+| Astra 3: a watch root that is a link stopped the TypeScript producer | Package roots are watched at their real paths; one that cannot be watched is said, not a stop |
+| Astra 5: the producer missed an install where no `node_modules` was | It watches the directory where that `node_modules` would be made |
+| Astra 6: Completion Storm's build scripts did not track used files | They call `contract::rerun_if_changed` |
 

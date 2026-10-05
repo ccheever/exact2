@@ -240,8 +240,7 @@ impl Rewriter<'_> {
                 .iter()
                 .map(|b| b.name.clone())
                 .chain(resources.iter().map(|r| r.name.clone()))
-                .chain(mutations.iter().map(|m| m.name.clone()))
-                .chain(tasks.iter().map(|t| t.name.clone())),
+                .chain(mutations.iter().map(|m| m.name.clone())),
         );
         self.bind_callable(actions.iter().map(|a| a.name.clone()));
         for b in provides.iter_mut().chain(derives) {
@@ -444,6 +443,14 @@ impl Rewriter<'_> {
                 }
                 "animation-name" | "animationName" => self.animation(&mut a.value, false)?,
                 "animation-timeline" | "animationTimeline" => self.timeline(&mut a.value)?,
+                // `surface=name(args)`: the name is the drawing module's, not
+                // a function (types/checks.rs); only its arguments are Contract.
+                "surface" => {
+                    if let Expr::Call(_, args, _) = &mut a.value {
+                        self.exprs(args)?;
+                        continue;
+                    }
+                }
                 _ => {}
             }
             self.expr(&mut a.value)?;
@@ -731,7 +738,7 @@ enum Part<'a> {
 #[derive(Default)]
 struct Shorthand {
     named: bool,
-    times: u8,
+    times: u32,
     eased: bool,
     counted: bool,
     directed: bool,
@@ -750,7 +757,7 @@ impl Shorthand {
         {
             self.eased = true;
         } else if (part.ends_with("ms") || part.ends_with('s')) && self.times < 2 {
-            self.times += 1;
+            self.times = self.times.saturating_add(1);
         }
     }
 
@@ -768,7 +775,7 @@ impl Shorthand {
             .and_then(number)
             .is_some();
         if time {
-            self.times += 1;
+            self.times = self.times.saturating_add(1);
             return (self.times <= 2).then_some(false);
         }
         let easing = matches!(

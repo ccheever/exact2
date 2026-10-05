@@ -527,3 +527,91 @@ fn a_missing_package_is_watched_at_every_ancestor() {
         graph.consulted
     );
 }
+
+// Round 6 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_surface_head_is_the_drawing_modules_not_a_function() {
+    let dir = Dir::new("surface-head");
+    dir.write(
+        "ui.contract",
+        "fn chart(n: number): number = n\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\ncomponent App\n  view\n    column\n      Card()\n      canvas surface=chart() width=10 height=10\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(
+        e.as_ref().is_none_or(|e| e.id != "contract-use-missing"),
+        "{e:?}"
+    );
+}
+
+#[test]
+fn a_task_does_not_hide_a_prop_named_t() {
+    let dir = Dir::new("task-t");
+    dir.write(
+        "ui.contract",
+        "fn t(k: string): string = \"from-fn\"\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    dir.write("strings/en.json", r#"{"hi":"Hello"}"#);
+    // The checker's scope holds no tasks: the prop `t` is the innermost
+    // binding, so `t(…)` is the imported fn, not the strings intrinsic.
+    let root = dir.write(
+        "app.contract",
+        "use t, Card from \"./ui.contract\"\ncomponent App\n  props\n    t: string\n  state n = 0\n  action go\n    n = n + 1\n  task t mount\n    every(1000, go)\n  view\n    column\n      Card()\n      text t(\"hi\")\n",
+    );
+    match contract::compile_path(&root) {
+        Ok(plan) => assert!(format!("{plan:?}").contains("from-fn")),
+        // A root with props, or a task named like a prop, is the checker's
+        // to refuse; what must not happen is an unknown function.
+        Err(e) => assert!(
+            e.id != "type-unknown-function" && e.id != "contract-use-missing",
+            "{e}"
+        ),
+    }
+}
+
+#[test]
+fn many_times_in_a_shorthand_do_not_overflow() {
+    let dir = Dir::new("many-times");
+    let times = vec!["1s"; 300].join(" ");
+    dir.write(
+        "ui.contract",
+        "keyframes p\n  to opacity=0\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        &format!("use Card from \"./ui.contract\"\nkeyframes p\n  to opacity=1\ncomponent App\n  view\n    column\n      Card()\n      view animation=\"{times}\"\n"),
+    );
+    let _ = contract::compile_path(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_installs_own_path_is_watched_so_relinking_it_rebuilds() {
+    let dir = Dir::new("relink");
+    dir.write(
+        "v1/package.json",
+        r#"{"name":"ui","exports":"./index.contract"}"#,
+    );
+    dir.write(
+        "v1/index.contract",
+        "component Card\n  view\n    text \"v1\"\n",
+    );
+    std::fs::create_dir_all(dir.0.join("app/node_modules")).unwrap();
+    std::os::unix::fs::symlink(dir.0.join("v1"), dir.0.join("app/node_modules/ui")).unwrap();
+    let root = dir.write(
+        "app/app.contract",
+        "use Card from \"ui\"\ncomponent App\n  view\n    Card()\n",
+    );
+    let graph = contract::source_graph(&root);
+    assert!(
+        graph
+            .consulted
+            .contains(&dir.0.join("app/node_modules/ui/package.json")),
+        "{:?}",
+        graph.consulted
+    );
+}

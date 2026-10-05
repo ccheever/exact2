@@ -207,6 +207,9 @@ fn package(spec: &str, dir: &Path, consulted: &mut Vec<PathBuf>) -> Result<Resol
     // The manifest is the package's, where it really is: a linked directory,
     // or Bun's `file:` install of per-file links, leads to the library's
     // own `package.json`, and the package is the directory that holds it.
+    // The install's own path too: relinking it to another directory changes
+    // what it resolves to without touching either directory's files.
+    consulted.push(found.join("package.json"));
     let manifest = found.join("package.json").canonicalize().map_err(|e| {
         (
             "contract-use-unreadable",
