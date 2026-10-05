@@ -596,7 +596,7 @@ An 8-bit sRGB screenshot can't check a color decision. `screenshot` stays
 
 - **Contract:** a canvas takes `color-space` (`srgb` | `display-p3`) and
   `color-type` (`unorm8` | `float16`) as attributes, HTML's `getContext`
-  names (props `colorSpace` 238 and `colorType` 239), since app code never
+  names (props `colorSpace` 240 and `colorType` 241), since app code never
   calls `getContext`.
 - A change is a new generation, as a new context would be.
 - `float16` counts 8 bytes a pixel against the canvas budget.
@@ -666,7 +666,7 @@ quality 0.9 with orientation applied and no metadata copied.
 | LLP 1069.000 | two `exactViewport` fields; `prefer` keys |
 | LLP 1069.002 | D13 |
 | LLP 1095 | its wide color value and image color spaces are D2 and D4–D7 here; dynamic platform colors and device RGB fills stay with LLP 1095 |
-| `kernel/tables/schema.json` | `dynamic_range_limit` (bit 179); props `colorSpace` (238), `colorType` (239) |
+| `kernel/tables/schema.json` | `dynamic_range_limit` (bit 179); props `colorSpace` (240), `colorType` (241) |
 
 ## 6. Costs
 
