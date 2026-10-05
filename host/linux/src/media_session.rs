@@ -165,13 +165,17 @@ pub(crate) fn act<D: DataSource>(
         ));
     }
     let node = kernel.node(id).ok_or("mediasession: the owner is gone")?;
+    // A skip of 0, or any interval that is not a positive finite number, is
+    // "the platform gave none": the element's offset, as the web glue and
+    // Apple's `perform` send it. `seekto` 0 stays the start. (LLP 1098 D9)
+    let skip = seconds.filter(|s| s.is_finite() && *s > 0.0);
     let (offset, time) = match action {
         "seekbackward" => (
-            seconds.unwrap_or(offset(node, PropId::SeekbackwardOffset)),
+            skip.unwrap_or_else(|| offset(node, PropId::SeekbackwardOffset)),
             0.0,
         ),
         "seekforward" => (
-            seconds.unwrap_or(offset(node, PropId::SeekforwardOffset)),
+            skip.unwrap_or_else(|| offset(node, PropId::SeekforwardOffset)),
             0.0,
         ),
         "seekto" => (

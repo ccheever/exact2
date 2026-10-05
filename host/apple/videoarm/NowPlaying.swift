@@ -5,7 +5,8 @@
 // element's `metadata=`) is a claimant; the owner is the claimant that most
 // recently reported `play`, kept after it pauses, else the latest to
 // register (a commit registers its claimants in document order, and
-// sessions in the order they register). Under the driver (`exactPublish`
+// sessions in the order they register). Plays in one commit share a turn,
+// and the later registration wins that tie. Under the driver (`exactPublish`
 // "false") the same info and command set are built and reported, never
 // assigned: a drive must not take a developer's media keys.
 import Foundation
@@ -46,6 +47,10 @@ final class NowPlaying {
     private var players: [ObjectIdentifier: Weak] = [:]
     private var claims: [ObjectIdentifier: (mounted: Int, played: Int)] = [:]
     private var turn = 0
+    /// One stamp for every `play` before the main queue turns: a commit's
+    /// callbacks, in whichever order `timeControlStatus` delivers them.
+    private var playOpen = false
+    private var playStamp = 0
     private(set) weak var owner: NowPlayingPlayer?
     /// The session was published, so a clear has something to undo; a page
     /// of plain videos leaves AVKit's Now Playing alone.
@@ -70,10 +75,19 @@ final class NowPlaying {
         else if claims[key] == nil { turn += 1; claims[key] = (turn, 0) }
         refresh()
     }
-    /// HTML's `play`: `paused` became false (D5).
+    /// HTML's `play`: `paused` became false (D5). One commit shares a stamp,
+    /// captured so a mount between two plays does not split them; the later
+    /// registration wins the tie.
     func played(_ p: NowPlayingPlayer) {
-        guard claims[ObjectIdentifier(p)] != nil else { return }
-        turn += 1; claims[ObjectIdentifier(p)]?.played = turn
+        let key = ObjectIdentifier(p)
+        guard claims[key] != nil else { return }
+        if !playOpen {
+            playOpen = true
+            turn += 1
+            playStamp = turn
+            DispatchQueue.main.async { [weak self] in self?.playOpen = false }
+        }
+        claims[key]?.played = playStamp
         refresh()
     }
     func left(_ p: NowPlayingPlayer) {
@@ -86,11 +100,12 @@ final class NowPlaying {
     func moved(_ p: NowPlayingPlayer) { if owner === p { refresh() } }
 
     private func ownerNow() -> NowPlayingPlayer? {
-        var best: (NowPlayingPlayer, Int, Int)?
+        var best: (NowPlayingPlayer, Int, Int, Int)?
         for (key, claim) in claims {
             guard let p = players[key]?.player else { claims.removeValue(forKey: key); continue }
-            let rank = claim.played > 0 ? (1, claim.played) : (0, claim.mounted)
-            if best == nil || rank > (best!.1, best!.2) { best = (p, rank.0, rank.1) }
+            // A shared play stamp ties by registration, which is document order.
+            let rank = claim.played > 0 ? (1, claim.played, claim.mounted) : (0, claim.mounted, 0)
+            if best == nil || rank > (best!.1, best!.2, best!.3) { best = (p, rank.0, rank.1, rank.2) }
         }
         return best?.0
     }

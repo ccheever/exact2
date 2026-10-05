@@ -445,3 +445,27 @@ fn a_negative_number_is_an_expect_state_value() {
         "{json}"
     );
 }
+
+/// The test-step EBNF is what an agent copies. It has to name `drag to`,
+/// which the parser accepts (`tap "a" drag to "b" at 1 2`).
+#[test]
+fn the_test_step_grammar_names_drag_to() {
+    let grammar = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/contract-grammar.md"
+    ))
+    .unwrap();
+    let start = grammar
+        .find("\"tap\" STRING \"drag\"")
+        .expect("the drag production");
+    let window = &grammar[start..grammar.len().min(start + 280)];
+    assert!(
+        window.contains("\"to\" STRING") && window.contains("\"at\" NUMBER NUMBER"),
+        "{window}"
+    );
+    let tests = contract::tests("test \"t\"\n  tap \"a\" drag to \"b\" at 1 2\n").unwrap();
+    assert!(matches!(
+        &tests[0].steps[0],
+        Step::Drag { to: Some((to, Some((x, y)))), .. } if to == "b" && *x == 1.0 && *y == 2.0
+    ));
+}
