@@ -160,9 +160,7 @@ pub fn harvest(w: &World, at: Vec3, item: &garden::Item) {
     *w.require_mut::<Material>("picked-fruit") = garden::paint(b.fruit_color(item.kind, item.muts));
     let mut feedback = w.resource_mut::<Feedback>();
     feedback.fruit_from = at;
-    feedback.fruit_scale = (item.weight / b.crop(item.kind).weight)
-        .sqrt()
-        .min(2.0);
+    feedback.fruit_scale = (item.weight / b.crop(item.kind).weight).sqrt().min(2.0);
 }
 
 fn pose(w: &World, name: &str, value: Transform) {

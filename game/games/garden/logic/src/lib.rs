@@ -114,7 +114,11 @@ impl Game for Garden {
         // Every look dresses the ground with its soil (`present`).
         w.spawn_named(
             "ground",
-            (Transform::default(), Mesh::plane(1.0, 1.0), Material::default()),
+            (
+                Transform::default(),
+                Mesh::plane(1.0, 1.0),
+                Material::default(),
+            ),
         );
         let player = w.spawn_named(
             "player",

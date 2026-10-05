@@ -538,7 +538,10 @@ fn order_guidance_tracks_equipped_seed_and_movement_between_empty_tiles() {
         "blueberry"
     );
     let hint = hud(&game).order_hint;
-    assert_eq!((hint.what.as_str(), hint.crop.as_str()), ("hold_seed", "Blueberry"));
+    assert_eq!(
+        (hint.what.as_str(), hint.crop.as_str()),
+        ("hold_seed", "Blueberry")
+    );
     send(&mut game, "equip blueberry");
     assert_eq!(hud(&game).order_hint.what, "move");
     game.key_down("KeyD");
@@ -588,7 +591,10 @@ fn a_lost_player_can_follow_the_public_prompt_after_restore() {
     );
     assert!(!hud(&game).plot.inside);
     let prompt = hud(&game).prompt;
-    assert_eq!((prompt.what.as_str(), prompt.way.dir.as_str()), ("return", "south"));
+    assert_eq!(
+        (prompt.what.as_str(), prompt.way.dir.as_str()),
+        ("return", "south")
+    );
     game.tap("KeyE");
     game.run(100.0);
     assert_eq!(game.world().resource::<Farm>().seeds[0], 1);
@@ -860,7 +866,10 @@ fn market_bonus_stops_after_the_last_request() {
     let before = sheckles(&game);
     send(&mut game, "deliver");
     assert_eq!(sheckles(&game), before);
-    assert_eq!(game.world().resource::<Farm>().orders, BAL.orders.len() as u32);
+    assert_eq!(
+        game.world().resource::<Farm>().orders,
+        BAL.orders.len() as u32
+    );
     let order = hud(&game).order;
     assert!(order.done && order.total == 5, "{order:?}");
 }
@@ -995,12 +1004,7 @@ fn feeding_improves_one_harvest_without_rerolling_it_and_survives_restore() {
             game.tap("KeyE");
             game.run(100.0);
         }
-        assert!(fed
-            .world()
-            .resource::<Farm>()
-            .bag
-            .iter()
-            .all(|i| i.fed));
+        assert!(fed.world().resource::<Farm>().bag.iter().all(|i| i.fed));
         assert!(fed.save().unwrap() == back.save().unwrap());
         if crop.regrows() {
             assert!(

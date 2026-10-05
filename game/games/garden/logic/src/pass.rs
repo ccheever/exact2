@@ -797,8 +797,8 @@ fn view(p: &mut Present, b: &Balance, l: &CameraLook) -> Option<Vec3> {
     let closeup = p.resource::<Props>().is_some_and(|s| s.closeup);
     let shot = if closeup { l.closeup } else { l.near };
     let eye = followed + Vec3::from(shot.offset);
-    let pose = Transform::at(eye.x, eye.y, eye.z)
-        .looking_at(followed + Vec3::from(shot.look), Vec3::Y);
+    let pose =
+        Transform::at(eye.x, eye.y, eye.z).looking_at(followed + Vec3::from(shot.look), Vec3::Y);
     place(p, camera, pose);
     Some(eye)
 }
@@ -831,7 +831,11 @@ fn mutation(
         // Red at time zero, through every hue at `rate` cycles a second.
         let c = hsv(0.0, m.rainbow.saturation, 1.0);
         let rate = m.rainbow.rate;
-        (c, c.map(|v| v * m.rainbow.glow), Shimmer::Hue { rate, phase })
+        (
+            c,
+            c.map(|v| v * m.rainbow.glow),
+            Shimmer::Hue { rate, phase },
+        )
     } else if muts & crops::GOLD != 0 {
         // A glint three radians a second, between low and high of its glow;
         // the glow is faint, so the polished metal is what reads.

@@ -386,10 +386,7 @@ pub fn status(w: &World) -> Status {
     };
     Status {
         sheckles: farm.sheckles,
-        held: farm
-            .held
-            .map(|k| b.crop(k).id.clone())
-            .unwrap_or_default(),
+        held: farm.held.map(|k| b.crop(k).id.clone()).unwrap_or_default(),
         held_name: farm
             .held
             .map(|k| b.crop(k).name.clone())

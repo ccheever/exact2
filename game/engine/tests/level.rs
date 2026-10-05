@@ -123,7 +123,11 @@ fn shown_data_is_awaited_read_by_present_and_outside_saves() {
     let mut other = load(br#"{"sky":[0.9,0.8,0.7]}"#);
     other.restore(&save).unwrap();
     assert_eq!(other.world().hash(), sim.world().hash());
-    assert_eq!(sky(&other), Sky([0.9, 0.8, 0.7]), "a new palette draws the same world");
+    assert_eq!(
+        sky(&other),
+        Sky([0.9, 0.8, 0.7]),
+        "a new palette draws the same world"
+    );
 }
 
 #[test]

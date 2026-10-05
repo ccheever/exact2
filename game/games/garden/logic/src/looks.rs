@@ -92,7 +92,6 @@ fn tag(style: Style) -> &'static str {
     }
 }
 
-
 /// This look's baked model `base` (`plant-carrot`, `orchard`): streamed, and
 /// fetched only while this look is chosen (`Game::prefetch`).
 fn drawn(style: Style, base: &str) -> DrawnMesh {
@@ -166,9 +165,17 @@ pub fn present(p: &mut Present, style: Style) {
     let aim = |at: Vec3| Transform::at(at.x, at.y, at.z).looking_at(Vec3::ZERO, Vec3::Y);
     let sun = Vec3::from(lit.sun.at);
     let opposite = Vec3::new(-sun.x, sun.y * 0.6, -sun.z);
-    for (name, at, Light { color, illuminance, .. }, shadows) in
-        [("sun", sun, lit.sun, true), ("moon", opposite, lit.fill, false)]
-    {
+    for (
+        name,
+        at,
+        Light {
+            color, illuminance, ..
+        },
+        shadows,
+    ) in [
+        ("sun", sun, lit.sun, true),
+        ("moon", opposite, lit.fill, false),
+    ] {
         if let Some(e) = p.named(name) {
             place(p, e, aim(at));
             p.insert(

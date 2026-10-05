@@ -244,7 +244,10 @@ mod tests {
     fn catalogue_is_sorted_and_whole() {
         let b = balance();
         assert!(b.crops.windows(2).all(|w| w[0].price <= w[1].price));
-        assert!(b.crops.iter().all(|c| c.slots >= 1 && (c.regrows() || c.slots == 1)));
+        assert!(b
+            .crops
+            .iter()
+            .all(|c| c.slots >= 1 && (c.regrows() || c.slots == 1)));
         assert_eq!(b.mutations.len(), 6);
         assert!((0..b.orders.len() as u32).all(|i| b.order(i).is_some()));
     }
