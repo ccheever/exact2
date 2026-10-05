@@ -435,8 +435,10 @@ ask. The default web JS target keeps no persisted resource answers
 ([LLP 1027.005](../llp/1027.005-resource-identity-and-request-context.rfc.md)).
 
 The current request owns its answer; older replies cannot overwrite a newer
-request. Assigning a mutation forgets its in-flight reply, so an action that
-sends one mutation twice on one path is refused (`analyze-send-twice`), counting
+request. A newer send or an assignment forgets a mutation's in-flight reply, not
+its work: the source's storage steps for it still run to their end on every host,
+as a browser runs a promise nobody awaits. Because the reply is forgotten, an
+action that sends one mutation twice on one path is refused (`analyze-send-twice`), counting
 the sends of the actions it calls. Every `if` is read as one that can run: two
 sends are separate paths only as arms of one `if … else if … else` or `match`,
 or in `if`s testing one unchanged name against different literals. Send one

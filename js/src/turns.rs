@@ -73,6 +73,9 @@ impl Module {
         let (Some(session), Some(engine)) = (self.storage.as_ref(), self.engine.as_mut()) else {
             return;
         };
+        // Each step the chain begins after the first must reach storage too:
+        // a refusal there ends the chain with its write unmade.
+        self.host.letting_go = true;
         while engine
             .call("__exact_let_go", ["", "", ""])
             .is_ok_and(|r| r == "storage")
@@ -85,6 +88,7 @@ impl Module {
                 break;
             }
         }
+        self.host.letting_go = false;
         // What landed may settle an answer waiting on another's work.
         self.progress += 1;
     }

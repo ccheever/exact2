@@ -179,6 +179,10 @@ struct HostState {
     documents: bool,
     /// The bake's module ([`Module::inspect`]): storage refuses as `bake`.
     baking: bool,
+    /// Delivering the storage steps of calls the runner let go
+    /// ([`Module::finish_let_go`]): there is no answer's store, and their
+    /// storage is live all the same.
+    letting_go: bool,
     /// Storage calls the bake refused so far (see [`Module::answer_for`]).
     bake_refusals: u64,
 }
@@ -283,29 +287,36 @@ unsafe extern "C" fn host_door(
         // Storage's availability, as the prelude's refusal code (kanban
         // F28): none at bake; none for a drive that names no scratch store;
         // none where the host configured no directories.
-        5 => match state.store {
-            Some(store) => {
-                // A read even at bake: the build compiles no answer that tried.
-                (*store).observe_external_read();
-                if state.baking {
-                    state.bake_refusals += 1;
-                    Err("bake".into())
-                } else {
-                    // `a` is the path a file operation names: a document
-                    // needs no app storage, as for a Rust source.
-                    let document = state.documents && a.starts_with("doc:/");
-                    Ok((!state.storage && !document).then(|| {
-                        if state.agent.is_some() {
-                            "agent"
-                        } else {
-                            "unsupported"
-                        }
-                        .into()
-                    }))
+        5 => {
+            let live = match state.store {
+                Some(store) => {
+                    // A read even at bake: the build compiles no answer that tried.
+                    (*store).observe_external_read();
+                    state.bake_refusals += u64::from(state.baking);
+                    !state.baking
                 }
+                // A call let go between storage steps runs its chain to the
+                // end with no answer's store (`Module::finish_let_go`); its
+                // steps are the module's live storage, not the bake's
+                // (splitter rough 7: a superseded save's write was refused).
+                None => state.letting_go && !state.baking,
+            };
+            // `a` is the path a file operation names: a document
+            // needs no app storage, as for a Rust source.
+            let document = state.documents && a.starts_with("doc:/");
+            if !live {
+                Err("bake".into())
+            } else {
+                Ok((!state.storage && !document).then(|| {
+                    if state.agent.is_some() {
+                        "agent"
+                    } else {
+                        "unsupported"
+                    }
+                    .into()
+                }))
             }
-            None => Err("bake".into()),
-        },
+        }
         6 => {
             if a == "kind" {
                 // A native executor can always link a module; no read.
