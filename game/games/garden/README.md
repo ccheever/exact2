@@ -31,8 +31,9 @@ places every look's props as bare poses, and `Game::present` draws the chosen lo
 `.model` assets): a model per crop and growth stage with far levels of detail,
 fruit shapes recoloured per mutation, a picket fence with lanterns, a seed
 stall with its keeper, a ten-minute day and night, and rain and snow. Its
-models are `Game::STREAMED`, so every look fetches them in the background,
-never ahead of what that look shows or inside its first frame.
+models are `Game::STREAMED` and only the art pass prefetches them
+(`Game::prefetch`): the other looks never download them, and switching to the
+art pass fetches what it shows first, then the rest, outside any first frame.
 
 Walk with WASD or the stick. **E** plants the seed in your hand on the tile
 under you, or harvests what is ripe there. You start with 20¢ and one carrot.

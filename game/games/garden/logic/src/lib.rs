@@ -62,10 +62,13 @@ impl Game for Garden {
     /// A garden does not need 120 Hz: walking interpolates, and every tick
     /// of an hour-long `clock +N` seek is paid for.
     const HZ: u32 = 30;
-    /// The art pass's baked models, fetched in the background in every look;
-    /// the classic and generated looks never wait for them.
+    /// The art pass's baked models: never awaited, and fetched only for the
+    /// look that draws them (`prefetch`), so the others never download them.
     const STREAMED: &'static [&'static str] = pass::MODELS;
     type Args = Options;
+    fn prefetch(_: &str, args: &Options) -> bool {
+        args.art == "pass"
+    }
     fn actions() -> Actions {
         Actions::new()
             .stick("move", Stick::wasd().or_arrows())

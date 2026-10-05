@@ -9,7 +9,9 @@ impl<G: Game> Sim<G> {
             return Vec::new();
         }
         for name in G::STREAMED {
-            self.world.assets.request(name);
+            if G::prefetch(name, &self.args) {
+                self.world.assets.request(name);
+            }
         }
         let revision = self.world.revision::<crate::Mesh>();
         let sprites_changed =

@@ -75,10 +75,10 @@ macro_rules! crop_models {
     };
 }
 
-/// Every model `art.mjs` writes. `Game::STREAMED`: fetched from the start in
-/// every look but never awaited, so the classic look starts as fast as ever;
-/// once loaded they stay resident, so a fruit ripening into a model nothing
-/// showed a moment ago is drawn at once and never stalls a save.
+/// Every model `art.mjs` writes. `Game::STREAMED`: fetched in the art pass
+/// (from Play, or from a switch to it) but never awaited, and never in the other
+/// looks; once loaded they stay resident, so a fruit ripening into a model
+/// nothing showed a moment ago is drawn at once and never stalls a save.
 pub const MODELS: &[&str] = crop_models!(
     "carrot",
     "strawberry",

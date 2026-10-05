@@ -28,15 +28,22 @@ pub trait Game: 'static {
     const ID: &'static str;
     /// Models and textures required before setup. Later mesh references load on sight.
     const ASSETS: &'static [&'static str] = &[];
-    /// Models and textures fetched from the start but not awaited: setup and the
-    /// first frames run without them and they draw as they land. Like any
-    /// undeclared asset, simulation cannot read them (`World::model` is None), so
-    /// load order never reaches the hash; once loaded they stay resident.
+    /// Models and textures fetched but never awaited: setup and the first frames
+    /// run without them and they draw as they land. Like any undeclared asset,
+    /// simulation cannot read them (`World::model` is None), so load order never
+    /// reaches the hash; once loaded they stay resident. One an entity shows is
+    /// fetched on sight, the rest when `prefetch` asks for them.
     const STREAMED: &'static [&'static str] = &[];
     /// One typed JSON value required before setup; declares its own asset name.
     const LEVEL: Option<crate::asset::Level> = None;
     /// Canvas argument declarations in positional order; also declares exact arity.
     type Args: Args;
+    /// Whether to fetch the `STREAMED` name before anything shows it, under these
+    /// arguments (every one by default). A look that never shows a set says no;
+    /// a live switch to one that does fetches the set then, shown names first.
+    fn prefetch(_name: &str, _args: &Self::Args) -> bool {
+        true
+    }
     /// Discoverable controls.
     fn actions() -> Actions {
         Actions::default()
