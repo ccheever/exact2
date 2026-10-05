@@ -109,18 +109,29 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
         if H::ENABLED && ASSETS {
             self.check_custom_materials(hooks.materials())?;
-            // A change in custom materials rebatches: those models draw unmerged.
             let custom = hooks.materials();
             if custom.len() != self.models.custom.len()
                 || custom
                     .iter()
-                    .any(|c| !self.models.custom.contains(&c.material))
+                    .any(|c| self.models.custom.get(&c.material) != Some(&c.reach))
             {
-                self.models.custom = custom.iter().map(|c| c.material).collect();
-                self.models.revision += 1;
+                // Another set of materials rebatches (those models draw unmerged);
+                // any change, a reach too, re-uploads the cull's bounds.
+                if custom.len() != self.models.custom.len()
+                    || custom
+                        .iter()
+                        .any(|c| !self.models.custom.contains_key(&c.material))
+                {
+                    self.models.revision += 1;
+                }
+                self.models.custom = custom.iter().map(|c| (c.material, c.reach)).collect();
+                self.cull.epoch += 1;
             }
             self.models
                 .custom_data(&self.queue, |slot| hooks.instance_data(slot));
+            if let Some(binds) = self.custom_bindings.as_mut() {
+                binds.sync(&self.device, &self.models, custom);
+            }
         }
         // This frame's quads and translucent order first: the split below
         // follows the soft particles actually drawn.
@@ -190,7 +201,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         // An authored map's intensity scales its filtered light at sample time.
         uniform[31] *= self.environment.ambient_scale();
         self.queue.write_buffer(&self.uniform, 0, bytes(&uniform));
-        self.prepare_cull(frame, cascades.as_ref(), hooks.materials());
+        self.prepare_cull(frame, cascades.as_ref());
         let mut state = Resolved {
             size,
             needs,
@@ -234,7 +245,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         state.draws += self.encode_local_shadows(encoder, hooks.materials(), frame.timestamps);
         self.encode_forward(encoder, &mut state, frame, hooks, &view)?;
         if self.quads.soft_active() {
-            self.encode_translucent(encoder, &mut state, frame);
+            self.encode_translucent(encoder, &mut state, frame, hooks.materials());
         }
         if scene_copy {
             self.encode_surface(encoder, &mut state, frame, hooks, &view)?;
@@ -323,7 +334,6 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             let binds = self
                 .custom_bindings
                 .get_or_insert_with(|| crate::hooks::MaterialBindings::new(device));
-            binds.sync(device, &self.models);
             Some(crate::hooks::MaterialGpu {
                 device,
                 models: &self.models,
@@ -353,11 +363,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         custom: &[crate::hooks::CustomMaterial],
     ) -> Result<(), RenderError> {
         for custom in custom {
-            if self
-                .models
-                .materials
-                .get(custom.material.0)
-                .is_none_or(|m| m.alpha != exact_game::asset::AlphaMode::Opaque)
+            if self.models.materials.get(custom.material.0).is_none()
                 || self
                     .models
                     .records
@@ -365,8 +371,14 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     .any(|r| r.material == custom.material && r.skin.is_some())
             {
                 return Err(RenderError::Scene(
-                    "custom materials require a loaded opaque unskinned model".into(),
+                    "custom materials require a loaded unskinned model".into(),
                 ));
+            }
+            if custom.reach.is_nan() || custom.reach < 0. {
+                return Err(RenderError::Scene(format!(
+                    "custom material reach {} is not a distance",
+                    custom.reach
+                )));
             }
         }
         Ok(())
@@ -533,9 +545,18 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 m.y_axis.truncate().abs(),
                 m.z_axis.truncate().abs(),
             );
+            // A custom material's vertex shader moves vertices up to its reach.
+            let reach = self.models.custom.get(&record.material).map_or(0., |r| {
+                let scale = [pose.x_axis, pose.y_axis, pose.z_axis].map(|a| a.truncate().length());
+                r * scale.into_iter().fold(0., f32::max)
+            });
             if record.skin.is_none()
                 && !self.cull.keep_all
-                && !crate::cull::sphere_visible(&camera, position, (abs * mesh.half).length())
+                && !crate::cull::sphere_visible(
+                    &camera,
+                    position,
+                    (abs * mesh.half).length() + reach,
+                )
             {
                 *depth = f32::NAN;
             }

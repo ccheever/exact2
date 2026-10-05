@@ -33,6 +33,8 @@ fn main() {
         "tonemap",
         "bloom",
         "model",
+        "model_base",
+        "model_shade",
         "model_shadow",
         "no_shadow_sample",
         "cull",

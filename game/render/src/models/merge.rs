@@ -233,7 +233,9 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         self.models.loaded.get(name).is_some_and(|m| {
             m.active
                 && m.nodes.is_empty()
-                && m.merged.iter().any(|n| self.models.custom.contains(&n.1))
+                && m.merged
+                    .iter()
+                    .any(|n| self.models.custom.contains_key(&n.1))
         })
     }
     /// Upload a model's merged-away parts once a `CustomMaterial` needs them
@@ -411,7 +413,7 @@ mod tests {
         assert!(!renderer.wants_parts());
         // A game's vertex shader now shades the material: its parts keep their nodes.
         let material = renderer.models.loaded["reeds.model"].materials[0];
-        renderer.models.custom.insert(material);
+        renderer.models.custom.insert(material, 0.);
         renderer.models.revision += 1;
         // Until the model is prepared again its parts are not resident: it
         // draws merged and asks for them.

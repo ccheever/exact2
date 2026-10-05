@@ -419,7 +419,7 @@ fn steady_culling_preparation_allocates_nothing() {
     assert!(!r.cull.stale());
     let count = crate::world::tests::allocations::count(|| {
         for _ in 0..100 {
-            r.cull_groups(&frame, 3, &[]);
+            r.cull_groups(&frame, 3);
             assert!(!r.cull.stale());
         }
     });

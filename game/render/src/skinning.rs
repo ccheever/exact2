@@ -1157,7 +1157,7 @@ mod normal_tests {
         };
         // Execute the actual vertex skinning function through a compute entry point.
         let skin = include_str!("shaders/model.wgsl")
-            .split("struct BakedMaterial")
+            .split("// The material at group 2")
             .next()
             .unwrap();
         let source = format!("{skin}\n@group(0) @binding(0) var<storage,read_write> output:array<vec4<f32>>;\n@compute @workgroup_size(1) fn test_normal() {{ let z=mat4x4<f32>(); let draw=ModelInstance(0u,0u,0u,0u,z,z,vec4(1.0),vec4(0.0)); output[0]=vec4(normalize(skinned(draw,0u,vec3(0.0),normalize(vec3(1.0,1.0,1.0)))[1]),0.0); }}");

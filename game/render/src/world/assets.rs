@@ -163,7 +163,7 @@ impl Assets {
             let names = draws.names;
             // A custom vertex shader sees node-local positions: never merged,
             // once the parts are resident (preparing the model uploads them).
-            let custom = draws.merged.iter().any(|n| draws.custom.contains(&n.1));
+            let custom = draws.merged.iter().any(|n| draws.custom.contains_key(&n.1));
             let (nodes, members) = if draws.merged.is_empty() || custom && !draws.nodes.is_empty() {
                 (draws.nodes, None)
             } else {

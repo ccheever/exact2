@@ -573,16 +573,16 @@ impl<const SHADOWS: bool, const HALF: bool> Hooks for MaterialHooks<SHADOWS, HAL
             return Ok(());
         };
         let forward = r#"
-        @vertex fn vertex(@location(0) p:vec3f,@location(1) n:vec3f,@builtin(instance_index) i:u32)->Varying {
-            return instance_transform(p+vec3f(f32(draw_instance(i).data)*0.01,0.0,0.0),n,i,vec4f(1.0));
+        @vertex fn vertex(@location(0) p:vec3f,@location(1) n:vec3f,@builtin(instance_index) i:u32)->ModelVarying {
+            return instance_transform(p+vec3f(f32(draw_instance(i).data)*0.01,0.0,0.0),n,vec2f(0.0),i,vec4f(1.0));
         }
         @fragment fn fragment()->@location(0) vec4f {return vec4f(0.0,2.0,0.0,1.0);}
         "#;
         let shadowed = r#"
-        @vertex fn vertex(@location(0) p:vec3f,@location(1) n:vec3f,@builtin(instance_index) i:u32)->Varying {
-            return instance_transform(p,n,i,vec4f(1.0));
+        @vertex fn vertex(@location(0) p:vec3f,@location(1) n:vec3f,@builtin(instance_index) i:u32)->ModelVarying {
+            return instance_transform(p,n,vec2f(0.0),i,vec4f(1.0));
         }
-        @fragment fn fragment(v:Varying)->@location(0) vec4f {
+        @fragment fn fragment(v:ModelVarying)->@location(0) vec4f {
             return vec4f(0.0,2.0*sun_shadow(v.world,normalize(v.normal)),0.0,1.0);
         }
         "#;
@@ -600,7 +600,7 @@ impl<const SHADOWS: bool, const HALF: bool> Hooks for MaterialHooks<SHADOWS, HAL
         let shadow = r#"
         @group(1) @binding(0) var<uniform> light:mat4x4f;
         @vertex fn shadow(@location(0) p:vec3f,@location(1) n:vec3f,@builtin(instance_index) i:u32)->@builtin(position) vec4f {
-            let v=instance_transform(p+vec3f(f32(draw_instance(i).data)*0.01,0.0,0.0),n,i,vec4f(1.0));
+            let v=instance_transform(p+vec3f(f32(draw_instance(i).data)*0.01,0.0,0.0),n,vec2f(0.0),i,vec4f(1.0));
             return light*vec4f(v.world,1.0);
         }
         "#;
@@ -628,18 +628,27 @@ impl<const SHADOWS: bool, const HALF: bool> Hooks for MaterialHooks<SHADOWS, HAL
             .push(exact_game_render::hooks::CustomMaterial {
                 material,
                 forward: gpu_materials.pipeline(
+                    material,
                     &shader(&forward),
                     &layout,
                     "vertex",
                     Some("fragment"),
                     false,
                 ),
-                shadow: gpu_materials.pipeline(&shader(&shadow), &layout, "shadow", None, true),
+                shadow: gpu_materials.pipeline(
+                    material,
+                    &shader(&shadow),
+                    &layout,
+                    "shadow",
+                    None,
+                    true,
+                ),
                 resources: gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: None,
                     layout: &layout,
                     entries: &[],
                 }),
+                reach: f32::INFINITY,
             });
         Ok(())
     }

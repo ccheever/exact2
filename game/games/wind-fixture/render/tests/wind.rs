@@ -18,13 +18,40 @@ fn frame(now_ms: f64) -> Frame {
     }
 }
 
+/// `reed.tex` as the bake ships it (RGBA8), from `art/textures/reed.png`.
+fn reed_texture() -> Vec<u8> {
+    let png = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../art/textures/reed.png");
+    let variants = exact_game_bake::material_texture_variants(
+        "reed.tex",
+        png,
+        exact_game_bake::PngKind::Color,
+    )
+    .unwrap();
+    let (_, texture) = variants
+        .into_iter()
+        .find(|(name, _)| name == "reed.tex")
+        .unwrap();
+    exact_game_render::exact_game::bin::to_vec(&texture)
+}
+
 /// Two frames half a second apart, and the world hash after them.
 fn film<H: Hooks>(gpu: &exact_gpu::Gpu) -> (fixture::Pixels, fixture::Pixels, u64) {
     let mut surface = WorldSurface::<WindGame, ModelExecutor, true, H>::default();
     surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.bind(&[], None).unwrap();
-    // The first frames build and validate the hook pipelines.
-    for ms in [0., 16., 33.] {
+    // The first frames request the reeds' texture (on sight) and build and
+    // validate the hook pipelines.
+    let texture = reed_texture();
+    for ms in [0., 16., 33., 50.] {
+        for name in surface.assets().requests {
+            assert_eq!(name, "reed.tex");
+            surface.asset(&name, Ok(&texture));
+        }
+        surface.prepare_assets(
+            &gpu.device,
+            &gpu.queue,
+            exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+        );
         fixture::render(gpu, &mut surface, &frame(ms)).unwrap();
     }
     let early = fixture::render(gpu, &mut surface, &frame(1000.)).unwrap().0;
@@ -44,8 +71,10 @@ fn reeds_sway_under_a_dusk_sky_without_touching_the_simulation() {
     };
     exact_gpu::shaders::load_dir(&shader_dir(), &pack).unwrap();
     let (still, still_later, plain_hash) = film::<()>(&gpu);
+    still.save("wind-still");
     let (windy, windy_later, windy_hash) = film::<Wind>(&gpu);
     windy.save("wind-dusk");
+    windy_later.save("wind-dusk-later");
     // The engine draws the field the same at both times; the wind moves it.
     assert_eq!(still, still_later, "nothing moves without the hooks");
     assert_ne!(windy, windy_later, "the reeds sway between frames");
