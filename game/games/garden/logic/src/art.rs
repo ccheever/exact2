@@ -154,18 +154,6 @@ fn gardener() -> MeshData {
         [0.89, 0.71, 0.38],
     );
     for x in [-0.18, 0.18] {
-        m.block(
-            Vec3::new(x, -0.77, 0.08),
-            Vec3::new(0.29, 0.25, 0.43),
-            [0.29, 0.20, 0.14],
-        );
-        m.block(Vec3::new(x, -0.48, 0.0), Vec3::new(0.27, 0.42, 0.30), blue);
-        m.block(
-            Vec3::new(x * 2.1, -0.05, 0.0),
-            Vec3::new(0.19, 0.47, 0.25),
-            shirt,
-        );
-        m.globe(Vec3::new(x * 2.1, -0.31, 0.02), Vec3::splat(0.13), skin);
         m.block(Vec3::new(x, 0.06, 0.21), Vec3::new(0.09, 0.40, 0.035), blue);
         m.globe(Vec3::new(x, 0.04, 0.24), Vec3::splat(0.035), straw);
     }
@@ -207,6 +195,67 @@ fn gardener() -> MeshData {
         0.055,
         [0.38, 0.29, 0.17],
     );
+    m.block(
+        Vec3::new(0.32, -0.16, -0.21),
+        Vec3::new(0.29, 0.39, 0.27),
+        [0.51, 0.32, 0.19],
+    );
+    m.block(
+        Vec3::new(0.32, 0.02, -0.22),
+        Vec3::new(0.32, 0.10, 0.30),
+        [0.65, 0.45, 0.25],
+    );
+    m.finish()
+}
+
+fn arm() -> MeshData {
+    let mut m = Model::default();
+    m.block(
+        Vec3::new(0., -0.23, 0.),
+        Vec3::new(0.19, 0.47, 0.25),
+        [0.95, 0.81, 0.48],
+    );
+    m.globe(
+        Vec3::new(0., -0.49, 0.02),
+        Vec3::splat(0.13),
+        [0.89, 0.62, 0.43],
+    );
+    m.finish()
+}
+
+fn leg() -> MeshData {
+    let mut m = Model::default();
+    m.block(
+        Vec3::new(0., -0.20, 0.),
+        Vec3::new(0.27, 0.42, 0.30),
+        [0.20, 0.43, 0.52],
+    );
+    m.block(
+        Vec3::new(0., -0.49, 0.08),
+        Vec3::new(0.29, 0.25, 0.43),
+        [0.29, 0.20, 0.14],
+    );
+    m.finish()
+}
+
+fn watering_can() -> MeshData {
+    let mut m = Model::default();
+    let blue = [0.24, 0.62, 0.76];
+    m.cone(Vec3::new(0., -0.20, 0.), 0.20, 0.18, 0.30, blue);
+    m.block(
+        Vec3::new(0., -0.06, 0.27),
+        Vec3::new(0.075, 0.075, 0.35),
+        blue,
+    );
+    m.globe(
+        Vec3::new(0., -0.06, 0.45),
+        Vec3::new(0.12, 0.035, 0.08),
+        [0.69, 0.83, 0.81],
+    );
+    for x in [-0.12, 0.12] {
+        m.block(Vec3::new(x, 0.18, 0.), Vec3::new(0.045, 0.25, 0.055), blue);
+    }
+    m.block(Vec3::new(0., 0.29, 0.), Vec3::new(0.28, 0.045, 0.055), blue);
     m.finish()
 }
 
@@ -392,11 +441,52 @@ fn flower_bank() -> MeshData {
 }
 
 pub fn setup(w: &mut World) {
-    let player = w
+    let body = w
         .generated("gardener.model", gardener())
         .expect("gardener mesh");
-    *w.require_mut::<Mesh>("player") = player;
-    *w.require_mut::<Material>("player") = Material::default();
+    let player = w.named("player").unwrap();
+    w.remove::<Mesh>(player);
+    w.remove::<Material>(player);
+    let body = w.spawn_named(
+        "gardener",
+        (
+            Transform::default(),
+            body,
+            Material::default(),
+            Parent(player),
+        ),
+    );
+    let arm = w.generated("gardener-arm.model", arm()).expect("arm mesh");
+    let leg = w.generated("gardener-leg.model", leg()).expect("leg mesh");
+    for (name, x, y, mesh) in [
+        ("arm-left", -0.38, 0.18, arm.clone()),
+        ("arm-right", 0.38, 0.18, arm),
+        ("leg-left", -0.18, -0.28, leg.clone()),
+        ("leg-right", 0.18, -0.28, leg),
+    ] {
+        w.spawn_named(
+            name,
+            (
+                Transform::at(x, y, 0.),
+                mesh,
+                Material::default(),
+                Parent(body),
+            ),
+        );
+    }
+    let can = w
+        .generated("watering-can.model", watering_can())
+        .expect("can mesh");
+    w.spawn_named(
+        "watering-can",
+        (
+            Transform::at(0., -0.47, 0.16).with_scale(1.25),
+            can,
+            Material::default(),
+            Parent(w.named("arm-left").unwrap()),
+            Visible(false),
+        ),
+    );
     for kind in 0..CROPS.len() {
         w.generated(&format!("plant-{kind}.model"), plant(kind))
             .expect("plant mesh");

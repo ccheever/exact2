@@ -3,7 +3,7 @@
 
 use crate::crops::{crop, kind_of, CROPS};
 use crate::garden::{self, now_ms, Census, Fruit, GardenClock, Item, Plant, TILE};
-use crate::shop;
+use crate::{feedback, shop};
 use exact_game::character::Character;
 use exact_game::*;
 
@@ -166,6 +166,8 @@ pub fn plant_held(w: &mut World, tile: [u16; 2]) -> Result<Entity, String> {
     }
     farm.last = format!("Planted {}", crop(kind).name);
     farm.shop_dirty = true;
+    drop(farm);
+    feedback::cue(w, feedback::Cue::Plant, garden::plant_center(tile));
     Ok(e)
 }
 
@@ -178,11 +180,17 @@ pub fn harvest_plant(w: &mut World, plant: Entity) -> u32 {
         .map(|f| f.0)
         .collect();
     let mut n = 0;
+    let mut picked = None;
     for f in ripe {
+        let at = w.require::<Transform>(f).position;
         if let Some(item) = garden::pick(w, f, now) {
+            picked = Some((at, item.clone()));
             stow(w, item);
             n += 1;
         }
+    }
+    if let Some((at, item)) = picked {
+        feedback::harvest(w, at, &item);
     }
     n
 }
@@ -207,14 +215,20 @@ pub fn harvest_all(w: &mut World) -> u32 {
         .map(|(e, _)| e)
         .collect();
     let mut n = 0;
+    let mut picked = None;
     for f in ripe {
+        let at = w.require::<Transform>(f).position;
         if let Some(item) = garden::pick(w, f, now) {
+            picked = Some((at, item.clone()));
             stow(w, item);
             n += 1;
         }
     }
     if n > 0 {
         w.resource_mut::<Farm>().last = format!("Harvested {n} fruit");
+    }
+    if let Some((at, item)) = picked {
+        feedback::harvest(w, at, &item);
     }
     n
 }
@@ -639,6 +653,11 @@ pub fn water_here(w: &World) -> Result<String, String> {
     }
     garden::water(w, plant, now_ms(w));
     w.resource_mut::<Farm>().water -= 1;
+    feedback::cue(
+        w,
+        feedback::Cue::Water,
+        garden::plant_center(w.require::<Plant>(plant).tile),
+    );
     Ok(format!(
         "Watered {} · remaining wait cut by 25%",
         crop(w.require::<Plant>(plant).kind).name
@@ -654,6 +673,8 @@ pub fn refill(w: &World) -> Result<String, String> {
         return Err("The watering can is full".into());
     }
     farm.water = WATER_CAPACITY;
+    drop(farm);
+    feedback::cue(w, feedback::Cue::Refill, BARREL);
     Ok("Watering can refilled · 3 doses".into())
 }
 
@@ -671,6 +692,11 @@ pub fn feed_here(w: &World) -> Result<String, String> {
     }
     garden::feed(w, plant);
     w.resource_mut::<Farm>().plant_food -= 1;
+    feedback::cue(
+        w,
+        feedback::Cue::Feed,
+        garden::plant_center(w.require::<Plant>(plant).tile),
+    );
     Ok(format!(
         "Fed {} · next fruit weighs 25% more",
         crop(w.require::<Plant>(plant).kind).name

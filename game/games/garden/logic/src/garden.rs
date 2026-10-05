@@ -186,7 +186,7 @@ pub fn tile_center(tile: [u16; 2]) -> Vec3 {
 
 /// Leave the centre of the interaction tile clear for the player. Use the
 /// same anchor for the stem and its world-space fruit, including regrowth.
-fn plant_center(tile: [u16; 2]) -> Vec3 {
+pub(crate) fn plant_center(tile: [u16; 2]) -> Vec3 {
     tile_center(tile) + Vec3::new(0.65, 0.0, -0.35)
 }
 

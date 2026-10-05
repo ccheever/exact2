@@ -833,6 +833,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-game-audio"
+version = "0.1.0"
+dependencies = [
+ "exact-game",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "windows",
+]
+
+[[package]]
 name = "exact-game-derive"
 version = "0.1.0"
 
@@ -1240,6 +1251,7 @@ name = "garden-gpu"
 version = "0.1.0"
 dependencies = [
  "exact-game",
+ "exact-game-audio",
  "exact-game-render",
  "garden-logic",
  "serde_json",

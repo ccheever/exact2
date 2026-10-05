@@ -16,6 +16,11 @@ The field sits in a meadow beside an orchard, with a straw-hatted gardener,
 leafy crops and shaped fruit. Generated models are shared across plants; the
 five scenery entities stay constant as the garden expands. `game.assets` in
 `app.json` selects the existing model-capable renderer for these models.
+The gardener turns and walks with swinging arms and legs. Successful planting
+and feeding kick up dirt; watering raises a can and drops blue water; harvesting
+sends the picked fruit into the satchel with a short chime. These gestures,
+particles and sounds use the saved game clock and preserve crop timing and prices.
+`game.audio` selects the optional sound output.
 
 Walk with WASD or the stick. **E** plants the seed in your hand on the tile
 under you, or harvests what is ripe there. You start with 20¢ and one carrot.
@@ -118,6 +123,7 @@ keyboard controls. It does not change the earlier market playtest policies.
 | File | |
 |---|---|
 | `logic/src/lib.rs` | arguments, setup, the tick |
+| `logic/src/art.rs`, `feedback.rs` | shared models, saved gestures, action particles and sounds |
 | `logic/src/garden.rs` | the clock, the schedule, plants, fruit, weather |
 | `logic/src/farm.rs` | tiles, purse, backpack, commands, offline catch-up |
 | `logic/src/shop.rs`, `crops.rs`, `hud.rs` | stock, the catalogue and values, publication |

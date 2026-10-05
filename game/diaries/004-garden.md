@@ -1456,8 +1456,8 @@ picket fence and flower banks. One generated mesh per crop keeps full fields
 instanced. Scenery adds five constant entities; it does not grow one entity
 per plot. The far fence follows expansion beyond the walking boundary.
 Warm light and ambient occlusion ground the models. Gameplay timings and
-prices are unchanged; new entity IDs can affect the existing entity-seeded
-fruit rolls, so this still needs a new deterministic baseline.
+prices are unchanged. The extra models and entities require a new deterministic
+baseline; fruit rolls use the world's RNG, not entity-seeded randomness.
 
 The first logic suite passes, but the first browser drive renders an empty
 surface. Reading the real host log finds the exact cause: the generated GPU
@@ -1563,3 +1563,76 @@ passes that exact existing test. Its isolated Cargo invocation recompiles a
 different feature selection in 27.63 s; the test itself takes 0.02 s. The web
 agent tests pass 63 cases and 2,512 assertions in 5.41 s. Logs:
 `/tmp/exact2-fun-loop-{main-*,docs-recheck,agent-tests}.log`.
+
+## First action-feedback comparison (2026-10-04)
+
+Hypothesis: seeing the gardener perform a successful care action and collect
+its reward will make planting, watering and harvesting more tangible. This is
+one presentation experiment, with unchanged crop times, prices and controls.
+The earlier first-two-minutes proposal begins with a reproducible 19-second
+slice: plant the starting carrot, water it, harvest it, then walk east. It
+does not yet test two minutes of freely chosen play or establish enjoyment.
+
+The saved gardener now turns, walks with articulated arms and legs, bends to
+plant/feed, raises a blue watering can, and collects the actual crop's fruit
+in a short arc into a satchel. Three fixed emitters provide dirt, water and
+reward bursts, with short synthesized sounds. The character and effects add
+ten fixed entities; effects replace bounded emitter state and draw no crop
+or weather random numbers. Gestures use the simulation clock and their state
+is saved. Successful actions trigger them; refused watering does not.
+
+The before capture is `artifacts/feel-before-web/`. Three visual rounds fix
+an obscured can, fruit passing behind the hat, and an upward-pointing spout.
+Final captures are `artifacts/feel-final-{web,macos}/`, including planting,
+watering, harvest and walking APNGs. Their runs take 35.593/17.676 s including
+builds, with zero failures and no recorded children remaining. The actual
+web and Mac harvest frames and web watering frame were inspected. Effects
+remain small in the overview; this pass is not a complete art-direction or
+HUD redesign. At the three identical planted/watered/harvested checkpoints,
+HUD text, the purse/seed/bag/care/order fields, Census, Shop, Weather and
+GardenClock match the before run exactly on both hosts. The first carrot
+still weighs 0.20338216 and pays 12 cents. Comparison:
+`/tmp/exact2-garden-feel-final-comparison.json`.
+
+Two authoring mistakes surfaced. Adding `game.audio` requires updating the
+game's lockfile before `--test`: `shells.mjs --update-lock --test` enters the
+test branch without updating it, so the two commands must be separate. Also,
+the game must call `audio::step` after game logic. Omitting it left expired
+voices in saved state; the fixed tick removes them, and the existing proof
+now checks that finished care sounds leave no voices. It also checks a live
+can/droplets, successful sound cues, refused-water gesture continuity and
+the visible picked fruit. Existing continuation saves exercise effects in
+flight. The 29 enabled Garden logic tests pass (five measurements ignored),
+as do strict Clippy and formatting.
+
+A live-clock browser probe uses trusted Play/key input and measures the
+actual WebAudio graph. The first attempt had a running context and plant PCM
+but zero measured output; that result is retained as
+`artifacts/feel-live-web/audio-first.json`. After the lifecycle correction,
+the final probe measures nonzero RMS for plant/water/harvest
+(0.0807/0.0275/0.0724), with the context running and its owned browser closed.
+This proves signals reach the browser output graph, not that the sounds were
+heard or judged pleasant; the initial zero's cause was not isolated.
+The optional GPU module is 1,398 KiB / 571 KiB gzip, up from 1,257 / 519;
+the application wasm remains 955 / 431 KiB. Source changes are game-local.
+
+Jev's existing text-only policy cannot judge these gestures or sounds, so
+rerunning it would not measure this hypothesis. Next human comparison: play
+both versions in alternating order, ask which care/harvest is more satisfying
+and what felt unclear, and observe whether the player chooses to plant again.
+Record the reasons and a keep/rework/revert decision. Automated outcome and
+save checks establish a stable comparison, not increased fun.
+
+The full candidate proofs pass on web/macOS in 73.278/43.918 s. Source
+inputs, all candidate pins, eleven final world observations and published
+values, and fifteen saved files agree. Both process audits are available and
+leave no recorded children. Artifacts: `artifacts/feel-checked-{web,macos}/`;
+comparison: `/tmp/exact2-garden-feel-proof-comparison.json`. These runs remain
+UNVERIFIED until the strict baseline accepts the changed saved representation.
+
+The five root checks pass in 54.852 s with no game drive running beside
+them (build 0.265, tests 52.080, Clippy 0.249, formatting 2.151, caps 0.092,
+boot 0.015 s). All 81 test binaries pass 2,436 cases, with nine ignored.
+Logs: `/tmp/exact2-garden-feel-root-*.log`. A periodic fetch finds nine new
+main commits through `e55e2c27b`; they stay outside this frozen comparison
+and can be integrated after accepting its baseline.

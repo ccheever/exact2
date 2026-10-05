@@ -343,10 +343,16 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   let cared = await care.tree();
   check('one dose accelerates growth and disables another', text(cared,'water-count') === 'Watering can · 2/3'
     && text(cared,'care') === 'Watered · growing faster' && node(cared,'water')?.props?.disabled === true);
+  const wateringCue = (await cg.resources()).Feedback;
+  check('watering shows its can and live droplets', (await cg.get('watering-can','Visible'))?.[0] === true
+    && (await cg.get('feedback-water','Emitter'))?.state?.alive > 0);
+  check('successful watering starts its sound', (await care.state()).world?.find(w=>w.name==='world')?.audio?.voices?.some(v=>v.sound==='water'));
   if (host !== 'linux') await care.screenshot(resolve(out,'watering.png'));
   await cg.tap('KeyQ'); await cg.run(100);
   check('the keyboard cannot spend a second dose on the same growth', text(await care.tree(),'water-count') === 'Watering can · 2/3');
+  check('refused watering does not restart its gesture', (await cg.resources()).Feedback?.began === wateringCue?.began);
   await cg.hold('KeyD',1000); await cg.run(100);
+  check('finished care sounds leave no retained voices', (await care.state()).world?.find(w=>w.name==='world')?.audio?.voices?.length === 0);
   check('refilling away from the barrel is disabled', node(await care.tree(),'refill')?.props?.disabled === true);
   await cg.save(resolve(out,'watering.world'));
   const finishCare = async session => {
@@ -374,6 +380,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     check('the watered carrot ripens before twenty seconds', text(await session.tree(),'prompt') === 'E: harvest 1 Carrot' && (await g.snapshot()).tick < 600);
     await g.tap('KeyE'); await g.run(100);
     check('the accelerated harvest fills the backpack once', label(await session.tree(),'bag-tab') === 'Backpack 1');
+    check('harvest carries the fruit while its reward sound plays', (await g.get('picked-fruit','Visible'))?.[0] === true
+      && (await session.state()).world?.find(w=>w.name==='world')?.audio?.voices?.some(v=>v.sound==='harvest'));
     return g.snapshot();
   };
   const watered = await finishCare(care);

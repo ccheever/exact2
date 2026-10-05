@@ -4,6 +4,7 @@
 mod art;
 pub mod crops;
 pub mod farm;
+mod feedback;
 pub mod garden;
 pub mod hud;
 pub mod shop;
@@ -144,6 +145,7 @@ impl Game for Garden {
             ),
         );
         art::setup(w);
+        feedback::setup(w);
         farm::lay_ground(w);
         shop::restock(w, 0);
         w.resource_mut::<Schedule>()
@@ -167,7 +169,8 @@ impl Game for Garden {
             farm::command(w, cmd);
             acted = true;
         }
-        w.character("player")
+        let contact = w
+            .character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));
         let (tile, prompt) = farm::prompt(w);
         if input.pressed("act") {
@@ -190,6 +193,8 @@ impl Game for Garden {
                 acted = true;
             }
         }
+        feedback::step(w, contact);
+        audio::step(w);
         let now = garden::now_ms(w);
         let processed = w.resource::<Schedule>().processed;
         let at_barrel = farm::at_barrel(w);
