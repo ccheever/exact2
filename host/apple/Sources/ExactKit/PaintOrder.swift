@@ -99,7 +99,11 @@ extension NodeView {
     }
 
     private func refreshPaintOrder() {
-        if let parent = superview { PaintOrder.changed(parent) }
+        if let parent = superview {
+            PaintOrder.changed(parent)
+            // A flight's clip stands in for its view among the flights.
+            if parent is FlightClip, let layer = parent.superview { PaintOrder.changed(layer) }
+        }
         else { setPaintPosition(0) }
     }
 
@@ -108,7 +112,7 @@ extension NodeView {
         // also prevents cached canvas mirrors interpolating from the old order.
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        let children = parent.subviews.filter { $0 is NodeView || $0.paintForeground }
+        let children = parent.subviews.filter { $0 is NodeView || $0 is FlightClip || $0.paintForeground }
         // Zero is the origin even when no child has rank zero. Native
         // decoration/content layers remain there as well.
         let distinct = Set(children.map(\.siblingPaintRank)).union([0])
@@ -161,7 +165,8 @@ extension NodeView {
 extension PaintView {
     fileprivate var paintForeground: Bool { paintPlane != nil }
     private var paintPlane: Int64? { objc_getAssociatedObject(self, &paintForegroundKey) as? Int64 }
-    fileprivate var siblingPaintRank: Int64 { paintPlane ?? (self as? NodeView)?.paintRank ?? 0 }
+    /// A flight's clip ranks as the view it holds (LLP 1013.000 D4.4).
+    fileprivate var siblingPaintRank: Int64 { paintPlane ?? (self as? NodeView)?.paintRank ?? (self as? FlightClip)?.subviews.lazy.compactMap { ($0 as? NodeView)?.paintRank }.first ?? 0 }
 
     /// A native view among authored siblings. A top-layer popover or a
     /// transition snapshot sits above every ranked sibling. A native
