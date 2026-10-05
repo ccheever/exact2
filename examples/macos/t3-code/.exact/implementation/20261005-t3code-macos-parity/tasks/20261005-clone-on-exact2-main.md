@@ -19,9 +19,9 @@ The newest clone (the round-12 tree that `20261005-round12-wrapup` finishes) is 
 integration branch `daehyeon/t3-code`, based on a pinned exact2 `main` revision. It passes the
 clone's checks and the repository's five checks, launches as a bundled macOS app, pairs to an
 isolated fixture backend, and runs the core conversation workflow under the agent driver. The
-lane verification tools run from this worktree. The round-11 pixel matrix, re-shot on the new
-base, has no regression that is not fixed or declared in `EXACT2-GAPS.md` with an issue
-link.
+lane verification tools run from this worktree. The latest user direction supersedes the
+repeated pixel-matrix requirement: use compilation and core behavior checks to assess the
+import, and record unverified UI cases without continuing pixel-fidelity fix loops.
 
 ## Scope and exclusions
 
@@ -107,7 +107,7 @@ instructions). Pinned Bun is at `~/.bun-1.4.2/bin` on this Mac; `bun install
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | recorded decision | User decision 2026-10-05 #1 (move to t3-code, copy tools to `target/`) and evening decision (integration branch) | none | Recorded | `spec.md` Confirmed requirements |
-| task (local, no PR) | [20261005-round12-wrapup](20261005-round12-wrapup.md) | none (untracked tree) | Its acceptance passed in mc-orch | pending |
+| task (local, no PR) | [20261005-round12-wrapup](20261005-round12-wrapup.md) | none (untracked tree) | Implemented; unrun UI checks explicitly recorded under the latest user direction | round-12 continuation record |
 | recorded decision | Branch reset of local `daehyeon/t3-code` from `a9f9e58ec` to the main pin | none | User confirms at `prepare` | pending |
 
 ## Issue assessment at preparation
@@ -136,7 +136,7 @@ Checked sources and time: {{at prepare}}.
 | App launches and connects | Isolated fixture backend on port 16xxx (isolated HOME, CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_*, T3CODE_HOME; fixture provider) | `EXACT_APP_DIR=$PWD/examples/macos/t3-code bun host/apple/build.mjs macos-t3-code-apple --bundle --run`, then `bun scripts/agent.mjs macos --json tree state logs` and pair, select a thread, send, answer an approval | Paired; reply streams; approval resolves; no refused operation in `logs` | macOS, 1280×840 | `--json` transcript, screenshots |
 | Input semantics | — | AppKit `r8-keys`, `r9-input`, `r10-connect`, `composer`, `snapshot` | Green; any changed expectation explained | macOS | logs |
 | X14 decision | Fixture backend; the round-11 reply-ownership scenario (15 turns with concurrent draft edits, README) | Run without the framework edit | No reply is lost with `T3ReadGate.swift` in place; the result without the gate is recorded in issue X14 (reproduced, or not — then the user decides whether to close X14) | macOS | trace + X14 update |
-| No visual regression | Same backend fixture as round 11 | Matrix re-shot at 1280×840 and 840×620, light and dark, with the copied tools | Every cell whose score moved by more than 0.3 is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | matrix table in `AGENT-HANDOFF.md` |
+| UI verification limit | Latest user direction | Preserve prior evidence; no repeated pixel matrix or fidelity fix loop | Unrun UI checks remain explicitly unverified and do not block import preparation | macOS | round-12 continuation record |
 | File cap | — | `bun scripts/caps.mjs` after `git add -A` | Pass | — | log |
 | Docs and records present | Fresh clone of the integration branch | `ls examples/macos/t3-code/{EXACT2-GAPS.md,STATUS.md,README.md,AGENT-HANDOFF.md}` and the plan directory | All present | — | listing |
 | No telemetry from lanes | One lane backend during the launch-and-connect row | `ps eww <pid>` of the lane server; `lsof -i -a -p <pid>` during the session | `T3CODE_TELEMETRY_ENABLED=false` set; no connection to the PostHog or OTLP hosts named in issue X39 | macOS | env excerpt, `lsof` log |
@@ -148,7 +148,21 @@ runtime copy, no running T3 Code (Nightly) during drives.
 
 ## Progress
 
-Planned. No branch.
+Preparation started 2026-10-06; import and branch reset not executed.
+
+- Fetched `origin/main`; proposed pin:
+  `e79be39d49ea3d5d609ed8fed6aadc8c9a243be1`.
+- Preserved the Oct 3 snapshot on `daehyeon/t3-code-oct3` at `a9f9e58ec`,
+  and the prior session's complete committed history on
+  `daehyeon/t3-code-pre-main-20261006` at `21b0b3d3c`.
+- Round-12 source archive and one-pass checks are recorded in the preceding ticket.
+  mc-orch source and historical evidence remain in place.
+- Both bases use Hermes pin `6badada762121682b5481b6124e6c3a991ae6046`.
+- Import recipe remains scope items 2–8: only app files and root workspace registration;
+  retain the plan, STATUS and EXACT2-GAPS; exclude generated declarations, the temporary
+  UI checklist, and all old framework changes. Audit copied tools before committing them.
+- Waiting only for the explicitly required confirmation in scope item 2 before resetting
+  the integration branch to the proposed pin. No push or external publication performed.
 
 ## Attempts and evidence
 
@@ -158,5 +172,6 @@ Planned. No branch.
 
 ## Next action
 
-After `20261005-round12-wrapup` passes: `prepare` (choose the main pin, confirm the branch
-reset, push the integration branch), then `implement`.
+Confirm the reset to the prepared main pin, preserve these plan updates on the backup
+branch, then perform the import and required compilation/core workflow checks. No repeated
+pixel-fidelity test/fix loop.

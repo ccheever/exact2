@@ -34,6 +34,12 @@ User request (2026-10-05): "t3code를 지금 examples에 macos 버전을 구현�
 | Framework boundary | App work stays under `examples/macos/t3-code/` (plus root workspace registration). Kernel, runner, host, contract compiler, js and scripts do not change for the example; missing support is an issue. | Memory "examples leave the framework alone" (2026-10-01); 2026-10-05 "issue만 올려" |
 | Execution | One multi-agent workflow per phase, at most 9 agents (up to 8 lanes plus 1 integrator). Lanes never use port 3773, the real `~/.t3`, or the `t3code` URL scheme. Every T3 server the plan starts (lane, oracle, embedded) sets `T3CODE_TELEMETRY_ENABLED=false`, because telemetry is excluded (issue X39). | User decision 2026-10-05 #6; clone `AGENT-HANDOFF.md` "Safety notes" |
 
+Latest continuation direction (2026-10-06): the user asked to stop repeated UI testing and
+fixing for pixel-perfect fidelity and move on once implementation is adequate. This
+supersedes repeated pixel matrices and visual-polish loops in the tickets. Preserve prior
+evidence and state which input cases are unverified; continue implementation and practical
+compilation/core behavior checks.
+
 ## Target matrix
 
 | OS / version | Exact host / renderer | Phone / tablet / desktop | Window sizes / orientation | Input / accessibility | Required runtime and performance checks |

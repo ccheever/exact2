@@ -255,6 +255,26 @@ Preparation record (2026-10-05 23:25 KST):
 
 ## Next action
 
-`verify`: independent review of the changes, rerun `snapshot` under an ASCII input source, and
-the real-input rows (F1, F2, F3 Finish path) once the `orca computer` focus problem is solved or
-pairing is seeded by script; F4 held request by unit tests unless a live path is found.
+Proceed to the main-import preparation under the latest user direction to stop repeated UI
+verification and fixes once implementation is adequate. No further pixel matrix or physical-input
+retry is a prerequisite. This does **not** turn the unrun rows into passes.
+
+### Session continuation, 2026-10-06
+
+- Workspace inspected: this branch was clean at `21b0b3d3c`; the authoritative round-12
+  implementation remains the untracked mc-orch app tree at base `c1522fdac`.
+- Preserved that tree before further work in this checkout's
+  `target/preserve/t3-code-resume-20261006/round12-before.tar.gz`, SHA-256
+  `483949e913d5a1866468736ca90a2c86ee8a9df98c406430f73f2785b145482c`.
+  Inspected all 560 files; no symlinks. The source worktree was not imported or reset.
+- One-pass checks on the actual round-12 tree: pinned Bun 1.4.2, 1147 tests passed,
+  0 failed; strict TypeScript check passed; Contract build passed (1865 slots,
+  41 resources, 41819 nodes); `cargo test -p macos-t3-code-apple --lib` passed 7/0
+  with the pinned Hermes paths set. First Cargo attempt lacked those environment
+  variables; provisioning was present, and supplying them resolved the failure.
+- Evidence: `target/preserve/t3-code-resume-20261006/bun-test.log` and `cargo-lib.log`.
+- `snapshot`, physical F1/F2/F3 Finish, and the live F4 held-request case remain unverified.
+  Earlier AppKit/build/agent results above are historical evidence, not rerun results.
+  Independent review has not been performed. No new UI drives or pixel fixes were made.
+- Round-12 implementation is adequate to proceed to import preparation with these
+  verification limitations recorded; full verification status remains `unverified`.
