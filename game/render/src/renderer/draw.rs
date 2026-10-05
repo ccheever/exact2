@@ -482,7 +482,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
         let (poses, indices) = (&self.models.poses, &self.models.pose_indices);
         let words = &self.attachment_words;
+        // Direct draws have no per-instance cull and draw level 0 only: select
+        // it, so its skinning runs and the blended pass draws the same level.
+        let direct = self.cull.direct;
         self.levels.select(|e| {
+            if direct {
+                return 0.;
+            }
             let position = attachment_matrix(words, e.slot).map_or_else(
                 || {
                     let history = poses[indices[e.record as usize]];

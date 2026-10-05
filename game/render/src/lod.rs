@@ -304,5 +304,15 @@ mod gpu_tests {
             .groups
             .iter()
             .all(|g| renderer.batches[g.batch].level == 0));
+        // Level 0 is the level selected, so the level it draws is the one skinned
+        // and no record of it is hidden from the blended pass.
+        assert!(renderer
+            .levels
+            .records
+            .iter()
+            .zip(&renderer.levels.hidden)
+            .all(|(&level, &hidden)| hidden == (level != 0)));
+        let direct = renderer.models.skinning.as_ref().unwrap().active_jobs();
+        assert_eq!(direct, near, "direct draws skin level 0 at any distance");
     }
 }

@@ -348,7 +348,8 @@ while one streams in. Every other level's records carry a hidden word the GPU cu
 reads, in every view and keep-all group (shadow cascades and spot shadows too);
 the blended pass skips them, and their skinning jobs are not dispatched, so a far
 crowd skins nothing. Direct drawing (no indirect execution, or lists past the
-device's storage limits) has no per-instance cull and draws level 0 only. Levels
+device's storage limits) has no per-instance cull and selects level 0 for every
+entity, so the level it draws is the one skinned and blended. Levels
 share the pose, looks and opacity. Distances must be finite, increasing and
 positive, with `hide` beyond them; the feed refuses others by entity.
 `world.perf.culled.cameraTriangles` counts what the cull kept for the camera
