@@ -803,12 +803,17 @@ Mac and elsewhere. The driver presses chords in Playwright's spelling (`type
 
 - **Shortcuts.** An `aria-keyshortcuts` button hears its chord before any
   `key` handler, and takes the key (no `key` handler hears it), on the web,
-  macOS and iPadOS (a hardware keyboard's chord; the session's view holds
-  the focus when nothing else does). While a modal is shown — a modal
+  macOS, iPadOS (a hardware keyboard's chord; the session's view holds
+  the focus when nothing else does) and Linux. While a modal is shown — a modal
   `dialog`, or an `aria-modal` view, the last shown — only the buttons
   inside it hear their chords, and Enter or Space with the focus on a
   control they activate (a button, a pressable, a checkbox) is that
-  control's, whatever button declares it. Linux carries no shortcuts.
+  control's, whatever button declares it. A chord's key is one character,
+  a named key, or F1–F35; the paste chord (⌘V, Control+V off the Mac) is a
+  chord like any other, so a button declaring it takes the driver's `type
+  … paste` too and the paste never lands. On iPadOS a hardware keyboard's
+  F13–F24 reach `key` handlers but no shortcut (UIKit's key commands name
+  F1–F12 only); the driver's reach both, as everywhere.
 - **The Mac's menu bar.** Every button whose chord holds ⌘ is also a menu
   item, titled by its `aria-label` (or its text), placed by its chord as
   Apple's HIG places one: ⌘, is Settings…; ⌘[ ⌘] and a `tablist`'s tabs are

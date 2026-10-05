@@ -757,6 +757,11 @@ extension Agent {
                 (chars, code) = ("+", 24)
             } else if let device, let mac = KeyCodes.mac.first(where: { $0.value == device.code })?.key {
                 (chars, code) = (KeyCodes.eventText(code: device.code, raw: rawKey, lone: lone), UInt16(mac))
+            } else if let device, let function = KeyCodes.functionCharacter(device.code), device.code.hasPrefix("F") {
+                // F21–F24, which no Mac keyboard has (Carbon names to F20):
+                // the web's driver presses them, so this one does, as their
+                // AppKit function characters with no virtual key.
+                (chars, code) = (function, UInt16.max)
             } else {
                 return ["error": "key: unsupported key \(rawKey)"]
             }

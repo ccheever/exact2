@@ -1154,3 +1154,121 @@ fn driver_key_uses_the_web_vocabulary() {
     assert_eq!(driver_key("Nope"), None);
     assert_eq!(driver_key("Endd"), None);
 }
+
+/// `aria-keyshortcuts` (the web's input-glue rule, the Apple hosts'
+/// `Shortcuts.swift`): a declared chord presses its button before the
+/// focus's `key` handlers hear it, and goes no further — F13–F24 as F1 —
+/// with or without a focus; the paste chord is one, so a button declaring
+/// Control+V takes it and the clipboard event never lands; a text field
+/// keeps its plain keys; nothing behind a shown `aria-modal`.
+#[test]
+fn aria_keyshortcuts_press_their_button_before_the_key_handlers() {
+    let plan = contract::compile(
+        r#"component App
+  state log = ""
+  state armed = false
+  state modal = false
+  state text = ""
+  action keyed(k: string)
+    log = `${log}key:${k};`
+  action pasted(e: ClipboardEvent)
+    log = `${log}paste:${e.text};`
+  action pressed(what: string)
+    log = `${log}${what};`
+  action arm
+    armed = not armed
+  action edit(v: string)
+    text = v
+  action open
+    modal = true
+  view
+    column width=300
+      box key=keyed paste=pasted tabindex=0 testId="pad" width=80 height=24
+      input value=text input=edit testId="field" height=24
+      when armed
+        button "Paste" aria-keyshortcuts="Meta+V Control+V" press=pressed("button-paste") testId="paste" height=24
+      button "F13" aria-keyshortcuts="F13" press=pressed("f13") testId="f13" height=24
+      button "F24" aria-keyshortcuts="Shift+F24" press=pressed("f24") testId="f24" height=24
+      button "S" aria-keyshortcuts="s" press=pressed("s") testId="s" height=24
+      button "arm" press=arm testId="arm" height=24
+      button "open" press=open testId="open" height=24
+      when modal
+        column aria-modal=true testId="dialog" height=40
+          button "Close" aria-keyshortcuts="Escape" press=pressed("close") testId="close" height=24
+      button "Away" aria-keyshortcuts="Escape" press=pressed("away") testId="away" height=24
+      text log testId="log" height=20
+"#,
+    )
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 600.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let named = |p: &Presenter<NoData>, id: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(id)[0]).unwrap().id
+    };
+    let log = |p: &mut Presenter<NoData>| {
+        let k = p.host().kernel();
+        let id = k.node_by_key(k.find_by_test_id("log")[0]).unwrap().id;
+        let text = k.node(id).unwrap().props.str(exact_kernel::PropId::Text);
+        text.unwrap_or("").to_string()
+    };
+    let (pad, field, root) = (named(&p, "pad"), named(&p, "field"), named(&p, "log"));
+    let key = |p: &mut Presenter<NoData>, id: u32, chord: &str| {
+        handle(p, &format!(r#"{{"op":"type","id":{id},"key":"{chord}"}}"#))
+    };
+    for (chord, want) in [
+        ("F13", "f13;"),
+        ("Shift+F24", "f24;"),
+        ("F24", "key:F24;"),
+        ("s", "s;"),
+    ] {
+        let before = log(&mut p);
+        let reply = key(&mut p, pad, chord);
+        assert!(!reply.contains("error"), "{chord}: {reply}");
+        assert_eq!(log(&mut p), format!("{before}{want}"), "{chord}");
+    }
+    // A target that takes no focus (a text) leaves it where it is; the
+    // page's shortcuts hear the key all the same.
+    let before = log(&mut p);
+    assert!(!key(&mut p, root, "F13").contains("error"));
+    assert_eq!(log(&mut p), format!("{before}f13;"));
+    // A field keeps its plain keys: `s` is typed, not the shortcut.
+    let before = log(&mut p);
+    key(&mut p, field, "s");
+    assert_eq!(log(&mut p), before, "a field's plain key is its typing");
+    // The paste chord: the key handler, then the paste, until a button declares it.
+    let paste = |p: &mut Presenter<NoData>| {
+        handle(
+            p,
+            &format!(r#"{{"op":"type","id":{pad},"clipboard":"paste","text":"x"}}"#),
+        )
+    };
+    let before = log(&mut p);
+    paste(&mut p);
+    assert_eq!(log(&mut p), format!("{before}key:v;paste:x;"));
+    p.tap(named(&p, "arm")).unwrap();
+    let before = log(&mut p);
+    paste(&mut p);
+    assert_eq!(
+        log(&mut p),
+        format!("{before}button-paste;"),
+        "the button took the chord"
+    );
+    // Behind a shown `aria-modal`, only its own shortcuts.
+    let before = log(&mut p);
+    key(&mut p, pad, "Escape");
+    assert_eq!(log(&mut p), format!("{before}away;"));
+    p.tap(named(&p, "open")).unwrap();
+    let before = log(&mut p);
+    key(&mut p, pad, "Escape");
+    key(&mut p, pad, "F13");
+    assert_eq!(log(&mut p), format!("{before}close;key:F13;"));
+}

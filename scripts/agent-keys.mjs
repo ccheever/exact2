@@ -86,24 +86,26 @@ export async function deliverClipboard({ id, opts, evaluate, ask, call, keyDown,
   const chord = cdpKey(pasteChord());
   const down = keyDown ?? (() => call('Input.dispatchKeyEvent', { type: 'keyDown', key: chord.key, code: chord.code, windowsVirtualKeyCode: chord.vk, modifiers: chord.modifiers, location: chord.location }));
   const up = keyUp ?? (() => call('Input.dispatchKeyEvent', { type: 'keyUp', key: chord.key, code: chord.code, windowsVirtualKeyCode: chord.vk, modifiers: chord.modifiers, location: chord.location }));
-  // Bubble, so it runs after the target's key handler has preventDefaulted.
-  // The contract's stopPropagation marks the event; it does not stop the DOM
-  // event, so this still sees a prevented chord (host/web/glue.js, host/web-js/rt.js).
+  // The keydown itself is kept and read once its dispatch is over, so every
+  // listener's preventDefault counts: the target's key handler (the contract's
+  // stopPropagation marks the event, host/web/glue.js, host/web-js/rt.js) and
+  // a button's `aria-keyshortcuts`, whose capture listener stops the event
+  // before any later listener would see it (input-glue.js).
   // The chord is also the browser's own paste where it is one (Ctrl+V in Chrome
   // off the Mac, WebKit's paste: command, Firefox): a trusted paste of the real
   // clipboard, which the app would hear beside the driver's (WebKit heard two,
   // Firefox only the empty one). It is stopped before any listener; the driver's
   // paste carries the text.
-  await evaluate(`(() => { window.__exactPasteKey = null; addEventListener('keydown', window.__exactPasteHear = (e) => { window.__exactPasteKey = e.defaultPrevented; }); addEventListener('paste', window.__exactPasteMute = (e) => { if (e.isTrusted) { e.preventDefault(); e.stopImmediatePropagation(); } }, true); })()`);
+  await evaluate(`(() => { window.__exactPasteKey = null; addEventListener('keydown', window.__exactPasteHear = (e) => { window.__exactPasteKey = e; }, true); addEventListener('paste', window.__exactPasteMute = (e) => { if (e.isTrusted) { e.preventDefault(); e.stopImmediatePropagation(); } }, true); })()`);
   let held = false;
   try {
     await down();
     held = true;
-    if (await evaluate('window.__exactPasteKey !== true')) await send();
+    if (await evaluate('window.__exactPasteKey?.defaultPrevented !== true')) await send();
   } finally {
     // A throw from the paste event must still release the chord.
     if (held) await up().catch(() => {});
-    await evaluate(`(() => { removeEventListener('keydown', window.__exactPasteHear); removeEventListener('paste', window.__exactPasteMute, true); window.__exactPasteHear = window.__exactPasteMute = window.__exactPasteKey = null; })()`).catch(() => {});
+    await evaluate(`(() => { removeEventListener('keydown', window.__exactPasteHear, true); removeEventListener('paste', window.__exactPasteMute, true); window.__exactPasteHear = window.__exactPasteMute = window.__exactPasteKey = null; })()`).catch(() => {});
   }
 }
 

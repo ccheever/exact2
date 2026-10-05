@@ -339,7 +339,7 @@ test('paste sends the platform chord and a prevented keydown skips the clipboard
     const evaluate = async (expression) => {
       if (expression.includes('removeEventListener')) { listening = false; flag = null; trace.push('unlisten'); return; }
       if (expression.includes('addEventListener')) { listening = true; flag = null; trace.push('listen'); return; }
-      if (expression === 'window.__exactPasteKey !== true') { trace.push('flag'); return flag !== true; }
+      if (expression === 'window.__exactPasteKey?.defaultPrevented !== true') { trace.push('flag'); return flag !== true; }
       if (expression.includes('ClipboardEvent')) {
         trace.push('event');
         if (failAt === 'event') throw new Error('send failed');
@@ -378,7 +378,7 @@ test('paste sends the platform chord and a prevented keydown skips the clipboard
     evaluate:async (expression) => {
       if (expression.includes('removeEventListener')) return;
       if (expression.includes('addEventListener')) { listening = true; return; }
-      if (expression === 'window.__exactPasteKey !== true') return true;
+      if (expression === 'window.__exactPasteKey?.defaultPrevented !== true') return true;
       if (expression.includes('ClipboardEvent')) throw new Error('send failed');
     },
     call:async (_method, args) => { released.push(args.type); if (args.type === 'keyDown' && !listening) throw new Error('keydown before the listener'); },

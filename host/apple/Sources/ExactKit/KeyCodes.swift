@@ -26,16 +26,20 @@ enum KeyCodes {
         kVK_ANSI_Comma: "Comma", kVK_ANSI_Period: "Period", kVK_ANSI_Slash: "Slash", kVK_ISO_Section: "IntlBackslash",
         kVK_F1: "F1", kVK_F2: "F2", kVK_F3: "F3", kVK_F4: "F4", kVK_F5: "F5", kVK_F6: "F6",
         kVK_F7: "F7", kVK_F8: "F8", kVK_F9: "F9", kVK_F10: "F10", kVK_F11: "F11", kVK_F12: "F12",
+        kVK_F13: "F13", kVK_F14: "F14", kVK_F15: "F15", kVK_F16: "F16", kVK_F17: "F17", kVK_F18: "F18",
+        kVK_F19: "F19", kVK_F20: "F20",
         kVK_Home: "Home", kVK_End: "End", kVK_PageUp: "PageUp", kVK_PageDown: "PageDown", kVK_ForwardDelete: "Delete",
         kVK_CapsLock: "CapsLock", kVK_ANSI_KeypadEnter: "NumpadEnter",
     ]
     #endif
 
-    /// UIKeyboardHIDUsage's USB keyboard page. Letters, digits and F1–F12 are contiguous.
+    /// UIKeyboardHIDUsage's USB keyboard page. Letters, digits, F1–F12 and
+    /// F13–F24 are contiguous.
     static func hid(_ usage: Int) -> String {
         if (4...29).contains(usage) { return "Key" + String(UnicodeScalar(65 + usage - 4)!) }
         if (30...38).contains(usage) { return "Digit\(usage - 29)" }
         if (58...69).contains(usage) { return "F\(usage - 57)" }
+        if (104...115).contains(usage) { return "F\(usage - 91)" }
         return [39: "Digit0", 40: "Enter", 41: "Escape", 42: "Backspace", 43: "Tab", 44: "Space",
                 45: "Minus", 46: "Equal", 47: "BracketLeft", 48: "BracketRight", 49: "Backslash", 50: "IntlHash",
                 51: "Semicolon", 52: "Quote", 53: "Backquote", 54: "Comma", 55: "Period", 56: "Slash", 57: "CapsLock",
@@ -120,7 +124,8 @@ enum KeyCodes {
     }
     static func device(_ name: String) -> (code: String, key: String)? {
         let code = codeName(name)
-        let known = (4...100).map(hid) + (224...231).map(hid)
+        // F13–F24 as the web's driver takes them (CDP has every one).
+        let known = (4...100).map(hid) + (104...115).map(hid) + (224...231).map(hid)
         guard code != "Unidentified", known.contains(code) else { return nil }
         return (code, key(code))
     }
