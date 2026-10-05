@@ -1,7 +1,7 @@
 ---
 name: 20261005-round12-wrapup
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: prepared
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -127,8 +127,18 @@ project." (the server's `ScratchFolderError` on lane backend B).
 
 ## Issue assessment at preparation
 
-Checked sources and time: {{at prepare}}. Known framework gaps (X13 hover during a pan, X23
-scroll restore) affect F1 and T4; the clone keeps its workarounds.
+Checked sources and time: 2026-10-05 23:25 KST. Plan `issues/` (X1–X45; no `issues/closed/`),
+prior attempts (none) and reviews (none) for this ticket; GitHub `ccheever/exact2` PRs
+searched for "t3-code" (none). No remote issue was searched: the plan's issues are local drafts
+and none is published yet. This ticket runs on the old base `c1522fdac`, whose mc-orch tree
+already carries the uncommitted framework edit `js/src/parking.rs` + `js/src/lib.rs`.
+
+| Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
+| --- | --- | --- | --- | --- |
+| [X23](../issues/20261005-x23-scroll-restore-offsets.md) | Scroll restore by key (F1 wheel, thread switch) | `EXACT2-GAPS.md` X23; clone `R9Input.swift` settle tail | nonblocking (workaround exists; the real-wheel check stays attended) | keep the workaround; record the attended result in X23 |
+| [X13](../issues/20261005-x13-hover-keys-during-pan.md) | Hover and keys during a pan (sweep rows) | `EXACT2-GAPS.md` X13 | nonblocking (not in this ticket's scope) | none |
+| [X14](../issues/20261005-x14-parked-native-reply.md) | Native replies after a let-go answer | mc-orch tree carries the framework edit at `c1522fdac` | nonblocking here (the old base already includes the edit); matters in `20261005-clone-on-exact2-main` | none |
+| [X8](../issues/20261005-x08-agent-pointer-native-views.md) | Pointer input into native views (F2 Files editor click) | `EXACT2-GAPS.md` X8 | nonblocking (AppKit test + attended row) | none |
 
 ## Implementation notes
 
@@ -158,7 +168,23 @@ Required environment: mc-orch worktree, pinned Bun and Hermes, lane backends; no
 
 ## Progress
 
-Planned.
+Prepared 2026-10-05 23:25 KST.
+- Checkout (environment note): mc-orch worktree
+  `~/Documents/work/0.projects/exact2-worktrees/mc-orch-e88043b25805`, branch
+  `mc/orch-e88043b25805` at `c1522fdac`; the app tree is untracked there (no task branch, no PR —
+  the ticket's portability exception).
+- Archive before any edit: `target/preserve/t3-code-r12-before-20261005.tgz` in that worktree,
+  sha256 `4898542ccd21cd9a8b8344db01ee0e625983632ac9b88aee848a866ad13c0cbe` (591 entries: the
+  app tree plus `js/src/parking.rs` and `js/src/lib.rs`).
+- Dependency evidence: decision 2026-10-05 #1 is recorded in `spec.md` (Confirmed requirements).
+- Environment: Xcode 27.0; pinned Bun 1.4.2 (`~/.bun-1.4.2/bin`); Hermes
+  `hermes-6badada76212` in the root checkout's `target/t3-tools/`; oracle runtime
+  `target/t3-ref/runtime-f870c41` present; lane tools in `target/t3-ui-parity/`; no lane
+  process running; disk 978 GiB free.
+- Limitations: T3 Code (Nightly) is running for the user. Agent drives use isolated lane ports
+  and homes, so they do not touch it; the attended rows (F1 real wheel, F2 real click, F3 normal
+  launch) need the user to quit it first. No computer-use tools in this session, so attended
+  rows wait for an attended session.
 
 ## Attempts and evidence
 
@@ -168,4 +194,4 @@ Planned.
 
 ## Next action
 
-`prepare` (archive the tree first), then `implement` in the mc-orch worktree.
+`implement` in the mc-orch worktree (authorized by the user on 2026-10-05).
