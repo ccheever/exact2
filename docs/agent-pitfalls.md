@@ -203,9 +203,10 @@ guide's rules don't make obvious.
   safe area. Fix: put `env(safe-area-inset-top)` on the route column, not on each
   authored header. (Signal Clone, build 5.)
 
-- **An empty date input shows today's date on iOS.** `input type="date" value=""`
-  draws today in the `UIDatePicker`, which has no empty state, while the bound value,
-  `state` and `tree` stay `""` until the person picks. Fix: when the value is empty,
+- **An empty date input can still show a date on iOS.** `input type="date" value=""`
+  draws a date in the `UIDatePicker`, which has no empty state: today in a new picker,
+  the last date in one whose value was cleared (`time` and `datetime-local` share the
+  picker), while the bound value, `state` and `tree` stay `""` until the person picks. Fix: when the value is empty,
   show the field's emptiness yourself (a "Not set" label beside it), and validate
   the bound value, not the screenshot. (Authoring bench, LLP 1087, ios20 t7-wizard,
   2026-10-05.)
@@ -260,11 +261,11 @@ guide's rules don't make obvious.
 
 - **A checkbox bound to a resource field does not tick until the save answers.** With
   `checked=form.terms change=editTerms`, where `editTerms` sends a mutation that
-  `refreshes form`, a click shows the box unchecked again at once on the web and
-  checked only when the refreshed answer lands, so a slow store shows no tick, and a
-  test that clicks and reads `checked` at once (Playwright's `check()`) fails. Cause:
-  the field is re-set to its binding, `form.terms`, which is still `false` until the
-  answer. Fix: bind it to state the action writes at once (`terms = value`, then
+  `refreshes form`, a click shows the box unchecked again at once and checked only
+  when the refreshed answer lands, so a slow store shows no tick, and a test that
+  clicks and reads `checked` at once fails. Cause: every host (both web targets, iOS,
+  macOS) re-sets the box to its binding, `form.terms`, which is still `false` until
+  the answer. Fix: bind it to state the action writes at once (`terms = value`, then
   `send`), and seed that state from the saved record as a form does. (Authoring bench,
   LLP 1087, codex17 t7-wizard, 2026-10-05.)
 
