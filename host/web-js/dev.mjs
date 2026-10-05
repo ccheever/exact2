@@ -16,7 +16,7 @@ import { createServer, request } from 'node:http';
 import { existsSync, readFileSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { webRequestURL } from '../../scripts/origin.mjs';
-import { INPUT_TREE, OUTPUT } from '../../scripts/agent-launch.mjs';
+import { INPUT_TREE } from '../../scripts/agent-launch.mjs';
 import { appManifestDigest, buildFileCards, buildTreeFile, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 
@@ -24,6 +24,7 @@ const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const skipped = /(^|\/)(target|dist(?:\.previous)?|node_modules|conformance)(\/|$)|(^|\/)\.|\.md$/;
+const SHOT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|mov|mp4|webm|trace)$/i;
 
 let building = null; // the build in flight, stopped with the server
 
@@ -100,9 +101,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     if (name && skip.test(String(name))) return;
     // The declarations a build writes beside app.ts, for an editor.
     if (base === app.dir && String(name) === 'app.contract.d.ts') return;
-    // A screenshot, log or film written into the app folder is not an input, as the driver's
-    // staleness check counts it: it does not reload a page under a test.
-    if (base === app.dir && OUTPUT.test(String(name)) && !INPUT_TREE.test(String(name))) return;
+    // A screenshot or film written into the app folder, outside the input trees and not named by
+    // app.json, does not reload a page under a test (authoring bench).
+    if (base === app.dir && SHOT.test(String(name)) && !INPUT_TREE.test(String(name)) && !JSON.stringify(app.manifest ?? {}).includes(String(name))) return;
     try { if (name && statSync(resolve(base, String(name))).mtimeMs < since) return; } catch { /* removed: an edit */ }
     if (!timer) saved = Date.now();
     clearTimeout(timer);
