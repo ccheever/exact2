@@ -188,8 +188,11 @@ AVPlayerViewController on the leaf's own AVPlayer, so the time, play or pause
 and rate are the same ones on both sides; the inline view lets go of the
 player while it shows, and the full-screen controller lets go of it before
 the inline view takes it back (AVKit pauses a player a closed controller
-still holds). macOS does not present it yet and says so in the log. The web
-calls the element's `requestFullscreen()`.
+still holds). The full-screen picture keeps the element's `object-fit`, as a
+full-screen element's does on the web (the Fullscreen UA sheet's `contain` is
+an author-overridable default): `cover` fills the screen, cropped. macOS does
+not present it yet and says so in the log. The web calls the element's
+`requestFullscreen()`.
 
 ### Events and observations
 

@@ -596,6 +596,8 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
             UIView.performWithoutAnimation { controller.videoGravity = gravity }
         }
         if let layer = inline?.playerLayer, layer.videoGravity != gravity { layer.videoGravity = gravity }
+        // Full screen keeps the element's `object-fit`, as the web's does.
+        if let fullscreen, fullscreen.videoGravity != gravity { fullscreen.videoGravity = gravity }
         guard let presentation else { poster.frame = container.bounds; return }
         #endif
         var frame = container.bounds
@@ -653,7 +655,7 @@ extension VideoArm {
         while let shown = host.presentedViewController { host = shown }
         let full = FullscreenPlayer()
         full.player = player
-        full.videoGravity = .resizeAspect
+        full.videoGravity = gravity
         full.modalPresentationStyle = .fullScreen
         // One picture at a time: the inline view lets go of the player while
         // the full-screen one shows it, and takes it back after.
