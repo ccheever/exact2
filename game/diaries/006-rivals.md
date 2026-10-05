@@ -1427,3 +1427,37 @@ closing the old descriptor cannot unlock a newly opened store. There are
 no retries or changes to signed-floor checks, saved records or admission.
 All 63 update tests and strict all-target Clippy pass after the change.
 Logs: `/tmp/exact2-owner-{regression-before,tests,clippy}.log`.
+
+Periodic merge `f95380e2f` brings main through `dfec331d5`, including slot-fill
+inlining, reachable-shape emission, popover placement and the macOS chooser.
+All five root checks pass after the merge and ownership fix: build 38.587 s,
+tests 147.810 s (2,386 passed in 81 binaries, nine ignored), Clippy 27.794 s,
+formatting 2.108 s, caps 0.093 s and boot 0.015 s. The total is 216.410 s,
+again over budget; binary-reported execution sums to 39.82 s. No game proof
+runs concurrently with this batch. The update integration suite has no
+reopen failure in this run, which does not establish a flake rate.
+Logs: `/tmp/exact2-owner-root-*.log`.
+
+All six game proofs pass with `CHROME` unset. Rivals takes
+102.751/76.393 s on web/macOS, including builds. Inputs, pins, twelve
+final world samples, published values and seventeen save files agree
+between hosts. Saves remain byte-identical to `browser-web`. This batch
+enables the existing `EXACT_PROOF_COMPARE=1` capture at session close:
+two Rivals sessions now report tick zero after their final reset actions,
+instead of the preceding observed checkpoint. Reconstructing the ordinary
+observations from `replies.json` with `worldObservations` matches all
+twelve pre-merge checkpoints on both hosts. Garden and Forest are recorded
+in diaries 004/005. All six process audits pass with no recorded children
+remaining, and both bandaging captures were inspected. Artifacts:
+`artifacts/owner-{web,macos}/`; comparison evidence:
+`/tmp/exact2-owner-game-comparison.json` and
+`/tmp/exact2-owner-rivals-observations.json`. No baseline or Jev-policy
+changes.
+
+The update-enabled Caltrain macOS app builds in 41.059 s and passes its
+application smoke, including three Contract tests, in 11.978 s. A separate
+agent launch reports `delivery.L = A`, embedded sequence zero and no staged
+entry; the agent uses a temporary store. Its screenshot still shows the
+macOS canvas text-flip defect already tracked in QUEUE; this is no claim of
+clean Caltrain pixels. Logs: `/tmp/exact2-owner-caltrain-{build,smoke,delivery}.log`;
+capture: `/tmp/exact2-owner-caltrain.png`. The game captures are unaffected.

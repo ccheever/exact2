@@ -1276,3 +1276,16 @@ Inputs, pins, eight world observations and twelve saves match between hosts;
 worlds and saves also match `scratch-web` before the merge. Both watering
 captures were inspected. Artifacts: `artifacts/browser-{web,macos}/`.
 Gameplay and Jev's policy are unchanged.
+
+## Update-store ownership and main integration (2026-10-04)
+
+Merge `f95380e2f` brings main through `dfec331d5`; Rivals diary 006 records
+the update-store ownership fix and passing root checks, including their
+216.4 s budget miss. Garden passes complete web/macOS proofs in
+119.375/57.132 s with `CHROME` unset. Inputs, pins, nine final world
+observations and twelve saves agree between hosts. This run enables the
+existing `EXACT_PROOF_COMPARE=1` close-time capture; its eight observations
+shared with `browser-web` retain the same ticks and hashes, and every save
+remains byte-identical. Both process audits pass with no recorded children
+remaining, and both watering captures were inspected. Artifacts:
+`artifacts/owner-{web,macos}/`. No gameplay or Jev-policy changes.

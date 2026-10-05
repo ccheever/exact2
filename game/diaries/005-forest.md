@@ -1203,3 +1203,16 @@ Inputs, pins, eleven world observations and eighteen saves agree between
 hosts; worlds and saves also match `scratch-web` before the merge. Both
 windbreak captures were inspected. Artifacts: `artifacts/browser-{web,macos}/`.
 Gameplay and Jev's policy are unchanged.
+
+## Update-store ownership and main integration (2026-10-04)
+
+Merge `f95380e2f` brings main through `dfec331d5`; Rivals diary 006 records
+the update-store ownership fix and passing root checks, including their
+216.4 s budget miss. Forest passes complete web/macOS proofs in
+162.565/196.083 s with `CHROME` unset. Source inputs, pins, eleven final
+world observations, published values and eighteen saves agree between
+hosts. Ticks, hashes and saves also match `browser-web` before the merge.
+The existing `EXACT_PROOF_COMPARE=1` option retains the close-time public
+state. Both process audits pass with no recorded children remaining, and
+both windbreak captures were inspected. Artifacts:
+`artifacts/owner-{web,macos}/`. No gameplay or Jev-policy changes.
