@@ -641,3 +641,21 @@ fn rendered_lifecycle_preserves_both_causes_and_initializes_replacements() {
     drop(surfaces);
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }
+
+#[test]
+fn a_module_is_absent_only_without_an_identity_or_a_file() {
+    use super::{absent, NO_IDENTITY};
+    let here = std::env::temp_dir().join(format!("exact-absent-{}", std::process::id()));
+    std::fs::write(&here, b"module").unwrap();
+    assert!(absent(Err(NO_IDENTITY.into())));
+    assert!(absent(Ok(here.with_extension("missing"))));
+    assert!(
+        !absent(Ok(here.clone())),
+        "a file that is there refuses by name"
+    );
+    assert!(
+        !absent(Err("EXACT_NATIVE_LIBS is not set".into())),
+        "an unknown directory is no absence"
+    );
+    let _ = std::fs::remove_file(here);
+}
