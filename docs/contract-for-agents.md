@@ -152,8 +152,10 @@ is `{ roots, nodes: [{ id, type, depth, props: { testId, text, value, … }, chi
 every node in one preorder list (`depth` and `children` give the nesting), and `s.state()` is `{ slots, derives, resources,
 pending, … }`. `app` is the app's name; an app outside the exact2
 checkout is found through `EXACT_APP_DIR` (its directory), as its own `exact.mjs agent`
-sets it, so a script run with plain `bun` sets it too (`EXACT_APP_DIR=$PWD bun verify.mjs`;
-the working directory alone does not select the app), and `webDist` alone does not select an app. `s.op(request)` is the
+sets it, so a script run with plain `bun` sets it to the app's directory too
+(`EXACT_APP_DIR=/path/to/app bun ../verify.mjs`, the script kept outside the app
+folder, where it would count as a build input); the working directory alone does
+not select the app, and `webDist` alone does not select an app. `s.op(request)` is the
 host's wire beneath them: it addresses views by numeric `id`, and it refuses a
 request it would answer by doing nothing (a `target`, an unknown op, a web
 `tap` with no browser input behind it). A reload or a raw browser step goes
