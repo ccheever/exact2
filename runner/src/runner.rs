@@ -745,7 +745,15 @@ impl<D: DataSource> Runner<D> {
         }
         let same_logic = carried.is_none_or(|c| c.data_revision.as_deref() == data.revision());
         data.bind(&plan);
+        // A cold boot forgets the kept answers no declared reader seeds.
+        let obsolete_kept = match carried {
+            None => kept::obsolete(&plan, &snapshot),
+            Some(_) => Vec::new(),
+        };
         let mut store = Store::new(data.grants(), snapshot);
+        for name in &obsolete_kept {
+            store.forget_kept(name);
+        }
         if let Some(carried) = carried {
             // Forget incompatible seeds, not just their first use: a pending
             // replacement must not relabel an old answer on the next reload.
