@@ -37,21 +37,26 @@ pub(super) fn reserved_message(w: &str) -> String {
 /// The section a mistaken section word means, as a refusal's tail (authoring
 /// bench: `prop pct: number` in a child component).
 pub(super) fn section_hint(word: &str) -> String {
-    let section = match word.trim_end_matches('s') {
-        "prop" | "propertie" | "property" | "param" | "arg" => "props",
-        "state" | "var" | "let" => "state",
-        "derive" | "derived" | "computed" | "memo" | "getter" => "derive",
-        "resource" | "query" | "fetch" => "resource",
-        "mutation" => "mutation",
-        "action" | "method" | "function" | "handler" | "on" => "action",
-        "task" | "effect" | "timer" | "interval" | "every" => "task",
-        "view" | "render" | "template" | "body" => "view",
-        "slot" | "children" => "slot",
-        "provide" => "provide",
-        "inject" | "context" => "inject",
+    let section = match word {
+        "prop" | "properties" | "property" | "params" => "props",
+        "states" => "state",
+        "derives" | "derived" => "derive",
+        "resources" => "resource",
+        "mutations" => "mutation",
+        "actions" => "action",
+        "tasks" => "task",
+        "views" => "view",
+        "slots" => "slot",
+        "provides" => "provide",
+        "injects" => "inject",
         _ => return String::new(),
     };
-    format!(": did you mean `{section}`?")
+    let place = match section {
+        "props" => " (a component another one uses declares them)",
+        "resource" | "mutation" | "task" => " (only the root component declares one)",
+        _ => "",
+    };
+    format!(": did you mean `{section}`{place}?")
 }
 
 impl Parser {

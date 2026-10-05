@@ -204,7 +204,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               const found = tree.nodes.some((n) => n.props.testId === st.target);
               // The first step of a test that waited for data cannot see the boot's loading view (authoring bench).
               const first = !beforeData && t.steps.slice(0, t.steps.indexOf(st)).every((p) => p.op in LAUNCH || p.op === 'size');
-              if (found !== st.present) await fail(`${at}: expected testId "${st.target}" ${st.present ? 'present' : 'absent'}, it was ${found ? 'present' : 'absent'}${first && st.present ? ' (the test waited for the app\'s data before its first step: `before data`, a launch line, sees the boot)' : ''}`);
+              if (found !== st.present) await fail(`${at}: expected testId "${st.target}" ${st.present ? 'present' : 'absent'}, it was ${found ? 'present' : 'absent'}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
               break;
             }
             case 'expect-text': {
