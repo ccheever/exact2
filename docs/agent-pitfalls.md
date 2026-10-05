@@ -251,13 +251,14 @@ guide's rules don't make obvious.
 
 - **Two quick sends to one mutation lost the first write on iOS.** Two adds in a
   row (`send changed = addTask(…)` from consecutive inputs) kept only the second:
-  the log said `forget request 11 (changed)`, and the first insert, still waiting on
-  SQLite, never landed; the web finished it. Cause: a second `send` to a mutation
+  the log said `forget request 11 (changed)`, and the first insert, queued behind
+  a storage turn still open, never landed; the web finished it. Cause: a second `send` to a mutation
   forgets the request in flight (its reply is dropped by design); the native
   executor finishes a forgotten request already in a storage step, but drops one
   that has not reached its first (QUEUE). Fix until then: give each write that can
-  be in flight at once a mutation of its own, or make each persisting request write
-  the whole state, so a later one that supersedes it loses nothing. (Authoring
+  be in flight at once a mutation of its own, or keep the edits in Contract state and
+  send the whole of it each time (`send saved = saveTasks(tasks)`), so a later
+  request that supersedes an earlier one already carries every change. (Authoring
   bench, LLP 1087, t2-todo on iOS, 2026-10-05.)
 
 ## Driving and testing
