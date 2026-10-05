@@ -319,9 +319,8 @@ test('generated game arguments use the resident plan compiler without a host reb
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 test('GPU edit profile recognizes both authored tables and generated inline TOML', () => {
-  const body=source.slice(source.indexOf('async function produceGpu(files)'));
-  const line=body.split('\n').find(line=>line.trimStart().startsWith('const profile ='));
-  const profile=text=>new Function('readFileSync','resolve','app','Bun',`${line};return profile;`)
+  const line=source.split('\n').find(line=>line.startsWith('const gpuProfile ='));
+  const profile=text=>new Function('readFileSync','resolve','app','Bun',`${line};return gpuProfile();`)
     (()=>text,resolve,{workspace:'.'},Bun);
   assert.equal(profile('[profile.gpu-dev]\nopt-level=1\n'),'gpu-dev');
   assert.equal(profile('[profile]\n"gpu-dev" = { inherits="dev", opt-level=1 }\n'),'gpu-dev');

@@ -897,6 +897,8 @@ let hostBuildChild = null;
 function rebuild() { buildPending = true; drainBuilds(); }
 function rebuildNow(files) {
   building = true;
+  // It would hold Cargo's lock on the target; the success below restarts it.
+  if (gpuWarm && gpuBuildChild) { gpuWarmStopped = true; try { process.kill(-gpuBuildChild.pid, 'SIGKILL'); } catch {} }
   const t = Date.now();
   console.log(`rust: ${files.length} file${files.length === 1 ? '' : 's'} changed (${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}) — rebuilding the ${producersOnly ? "bake" : "wasm"}`);
   const b = hostBuildChild = spawn(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), hostBuild], { cwd: root, env:buildEnv, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -926,6 +928,7 @@ function rebuildNow(files) {
       startCompiler();
       console.log(`rust: rebuilt in ${(ms / 1000).toFixed(1)} s · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading\n  ${classifyRebuild().join('\n  ')}`);
       push({ rebuilt: builds });
+      if (gpuWarm) void gpuWarm.then(warmGpu); else warmGpu();
     } else {
       const errors = out.split('\n').filter((l) => /^(error|warning: unused|\s+-->)/.test(l)).join('\n') || out.trim().split('\n').slice(-12).join('\n');
       console.log(`rust: build failed in ${(ms / 1000).toFixed(1)} s; the next save, or r + Enter, builds again\n${errors}`);
@@ -947,10 +950,35 @@ function rebuildNow(files) {
   });
 }
 
+// The edit loop builds GPU artifacts at gpu-dev, a profile (and for a game a
+// toolchain) the startup build does not use. Cold, the first gameplay edit
+// after starting paid for every dependency (Garden: 25 s on a quiet M4, its
+// later edits about 1 s). So the loop builds them in the background once it
+// serves, and again after a full rebuild; an edit meanwhile waits for it.
+const gpuProfile = () => Bun.TOML.parse(readFileSync(resolve(app.workspace, 'Cargo.toml'), 'utf8')).profile?.['gpu-dev'] ? 'gpu-dev' : 'web';
+const runGpu = (command, args) => new Promise((ok, fail) => {
+  const child = gpuBuildChild = spawn(command, args, { cwd: app.workspace, env: {...buildEnv, CARGO_TARGET_DIR:app.target}, stdio:['ignore','pipe','pipe'], detached:true });
+  let output = '';
+  child.stdout.on('data', data => { output += data; });
+  child.stderr.on('data', data => { output += data; });
+  child.on('error', fail);
+  child.on('exit', code => { if (gpuBuildChild === child) gpuBuildChild = null; code === 0 ? ok() : fail(new Error(output.trim())); });
+});
+let gpuWarm = null, gpuWarmStopped = false;
+function warmGpu() {
+  const built = gpuArtifacts().filter(({ stem }) => gpuArtifactInputs.get(stem)?.size);
+  if (producersOnly || gpuWarm || !built.length || gpuProfile() !== 'gpu-dev') return;
+  const start = Date.now(), crates = built.flatMap(({ kind }) => ['-p', app.crate(kind)]);
+  gpuWarm = runGpu('cargo', ['build', ...cargoReproducibilityFlags(app), ...crates, '--target', 'wasm32-unknown-unknown', '--profile', 'gpu-dev'])
+    .then(() => { readGpuInputs('gpu-dev', built.map(({ stem }) => stem)); watchCompilerInputs(); console.log(`gpu: gpu-dev built in ${((Date.now() - start) / 1000).toFixed(1)} s; gameplay edits now rebuild warm`); },
+      error => { if (!gpuWarmStopped) console.error(`gpu: the background gpu-dev build failed; the next gameplay edit builds it\n${error.message.split('\n').slice(-12).join('\n')}`); })
+    .finally(() => { gpuWarm = null; gpuWarmStopped = false; });
+}
 // Only the artifacts whose inputs an edit touched are rebuilt and swapped.
 async function produceGpu(files) {
   building = true;
   try {
+    if (gpuWarm) { console.log('gpu: waiting for the background gpu-dev build'); await gpuWarm; }
     for (const artifact of gpuArtifacts().filter(({ stem }) => files.some(path => gpuArtifactInputs.get(stem)?.has(path)))) await produceGpuArtifact(files, artifact);
   } finally {
     building = false;
@@ -959,34 +987,26 @@ async function produceGpu(files) {
 }
 async function produceGpuArtifact(files, { stem, kind, module }) {
   const start = Date.now();
-  const profile = Bun.TOML.parse(readFileSync(resolve(app.workspace, 'Cargo.toml'), 'utf8')).profile?.['gpu-dev'] ? 'gpu-dev' : 'web';
+  const profile = gpuProfile();
   if (profile === 'web') console.log('gpu: add [profile.gpu-dev] inheriting dev, opt-level=1, no LTO, and optimized dependencies for fast module rebuilds');
   mkdirSync(gpuSideRoot, { recursive: true });
   const stage = mkdtempSync(resolve(gpuSideRoot, 'build-'));
-  const run = (command, args) => new Promise((ok, fail) => {
-    const child = gpuBuildChild = spawn(command, args, { cwd: app.workspace, env: {...buildEnv, CARGO_TARGET_DIR:app.target}, stdio:['ignore','pipe','pipe'], detached:true });
-    let output = '';
-    child.stdout.on('data', data => { output += data; });
-    child.stderr.on('data', data => { output += data; });
-    child.on('error', fail);
-    child.on('exit', code => { gpuBuildChild = null; code === 0 ? ok() : fail(new Error(output.trim())); });
-  });
   try {
     console.log(`gpu: ${files.length} source file(s) changed; building ${app.crate(kind)} (${profile})`);
-    await run('cargo', ['build',...cargoReproducibilityFlags(app),'-p',app.crate(kind),'--target','wasm32-unknown-unknown','--profile',profile]);
+    await runGpu('cargo', ['build',...cargoReproducibilityFlags(app),'-p',app.crate(kind),'--target','wasm32-unknown-unknown','--profile',profile]);
     const compiled = Date.now();
     // The side directory mirrors dist: `gpu.js`, or a module's `gpu/<name>.js`.
-    await run('wasm-bindgen', ['--target','no-modules','--no-typescript','--out-dir',module ? resolve(stage, 'gpu') : stage,'--out-name',module ?? 'gpu',resolve(app.target,'wasm32-unknown-unknown',profile,app.crate(kind).replaceAll('-','_')+'.wasm')]);
+    await runGpu('wasm-bindgen', ['--target','no-modules','--no-typescript','--out-dir',module ? resolve(stage, 'gpu') : stage,'--out-name',module ?? 'gpu',resolve(app.target,'wasm32-unknown-unknown',profile,app.crate(kind).replaceAll('-','_')+'.wasm')]);
     gpuVersion++; gpuVersions.set(gpuVersion, { stem, directory: stage }); gpuSides.set(stem, gpuVersion);
+    const ms = Date.now() - start;
+    gpuTimings.set(gpuVersion, { ms, start });
+    console.log(`gpu: rebuilt in ${ms} ms (cargo ${compiled-start} ms, bindgen ${Date.now()-compiled} ms); swap pushed`);
+    push({gpu:gpuVersion, ...(module ? {module} : {})});
     // Query versions pin JS and wasm together. A lagging fetch gets 404 rather
     // than silently pairing exports from one build with another build's wasm.
     const own = [...gpuVersions].filter(([, side]) => side.stem === stem);
     for (const [version, side] of own.slice(0, Math.max(0, own.length - 3))) { rmSync(side.directory, {recursive:true,force:true}); gpuVersions.delete(version); }
     readGpuInputs(profile, [stem]); watchCompilerInputs();
-    const ms = Date.now() - start;
-    gpuTimings.set(gpuVersion, { ms, start });
-    console.log(`gpu: rebuilt in ${ms} ms (cargo ${compiled-start} ms, bindgen ${Date.now()-compiled} ms); swap pushed`);
-    push({gpu:gpuVersion, ...(module ? {module} : {})});
   } catch (error) {
     rmSync(stage, {recursive:true,force:true});
     console.error(`gpu: build failed in ${Date.now()-start} ms\n${error.message}`);
@@ -1114,6 +1134,7 @@ server.listen(port, host, () => {
   devURL = urls[0]; writeDevRecord();
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
   if (allowHosts.length) console.log(`  also answering to ${allowHosts.join(', ')} (--allow-host)`);
+  warmGpu();
   console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${lan ? 'LAN bind — any peer on this network can read the app, its compile errors and dev generations; macOS may ask to allow bun' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
 });
 process.on('SIGINT', stop);
