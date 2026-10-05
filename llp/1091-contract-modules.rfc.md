@@ -778,6 +778,8 @@ edges of round 10's fixes. Every finding is taken; every plan stays byte-identic
 | Astra 5: a root file retargeted at a twin went unseen by the wasm session | The root is a used file by the path it is opened at |
 | Astra 6: off Unix, a stamp had no file identity | Every stamp hashes the file's canonical path, on every platform |
 
+*Follow-up (2026-10-05, acae0e3f6):* with the root a used file, its stamp's time made an identical re-save a change, and exact-web's identical-save test failed; used files now compare by fingerprint (bytes, canonical path, file identity), not time.
+
 ## 21. The lines a file lacks (2026-10-04, branch `fix/polish7`)
 
 D1 refused the first name a file reached without a `use`, with `use X
