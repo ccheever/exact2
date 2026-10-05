@@ -60,7 +60,7 @@ OnHooks.file = (e, kind, f) => {
   e.addEventListener('exact-picked', ev => {
     const files = records(ev.detail);
     if (!files) return say('picker: refused: a malformed payload');
-    f(files);
+    f(files, ["", false, 0, 0, "none"]); // its `InputEvent`, as the runner's: no value, no text selection
   });
   return true;
 };
