@@ -796,6 +796,7 @@ impl<'a> Lowerer<'a> {
                     attrs
                 });
                 let expanded = row_list.as_deref().unwrap_or(expanded);
+                media::check_session(tag, expanded)?;
                 let audio = media::audio_rows(tag, expanded, *span)?;
                 let expanded = audio.as_deref().unwrap_or(expanded);
                 // @ref LLP 1074 T1 — a box that contains its absolutely positioned
@@ -1471,6 +1472,7 @@ impl<'a> Lowerer<'a> {
             tags::AttrTarget::Handler(event) => {
                 self.handler(tag, event, control, a, scope, locals, handlers)?;
             }
+            tags::AttrTarget::MediaMetadata => self.media_metadata(a, scope, locals, bindings)?,
         }
         Ok(())
     }

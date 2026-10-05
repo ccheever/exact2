@@ -170,6 +170,11 @@ pub fn test_case(
             // are, and those are compared; a step that reads the table is
             // the runner's tests' and conformance's.
             Step::ExpectSound { .. } => continue,
+            // The media session is the host's (LLP 1098 D12): an assertion on
+            // it has no oracle, and a test that only asserts it still runs.
+            // Its `tap` form is not a press, so it reaches `other` and the
+            // test is skipped by name.
+            Step::ExpectMediaSession { .. } | Step::ExpectMediaSessionAction { .. } => continue,
             other => {
                 return Err(format!(
                     "{file}: test {:?}: a step the differential run does not deliver: {other:?}",

@@ -82,6 +82,8 @@ pub struct Host<D: DataSource> {
     presses: BTreeMap<NodeKey, press::Feedback>,
     /// The 2D canvases' bitmaps (LLP 1056 D7).
     canvas2d: crate::canvas2d::Canvases,
+    /// The commit each media session claimant mounted in (LLP 1098 D9).
+    media_mounts: crate::media_session::Mounts,
 }
 
 impl<D: DataSource> Host<D> {
@@ -196,6 +198,7 @@ impl<D: DataSource> Host<D> {
             presence: Default::default(),
             presses: Default::default(),
             canvas2d: Default::default(),
+            media_mounts: Default::default(),
         };
         host.runner
             .set_canvas_limits(exact_runner::Limits::native(physical_memory(), false));
@@ -405,6 +408,11 @@ impl<D: DataSource> Host<D> {
     /// The kernel.
     pub fn kernel(&self) -> &Kernel {
         self.runner.kernel()
+    }
+
+    /// The commit each media session claimant mounted in (LLP 1098 D9).
+    pub(crate) fn media_mounts(&self) -> &crate::media_session::Mounts {
+        &self.media_mounts
     }
 
     /// Explicit region selection, including retained provenance while pending.
@@ -1074,6 +1082,7 @@ impl<D: DataSource> Host<D> {
                     self.keys.insert(*key, node.id);
                 }
             }
+            self.media_mounts.commit(self.runner.kernel(), r);
         }
         self.track_presence(receipts);
         if receipts.iter().any(|t| !t.receipt.created.is_empty()) {

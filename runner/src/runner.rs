@@ -46,6 +46,7 @@ mod kept;
 mod kept_tests;
 mod lines;
 mod lists;
+mod media_session;
 mod page;
 mod perf;
 pub mod router;

@@ -479,6 +479,7 @@ impl Event {
             ])),
             Event::Press => Some(KeyModifiers::default().mouse()),
             Event::PressWith(held) => Some(held.mouse()),
+            Event::Media(kind, payload) => super::media_session::record(*kind, payload),
             _ => None,
         }
     }
@@ -512,7 +513,13 @@ impl Event {
     pub fn media_payload(payload: &str) -> Option<Self> {
         let (name, value) = payload.split_once('\n')?;
         let kind = EventKind::from_name(name)?;
-        if !(EventKind::Loadedmetadata as u8..=EventKind::Canplay as u8).contains(&(kind as u8)) {
+        // The media session's six sit after `drop` (LLP 1098 D11): listed,
+        // so the run's range never admits `pan` … `drop`.
+        let session = super::media_session::ACTIONS.contains(&kind);
+        if !session
+            && !(EventKind::Loadedmetadata as u8..=EventKind::Canplay as u8).contains(&(kind as u8))
+            || session && super::media_session::details(value).is_none()
+        {
             return None;
         }
         if matches!(kind, EventKind::Timeupdate | EventKind::Durationchange)

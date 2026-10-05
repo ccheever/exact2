@@ -121,7 +121,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
           switch (st.op) {
             case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': break; // the session opened with it
             // The driver's `tap` forms (feed F10): `into` brings a virtualized list's row into view by its key.
-            case 'tap': delivered(await s.tap(st.target, st.form === 'into' ? { into: { key: st.key } } : st.form !== 'press' ? { [st.form]: true } : st.modifiers ? { modifiers: st.modifiers } : undefined)); input = st.line; break;
+            case 'tap': delivered(await s.tap(st.target, st.form === 'into' ? { into: { key: st.key } } : st.form === 'mediasession' ? { mediaSession: st.action, ...(st.seconds != null ? { seconds: st.seconds } : {}) } : st.form !== 'press' ? { [st.form]: true } : st.modifiers ? { modifiers: st.modifiers } : undefined)); input = st.line; break;
             case 'drag': delivered(await s.tap(st.target, { drag: { dx: st.dx, dy: st.dy, ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) } })); input = st.line; break;
             case 'type': {
               // `append`: after the field's value as the tree shows it, the text a keyboard would add (feed F8).
@@ -184,6 +184,18 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
                 // A voice is recorded by the commit that issued it: no clock hint applies.
                 failures.push(`${at}: expected ${st.present ? 'a' : 'no'} voice of "${st.src}"${said}; ${of.length ? `its voices: ${of.join('; ')}` : 'it has no voice'}`);
               }
+              break;
+            }
+            // The media session the host reports (LLP 1098 D10): a field, the owner by its testId, or an offered action.
+            case 'expect-mediasession': {
+              const ms = (await s.state()).mediaSession;
+              if (!ms) { failures.push(`${at}: this host reports no media session`); break; }
+              if (st.action != null) {
+                if (ms.actions.includes(st.action) !== st.present) await fail(`${at}: expected the media session ${st.present ? 'to offer' : 'not to offer'} "${st.action}"; it offers ${ms.actions.length ? ms.actions.join(', ') : 'nothing'}${ms.owner == null ? ' (no owner)' : ''}`);
+                break;
+              }
+              const got = st.field === 'owner' ? (ms.owner == null ? null : ms.testId ?? `view ${ms.owner}`) : st.field === 'playbackState' ? ms.playbackState : ms.metadata?.[st.field] ?? null;
+              if (got !== st.value) await fail(`${at}: mediasession ${st.field} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
               break;
             }
             default: failures.push(`${at}: unknown step ${st.op}`);

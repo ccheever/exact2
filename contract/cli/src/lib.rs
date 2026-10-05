@@ -498,6 +498,14 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                             s.push_str("\"into\",\"key\":");
                             q(key, &mut s);
                         }
+                        // @ref LLP 1098 D10 — the platform's action, never a press.
+                        TapForm::MediaSession { action, seconds } => {
+                            s.push_str("\"mediasession\",\"action\":");
+                            q(action, &mut s);
+                            if let Some(n) = seconds {
+                                s.push_str(&format!(",\"seconds\":{n}"));
+                            }
+                        }
                     }
                     if !modifiers.is_empty() {
                         s.push_str(",\"modifiers\":");
@@ -639,6 +647,22 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                         s.push_str(",\"by\":");
                         q(by, &mut s);
                     }
+                }
+                Step::ExpectMediaSession { field, value, .. } => {
+                    s.push_str("{\"op\":\"expect-mediasession\",\"field\":");
+                    q(field, &mut s);
+                    s.push_str(",\"value\":");
+                    match value {
+                        Some(v) => q(v, &mut s),
+                        None => s.push_str("null"),
+                    }
+                }
+                Step::ExpectMediaSessionAction {
+                    action, present, ..
+                } => {
+                    s.push_str("{\"op\":\"expect-mediasession\",\"action\":");
+                    q(action, &mut s);
+                    s.push_str(&format!(",\"present\":{present}"));
                 }
                 Step::ExpectState { name, value, .. } => {
                     s.push_str("{\"op\":\"expect-state\",\"name\":");

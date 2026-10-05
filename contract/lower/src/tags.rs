@@ -30,6 +30,9 @@ pub enum AttrTarget {
     Shorthand,
     /// A canvas's surface binding: `surface=name(args)` (LLP 1009 D3).
     Surface,
+    /// `metadata=MediaMetadata(…)` on `audio` or `video`: four string props,
+    /// one a field (LLP 1098 D1).
+    MediaMetadata,
 }
 /// A tag's node type, its fixed rows, and how positional arguments land.
 #[derive(Debug, Clone, PartialEq)]
@@ -371,6 +374,18 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "volumechange" => AttrTarget::Handler("volumechange"),
         "error" => AttrTarget::Handler("error"),
         "canplay" => AttrTarget::Handler("canplay"),
+        // @ref LLP 1098 D1, D2 — the media session: `metadata=` claims it,
+        // the six actions by `setActionHandler`'s names, and the seconds a
+        // seek moves when the platform gives none.
+        "metadata" => AttrTarget::MediaMetadata,
+        "seekbackward" => AttrTarget::Handler("seekbackward"),
+        "seekforward" => AttrTarget::Handler("seekforward"),
+        "seekto" => AttrTarget::Handler("seekto"),
+        "previoustrack" => AttrTarget::Handler("previoustrack"),
+        "nexttrack" => AttrTarget::Handler("nexttrack"),
+        "stop" => AttrTarget::Handler("stop"),
+        "seekbackwardOffset" => AttrTarget::Prop(p("seekbackwardOffset")),
+        "seekforwardOffset" => AttrTarget::Prop(p("seekforwardOffset")),
         "press" => AttrTarget::Handler("press"),
         // @ref LLP 1069.001 D4 — HTML's two: `input` as the value moves (a
         // text field's every keystroke), `change` when it is committed.

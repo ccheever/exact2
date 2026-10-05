@@ -1145,7 +1145,8 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
             );
         }
         // @ref LLP 1035.005.000 D3 — `Name(…)` builds a declared shape.
-        if shapes.declared.contains(&f.name) {
+        if shapes.declared.contains(&f.name) || records::COMPILER_RECORDS.contains(&f.name.as_str())
+        {
             return err(
                 "type-fn-shape-name",
                 format!(

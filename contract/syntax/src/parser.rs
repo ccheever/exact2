@@ -10,6 +10,7 @@ use crate::Span;
 
 mod expr;
 mod keyframes;
+mod media_session;
 mod names;
 #[path = "routes.rs"]
 mod routes;

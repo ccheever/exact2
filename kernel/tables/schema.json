@@ -1370,6 +1370,42 @@
       "name": "title",
       "kind": "str",
       "_comment": "HTML's global `title` attribute on any element but `head` (whose `title` is `headTitle`): advisory text, the platform's tooltip (studio diary R24). The browser's own on the web, `NSView.toolTip` on macOS; touch hosts show none."
+    },
+    {
+      "id": 238,
+      "name": "mediaTitle",
+      "kind": "str",
+      "_comment": "@ref LLP 1098 D1: `metadata=MediaMetadata(…)`'s `title` on an `audio` or `video`, which makes the element a media session claimant. The web's `navigator.mediaSession.metadata`, Apple's `MPNowPlayingInfoCenter`; Linux and Windows keep the record."
+    },
+    {
+      "id": 239,
+      "name": "mediaArtist",
+      "kind": "str",
+      "_comment": "@ref LLP 1098 D1: `MediaMetadata`'s `artist`."
+    },
+    {
+      "id": 240,
+      "name": "mediaAlbum",
+      "kind": "str",
+      "_comment": "@ref LLP 1098 D1: `MediaMetadata`'s `album`."
+    },
+    {
+      "id": 241,
+      "name": "mediaArtwork",
+      "kind": "str",
+      "_comment": "@ref LLP 1098 D1: `MediaMetadata`'s `artwork`, one image's source as authored (an `https:` URL or an app asset path); a host resolves it only where it publishes."
+    },
+    {
+      "id": 242,
+      "name": "seekbackwardOffset",
+      "kind": "float",
+      "_comment": "@ref LLP 1098 D2: the seconds a `seekbackward` moves when the platform gives no `seekOffset` (default 10), and what Apple's lock screen shows (`skipBackwardCommand.preferredIntervals`)."
+    },
+    {
+      "id": 243,
+      "name": "seekforwardOffset",
+      "kind": "float",
+      "_comment": "@ref LLP 1098 D2: `seekbackwardOffset`'s twin for `seekforward`."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

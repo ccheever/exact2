@@ -129,6 +129,7 @@ record_variants! {
         Clock { arg, span }, Reload { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectTree { target, present, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
         ExpectSound { src, present, at, gain, ends, by, span },
+        ExpectMediaSession { field, value, span }, ExpectMediaSessionAction { action, present, span },
     }
 }
 record_variants! {

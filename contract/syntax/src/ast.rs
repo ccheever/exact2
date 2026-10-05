@@ -348,6 +348,26 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `expect mediasession FIELD == "value"` (LLP 1098 D10): a field of
+    /// `state.mediaSession`, the owner by its testId; `none` for no owner.
+    ExpectMediaSession {
+        /// `owner`, `title`, `artist`, `album`, `artwork` or `playbackState`.
+        field: String,
+        /// The value; `None` is `none`.
+        value: Option<String>,
+        /// Where.
+        span: Span,
+    },
+    /// `expect mediasession has|missing "action"` (LLP 1098 D10): whether
+    /// the session's owner offers it to the platform.
+    ExpectMediaSessionAction {
+        /// `play`, `pause`, or one of the six.
+        action: String,
+        /// `has`, or `missing`.
+        present: bool,
+        /// Where.
+        span: Span,
+    },
     /// `expect sound has|missing "src" [at N] [gain N] [ends N] [by word]`
     /// (LLP 1096 D10): a voice in the runner's record of that source that
     /// matches every clause given, or none that does.
@@ -383,6 +403,16 @@ pub enum TapForm {
     /// `into "key"`: a virtualized list's row brought into view by its key
     /// (LLP 1070.000 §5), so a row outside the rendered window can be tapped.
     Into(String),
+    /// `mediasession "action" [seconds]`: the media element's session
+    /// action, as the platform's handler would call it (LLP 1098 D10);
+    /// never a press.
+    MediaSession {
+        /// `play`, `pause`, or one of the six actions.
+        action: String,
+        /// A seek's `seekOffset` (else the element's own), `seekto`'s
+        /// `seekTime` (required there).
+        seconds: Option<f64>,
+    },
 }
 
 /// `fn name(param: type, …): type = expr` — a pure function written in
@@ -1227,7 +1257,9 @@ impl Step {
             | Step::ExpectTree { span, .. }
             | Step::ExpectText { span, .. }
             | Step::ExpectState { span, .. }
-            | Step::ExpectSound { span, .. } => *span,
+            | Step::ExpectSound { span, .. }
+            | Step::ExpectMediaSession { span, .. }
+            | Step::ExpectMediaSessionAction { span, .. } => *span,
         }
     }
 }

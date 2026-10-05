@@ -49,6 +49,7 @@ mod lint;
 mod lists;
 mod locals;
 mod markdown_editing;
+mod media_session;
 mod menus;
 mod motion_feel;
 mod mutation;
