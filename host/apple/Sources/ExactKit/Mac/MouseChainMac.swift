@@ -266,6 +266,16 @@ extension NodeView {
         guard let presenter, presenter.pointerHeld != nil, presenter.pointerSource === self else { return }
         _ = holdBox(presenter)
     }
+    /// A batch that removed the held source puts it in a parent again (a
+    /// move, or a reorder among its siblings): it is not leaving the tree, so
+    /// it goes there now, shown — still in the window, it still hears the
+    /// hold (b6 review B8).
+    func rejoinUnderHold() {
+        guard let box = objc_getAssociatedObject(self, &holdKey) as? HoldBox, box.hid else { return }
+        box.hid = false
+        alphaValue = box.alpha
+        super.removeFromSuperview()
+    }
     /// The button came up: a source a batch removed under the hold goes now,
     /// and one the tree still has shows again.
     func releaseHold() {

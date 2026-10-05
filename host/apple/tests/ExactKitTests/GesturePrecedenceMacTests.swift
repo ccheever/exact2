@@ -142,6 +142,33 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertNil(child.superview, "gone with the button")
     }
 
+    /// b6 review B8: a batch that moves the pressed view to another parent
+    /// under the hold moves it, shown; it keeps hearing the hold there.
+    func testAHeldViewMovedToAnotherParentGoesThere() {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup", "pointermove"]],
+            ["op": "create", "id": 3, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "view"],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1, 3]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 120.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 2, "x": 10.0, "y": 10.0, "w": 50.0, "h": 50.0]
+        ])
+        var log: [String] = []
+        p.onPointer = { id, kind, _ in log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)") }
+        let child = p.views[2]!, old = p.views[1]!, new = p.views[3]!
+        child.mouseDown(with: event(.leftMouseDown, child))
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": []], ["op": "children", "id": 3, "ids": [2]]]))
+        XCTAssertTrue(child.superview === new.container, "moved")
+        XCTAssertEqual(child.alphaValue, 1, "shown")
+        child.mouseDragged(with: event(.leftMouseDragged, child, right: 10))
+        child.mouseUp(with: event(.leftMouseUp, child))
+        XCTAssertEqual(log, ["down 1", "move 1", "up 1"])
+        XCTAssertTrue(child.superview === new.container, "still there after the button")
+        XCTAssertFalse(child.isDescendant(of: old))
+    }
+
     /// LLP 1056 §3: a free pointer's moves are one a display frame, the
     /// latest, as the web host sends them; a pending one goes before a down
     /// (Grok's batch 2 review). AppKit can report several `mouseMoved` a frame.

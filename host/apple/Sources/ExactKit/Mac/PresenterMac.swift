@@ -985,6 +985,7 @@ final class Presenter {
                 for (i, child) in mounted.enumerated() {
                     if child.superview !== container {
                         reparented.insert(child.id)
+                        child.rejoinUnderHold()
                         child.prepareToMount()
                         // Appending then moving the first child above nil puts
                         // it last and needlessly remounts every retained sibling.
@@ -996,6 +997,7 @@ final class Presenter {
                     let siblings = container.subviews
                     if !collections.owns(id), i >= siblings.count || siblings[i] !== child {
                         child.removeFromSuperview()
+                        child.rejoinUnderHold()
                         container.addSubview(child, positioned: .above, relativeTo: i > 0 ? mounted[i - 1] : nil)
                     }
                 }
