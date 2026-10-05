@@ -2,6 +2,7 @@ use crate::{bin, Actions, Data, DataError, Event, Input, InputEvent, Value, Vec2
 use crate::{Args, ArgumentKind, PointerPhase};
 use std::{collections::VecDeque, marker::PhantomData};
 
+mod paranoid;
 mod snapshot;
 
 /// One immutable simulation instant; Copy keeps world borrows short in game code.
@@ -26,6 +27,11 @@ pub trait Game: 'static {
     const ID: &'static str;
     /// Models and textures required before setup. Later mesh references load on sight.
     const ASSETS: &'static [&'static str] = &[];
+    /// Models and textures fetched from the start but not awaited: setup and the
+    /// first frames run without them and they draw as they land. Like any
+    /// undeclared asset, simulation cannot read them (`World::model` is None), so
+    /// load order never reaches the hash; once loaded they stay resident.
+    const STREAMED: &'static [&'static str] = &[];
     /// One typed JSON value required before setup; declares its own asset name.
     const LEVEL: Option<crate::asset::Level> = None;
     /// Canvas argument declarations in positional order; also declares exact arity.
@@ -49,6 +55,15 @@ pub trait Game: 'static {
     }
     /// One fixed step, called after inputs and before transform propagation.
     fn tick(world: &mut World, input: &Input, args: &Self::Args);
+    /// Rebuild presentation-only state (`#[derive(Presentation)]` components) from
+    /// the simulation: after setup, after a restore, after an argument change or a
+    /// tool edit, and at each boundary an advance shows (its last two ticks; every
+    /// tick under a paranoid mode, which compares). Rows start cleared each time,
+    /// so present is a pure function of the simulation, the args and the tick.
+    /// Nothing written here is saved or hashed, so visual-only changes never move
+    /// a pin. [`Present`](crate::Present) reads the simulation and writes only
+    /// presentation components; draw randomness from `p.rng(salt)`.
+    fn present(_present: &mut crate::Present<'_>, _args: &Self::Args) {}
     /// Fixed steps per second.
     const HZ: u32 = 60;
 }
@@ -155,6 +170,12 @@ pub struct Sim<G: Game> {
     // The last tick's pointer motion, for presentation between ticks only.
     last_motion: crate::Vec2,
     paranoid: Option<fn(&mut Self)>,
+    // A paranoid sample deferred while a shown asset was in flight: the next
+    // tick takes it. Skipped samples are counted for the proof's report.
+    paranoid_owed: bool,
+    paranoid_skipped: u64,
+    // An edit through world_mut since the last present: the next advance presents.
+    present_owed: bool,
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
@@ -250,10 +271,47 @@ impl<G: Game> Sim<G> {
         }
         Self::register(&mut world, args);
         G::setup(&mut world, args);
+        if let Some(name) = world.presentation_written() {
+            panic!("Game::setup wrote presentation component `{name}`; write presentation state in Game::present, which runs right after setup");
+        }
         crate::scene::place_followers(&world);
         world.published_pending.set(true);
         world.propagate();
+        Self::present(&mut world, args);
         world
+    }
+    // Presentation runs at a tick boundary and must leave the entity table alone.
+    pub(crate) fn present(world: &mut World, args: &G::Args) {
+        // A rebuild by construction: nothing a previous present wrote survives,
+        // so a restored world and a continuous one present the same state.
+        world.clear_presentation();
+        // Every simulation write panics while presenting (World::sim_writes);
+        // these are the records a present could still append to unnoticed.
+        let before = (
+            world.entities_revision(),
+            world.journal_next(),
+            world.messages.borrow().len(),
+            world.published_pending.get(),
+        );
+        world.presenting.set(true);
+        G::present(&mut crate::Present::new(world), args);
+        world.presenting.set(false);
+        let after = (
+            world.entities_revision(),
+            world.journal_next(),
+            world.messages.borrow().len(),
+            world.published_pending.get(),
+        );
+        assert_eq!(
+            before, after,
+            "Game::present changed simulation records (entities, journal, messages, publications)"
+        );
+    }
+    /// Under a paranoid mode: samples deferred while a shown asset was in
+    /// flight, and whether one is still owed (the asset never landed).
+    pub fn paranoid_samples(&self) -> Option<(u64, bool)> {
+        self.paranoid
+            .map(|_| (self.paranoid_skipped, self.paranoid_owed))
     }
     /// Whether setup is waiting for declared model bytes.
     pub fn is_loading(&self) -> bool {
@@ -263,6 +321,9 @@ impl<G: Game> Sim<G> {
     pub fn take_assets(&mut self) -> Vec<String> {
         if self.setup_pending && !self.assets_pending() {
             return Vec::new();
+        }
+        for name in G::STREAMED {
+            self.world.assets.request(name);
         }
         let revision = self.world.revision::<crate::Mesh>();
         let sprites_changed =
@@ -288,9 +349,12 @@ impl<G: Game> Sim<G> {
                 .collect();
             let mut roots: std::collections::BTreeSet<_> =
                 names.iter().map(|(n, _)| n.clone()).collect();
-            if self.setup_pending {
-                roots.extend(G::ASSETS.iter().map(|n| (*n).to_owned()));
-            }
+            // Declared and streamed assets stay resident: one that leaves the
+            // screen and returns is still Loaded, so a save never refuses for it.
+            // Undeclared cosmetics retire when unshown, bounding their memory.
+            roots.extend(G::ASSETS.iter().map(|n| (*n).to_owned()));
+            roots.extend(G::STREAMED.iter().map(|n| (*n).to_owned()));
+            roots.extend(self.world.assets.declared.iter().cloned());
             if let Some(level) = G::LEVEL {
                 roots.insert(level.name.into());
             }
@@ -306,7 +370,7 @@ impl<G: Game> Sim<G> {
             self.asset_mesh_revision = revision;
         }
         let assets = &mut *self.world.assets;
-        let names: Vec<_> = assets
+        let mut names: Vec<_> = assets
             .states
             .iter()
             .filter(|(n, s)| {
@@ -315,6 +379,13 @@ impl<G: Game> Sim<G> {
             })
             .map(|(n, _)| n.clone())
             .collect();
+        // What setup and the first frame wait for goes first; streamed names last.
+        names.sort_by_key(|n| {
+            (
+                G::STREAMED.contains(&n.as_str()),
+                !assets.required.contains(n),
+            )
+        });
         assets.requested.extend(names.iter().cloned());
         names
     }
@@ -557,6 +628,9 @@ impl<G: Game> Sim<G> {
             lookahead_us_hz: 0,
             last_motion: crate::Vec2::ZERO,
             paranoid: Self::reconstruction(Paranoid::environment()),
+            paranoid_owed: false,
+            paranoid_skipped: 0,
+            present_owed: false,
             game: PhantomData,
         })
     }
@@ -644,6 +718,10 @@ impl<G: Game> Sim<G> {
         self.args = args;
         if changed {
             self.invalidate();
+            // Drawn state follows the arguments it reads at once, paused or not.
+            if !self.setup_pending {
+                Self::present(&mut self.world, &self.args);
+            }
         }
         if G::paused(&self.args) {
             self.flush_paused(self.last_us.unwrap_or(0));
@@ -952,6 +1030,10 @@ impl<G: Game> Sim<G> {
         self.advance_with(now_ms, clock, |_, _| {})
     }
     /// Call back after each completed tick and propagation, with ticks still to run.
+    /// Presentation rows are current only where `left < 2` (the boundaries the
+    /// renderer interpolates between), or every tick under a paranoid mode; an
+    /// observer reading presentation at `left >= 2` sees the last presented
+    /// boundary's rows. Simulation state is current at every call.
     pub fn advance_with(
         &mut self,
         now_ms: f64,
@@ -961,6 +1043,9 @@ impl<G: Game> Sim<G> {
         assert!(now_ms.is_finite(), "host clock must be finite");
         if self.setup_pending {
             return 0;
+        }
+        if std::mem::take(&mut self.present_owed) {
+            Self::present(&mut self.world, &self.args);
         }
         if self.backwards(now_ms) {
             return 0;
@@ -1060,15 +1145,28 @@ impl<G: Game> Sim<G> {
             G::tick(&mut self.world, &self.input, &self.args);
             self.last_motion = self.input.pointer().map_or(crate::Vec2::ZERO, |p| p.delta);
             crate::scene::follow(&self.world);
+            // A tick that did not step its emitters gets the step it forgot.
+            crate::emitter::step(&self.world);
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
+            // Present only what can be observed: the last two ticks of an advance
+            // (the renderer interpolates between them). It is pure, so skipping
+            // the rest of a long seek changes nothing; paranoid modes present
+            // every tick so their comparison proves that purity.
+            if self.paranoid.is_some() || target - self.world.tick() < 2 {
+                Self::present(&mut self.world, &self.args);
+            }
             // Paranoid modes round-trip at every point an advance can be observed
             // (its last tick), at every tick that received input, and every
             // PARANOID_EVERY-th tick inside an advance.
             if let Some(rebuild) = self.paranoid {
                 let tick = self.world.tick();
-                if tick == target || delivered || tick.is_multiple_of(PARANOID_EVERY) {
+                if tick == target
+                    || delivered
+                    || self.paranoid_owed
+                    || tick.is_multiple_of(PARANOID_EVERY)
+                {
                     rebuild(self);
                 }
             }
@@ -1090,87 +1188,6 @@ impl<G: Game> Sim<G> {
             );
         }
         u32::try_from(self.world.tick() - start).unwrap_or(u32::MAX)
-    }
-    fn paranoid_rebuild(&mut self, mode: Paranoid) {
-        let tick = self.world.tick();
-        let hash = self.world.hash();
-        // advance_with owns the seek horizon, but EXSIM checkpoints describe a
-        // completed boundary. Retain the horizon outside the reconstructed Sim.
-        let horizon = self.world_us;
-        self.world_us = ((tick as u128 * 1_000_000).div_ceil(G::HZ as u128)) as i64;
-        let bytes = self.save().unwrap_or_else(|error| panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", mode, G::ID, G::ID));
-        let host = self.last_us;
-        let mut queue = std::mem::take(&mut self.queue);
-        queue.shrink_to_fit();
-        let last_ms = self.last_ms;
-        let live_time = self.live_time;
-        let period_ms = self.period_ms;
-        let lookahead = self.lookahead_us_hz;
-        let last_motion = self.last_motion;
-        let paused_clock = self.paused_clock;
-        let rebase_queue = self.rebase_queue;
-        let posts_logged = self.posts_logged;
-        let observations = std::mem::take(&mut self.observations);
-        // Resetting sprite names must still discover removal of the last texture.
-        let assets_current = self.asset_mesh_revision == self.world.revision::<crate::Mesh>()
-            && self.asset_sprite_names.is_empty();
-        let delay = self.settle_delay.get();
-        let pending = self.world.published_pending.get();
-        let messages = self.take_messages();
-        // These are driver outputs/ownership, not dependencies of Game::tick.
-        // Keep them outside the rebuild just like advance_with's callback.
-        if mode == Paranoid::FreshGame {
-            let mut assets = std::mem::take(&mut self.world.assets);
-            let models = assets
-                .models
-                .iter()
-                .map(|(name, model)| (name.clone(), bin::to_vec(model.model.as_ref())))
-                .collect::<Vec<_>>();
-            assets.models = Default::default();
-            // Drop all old component/resource values (including skipped fields
-            // and physics executors) before decoding the replacement.
-            let generation = self.world.presentation_generation;
-            self.world = self.world.registered_scratch();
-            self.world.presentation_generation = generation;
-            for (name, bytes) in models {
-                assets.models.insert(
-                    name,
-                    bin::from_slice::<crate::asset::Model>(&bytes)
-                        .expect("paranoid asset decode")
-                        .into(),
-                );
-            }
-            self.world.assets = assets;
-        }
-        self.restore(&bytes)
-            .unwrap_or_else(|error| panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", mode, G::ID, G::ID));
-        assert_eq!(
-            hash,
-            self.world.hash(),
-            "paranoid {:?} tick {tick}: world hash; rerun bun game/games/{}/proof.mjs linux --paranoid",
-            mode, G::ID
-        );
-        self.world_us = horizon;
-        self.last_us = host;
-        self.last_ms = last_ms;
-        self.live_time = live_time;
-        self.period_ms = period_ms;
-        self.lookahead_us_hz = lookahead;
-        self.last_motion = last_motion;
-        self.paused_clock = paused_clock;
-        self.rebase_queue = rebase_queue;
-        self.posts_logged = posts_logged;
-        self.queue = queue;
-        self.observations = observations;
-        if assets_current {
-            self.asset_mesh_revision = self.world.revision::<crate::Mesh>();
-        }
-        self.settle_delay.set(delay);
-        self.last_epoch.set(self.world.mutation_epoch());
-        self.world.published_pending.set(pending);
-        *self.world.messages.borrow_mut() = messages;
-        self.restored = false;
-        self.restored_from = None;
     }
     fn alpha_numerator(&self) -> i128 {
         let world = self
@@ -1224,6 +1241,7 @@ impl<G: Game> Sim<G> {
     /// Edit simulation state, for setup tools and tests.
     pub fn world_mut(&mut self) -> &mut World {
         self.invalidate();
+        self.present_owed = true;
         &mut self.world
     }
     /// Take the current public record once after a change, rebuild or load.

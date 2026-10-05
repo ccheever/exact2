@@ -86,6 +86,7 @@ impl World {
     /// retain its content identity, never vertices; changed generators refuse by name.
     /// Repeating an identical registration reuses the existing shared allocation.
     pub fn generated(&mut self, name: &str, mesh: MeshData) -> Result<Mesh, String> {
+        self.sim_writes(format_args!("generated `{name}`"));
         if self.tick() != 0 {
             return Err(format!("generated `{name}`: register during setup"));
         }

@@ -18,6 +18,7 @@ mod input;
 pub mod math;
 pub mod motion;
 mod placed;
+mod present;
 mod rng;
 pub mod scene;
 mod sim;
@@ -36,7 +37,7 @@ pub use asset::pose::Pose;
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
 pub use emitter::Emitter;
 pub use environment::{AmbientOcclusion, Bloom, Environment, EnvironmentMap, Fog};
-pub use exact_game_derive::{Args, Component, Data, Resource};
+pub use exact_game_derive::{Args, Component, Data, Presentation, Resource};
 pub use exact_motion::spring::SpringConfig;
 pub use exact_plan::Value;
 pub use glam::{Affine3A, Mat4, Quat, Vec2, Vec3, Vec3Swizzles, Vec4};
@@ -44,6 +45,7 @@ pub use input::{
     Actions, Input, InputEvent, PointerPhase, PointerState, Region, Stick, MOUSE_BUTTONS,
 };
 pub use placed::{CanvasChild, Facing, Placed, PlacedPlane};
+pub use present::{Present, PresentationComponent};
 pub use rng::{RangeValue, Rng};
 pub use scene::*;
 pub use sim::{Clock, Game, Now, Paranoid, Sim};

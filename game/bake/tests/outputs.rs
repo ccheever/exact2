@@ -10,6 +10,8 @@ fn temp() -> std::path::PathBuf {
     p
 }
 const CRATE: &str = include_str!("fixtures/crate.gltf");
+/// The crate's one texture, named by its content.
+const CRATE_TEX: &str = "textures/86b6f64da4937176.tex";
 #[test]
 fn app_cli_bakes_paths_with_spaces_and_refuses_authored_replacements() {
     let app = std::env::temp_dir().join(format!(
@@ -49,16 +51,17 @@ fn generated_manifest_prunes_renames_deletions_and_absent_art_without_touching_a
     let app = temp();
     fs::write(app.join("art/crate.gltf"), CRATE).unwrap();
     exact_game_bake::bake_art(&app).unwrap();
-    assert!(app.join("assets/crate/0-srgb-straight.tex").exists());
+    assert!(app.join("assets").join(CRATE_TEX).exists());
     fs::write(app.join("assets/authored.bin"), b"keep").unwrap();
     fs::rename(app.join("art/crate.gltf"), app.join("art/renamed.gltf")).unwrap();
     exact_game_bake::bake_art(&app).unwrap();
     assert!(!app.join("assets/crate.model").exists());
-    assert!(!app.join("assets/crate/0-srgb-straight.tex").exists());
+    // The renamed model's texture keeps its content name.
+    assert!(app.join("assets").join(CRATE_TEX).exists());
     fs::remove_dir_all(app.join("art")).unwrap();
     exact_game_bake::bake_art(&app).unwrap();
     assert!(!app.join("assets/renamed.model").exists());
-    assert!(!app.join("assets/renamed/0-srgb-straight.tex").exists());
+    assert!(!app.join("assets").join(CRATE_TEX).exists());
     assert_eq!(fs::read(app.join("assets/authored.bin")).unwrap(), b"keep");
     assert!(!app.join(".baked-assets.json").exists());
     exact_game_bake::bake_art(&app).unwrap();
@@ -86,25 +89,26 @@ fn authored_collision_and_invalid_stems_refuse_by_name() {
 
 #[test]
 fn sixteen_pixel_crate_pins_model_and_texture_bytes() {
-    use exact_game::asset::TextureFormat;
+    use exact_game::asset::{TextureFamily, TextureFormat};
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/crate.gltf");
     let (model, textures) = exact_game_bake::assets(&path).unwrap();
     assert_eq!(
         exact_game::bin::to_vec(&model),
         include_bytes!("fixtures/crate.model")
     );
-    assert_eq!(model.textures, ["crate/0-srgb-straight.tex"]);
-    let rgba = &textures["crate/0-srgb-straight.tex"];
+    assert_eq!(model.textures, [CRATE_TEX]);
+    let rgba = &textures[CRATE_TEX];
     assert_eq!(
         exact_game::bin::to_vec(rgba),
         include_bytes!("fixtures/crate/0-srgb-straight.tex")
     );
     // Encoders may differ bit-wise across SIMD variants: pin structure and quality.
-    for (name, format) in [
-        ("crate/0-srgb-straight.bc.tex", TextureFormat::Bc7),
-        ("crate/0-srgb-straight.astc.tex", TextureFormat::Astc4x4),
+    for (family, format) in [
+        (TextureFamily::Bc, TextureFormat::Bc7),
+        (TextureFamily::Astc, TextureFormat::Astc4x4),
     ] {
-        let t = &textures[name];
+        let name = family.name(CRATE_TEX);
+        let t = &textures[&name];
         assert_eq!(
             (t.format, t.width, t.height, t.srgb),
             (format, 16, 16, true)
@@ -120,7 +124,7 @@ fn sixteen_pixel_crate_pins_model_and_texture_bytes() {
 
 #[test]
 fn block_textures_reach_4096_and_rgba8_payloads_stop_at_2048() {
-    use exact_game::asset::TextureFormat;
+    use exact_game::asset::{TextureFamily, TextureFormat};
     let app = temp();
     let mut source: serde_json::Value = serde_json::from_str(CRATE).unwrap();
     source["images"][0]["uri"] = serde_json::json!("wide.png");
@@ -131,18 +135,17 @@ fn block_textures_reach_4096_and_rgba8_payloads_stop_at_2048() {
     .save(app.join("art/wide.png"))
     .unwrap();
     fs::write(&path, source.to_string()).unwrap();
-    let (_, textures) = exact_game_bake::assets(&path).unwrap();
-    let rgba = &textures["wide/0-srgb-straight.tex"];
+    let (model, textures) = exact_game_bake::assets(&path).unwrap();
+    let wide = &model.textures[0];
+    let rgba = &textures[wide];
     assert_eq!(
         (rgba.format, rgba.width, rgba.height),
         (TextureFormat::Rgba8, 2048, 2)
     );
     assert_eq!(rgba.mips.len(), 12);
-    for name in [
-        "wide/0-srgb-straight.bc.tex",
-        "wide/0-srgb-straight.astc.tex",
-    ] {
-        let t = &textures[name];
+    for family in [TextureFamily::Bc, TextureFamily::Astc] {
+        let name = family.name(wide);
+        let t = &textures[&name];
         assert_ne!(t.format, TextureFormat::Rgba8, "{name}");
         assert_eq!((t.width, t.height, t.mips.len()), (4096, 4, 13), "{name}");
         // The fallback's levels are the block chain's tail.
@@ -298,7 +301,7 @@ fn obsolete_manifest_refuses_before_changing_outputs() {
     fs::write(app.join("assets/old.tex"), b"cannot prove ownership").unwrap();
     fs::write(
         app.join(".baked-assets.json"),
-        r#"["crate.model","crate/0-srgb-straight.tex","old.tex"]"#,
+        r#"["crate.model","textures/86b6f64da4937176.tex","old.tex"]"#,
     )
     .unwrap();
     let before = fs::read(app.join("assets/crate.model")).unwrap();
@@ -415,5 +418,72 @@ fn masked_coverage_survives_block_encoding() {
             );
         }
     }
+    fs::remove_dir_all(app).unwrap();
+}
+
+#[test]
+fn identical_model_textures_bake_once_under_their_content_name() {
+    let app = temp();
+    // Same texels and sampler in two models; a third clamps, so it differs.
+    let clamped = CRATE
+        .replacen("\"source\": 0", "\"source\": 0, \"sampler\": 0", 1)
+        .replacen(
+            "\"textures\": [",
+            "\"samplers\": [{ \"wrapS\": 33071 }],\n  \"textures\": [",
+            1,
+        );
+    fs::write(app.join("art/crate.gltf"), CRATE).unwrap();
+    fs::write(app.join("art/fence.gltf"), &clamped).unwrap();
+    exact_game_bake::bake_art(&app).unwrap();
+    let model = |name: &str| {
+        let bytes = fs::read(app.join("assets").join(name)).unwrap();
+        exact_game::bin::from_slice::<exact_game::asset::Model>(&bytes).unwrap()
+    };
+    let fence = model("fence.model").textures;
+    assert_eq!(model("crate.model").textures, [CRATE_TEX]);
+    assert_ne!(fence, [CRATE_TEX]);
+    let files = |app: &std::path::Path| {
+        let mut names: Vec<_> = fs::read_dir(app.join("assets/textures"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
+    };
+    let before = files(&app);
+    // A model sharing the crate's texture adds no file and renames none.
+    fs::write(app.join("art/barrel.gltf"), CRATE).unwrap();
+    exact_game_bake::bake_art(&app).unwrap();
+    assert_eq!(model("barrel.model").textures, [CRATE_TEX]);
+    assert_eq!(model("fence.model").textures, fence);
+    assert_eq!(files(&app), before);
+    for family in ["tex", "bc.tex", "astc.tex"] {
+        let name = CRATE_TEX.replace(".tex", &format!(".{family}"));
+        assert!(app.join("assets").join(name).exists());
+    }
+    // Removing one sharer keeps the file for the other.
+    fs::remove_file(app.join("art/crate.gltf")).unwrap();
+    exact_game_bake::bake_art(&app).unwrap();
+    assert!(app.join("assets").join(CRATE_TEX).exists());
+    fs::remove_dir_all(app).unwrap();
+}
+
+#[test]
+fn one_model_using_one_image_twice_lists_it_once() {
+    let mut source: serde_json::Value = serde_json::from_str(CRATE).unwrap();
+    // A second glTF texture over the same image, sampled as emission (also sRGB colour).
+    source["textures"] = serde_json::json!([{"source": 0}, {"source": 0}]);
+    source["materials"][0]["emissiveTexture"] = serde_json::json!({"index": 1});
+    source["materials"][0]["emissiveFactor"] = serde_json::json!([1.0, 1.0, 1.0]);
+    let app = temp();
+    let path = app.join("art/twice.gltf");
+    fs::write(&path, source.to_string()).unwrap();
+    let (model, _) = exact_game_bake::assets(&path).unwrap();
+    assert_eq!(model.textures, [CRATE_TEX]);
+    let m = &model.materials[0];
+    assert_eq!(
+        (m.base_color_texture, m.emissive_texture),
+        (Some(0), Some(0))
+    );
     fs::remove_dir_all(app).unwrap();
 }

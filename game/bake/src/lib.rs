@@ -23,6 +23,19 @@ pub fn model(path: impl AsRef<Path>) -> Result<Model, String> {
 pub fn assets(
     path: &Path,
 ) -> Result<(Model, std::collections::BTreeMap<String, TextureData>), String> {
+    let (model, sources) = sources(path)?;
+    let mut textures = std::collections::BTreeMap::new();
+    for (name, (full, channels)) in sources {
+        textures.extend(compress::variants(&name, &full, channels, false)?);
+    }
+    Ok((model, textures))
+}
+
+/// A model's full-resolution texture chains by authored name, with the
+/// channels their slots read, before block compression.
+type ModelSources = std::collections::BTreeMap<String, (TextureData, compress::Channels)>;
+
+fn sources(path: &Path) -> Result<(Model, ModelSources), String> {
     let stem = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -91,11 +104,10 @@ pub fn assets(
         })
         .collect();
     let sources = textures::materials(&doc, &images, &mut model, stem, &used_materials)?;
-    let mut textures = std::collections::BTreeMap::new();
-    for (name, (full, slots, cut)) in sources {
-        let channels = textures::channels(slots, cut);
-        textures.extend(compress::variants(&name, &full, channels, false)?);
-    }
+    let textures: ModelSources = sources
+        .into_iter()
+        .map(|(name, (full, slots, cut))| (name, (full, textures::channels(slots, cut))))
+        .collect();
     let skin_map: std::collections::BTreeMap<_, _> = doc
         .nodes()
         .filter(|n| reached.contains(&n.index()))
@@ -332,8 +344,26 @@ pub fn assets(
         return Err("model contains no mesh nodes".into());
     }
     model.bounds = [lo.x, lo.y, lo.z, hi.x, hi.y, hi.z];
+    // Name each texture by its content, so identical images are one asset
+    // across models (and within one) and no model's names depend on another's.
+    let mut renamed = std::collections::BTreeMap::new();
+    let mut named = ModelSources::new();
+    for (name, (full, channels)) in textures {
+        let shared = texture_name(&full, channels);
+        renamed.insert(name, shared.clone());
+        named.entry(shared).or_insert((full, channels));
+    }
+    share_textures(&mut model, &renamed);
     model.validate()?;
-    Ok((model, textures))
+    Ok((model, named))
+}
+
+/// `textures/<digest>.tex`: the digest of the full RGBA8 chain, sampler included,
+/// and of the channels the material reads (which choose the block formats).
+fn texture_name(full: &TextureData, channels: compress::Channels) -> String {
+    let mut bytes = exact_game::bin::to_vec(full);
+    bytes.extend(format!("{channels:?}").bytes());
+    format!("textures/{}.tex", &digest(&bytes)[..16])
 }
 
 /// A sprite's authored RGBA8 name and its per-family payloads. Block formats
@@ -462,17 +492,23 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
             }
             continue;
         }
-        let (model, textures) = assets(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let (model, textures) = sources(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let name = format!("{}.model", art_stem(&path)?);
+        // Content-named: a texture another model already baked is the same file.
+        for (texture, (full, channels)) in textures {
+            if outputs.contains_key(&texture) {
+                continue;
+            }
+            for (name, texture) in compress::variants(&texture, &full, channels, false)? {
+                let bytes = encode(&name, &texture)?;
+                outputs.insert(name, bytes);
+            }
+        }
         if outputs
             .insert(name.clone(), encode(&name, &model)?)
             .is_some()
         {
             return Err(format!("duplicate art stem {name}"));
-        }
-        for (name, texture) in textures {
-            let bytes = encode(&name, &texture)?;
-            outputs.insert(name, bytes);
         }
     }
     let root = app.join("assets");
@@ -514,6 +550,42 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
         outputs.iter().map(|(n, b)| (n, digest(b))).collect();
     let bytes = serde_json::to_vec(&digests).unwrap();
     write_changed(&manifest, &bytes)
+}
+
+/// Point a model's textures at the names `renamed` gives them, merging any
+/// that become the same name so each is listed once.
+fn share_textures(model: &mut Model, renamed: &std::collections::BTreeMap<String, String>) {
+    if renamed.is_empty() {
+        return;
+    }
+    let mut names: Vec<String> = Vec::new();
+    let index: Vec<u32> = model
+        .textures
+        .iter()
+        .map(|name| {
+            let name = renamed.get(name).unwrap_or(name);
+            let at = names.iter().position(|n| n == name).unwrap_or_else(|| {
+                names.push(name.clone());
+                names.len() - 1
+            });
+            at as u32
+        })
+        .collect();
+    for m in &mut model.materials {
+        for i in [
+            &mut m.base_color_texture,
+            &mut m.normal_texture,
+            &mut m.metallic_roughness_texture,
+            &mut m.emissive_texture,
+            &mut m.occlusion_texture,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            *i = index[*i as usize];
+        }
+    }
+    model.textures = names;
 }
 
 fn digest(bytes: &[u8]) -> String {

@@ -88,10 +88,10 @@ pub(crate) fn names<G: crate::Game>() -> impl Iterator<Item = &'static str> {
 }
 
 pub(crate) fn validate_declaration<G: crate::Game>() -> Result<(), String> {
-    if G::ASSETS.is_empty() && G::LEVEL.is_none() {
+    if G::ASSETS.is_empty() && G::LEVEL.is_none() && G::STREAMED.is_empty() {
         return Ok(());
     }
-    for name in names::<G>() {
+    for name in names::<G>().chain(G::STREAMED.iter().copied()) {
         if !super::asset_name(name)
             || !(if G::LEVEL.is_some_and(|level| level.name == name) {
                 name.ends_with(".level.json")
@@ -101,6 +101,18 @@ pub(crate) fn validate_declaration<G: crate::Game>() -> Result<(), String> {
         {
             return Err(format!(
                 "asset `{name}`: declaration requires a .model, .tex, .sound or declared .level.json name"
+            ));
+        }
+    }
+    for name in G::STREAMED {
+        if name.ends_with(".sound") {
+            return Err(format!(
+                "streamed asset `{name}`: sounds are not streamed yet; declare it in Game::ASSETS"
+            ));
+        }
+        if names::<G>().any(|declared| declared == *name) {
+            return Err(format!(
+                "asset `{name}` is in both Game::ASSETS and Game::STREAMED; setup either waits for it or does not"
             ));
         }
     }

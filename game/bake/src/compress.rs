@@ -12,7 +12,7 @@
 use exact_game::asset::{TextureData, TextureFamily, TextureFormat, RGBA8_TEXTURE_LIMIT};
 
 /// What a texture's channels mean, from every material slot that samples it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Channels {
     /// Colour whose alpha is sampled: BLEND base colour and sprites.
     ColorAlpha,
