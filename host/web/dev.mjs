@@ -104,6 +104,9 @@ let lastFailed = new Set(), failedInputs = new Set();
 const plan = resolve(dist, 'app.plan');
 const graphPath = resolve(dist, 'bake.json');
 buildEnv.EXACT_DEV_BAKE = graphPath;
+// A game without app.json is named by its `Game::ID`, which only the manifest
+// reader knows (scripts/app.mjs `gameDefaults`); the compiler's plan takes it.
+buildEnv.EXACT_APP_ID = app.id;
 async function currentWebBuild() {
   if (!(producersOnly ? existsSync(plan) : await builtAppMatches(dist, app))) return false;
   try {
@@ -125,6 +128,7 @@ let gpuVersion = Date.now(), gpuBuildChild = null;
 // Side builds by version: which artifact, and where. `gpuSides` is each
 // artifact's newest, which a page connecting later loads first.
 const gpuTimings = new Map(), gpuVersions = new Map(), gpuSides = new Map();
+let gpuFailure = null; // the last gameplay build's refusal, until one builds
 function readGpuInputs(profile = 'web', stems = null) {
   const inputs = (kind, profile) => {
     const path = resolve(app.target, 'wasm32-unknown-unknown', profile, app.crate(kind).replaceAll('-', '_') + '.d');
@@ -1088,6 +1092,7 @@ async function produceGpuArtifact(files, { stem, kind, module }) {
     const ms = Date.now() - start;
     gpuTimings.set(gpuVersion, { ms, start });
     console.log(`gpu: rebuilt in ${ms} ms (cargo ${compiled-start} ms, bindgen ${Date.now()-compiled} ms); swap pushed`);
+    gpuFailure = null;
     push({gpu:gpuVersion, ...(module ? {module} : {})});
     // Query versions pin JS and wasm together. A lagging fetch gets 404 rather
     // than silently pairing exports from one build with another build's wasm.
@@ -1097,6 +1102,7 @@ async function produceGpuArtifact(files, { stem, kind, module }) {
   } catch (error) {
     rmSync(stage, {recursive:true,force:true});
     console.error(`gpu: build failed in ${Date.now()-start} ms\n${error.message}`);
+    gpuFailure = error.message.split('\n').slice(-12).join('\n');
     push({error:`GPU module did not build:\n${error.message}`,source:'gpu'});
   }
 }
@@ -1115,6 +1121,16 @@ const server = createServer(async (req, res) => {
     const timing = gpuTimings.get(Number(url.searchParams.get('g')));
     if (timing) console.log(`gpu: rebuilt in ${timing.ms} ms · swapped in ${url.searchParams.get('swap')} ms · build start → running ${Date.now()-timing.start} ms (warm budget 2000 ms)`);
     res.writeHead(204); res.end(); return;
+  }
+  if (url.pathname === '/__dev/gpu-settled') {
+    // A drive's code (LLP 1046.009 G4): what every edit saved so far built, once
+    // no build is queued or running; the driver loads it or takes it at `clock code`.
+    const busy = () => building || buildPending || (rebuildOn.rust === 'save' && changed.size > 0);
+    for (const deadline = Date.now() + 180000; busy() && Date.now() < deadline;) await new Promise(ok => setTimeout(ok, 50));
+    res.writeHead(200, {'content-type':'application/json','cache-control':'no-store'});
+    res.end(JSON.stringify({settled:!busy(), gpu:Object.fromEntries([...gpuSides].map(([stem, version]) => [stem === 'gpu' ? 'gpuVersion' : stem, version])),
+      ...(gpuFailure ? {failed:gpuFailure} : {}), ...(changed.size ? {unbuilt:[...changed]} : {})}));
+    return;
   }
   if (gpuVersions.size && url.searchParams.has('g') && /^\/gpu(?:\/[a-z0-9-]+)?(?:\.js|_bg\.wasm)$/.test(url.pathname)) {
     const directory = gpuVersions.get(Number(url.searchParams.get('g')))?.directory;

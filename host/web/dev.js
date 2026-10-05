@@ -263,10 +263,16 @@ if (es) {
     if (message.error) { show(message.error, message.source); console.error("exact dev:", message.error); return; }
     if (message.fresh) { if (new URLSearchParams(location.search).get('agent') !== '1') location.reload(); return; }
     if (message.gpu !== undefined) {
-      // A drive owns its clock and code. Do not change either behind the driver.
-      if (new URLSearchParams(location.search).get('agent') === '1') return;
       // A declared module's rebuild names it (LLP 1009 D6); the primary's does not.
       const versions = message.module ? (globalThis.exact.gpuVersions ??= {}) : globalThis.exact, key = message.module ? `gpu/${message.module}` : 'gpuVersion';
+      (globalThis.exact.gpuLatest ??= {})[key] = message.gpu;
+      // A drive owns its clock and code. Do not change either behind the driver:
+      // its module loads the newest build announced before it loads, and a later
+      // one only at the driver's `clock code` (LLP 1046.009 G4).
+      if (new URLSearchParams(location.search).get('agent') === '1') {
+        if (!globalThis.exact.gpu) versions[key] = message.gpu;
+        return;
+      }
       versions[key] = message.gpu;
       if (globalThis.exact.gpu) (async () => {
         if (message.gpu !== versions[key]) return;

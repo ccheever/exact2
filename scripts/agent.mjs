@@ -19,7 +19,7 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, devLoopURL, closePage, exclusiveIOS, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
+import { Cdp, devLoopURL, devLoopCode, devLoopCodeScript, devLoopCodeNote, closePage, exclusiveIOS, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -246,8 +246,12 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       await call('Page.addScriptToEvaluateOnNewDocument', { source: `globalThis.exactWorldCarry = Uint8Array.from(atob(${JSON.stringify(encoded)}), c => c.charCodeAt(0));` });
     }
     // The page: this carrier's own server over dist/, or a URL the caller
-    // named — the dev server, so a drive can watch an edit arrive.
+    // named — the dev server, so a drive can watch an edit arrive. On a dev loop
+    // the drive's gameplay is the newest the loop built (LLP 1046.009 G4).
     const page = pageURL ? new URL(pageURL) : new URL(`http://127.0.0.1:${port}/`);
+    const devLoop = pageURL ? new URL('/', pageURL).href : null, code = devLoop && await devLoopCode(devLoop);
+    if (code?.gpu && Object.keys(code.gpu).length) await call('Page.addScriptToEvaluateOnNewDocument', { source: devLoopCodeScript(code.gpu) });
+    if (devLoopCodeNote(code)) console.error(devLoopCodeNote(code));
     page.searchParams.set('agent', '1');
     for (const [key, value] of Object.entries(facts)) page.searchParams.set(key, value);
     if (storage !== undefined) page.searchParams.set('storage', storage);
@@ -290,7 +294,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       return JSON.parse(await evaluate(`(typeof globalThis.exact?.agentSettled === 'function' ? exact.agentSettled(${JSON.stringify(req)}) : Promise.reject(new Error('the page has no agent adapter: open a development build with ?agent=1'))).then((r) => JSON.stringify(r))`, timeout));
     };
     return {
-      host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, call, launchFacts: facts,
+      host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, call, launchFacts: facts, devLoop: code ? devLoop : null,
       async gpuMs() {
         const ms = await evaluate("document.getElementById('exact-root')?.dataset.gpuMs ?? null");
         return ms == null ? null : Number(ms);
@@ -1179,6 +1183,13 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion). Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
     async clock(spec = 'settle') {
+      // `code`: the dev loop's newest gameplay build, swapped in carrying each world as a person's page takes it (LLP 1046.009 G4).
+      if (spec === 'code') {
+        if (!carrier.devLoop) throw new Error('clock code: takes the newest gameplay build from a dev loop; this drive is not on one (the web carrier drives a running dev loop; a native host relaunches for Rust)');
+        const code = await devLoopCode(carrier.devLoop), note = devLoopCodeNote(code);
+        const took = await carrier.evaluate(`(Object.assign(exact.gpuLatest ??= {}, ${JSON.stringify(code?.gpu ?? {})}), Promise.resolve(exact.gpu?.code?.() ?? []).then(r => JSON.stringify([r].flat())))`, 60000);
+        return { ...(await s.op({ op: 'clock', to: s.now })), code: JSON.parse(took), ...(note ? { diagnostic: note } : {}) };
+      }
       // @ref LLP 1080.000 §12 — an Apple host takes its clock over at the wall under platform timing (and reports a clock it already has otherwise); a seek counts from where it stands. Settle needs no count.
       if (spec !== 'settle' && spec !== 'data' && ['ios', 'host-ios', 'macos', 'host'].includes(carrier.host)) s.now = (await s.op({ op: 'clock', take: true })).clock;
       // `data`: the app's data lands (activation, every request in flight, each `then`), the clock unmoved and no timer fired.

@@ -385,7 +385,10 @@ export function receiptChanges(receipt, app) {
   let infos = []; try { infos = readdirSync(resolve(app.target, target)).map(p => resolve(app.target, target, p, archive)).filter(existsSync); } catch {}
   const info = infos.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
   const tools = info ? depInfoNewer(since, null, info) : [];
-  return [...new Set([...(build?.binary ? pendingBuildInputs(build) : []), ...own, ...tools])];
+  // An app whose plan a dev loop serves (EXACT_DEV_PLAN names its URL) takes
+  // Contract edits live; they are not this binary's (LLP 1046.009 G4).
+  const served = /^https?:\/\//.test(process.env.EXACT_DEV_PLAN ?? '') ? path => !/(\.contract|\/strings\/[^/]+\.json)$/.test(path) : () => true;
+  return [...new Set([...(build?.binary ? pendingBuildInputs(build) : []), ...own, ...tools])].filter(served);
 }
 
 /** A web `dist/`: app and shared runtime sources newer than its build marker.
@@ -431,6 +434,22 @@ export function devLoopURL(dist, app) {
     return loop.url;
   } catch { return null; }
 }
+
+/** The dev loop's gameplay code (LLP 1046.009 G4): its newest GPU module versions,
+ * once every edit saved so far has built or failed; null for a page no dev loop
+ * serves. A drive loads these, and takes later ones only at `clock code`. */
+export async function devLoopCode(page) {
+  try {
+    const r = await fetch(new URL('/__dev/gpu-settled', page), { signal: AbortSignal.timeout(190000) });
+    return r.ok ? await r.json() : null;
+  } catch { return null; }
+}
+/** A new document's script: the page's GPU modules load `code.gpu`'s versions. */
+export const devLoopCodeScript = gpu => `{const v=${JSON.stringify(gpu)},e=globalThis.exact??={};e.gpuLatest=Object.assign(e.gpuLatest??{},v);`
+  + `for(const[k,n]of Object.entries(v))if(k==='gpuVersion')e.gpuVersion=n;else(e.gpuVersions??={})[k]=n;}`;
+/** What a drive says about the dev loop's code, or null when there is nothing to say. */
+export const devLoopCodeNote = code => !code ? null : !code.settled ? 'dev loop: a gameplay build was still running after 180 s; this drive runs the last module that built'
+  : code.failed ? `dev loop: the last gameplay edit did not build; this drive runs the last module that did:\n${code.failed}` : null;
 
 export function webChanges(dist, app) {
   const marker = resolve(dist, '.exact-build.json');
