@@ -473,3 +473,19 @@ fn a_cardless_section_draws_no_separators_and_takes_only_transparent() {
     );
     assert!(m.contains("transparent"), "{m}");
 }
+
+#[test]
+fn a_sections_margins_are_the_sheets_gaps_or_the_authors() {
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"a\"\n      text \"Account\"\n  section margin-top=20 margin-bottom=0\n    button press=go testId=\"b\"\n      text \"Chats\"");
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    assert_eq!(
+        list.sections[0].margins,
+        (Some(35.33), Some(17.33)),
+        "the sheet's: UIKit's first gap above, a section's below"
+    );
+    assert_eq!(
+        list.sections[1].margins,
+        (Some(20.0), Some(0.0)),
+        "the author's replace them (Signal's 20-point sections)"
+    );
+}

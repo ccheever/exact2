@@ -605,7 +605,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let view = pan.view else {
             return popMayBegin(gestureRecognizer, from: nil, in: nil, velocity: .zero)
         }
-        return popShouldBegin(pan, in: view, velocity: pan.velocity(in: view))
+        // A pan's velocity at shouldBegin is often zero (a finger that
+        // started slowly, or one sample in): read that way every back swipe
+        // is refused as not horizontal. Its travel so far says the direction.
+        let velocity = pan.velocity(in: view), travel = pan.translation(in: view)
+        return popShouldBegin(pan, in: view, velocity: velocity == .zero ? travel : velocity)
     }
     /// `shouldBegin` for a pan at `velocity`: from where its finger landed.
     func popShouldBegin(_ pan: UIPanGestureRecognizer, in view: UIView, velocity: CGPoint) -> Bool {

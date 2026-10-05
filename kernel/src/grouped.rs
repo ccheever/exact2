@@ -33,6 +33,11 @@ pub struct GroupedSection {
     /// Whether its rows sit on a card: false when the section's group has a
     /// transparent background (`section background-color="transparent"`).
     pub card: bool,
+    /// Its `margin-top` and `margin-bottom` in points: Contract's sheet
+    /// writes UIKit's gaps (§2), and an author's override (Signal's 20-pt
+    /// sections) is the space a host leaves above and below it. `None` for
+    /// a margin that is not points.
+    pub margins: (Option<f32>, Option<f32>),
 }
 
 /// What a row shows at its trailing edge (D4).
@@ -122,9 +127,17 @@ impl Kernel {
         let sections = nodes(&list)
             .iter()
             .map(|section| {
+                let points = |d: crate::style::Dimension| match d {
+                    crate::style::Dimension::Points(p) => Some(p),
+                    _ => None,
+                };
                 let mut out = GroupedSection {
                     view: section.id,
                     card: true,
+                    margins: (
+                        points(section.style.margin_top),
+                        points(section.style.margin_bottom),
+                    ),
                     ..GroupedSection::default()
                 };
                 for part in nodes(section) {

@@ -31,6 +31,9 @@ struct GroupedListModel: Equatable {
         /// Whether the rows sit on a card; false for a transparent group
         /// (`section background-color="transparent"`): clear cells, no separators.
         var card = true
+        /// Its authored `margin-top` and `margin-bottom`, points.
+        var marginTop: CGFloat?
+        var marginBottom: CGFloat?
     }
     var style = "inset-grouped"
     var sections: [Section] = []
@@ -51,7 +54,9 @@ struct GroupedListModel: Equatable {
                            destructive: r["destructive"] as? Bool ?? false, disabled: r["disabled"] as? Bool ?? false)
             }
             return Section(view: view, header: s["header"] as? String, footer: s["footer"] as? String, rows: rows,
-                           card: s["card"] as? Bool ?? true)
+                           card: s["card"] as? Bool ?? true,
+                           marginTop: (s["marginTop"] as? NSNumber).map { CGFloat($0.doubleValue) },
+                           marginBottom: (s["marginBottom"] as? NSNumber).map { CGFloat($0.doubleValue) })
         }
     }
     var appearance: UICollectionLayoutListConfiguration.Appearance {
@@ -301,6 +306,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             // clear cells: the inset card is the cells' background, not the
             // section's (a clear section background showed the route's white).
             let section = NSCollectionLayoutSection.list(using: c, layoutEnvironment: environment)
+            // Contract's sheet writes UIKit's own gaps as the section's
+            // margins (§2); one the author changed (Signal's 20-point
+            // sections) is the space UIKit leaves. Within a point it is UIKit's.
+            var insets = section.contentInsets
+            if let top = s?.marginTop, abs(top - insets.top) > 1 { insets.top = top }
+            if let bottom = s?.marginBottom, abs(bottom - insets.bottom) > 1 { insets.bottom = bottom }
+            section.contentInsets = insets
             // A plain list's footer stays under its rows, as its header
             // stays at their top: UIKit pins both by default.
             for item in section.boundarySupplementaryItems where item.elementKind == UICollectionView.elementKindSectionFooter {
@@ -351,6 +363,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // went or changed lays the list out again.
         let texts = previous.sections.map { [$0.header, $0.footer] } != next.sections.map { [$0.header, $0.footer] }
             || !recarded.isEmpty // separators are the section layout's
+        let regapped = previous.sections.map { [$0.marginTop, $0.marginBottom] } != next.sections.map { [$0.marginTop, $0.marginBottom] }
         if restyled { collection.setCollectionViewLayout(layout(), animated: false) }
         source.apply(snapshot, animatingDifferences: false)
         if texts {
@@ -363,7 +376,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
                 }
             }
             collection.collectionViewLayout.invalidateLayout()
-        }
+        } else if regapped { collection.collectionViewLayout.invalidateLayout() }
         mount()
     }
 

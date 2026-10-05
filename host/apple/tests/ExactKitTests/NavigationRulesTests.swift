@@ -208,6 +208,10 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertFalse(NavigationRules.panMayBegin(startX: 40, overSwipeRight: true, velocity: CGPoint(x: 300, y: 20)))
         XCTAssertTrue(NavigationRules.panMayBegin(startX: 40, overSwipeRight: false, velocity: CGPoint(x: 300, y: 20)))
         XCTAssertFalse(NavigationRules.panMayBegin(startX: 40, overSwipeRight: false, velocity: CGPoint(x: 20, y: 300)))
+        // Asked before any motion: allowed, unless over a swipe past the edge.
+        XCTAssertTrue(NavigationRules.panMayBegin(startX: 12, overSwipeRight: true, velocity: .zero))
+        XCTAssertTrue(NavigationRules.panMayBegin(startX: 40, overSwipeRight: false, velocity: .zero))
+        XCTAssertFalse(NavigationRules.panMayBegin(startX: 40, overSwipeRight: true, velocity: .zero))
     }
 
     /// D1: `closedby="none"` refuses the sheet gesture; anything else permits it.

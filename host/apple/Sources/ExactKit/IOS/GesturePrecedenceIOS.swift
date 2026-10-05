@@ -29,6 +29,14 @@ extension NodeView {
         return false
     }
     func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool {
+        // A swipe waits for the screen-edge back gesture to fail, as UIKit's
+        // own swipe actions and Signal's swipe to reply do: from the edge, back wins.
+        #if os(iOS)
+        // Only the screen-edge one: iOS 26's content pop is the same class,
+        // and it waits for the swipe in turn, so waiting on it would leave neither.
+        if gesture === swipeRecognizer, let nav = other.view?.next as? UINavigationController,
+           nav.interactivePopGestureRecognizer === other { return true }
+        #endif
         guard dragRecognizers.contains(where: { $0 === gesture }), let owner = other.view as? NodeView,
               owner !== self, owner.isDescendant(of: self) else { return false }
         return owner.dragRecognizers.contains { $0 === other }
