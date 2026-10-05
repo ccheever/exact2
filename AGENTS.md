@@ -48,6 +48,11 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   random sweep), then `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
   the platforms that ride on another host's code: tvOS on the UIKit presenter. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
+  The gate never builds a member outside `default-members` (the hosts: `exact-web`,
+  `exact-web-js`, `exact-linux`, `exact-apple`, …), and the async lane reports only
+  after the push. So a change under one, or to what its tests read (`exact-web` holds
+  `contract/lower`'s reserved `data-*` words to the host's), also runs that crate's
+  tests before landing: `cargo test -p exact-web --lib --tests --no-fail-fast`.
 - A green `--workspace` build proves the apps compile, not that they work: their Apple
   crates are rlibs to Cargo, and the archive an app links is built only by
   `host/apple/build.mjs`, when the app is built to run. When a change can affect how an
