@@ -1303,10 +1303,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         guard let sv = scroll else { return }
         let size = CGSize(width: sv.scrollsX ? max(content.width, sv.bounds.width) : sv.bounds.width, height: sv.scrollsY ? max(content.height, sv.bounds.height) : sv.bounds.height)
         if sv.contentSize != size { sv.contentSize = size }
-        // An orthogonal carousel's computed auto axis has no vertical travel;
-        // forcing its bounce traps Mac wheel input the page should take. A
-        // carousel travels a quarter of its width or lays a row (itself or a
-        // child wider than the port); a page a few points too wide keeps it.
+        // Forced bounce on a carousel's computed y traps Mac wheel input; one travels a quarter of its width or lays a
+        // row (itself, or a child wider than the port), and a page a few points too wide keeps its bounce.
         let travel = size.width - sv.bounds.width
         let row = { (v: NodeView) in v.style["display"]?.string == "flex" || v.style["flex_direction"] != nil ? !(v.style["flex_direction"]?.string ?? "row").hasPrefix("column") : false }
         let carousel = travel > 0.5 && (travel > sv.bounds.width / 4 || row(self) || sv.subviews.contains { ($0 as? NodeView).map { $0.frame.width > sv.bounds.width + 0.5 && row($0) } ?? false })
