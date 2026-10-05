@@ -18,6 +18,8 @@ public final class ExactView: UIView {
     private var lastInsets = UIEdgeInsets.zero
     private var keyboardProbe: UIView?
     private var keyboardObserver: NSObjectProtocol?
+    /// Fits again once the keyboard has stopped moving (see `init`).
+    private var keyboardSettled: [NSObjectProtocol] = []
     /// The adapter's hook for the first root's `viewport-fit` and its
     /// canvas colour (the window's background under the safe areas is the
     /// window's business).
@@ -42,6 +44,17 @@ public final class ExactView: UIView {
         session.presenter.onCanvasColor = { [weak self] color in self?.backgroundColor = color; self?.onCanvasColor?(color) }
         session.presenter.onTitle = { [weak self] title in self?.onTitle?(title) }
         session.presenter.onKeyboardResize = { [weak self] in self?.fit() }
+        // A pop that takes the editing route away moves the keys with it: the
+        // hide arrives while the transition freezes the viewport, and once
+        // the editor is gone no later notification concerns this session.
+        // Without this the page stayed laid out above keys that had left —
+        // the bottom of the list missing after a swipe back. Fitting is
+        // idempotent, so fit again when the keyboard has settled.
+        keyboardSettled = [UIResponder.keyboardDidHideNotification, UIResponder.keyboardDidChangeFrameNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.fit() }
+            }
+        }
         session.presenter.observeKeyboard()
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme() }
     }
@@ -52,7 +65,10 @@ public final class ExactView: UIView {
     private func reportScheme() { session.scheme(dark: traitCollection.userInterfaceStyle == .dark); session.tellPreferences() }
 
     required init?(coder: NSCoder) { nil }
-    deinit { keyboardObserver.map(NotificationCenter.default.removeObserver) }
+    deinit {
+        keyboardObserver.map(NotificationCenter.default.removeObserver)
+        keyboardSettled.forEach(NotificationCenter.default.removeObserver)
+    }
 
     /// A zero-size dependent makes UIKit lay this view out as its keyboard
     /// guide moves: frame notifications alone omit interactive drag frames.

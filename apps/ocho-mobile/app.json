@@ -1,0 +1,50 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Ocho",
+  "short_name": "Ocho",
+  "id": "dev.getfirewood.ocho.mobile",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "background_color_dark": "#000000",
+  "icons": [
+    {
+      "src": "assets/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ],
+  "app": {
+    "id": "dev.getfirewood.ocho.mobile",
+    "name": "Ocho"
+  },
+  "modules": [
+    "qr-scanner",
+    "progressive-blur",
+    "title-reveal",
+    "glass-button",
+    "glass-composer"
+  ],
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ],
+      "urlSchemes": [
+        "ocho"
+      ]
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

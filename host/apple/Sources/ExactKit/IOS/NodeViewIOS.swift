@@ -679,18 +679,33 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             let outsideY = point.y < bounds.minY || point.y > bounds.maxY
             if outsideX && (style["overflow_x"]?.string ?? "visible") != "visible" { return nil }
             if outsideY && (style["overflow_y"]?.string ?? "visible") != "visible" { return nil }
-            for child in subviews.reversed() {
+            for child in NodeView.hitOrder(subviews) {
                 if child === materialView, Materials.glass(materialKind), let contentView = materialView?.contentView {
                     // The effect's UIKit bounds check must not hide authored
                     // children in CSS visible overflow. They remain descendants
                     // of the effect, so its recognizers still see their touches.
-                    for content in contentView.subviews.reversed() where content is NodeView {
+                    for content in NodeView.hitOrder(contentView.subviews) where content is NodeView {
                         if let hit = content.hitTest(convert(point, to: content), with: event) { return hit }
                     }
                 }
                 if let hit = child.hitTest(convert(point, to: child), with: event) { return hit }
             }
-            return bounds.contains(point) ? self : nil
+            // CSS `pointer-events: none` (inherited): the box is never the
+            // target, so a touch goes to what is under it — a header's blur
+            // over a list must not stop the list scrolling. A descendant
+            // that sets `auto` again is still a target.
+            if style["pointer_events"]?.string == "none" { return nil }
+            guard bounds.contains(point) else { return nil }
+            // Interactive glass (a pressable glass box) answers a finger
+            // itself, swelling and lighting under it, only for touches that
+            // reach its effect view. Its content view is the target; the
+            // touch climbs the responder chain to this node, whose press is
+            // unchanged.
+            if event?.type == .touches, materialInteractive, Materials.glass(materialKind),
+               let contentView = materialView?.contentView {
+                return contentView
+            }
+            return self
         }
         guard let overlay else { return ordinary() }
         let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil || $0.placementHidden }
@@ -709,6 +724,23 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if let hit = child.hitTest(p, with: event) { return hit }
         }
         return self
+    }
+
+    /// Siblings in the order a touch reaches them: what paints on top first.
+    /// `z-index` is the layer's `zPosition`, which Core Animation paints by
+    /// and UIKit's hit-testing ignores, so a later sibling (a full-screen
+    /// scroll) would take touches meant for a raised one (a button above it).
+    /// CSS hit-testing follows painting: higher `z-index` first, then later
+    /// in the tree first.
+    static func hitOrder(_ views: [UIView]) -> [UIView] {
+        guard views.contains(where: { $0.layer.zPosition != 0 }) else { return views.reversed() }
+        return views.enumerated()
+            .sorted { a, b in
+                a.element.layer.zPosition != b.element.layer.zPosition
+                    ? a.element.layer.zPosition > b.element.layer.zPosition
+                    : a.offset > b.offset
+            }
+            .map(\.element)
     }
 
     /// The box on screen, through the placement of the placed child this
@@ -836,13 +868,25 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             activeReadingAnchor = anchor.node
             top += anchor.node.convert(anchor.node.bounds, to: sv).minY - anchor.y
         }
-        let y = prior.end ? maximum : min(maximum, max(minimum, top))
+        let y = Self.followedTop(current: sv.contentOffset.y, minimum: minimum, maximum: maximum, end: prior.end, top: top,
+                                 moving: sv.isTracking || sv.isDragging || sv.isDecelerating)
         let inactive = window == nil || presenter?.navigation.isInactiveRoute(containing: self) == true
         retainedScrollTop = !prior.end && top > maximum && (inactive || retainedScrollTop != nil) ? top : nil
         if sv.contentOffset.y != y { sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: false) }
         // UIKit quantizes the assigned offset. Compare its actual stored value
         // next time so that rounding cannot masquerade as a reader's scroll.
         anchoredScrollTop = sv.contentOffset.y
+    }
+
+    /// Where a following scroll view's offset goes after a batch: the end
+    /// when it was at the end, else the reader's place, within range. While
+    /// the reader pulls past an edge, or the rubber band carries the content
+    /// back (`moving` and out of range), UIKit owns the offset until it
+    /// settles: clamping it snapped the bounce on every batch (a spinner's, a
+    /// poll's), which read as jitter. A reading anchor still moves it.
+    static func followedTop(current: CGFloat, minimum: CGFloat, maximum: CGFloat, end: Bool, top: CGFloat, moving: Bool) -> CGFloat {
+        if moving && (current < minimum - 0.5 || current > maximum + 0.5) { return end ? current : top }
+        return end ? maximum : min(maximum, max(minimum, top))
     }
 
     func applyPendingScroll() {

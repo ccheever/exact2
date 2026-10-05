@@ -88,6 +88,15 @@ final class Presenter {
 
     var hasKeyboardEditor: Bool {
         views.values.contains { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }
+            || hasNativeKeyboardEditor
+    }
+
+    /// A native module's own text input (a composer's UITextView) focused
+    /// inside this viewport: the keyboard is this session's business as for
+    /// its own fields, so the page resizes above it.
+    var hasNativeKeyboardEditor: Bool {
+        guard let responder = FirstResponder.current as? UIView, responder is UIKeyInput else { return false }
+        return responder.isDescendant(of: viewport)
     }
 
     /// A notification describes the keyboard's target, not its current
@@ -1197,5 +1206,21 @@ extension CGRect {
     func insetBy(left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat) -> CGRect {
         CGRect(x: minX + left, y: minY + top, width: max(0, width - left - right), height: max(0, height - top - bottom))
     }
+}
+
+/// The window's first responder, found the way UIKit offers: an action sent
+/// to nil reaches it.
+enum FirstResponder {
+    private static weak var found: UIResponder?
+    static var current: UIResponder? {
+        found = nil
+        UIApplication.shared.sendAction(#selector(UIResponder.exactReportFirstResponder), to: nil, from: nil, for: nil)
+        return found
+    }
+    fileprivate static func report(_ responder: UIResponder) { found = responder }
+}
+
+extension UIResponder {
+    @objc fileprivate func exactReportFirstResponder() { FirstResponder.report(self) }
 }
 #endif

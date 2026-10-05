@@ -379,3 +379,24 @@ fn transcript_math_fixture_parses() {
     let table = flat.iter().find(|b| b["kind"] == "table").unwrap();
     assert_eq!(table["rows"][2]["cells"][0]["runs"][0]["math"], "inline");
 }
+
+#[test]
+fn bare_urls_are_links_without_their_punctuation() {
+    let runs = paragraph("Live at **https://mtr.eliot.sh**, see www.example.com/a_(b) (or https://x.dev/p). Not `https://code.span` or xhttps://no.");
+    let links: Vec<(&str, &str)> = runs
+        .iter()
+        .filter_map(|r| r.url.as_deref().map(|u| (r.text.as_str(), u)))
+        .collect();
+    assert_eq!(
+        links,
+        vec![
+            ("https://mtr.eliot.sh", "https://mtr.eliot.sh"),
+            ("www.example.com/a_(b)", "https://www.example.com/a_(b)"),
+            ("https://x.dev/p", "https://x.dev/p"),
+        ]
+    );
+    assert!(runs
+        .iter()
+        .any(|r| r.code && r.text == "https://code.span" && r.url.is_none()));
+    assert_eq!(text(&runs), "Live at https://mtr.eliot.sh, see www.example.com/a_(b) (or https://x.dev/p). Not https://code.span or xhttps://no.");
+}

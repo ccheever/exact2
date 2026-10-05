@@ -1,0 +1,525 @@
+// Ocho on the phone: pick up where the desktop left off. The desktop's
+// windows and tabs, each session's conversation, and a composer, through
+// Fleet's mobile API. When the Mac sleeps, a peer machine answers for the
+// sessions it can see and the Mac's last layout stays (data/src/model.rs).
+//
+// The model lives in the Rust data source (`data/`): every event goes to
+// `dispatch`, and `picture` is what the model wants painted. UIKit owns the
+// navigation stack, the keyboard, scrolling, the menu and the segments.
+
+use MarkdownBlocks from "./markdown.contract"
+use Label from "./palette.contract"
+use Secondary from "./palette.contract"
+use Tertiary from "./palette.contract"
+use Accent from "./palette.contract"
+use Warn from "./palette.contract"
+use Danger from "./palette.contract"
+use Icon from "./palette.contract"
+use Page from "./palette.contract"
+use Grouped from "./palette.contract"
+use Cell from "./palette.contract"
+
+routes nav
+  sessions "/"
+    session "/s/:machine/:id"
+    scan "/scan"
+    // `ocho://pair/<pairing>`: the relay's pairing page opens the app here.
+    pair "/pair/:p"
+
+keyframes spin
+  from rotate=0
+  to rotate=360
+
+// ---- The view-model, field for field with data/src/shapes.rs ----
+
+shape Ui
+  version: number
+  poll: number
+  transcript: number
+  send: number
+  probe: number
+  pulls: number
+  reads: number
+  buzz: number
+  reports: number
+shape Version
+  version: number
+shape MarkdownRun
+  id: string
+  text: string
+  bold: bool
+  italic: bool
+  code: bool
+  strike: bool
+  url: string
+  subdued: bool
+  math: string
+shape MarkdownCell
+  id: string
+  runs: list<MarkdownRun>
+  flow: bool
+  align: string
+shape MarkdownTableRow
+  id: string
+  header: bool
+  cells: list<MarkdownCell>
+shape MarkdownBlock
+  id: string
+  kind: string
+  level: number
+  depth: number
+  marker: string
+  quote: number
+  language: string
+  text: string
+  subdued: bool
+  flow: bool
+  runs: list<MarkdownRun>
+  rows: list<MarkdownTableRow>
+  align: list<string>
+shape WindowTab
+  id: string
+  label: string
+  selected: bool
+shape Row
+  id: string
+  kind: string
+  machine: string
+  session: string
+  title: string
+  host: string
+  status: string
+  working: bool
+  blocked: bool
+  offline: bool
+  current: bool
+  unread: bool
+  depth: number
+  first: bool
+  last: bool
+shape Home
+  title: string
+  subtitle: string
+  detail: string
+  warn: bool
+  windows: list<WindowTab>
+  rows: list<Row>
+  empty: string
+  refreshing: bool
+  build: string
+shape Message
+  id: string
+  kind: string
+  subdued: bool
+  pending: bool
+  queued: bool
+  blocks: list<MarkdownBlock>
+  summary: string
+shape Session
+  open: bool
+  title: string
+  host: string
+  working: bool
+  blocked: bool
+  offline: bool
+  status: string
+  entries: list<Message>
+  earlier: string
+  empty: string
+  error: string
+  canSend: bool
+  note: string
+  failed: string
+  scrollRevision: number
+  composerHeight: number
+shape Page
+  visibilityState: string
+  onLine: bool
+shape Pair
+  draft: string
+  error: string
+shape View
+  paired: bool
+  home: Home
+  session: Session
+  pair: Pair
+
+component OchoMobile
+  mutation ui as shape Ui
+  state draft = ""
+  state listTop = 0
+  state scanState = ""
+  state pasting = false
+  // The headers' variable blur, switchable from the menu to compare how
+  // scrolling feels without it.
+  state headerBlur = true
+  derive titleOpacity = (listTop < 40 ? 0 : (listTop > 56 ? 1 : (listTop - 40) / 16))
+  // The compact title arrives at once, not with the scroll: it fades in out
+  // of a blur and slides up into place, as UIKit's navigation title does.
+  derive titleShown = listTop >= 52
+  derive uiVersion = match ui { case some(r) => r.version, case none => 0 }
+  derive pollTurn = match ui { case some(r) => r.poll, case none => 0 }
+  derive transcriptTurn = match ui { case some(r) => r.transcript, case none => 0 }
+  derive sendTurn = match ui { case some(r) => r.send, case none => 0 }
+  derive probeTurn = match ui { case some(r) => r.probe, case none => 0 }
+  derive refreshTurn = match ui { case some(r) => r.pulls, case none => 0 }
+  derive readTurn = match ui { case some(r) => r.reads, case none => 0 }
+  derive buzzTurn = match ui { case some(r) => r.buzz, case none => 0 }
+  derive reportTurn = match ui { case some(r) => r.reports, case none => 0 }
+  // Coming back to the foreground or online re-asks the poll at once: iOS
+  // drops a request in flight while the app is suspended.
+  resource page = exactPage() as shape Page
+  resource poll = poll(pollTurn, page.visibilityState, page.onLine) as shape Version
+  resource transcript = transcript(transcriptTurn) as shape Version
+  resource outgoing = send(sendTurn) as shape Version
+  resource probe = probe(probeTurn) as shape Version
+  resource refreshed = resync(refreshTurn) as shape Version
+  resource marked = markRead(readTurn) as shape Version
+  // Haptics, played by the app's native module (Exact has no haptics API).
+  resource felt = haptic(buzzTurn) as shape Version
+  // Anonymous health and funnel events, batched to Fleet's cloud (Axiom).
+  resource reported = report(reportTurn) as shape Version
+  resource vm = picture(uiVersion, poll.version, transcript.version, outgoing.version, probe.version, refreshed.version, marked.version, felt.version, reported.version) as shape View
+
+  // One tick a second starts whatever I/O is due (the model's lanes).
+  action tick writes ui
+    send ui = dispatch("tick", "", "", now())
+  task ticker mount
+    every(1000, tick)
+
+  action open(machine: string, id: string) writes nav, ui, draft
+    nav = open(nav, path("session", machine, id))
+    draft = ""
+    send ui = dispatch("open", machine, id, now())
+  action back writes nav, ui
+    nav = back(nav)
+    send ui = dispatch("close", "", "", now())
+  // The native back swipe, a location restored, or a pairing link.
+  action followLink(location: string) writes nav, ui
+    if startsWith(location, "/pair/")
+      nav = open(nav, "/")
+      send ui = dispatch("pair-link", location, "", now())
+    else
+      nav = open(nav, location)
+      send ui = dispatch("nav", location, "", now())
+  // Launched by a pairing link: the router starts there; pair and go home.
+  action launched writes nav, ui
+    if top(nav).name == "pair"
+      send ui = dispatch("pair-link", `/pair/${top(nav).params.p}`, "", now())
+      nav = open(nav, "/")
+  task launch mount
+    after(1, launched)
+  action write(value: string) writes draft
+    draft = value
+  // The native composer's height, which its wrapped text decides.
+  action showEarlier writes ui
+    send ui = dispatch("earlier", "", "", now())
+  // The native composer's word: `h:<points>` (its height) or `s:<text>` (send
+  // it; the saved draft goes too).
+  action composerSaid(value: string) writes ui, draft
+    draft = (startsWith(value, "s:") ? "" : draft)
+    send ui = dispatch("composer", value, "", now())
+  // A native glass button's `change` carries "press": the same actions.
+  action backPressed(value: string) writes nav, ui
+    nav = back(nav)
+    send ui = dispatch("close", "", "", now())
+  action sendPressed(value: string) writes ui, draft
+    send ui = dispatch("send", draft, "", now())
+    draft = ""
+    focus("composer")
+  // The home menu's native items, by id.
+  action menuChose(value: string) writes ui, nav, pasting, headerBlur
+    headerBlur = (value == "blur" ? not headerBlur : headerBlur)
+    pasting = (value == "unpair" ? false : pasting)
+    nav = (value == "unpair" ? open(nav, "/") : nav)
+    send ui = dispatch((value == "refresh" ? "pull" : (value == "unpair" ? "unpair" : "")), "", "", now())
+  action sendDraft writes ui, draft
+    send ui = dispatch("send", draft, "", now())
+    draft = ""
+    focus("composer")
+  action retry writes ui
+    send ui = dispatch("retry", "", "", now())
+  action dismiss writes ui
+    send ui = dispatch("dismiss", "", "", now())
+  action pickWindow(id: string) writes ui, listTop
+    send ui = dispatch("window", id, "", now())
+  action pull writes ui
+    send ui = dispatch("pull", "", "", now())
+  action pairTyped(value: string) writes ui
+    send ui = dispatch("pair-typed", value, "", now())
+  action pair writes ui
+    send ui = dispatch("pair", "", "", now())
+  action startScan writes nav, scanState
+    scanState = ""
+    nav = push(nav, "/scan")
+  // The first QR the camera reads closes the sheet; the model pairs with it
+  // or says on the pairing screen what it was.
+  action scanned(value: string) writes nav, ui
+    nav = back(nav)
+    send ui = dispatch("pair-scanned", value, "", now())
+  action scannerSaid(value: string) writes scanState
+    scanState = value
+  action togglePaste writes pasting
+    pasting = not pasting
+  action toggleBlur writes headerBlur
+    headerBlur = not headerBlur
+  action unpair writes ui, nav, pasting
+    pasting = false
+    nav = open(nav, "/")
+    send ui = dispatch("unpair", "", "", now())
+  // Only the title's fade range is state: a bounce or a long scroll past it
+  // writes nothing, so the list's own scrolling never waits on a re-render.
+  action listScrolled(left: number, top: number) writes listTop
+    if min(max(top, 39), 57) != listTop
+      listTop = min(max(top, 39), 57)
+
+  view
+    main testId="ocho" navigationKey=`${top(nav).id}` navigationBack="back" navigate=followLink viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" class=Grouped font-family="system-ui"
+      each e in stack(nav) key=e.id
+        when e.name == "sessions"
+          column navigationKey=`${e.id}` testId="sessions-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" class=Grouped padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
+            when vm.paired
+              Sessions(home=vm.home, titleOpacity=titleOpacity, titleShown=titleShown, open=open, pickWindow=pickWindow, pull=pull, scrolled=listScrolled, unpair=unpair, blur=headerBlur, toggleBlur=toggleBlur, menuChose=menuChose)
+            else
+              column flex=1 min-height=0 padding-top="env(safe-area-inset-top)"
+                Pairing(model=vm.pair, pasting=pasting, typed=pairTyped, pair=pair, scan=startScan, togglePaste=togglePaste)
+        when e.name == "scan"
+          column navigationKey=`${e.id}` navigationPresentation="modal" testId="scan-screen" position="absolute" top=0 right=0 bottom=0 left=0 background-color="#000000"
+            Scanner(state=scanState, scanned=scanned, said=scannerSaid, close=backPressed)
+        when e.name == "session"
+          column navigationKey=`${e.id}` testId="session-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" class=Page padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
+            Conversation(model=vm.session, draft=draft, backTapped=back, back=backPressed, write=write, sendDraft=sendDraft, sized=composerSaid, earlier=showEarlier, retry=retry, dismiss=dismiss, blur=headerBlur)
+
+// The activity indicator: a ring with one dark quarter, turning.
+component Spinner
+  props
+    size: number
+  view
+    box width=size height=size flex-shrink=0 box-sizing="border-box" border-radius=(size / 2) border-width=2 border-style="solid" border-color="light-dark(#3c3c4329, #ebebf529)" border-top-color="light-dark(#3c3c43b3, #ebebf5b3)" animation="spin 800ms linear infinite"
+
+// What leads a row: working, waiting on you, a finished turn nobody has
+// read (the same tabs the desktop marks).
+component Status
+  props
+    working: bool
+    blocked: bool
+    unread: bool
+  view
+    box width=20 height=20 flex-shrink=0 display="flex" align-items="center" justify-content="center"
+      when working
+        Spinner(size=16)
+      else
+        when blocked
+          image "symbol:alert" font-size=15 font-weight=600 tint-color="light-dark(#ff9500, #ff9f0a)"
+        else
+          when unread
+            box testId="unread" width=10 height=10 border-radius=5 background-color="light-dark(#007aff, #0a84ff)"
+
+// ---- The list: the desktop's tabs, window by window ----
+
+component Sessions
+  props
+    home: Home
+    titleOpacity: number
+    titleShown: bool
+    open: action
+    pickWindow: action
+    pull: action
+    scrolled: action
+    unpair: action
+    blur: bool
+    toggleBlur: action
+    menuChose: action
+  view
+    column flex=1 min-height=0 position="relative"
+      // The header's backdrop, as the system's bars blend into content
+      // (nativemail's): a blur strongest under the status bar fading to
+      // nothing 32 pt below the bar, under a tint of the page's colour that
+      // fades the same way. Both come in as the large title scrolls away, and
+      // neither takes a touch, so the list scrolls under them.
+      when blur
+        progressive-blur testId="title-blur" position="absolute" top=0 left=0 right=0 height="calc(env(safe-area-inset-top) + 76px)" z-index=1 pointer-events="none" strength=8 start=0 edge="top" progress=titleOpacity
+      box testId="title-tint" position="absolute" top=0 left=0 right=0 height="calc(env(safe-area-inset-top) + 76px)" z-index=1 pointer-events="none" opacity=titleOpacity background-image="linear-gradient(to bottom, light-dark(#f2f2f7, #000000) 0%, light-dark(rgba(242, 242, 247, 0.8), rgba(0, 0, 0, 0.8)) 50%, light-dark(rgba(242, 242, 247, 0), rgba(0, 0, 0, 0)) 100%)"
+      // The compact title, once the large one scrolls under the bar.
+      row testId="title-bar" position="absolute" top="env(safe-area-inset-top)" left=0 right=0 z-index=1 height=44 align-items="center" justify-content="center" pointer-events="none"
+        title-reveal testId="title-compact" flex=1 align-self="stretch" margin-left=72 margin-right=72 text=home.title shown=(titleShown ? "true" : "false")
+      // UIKit's own glass button, its menu the native one.
+      glass-button testId="home-menu-button" symbol="ellipsis" said="More" message=menuChose position="absolute" top="env(safe-area-inset-top)" right=16 z-index=2 width=44 height=44 menu=(blur ? `[{"id":"refresh","title":"Refresh"},{"id":"blur","title":"Header Blur: On"},{"id":"unpair","title":"Unpair This Phone","destructive":true}]` : `[{"id":"refresh","title":"Refresh"},{"id":"blur","title":"Header Blur: Off"},{"id":"unpair","title":"Unpair This Phone","destructive":true}]`)
+      scroll testId="session-list" scroll=scrolled refresh=pull refreshing=home.refreshing flex=1 min-height=0 overflow-x="hidden"
+        column padding-bottom="calc(env(safe-area-inset-bottom) + 24px)"
+          box height="env(safe-area-inset-top)" flex-shrink=0
+          column testId="title-area" padding-top=48 padding-left=20 padding-right=20 padding-bottom=10 gap=2
+            text home.title testId="title-large" font-size=34 font-weight=700 line-height="41px" class=Label opacity=(1 - titleOpacity)
+            row align-items="center" gap=6 min-width=0
+              when home.warn
+                box width=8 height=8 border-radius=4 flex-shrink=0 background-color="light-dark(#ff9500, #ff9f0a)"
+              text home.subtitle testId="connection" font-size=15 line-height="20px" line-clamp=1 class=(home.warn ? Warn : Secondary)
+            when home.detail != ""
+              text home.detail testId="connection-detail" font-size=13 line-height="18px" class=Secondary
+          when length(home.windows) > 0
+            row role="tablist" testId="windows" aria-label="Desktop windows" height=32 margin-left=16 margin-right=16 margin-top=6 margin-bottom=4 gap=2 padding=2 border-radius=9 box-sizing="border-box" background-color="light-dark(#7676801f, #7676803d)"
+              each w in home.windows key=w.id
+                button role="tab" aria-selected=w.selected press=pickWindow(w.id) testId=`window-${w.id}` flex=1 border-radius=7 background-color=(w.selected ? "light-dark(#ffffff, #636366)" : "#00000000") display="flex" align-items="center" justify-content="center"
+                  text w.label font-size=13 font-weight=(w.selected ? 600 : 500) class=Label
+          when home.empty != "" and length(home.rows) == 0
+            text home.empty testId="empty" padding=40 text-align="center" font-size=15 class=Secondary
+          each r in home.rows key=r.id
+            when r.kind == "folder"
+              text r.title testId=`folder-${r.id}` padding-left=36 padding-right=36 padding-top=22 padding-bottom=7 font-size=13 line-height="18px" text-transform="uppercase" line-clamp=1 class=Secondary
+            else
+              TabRow(r=r, open=open)
+          // Which build this is, so "is it the latest?" has an answer.
+          text home.build testId="build" padding-top=28 text-align="center" font-size=12 line-height="16px" class=Tertiary
+
+component TabRow
+  props
+    r: Row
+    open: action
+  view
+    column margin-left=16 margin-right=16 margin-top=(r.first ? 8 : 0) class=Cell border-top-left-radius=(r.first ? 12 : 0) border-top-right-radius=(r.first ? 12 : 0) border-bottom-left-radius=(r.last ? 12 : 0) border-bottom-right-radius=(r.last ? 12 : 0) overflow="hidden"
+      button press=open(r.machine, r.session) disabled=(r.kind != "session") testId=`tab-${r.id}` aria-label=`${r.title}${r.working ? ", working" : ""}${r.blocked ? ", needs input" : ""}${r.unread ? ", unread" : ""}${r.offline ? ", offline" : ""}` display="flex" flex-direction="row" align-items="center" gap=12 width="100%" box-sizing="border-box" min-height=60 padding-left=(16 + r.depth * 16) padding-right=14
+        row flex=1 min-width=0 align-items="center" gap=12 opacity=(r.offline ? 0.4 : 1)
+          Status(working=r.working, blocked=r.blocked, unread=r.unread)
+          column flex=1 min-width=0 gap=2 padding-top=10 padding-bottom=10
+            row align-items="baseline" gap=8 min-width=0
+              text r.title flex=1 min-width=0 font-size=17 line-height="22px" font-weight=(r.unread ? 600 : 400) line-clamp=1 class=Label
+              text r.host flex-shrink=1 max-width="40%" font-size=13 line-height="18px" line-clamp=1 class=Tertiary
+            when r.status != ""
+              text r.status font-size=14 line-height="19px" line-clamp=1 class=(r.blocked ? Warn : Secondary)
+        when r.kind == "session"
+          image "symbol:forward-chevron" font-size=13 font-weight=600 flex-shrink=0 tint-color="light-dark(#3c3c434d, #ebebf54d)"
+      when not r.last
+        box height=0.5 margin-left=(48 + r.depth * 16) background-color="light-dark(#c6c6c8, #38383a)"
+
+// ---- Pairing ----
+
+component Pairing
+  props
+    model: Pair
+    pasting: bool
+    typed: action
+    pair: action
+    scan: action
+    togglePaste: action
+  view
+    scroll testId="pairing" flex=1 min-height=0 keyboardDismissMode="interactive"
+      column padding-left=20 padding-right=20 padding-top=64 padding-bottom=40 gap=16
+        image "assets/icon.png" width=88 height=88 border-radius=20 align-self="center" margin-bottom=8 aria-label=""
+        text "Ocho" text-align="center" font-size=34 font-weight=700 line-height="41px" class=Label
+        text "Pick up your desktop sessions from your phone — even when your Mac is asleep." text-align="center" font-size=17 line-height="23px" class=Secondary
+        column class=Cell border-radius=14 padding=16 gap=6 margin-top=8
+          text "On your Mac, open Ocho and choose Pair Phone… from the View menu. Then scan the code it shows." font-size=15 line-height="20px" class=Label
+        when model.error != ""
+          text model.error testId="pair-error" text-align="center" font-size=14 line-height="19px" class=Danger
+        button press=scan testId="scan" height=50 border-radius=25 background-color="light-dark(#007aff, #0a84ff)" display="flex" align-items="center" justify-content="center"
+          text "Scan Pairing Code" font-size=17 font-weight=600 color="#ffffff"
+        button press=togglePaste testId="paste-toggle" height=44 display="flex" align-items="center" justify-content="center"
+          text (pasting ? "Hide pairing text" : "Paste pairing text instead") font-size=15 class=Accent
+        when pasting
+          column gap=12
+            text "Or run `fleet serve --describe --no-qr` on your Mac and paste what it prints." font-size=13 line-height="18px" class=Secondary
+            textarea id="pair-input" testId="pair-input" value=model.draft input=typed placeholder="Pairing text" aria-label="Pairing text" autocapitalize="none" autocorrect="off" spellcheck="false" font-family="ui-monospace" font-size=13 line-height="18px" height=110 padding=12 box-sizing="border-box" border-width=0 border-radius=12 class=Cell
+            button press=pair disabled=(model.draft == "") testId="pair" height=50 border-radius=25 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
+              text "Pair" font-size=17 font-weight=600 class=(model.draft == "" ? Tertiary : Accent)
+
+// The camera, a frame to aim with, and what the camera can do.
+component Scanner
+  props
+    state: string
+    scanned: action
+    said: action
+    close: action
+  view
+    column flex=1 min-height=0 position="relative"
+      qr-scanner testId="qr-scanner" position="absolute" top=0 left=0 right=0 bottom=0 change=scanned message=said aria-label="Camera, looking for a pairing code"
+      row position="absolute" top=16 left=16 right=16 z-index=1 align-items="center" justify-content="space-between"
+        glass-button testId="close-scan" symbol="xmark" said="Close" change=close width=44 height=44
+      column position="absolute" top=0 left=0 right=0 bottom=0 align-items="center" justify-content="center" pointer-events="none"
+        box width=240 height=240 border-radius=32 border-width=3 border-style="solid" border-color="#ffffffd9"
+      row position="absolute" left=24 right=24 bottom=48 z-index=1 justify-content="center"
+        text (state == "denied" ? "Ocho can't use the camera. Allow it in Settings › Ocho, or paste the pairing text." : (state == "unavailable" ? "No camera here. Close this and paste the pairing text instead." : "Point the camera at the code under Pair Phone on your Mac.")) testId="scan-hint" text-align="center" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=20 backgroundMaterial="glass" font-size=15 line-height="20px" color="#ffffff"
+
+// ---- A session: its conversation and the composer ----
+
+component Conversation
+  props
+    model: Session
+    draft: string
+    backTapped: action
+    back: action
+    write: action
+    earlier: action
+    sized: action
+    sendDraft: action
+    retry: action
+    dismiss: action
+    blur: bool
+  view
+    column flex=1 min-height=0 position="relative"
+      // The transcript scrolls under the header, as under the sessions
+      // list's: a blur strongest under the status bar, fading out 24 pt below
+      // the bar, under a tint of the page's colour that fades the same way.
+      when blur
+        progressive-blur testId="session-blur" position="absolute" top=0 left=0 right=0 height="calc(env(safe-area-inset-top) + 76px)" z-index=1 pointer-events="none" strength=8 start=0 edge="top" progress=1
+      box testId="session-tint" position="absolute" top=0 left=0 right=0 height="calc(env(safe-area-inset-top) + 76px)" z-index=1 pointer-events="none" background-image="linear-gradient(to bottom, light-dark(#ffffff, #000000) 0%, light-dark(rgba(255, 255, 255, 0.8), rgba(0, 0, 0, 0.8)) 55%, light-dark(rgba(255, 255, 255, 0), rgba(0, 0, 0, 0)) 100%)"
+      row testId="session-header" position="absolute" top="env(safe-area-inset-top)" left=0 right=0 z-index=2 height=52 align-items="center" gap=8 padding-left=16 padding-right=16 box-sizing="border-box"
+        // The route's back control (`navigationBack="back"`): the swipe back
+        // needs a pressable `back`; a tap reaches the native button inside.
+        box id="back" press=backTapped width=44 height=44 flex-shrink=0
+          glass-button testId="back" symbol="chevron.backward" said="Back to sessions" change=back width=44 height=44
+        column flex=1 min-width=0 align-items="center" gap=1
+          text model.title testId="session-title" max-width="100%" font-size=17 line-height="22px" font-weight=600 line-clamp=1 class=Label
+          row align-items="center" gap=5 max-width="100%" min-width=0
+            when model.working
+              Spinner(size=11)
+            when model.blocked
+              image "symbol:alert" font-size=11 font-weight=600 tint-color="light-dark(#ff9500, #ff9f0a)"
+            when model.offline
+              box width=7 height=7 border-radius=4 flex-shrink=0 background-color="light-dark(#8e8e93, #8e8e93)"
+            text (model.status != "" ? model.status : (model.offline ? `${model.host} · offline` : model.host)) testId="session-status" min-width=0 font-size=12 line-height="16px" line-clamp=1 class=(model.blocked ? Warn : Secondary)
+        box width=44 height=44 flex-shrink=0
+      scroll testId="transcript" scrollFollowEnd=true keyboardDismissMode="interactive" scrollTop=(1000000 + model.scrollRevision) flex=1 min-height=0 overflow-x="hidden"
+        column
+          box height="calc(env(safe-area-inset-top) + 52px)" flex-shrink=0
+          column padding-left=16 padding-right=16 padding-top=12 padding-bottom=16 gap=14
+            when model.earlier != ""
+              button press=earlier testId="show-earlier" align-self="center" padding-left=14 padding-right=14 height=32 border-radius=16 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
+                text model.earlier font-size=13 font-weight=500 class=Accent
+            when model.empty != ""
+              text model.empty testId="transcript-empty" padding-top=48 text-align="center" font-size=15 class=Secondary
+            each entry in model.entries key=entry.id
+              when entry.kind == "user"
+                column align-items="flex-end" gap=4 testId=entry.id
+                  column max-width="85%" min-width=0 padding-left=14 padding-right=14 padding-top=9 padding-bottom=9 border-radius=20 background-color="light-dark(#e9e9eb, #262629)" opacity=(entry.pending ? 0.55 : 1)
+                    MarkdownBlocks(blocks=entry.blocks, size=16, lineHeight=22)
+                  when entry.queued
+                    text "Queued · sends when Codex finishes" testId="queued" padding-right=6 font-size=12 line-height="16px" class=Tertiary
+              when entry.kind == "assistant"
+                column testId=entry.id min-width=0
+                  MarkdownBlocks(blocks=entry.blocks, size=16, lineHeight=23)
+              when entry.kind == "tools"
+                row testId=entry.id align-items="center" gap=6
+                  image "symbol:layers" font-size=12 font-weight=500 tint-color="light-dark(#3c3c434d, #ebebf54d)"
+                  text entry.summary font-size=13 line-height="18px" class=Tertiary
+            when model.working
+              row testId="working" align-items="center" gap=8
+                Spinner(size=14)
+                text (model.status != "" ? model.status : "Working…") flex=1 min-width=0 font-size=14 line-height="19px" line-clamp=2 class=Secondary
+            when model.error != ""
+              text model.error font-size=12 line-height="16px" text-align="center" class=Tertiary
+      when model.failed != ""
+        row testId="send-failed" align-items="center" gap=10 margin-left=16 margin-right=16 margin-bottom=6 padding-left=14 padding-right=6 padding-top=6 padding-bottom=6 border-radius=18 backgroundMaterial="glass"
+          image "symbol:alert" font-size=15 font-weight=600 tint-color="light-dark(#ff3b30, #ff453a)"
+          text model.failed flex=1 min-width=0 font-size=14 line-height="19px" line-clamp=2 class=Label
+          button press=retry testId="retry" height=32 padding-left=12 padding-right=12 border-radius=16 backgroundMaterial="glass" display="flex" align-items="center"
+            text "Retry" font-size=15 font-weight=600 class=Accent
+          button press=dismiss testId="dismiss" aria-label="Dismiss" width=32 height=32 border-radius=16 display="flex" align-items="center" justify-content="center"
+            image "symbol:close" font-size=13 font-weight=600 class=Icon
+      when not model.canSend and model.note != ""
+        text model.note testId="send-note" text-align="center" font-size=13 line-height="18px" padding-bottom=6 class=Secondary
+      column testId="composer-bar" padding-left=16 padding-right=16 padding-top=6 padding-bottom=12 flex-shrink=1 min-height=52
+        row align-items="flex-end" gap=10
+          // UIKit's text view in real Liquid Glass, its send button the
+          // system's prominent glass, the two in one glass container.
+          glass-composer id="composer" testId="composer" flex=1 min-width=0 height=model.composerHeight draft=draft prompt=(model.canSend ? "Message" : "Can't send right now") sendable=(model.canSend ? "true" : "false") change=write message=sized
+        box height="calc(env(safe-area-inset-bottom) - 12px)" min-height=0 flex-shrink=0

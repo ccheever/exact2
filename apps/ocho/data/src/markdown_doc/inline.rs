@@ -21,7 +21,104 @@ pub fn inline(text: &str) -> Vec<Run> {
     let chars: Vec<char> = text.chars().collect();
     let mut runs = Vec::new();
     append(&chars, &Style::default(), &mut runs);
-    runs
+    linkify(runs)
+}
+
+/// GitHub's extended autolinks: a bare `https://…`, `http://…` or `www.…` in
+/// plain text is a link (agents write URLs bare more often than not). Code
+/// spans, formulas and text already in a link stay as they are. Trailing
+/// punctuation and an unbalanced closing parenthesis end the link, as GFM's do.
+fn linkify(runs: Vec<Run>) -> Vec<Run> {
+    let mut out = Vec::with_capacity(runs.len());
+    for run in runs {
+        if run.url.is_some() || run.code || run.math != MathKind::default() {
+            out.push(run);
+            continue;
+        }
+        let text = run.text.clone();
+        let mut rest = text.as_str();
+        let mut found = false;
+        while let Some((start, end)) = bare_url(rest) {
+            found = true;
+            let target = &rest[start..end];
+            let url = if target.starts_with("www.") {
+                format!("https://{target}")
+            } else {
+                target.to_string()
+            };
+            if start > 0 {
+                out.push(Run {
+                    text: rest[..start].to_string(),
+                    ..run.clone()
+                });
+            }
+            let allowed = link_allowed(&url);
+            out.push(Run {
+                text: target.to_string(),
+                url: allowed.then_some(url),
+                ..run.clone()
+            });
+            rest = &rest[end..];
+        }
+        if !found {
+            out.push(run);
+        } else if !rest.is_empty() {
+            out.push(Run {
+                text: rest.to_string(),
+                ..run
+            });
+        }
+    }
+    out
+}
+
+/// The byte range of the first bare URL in `text`, if any.
+fn bare_url(text: &str) -> Option<(usize, usize)> {
+    let lower = text.to_ascii_lowercase();
+    let mut search = 0;
+    loop {
+        let start = ["https://", "http://", "www."]
+            .iter()
+            .filter_map(|p| lower[search..].find(p).map(|i| i + search))
+            .min()?;
+        // At a word's start: not inside `foo.www.bar` or `xhttps://`.
+        let before = text[..start].chars().next_back();
+        if before.is_some_and(|c| c.is_alphanumeric() || c == '/' || c == '.') {
+            search = start + 1;
+            continue;
+        }
+        let mut end = start
+            + text[start..]
+                .find(|c: char| c.is_whitespace() || c == '<')
+                .unwrap_or(text.len() - start);
+        // Trailing punctuation is the sentence's, not the URL's.
+        loop {
+            let tail = text[..end].chars().next_back();
+            match tail {
+                Some('.' | ',' | ':' | ';' | '!' | '?' | '"' | '\'' | '*' | '_' | '~') => end -= 1,
+                Some(')')
+                    if text[start..end].matches('(').count()
+                        < text[start..end].matches(')').count() =>
+                {
+                    end -= 1
+                }
+                _ => break,
+            }
+        }
+        let body = &text[start..end];
+        let host = body
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .trim_start_matches("HTTPS://")
+            .trim_start_matches("HTTP://");
+        if host.contains('.') && host.len() > 3 {
+            return Some((start, end));
+        }
+        search = end.max(start + 1);
+        if search >= text.len() {
+            return None;
+        }
+    }
 }
 
 fn push(runs: &mut Vec<Run>, text: &str, style: &Style, code: bool) {

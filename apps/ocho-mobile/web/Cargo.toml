@@ -1,0 +1,23 @@
+[package]
+name = "ocho-mobile-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Ocho on the phone, on the web: one wasm with the runner, the kernel, and the baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "ocho_mobile_web"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
+ocho-mobile-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+ocho-mobile-data = { path = "../data" }

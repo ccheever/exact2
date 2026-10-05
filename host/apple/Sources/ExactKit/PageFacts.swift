@@ -83,8 +83,11 @@ enum PageFacts {
         let workspace = [NSApplication.didHideNotification, NSApplication.didUnhideNotification,
                          NSWindow.didChangeOcclusionStateNotification, agentChanged]
         #else
+        // A prewarmed launch (iOS starts the process in the background ahead
+        // of a tap, often after an update) never posts willEnterForeground:
+        // becoming active is the only word that the app can be seen.
         let workspace = [UIApplication.didEnterBackgroundNotification, UIApplication.willEnterForegroundNotification,
-                         UIContentSizeCategory.didChangeNotification, agentChanged]
+                         UIApplication.didBecomeActiveNotification, UIContentSizeCategory.didChangeNotification, agentChanged]
         #endif
         return workspace.map { NotificationCenter.default.addObserver(forName: $0, object: nil, queue: .main) { _ in changed() } }
     }

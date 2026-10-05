@@ -1,0 +1,40 @@
+// The system's colour roles as CSS light-dark pairs (UIColor.label,
+// secondaryLabel, tertiarySystemFill, separator, systemBackground…).
+
+style Label
+  color="light-dark(#000000, #ffffff)"
+
+style Secondary
+  color="light-dark(#3c3c4399, #ebebf599)"
+
+style Tertiary
+  color="light-dark(#3c3c434d, #ebebf54d)"
+
+style Accent
+  color="light-dark(#007aff, #0a84ff)"
+
+style Warn
+  color="light-dark(#ff9500, #ff9f0a)"
+
+style Danger
+  color="light-dark(#ff3b30, #ff453a)"
+
+style Icon
+  tint-color="light-dark(#000000, #ffffff)"
+
+style Fill
+  background-color="light-dark(#7676801f, #7676803d)"
+
+style Separator
+  border-color="light-dark(#c6c6c8, #38383a)"
+
+style Page
+  background-color="light-dark(#ffffff, #000000)"
+  color="light-dark(#000000, #ffffff)"
+
+style Grouped
+  background-color="light-dark(#f2f2f7, #000000)"
+  color="light-dark(#000000, #ffffff)"
+
+style Cell
+  background-color="light-dark(#ffffff, #1c1c1e)"

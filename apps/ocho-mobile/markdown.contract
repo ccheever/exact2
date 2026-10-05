@@ -1,0 +1,73 @@
+// Markdown as Ocho's model flattens it (apps/ocho/data/src/markdown_doc.rs):
+// one record per rendered row, the desktop's drawing in the phone's type
+// and the system's colours. Math shows its TeX source.
+
+use Label from "./palette.contract"
+use Secondary from "./palette.contract"
+use Fill from "./palette.contract"
+use Separator from "./palette.contract"
+
+component MarkdownBlocks
+  props
+    blocks: list<MarkdownBlock>
+    size: number
+    lineHeight: number
+  view
+    column gap=10 min-width=0 width="100%"
+      each b in blocks key=b.id
+        row min-width=0 gap=(b.depth > 0 ? 6 : 0) padding-left=(b.depth > 1 ? (b.depth - 1) * 22 : 0) margin-left=(b.quote > 1 ? (b.quote - 1) * 14 : 0) border-left-style=(b.quote > 0 ? "solid" : "none") border-left-width=(b.quote > 0 ? 3 : 0) class=Separator
+          when b.depth > 0
+            text b.marker min-width=20 flex-shrink=0 class=Secondary font-size=size line-height=`${lineHeight}px`
+          column flex=1 min-width=0 padding-left=(b.quote > 0 ? 12 : 0)
+            MarkdownBlock(b=b, size=size, lineHeight=lineHeight)
+
+component MarkdownBlock
+  props
+    b: MarkdownBlock
+    size: number
+    lineHeight: number
+  view
+    when b.kind == "paragraph"
+      text min-width=0 font-size=size line-height=`${lineHeight}px` class=(b.subdued ? Secondary : Label) overflow-wrap="anywhere"
+        MarkdownRuns(runs=b.runs, size=size)
+    when b.kind == "heading"
+      text min-width=0 padding-top=4 font-weight=700 font-size=(b.level == 1 ? 22 : (b.level == 2 ? 20 : 18)) line-height=`${(b.level == 1 ? 22 : (b.level == 2 ? 20 : 18)) * 1.3}px` class=(b.subdued ? Secondary : Label) overflow-wrap="anywhere"
+        MarkdownRuns(runs=b.runs, size=(b.level == 1 ? 22 : (b.level == 2 ? 20 : 18)))
+    when b.kind == "code"
+      column border-radius=12 class=Fill overflow="hidden" min-width=0
+        when b.language != ""
+          text b.language padding-left=12 padding-right=12 padding-top=8 font-size=12 line-height="16px" class=Secondary
+        scroll overflow-x="scroll" overflow-y="hidden" padding=12
+          text b.text font-family="ui-monospace" font-size=13 line-height="19px" white-space="pre" class=(b.subdued ? Secondary : Label)
+    when b.kind == "table"
+      scroll overflow-x="scroll" overflow-y="hidden" min-width=0 border-radius=12 class=Fill
+        column
+          each r in b.rows key=r.id
+            row border-bottom-style="solid" border-bottom-width=0.5 class=Separator
+              each c in r.cells key=c.id
+                text flex=1 min-width=120 padding-left=10 padding-right=10 padding-top=6 padding-bottom=6 text-align=c.align font-weight=(r.header ? 600 : 400) font-size=(size - 2) line-height=`${lineHeight - 3}px` class=Label
+                  MarkdownRuns(runs=c.runs, size=(size - 2))
+    when b.kind == "rule"
+      box height=0.5 margin-top=6 margin-bottom=6 background-color="light-dark(#c6c6c8, #38383a)"
+    when b.kind == "math"
+      scroll overflow-x="scroll" overflow-y="hidden"
+        text b.text text-align="center" font-family="serif" font-style="italic" font-size=size line-height=`${lineHeight}px` white-space="pre" class=(b.subdued ? Secondary : Label)
+
+// One paragraph's spans: bold, italic, monospace code, strikethrough, links
+// in the tint colour.
+component MarkdownRuns
+  props
+    runs: list<MarkdownRun>
+    size: number
+  view
+    each r in runs key=r.id
+      when r.math != ""
+        text r.text font-family="serif" font-style="italic"
+      else
+        when r.code
+          text r.text font-family="ui-monospace" font-size=(size * 0.88) background-color="light-dark(#7676801f, #7676803d)"
+        else
+          when r.url != ""
+            text r.text href=r.url font-weight=(r.bold ? 600 : 400) font-style=((r.italic or r.subdued) ? "italic" : "normal") color="light-dark(#007aff, #0a84ff)"
+          else
+            text r.text font-weight=(r.bold ? 600 : 400) font-style=((r.italic or r.subdued) ? "italic" : "normal") text-decoration-line=(r.strike ? "line-through" : "none")

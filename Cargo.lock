@@ -2722,6 +2722,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "ocho-mobile-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "ocho-mobile-data",
+]
+
+[[package]]
+name = "ocho-mobile-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+ "ocho-data",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ocho-mobile-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "ocho-mobile-data",
+]
+
+[[package]]
 name = "ocho-web"
 version = "0.1.0"
 dependencies = [
