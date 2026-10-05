@@ -51,9 +51,11 @@ const CRITICAL_W0: f64 = 9.233413476451585;
 /// How Core Animation evaluates a resolved spring.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Branch {
-    /// The textbook closed form, [`SpringConfig::sample`]. The duration and
-    /// response forms clamp ζ to 1 before they get here, which is what Core
-    /// Animation does without `allowsOverdamping`.
+    /// The textbook closed form, [`SpringConfig::sample`], at every ζ. Core
+    /// Animation without `allowsOverdamping` clamps ζ to 1; the duration and
+    /// response forms clamp ζ when they resolve, so their springs are
+    /// already Core Animation's. A physical spring keeps true overdamped
+    /// physics (LLP 1099 D4).
     Textbook,
     /// Core Animation with `allowsOverdamping`: above critical, each
     /// coefficient pairs with the other exponent, so the spring starts
@@ -247,7 +249,9 @@ pub fn bounce(d: f64, b: f64, velocity: f64) -> Result<Resolved, UikitError> {
         damping,
         mass: 1.0,
     };
-    let end = if b > 0.0 {
+    // Branch on the resolved damping, not on b: a bounce within an ulp of 0
+    // rounds to critical.
+    let end = if config.damping < 2.0 * omega {
         core_animation_settle(&config, velocity)
     } else {
         critical_settle(omega, velocity)
@@ -346,12 +350,10 @@ pub fn sample(
     let alpha = config.damping / (2.0 * config.mass);
     let omega_squared = config.stiffness / config.mass;
     let discriminant = alpha * alpha - omega_squared;
-    if discriminant <= omega_squared * 1.0e-12 {
-        return config.sample(displacement, velocity, elapsed);
-    }
+    // Every strictly overdamped spring on the overdamped branch takes Core
+    // Animation's pairing, however close to critical (fit.mjs `caPos`).
     match branch {
-        Branch::Textbook => config.sample(displacement, velocity, elapsed),
-        Branch::Overdamped => {
+        Branch::Overdamped if discriminant > 0.0 => {
             let root = math::sqrt(discriminant);
             let r1 = -alpha + root;
             let r2 = -alpha - root;
@@ -364,5 +366,6 @@ pub fn sample(
                 velocity: on_r1 * r1 * e1 + on_r2 * r2 * e2,
             }
         }
+        _ => config.sample(displacement, velocity, elapsed),
     }
 }

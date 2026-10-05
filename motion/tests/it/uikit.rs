@@ -91,16 +91,11 @@ fn every_duration_call_has_mass_one_its_velocity_its_end_and_critical_ratio_damp
                 continue;
             }
             let (z, d) = (r.get("z").min(1.0), r.get("d"));
-            let ok = uikit::duration(d, r.get("z"), r.get("v"))
-                .map(|s| (s.config.mass, s.velocity, s.end));
             assert_eq!(r.get("mass"), 1.0);
             assert_eq!(r.get("v0"), r.get("v"));
             assert_eq!(r.get("duration"), d);
             let measured = r.get("damping") / (2.0 * r.get("stiffness").sqrt());
             assert!((measured - z).abs() < 1e-9, "{tag} ζ {z}: {measured}");
-            if let Ok((mass, v, end)) = ok {
-                assert_eq!((mass, v, end), (1.0, r.get("v"), Some(d)));
-            }
         }
     }
 }
@@ -124,8 +119,80 @@ fn the_zero_velocity_closed_form_matches_every_call() {
     assert_eq!(n, 308);
 }
 
-/// The reconstruction against every duration call. Misses are pinned: each
-/// lies in the band, and their count moves only if the procedure does.
+/// Every (ζ, u) where the reconstruction does not pick UIKit's root: the
+/// procedure's W, bit for bit, and whether it validates as a root. All lie in
+/// the band (LLP 1099 §4.3). Pinned so that any change to the procedure, or
+/// another root that happens to keep the totals, fails here.
+const MISSES: &[(f64, f64, f64, bool)] = &[
+    (0.05, 0.05, 5.0, false),
+    (0.05, 0.1, 1.956893085317737, true),
+    (0.1, 0.2, 1.9760429993255104, true),
+    (0.2, 0.5, 2.863389818702002e16, false),
+    (0.95, 4.0, 4.140966359172943, true),
+    (0.99, 4.0, 8.268164196741644, true),
+    (0.1, 0.25, 2.4685609302316585, true),
+    (1.0, 5.0, 5.0, false),
+    (1.01, 5.0, 5.0, false),
+    (1.2, 5.0, 5.0, false),
+    (1.5, 5.0, 5.0, false),
+    (2.0, 5.0, 5.0, false),
+    (5.0, 5.0, 5.0, false),
+    (0.1, 0.15, 45.76872804352364, true),
+    (0.75, 3.0, 3.933699481108475, true),
+    (0.1, 0.175, 1.7295420654855544, true),
+    (0.85, 3.5, 4.040026985842097, true),
+    (0.1, 0.15000000000000002, 45.76872804352364, true),
+    (0.3, 0.8500000000000001, 18.619542791137643, true),
+    (0.3, 0.9500000000000001, 3.1410387400402793, true),
+    (0.3, 1.05, 3.4687740061056065, true),
+    (0.4, 1.3, 14.565392156619883, true),
+    (0.4, 1.35, 3.345772196387992, true),
+    (0.4, 1.4000000000000001, 3.4681824605529767, true),
+    (0.5, 1.7000000000000002, 12.0541587939116, true),
+    (0.5, 1.8, 3.5633404202224623, true),
+    (0.5, 1.85, 3.6604672066442063, true),
+    (0.5, 1.9000000000000001, 3.757404986453993, true),
+    (0.6, 2.15, 10.322834563157649, true),
+    (0.6, 2.2, 10.300067274512031, true),
+    (0.6, 2.3000000000000003, 3.7844586230434074, true),
+    (0.7, 2.6500000000000004, 9.06761315386303, true),
+    (0.7, 2.7, 9.045584684807002, true),
+    (0.7, 2.75, 3.8693303403492303, true),
+    (0.8, 3.1, 8.193795896584623, true),
+    (0.8, 3.1500000000000004, 8.172566769973724, true),
+    (0.8, 3.2, 3820286769950989.0, false),
+    (0.8, 3.25, 3.989694724044425, true),
+    (0.8, 3.3000000000000003, 4.047633267649025, true),
+    (0.9, 3.6, 7.660279309881269, true),
+    (0.9, 3.6500000000000004, 7.639955125895986, true),
+    (0.9, 3.7, 4.037120715216439, true),
+    (0.9, 3.75, 4.088213982608586, true),
+    (0.95, 3.8000000000000003, 7.6660242890586705, true),
+    (0.95, 3.85, 7.648019594341588, true),
+    (0.95, 3.9000000000000004, 7.629537672189308, true),
+    (0.95, 3.95, 4.092261147405453, true),
+    (0.99, 4.05, 8.254370387357355, true),
+    (0.99, 4.1000000000000005, 8.240304796827994, true),
+    (0.99, 4.15, 4.155680324282418, true),
+    (0.99, 4.2, 4.203969149797258, true),
+    (1.0, 4.8500000000000005, 8.429301825680309, true),
+    (1.0, 4.9, 8.415206116248376, true),
+    (1.0, 4.95, 8.400850474841485, true),
+    (1.0, 5.050000000000001, 3.99563941169073, true),
+    (1.0, 5.1000000000000005, 4.043002764616388, true),
+    (1.0, 5.65, 4.7676414514200065, true),
+    (1.0, 5.7, 4.8245276315656, true),
+    (1.0, 5.75, 4.881878113510588, true),
+    (1.0, 5.800000000000001, 4.939732925470782, true),
+    (1.0, 5.8500000000000005, 4.998136909353037, true),
+    (1.0, 5.9, 5.057140535494202, true),
+    (1.0, 5.95, 5.116800902884076, true),
+];
+
+/// The reconstruction against every duration call, with the full resolved
+/// spring: outside the pinned misses it is UIKit's stiffness, damping, mass,
+/// velocity and end; at a miss it is the pinned W, and refused exactly when
+/// that W is not a root.
 #[test]
 fn the_reconstruction_matches_uikit_outside_the_band() {
     let (mut matched, mut missed, mut refused) = (0, 0, 0);
@@ -133,21 +200,52 @@ fn the_reconstruction_matches_uikit_outside_the_band() {
         let measured = k.sqrt() * d;
         let u = v * d;
         let w = uikit::duration_w(z, u);
-        if (w / measured).ln().abs() < 1e-5 {
-            matched += 1;
-            assert!(
-                uikit::is_root(w, z, u),
-                "ζ {z} u {u}: a match must validate"
+        let resolved = uikit::duration(d, z, v);
+        if let Some(&(_, _, pinned, root)) = MISSES.iter().find(|m| m.0 == z && m.1 == u) {
+            missed += 1;
+            assert_eq!(
+                w.to_bits(),
+                pinned.to_bits(),
+                "ζ {z} u {u}: {w} against the pinned {pinned}"
             );
+            assert!(
+                (w / measured).ln().abs() >= 1e-5,
+                "ζ {z} u {u}: pinned as a miss"
+            );
+            assert!(uikit::in_band(z, u), "ζ {z} u {u}: a miss outside the band");
+            assert_eq!(uikit::is_root(w, z, u), root);
+            match resolved {
+                Err(UikitError::NoRoot) => {
+                    assert!(!root);
+                    refused += 1
+                }
+                Ok(_) => assert!(root),
+                Err(e) => panic!("ζ {z} u {u}: {e:?}"),
+            }
             continue;
         }
-        missed += 1;
-        assert!(uikit::in_band(z, u), "ζ {z} u {u}: a miss outside the band");
-        match uikit::duration(d, z, v) {
-            Err(UikitError::NoRoot) => refused += 1,
-            Ok(_) => {}
-            Err(e) => panic!("ζ {z} u {u}: {e:?}"),
-        }
+        matched += 1;
+        assert!(
+            (w / measured).ln().abs() < 1e-5,
+            "ζ {z} u {u}: {w} against UIKit's {measured}"
+        );
+        let s = resolved.unwrap_or_else(|e| panic!("ζ {z} u {u}: {e:?}"));
+        let zeta = z.min(1.0);
+        assert!(
+            (s.config.stiffness / k - 1.0).abs() < 2e-5,
+            "ζ {z} u {u}: k {}",
+            s.config.stiffness
+        );
+        let damping = 2.0 * zeta * k.sqrt();
+        assert!(
+            (s.config.damping / damping - 1.0).abs() < 2e-5,
+            "ζ {z} u {u}: c {}",
+            s.config.damping
+        );
+        assert_eq!(
+            (s.config.mass, s.velocity, s.end, s.branch),
+            (1.0, v, Some(d), Branch::Textbook)
+        );
     }
     // 9,510 calls: A, B and C (2,496) and the W sweep (7,014). The LLP's §4.3
     // counts A, W and the U rows (100 misses, 27 refusals); here B and C add
@@ -269,6 +367,45 @@ fn the_curve_is_core_animations_before_the_end_and_the_target_after() {
         }
     }
     assert_eq!(curves, 14);
+}
+
+#[test]
+fn the_response_form_and_the_edges_of_the_domain() {
+    let r = uikit::response(0.25, 0.645, 0.0).unwrap();
+    let omega = 2.0 * std::f64::consts::PI / 0.25;
+    assert_eq!(r.config.stiffness, omega * omega);
+    assert_eq!(r.config.damping, 2.0 * 0.645 * omega);
+    assert_eq!(
+        (r.config.mass, r.end, r.branch),
+        (1.0, None, Branch::Textbook)
+    );
+    // Above critical the response form clamps, as Core Animation does for
+    // the timing parameters Signal's helper feeds it.
+    assert_eq!(
+        uikit::response(0.25, 1.5, 0.0),
+        uikit::response(0.25, 1.0, 0.0)
+    );
+    // The smallest duration and ratio still resolve to finite coefficients.
+    let tight = uikit::duration(1e-3, 0.01, 0.0).unwrap();
+    assert!(tight.config.stiffness.is_finite() && tight.config.damping.is_finite());
+    assert!((tight.config.stiffness.sqrt() * 1e-3 - 230.2635).abs() < 1e-3);
+}
+
+#[test]
+fn bounce_within_an_ulp_of_zero_keeps_its_branch() {
+    // Rounded to critical damping, the end is the critical settle time.
+    let positive = uikit::bounce(0.4, 1e-17, 0.0).unwrap();
+    assert!(
+        (positive.end.unwrap() - 0.587817359).abs() < 1e-8,
+        "{positive:?}"
+    );
+    // A hair below 0 is still Core Animation's overdamped pairing, whose
+    // early progress is far ahead of the critical curve's.
+    let negative = uikit::bounce(0.4, -1e-13, 0.0).unwrap();
+    let t = 0.4 / (2.0 * std::f64::consts::PI);
+    let p = 1.0 + uikit::sample(&negative.config, negative.branch, -1.0, 0.0, t).displacement;
+    let critical = 1.0 - 2.0 * (-1.0f64).exp();
+    assert!(p > critical + 0.5, "{p}");
 }
 
 #[test]
