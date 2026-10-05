@@ -150,8 +150,9 @@ pub fn look(yaw: f32, pitch: f32) -> Quat {
     Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch)
 }
 
-/// Spawn a fighter root (physics capsule) and its visible body and head.
-pub fn spawn(w: &mut World, slot: u32, label: &str, bot: bool, color: [f32; 3]) -> Entity {
+/// Spawn a fighter root (physics capsule) and, with a `color`, its visible
+/// body and head (the art pass draws a soldier model instead: `art::dress`).
+pub fn spawn(w: &mut World, slot: u32, label: &str, bot: bool, color: Option<[f32; 3]>) -> Entity {
     let mut f = Fighter {
         slot,
         label: label.into(),
@@ -183,7 +184,9 @@ pub fn spawn(w: &mut World, slot: u32, label: &str, bot: bool, color: [f32; 3]) 
             f,
         ),
     );
-    let [r, g, b] = color;
+    let Some([r, g, b]) = color else {
+        return root;
+    };
     let visible = Visible(bot);
     w.spawn_named(
         format!("{label}-body"),

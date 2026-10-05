@@ -2,6 +2,8 @@
 //! Mouse (or arrow keys) looks, WASD moves, Shift sprints,
 //! Space jumps, C slides; click or F fires; 1/2/3 pick rifle, rockets, knife.
 pub mod arena;
+pub mod art;
+pub mod art_present;
 pub mod bots;
 pub mod fighter;
 pub mod presentation;
@@ -24,6 +26,10 @@ pub struct Options {
     pub skill: f32,
     /// Training range: bots stand still and never fire.
     pub range: bool,
+    /// The look: "" the classic greybox, "pass" the art pass (a dressed dusk
+    /// arena, soldiers, weapons and effects), "night" the art pass at night.
+    /// The fight is the same in every look; changing it starts a new match.
+    pub art: String,
     /// Radians of turn per canvas point of mouse movement; 0 picks the default.
     #[live]
     pub sensitivity: f32,
@@ -44,20 +50,14 @@ impl Options {
             5
         }
     }
+    pub fn look(&self) -> Option<art::Look> {
+        art::Look::of(&self.art)
+    }
 }
 
 pub const DEFAULT_SENSITIVITY: f32 = 0.0025;
 const KEY_TURN: f32 = 2.4;
-const COLORS: [[f32; 3]; 8] = [
-    [0.86, 0.22, 0.24],
-    [0.94, 0.62, 0.12],
-    [0.55, 0.30, 0.85],
-    [0.15, 0.70, 0.45],
-    [0.90, 0.35, 0.65],
-    [0.20, 0.55, 0.90],
-    [0.65, 0.65, 0.20],
-    [0.40, 0.80, 0.85],
-];
+const COLORS: [[f32; 3]; 8] = art::TEAMS;
 
 #[derive(Clone, Debug, Default, Data)]
 pub struct Hud {
@@ -125,12 +125,16 @@ pub struct Rivals;
 impl Game for Rivals {
     const ID: &'static str = "rivals";
     const HZ: u32 = 120;
+    const STREAMED: &'static [&'static str] = art::STREAMED;
     type Args = Options;
     fn actions() -> Actions {
         actions()
     }
-    fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
-        register(w);
+    fn validate(args: &Options) -> Result<(), String> {
+        art::Look::validate(&args.art)
+    }
+    fn register(w: &mut World, args: &std::collections::BTreeMap<&str, Value>) {
+        register_for(w, args);
     }
     fn setup(w: &mut World, args: &Options) {
         setup(w, args);
@@ -140,6 +144,9 @@ impl Game for Rivals {
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
         tick(w, input, args);
+    }
+    fn present(p: &mut Present<'_>, args: &Options) {
+        present(p, args);
     }
 }
 
@@ -152,12 +159,16 @@ pub mod rates {
             impl Game for $name {
                 const ID: &'static str = "rivals";
                 const HZ: u32 = $hz;
+                const STREAMED: &'static [&'static str] = art::STREAMED;
                 type Args = Options;
                 fn actions() -> Actions {
                     actions()
                 }
-                fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
-                    register(w);
+                fn validate(args: &Options) -> Result<(), String> {
+                    art::Look::validate(&args.art)
+                }
+                fn register(w: &mut World, args: &std::collections::BTreeMap<&str, Value>) {
+                    register_for(w, args);
                 }
                 fn setup(w: &mut World, args: &Options) {
                     setup(w, args);
@@ -167,6 +178,9 @@ pub mod rates {
                 }
                 fn tick(w: &mut World, input: &Input, args: &Options) {
                     tick(w, input, args);
+                }
+                fn present(p: &mut Present<'_>, args: &Options) {
+                    present(p, args);
                 }
             }
         };
@@ -193,9 +207,22 @@ pub fn actions() -> Actions {
         .button("rifle", &["Digit1"])
         .button("rocket", &["Digit2"])
         .button("knife", &["Digit3"])
+        .button("inspect", &["KeyT"])
 }
 
-pub fn register(w: &mut World) {
+fn register_for(w: &mut World, args: &std::collections::BTreeMap<&str, Value>) {
+    let art = args.get("art").and_then(|v| v.as_str()).unwrap_or("");
+    register(w, art::Look::of(art).is_some());
+}
+/// The art pass's appearance; the classic look poses its weapons in the tick.
+pub fn present(p: &mut Present<'_>, args: &Options) {
+    if args.look().is_some() {
+        art_present::present(p);
+    }
+}
+
+/// Every saved type; the art pass's only when it is the look.
+pub fn register(w: &mut World, art: bool) {
     exact_game_physics::register(w);
     w.register::<Fighter>()
         .register::<Brain>()
@@ -204,13 +231,18 @@ pub fn register(w: &mut World) {
         .register::<Ambient>();
     w.register_resource::<Round>();
     presentation::register(w);
+    if art {
+        art::register(w);
+    }
 }
 
 pub fn setup(w: &mut World, args: &Options) {
     w.reseed(args.seed);
-    register(w);
-    arena::build(w);
-    let player = fighter::spawn(w, 1, "player", false, [0.2, 0.5, 0.9]);
+    let look = args.look();
+    register(w, look.is_some());
+    arena::build(w, look.is_some());
+    let body = |color: [f32; 3]| look.is_none().then_some(color);
+    let player = fighter::spawn(w, 1, "player", false, body([0.2, 0.5, 0.9]));
     fighter::place(w, player, arena::SPAWNS[0]);
     let count = args.bot_count();
     if args.range {
@@ -226,7 +258,13 @@ pub fn setup(w: &mut World, args: &Options) {
     };
     for i in 0..count {
         let label = format!("bot-{}", i + 1);
-        let e = fighter::spawn(w, i + 2, &label, true, COLORS[i as usize % COLORS.len()]);
+        let e = fighter::spawn(
+            w,
+            i + 2,
+            &label,
+            true,
+            body(COLORS[i as usize % COLORS.len()]),
+        );
         let spawn = if args.range {
             training::lane(i + 2)
         } else {
@@ -260,13 +298,16 @@ pub fn setup(w: &mut World, args: &Options) {
             },
         ),
     );
-    presentation::setup(w, camera);
+    presentation::setup(w, camera, look.is_none());
     w.insert_resource(Round {
         number: 1,
         ..Round::default()
     });
     camera_follow(w, args);
     presentation::pose(w);
+    if let Some(look) = look {
+        art::dress(w, look, camera);
+    }
     publish(w, args, Vec2::ZERO);
 }
 
@@ -327,6 +368,9 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
         mouse_look(w, args, false);
         weapons::effects(w);
         presentation::step(w);
+        if args.look().is_some() {
+            art::step(w, input);
+        }
         publish(w, args, input.viewport());
         return;
     }
@@ -339,6 +383,9 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
             mouse_look(w, args, false);
             weapons::effects(w);
             presentation::step(w);
+            if args.look().is_some() {
+                art::step(w, input);
+            }
             publish(w, args, input.viewport());
             return;
         }
@@ -389,6 +436,9 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
     camera_follow(w, args);
     weapons::effects(w);
     presentation::step(w);
+    if args.look().is_some() {
+        art::step(w, input);
+    }
     publish(w, args, input.viewport());
 }
 

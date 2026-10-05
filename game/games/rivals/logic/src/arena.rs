@@ -113,8 +113,10 @@ pub fn cover_points() -> Vec<Vec3> {
     points
 }
 
-/// Spawn the floor, walls, cover, lights and fog.
-pub fn build(w: &mut World) {
+/// Spawn the floor, walls, cover, lights and fog. A `dressed` arena (the art
+/// pass) keeps exactly these colliders but draws none of the boxes: one model
+/// built from `arena.json`, the same layout, is drawn over them instead.
+pub fn build(w: &mut World, dressed: bool) {
     w.insert_resource(Environment {
         background: Some([0.55, 0.70, 0.86]),
         fog: Some(Fog {
@@ -124,29 +126,25 @@ pub fn build(w: &mut World) {
         ..Environment::default()
     });
     let floor = Mesh::cuboid(Vec3::new(2.0 * HALF + 2.0, 1.0, 2.0 * HALF + 2.0));
-    w.spawn_named(
-        "floor",
-        (
-            Transform::at(0.0, -0.5, 0.0),
-            Collider::of(&floor),
-            floor,
-            Material::grid([0.33, 0.36, 0.40], 2.0),
-        ),
-    );
+    let pose = Transform::at(0.0, -0.5, 0.0);
+    if dressed {
+        w.spawn_named("floor", (pose, Collider::of(&floor)));
+    } else {
+        let grid = Material::grid([0.33, 0.36, 0.40], 2.0);
+        w.spawn_named("floor", (pose, Collider::of(&floor), floor, grid));
+    }
     for (i, b) in BLOCKS.iter().enumerate() {
         let mesh = Mesh::cuboid(Vec3::from(b.size));
         let mut pose = Transform::at(b.at[0], b.at[1], b.at[2]);
         pose.rotation = Quat::from_rotation_x(b.tilt);
         let [r, g, bl] = b.color;
-        w.spawn_named(
-            format!("block-{i}"),
-            (
-                pose,
-                Collider::of(&mesh),
-                mesh,
-                Material::rgb(r, g, bl).rough(0.8),
-            ),
-        );
+        let name = format!("block-{i}");
+        if dressed {
+            w.spawn_named(name, (pose, Collider::of(&mesh)));
+        } else {
+            let material = Material::rgb(r, g, bl).rough(0.8);
+            w.spawn_named(name, (pose, Collider::of(&mesh), mesh, material));
+        }
     }
     w.spawn_named(
         "sun",
@@ -155,4 +153,42 @@ pub fn build(w: &mut World) {
             DirectionalLight::default(),
         ),
     );
+}
+
+/// `arena.json`, which the art generator dresses: the same blocks as the
+/// colliders, so what you see and what you hit cannot drift apart.
+#[derive(Clone, Debug, Default, Data)]
+pub struct Layout {
+    pub half: f32,
+    /// Floodlight pylons in the corners, `[x, z]`.
+    pub lights: Vec<[f32; 2]>,
+    pub blocks: Vec<LayoutBlock>,
+}
+#[derive(Clone, Debug, Default, Data)]
+pub struct LayoutBlock {
+    pub kind: String,
+    pub at: [f32; 3],
+    pub size: [f32; 3],
+    pub tilt: f32,
+}
+pub fn layout() -> Layout {
+    exact_game::json::from_str(include_str!("../../arena.json")).expect("arena.json")
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_dressed_layout_is_the_collision_layout() {
+        let layout = super::layout();
+        assert_eq!(layout.half, super::HALF);
+        assert_eq!(layout.blocks.len(), super::BLOCKS.len());
+        for (json, block) in layout.blocks.iter().zip(super::BLOCKS) {
+            assert_eq!(
+                (json.at, json.size, json.tilt),
+                (block.at, block.size, block.tilt),
+                "{}",
+                json.kind
+            );
+        }
+    }
 }

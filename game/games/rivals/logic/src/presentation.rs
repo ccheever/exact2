@@ -113,10 +113,18 @@ pub fn register(w: &mut World) {
     w.register::<WeaponPart>();
     w.register_resource::<Feedback>();
 }
-pub fn setup(w: &mut World, camera: Entity) {
+/// The listener, the sounds and, unless the art pass draws its own (`art::dress`),
+/// the classic first-person weapons.
+pub fn setup(w: &mut World, camera: Entity, weapons: bool) {
     w.insert_resource(Feedback::default());
     w.insert(camera, AudioListener);
     sounds(w);
+    if weapons {
+        viewmodel(w, camera);
+    }
+}
+
+fn viewmodel(w: &mut World, camera: Entity) {
     let steel = Material::rgb(0.16, 0.19, 0.22).metallic(0.65).rough(0.35);
     let dark = Material::rgb(0.065, 0.075, 0.085).rough(0.65);
     let tan = Material::rgb(0.47, 0.32, 0.17).rough(0.8);
