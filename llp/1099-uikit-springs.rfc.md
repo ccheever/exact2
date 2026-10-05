@@ -1,7 +1,7 @@
 # LLP 1099: UIKit's springs, everywhere
 
 **Type:** RFC
-**Status:** Draft (r9), for Charlie's decision. Design only; nothing is built.
+**Status:** Draft (r10), for Charlie's decision. Design only; nothing is built.
 - r1 (`9b974e323`) was reviewed blind by Astra (`gpt-6-astra`, reasoning effort max): NEEDS REWORK, `llp/reviews/llp-1099-uikit-springs.astra.md`. It was also reviewed by Grok 4.7 (xhigh): SOUND WITH CHANGES, `llp/reviews/llp-1099-uikit-springs.grok.md`.
 - r2 (`0926e91f8`) took every round-1 finding, one of them in part. It added measured retargets (rows R) and edge cases (rows X).
 - Round 2 reviewed r2. Astra: NEEDS REWORK, `llp/reviews/llp-1099-uikit-springs-r2.astra.md`. Grok: NEEDS REWORK, `llp/reviews/llp-1099-uikit-springs-r2.grok.md`.
@@ -13,11 +13,12 @@
 - r6 (`0d82410db`) took every round-5 finding. Round 6: Astra NEEDS REWORK, Grok NEEDS REWORK (`-r6.*.md`).
 - r7 (`2aff556e5`) took every round-6 finding. Round 7: Astra NEEDS REWORK, Grok SOUND WITH CHANGES (`-r7.*.md`).
 - r8 (`d95593101`) took every round-7 finding. Round 8: Astra SOUND WITH CHANGES, Grok NEEDS REWORK (`-r8.*.md`).
-- r9 takes every round-8 finding (§11). Round 9 is the last approved round.
+- r9 (`9eaea3c8a`) took every round-8 finding. Round 9, the last approved round: Astra SOUND WITH CHANGES, Grok NEEDS REWORK (`-r9.*.md`).
+- r10 folds every round-9 finding (§11). These changes are unreviewed: rounds were exhausted, so stage 1's code review checks them.
 **Systems:** `exact-motion` (`motion/src/spring.rs`, `parse.rs`, `transition.rs`, `engine.rs`, `easing.rs`), the wire (`kernel/src/wire/codec.rs`: a new easing tag 9), the kernel's transition check (`kernel/build.rs`), the Contract compiler's literal check (`contract/lower/src/values.rs`), the web host (`host/web/src/motion.rs`, `batch.rs`, `css.rs`, `motion-glue.js`, `presence-glue.js`), the JS target (`host/web-js/motion`, `shared.js`), Apple and Linux hosts (the per-frame seek, unchanged), parity fixtures (`host/web/src/parity.rs`, `host/web/tests/fixtures/browser-motion.txt`), new measurement fixtures (`motion/tests/fixtures/uikit-springs/`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
-**Revised:** 2026-10-04 (r2, r3); 2026-10-05 (r4–r9)
+**Revised:** 2026-10-04 (r2, r3); 2026-10-05 (r4–r10)
 **Amends:**
 - LLP 1002 D2: `spring()` gains three spellings and a labelled velocity.
 - LLP 1003 §1: `transition-duration` on a spring becomes an end time, and generated `linear()` keeps the stop limit.
@@ -183,7 +184,10 @@ argument never changes meaning between `spring(400, 0.8, 1)` (a mass) and
   parameters Signal's helper uses (rows X: `aod=false` for k 100, c 40).
 - *Physical form.* It keeps true overdamped physics, as today.
 
-**Refusals.** Each is a `BadEasing` with a reason:
+**Refusals.** Each is a `BadEasing` with a reason. The kernel's
+`StyleValueError::BadTransition` (`kernel/build.rs:1306`, `error.rs:468`)
+today drops that reason, so stage 2 threads it through. The agent's report
+then says why a dynamic string was refused.
 
 - duration or response outside [1 ms, 60 s];
 - ζ < 0.01 (unmeasured below; UIKit returns NaN at ζ 0, v 0, and k ≈ 10⁶ at ζ 0, v 1: rows X);
@@ -503,14 +507,35 @@ sum reproduces UIKit, which is why the UIKit spellings use it.
 **Retargets that change form.** A property can move from one form to the
 other between transitions. For example, today's `spring(k, c, m)` may be
 followed by a later `spring(400ms, 0.8)`.
+- *Which properties.* Form changes apply to `translate`, `scale`,
+  `rotate`, `height` and layout. Opacity always follows the replacement
+  rule below, and paint always interrupts as CSS does, whatever the forms.
 - *Into a restart form.* An incoming restart-form spring collapses the
   component list into one LLP 1003 §5 restart. It starts from the
-  presented value and the summed actual derivative.
-- *Into a component form.* An incoming component-form spring first turns
-  the live restart spring into component 0. That component keeps its k, c
-  and m, its current residual and derivative, and an end at the time its
-  rest rule gives, capped at today's 10 s. The new component is then added
-  as usual.
+  presented value. Its velocity follows the precedence list below:
+  - the authored v·Δ when the incoming spelling has one;
+  - otherwise the derivative of the presented value. For `scale` that is
+    T·Σᵢ fᵢ′∏_{j≠i} fⱼ + Σ r′, by the product rule, not a sum of factor
+    derivatives.
+- *Into a component form, from a live restart spring.* The live spring
+  becomes component 0.
+  - *What it is.* An additive residual (presented value minus the old
+    target, in property units, `scale` included) with its current
+    derivative. It runs on its own k, c and m on the textbook branch, from
+    its original start time, so a pending delay stays pending.
+  - *Its end.* `SpringConfig::settle_time` of that residual from the
+    retarget instant: the first 240 Hz sample at rest, else 10 s, the
+    maximum over axes (`spring.rs:145-157`, `transition.rs:402-411`). That
+    is one f64.
+
+  The new component is then added as usual.
+- *Into a component form, from an easing.* A property still moving on an
+  easing is sampled, as today (`engine.rs:450`), and becomes component 0
+  the same way: an additive residual from the old target, with the
+  easing's sampled derivative. It runs on the *incoming* spring's k, c and
+  m, ending at the incoming end. The new component is then added. Both
+  start at the presented value (50 in a `linear` 0 → 100 interrupted
+  halfway), and the easing's velocity carries.
 
 **Velocity, in order of precedence:**
 
@@ -519,6 +544,11 @@ followed by a later `spring(400ms, 0.8)`.
    velocity, as it catches a spring today. On release it starts one
    component from the presented value whose *actual* initial derivative is
    the release velocity, per axis, in property units.
+   - *Restart forms stay restarts.* A release into a physical or response
+     spring without an end is an LLP 1003 §5 restart: absolute rest, the
+     10 s cap, `settle_time` as the maximum over axes. The rest of this item
+     is about the duration and bounce forms, where a release starts one
+     component whose end is the authored end.
    - *What stays authored.* k, c and the end time stay what the authored
      spelling gives: d for the duration form, and D3's end computed with
      the authored v for the bounce form. A release never re-solves
@@ -586,7 +616,7 @@ There is one implementation, in `exact-motion`:
 | Web (wasm host), compositor properties (`translate`, `scale`, `rotate`, `opacity`) | one WAAPI animation per property with replace compositing, as today (`motion-glue.js:581`, LLP 1007 §3). Its frames are the engine's presented absolute value, components summed, re-lowered at every retarget as an interruption is today. There is no `composite: 'add'` here: CSS adds `scale` by multiplying | the band below |
 | Web, layout (`layout-transition`) | residual translate frames, offset from the resting box with rest value 0, played with `composite: 'add'`, as LLP 1063 D6 already does for translation. The engine supplies the frames: `presence-glue.js`'s JS integrator, which uses unpinned `Math.exp`, is replaced | the band below |
 | Web, `height` | absolute frames with replace compositing, like the compositor properties. A residual cannot work here: a negative height is invalid, and `motion-glue.js:98` clamps it to 0 | the band below |
-| Web, paint properties | `linear()` from the curve (LLP 1062 D3). The end is two stops at 100 %: `linear(…, x(d⁻) 100%, 1 100%)`. CSS takes the later stop when two stops share an input, and so does `easing.rs`: past the last stop it returns the last output (`:334`), and for an equal-input pair it returns the later stop (`:340`). Paint has no interior steps (it keeps no components), so only the terminal pair occurs. A physical paint spring without a `velocity` or an end time keeps today's `SpringConfig::easing` unchanged, limits included. Every new-form paint spring takes its stops from the frame grid below, computed on the *normalised* curve (0 → 1, Δ = 1, no floor) with tolerance 1/510 in place of 5·10⁻⁴. That grid certifies the error *between* stops through the curvature envelopes, not only at samples. It needs no endpoints, so acceptance is decided at parse and every host gets the same stops. Its last stops are the terminal pair (1, x(d⁻)) and (1, 1). Only inputs in (0, 1) are placed by the grid, and the pre-snap curve is judged on [0, 1). A grid of more than 64 stops (`easing.rs:61`) refuses the spring, at parse, on every host. That refuses fast or very stiff springs on paint: 0.1 s at ζ 0.01, or `spring(1e10, 2e5, 1)` with an end time. 1/510 is half an 8-bit unit of a full 0–255 move in progress. So channels stay inside the harness's one-unit `COLOR_TOLERANCE` (`parity.rs:43`) when the colour is interpolated premultiplied and read back premultiplied, or when alpha is constant (opaque included). Un-premultiplying a near-transparent end amplifies it (`property.rs:301-332`), but browser and engine play the same stops, so parity still holds | 1/510 of the move between stops; colours as stated |
+| Web, paint properties | `linear()` from the curve (LLP 1062 D3). The end is two stops at 100 %: `linear(…, x(d⁻) 100%, 1 100%)`. CSS takes the later stop when two stops share an input, and so does `easing.rs`: past the last stop it returns the last output (`:334`), and for an equal-input pair it returns the later stop (`:340`). Paint has no interior steps (it keeps no components), so only the terminal pair occurs. A physical paint spring without a `velocity` or an end time keeps today's `SpringConfig::easing` unchanged, limits included. Every new-form paint spring takes its stops from the frame grid below, computed on the *normalised* curve (0 → 1, Δ = 1, no floor) with tolerance 1/510 in place of 5·10⁻⁴. That grid certifies the error *between* stops through the curvature envelopes, not only at samples. It needs no endpoints, so acceptance is decided at parse and every host gets the same stops. Its stops are (0, x(0)), then the grid's inputs in (0, 1), then the terminal pair (1, x(d⁻)) and (1, 1); the pre-snap curve is judged on [0, 1). Without the 0 % stop, `easing.rs:331` holds the first interior output over the whole prefix, which is off by 2.2 channel units on the menu spring. A grid of more than 64 stops (`easing.rs:61`) refuses the spring, at parse, on every host. That refuses fast oscillating springs on paint: 0.1 s at ζ 0.01, whose 73 extrema need far more than 64 stops. A stiff but well-damped spring passes: `1s spring(1e10, 2e5, 1)` certifies with 46 stops. 1/510 is half an 8-bit unit of a full 0–255 move in progress. So channels stay inside the harness's one-unit `COLOR_TOLERANCE` (`parity.rs:43`) when the colour is interpolated premultiplied and read back premultiplied, or when alpha is constant (opaque included). Un-premultiplying a near-transparent end amplifies it (`property.rs:301-332`), but browser and engine play the same stops, so parity still holds | 1/510 of the move between stops; colours as stated |
 | JS target | static springs lowered at build (LLP 1071) through the engine. Dynamic springs, including paint springs, are lowered at runtime by the same `exact-motion` code into the same frames and `linear()` text. Today `host/web-js/src/style.rs:534` strips a dynamic spring from CSS and the JS motion module observes only the compositor properties, so this is new work. Stage 4 deletes `shared.js`'s `springCurve` | as the web |
 
 **Frames.**
@@ -651,6 +681,12 @@ There is one implementation, in `exact-motion`:
       Eᵢ² = (ω²(|A| + |B|(t + h)) + 2ω|B|)·e^(−ωt);
     - overdamped, both branches: Eᵢᵏ = Σⱼ|Cⱼ|·|sⱼ|ᵏ·e^(sⱼt). The fast
       exponent of the quirk can exceed 2ω, so no shortcut factor is used.
+      - *The coefficients.* For the textbook branch, Cⱼ are `spring.rs`'s
+        overdamped pair (`:130-131`). For the quirk (D4) they are
+        C₁ = Δ·(−1 − a) on e^(s₁t) and C₂ = Δ·a on e^(s₂t), in property
+        units, or in factor units for a `scale` factor.
+      - *Why it matters.* The textbook envelope at the authored velocity
+        under-bounds the quirk 13× (b −0.5, d 0.4: 284.9 against 3,703.8).
 
     Then |fᵢ| ≤ 1 + Eᵢ⁰, |fᵢ'| ≤ Eᵢ¹ and |fᵢ''| ≤ Eᵢ², and those go into
     the product formula. Released residuals add their own additive Mᵢ.
@@ -685,7 +721,7 @@ There is one implementation, in `exact-motion`:
   - *What q is.* q is the browser's serialisation step: Chrome serialises
     computed numbers with six significant digits (`%.6g`, as
     `parity.rs:35` notes), so q = 0.5·10^(⌊log₁₀|x|⌋ − 5) for a recorded
-    value x.
+    value x ≠ 0, and q = 0 at x = 0 (Chrome writes `0`).
   - *Why it matters.* On a small move it dominates: scale 1 → 1.001
     records 1.00034 against an engine 1.00034355. A small-distance case
     pins it. The existing `spring` case keeps
@@ -1084,7 +1120,14 @@ springs keep LLP 1062 D3: they start from rest and interrupt as CSS does.
    - A physical paint spring with an end time, which uses the grid stops
      and the terminal pair, not `SpringConfig::easing`.
    - Paint stops checked against the closed form *between* grid stops, and
-     `background-color 1s spring(1e10, 2e5, 1)` refused.
+     `background-color 1s spring(1e10, 2e5, 1)` accepted with its 46 stops
+     and checked between them, including the prefix before the first
+     interior stop; `background-color spring(100ms, 0.01)` refused.
+   - Form changes: a `linear` easing interrupted by `spring(400ms, 0.8)`
+     starts at the presented value with the easing's velocity; a restart
+     spring promoted to component 0 during its delay keeps its start; an
+     opacity form change stays a replacement; a release into
+     `spring(k, c, m)` rests by today's rule.
    - Existing springs unchanged: `translate spring(20000, 0, 1)` runs to
      the 10 s cap, and today's physical paint lowering keeps its stop count.
    - A retarget from `spring(k, c, m)` to `spring(400ms, 0.8)` and back.
@@ -1392,3 +1435,23 @@ Astra (A): SOUND WITH CHANGES. Grok (G): NEEDS REWORK. All taken.
 | G6 Q1's cost to the recommended option | Taken. Q1 states the icon's k 171.05 against 184.95 under the recommendation. |
 | G7 The colour claim | Taken. Bounded to premultiplied channels or constant alpha (D6). |
 | G8 The 14.1 figure | Taken. Deleted. |
+
+### Round 9 (r9 → r10, unreviewed)
+
+Astra (A): SOUND WITH CHANGES. Grok (G): NEEDS REWORK. Round 9 was the
+last approved round, so r10 folds these without further review. Stage 1's
+code review checks them. All taken.
+
+| Finding | Disposition |
+|---|---|
+| A1 The stiff paint refusal contradicted the algorithm | Taken. `1s spring(1e10, 2e5, 1)` certifies with 46 stops and is accepted and checked between stops; `spring(100ms, 0.01)` is the refusal (D6, §8.4). |
+| A2 Easing → component-form handoff | Taken. The sampled easing becomes component 0 from the old target, with its sampled velocity, on the incoming spring (D5, §8.4). |
+| A3 A promoted spring's time anchor | Taken. Component 0 keeps its original start, so a pending delay stays pending (D5, §8.4). |
+| G1 No 0 % paint stop | Taken. Stops start at (0, x(0)) (D6). |
+| G2 Component 0's end and its kind for `scale` | Taken. An additive residual for every property, `scale` included; its end is `settle_time` from the retarget instant, maximum over axes (D5). |
+| G3 Collapse velocity for `scale`; authored velocity on collapse | Taken. The precedence list: authored v·Δ, else the presented value's derivative by the product rule (D5). |
+| G4 Form change on opacity and paint | Taken. Form change applies to translate, scale, rotate, height and layout; opacity replaces and paint interrupts as CSS (D5, §8.4). |
+| G5 A release into a restart form had no end | Taken. It stays an LLP 1003 §5 restart; duration and bounce releases end at the authored end (D5, §8.4). |
+| G6 The quirk's coefficients in the envelope | Taken. C₁ = Δ(−1 − a), C₂ = Δ·a, in property or factor units (D6). |
+| G7 The refusal reason is dropped by the kernel | Taken. Stage 2 threads `BadEasing`'s reason through `BadTransition` (D1). |
+| G8 q at 0 | Taken. q = 0 at x = 0 (D6). |
