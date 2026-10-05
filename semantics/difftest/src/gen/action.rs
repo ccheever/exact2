@@ -201,7 +201,7 @@ impl Gen<'_> {
 
     /// The earlier actions this path may call: none sends what it has sent.
     /// A mutation's `then` action sends nothing, through a call neither.
-    fn callees(&self) -> Vec<usize> {
+    pub(crate) fn callees(&self) -> Vec<usize> {
         let then = self.then == Some(self.callable);
         (0..self.callable)
             .filter(|&j| {
