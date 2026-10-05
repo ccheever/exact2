@@ -144,6 +144,14 @@ fn the_compiler_names_what_a_control_takes() {
     assert!(e.contains("lower-input-type"), "{e}");
     let e = refused(&app("input value=kind checked=on"));
     assert!(e.contains("lower-attr-tag") && e.contains("checked"), "{e}");
+    // A native button is not a checkbox either (it returned before this check).
+    let e = refused(&app(
+        "button appearance=\"auto\" checked=on press=set(true)\n        text \"Save\"",
+    ));
+    assert!(
+        e.contains("lower-attr-tag") && e.contains("not `button`"),
+        "{e}"
+    );
     let e = refused(&app("input switch value=kind input=text"));
     assert!(e.contains("lower-attr-tag") && e.contains("switch"), "{e}");
     // The React names say which of HTML's two they are.

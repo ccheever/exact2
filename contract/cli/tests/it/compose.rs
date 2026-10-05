@@ -150,8 +150,12 @@ fn a_declaration_continued_on_an_indented_line_is_told_to_join_it() {
     assert_eq!(error.id, "syntax-expected-section");
     assert_eq!(
         error.message,
-        "`else …` is indented under the line above, and a declaration is one line: join them (`resource tasks = loadTasks() as shape list<Task> else empty()`)"
+        "`else …` is indented under the line above, and a declaration is one line: join them (like `resource tasks = loadTasks() as shape list<Task> else empty()`)"
     );
+    // An over-indented section is not a continuation: the plain message stands.
+    let src = "component App\n  state n = 0\n    view\n      text \"a\"\n";
+    let error = contract::compile(src).unwrap_err();
+    assert_eq!(error.message, "expected a section, found an indented block");
 }
 
 #[test]

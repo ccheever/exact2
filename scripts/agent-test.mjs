@@ -16,8 +16,8 @@ import { resolveApp } from './app.mjs';
 export function textOf(nodes, node) {
   if (node.props.text != null) return node.props.text;
   const at = nodes.indexOf(node), runs = [];
-  // A checkbox or switch (a control with no children; a native button's label is its text): `true` or `false`.
-  if (node.type === 'Control' && node.props.checked != null && !(nodes[at + 1]?.depth > node.depth)) return String(node.props.checked);
+  // A checkbox or switch (only those take `checked`): `true` or `false`.
+  if (node.type === 'Control' && node.props.checked != null) return String(node.props.checked);
   if (node.type === 'Control' && node.props.value != null) return node.props.value;
   for (let i = at + 1; i < nodes.length && nodes[i].depth > node.depth; i++) if (nodes[i].props.text != null) runs.push(nodes[i].props.text);
   return runs.length ? runs.join('') : node.props.value;

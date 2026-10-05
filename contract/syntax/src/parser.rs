@@ -759,12 +759,15 @@ impl Parser {
                 }
                 // A one-line declaration continued on an indented line (a
                 // resource's `else` under it; authoring bench).
-                TokenKind::Indent if matches!(self.peek2(), TokenKind::Ident(_)) => {
+                TokenKind::Indent
+                    if matches!(self.peek2(), TokenKind::Ident(w)
+                        if matches!(w.as_str(), "else" | "then" | "refreshes" | "as")) =>
+                {
                     let TokenKind::Ident(w) = self.peek2().clone() else {
                         unreachable!()
                     };
                     let example = if w == "else" {
-                        " (`resource tasks = loadTasks() as shape list<Task> else empty()`)"
+                        " (like `resource tasks = loadTasks() as shape list<Task> else empty()`)"
                     } else {
                         ""
                     };
