@@ -935,6 +935,11 @@ pub struct CanvasHost<D: DataSource> {
     /// Whether the windows' lead is back after the first frame (and after
     /// a touch's response).
     lead: bool,
+    /// A frame has painted. Not `painted`, which is `None` while anything
+    /// moves (a transition): the lead and the canvases a first frame or a
+    /// touch left must not wait on that, or `next_due` asks for a turn at
+    /// once until the motion ends.
+    painted_once: bool,
     /// A touch came: until its frame is out, collection passes build only
     /// the rows that show (a slice of 0); the lead follows that frame.
     responding: bool,
@@ -1019,6 +1024,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             feed: None,
             tracks_epoch: 0,
             lead: false,
+            painted_once: false,
             responding: false,
         })
     }
@@ -1045,7 +1051,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// changed. `Some` is the new op stream (valid until the next call).
     pub fn frame(&mut self) -> Option<Vec<u32>> {
         // After the first frame: the windows' lead, realized off the frame.
-        if self.painted.is_some() && !self.lead && !self.responding {
+        if self.painted_once && !self.lead && !self.responding {
             self.lead = true;
             exact_runner::set_lead_scale(1.0);
             self.p.refine_deferred(true);
@@ -1124,6 +1130,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if p.module_pending() {
             p.first_pixel();
         }
+        self.painted_once = true;
         self.painted = p.still().map(|still| Painted {
             still,
             scroll: p.scroll_offsets().clone(),
@@ -1348,7 +1355,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     pub fn next_due(&self) -> Option<f64> {
         // The windows' lead is owed a turn as soon as the first frame is out,
         // and the GPU canvases a booting thread left.
-        if (self.painted.is_some() && !self.lead) || self.owed_surfaces {
+        if (self.painted_once && !self.lead) || self.owed_surfaces {
             return Some(0.0);
         }
         self.p
@@ -1384,7 +1391,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     pub fn touch(&mut self, action: i32, x: f32, y: f32) {
         let _s = Section::begin(c"exact touch");
         self.force |= action != 2;
-        if action != 2 && self.painted.is_some() {
+        if action != 2 && self.painted_once {
             self.p.slice_collections(Some(0), 0.0);
             self.responding = true;
             self.lead = false;
