@@ -6,13 +6,8 @@ use crate::cull::{Group, CAPSULE, GROUP_WORDS, KEEP_ALL, PLAIN, RECORD_WORDS, SK
 impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// Resolve this frame's draw groups (one per batch and winding) and upload a
     /// new setup only when they or the retained structure changed.
-    pub(super) fn prepare_cull(
-        &mut self,
-        frame: &FrameInput<'_>,
-        cascades: Option<&Cascades>,
-        custom: &[crate::hooks::CustomMaterial],
-    ) {
-        self.cull_groups(frame, cascades.map_or(0, |c| c.count), custom);
+    pub(super) fn prepare_cull(&mut self, frame: &FrameInput<'_>, cascades: Option<&Cascades>) {
+        self.cull_groups(frame, cascades.map_or(0, |c| c.count));
         self.local_groups();
         if self.cull.stale() || self.locals_stale() {
             self.write_cull_setup();
@@ -55,12 +50,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     }
 
     /// The frame's CPU culling work: retained groups, no allocation once warm.
-    pub(crate) fn cull_groups(
-        &mut self,
-        frame: &FrameInput<'_>,
-        cascades: u32,
-        custom: &[crate::hooks::CustomMaterial],
-    ) {
+    pub(crate) fn cull_groups(&mut self, frame: &FrameInput<'_>, cascades: u32) {
         let casters = ((1u32 << cascades) - 1) << 1;
         let mut groups = std::mem::take(&mut self.cull.groups);
         groups.clear();
@@ -85,15 +75,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             }) {
                 continue;
             }
-            // A game's vertex shader may move geometry anywhere: never cull it.
-            let keep = material.is_some_and(|m| custom.iter().any(|c| c.material == m));
             let flags = 1
                 | if batch.casts_shadows { casters } else { 0 }
-                | if keep || self.cull.keep_all {
-                    KEEP_ALL
-                } else {
-                    0
-                };
+                | if self.cull.keep_all { KEEP_ALL } else { 0 };
             for (range, mirrored) in self.winding_ranges(index, frame) {
                 groups.push(Group {
                     batch: index,
@@ -156,6 +140,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     );
                     (m.transform_point3(mesh.center), (abs * mesh.half).length())
                 };
+                // A custom material's vertex shader moves vertices up to its reach.
+                let radius = radius + self.models.custom.get(&record.material).unwrap_or(&0.);
                 let skin = if record.skin.is_some() { skins } else { 0 };
                 let words: [u32; RECORD_WORDS] = [
                     record.transform,

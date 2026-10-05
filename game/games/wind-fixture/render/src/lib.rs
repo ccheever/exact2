@@ -1,6 +1,7 @@
 //! The wind fixture's render hooks (app.json `game.render`): reeds sway in a
-//! custom vertex material and a dusk sky replaces the engine's. Presentation
-//! only: the hooks read the world and never step or change it.
+//! custom vertex material, shaded as the engine shades their textured MASK
+//! material, and a dusk sky replaces the engine's. Presentation only: the hooks
+//! read the world and never step or change it.
 use exact_game_render::hooks::{CustomMaterial, Pipelines};
 use exact_game_render::{FrameView, HookGpu, Hooks, Needs, RenderError, RenderWorld};
 use exact_gpu::wgpu;
@@ -18,6 +19,10 @@ pub mod shaders {
 pub fn shader_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("EXACT_GAME_SHADERS"))
 }
+
+/// How far the wind bends a reed's tip (wind.wgsl), at the strongest gust: the
+/// GPU cull grows each reed's bounds by this, so a bent reed is never culled.
+pub const REACH: f32 = 0.6;
 
 #[derive(Default)]
 pub struct Wind {
@@ -67,6 +72,7 @@ impl Wind {
             vec![CustomMaterial {
                 material,
                 forward: materials.pipeline(
+                    material,
                     &forward,
                     &layout,
                     shaders::wind_forward::entry::WIND_VS,
@@ -74,10 +80,11 @@ impl Wind {
                     false,
                 ),
                 shadow: materials.pipeline(
+                    material,
                     &shadow,
                     &layout,
                     shaders::wind_shadow::entry::WIND_SHADOW,
-                    None,
+                    Some(shaders::wind_shadow::entry::WIND_CUTOUT),
                     true,
                 ),
                 resources: gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -88,6 +95,7 @@ impl Wind {
                         resource: uniform.as_entire_binding(),
                     }],
                 }),
+                reach: REACH,
             }]
         });
     }

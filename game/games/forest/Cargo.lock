@@ -1330,6 +1330,7 @@ dependencies = [
  "exact-game-bake",
  "exact-game-render",
  "forest-logic",
+ "forest-render",
  "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -1351,6 +1352,15 @@ version = "0.1.0"
 dependencies = [
  "exact-game",
  "exact-game-physics",
+]
+
+[[package]]
+name = "forest-render"
+version = "0.1.0"
+dependencies = [
+ "exact-game-render",
+ "exact-gpu",
+ "exact-gpu-reflect",
 ]
 
 [[package]]

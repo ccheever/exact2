@@ -28,6 +28,9 @@ pub(crate) fn model_digest(model: &Model) -> u64 {
 
 pub(crate) struct Material {
     pub bind: Option<wgpu::BindGroup>,
+    /// `bind`'s uniform and five texture views and samplers, which a game's
+    /// `CustomMaterial` binds again at group 3 (hooks/materials.rs).
+    pub parts: (wgpu::Buffer, Vec<(wgpu::TextureView, wgpu::Sampler)>),
     bytes: u64,
     pub alpha: AlphaMode,
     pub double_sided: bool,
@@ -52,7 +55,7 @@ pub(crate) struct Draws<'a> {
     pub materials: &'a [MaterialId],
     /// Materials a game's `CustomMaterial` shades: a model with any of them in
     /// a merged draw draws its parts unmerged.
-    pub custom: &'a std::collections::BTreeSet<MaterialId>,
+    pub custom: &'a std::collections::BTreeMap<MaterialId, f32>,
 }
 pub(crate) struct Uploaded {
     /// The unmerged draw list; empty while merged-away parts are not resident.
@@ -123,8 +126,8 @@ pub(crate) struct Models {
     /// those looks (tint, glow, then the part's first vertex as bits; a
     /// `u32::MAX` start ends each record's run), appended after the records.
     pub(crate) part_looks: (Vec<u32>, Vec<[f32; 8]>),
-    /// Materials a game's `CustomMaterial` shades (never merged).
-    pub(crate) custom: std::collections::BTreeSet<MaterialId>,
+    /// Materials a game's `CustomMaterial` shades (never merged), with its reach.
+    pub(crate) custom: std::collections::BTreeMap<MaterialId, f32>,
     /// The feed's looks for the next `set_draw_instances`, part starts relative.
     pub(crate) pending_looks: (Vec<u32>, Vec<[f32; 8]>),
 }
@@ -903,13 +906,16 @@ fn material_bind(
             resource: wgpu::BindingResource::Sampler(&texture.sampler),
         });
     }
+    let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("game material textures"),
+        layout,
+        entries: &entries,
+    });
+    let views = selected.iter().map(|t| (t.view.clone(), t.sampler.clone()));
     Material {
         bytes: uniform.size(),
-        bind: Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("game material textures"),
-            layout,
-            entries: &entries,
-        })),
+        bind: Some(bind),
+        parts: (uniform, views.collect()),
         alpha: m.alpha_mode,
         double_sided: m.double_sided,
         data: m.clone(),

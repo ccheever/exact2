@@ -14,3 +14,6 @@ wind-fixture-logic = { path = "../logic" }
 
 [build-dependencies]
 exact-gpu-reflect.workspace = true
+
+[dev-dependencies]
+exact-game-bake.workspace = true

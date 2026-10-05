@@ -1,6 +1,13 @@
 use crate::Vertex;
 use exact_gpu::wgpu;
 pub(crate) fn material_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("game model material"),
+        entries: &material_entries(),
+    })
+}
+/// A model material's bindings: its uniform, then five textures and samplers.
+pub(crate) fn material_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
     let mut entries = vec![wgpu::BindGroupLayoutEntry {
         binding: 0,
         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -29,10 +36,7 @@ pub(crate) fn material_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
             count: None,
         });
     }
-    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("game model material"),
-        entries: &entries,
-    })
+    entries
 }
 pub(crate) fn instance_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

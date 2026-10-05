@@ -102,7 +102,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 let binds = self.custom_bindings.as_ref().unwrap();
                 pass.set_pipeline(&custom.shadow);
                 pass.set_bind_group(2, &custom.resources, &[]);
-                pass.set_bind_group(3, &binds.instances.as_ref().unwrap().1, &[]);
+                pass.set_bind_group(3, binds.group(material), &[]);
             } else {
                 let material = &self.models.materials[material.0];
                 pass.set_pipeline(
@@ -195,7 +195,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     pass.set_pipeline(&custom.forward);
                     pass.set_bind_group(1, &self.shadow_sample, &[]);
                     pass.set_bind_group(2, &custom.resources, &[]);
-                    pass.set_bind_group(3, &binds.instances.as_ref().unwrap().1, &[]);
+                    pass.set_bind_group(3, binds.group(material), &[]);
                 } else {
                     let material = &self.models.materials[material.0];
                     pass.set_pipeline(
@@ -270,7 +270,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 timing::TRANSLUCENT,
                 false,
             );
-            state.draws += self.translucent(&mut pass, frame, variant, state.size);
+            state.draws +=
+                self.translucent(&mut pass, frame, variant, state.size, hooks.materials());
             if timing::pass_stamp(
                 &self.device,
                 &mut pass,
@@ -291,6 +292,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         encoder: &mut wgpu::CommandEncoder,
         state: &mut Resolved,
         frame: &FrameInput<'_>,
+        custom: &[CustomMaterial],
     ) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("game translucent"),
@@ -318,7 +320,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             multiview_mask: None,
         });
         self.scene_viewport(&mut pass, state.size, false);
-        state.draws += self.translucent(&mut pass, frame, state.variant, state.size);
+        state.draws += self.translucent(&mut pass, frame, state.variant, state.size, custom);
     }
 
     /// Scene-copy continuation: depth snapshot, the refracting surface, translucency.
@@ -382,7 +384,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             .surface(&mut pass, &targets.scene().unwrap(), view)
             .map_err(|e| hook_error("surface", e))?;
         state.times[4] = start.map(|s| s.elapsed());
-        state.draws += self.translucent(&mut pass, frame, state.variant, state.size);
+        state.draws += self.translucent(
+            &mut pass,
+            frame,
+            state.variant,
+            state.size,
+            hooks.materials(),
+        );
         Ok(())
     }
 
@@ -489,6 +497,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         frame: &FrameInput<'_>,
         variant: usize,
         size: (u32, u32),
+        custom: &'a [CustomMaterial],
     ) -> u32 {
         self.scene_viewport(pass, size, false);
         let mut layer = false;
@@ -505,21 +514,29 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             if let crate::quads::Kind::Model(index, slot) = draw.kind {
                 assert!(ASSETS, "model in primitive executor");
                 let batch = &self.batches[index];
-                let material = &self.models.materials[self.model_batches[index].unwrap().0];
-                pass.set_pipeline(
-                    self.pipelines.models.as_ref().unwrap().forward[variant
-                        + 4 * usize::from(material.double_sided)
-                        + 8
-                        + 16 * usize::from(
-                            self.slot_mirrored(self.slot_list[slot as usize], frame),
-                        )]
-                    .as_ref()
-                    .unwrap(),
-                );
+                let id = self.model_batches[index].unwrap();
+                let material = &self.models.materials[id.0];
                 pass.set_bind_group(0, &self.scene_binds[self.current], &[0]);
                 pass.set_bind_group(1, &self.shadow_sample, &[]);
-                pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
-                pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
+                if let Some(custom) = custom.iter().find(|c| c.material == id) {
+                    let binds = self.custom_bindings.as_ref().unwrap();
+                    pass.set_pipeline(&custom.forward);
+                    pass.set_bind_group(2, &custom.resources, &[]);
+                    pass.set_bind_group(3, binds.group(id), &[]);
+                } else {
+                    pass.set_pipeline(
+                        self.pipelines.models.as_ref().unwrap().forward[variant
+                            + 4 * usize::from(material.double_sided)
+                            + 8
+                            + 16 * usize::from(
+                                self.slot_mirrored(self.slot_list[slot as usize], frame),
+                            )]
+                        .as_ref()
+                        .unwrap(),
+                    );
+                    pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
+                    pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
+                }
                 pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
                 let mesh = &self.meshes[batch.mesh.0];
                 pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, slot..slot + 1);

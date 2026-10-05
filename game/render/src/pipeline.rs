@@ -17,6 +17,8 @@ const FORWARD: &str = piece!("forward");
 const LIGHTS: &str = piece!("lights");
 const FADE: &str = piece!("fade");
 const MODEL: &str = piece!("model");
+const MODEL_BASE: &str = piece!("model_base");
+const MODEL_SHADE: &str = piece!("model_shade");
 /// The environment prefilter, a standalone module (ibl.rs).
 pub(crate) const ENVIRONMENT: &str = piece!("environment");
 
@@ -52,7 +54,17 @@ pub(crate) fn model_source(shadow: bool) -> String {
         (SHADOW_SAMPLE, "")
     };
     [
-        FRAME, TRANSFORM, sample, IBL, FADE, LIGHTS, FORWARD, MODEL, tail,
+        FRAME,
+        TRANSFORM,
+        sample,
+        IBL,
+        FADE,
+        LIGHTS,
+        FORWARD,
+        MODEL,
+        MODEL_BASE,
+        MODEL_SHADE,
+        tail,
     ]
     .concat()
 }

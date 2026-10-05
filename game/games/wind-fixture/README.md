@@ -6,8 +6,14 @@ generated GPU shell exports `module!(WindGame, assets, hooks =
 game_render::Wind, shaders = game_render::shaders::SHADERS)`.
 
 - `render/shaders/wind_forward.wgsl`, `wind_shadow.wgsl`: a custom vertex material
-  (`CustomMaterial`) over the generated `reed.model`; its paired shadow pass bends
-  the same way. `gpu.shaderPreludes` puts the renderer's exported sets
+  (`CustomMaterial`) over the generated `reed.model`, an ordinary textured model:
+  crossed cards whose blades a MASK material cuts out of `art/textures/reed.png`.
+  The forward pass bends the reed and then shades it as the engine would
+  (`material_shade`: its texture, cutout, lights and shadows); the paired shadow
+  pass bends the same way and drops the cutout (`model_discarded`). Its `REACH`
+  bounds the bend, so the GPU cull still culls reeds, and `ModelLod` swaps the back
+  rows (beyond 14 m) to a plain far blade the engine draws, unswayed.
+  `gpu.shaderPreludes` puts the renderer's exported sets
   (`exact-game-render:material`, `exact-game-render:material_shadows`) and
   `render/wgsl/wind.wgsl` in front of each, so they are ordinary shader assets.
 - `render/shaders/sky.wgsl`: a dusk sky in the background stage, after

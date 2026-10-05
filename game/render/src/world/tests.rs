@@ -24,7 +24,7 @@ struct Recording {
     record: bool,
     models: Vec<crate::models::ModelNode>,
     instances: Vec<crate::DrawInstance>,
-    custom: std::collections::BTreeSet<crate::MaterialId>,
+    custom: std::collections::BTreeMap<crate::MaterialId, f32>,
 }
 impl Default for Recording {
     fn default() -> Self {

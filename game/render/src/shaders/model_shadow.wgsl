@@ -4,6 +4,5 @@
     out.clip=light_view_proj*vec4(out.world,1.0); return out;
 }
 @fragment fn model_shadow_fs(input:ModelVarying) {
-    if faded(input.slot,input.clip.xy) { discard; }
-    if baked.flags.x==1.0 && model_base(input).a < baked.emission_cutoff.w { discard; }
+    if model_discarded(input) { discard; }
 }

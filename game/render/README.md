@@ -53,17 +53,29 @@ a distinct HDR output. Respect the active rectangle inside bucketed textures.
 The refractor writes depth. Transparent objects behind it and intersecting
 refractors are outside this first composition contract.
 
-`CustomMaterial` replaces a loaded opaque, unskinned model material. The engine
-owns geometry/draws and a compact per-instance `data` word; the game supplies paired
-forward/shadow pipelines and group 2 resources. `MATERIAL_WGSL` supplies the frame,
-transforms and instance accessor. Group 1 holds the engine's shadow maps in forward
-and the light camera in shadow; group 3 is engine instances. Two vertex storage
-bindings remain under the default limit of eight. A forward module that appends
-`MATERIAL_SHADOWS_WGSL` gets `sun_shadow(world, normal)` (1 without sun shadows),
-`light_visibility`, `brdf` and `add_local_lights` over those maps and the scene's
-light buffer; it binds nothing more. Use conservative `ModelBounds` for GPU
-deformation. Batches with a custom material are never culled, because the game's
-vertex shader may move them.
+`CustomMaterial` replaces a loaded, unskinned model material: opaque, MASK or
+BLEND. The engine owns geometry/draws, culling, `ModelLod` and a compact
+per-instance `data` word; the game supplies paired forward/shadow pipelines
+(`MaterialGpu::pipeline(material, …)`) and group 2 resources. `MATERIAL_WGSL`
+supplies the frame, transforms, `instance_transform(position, normal, uv, i,
+color)` (a `ModelVarying`, as the engine places the vertex) and the replaced
+material itself at group 3, beside the engine's instances: its `baked` factors and
+five textures, `model_base(v)` (base colour: texture, factor, vertex and entity
+colour, instance tint) and `model_discarded(v)` (Opacity's dither, a MASK cutout).
+Group 1 holds the engine's shadow maps in forward and the light camera in shadow.
+Two vertex storage bindings remain under the default limit of eight. A forward
+module that appends `MATERIAL_SHADOWS_WGSL` gets `sun_shadow(world, normal)` (1
+without sun shadows), `light_visibility`, `brdf`, `ambient` and `add_local_lights`
+over those maps and the scene's light buffer, and `material_shade(v, front)`, the
+engine's own model shading, so a vertex-only material (wind sway) keeps the stock
+look; it binds nothing more. A shadow fragment entry that discards on
+`model_discarded` keeps cutouts out of shadows. A BLEND material's forward pipeline
+alpha-blends without writing depth and draws sorted with the engine's
+translucency; it casts no shadow. `reach` is how far the vertex shaders move a
+vertex, in model units: the GPU cull (and the CPU cull of blended parts) grows each
+part's bounds by it, and `f32::INFINITY` never culls. `tests/custom_materials.rs`
+proves textured MASK and BLEND parity with the engine's drawing, cut-out shadows,
+reach-bounded culling and `ModelLod`.
 
 `app.json` declares `gpu.shaderRoots` and optional `gpu.shaderPreludes` (shader stem
 → ordered source paths), all relative to the manifest. The bake merges and reflects
@@ -94,7 +106,7 @@ the rotation's arc, which nlerp keeps under π) plus its mesh at the larger scal
 Primitives take their dimensions from the material; model nodes their composed box;
 a skinned node the union of its mesh sphere under every joint of its current palette
 (skinned positions are convex combinations of joint-transformed bind positions);
-socket attachments their displayed affine. Game custom materials keep everything.
+socket attachments their displayed affine; a game custom material's parts grow by its `reach`.
 A margin covers f32 rounding. The camera culls sprites, emitters (from a bound on
 speed, gravity and the longest lifetime; skipped emitters still charge the world
 particle budget) and unskinned blended models on the CPU before derivation/upload.
@@ -319,9 +331,10 @@ never saved or hashed) fades any instance, primitive or model: opaque surfaces d
 an ordered 4×4 screen-door dither (depth stays exact, nothing is sorted; model
 shadows fade with it, primitive shadows too: their depth pass drops the same
 dithered texels, so at `Opacity(0)` an entity casts nothing), blended model
-materials multiply their alpha. This is coverage fading; a custom vertex or
-fragment shader that wants it calls `faded(slot, pixel)` (fade.wgsl, in
-`MATERIAL_SHADOWS_WGSL`) itself. Custom-material hooks ignore both.
+materials multiply their alpha. This is coverage fading; a custom material's
+shaders get it, and the tint, through `material_shade`, `model_base` and
+`model_discarded`, or call `faded(slot, pixel)` (fade.wgsl, in `MATERIAL_WGSL`)
+themselves.
 `MaterialOverrides` replaces a model material's base colour factor, zero channels
 included (and adds emission), on one instance: it becomes that material's records'
 tint with a flag that drops the authored factor, so instances in different colours
