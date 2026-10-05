@@ -381,15 +381,20 @@ impl Rewriter<'_> {
                 _ if self.scope.builtin_types.contains(name.as_str()) || name == "action" => {
                     Ok(())
                 }
-                _ => match self.scope.foreign_shapes.get(name.as_str()) {
+                // Nothing of the name here: another file's is refused with the
+                // rest of the file's missing names (§21).
+                None => self.scope.rename(Kind::Call, name, *span),
+                // A `fn` of the name here, which is no type: another file's
+                // shape of the name is not reachable past it by a `use`.
+                Some(_) => match self.scope.foreign_shapes.get(name.as_str()) {
                     Some(file) => Err(SyntaxError {
                         id: "contract-use-missing",
                         message: format!(
-                            "`{name}` is a shape declared in `{file}`, which this file does not name: add `use {name} from \"…\"` (LLP 1091 D1)"
+                            "`{name}` is a shape declared in `{file}`, and this file's `{name}` is a `fn`; rename one, then name the shape in a `use` (LLP 1091 D1)"
                         ),
                         span: *span,
                     }),
-                    None => self.scope.rename(Kind::Call, name, *span),
+                    None => Ok(()),
                 },
             },
             TypeExpr::Option(inner, _) | TypeExpr::List(inner, _) => self.ty(inner),
@@ -951,14 +956,21 @@ const ROLES: [Role; 7] = [
 /// reachable from the start, and those from which the rest still reads.
 fn literal_roles(tokens: &[(usize, &str)], hole: char) -> Vec<(bool, bool)> {
     use std::collections::HashSet;
+    // What a computed part's own text settles: a quoted one is a name, a
+    // function's (`steps(${n}, …)`) an easing. Any other may be any kind of
+    // value — its literal text says nothing for certain (`${x}ms` may read
+    // `items`) — and one that is the value alone may also be empty.
     let known = |t: &str| {
-        if ["cubic-bezier(", "steps(", "linear(", "spring("]
+        let quoted = t.len() >= 2
+            && ((t.starts_with('"') && t.ends_with('"'))
+                || (t.starts_with('\'') && t.ends_with('\'')));
+        if quoted {
+            Some(Role::Name)
+        } else if ["cubic-bezier(", "steps(", "linear(", "spring("]
             .iter()
             .any(|f| t.starts_with(f))
         {
             Some(Role::Easing)
-        } else if t.ends_with("ms") || t.ends_with('s') {
-            Some(Role::Time)
         } else {
             None
         }
@@ -977,13 +989,15 @@ fn literal_roles(tokens: &[(usize, &str)], hole: char) -> Vec<(bool, bool)> {
         match known(token) {
             Some(role) => {
                 let mut next = state.clone();
-                if next.fill(role).is_some() {
-                    out.push((next, false));
+                if let Some(named) = next.fill(role) {
+                    out.push((next, named));
                 }
             }
             None => {
-                // Empty: the value adds no part.
-                out.push((state.clone(), false));
+                // Empty: the value adds no part (only a value alone can be).
+                if token.chars().all(|c| c == hole) {
+                    out.push((state.clone(), false));
+                }
                 for role in ROLES {
                     let mut next = state.clone();
                     if let Some(named) = next.fill(role) {

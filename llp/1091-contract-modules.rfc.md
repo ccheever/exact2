@@ -448,6 +448,7 @@ stage 1 lands, and stage 2 waits on them.
 - r12 (2026-10-05): round 10 (§19).
 - r13 (2026-10-05): round 11 (§20).
 - r14 (2026-10-05): round 12 (§22).
+- r15 (2026-10-05): round 13 (§23).
 
 ## 9. Review dispositions (round 1)
 
@@ -815,4 +816,17 @@ between them. Every finding is taken; every plan stays byte-identical.
 | Grok 1 / Astra 2: past three unknown computed parts, round 11 called every literal ambiguous, refusing names `motion` always reads as names (quoted ones too) | The reading is exact at any length: the slots each prefix can leave filled, forward from the start and back from the end, decide for each literal whether some accepted reading names it and whether some does not. No cutoff |
 | Astra 1: an empty interpolation was made to fill a slot, so a full shorthand had no reading and its name went unrenamed | An unknown computed part may also be empty, filling nothing |
 | Astra 3 / Grok 2: a consulted path kept `..`, so the watchers, which fold it, missed a hidden link | Consulted paths fold `.` and `..` as written, as a watcher names the file |
+
+## 23. Code review round 13 dispositions
+
+Round 13 (`llp/reviews/code-2026-10-05-1091-r13.{astra,grok}.md`), the first to cover §21's batching
+and `contract fmt --uses`: both UNSOUND. Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Grok 1: a computed part glued to text (`${x}ease`) was read as a time by its `s`; Astra 2: a quoted computed part (`'${name}'`) was read as any kind | A computed part's text settles only what it must: quoted is a name, a function's is an easing; any other may be any kind, and only a value alone may also be empty |
+| Grok 2 / Astra 4: a written type naming another file's shape refused at once, ending §21's batch, so `fmt --uses` wrote nothing | It is recorded with the file's other missing names; only a type beside a same-named `fn` (not mechanical) is refused at once, saying so |
+| Astra 1: `fmt --uses` copied a package name another file used, which reached another install from here | A proposed specifier is resolved from the file it goes in and kept only if it reaches the declaring file |
+| Astra 5: `fmt --uses` wrote a `use` back to a file that uses this one | A name whose file uses this one is said, not written: naming it would cycle |
+| Astra 3: folding `..` past a link named a path that need not exist | A consulted path is recorded folded and as written |
 

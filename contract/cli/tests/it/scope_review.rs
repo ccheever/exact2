@@ -932,3 +932,92 @@ fn a_dot_dot_path_is_watched_as_a_watcher_names_it() {
         graph.consulted
     );
 }
+
+// Round 13 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_glued_computed_part_settles_nothing_and_a_quoted_one_is_a_name() {
+    let dir = Dir::new("glued");
+    dir.write(
+        "ui.contract",
+        "keyframes spin\n  to opacity=0\nkeyframes linear\n  to opacity=0\ncomponent Card\n  state x = \"\"\n  state name = \"spin\"\n  view\n    column\n      view animation=`1s 0s ${x}ease spin`\n      view animation=`'${name}' linear 1s`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes spin\n  to opacity=1\nkeyframes linear\n  to opacity=1\ncomponent App\n  view\n    Card()\n",
+    );
+    let text = plan(&root);
+    assert!(text.contains("ease spin__ui"), "{text}");
+}
+
+#[test]
+fn a_missing_type_joins_the_files_other_missing_names() {
+    let dir = Dir::new("type-batch");
+    dir.write("shapes.contract", "shape Row\n  n: number\n");
+    dir.write("icons.contract", "component Icon\n  view\n    text \"i\"\n");
+    dir.write(
+        "lib.contract",
+        "use Row from \"./shapes.contract\"\nuse Icon from \"./icons.contract\"\ncomponent Holder\n  view\n    text \"h\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Holder from \"./lib.contract\"\ncomponent App\n  view\n    column\n      Holder()\n      Item(row=none)\ncomponent Item\n  props\n    row: option<Row>\n  view\n    Icon()\n",
+    );
+    let e = contract::compile_path(&root).unwrap_err();
+    assert_eq!(e.id, "contract-use-missing", "{e}");
+    let all = format!("{e} {:?}", e.related);
+    assert!(all.contains("Row") && all.contains("Icon"), "{all}");
+}
+
+#[test]
+fn a_use_that_would_cycle_is_said_not_written() {
+    let dir = Dir::new("fix-cycle");
+    dir.write(
+        "ui.contract",
+        "component Card\n  view\n    text caption()\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nfn caption(): string = \"hello\"\ncomponent App\n  view\n    Card()\n",
+    );
+    let e = contract::compile_path(&root).unwrap_err();
+    assert_eq!(e.id, "contract-use-missing", "{e}");
+    assert!(e.to_string().contains("cycle"), "{e}");
+    assert!(!e.to_string().contains("use caption from"), "{e}");
+}
+
+#[test]
+fn a_package_name_is_suggested_only_where_it_reaches_the_same_install() {
+    let dir = Dir::new("fix-version");
+    dir.write(
+        "app/node_modules/ui/package.json",
+        r#"{"name":"ui","version":"1.0.0","exports":"./index.contract"}"#,
+    );
+    dir.write(
+        "app/node_modules/ui/index.contract",
+        "component Badge\n  view\n    text \"one\"\n",
+    );
+    dir.write(
+        "app/node_modules/kit/package.json",
+        r#"{"name":"kit","version":"1.0.0","exports":"./index.contract"}"#,
+    );
+    dir.write(
+        "app/node_modules/kit/index.contract",
+        "use Badge from \"ui\"\ncomponent Kit\n  view\n    Badge()\n",
+    );
+    dir.write(
+        "app/node_modules/kit/node_modules/ui/package.json",
+        r#"{"name":"ui","version":"2.0.0","exports":"./index.contract"}"#,
+    );
+    dir.write(
+        "app/node_modules/kit/node_modules/ui/index.contract",
+        "component Badge\n  view\n    text \"two\"\n",
+    );
+    let root = dir.write(
+        "app/app.contract",
+        "use Kit from \"kit\"\ncomponent App\n  view\n    column\n      Kit()\n      Badge()\n",
+    );
+    let e = contract::compile_path(&root).unwrap_err();
+    assert_eq!(e.id, "contract-use-missing", "{e}");
+    assert!(!e.to_string().contains("use Badge from \"ui\""), "{e}");
+}

@@ -69,6 +69,11 @@ impl Loader<'_> {
                     m.name,
                     files.join(" and ")
                 ));
+            } else if self.reaches(e.unit, index) {
+                unresolved.push(format!(
+                    "`{}` is declared in `{}`, which uses this file: naming it here would make a cycle; move it to a file both can use",
+                    m.name, e.file
+                ));
             } else if let Some(spec) = self.specifier(index, e.unit) {
                 match groups.iter_mut().find(|(s, _)| *s == spec) {
                     Some((_, names)) => names.push(m.name.clone()),
@@ -194,7 +199,46 @@ impl Loader<'_> {
     }
 
     /// The specifier that brings unit `to` into unit `from`.
+    /// Whether unit `from` uses unit `to`, through any chain of uses.
+    fn reaches(&self, from: usize, to: usize) -> bool {
+        let mut seen = vec![false; self.units.len()];
+        let mut stack = vec![from];
+        while let Some(u) = stack.pop() {
+            if u == to {
+                return true;
+            }
+            if !std::mem::replace(&mut seen[u], true) {
+                stack.extend(self.units[u].targets.iter().copied());
+            }
+        }
+        false
+    }
+
+    /// The specifier a `use` in unit `from` names unit `to` by — checked by
+    /// resolving it from `from`, since a package's name need not lead to the
+    /// same install from every directory.
     fn specifier(&self, from: usize, to: usize) -> Option<String> {
+        let spec = self.candidate_specifier(from, to)?;
+        let dir = self.sources.paths[from]
+            .canonicalize()
+            .ok()?
+            .parent()?
+            .to_path_buf();
+        let resolved = crate::resolve::resolve(
+            &spec,
+            &dir,
+            &self.sources.origins[from],
+            self.app_root,
+            &mut Vec::new(),
+        )
+        .ok()?;
+        let target = &self.sources.paths[to];
+        let same =
+            resolved.key == *target || target.canonicalize().is_ok_and(|t| t == resolved.key);
+        same.then_some(spec)
+    }
+
+    fn candidate_specifier(&self, from: usize, to: usize) -> Option<String> {
         let named = |unit: usize| {
             let u = &self.units[unit];
             u.file

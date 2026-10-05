@@ -135,7 +135,15 @@ fn relative(
     let target = dir.join(spec);
     // Watched by the path written (without its `.` segments, as watchers
     // name it): creating it, or retargeting a link there, builds again.
+    // Both ways a watcher may name it: folded, as Node's `resolve` folds
+    // `..`, and as written, through any link before the `..`.
     consulted.push(lexical(&target));
+    consulted.push(
+        target
+            .components()
+            .filter(|c| !matches!(c, std::path::Component::CurDir))
+            .collect(),
+    );
     let key = target.canonicalize().map_err(|e| {
         (
             "contract-use-unreadable",
