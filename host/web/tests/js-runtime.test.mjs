@@ -365,6 +365,24 @@ test('a refused derive traces only failed resources it read through retained val
 });
 
 
+test('an input runs a due then before its own action', async () => {
+  // Runner::dispatch_at moves the clock first, so a focus answer's `then` runs
+  // at the start of the input that follows and reads the value it landed, not
+  // the one this input writes (synthetic-then: wasm " a3 T3 T2 T12").
+  const { mut, sig, W, commit, on, clock } = await import(resolve(dir, 'rt.js') + '?dispatch-at');
+  clock.agent = true;
+  const slot = sig(0);
+  const m = mut('quick', slot, []);
+  const seen = [];
+  commit(() => W(slot, 2));
+  m.then = () => seen.push('T' + slot());
+  m.due = clock.now;
+  const el = new EventTarget();
+  on(el, 'input', () => { commit(() => W(slot, 12)); seen.push('E' + slot()); });
+  el.dispatchEvent(new Event('input'));
+  expect(seen).toEqual(['T2', 'E12']);
+});
+
 test('an async source failure remains named when its retained value breaks a derive', async () => {
   const { memo, res, data, commit, journal } = await import(resolve(dir, 'rt.js') + '?async-derive-refusal');
   let reject;
