@@ -141,6 +141,25 @@ final class ContextMenuIOSTests: XCTestCase {
         XCTAssertTrue(node.isFirstResponder)
     }
 
+    /// A text field or text area being edited keeps its focus, and its
+    /// keyboard, through a bar's touch and a context menu alike: UIKit and
+    /// the app decide when it goes, not the menu (MenuFocusIOS).
+    func testAFieldBeingEditedKeepsItsFocusThroughABarsTouchAndAMenu() throws {
+        let session = try boot()
+        let focus = session.presenter.menus.focus
+        // The first of the fixture's text fields that takes the focus.
+        let field = try XCTUnwrap(session.presenter.views.values.compactMap(\.field).first { $0.window != nil && $0.becomeFirstResponder() },
+                                  "the fixture has a text field")
+        focus.setAside(untilTouch: true)
+        XCTAssertTrue(field.isFirstResponder, "a bar's touch leaves the field alone")
+        XCTAssertFalse(focus.untilNextTouch)
+        focus.setAside()
+        XCTAssertTrue(field.isFirstResponder, "and so does a context menu")
+        focus.restore()
+        XCTAssertTrue(field.isFirstResponder)
+        _ = field.resignFirstResponder()
+    }
+
     func testAMenuDismissedWithoutAChoiceReturnsItsRowAndAPreviewThatDoesNotNavigateDismisses() throws {
         let session = try boot()
         let host = session.presenter.menus.context
