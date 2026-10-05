@@ -134,7 +134,8 @@ def rosterTy (f : String) (args : List STy) : STy :=
   if f = "now" ∨ f = "length" ∨ f = "floor" ∨ f = "max" ∨ f = "min" then .number
   else if f = "isEmpty" ∨ f = "includes" ∨ f = "startsWith" ∨ f = "endsWith" then .bool
   else if f = "toString" ∨ f = "trim" ∨ f = "encodeURIComponent" ∨ f = "join" ∨ f = "slice"
-    ∨ f = "replaceAll" ∨ f = "toLowerCase" then .string
+    ∨ f = "replaceAll" ∨ f = "toLowerCase" ∨ f = "formatTime" ∨ f = "formatDate" ∨ f = "formatNumber"
+    ∨ f = "t" then .string
   else if f = "first" ∨ f = "at" then
     match args with
     | .list t :: _ => .option t

@@ -30,6 +30,35 @@ impl<D: DataSource> Host<D> {
         false
     }
 
+    /// A drawn face's box (a title's avatar, LLP 1075.003 §9.10): a View
+    /// with a fill and authored width and height in points. Its points go as
+    /// `faceBoxSize` `"WxH"`, because a header the bar replaces is laid out
+    /// as `display: none`, so no frame tells the host the size the author
+    /// gave it. The test reads the node alone, never its ancestors, and of
+    /// its children only that there are some: a box moved into or out of a
+    /// header needs no recomputation, and initials beside a status dot are
+    /// still a face.
+    fn face_box_size(&self, id: ViewId) -> Option<String> {
+        let kernel = self.runner.kernel();
+        let node = kernel.node(id)?;
+        // A childless box is decoration (a dot), not a face, and stays a
+        // flat leaf (`FlatLeavesIOS` admits no props but `dataset`).
+        if node.node_type != NodeType::View || kernel.arena().children(node.key.index).is_empty() {
+            return None;
+        }
+        let (exact_kernel::Dimension::Points(w), exact_kernel::Dimension::Points(h)) =
+            (node.style.width, node.style.height)
+        else {
+            return None;
+        };
+        // No `background-color` is `currentcolor`: the text colour fills it.
+        let fill = node
+            .style
+            .background_color
+            .unwrap_or_else(|| node.text_color());
+        (fill.resolve(false).a() != 0 || fill.resolve(true).a() != 0).then(|| format!("{w}x{h}"))
+    }
+
     pub(super) fn paragraph_owner(&self, id: ViewId) -> Option<ViewId> {
         let kernel = self.runner.kernel();
         let mut node = kernel.node(id)?;
@@ -241,7 +270,10 @@ impl<D: DataSource> Host<D> {
         } else {
             kind_for(&node)
         };
-        let props = props_for(&node);
+        let mut props = props_for(&node);
+        if let Some(size) = self.face_box_size(id) {
+            props.insert("faceBoxSize".into(), size);
+        }
         let env = self.runner.kernel().env();
         let (style, _skipped) = style::style_json_for(&node, &env);
         let handlers: Vec<&str> = events.iter().copied().filter_map(handler_name).collect();
@@ -294,7 +326,10 @@ impl<D: DataSource> Host<D> {
             return;
         }
         let node = self.runner.kernel().node(id).expect("live");
-        let props = props_for(&node);
+        let mut props = props_for(&node);
+        if let Some(size) = self.face_box_size(id) {
+            props.insert("faceBoxSize".into(), size);
+        }
         let env = self.runner.kernel().env();
         let (style, _skipped) = style::style_json_for(&node, &env);
         if self.mirror.get(&id).and_then(|m| m.props.get("spellcheck")) != props.get("spellcheck") {

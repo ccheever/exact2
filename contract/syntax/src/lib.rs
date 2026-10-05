@@ -32,7 +32,8 @@ mod spans;
 pub use ast::*;
 pub use clock::{resolve_clock_timelines, resolve_clock_timelines_in};
 pub use inline::{
-    expand, expand_all, expand_checked, expand_mapped, hygiene, inline, Expanded, Instance, Owner,
+    expand, expand_all, expand_checked, expand_mapped, expand_typed, hygiene, inline, Expanded,
+    Instance, Owner,
 };
 pub use lexer::{Lexer, Token, TokenKind};
 pub use parser::{parse, parse_source, parse_source_all, SyntaxError};

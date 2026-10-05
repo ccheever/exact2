@@ -121,7 +121,9 @@ struct HeaderShape: Equatable {
 /// corners at the bar's image size, light and dark, as UIKit draws a
 /// raster item image (`.alwaysOriginal`).
 struct BadgeFace: Equatable {
+    /// A bar item's image size; a title's avatar takes the author's.
     static let size: CGFloat = 36
+    let size: CGFloat
     let text: String, symbol: String?
     let light: [[Double]], dark: [[Double]]
     let corners: [CGSize]
@@ -131,8 +133,10 @@ struct BadgeFace: Equatable {
         self.init(box: box)
     }
     /// The face of a filled box holding a text or a symbol (a title's
-    /// avatar, §9.10, too).
-    init?(box: NodeView) {
+    /// avatar, §9.10, too). `authored`: draw it at the size the author gave
+    /// the box (`faceBoxSize`, the authored points a replaced header has no frame for), between 20
+    /// and 44, as a title's avatar is; otherwise at a bar item's 36.
+    init?(box: NodeView, authored: Bool = false) {
         guard box.channels("background_color") != nil else { return nil }
         var text = "", symbol: String?, ink: NodeView?
         func walk(_ node: NodeView) {
@@ -148,11 +152,16 @@ struct BadgeFace: Equatable {
         func colours(_ dark: Bool) -> [[Double]] {
             [box.channels("background_color", dark: dark) ?? [0, 0, 0, 0], ink?.channels(key, dark: dark) ?? (dark ? [1, 1, 1, 1] : [0, 0, 0, 1])]
         }
+        let given = authored ? box.props["faceBoxSize"].flatMap { s -> CGFloat? in
+            let parts = s.split(separator: "x").compactMap { Double($0) }
+            return parts.count == 2 ? CGFloat(min(parts[0], parts[1])) : nil
+        } : nil
+        size = min(max(given ?? Self.size, 20), 44)
         self.text = text; self.symbol = symbol
         light = colours(false); dark = colours(true)
-        corners = box.cornerSizes(in: CGRect(x: 0, y: 0, width: Self.size, height: Self.size))
+        corners = box.cornerSizes(in: CGRect(x: 0, y: 0, width: size, height: size))
     }
-    var source: String { "\(text)|\(symbol ?? "")|\(light)|\(dark)|\(corners)" }
+    var source: String { "\(text)|\(symbol ?? "")|\(light)|\(dark)|\(corners)|\(size)" }
 
     var image: UIImage {
         let light = draw(self.light).withRenderingMode(.alwaysOriginal)
@@ -160,15 +169,15 @@ struct BadgeFace: Equatable {
         return light
     }
     private func draw(_ c: [[Double]]) -> UIImage {
-        let rect = CGRect(x: 0, y: 0, width: Self.size, height: Self.size)
+        let rect = CGRect(x: 0, y: 0, width: size, height: size)
         return UIGraphicsImageRenderer(size: rect.size).image { _ in
             TextEngine.color(c[0]).setFill()
             UIBezierPath(cgPath: BorderPaint.roundedRect(rect, corners, shape: nil)).fill()
             let ink = TextEngine.color(c[1])
-            if let symbol, let glyph = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: Self.size * 0.42))?.withTintColor(ink, renderingMode: .alwaysOriginal) {
+            if let symbol, let glyph = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: size * 0.42))?.withTintColor(ink, renderingMode: .alwaysOriginal) {
                 glyph.draw(at: CGPoint(x: (rect.width - glyph.size.width) / 2, y: (rect.height - glyph.size.height) / 2))
             } else {
-                let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: Self.size * 0.42, weight: .medium), .foregroundColor: ink]
+                let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: size * 0.42, weight: .medium), .foregroundColor: ink]
                 let s = (text as NSString).size(withAttributes: attrs)
                 (text as NSString).draw(at: CGPoint(x: (rect.width - s.width) / 2, y: (rect.height - s.height) / 2), withAttributes: attrs)
             }

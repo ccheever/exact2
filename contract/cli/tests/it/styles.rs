@@ -1473,3 +1473,40 @@ fn inherit_unset_and_currentcolor_are_csss() {
         Some("send")
     );
 }
+
+#[test]
+fn position_area_places_a_popover_in_the_admitted_subset_only() {
+    let popover = |value: &str| {
+        format!("component App\n  view\n    column\n      button \"Open\" popovertarget=\"p\"\n      column id=\"p\" popover=\"auto\" position-area=\"{value}\"\n        text \"x\"\n")
+    };
+    for value in [
+        "none",
+        "bottom",
+        "bottom span-right",
+        "bottom span-all",
+        "top",
+        "top span-right",
+        "top span-all",
+        "center",
+    ] {
+        contract::compile(&popover(value)).unwrap_or_else(|e| panic!("{value}: {e}"));
+    }
+    for value in [
+        "left",
+        "top left",
+        "span-all top",
+        "top span-left",
+        "block-start",
+        "nonsense",
+    ] {
+        let error = contract::compile(&popover(value)).unwrap_err().to_string();
+        assert!(
+            error.contains("subset of CSS `position-area`") && error.contains("top span-all"),
+            "{value}: {error}"
+        );
+    }
+    let error = contract::compile("component App\n  view\n    column position-area=\"top\"\n")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("on a `popover` only"), "{error}");
+}

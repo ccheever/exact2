@@ -1,0 +1,37 @@
+// `formatNumber(n, "compact")` over the suffixes, truncation, grouping,
+// signs, the tiny and the huge, and the non-finite (printed as ""). Each
+// tap scales every value, so the same lines are seen at other magnitudes.
+fn c(x: number): string = formatNumber(x, "compact")
+
+component App
+  state k = 1
+  state d = 0
+  derive small = `${c(0 * k)} ${c(-0 * k)} ${c(1 * k)} ${c(5 * k)} ${c(9.99 * k)} ${c(12.5 * k)} ${c(0.29 * k)} ${c(0.000123 * k)} ${c(-0.5 * k)}`
+  derive middle = `${c(999 * k)} ${c(1000 * k)} ${c(1234 * k)} ${c(9999 * k)} ${c(99999.99 * k)} ${c(999999 * k)} ${c(1000000 * k)} ${c(12345678 * k)} ${c(-1234 * k)}`
+  derive large = `${c(1500000000 * k)} ${c(2000000000000 * k)} ${c(15000000000000000 * k)} ${c(1234567890123456700000000000000 * k)} ${c(k / 3)} ${c((0.1 + 0.2) * k)} ${c(1469358899709795.2 * k)} ${c(9007199254740993 * k)}`
+  derive special = `[${c(1 / d)}|${c(-1 / d)}|${c(d / d)}]`
+  action grow
+    k = k * 10
+  action shrink
+    k = k / 7
+  action flip
+    k = -k
+  view
+    column
+      text small testId="small"
+      text middle testId="middle"
+      text large testId="large"
+      text special testId="special"
+      button "grow" press=grow testId="grow"
+      button "shrink" press=shrink testId="shrink"
+      button "flip" press=flip testId="flip"
+
+test "compact"
+  expect text "special" == "[||]"
+  expect text "middle" == "999 1K 1.2K 9.9K 99K 999K 1M 12M -1.2K"
+  tap "grow"
+  tap "grow"
+  tap "flip"
+  tap "shrink"
+  tap "shrink"
+  tap "shrink"

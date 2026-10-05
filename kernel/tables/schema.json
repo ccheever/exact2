@@ -1385,6 +1385,19 @@
       ],
       "default": "none"
     },
+    "PositionArea": {
+      "values": [
+        "none",
+        "bottom span-right",
+        "bottom",
+        "bottom span-all",
+        "top span-right",
+        "top",
+        "top span-all",
+        "center"
+      ],
+      "default": "none"
+    },
     "UserSelect": {
       "values": [
         "auto",
@@ -1813,7 +1826,8 @@
       "values": [
         "none",
         "hidden",
-        "solid"
+        "solid",
+        "inset"
       ],
       "default": "none"
     },
@@ -3176,6 +3190,12 @@
     },
     {
       "bit": 176,
+      "field": "position_area",
+      "codec": "enum:PositionArea",
+      "_comment": "@ref LLP 1021 D2, \u00a75: CSS `position-area` on an invoker-anchored popover (its implicit anchor is the invoker; no anchor-name, position-anchor or position-try). A subset: none (D2's rule, top-left at the invoker's bottom-left), the top and bottom rows spanning right or all, and center; `top` is `top span-all`, as in CSS. Clamped to the viewport; never flipped."
+    },
+    {
+      "bit": 177,
       "field": "text_indent",
       "codec": "f32",
       "inherited": true,
@@ -3185,7 +3205,7 @@
       "_comment": "CSS `text-indent` as a length in points (the reader diary): the first line of a paragraph starts this far in from its start edge, and has that much less room; negative hangs it out. A percentage and the `hanging`/`each-line` keywords are refused by the compiler."
     },
     {
-      "bit": 177,
+      "bit": 178,
       "field": "hyphens",
       "codec": "enum:Hyphens",
       "inherited": true,

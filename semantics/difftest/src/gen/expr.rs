@@ -2,8 +2,50 @@
 //! precedence question arises, and `show`, which prints any value as a
 //! string expression for a `text` to observe.
 
-use super::ty::{template_text, Ty, STRINGS};
+use super::ty::{number, template_text, Ty, STRINGS};
 use super::{Env, Gen};
+
+/// Instants (epoch ms) at the edges `format*` names: the epoch, a day's
+/// last millisecond, a fraction, before 1970, the first and last
+/// formattable wall times and one past each.
+const EPOCHS: &[f64] = &[
+    0.0,
+    -0.5,
+    86_399_999.0,
+    1_790_000_000_000.0,
+    1_790_043_210_987.5,
+    -1.0,
+    951_782_400_000.0,
+    -62_135_596_800_000.0,
+    -62_135_596_800_001.0,
+    253_402_300_799_999.0,
+    253_402_300_800_000.0,
+];
+
+/// UTC offsets in minutes east: whole, half and quarter hours, the ±18 h
+/// bounds and just past them.
+const OFFSETS: &[f64] = &[
+    0.0, 60.0, -300.0, 330.0, 345.0, -0.5, 1080.0, -1080.0, 1081.0,
+];
+
+/// Counts at compact notation's boundaries and truncations.
+const COUNTS: &[f64] = &[
+    0.0,
+    -0.0,
+    0.29,
+    0.005,
+    9.99,
+    999.0,
+    1000.0,
+    1250.0,
+    -1250.0,
+    999_999.0,
+    1_000_000.0,
+    12_345_678.0,
+    1e12,
+    1e16,
+    123_456_789_012_345_680_000.0,
+];
 
 impl Gen<'_> {
     /// Every name in scope and the record fields under it, two deep.
@@ -338,7 +380,8 @@ impl Gen<'_> {
     }
 
     fn str_expr(&mut self, env: &Env, d: usize) -> String {
-        match self.rng.weighted(&[6, 3, 2, 2, 2, 2]) {
+        let formats = if self.formats { 3 } else { 0 };
+        match self.rng.weighted(&[6, 3, 2, 2, 2, formats, 2]) {
             0 => {
                 let mut out = String::from("`");
                 for _ in 0..self.rng.range(1, 3) {
@@ -367,10 +410,11 @@ impl Gen<'_> {
                 let f = *self.rng.pick(&["trim", "encodeURIComponent", "trim"]);
                 format!("{f}({})", self.expr(env, &Ty::Str, d, false))
             }
+            5 => self.format_expr(env, d),
             // LLP 1088 D2: over UTF-16 code units, an astral string cut or
             // split by an empty pattern; `toLowerCase` is left out, as the
             // semantics leaves it out.
-            4 => {
+            6 => {
                 let s = self.expr(env, &Ty::Str, d, false);
                 if self.rng.chance(1, 2) {
                     let a = self.expr(env, &Ty::Num, d, false);
@@ -393,6 +437,37 @@ impl Gen<'_> {
                 let l = self.expr(env, &t, d, false);
                 let sep = self.str_lit();
                 format!("join({l}, {sep})")
+            }
+        }
+    }
+
+    /// `formatTime`, `formatDate` or `formatNumber`: an instant (epoch ms)
+    /// at a UTC offset (minutes east; past ±18 h prints `""`), or a count.
+    fn format_expr(&mut self, env: &Env, d: usize) -> String {
+        let num = |g: &mut Self| {
+            if g.rng.chance(1, 2) {
+                number(*g.rng.pick(EPOCHS))
+            } else {
+                g.expr(env, &Ty::Num, d, false)
+            }
+        };
+        match self.rng.weighted(&[2, 2, 3]) {
+            0 => {
+                let (at, off) = (num(self), number(*self.rng.pick(OFFSETS)));
+                format!("formatTime({at}, {off}, \"short\")")
+            }
+            1 => {
+                let (at, off) = (num(self), number(*self.rng.pick(OFFSETS)));
+                let style = *self.rng.pick(&["\"medium\"", "\"month-year\""]);
+                format!("formatDate({at}, {off}, {style})")
+            }
+            _ => {
+                let n = if self.rng.chance(1, 2) {
+                    number(*self.rng.pick(COUNTS))
+                } else {
+                    self.expr(env, &Ty::Num, d, false)
+                };
+                format!("formatNumber({n}, \"compact\")")
             }
         }
     }

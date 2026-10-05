@@ -84,10 +84,10 @@ def rootProgram (p : CProgram) : Program :=
   { shapes := p.shapes, fns := p.fns,
     states := (match p.router with
       | .some x => [{ name := x, ty := .record "Router", init := .none }]
-      | .none => []) ++ p.root.states,
+      | .none => []) ++ p.localeStates ++ p.root.states,
     derives := p.root.derives, resources := p.root.resources,
     mutations := p.root.mutations, actions := (ownCallsComponent p.root).actions, tasks := p.root.tasks,
-    routes := p.routes, router := p.router }
+    routes := p.routes, router := p.router, strings := p.strings, locale := p.locale }
 
 /-- What an evaluation reads: the root's names (`Env` over `rootProgram`)
 and the instances' states. -/
@@ -573,6 +573,8 @@ structure CConfig where
   timers : List Timer
   poisoned : Bool := false
   commands : List (String × List Value) := []
+  /-- The `then`s armed, as `Contract.Config.armed`. -/
+  armed : List (String × F64) := []
   deriving Inhabited
 
 def CConfig.empty : CConfig :=
@@ -637,7 +639,8 @@ def crunAction (p : CProgram) (o : Oracle) (c : CConfig) (f : Frame) (name : Str
           match renderRoot p slots st c.now store with
           | .ok (view, live) =>
             ({ c with slots, settled := st, store := live, view,
-                      commands := c.commands ++ fx.commands }, .ok)
+                      commands := c.commands ++ fx.commands,
+                      armed := armThens rp c.armed fx.sends c.now }, .ok)
           | .error e =>
             ({ c with slots, settled := st, store, poisoned := true,
                       commands := c.commands ++ fx.commands }, .poisoned e)
@@ -653,7 +656,6 @@ def cboot (p : CProgram) (o : Oracle) : CConfig × Outcome :=
     match startTimers rp slots with
     | .error e => (empty, .refused e)
     | .ok timers =>
-      if rp.mutations.any (·.andThen.isSome) then (empty, .refused (.unsupported "`then`")) else
       match settle rp o slots 0 with
       | .error e => (empty, .refused e)
       | .ok st =>
@@ -669,49 +671,6 @@ def cfindTestId (id : String) : List CVNode → Option CVNode
       | .some m => .some m
       | .none => cfindTestId id rest
 
-mutual
-/-- Every number in a value finite: what `conforms` asks of a value against
-the type its own expression has, the type the checker gives a curried
-argument's capture parameter. -/
-def finiteVal : Value → Bool
-  | .num f => Number.isFinite f
-  | .some v => finiteVal v
-  | .list xs => finiteVals xs
-  | .record _ fs => finiteVals fs
-  | _ => true
-def finiteVals : List Value → Bool
-  | [] => true
-  | v :: vs => finiteVal v && finiteVals vs
-end
-
-/-- What the expansion hands a lifted action of an instance at dispatch (its
-`@capture` parameters, inline.rs): every value prop and inject, evaluated
-then and checked against its declared type as the runner checks any
-parameter, so a value that cannot cross (a NaN, a record of another shape)
-refuses the action however little of it the action reads; and the curried
-arguments of a called action prop. -/
-def captured (p : CProgram) (ce : CEnv) : Frame → Result Unit
-  | .root => .ok ()
-  | .inst c _ binds => do
-    let C ← ce.comp c
-    let wrong : Result Unit := .error (.refused "an argument of the wrong type")
-    ((C.props ++ C.injects).filter (!·.action)).forM fun pd =>
-      match lookupBind pd.name binds with
-      | .some (e, f', ls') => do
-        let v ← ceval fuel ce f' ls' e
-        if conforms (rootProgram p) v pd.ty then pure () else wrong
-      | .none => pure ()
-    -- An action prop or inject some action calls: the arguments it was
-    -- curried with are capture parameters of every lifted action of the
-    -- instance (inline.rs), each checked at dispatch (review b5-a 2).
-    ((C.props ++ C.injects).filter fun pd => pd.action && !hostCommands.contains pd.name &&
-        C.actions.any fun a => commandsIn pd.name a.body).forM fun pd =>
-      match lookupBind pd.name binds with
-      | .some (.call _ curried, f', ls') => curried.forM fun e => do
-        let v ← ceval fuel ce f' ls' e
-        if finiteVal v then pure () else wrong
-      | _ => pure ()
-
 def cdispatch (p : CProgram) (o : Oracle) (c : CConfig) (target : String) (event : String)
     (payload : Option Value) : CConfig × Outcome :=
   if c.poisoned then (c, .refused (.refused "poisoned")) else
@@ -724,9 +683,9 @@ def cdispatch (p : CProgram) (o : Oracle) (c : CConfig) (target : String) (event
       if payload.isSome && n.control.isSome then
         (c, .refused (.unsupported s!"a payload for a `{n.control.getD ""}` control")) else
       let ce : CEnv := { prog := p, root := rootEnv p c.slots c.settled c.now, store := c.store }
-      match forceAll fuel ce h.args, captured p ce h.frame with
-      | .error e, _ | .ok _, .error e => (c, .refused e)
-      | .ok vs, .ok () => crunAction p o c h.frame h.action (vs ++ payload.toList)
+      match forceAll fuel ce h.args with
+      | .error e => (c, .refused e)
+      | .ok vs => crunAction p o c h.frame h.action (vs ++ payload.toList)
 
 /-- `Contract.advance`, with the root's actions run as above. -/
 def cadvance (p : CProgram) (o : Oracle) (c : CConfig) (t : F64) : CConfig × Outcome :=
@@ -737,19 +696,29 @@ def cadvance (p : CProgram) (o : Oracle) (c : CConfig) (t : F64) : CConfig × Ou
         | .none => Option.some (tm, i)
         | .some (b, j) => if tm.next < b.next then Option.some (tm, i) else Option.some (b, j)
       else best) Option.none
+  let pick (c : CConfig) : Option (String × F64 × String) :=
+    match dueThen (rootProgram p) c.armed t, due c with
+    | .some (m, w, a), .some (tm, _) => if w ≤ tm.next then Option.some (m, w, a) else Option.none
+    | th, _ => th
   let finish (c : CConfig) : CConfig × Outcome := ({ c with now := if t > c.now then t else c.now }, .ok)
   let rec go : Nat → CConfig → CConfig × Outcome
     | 0, c =>
-      match due c with
-      | .none => finish c
-      | .some _ => (c, .refused (.refused "too many timer fires"))
+      match pick c, due c with
+      | .none, .none => finish c
+      | _, _ => (c, .refused (.refused "too many timer fires"))
     | n + 1, c =>
       if c.poisoned then (c, .refused (.refused "poisoned")) else
+      match pick c with
+      | .some (m, w, a) =>
+        let c := { c with armed := c.armed.filter (·.1 != m), now := if c.now < w then w else c.now }
+        match crunAction p o c .root a [] with
+        | (c, .ok) => go n c
+        | (c, out) => (c, out)
+      | .none =>
       match due c with
       | .none => finish c
       | .some (tm, i) =>
-        let next := if tm.once then F64.posInf else tm.next + tm.interval
-        let timers := c.timers.set i { tm with next }
+        let timers := c.timers.set i tm.fired
         let c := { c with timers, now := tm.next }
         match crunAction p o c .root tm.action [] with
         | (c, .ok) => go n c
@@ -767,7 +736,8 @@ partial def CVNode.toVNode (n : CVNode) : VNode :=
 derives and resources, the commands, the view. -/
 def CConfig.toConfig (c : CConfig) : Config :=
   { slots := c.slots, settled := c.settled, store := [], view := c.view.map CVNode.toVNode,
-    now := c.now, timers := c.timers, poisoned := c.poisoned, commands := c.commands }
+    now := c.now, timers := c.timers, poisoned := c.poisoned, commands := c.commands,
+    armed := c.armed }
 
 def cstep (p : CProgram) (o : Oracle) (c : CConfig) : Observe.Event → CConfig × Outcome
   | .tap t => cdispatch p o c t "press" .none

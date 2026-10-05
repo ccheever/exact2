@@ -1,4 +1,5 @@
 use super::*;
+use crate::generated::BorderStyle;
 
 #[test]
 fn cursor_is_inherited_non_layout_css_with_its_keyword_vocabulary() {

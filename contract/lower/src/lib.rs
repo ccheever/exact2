@@ -31,6 +31,7 @@ mod handlers;
 mod keyframes;
 mod lint;
 mod media;
+mod menus;
 mod native;
 mod routes;
 mod shorthands;
@@ -720,6 +721,7 @@ impl<'a> Lowerer<'a> {
                     }
                     None => attrs.as_slice(),
                 };
+                values::check_position_area(expanded)?;
                 tags::check_exclusion(&t, expanded, self.parent_positioned)?;
                 let composed = self.compose_animation(expanded)?;
                 let expanded = composed.as_deref().unwrap_or(expanded);
@@ -755,6 +757,7 @@ impl<'a> Lowerer<'a> {
                     self.check_native_button(expanded, children, *span)?;
                 }
                 controls::check_nesting(tag, parent_tag, *span)?;
+                self.check_menu_shapes(tag, expanded, children, *span)?;
                 let numeric = controls::range_attrs(control, expanded);
                 let expanded = numeric.as_deref().unwrap_or(expanded);
                 // @ref LLP 1084 D1, D3 — a grouped list's sheet, before its

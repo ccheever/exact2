@@ -1,7 +1,9 @@
-// An action prop curried with a value that cannot cross (1 / 0 is not
-// finite): it is a capture parameter of every lifted action of the child,
-// so each of them is refused at dispatch, the call's and the idle one's
-// alike, as the runner and the JS target refuse it (review b5-a 2).
+// An action prop curried with a value that is not finite (1 / 0): it is a
+// capture parameter of every lifted action of the child, the compiler's
+// argument and not the host's, so it is held to its type and not to
+// finiteness (as a captured prop is, nonfinite-prop-action.contract): the
+// call and the instance's other actions run (review b5-a 2, superseded by
+// 9c4a4657f's rule).
 component App
   state r = 0
   action save(x: number)
@@ -27,8 +29,8 @@ component Child
         text "use"
       text `${n}` testId="n"
 
-test "a non-finite curried argument refuses every action of the instance"
+test "a non-finite curried argument refuses no action"
   tap "use"
-  expect text "r" == "0"
+  expect text "r" == "1"
   tap "idle"
-  expect text "n" == "0"
+  expect text "n" == "1"

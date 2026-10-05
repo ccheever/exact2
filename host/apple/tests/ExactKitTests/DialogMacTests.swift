@@ -231,14 +231,25 @@ final class DialogMacTests: XCTestCase {
         menu.isHidden = true // NSMenu projects the rows of a hidden popover.
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
-        let item = NSMenuItem(title: "Action", action: nil, keyEquivalent: "")
-        item.representedObject = NSNumber(value: action.id)
-        _ = p.menus.perform(NSSelectorFromString("pick:"), with: item)
+        func pick() {
+            let item = p.menus.menu(of: menu).items[0]
+            _ = p.menus.perform(item.action, with: item)
+        }
+        pick()
+        turn()
         XCTAssertEqual(pressed, [21])
+        pick()
         p.press(2)
-        _ = p.menus.perform(NSSelectorFromString("pick:"), with: item)
+        turn()
         XCTAssertEqual(pressed, [21], "a modal blocks a queued background menu selection")
         p.dialogs.close(p.views[3]!)
+    }
+    /// A picked menu item presses on the next main-queue turn: let every
+    /// turn queued so far run (the main queue is FIFO).
+    private func turn() {
+        let turned = expectation(description: "the next turn")
+        DispatchQueue.main.async { turned.fulfill() }
+        wait(for: [turned], timeout: 5)
     }
 
     func testNativeMenuDialogCommandsUseTheProjectedRows() throws {
@@ -259,11 +270,15 @@ final class DialogMacTests: XCTestCase {
             XCTAssertNil(p.dialogs.active, "ordinary hidden-node activation stays blocked")
             presses.removeAll()
             _ = p.menus.perform(try XCTUnwrap(item.action), with: item)
+            turn()
             XCTAssertTrue(p.dialogs.active === p.views[3])
             XCTAssertEqual(presses, withHandler ? [2] : [])
             p.dialogs.close(p.views[3]!)
+            // An item shown enabled, its row disabled before it is picked.
+            let again = try XCTUnwrap(p.menus.menu(of: popover).items.first)
             p.views[2]!.props["disabled"] = "true"
-            _ = p.menus.perform(try XCTUnwrap(item.action), with: item)
+            _ = p.menus.perform(try XCTUnwrap(again.action), with: again)
+            turn()
             XCTAssertNil(p.dialogs.active)
             p.views[2]!.props.removeValue(forKey: "disabled")
         }

@@ -114,6 +114,10 @@ function checks(sha) {
       'export PATH="$HOME/.elan/bin:$PATH"; failed=0',
       'out=$(cd semantics && lake build 2>&1) || failed=1; echo "$out"',
       'if echo "$out" | grep -q "declaration uses .sorry."; then echo "error: semantics: a proof uses sorry"; failed=1; fi',
+      // The shipped VM machine extracted (Charon, Aeneas) and proved against
+      // Contract/Vm.lean (semantics/vm-extract/README.md); skips, naming the
+      // tool, where Charon or Aeneas is not installed.
+      'sh semantics/vm-extract/check.sh || failed=1',
       'cargo run -q -p contract-difftest -- apps || failed=1',
       'cargo run -q -p contract-difftest -- corpus --js || failed=1',
       'cargo run -q -p contract-difftest -- explore contract/corpus apps/*/app.contract --js || failed=1',

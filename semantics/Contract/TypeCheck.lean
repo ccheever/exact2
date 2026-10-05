@@ -261,8 +261,11 @@ def checkStmts (p : Program) (G : Scope) : Scope → List Stmt → Bool
     | .none => false
   | Γ, .assign x e :: rest => isSlot p x && inferLe p G Γ e (slotTy p x) && checkStmts p G Γ rest
   | Γ, .command _ args :: rest => (inferList p G Γ args).isSome && checkStmts p G Γ rest
-  | Γ, .send x _ args :: rest =>
-    isMutation p x && (inferList p G Γ args).isSome && checkStmts p G Γ rest
+  | Γ, .send x src args :: rest =>
+    isMutation p x &&
+      (match inferList p G Γ args with
+        | .some ts => sourceOk p src ts (mutationTy p x)
+        | .none => false) && checkStmts p G Γ rest
   | Γ, .refresh x :: rest => isResource p x && checkStmts p G Γ rest
   | Γ, .ifS c thn els :: rest =>
     inferLe p G Γ c .bool && checkStmts p G Γ thn && checkStmts p G Γ els && checkStmts p G Γ rest
@@ -343,7 +346,10 @@ def checkState (p : Program) (i : Nat) : Bool :=
   | .none => true
 
 def checkDerive (p : Program) (d : DeriveDecl) : Bool := inferLe p (settleScope p) [] d.body d.ty
-def checkResource (p : Program) (r : ResourceDecl) : Bool := (inferList p (settleScope p) [] r.args).isSome
+def checkResource (p : Program) (r : ResourceDecl) : Bool :=
+  match inferList p (settleScope p) [] r.args with
+  | .some ts => sourceOk p r.source ts r.ty
+  | .none => false
 def checkAction (p : Program) (a : ActionDecl) : Bool := checkStmts p (compScope p) a.params.reverse a.body
 /-- A task's action exists and takes no parameters. -/
 def taskAction (p : Program) (t : TaskDecl) : Bool :=
@@ -352,6 +358,14 @@ def taskAction (p : Program) (t : TaskDecl) : Bool :=
   | .none => false
 def checkTask (p : Program) (t : TaskDecl) : Bool :=
   inferLe p (compScope p) [] t.ms .number && taskAction p t && (t.ms matches .num _)
+/-- A mutation's `then`, if any, names an action of no parameters. -/
+def thenAction (p : Program) (m : MutationDecl) : Bool :=
+  match m.andThen with
+  | .none => true
+  | .some a =>
+    match p.actions.find? (·.name == a) with
+    | .some ad => ad.params.isEmpty
+    | .none => false
 
 /-- The checker: every part well typed. -/
 def check (p : Program) : Bool :=
@@ -359,7 +373,7 @@ def check (p : Program) : Bool :=
     p.fns.all (checkFn p) &&
     (List.range p.states.length).all (checkState p) && p.derives.all (checkDerive p) &&
     p.resources.all (checkResource p) && p.actions.all (checkAction p) && p.tasks.all (checkTask p) &&
-    checkNodes p (compScope p) [] p.view && checkBounds p
+    checkNodes p (compScope p) [] p.view && p.mutations.all (thenAction p) && checkBounds p
 
 /-- Each part of a program and the checker's verdict on it. -/
 def checkParts (p : Program) : List (String × Bool) :=
@@ -372,7 +386,8 @@ def checkParts (p : Program) : List (String × Bool) :=
   p.resources.map (fun r => (s!"resource {r.name}", checkResource p r)) ++
   p.actions.map (fun a => (s!"action {a.name}", checkAction p a)) ++
   p.tasks.map (fun t => (s!"task {t.name}", checkTask p t)) ++
-  [("view", checkNodes p (compScope p) [] p.view), ("bounds", checkBounds p)]
+  [("view", checkNodes p (compScope p) [] p.view)] ++
+  p.mutations.map (fun m => (s!"then of {m.name}", thenAction p m)) ++ [("bounds", checkBounds p)]
 
 /-- The first part the checker refuses, if any (a diagnostic). -/
 def checkFailure (p : Program) : Option String := ((checkParts p).find? (!·.2)).map (·.1)
@@ -691,9 +706,11 @@ theorem checkStmts_sound {p : Program} {G : Scope} : ∀ {Γ : Scope} (ss : List
     exact ⟨⟨ts, inferList_sound args hts⟩, checkStmts_sound rest hr⟩
   | Γ, .send x _ args :: rest, h => by
     simp only [StmtsTy]
-    simp only [checkStmts, Bool.and_eq_true, Option.isSome_iff_exists] at h
-    obtain ⟨⟨hm, ts, hts⟩, hr⟩ := h
-    exact ⟨hm, ⟨ts, inferList_sound args hts⟩, checkStmts_sound rest hr⟩
+    simp only [checkStmts, Bool.and_eq_true] at h
+    obtain ⟨⟨hm, hs⟩, hr⟩ := h
+    split at hs
+    · next ts hts => exact ⟨hm, ⟨ts, inferList_sound args hts, hs⟩, checkStmts_sound rest hr⟩
+    · simp at hs
   | Γ, .refresh x :: rest, h => by
     simp only [StmtsTy]
     simp only [checkStmts, Bool.and_eq_true] at h
@@ -784,8 +801,8 @@ theorem checkNodes_sound {p : Program} {G : Scope} : ∀ {Γ : Scope} (ns : List
 /-- **The checker is sound**: a program it accepts is well typed. -/
 theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
   simp only [check, Bool.and_eq_true, List.all_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hsh, hnames⟩, htypes⟩, hrs⟩, hrslot⟩, hfns⟩, hstates⟩, hderives⟩, hres⟩, hacts⟩,
-    htasks⟩, hview⟩, -⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hsh, hnames⟩, htypes⟩, hrs⟩, hrslot⟩, hfns⟩, hstates⟩, hderives⟩, hres⟩, hacts⟩,
+    htasks⟩, hview⟩, hthen⟩, -⟩ := h
   simp only [checkTypes, Bool.and_eq_true, List.all_eq_true] at htypes
   obtain ⟨⟨⟨⟨hst, hdt⟩, hrt⟩, hmt⟩, hat⟩ := htypes
   have hstate : ∀ i st, p.states[i]? = .some st → checkState p i = true := fun i st hi =>
@@ -793,7 +810,8 @@ theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
   refine {
     shapes := ?_, names := hnames, routeShapes := hrs, routerSlot := hrslot, states := hst, derivesComplete := hdt, resourcesComplete := hrt,
     mutations := hmt, params := ?_, fns := ?_, rootInits := ?_, lateInits := ?_, derives := ?_,
-    resources := ?_, actions := ?_, tasks := ?_, taskActions := ?_, taskLiterals := ?_, view := checkNodes_sound _ hview }
+    resources := ?_, actions := ?_, tasks := ?_, taskActions := ?_, taskLiterals := ?_,
+    thenActions := ?_, view := checkNodes_sound _ hview }
   · intro sh hs f hf
     simp only [checkShapes, List.all_eq_true] at hsh
     exact hsh sh hs f hf
@@ -811,9 +829,10 @@ theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
   · intro d hd; exact inferLe_sound (hderives d hd)
   · intro r hr
     have := hres r hr
-    simp only [checkResource, Option.isSome_iff_exists] at this
-    obtain ⟨ts, hts⟩ := this
-    exact ⟨ts, inferList_sound _ hts⟩
+    simp only [checkResource] at this
+    split at this
+    · next ts hts => exact ⟨ts, inferList_sound _ hts, this⟩
+    · simp at this
   · intro a ha; exact checkStmts_sound _ (hacts a ha)
   · intro t ht
     simp only [checkTask, Bool.and_eq_true] at htasks
@@ -830,6 +849,12 @@ theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
     have := (htasks t ht).2
     split at this
     · next b hb => exact ⟨b, hb⟩
+    · simp at this
+  · intro m hm a ha
+    have := hthen m hm
+    simp only [thenAction, ha] at this
+    split at this
+    · next ad had => exact ⟨ad, had, by simpa using this⟩
     · simp at this
 
 end Contract

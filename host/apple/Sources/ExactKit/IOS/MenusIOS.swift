@@ -310,7 +310,8 @@ final class MenuHost {
     }
     /// Into the top layer, above everything of the page's (its routes and
     /// containers are under the viewport's root) and so in the agent's
-    /// `screenshot`, anchored below its opener (as macOS's). Over a modal,
+    /// `screenshot`, anchored to its opener by its `position-area` (as
+    /// macOS's; below it by default). Over a modal,
     /// the modal's view.
     private func lift(_ entry: Lifted) {
         guard let presenter, let pop = entry.popover else { return }
@@ -322,9 +323,9 @@ final class MenuHost {
         if pop.isHidden { pop.isHidden = false }
         guard let source = presenter.views[entry.source], source.window != nil else { return }
         let anchor = source.convert(source.bounds, to: entry.layer), size = pop.bounds.size
-        let x = max(0, min(anchor.minX, entry.layer.bounds.width - size.width))
-        let y = max(0, min(anchor.maxY, entry.layer.bounds.height - size.height))
-        let center = CGPoint(x: x + size.width / 2, y: y + size.height / 2)
+        let at = PositionArea.origin(PositionArea.of(pop), anchor: anchor, size: size,
+                                    margins: PositionArea.margins(of: pop), in: entry.layer.bounds)
+        let center = CGPoint(x: at.x + size.width / 2, y: at.y + size.height / 2)
         if pop.center != center { pop.center = center }
     }
     /// Out of the top layer, hidden, back where it was.
@@ -530,12 +531,35 @@ final class MenuHost {
         presentation.sourceRect = labelBox.isNull ? source.bounds : CGRect(x: labelBox.minX, y: 0, width: labelBox.width, height: source.bounds.height)
         presentation.permittedArrowDirections = []
         presentation.canOverlapSourceViewRect = true
+        Self.place(presentation, PositionArea.of(pop), source: source)
         presentation.delegate = owner
         #endif
         confirmation = owner
         controller.present(owner.alert, animated: !ExactEnv.agentFreezes)
         return true
     }
+
+    #if !os(tvOS)
+    /// LLP 1021 §5: the sheet's side of its invoker, from its popover's
+    /// `position-area`. `none` keeps the arrowless placement above (D2's
+    /// below-left, native Messages' prompts). UIKit places a popover by the
+    /// arrow directions it permits — `.down` puts it above its source,
+    /// `.up` below — centred on the source rect where it fits, so a centred
+    /// area anchors at the whole invoker. `center` (the invoker's own cell)
+    /// anchors there with no arrow and may cover it, `none`'s presentation:
+    /// UIKit centres it across the invoker and picks its vertical position.
+    static func place(_ presentation: UIPopoverPresentationController, _ area: String, source: UIView) {
+        guard area != "none" else { return }
+        if PositionArea.centred(area) { presentation.sourceRect = source.bounds }
+        if area == "center" {
+            presentation.permittedArrowDirections = []
+            presentation.canOverlapSourceViewRect = true
+        } else {
+            presentation.permittedArrowDirections = area.hasPrefix("top") ? .down : .up
+            presentation.canOverlapSourceViewRect = false
+        }
+    }
+    #endif
 
     /// The menu grammar, extracted (LLP 1021 D3): button rows become
     /// actions; any other row is a section boundary.

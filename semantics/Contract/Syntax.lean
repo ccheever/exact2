@@ -67,8 +67,8 @@ inductive Expr where
   | letE (x : String) (value body : Expr)
   /-- An authored named argument (`share(title: …)`), outside a record. -/
   | named (name : String) (e : Expr)
-  /-- `e` read at a declared type (the expander's, for a prop's argument):
-  a type ascription, with no effect on the value. -/
+  /-- `e` read at a declared type (the expander's, for a prop's or an
+  inject's argument): a type ascription, with no effect on the value. -/
   | typed (e : Expr) (ty : Ty)
   deriving Repr, Inhabited
 
@@ -202,6 +202,17 @@ structure Program where
   /-- The router's slot: the root state `routes <slot>` names (the
   expander puts it first), of type `Router`. -/
   router : Option String := .none
+  /-- The strings tables `t(...)` reads (LLP 1060), the base first: each
+  locale's (key, text) pairs. -/
+  strings : List (String × List (String × String)) := []
+  /-- The slot holding the resolved locale, when the program has strings
+  tables (the plan's `locale` slot): a root state the observation leaves
+  out. -/
+  locale : Option String := .none
+  /-- Each data source's one signature (`type-source-signature`): its
+  parameter types and its answer's, unified across every use. A source
+  the runner answers itself has none (each reader has its own shape). -/
+  sources : List (String × List Ty × Ty) := []
   deriving Repr, Inhabited
 
 namespace Expr

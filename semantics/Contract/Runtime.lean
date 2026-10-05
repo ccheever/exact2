@@ -116,6 +116,42 @@ def conformsFields (p : Program) : List Value → List Field → Bool
   | _, _ => true
 end
 
+mutual
+/-- Whether a value has a type, its numbers any (infinities and NaN
+included): `conforms` without finiteness. -/
+def typed (p : Program) : Value → Ty → Bool
+  | _, .unknown => true
+  | .num _, .number => true
+  | .bool _, .bool => true
+  | .str _, .string => true
+  | .unit, .unit => true
+  | .none, .option _ => true
+  | .some v, .option t => typed p v t
+  | .list xs, .list t => typedAll p xs t
+  | .record s' vs, .record s =>
+    match p.shapes.find? (·.name == s) with
+    | .some sh => s' == s && vs.length == sh.fields.length && typedFields p vs sh.fields
+    | .none => false
+  | _, _ => false
+def typedAll (p : Program) : List Value → Ty → Bool
+  | [], _ => true
+  | v :: vs, t => typed p v t && typedAll p vs t
+def typedFields (p : Program) : List Value → List Field → Bool
+  | v :: vs, f :: fs => typed p v f.ty && typedFields p vs fs
+  | _, _ => true
+end
+
+/-- A hidden parameter: one the expansion adds to a child's lifted action
+for a prop or inject it captures (`@capture:…`; `@` begins no authored
+name). Its argument is the compiler's, not the host's. -/
+def hiddenParam (x : String) : Bool := x.startsWith "@"
+
+/-- An action's argument check: an authored parameter's argument crosses
+the boundary (`conforms`, its numbers finite); a hidden parameter's has
+its type, its numbers any, as the prop it captures would be read in place. -/
+def argOk (p : Program) : String × Ty → Value → Bool
+  | (x, t), v => if hiddenParam x then typed p v t else conforms p v t
+
 /-- A root slot's declared type: a state's, or `option<T>` for a mutation
 `T` (what a write to it is checked against). -/
 def slotTy (p : Program) (x : String) : Ty :=
@@ -407,12 +443,30 @@ where
 
 /-! ## Configurations and steps -/
 
+/-- A frame task's `k`th virtual frame after `base`: `base + k·1000/60`,
+the product first (the runner's `virtual_frame`), so sixty frames are
+exactly a second. -/
+def virtualFrame (base : F64) (k : Nat) : F64 := base + F64.ofNat k * 1000 / 60
+
+/-- A timer. A frame task's is a virtual display (the runner's, while the
+host does not present frames, as in a differential run): it is due at
+`virtualFrame base k`, and each fire moves to the next frame. -/
 structure Timer where
   action : String
   interval : F64
   once : Bool
   next : F64
+  frame : Bool := false
+  base : F64 := 0
+  k : Nat := 1
   deriving Inhabited
+
+/-- The timer after it fires: spent, at its next virtual frame, or one
+interval on. -/
+def Timer.fired (tm : Timer) : Timer :=
+  if tm.once then { tm with next := F64.posInf }
+  else if tm.frame then { tm with k := tm.k + 1, next := virtualFrame tm.base (tm.k + 1) }
+  else { tm with next := tm.next + tm.interval }
 
 structure Config where
   slots : List (String × Value)
@@ -424,6 +478,9 @@ structure Config where
   poisoned : Bool := false
   /-- The commands committed actions issued, oldest first. -/
   commands : List (String × List Value) := []
+  /-- The `then`s armed: each mutation answered in a commit that stood,
+  whose `then` runs at the next clock advance, due at the commit's time. -/
+  armed : List (String × F64) := []
   deriving Inhabited
 
 /-- A step's outcome, as a host sees it. -/
@@ -469,6 +526,16 @@ def routerValid (p : Program) (slots : List (String × Value)) : Bool :=
     | .some v => (Route.routerOf p.routes v).isSome
     | .none => true
 
+/-- Arm the `then` of each mutation a commit at `now` sent into (the
+runner's `arm_then`: every answer here is synchronous, so every send
+landed); arming again moves the due time. -/
+def armThens (p : Program) (armed : List (String × F64))
+    (sends : List (String × String × List Value)) (now : F64) : List (String × F64) :=
+  sends.foldl (fun armed (m, _, _) =>
+    if (p.mutations.find? (·.name == m)).any (·.andThen.isSome) then
+      armed.filter (·.1 != m) ++ [(m, now)]
+    else armed) armed
+
 /-- Run an action as one commit. `rows` are the rows in force where the
 event arrived (none for a timer). -/
 def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : List Value)
@@ -479,7 +546,7 @@ def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : Li
   | .none => refuse (.unbound name)
   | .some a =>
     if a.params.length != args.length then refuse (.refused "arity") else
-    if !((a.params.zip args).all fun ((_, t), v) => conforms p v t) then
+    if !((a.params.zip args).all fun (q, v) => argOk p q v) then
       refuse (.refused "an argument of the wrong type") else
     let env : Env := { prog := p, slots := c.slots, derives := c.settled.derives,
                        resources := c.settled.resources, rows := rowSlots c.store rows, now := c.now }
@@ -507,7 +574,8 @@ def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : Li
         | .error e => refuse e
         | .ok (st, .ok (view, live)) =>
           ({ c with slots, settled := st, store := live, view,
-                    commands := c.commands ++ fx.commands }, .ok)
+                    commands := c.commands ++ fx.commands,
+                    armed := armThens p c.armed fx.sends c.now }, .ok)
         | .ok (st, .error e) =>
           ({ c with slots, settled := st, store, poisoned := true,
                     commands := c.commands ++ fx.commands }, .poisoned e)
@@ -534,7 +602,11 @@ def initSlots (p : Program) : Result (List (String × Value)) := do
 /-- The timers boot starts, one per task. -/
 def startTimers (p : Program) (slots : List (String × Value)) : Result (List Timer) :=
   p.tasks.mapM fun t => do
-    if t.kind == .frame then throw (.unsupported "frame tasks")
+    -- A frame task's first virtual frame follows boot (at 0); its `ms`
+    -- is a placeholder, never read.
+    if t.kind == .frame then
+      return { action := t.action, interval := 0, once := false, next := virtualFrame 0 1,
+               frame := true, base := 0, k := 1 }
     let ms ← (← eval fuel { prog := p, slots } false [] t.ms).asNum
     pure { action := t.action, interval := ms, once := t.kind == .after, next := ms }
 
@@ -561,7 +633,6 @@ def boot (p : Program) (o : Oracle) : Config × Outcome :=
     match startTimers p slots with
     | .error e => (empty, .refused e)
     | .ok timers =>
-      if p.mutations.any (·.andThen.isSome) then (empty, .refused (.unsupported "`then`")) else
       match settle p o slots 0 with
       | .error e => (empty, .refused e)
       | .ok st =>
@@ -611,9 +682,28 @@ def dispatch (p : Program) (o : Oracle) (c : Config) (target : String) (event : 
 /-- The most timer fires one advance makes. -/
 def timerFireLimit : Nat := 4096
 
+/-- The actions the clock may run besides the tasks': mutations' `then`s. -/
+def thenActions (p : Program) : List String := p.mutations.filterMap (·.andThen)
+
+/-- The armed `then` due earliest by `t` (ties by declaration order): the
+mutation, its due time and its action. -/
+def dueThen (p : Program) (armed : List (String × F64)) (t : F64) :
+    Option (String × F64 × String) :=
+  p.mutations.foldl (fun best m =>
+    match m.andThen, armed.find? (·.1 == m.name) with
+    | .some a, .some (_, w) =>
+      if w ≤ t then
+        match best with
+        | .none => Option.some (m.name, w, a)
+        | .some (_, b, _) => if w < b then Option.some (m.name, w, a) else best
+      else best
+    | _, _ => best) Option.none
+
 /-- Move the clock to `t`, firing every timer due by then in order of due
-time (ties by declaration order), each at its own due time. A refusal stops
-the advance there, with the clock at the refusing timer's due time. -/
+time (ties by declaration order), each at its own due time. An armed
+`then` runs, as its own commit, before any timer due at or after its
+time (the answer landed first). A refusal stops the advance there, with
+the clock at the refusing timer's due time. -/
 def advance (p : Program) (o : Oracle) (c : Config) (t : F64) : Config × Outcome :=
   let due (c : Config) : Option (Timer × Nat) :=
     (c.timers.zipIdx).foldl (fun best (tm, i) =>
@@ -622,21 +712,31 @@ def advance (p : Program) (o : Oracle) (c : Config) (t : F64) : Config × Outcom
         | .none => Option.some (tm, i)
         | .some (b, j) => if tm.next < b.next then Option.some (tm, i) else Option.some (b, j)
       else best) Option.none
+  let pick (c : Config) : Option (String × F64 × String) :=
+    match dueThen p c.armed t, due c with
+    | .some (m, w, a), .some (tm, _) => if w ≤ tm.next then Option.some (m, w, a) else Option.none
+    | th, _ => th
   let finish (c : Config) : Config × Outcome := ({ c with now := if t > c.now then t else c.now }, .ok)
   -- At most `timerFireLimit` fires per advance (the runner's
-  -- `TIMER_FIRE_LIMIT`); one more due is a refusal.
+  -- `TIMER_FIRE_LIMIT`), `then`s counted; one more due is a refusal.
   let rec go : Nat → Config → Config × Outcome
     | 0, c =>
-      match due c with
-      | .none => finish c
-      | .some _ => (c, .refused (.refused "too many timer fires"))
+      match pick c, due c with
+      | .none, .none => finish c
+      | _, _ => (c, .refused (.refused "too many timer fires"))
     | n + 1, c =>
       if c.poisoned then (c, .refused (.refused "poisoned")) else
+      match pick c with
+      | .some (m, w, a) =>
+        let c := { c with armed := c.armed.filter (·.1 != m), now := if c.now < w then w else c.now }
+        match runAction p o c a [] [] with
+        | (c, .ok) => go n c
+        | (c, out) => (c, out)
+      | .none =>
       match due c with
       | .none => finish c
       | .some (tm, i) =>
-        let next := if tm.once then F64.posInf else tm.next + tm.interval
-        let timers := c.timers.set i { tm with next }
+        let timers := c.timers.set i tm.fired
         let c := { c with timers, now := tm.next }
         match runAction p o c tm.action [] [] with
         | (c, .ok) => go n c

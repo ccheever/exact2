@@ -417,7 +417,7 @@ built. -/
 theorem reachable_slotsOK {p : Program} {c} (hp : WellTyped p) (h : Reachable p c) : SlotsOK p c.slots :=
   Reachable.invariant (fun c => SlotsOK p c.slots)
     (fun _ => boot_slotsOK hp.slotTyped)
-    (fun _ _ _ hc => hc)
+    (fun _ _ _ _ hc => hc)
     (fun _ _ _ _ _ _ _ _ _ _ _ _ hc _ _ hr => runAction_slotsOK hp.slotTyped hc hr)
     (fun _ _ _ _ _ _ hc hr => runAction_slotsOK hp.slotTyped hc hr) c h
 

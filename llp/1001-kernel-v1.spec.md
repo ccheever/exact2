@@ -98,9 +98,25 @@ one length or percentage; paired horizontal/vertical radii and the slash-separat
 that separate value-pair syntax.
 
 **Border semantics (Codex, 2026-09-11):** four `border_style_*` rows
-(bits 91–94) accept `none | hidden | solid`, initially `none`. Contract's
+(bits 91–94) accept `none | hidden | solid | inset`, initially `none`. Contract's
 single-value `border-style` sets all four; `border-<side>-style` sets one.
-Other line styles are refused until a consumer needs their painting. Widths
+Other line styles are refused until a consumer needs their painting. `inset`
+came with HTML's `hr` (LLP 1021 D1, 2026-10-04): the browser draws it, and
+`border_colors()` gives the native hosts Chrome's two shades, measured from its
+pixels and Blink's `CalculateInsetOutsetColor` — the top and left
+`Color::Dark()`, the bottom and right `Color::Light()`, a colour whose relative
+luminance is no more than `#202020`'s lightened instead (once, and twice for the
+lit side), one brighter than `#ebebeb` its own lit side, and a `currentcolor`
+side — unwritten or written — shaded from `#eeeeee`, not from `color` (WebKit's
+`colorIncludingFallback`, which Blink keeps). Measured 2026-10-04 in Chrome 154
+(`--headless --screenshot`, 4px `inset`/`outset` boxes): `color` red, gray,
+`#000040`, black and `#eeeeee`, with no `border-color` or with `border-color:
+currentcolor`, all paint `#9a9a9a` over `#eeeeee` (`outset` the reverse), while
+`getComputedStyle` reports the border colour as the resolved `color`; an
+explicit `border-color: red` under `color: blue` paints `#ab0000` over red. Chrome's
+UA sheet gives `hr` `color: gray` and no `border-color`, so a bare `hr` is
+`#9a9a9a` over `#eeeeee` whatever its `color`. Firefox shades differently;
+Chrome is the oracle. Widths
 retain their authored values, initially 3 (`medium`), while `border_widths()`
 returns zero for `none`/`hidden`. Layout, Apple content insets and Linux paint
 consume those effective widths. Border colours initially use `currentcolor`:

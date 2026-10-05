@@ -114,15 +114,38 @@ theorem mapM_good {α β} {f : α → Result β} : ∀ {xs : List α},
 theorem ite_pos {α} {c : Prop} [Decidable c] {a b : α} (h : c) : (if c then a else b) = a := by simp [h]
 theorem ite_neg {α} {c : Prop} [Decidable c] {a b : α} (h : ¬ c) : (if c then a else b) = b := by simp [h]
 
-/-- The entries the semantics leaves out are refused as unsupported. -/
+theorem formatting_good {p : Program} {f vs} : GoodR (ValTy p · .string) (formatting f vs) := by
+  cases h : formatting f vs with
+  | ok v => obtain ⟨s, rfl⟩ := formatting_str h; simp [GoodR, ValTy]
+  | error e => obtain ⟨w, rfl⟩ := formatting_err h; simp [GoodR, Legit]
+
+theorem text_good {p : Program} {tables vs} : GoodR (ValTy p · .string) (text tables vs) := by
+  cases h : text tables vs with
+  | ok v => obtain ⟨s, rfl⟩ := text_str h; simp [GoodR, ValTy]
+  | error e => rcases text_err h with ⟨w, rfl⟩ | ⟨w, rfl⟩ <;> simp [GoodR, Legit]
+
+/-- The formats and `t` answer a string or refuse, on any arguments; the
+entries the semantics leaves out are refused as unsupported. -/
 theorem stdlib_unsupported {env : Env} {p : Program} {name : String} {vs : List Value} {t : Ty}
     {ts : List Ty} (h : unsupportedTy name ts = .some t) : GoodR (ValTy p · t) (stdlib env name vs) := by
   delta unsupportedTy at h
   by_cases hn : name = "formatTime" ∨ name = "formatDate"
-  · rcases hn with rfl | rfl <;> simp [stdlib, GoodR, Legit]
+  · rw [ite_pos hn] at h
+    split at h <;> simp at h
+    subst h
+    rcases hn with rfl | rfl <;> simp only [stdlib] <;> exact formatting_good
   rw [ite_neg hn] at h
   by_cases hn : name = "formatNumber"
-  · subst hn; simp [stdlib, GoodR, Legit]
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h
+    subst h
+    simp only [stdlib]; exact formatting_good
+  rw [ite_neg hn] at h
+  by_cases hn : name = "t"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h
+    obtain ⟨-, rfl⟩ := h
+    simp only [stdlib]; exact text_good
   rw [ite_neg hn] at h
   by_cases hn : name = "frame" ∨ name = "measure"
   · rcases hn with rfl | rfl <;> simp [stdlib, GoodR, Legit]
@@ -807,11 +830,19 @@ theorem read_notPending (t : Route.Table) (v : Value) (f : Route.Router → Opti
   · exact NotPending.ok _
   · exact NotPending.err (by simp)
 
+theorem formatting_notPending (f : String) (args : List Value) : NotPending (formatting f args) :=
+  fun _ h => by obtain ⟨w, rfl⟩ := formatting_err h; simp
+
+theorem text_notPending (tables : Format.Tables) (args : List Value) : NotPending (text tables args) :=
+  fun _ h => by rcases text_err h with ⟨w, rfl⟩ | ⟨w, rfl⟩ <;> simp
+
 theorem stdlib_notPending (env : Env) (f : String) (args : List Value) : NotPending (stdlib env f args) := by
   unfold stdlib
   split
   all_goals try dsimp only
   all_goals first
+    | exact formatting_notPending _ _
+    | exact text_notPending _ _
     | exact NotPending.ok _
     | exact NotPending.err (by simp)
     | exact verb_notPending _ _ _
@@ -1217,7 +1248,7 @@ theorem exec_sound_aux {p : Program} (hfn : ProgOK p) {E : Err → Prop}
           exec_sound_aux hfn hE hacts n henv hl hr ⟨hfx.1, hfx.2⟩
       | send x src args =>
         simp only [StmtsTy] at hs
-        obtain ⟨hm, ⟨ts, hargs⟩, hr⟩ := hs
+        obtain ⟨hm, ⟨ts, hargs, -⟩, hr⟩ := hs
         simp only [exec]
         refine GoodW.bind (evalList_sound_E hfn hE henv hl hargs) fun vs _ =>
           exec_sound_aux hfn hE hacts n henv hl hr ⟨hfx.1, fun s hs' => ?_⟩

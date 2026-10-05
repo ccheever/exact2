@@ -19,6 +19,8 @@ pub(crate) struct Writes<'a> {
     pub(crate) slots: &'a [(String, Ty)],
     /// Whether `send` statements may be written (the root's mutations).
     pub(crate) send: bool,
+    /// Whether `nav = verb(…)` may be written (the root's router slot).
+    pub(crate) nav: bool,
 }
 
 impl Gen<'_> {
@@ -75,6 +77,7 @@ impl Gen<'_> {
             } else {
                 0
             },
+            if w.nav { 3 } else { 0 },
         ];
         match self.rng.weighted(&weights) {
             0 => {
@@ -121,6 +124,7 @@ impl Gen<'_> {
                 self.join_sent(some);
             }
             5 => self.call_action(env, &pad, out),
+            6 => out.push_str(&self.nav_stmt(env, &pad)),
             _ => {
                 let unsent = self.unsent();
                 let m = self.rng.pick(&unsent).clone();
@@ -196,9 +200,14 @@ impl Gen<'_> {
     }
 
     /// The earlier actions this path may call: none sends what it has sent.
+    /// A mutation's `then` action sends nothing, through a call neither.
     fn callees(&self) -> Vec<usize> {
+        let then = self.then == Some(self.callable);
         (0..self.callable)
-            .filter(|&j| self.sends[j].iter().all(|m| !self.sent.contains(m)))
+            .filter(|&j| {
+                self.sends[j].iter().all(|m| !self.sent.contains(m))
+                    && !(then && !self.sends[j].is_empty())
+            })
             .collect()
     }
 

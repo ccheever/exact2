@@ -465,7 +465,7 @@ Several tags share a kernel node type with different fixed properties.
 | Family | Names |
 | --- | --- |
 | Boxes / layout | `view`, `box`, `row`, `column`, `scroll`, `list` |
-| Structure | `main`, `header`, `nav`, `section`, `footer`, `article`, `aside`, `dialog` |
+| Structure | `main`, `header`, `nav`, `section`, `footer`, `article`, `aside`, `dialog`, `hr` |
 | Text and controls | `text`, `button`, `link`, `input`, `textarea`, `select`, `option` |
 | Media / metadata | `image`, `video`, `audio`, `iframe`, `canvas`, `head` |
 | SVG scene | `svg`, `g`, `path`, `polyline`, `polygon`, `circle`, `ellipse`, `line`, `rect` |
