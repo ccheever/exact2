@@ -886,8 +886,8 @@ lift is scripted, so the reads run inside the hold and `during` needs one
 (`hold 300 during "state"`). `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
 first); its reply says what is still in flight (`inflight`, on every host), and `clock settle` lands it.
-`clock settle` also runs the clock to where the last running transition or animation
-ends, firing the timers due on the way, so a test on a timer's grid moves with it.
+`clock settle` also runs the clock to where the last running finite, unpaused
+transition or animation ends, firing the timers due on the way, so a test on a timer's grid moves with it.
 `clock data` lands it without moving the clock: the data module's activation and
 every request in flight, each answer's `then` with it, no timer fired. A CLI drive's
 first operation runs at boot and may come before that has landed (an authored test

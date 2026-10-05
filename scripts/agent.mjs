@@ -289,7 +289,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       }
       // A settle runs up to the page's 20 s deadline twice (requests, then rounds).
       const timeout = req.op === 'clock' && (req.settle || req.data) ? 60000 : undefined;
-      return JSON.parse(await evaluate(`(typeof globalThis.exact?.agentSettled === 'function' ? exact.agentSettled(${JSON.stringify(req)}) : Promise.reject(new Error('the page has no agent adapter: it loaded without ?agent=1 (a raw reload after the router rewrote the URL drops it); navigate to the path with ?agent=1, or use a test file\\'s reload'))).then((r) => JSON.stringify(r))`, timeout));
+      return JSON.parse(await evaluate(`(typeof globalThis.exact?.agentSettled === 'function' ? exact.agentSettled(${JSON.stringify(req)}) : Promise.reject(new Error('the page has no agent adapter: a production build has none, and in a development build a raw reload after the router rewrote the URL drops ?agent=1; use a test file\\'s reload, or load the drive\\'s launch URL again as a new page'))).then((r) => JSON.stringify(r))`, timeout));
     };
     return {
       host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, call, launchFacts: facts,
