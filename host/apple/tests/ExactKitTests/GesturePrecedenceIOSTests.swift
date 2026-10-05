@@ -185,5 +185,27 @@ final class GesturePrecedenceIOSTests: XCTestCase {
         XCTAssertTrue(inner.stopsAtPress(swipe) && outer.stopsAtPress(pan))
         XCTAssertFalse(outer.stopsAtPress(UITapGestureRecognizer()))
     }
+
+    /// LLP 1057.001 §7: a swipe waits for the navigation's screen-edge pop,
+    /// and for nothing else of its class: iOS 26's content pop waits on the
+    /// swipe, so waiting on it too would leave neither able to begin.
+    func testASwipeWaitsForTheEdgePopOnly() throws {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["swiperight"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 100.0]
+        ])
+        let row = try XCTUnwrap(p.views[1]), swipe = try XCTUnwrap(row.swipeRecognizer)
+        let nav = UINavigationController(rootViewController: UIViewController())
+        nav.loadViewIfNeeded()
+        let edge = try XCTUnwrap(nav.interactivePopGestureRecognizer)
+        XCTAssertTrue(row.gestureRecognizer(swipe, shouldRequireFailureOf: edge), "from the edge, back wins")
+        if #available(iOS 26.0, *), let content = nav.interactiveContentPopGestureRecognizer {
+            XCTAssertFalse(row.gestureRecognizer(swipe, shouldRequireFailureOf: content), "not the content pop")
+        }
+        let stray = UIScreenEdgePanGestureRecognizer()
+        UIView().addGestureRecognizer(stray)
+        XCTAssertFalse(row.gestureRecognizer(swipe, shouldRequireFailureOf: stray), "nor another edge pan")
+    }
 }
 #endif
