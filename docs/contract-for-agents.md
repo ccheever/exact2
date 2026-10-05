@@ -247,9 +247,9 @@ at CSS.
 - Numbers have `floor`, `min`, `max`, `%` and `formatNumber`, and no text-to-number parse, `ceil`,
   `round` or fixed-decimal format: a typed amount is parsed (and money formatted)
   in a source, which takes the field's text and answers the number.
-- A list grows only through a source: there is no append and no nonempty list
-  literal, so an added item comes back in an answer (a mutation that `refreshes`
-  the list's resource, or its own answer).
+- There is no general list append and no nonempty list literal: add an item to
+  resource-backed data in its source and answer the updated list (a mutation that
+  `refreshes` the list's resource, or its own answer).
 - Standard calls are free functions, not methods: `trim(s)`, `includes(s, q)`.
   There are no nonempty list literals, object literals, general lambdas, array
   indexing, assignment expressions, or JavaScript built-ins by implication.

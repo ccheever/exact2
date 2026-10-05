@@ -142,7 +142,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
   const kept = storage === undefined ? null : driveStore(selected.id, storage, env);
   if (kept && fresh) await removeBrowserProfile(kept.profile);
   await new Promise((ok, fail) => { server.once('error', fail); server.listen(kept && !pageURL ? kept.port : 0, '127.0.0.1', ok); }).catch((e) => {
-    throw e.code === 'EADDRINUSE' ? new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open (a store is one drive's at a time), or another program holds the port, which another store name avoids`) : e;
+    throw e.code === 'EADDRINUSE' ? new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open (a store is one drive's at a time), or another program holds the port: try another store name`) : e;
   });
   const port = server.address().port;
   const chrome = chromium().executable;
