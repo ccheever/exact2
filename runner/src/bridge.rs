@@ -80,6 +80,24 @@ pub fn set_plan_style(
             });
         }
     }
+    // Profiles are parsed in the owning plan, even before a candidate is accepted.
+    // Ordinary styles allocate no declaration table.
+    let _profiles = matches!(value, exact_plan::str_value!())
+        .then(|| {
+            value
+                .text()
+                .as_bytes()
+                .windows(8)
+                .any(|w| w.eq_ignore_ascii_case(b"color(--"))
+        })
+        .unwrap_or(false)
+        .then(|| {
+            exact_kernel::style::profiled::declarations(
+                plan.profiles
+                    .iter()
+                    .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
+            )
+        });
     set_style(patch, id, value, plan.stacks.len())
 }
 
@@ -147,15 +165,6 @@ pub struct KeyframesTable(
 /// The plan's `keyframes` table. The compiler validated every row; one that
 /// no longer parses (a plan from another evaluator) names nothing.
 pub fn keyframes(plan: &exact_plan::Plan) -> KeyframesTable {
-    // @ref LLP 1100 D3 — the plan's `@color-profile`s, before any style row
-    // that names one is parsed.
-    for row in &plan.profiles {
-        exact_kernel::style::profiled::declare(
-            plan.str(row.name),
-            plan.str(row.src),
-            plan.str(row.intent),
-        );
-    }
     KeyframesTable(
         plan.keyframes
             .iter()

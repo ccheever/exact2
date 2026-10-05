@@ -786,6 +786,7 @@ public final class ExactSession {
         let t = CACurrentMediaTime()
         primePreferences()
         let cp = text.checkpoint()
+        runtime.setProfileResolver(app.resolver)
         let batch = runtime.bootPlan(bytes, width: size.width, height: size.height)
         if batch.error == nil { updateToken = 0; app.invalidateDevGeneration() }
         if batch.error != nil { text.restore(cp) }

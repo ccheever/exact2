@@ -93,7 +93,12 @@ fn shade(value: ColorValue, shadowed: bool) -> ColorValue {
             return super::wide::parse_wide(&text).unwrap_or(value);
         }
     }
-    match value {
+    // Profile transforms belong to the host. Other reference forms retain
+    // the legacy inset shading of their declared fallback pair.
+    if matches!(value, ColorValue::Profiled(_)) {
+        return value;
+    }
+    match value.fallback() {
         ColorValue::Fixed(c) => ColorValue::Fixed(one(c)),
         ColorValue::LightDark(light, dark) => ColorValue::LightDark(one(light), one(dark)),
         other => other,
@@ -174,6 +179,23 @@ fn scaled(c: Color, multiplier: f32) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn role_and_platform_inset_shade_the_fallback_pair() {
+        let role = ColorValue::parse_light_dark("CanvasText").unwrap();
+        assert_eq!(
+            shade(role, true),
+            ColorValue::LightDark(grey(84), grey(171))
+        );
+        assert_eq!(
+            shade(role, false),
+            ColorValue::LightDark(grey(168), grey(255))
+        );
+        let platform =
+            ColorValue::parse_light_dark("platform-color(macos labelColor, #808080)").unwrap();
+        assert_eq!(shade(platform, true), ColorValue::Fixed(grey(44)));
+        assert_eq!(shade(platform, false), ColorValue::Fixed(grey(212)));
+    }
 
     #[test]
     fn wide_inset_shading_keeps_out_of_gamut_components() {

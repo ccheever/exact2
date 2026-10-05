@@ -48,6 +48,29 @@ final class WideColorTests: XCTestCase {
         XCTAssertEqual(spec.color.alpha, 0.5)
     }
 
+    func testMixedAppearanceGradientDenseSamplesOnlyItsLegacyScheme() throws {
+        for legacyDark in [false, true] {
+            let legacy: BatchValue = [0, 128, 0, 0, 128, 1, 0, 0, 64, 64]
+            let wide: BatchValue = [0, 1.2, -0.04, -0.02, 1, 1, 0, 0, 1, 1]
+            let row: BatchValue = ["linear": 180, "stops": legacyDark ? wide : legacy,
+                "dark": legacyDark ? legacy : wide,
+                "space": legacyDark ? "srgb-linear" : "srgb",
+                "darkSpace": legacyDark ? "srgb" : "srgb-linear"]
+            let gradient = try XCTUnwrap(Gradient(row))
+            let (locations, colors) = gradient.stops(dark: legacyDark, dense: true)
+            XCTAssertEqual(locations.count, 17)
+            let midpoint = try XCTUnwrap(colors.first(where: { color in
+                abs((color.components?[3] ?? 0) - 96.0 / 255) < 0.00001
+            }))
+            XCTAssertEqual(midpoint.colorSpace?.name, CGColorSpace.sRGB)
+            XCTAssertEqual(try XCTUnwrap(midpoint.components)[0], 64.0 / 255, accuracy: 0.00001)
+            XCTAssertEqual(try XCTUnwrap(midpoint.components)[2], 32.0 / 255, accuracy: 0.00001)
+            let (wideLocations, wideColors) = gradient.stops(dark: !legacyDark, dense: true)
+            XCTAssertEqual(wideLocations.count, 2)
+            XCTAssertEqual(wideColors[0].colorSpace?.name, CGColorSpace.extendedLinearSRGB)
+        }
+    }
+
     func testAGradientInterpolatedElsewhereIsDrawnInExtendedLinearSRGB() throws {
         let row: BatchValue = ["linear": 180, "stops": [0, 1.2, -0.04, -0.02, 1, 1, 0, 0, 1, 1], "space": "srgb-linear"]
         let g = try XCTUnwrap(Gradient(row))

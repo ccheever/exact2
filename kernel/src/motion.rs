@@ -214,7 +214,13 @@ fn color(c: ColorValue, dark: bool) -> Option<Value> {
     if let ColorValue::Wide(id) = c {
         if let Some(w) = crate::style::wide::wide(id) {
             let half = w.half(dark);
-            let [l, a, b] = exact_color::MixSpace::Oklab.from_linear_srgb(half.linear_srgb());
+            let linear = half.linear_srgb();
+            // Moving stores signed 1/2048ths. A color outside that range
+            // must change discretely, never flatten at the storage ceiling.
+            if linear.iter().any(|v| !(-16.0..=15.999).contains(v)) {
+                return None;
+            }
+            let [l, a, b] = exact_color::MixSpace::Oklab.from_linear_srgb(linear);
             return Some(Value::oklab(l, a, b, half.alpha));
         }
     }

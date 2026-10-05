@@ -174,12 +174,22 @@ names.
   modern stop interpolates in Oklab; a gradient of legacy colors uses the
   8-bit sRGB path.
 - A gradient that is not legacy is sampled sixteen times per stretch in
-  extended linear sRGB.
-- A transition with an Oklab endpoint moves in Oklab. A transition between
+  extended linear sRGB. Apple carries a separate space flag for each
+  appearance (`space`, `darkSpace`): a legacy half retains the byte sRGB
+  ramp, which the presenter dense-samples in sRGB.
+- A transition with an Oklab endpoint moves in Oklab when both endpoints
+  fit `Moving` (linear sRGB components −16 through 15.999). Larger or
+  non-finite converted endpoints change discretely, including shadows; the
+  authored color remains admitted. A transition between
   two legacy colors moves in premultiplied sRGB. A finished transition
   presents its target in its own form.
 - A computation over a `Profiled` color is refused: a gradient refuses it,
   and a transition to or from it is discrete.
+- ICC declarations belong to the compiler/plan currently parsing styles. The
+  parser binds them in a thread-local scope and restores the previous scope
+  on return or unwinding. Preparing, discarding or accepting a candidate never
+  mutates a live plan's declarations; an accepted plan's next parse uses its
+  own complete declaration table (including removals).
 
 **Hosts:**
 
@@ -236,8 +246,10 @@ column for every app to serve the few colors that need it.
   `ProfileSpaces` makes the space with `CGColorSpace(name:)` or
   `CGColorSpace(iccData:)` from the owning runtime's asset resolver. The batch
   decoder binds ICC paths to SHA-256 content identities before any view or
-  text worker reads them; the cache holds only immutable identities. A file
-  replacement resolves afresh, and already-bound values retain their bytes.
+  text worker reads them, including explicit-plan boot. A bounded cache holds
+  the last 64 distinct profiles; decoded values retain immutable profile handles
+  across eviction, file replacement and session/generation changes. Unused
+  evicted handles are reclaimed. A cache miss resolves the owning asset again.
   ICC colors are converted once to extended sRGB with the authored rendering
   intent, since `CGColor` itself does not retain an intent.
 - **Web and Linux** don't have it. The web gets it when browsers ship
@@ -415,14 +427,18 @@ These layers are:
 - the layer of a background, a border, a box fill, a box shadow's casters,
   and an SVG scene's shapes, when any color it paints is HDR
   (`NodeView.applyColorRanges`, on each box paint and each limit change)
-- a text raster's layer, when its ink or its `text-shadow` is HDR
+- a text raster's layer, when its ink or its `text-shadow` is HDR, or its
+  wide SDR ink needs extended storage outside Display P3. Headroom 1 marks
+  the latter; macOS retains it on the IOSurface and configures both direct
+  and overflow layers, UIKit retains it on the CGImage and ink layer
 - a view's own layer, when what it draws itself in `draw(_:)` is HDR (below)
 - an inline `AVPlayerLayer` (D11)
 - an HDR GPU canvas's layer (D12b)
 
 Rules that follow:
-- **Any other layer stays `.standard`.** An EDR layer costs the compositor
-  and battery even when its content is SDR.
+- **Any other layer stays `.standard`.** Wide SDR colors needing extended
+  components also request the node's range, with headroom 1. An EDR layer
+  costs the compositor and battery even when its content is SDR.
 - **An HDR fill is never a flat leaf.** A run of flat leaves shares one
   shape layer, which has one range.
 - **`toneMapMode` is not set.** It stays Core Animation's automatic mode.
@@ -704,8 +720,15 @@ resolved `light-dark()` interpolation, and wide inset shading. Apple tests
 cover real gradient layers and drawn box stores, profile replacement between
 sessions/generations, authored ICC intents against Core Graphics, profiled
 text storage, unknown PQ/HLG headroom, screen-change publication and HDR
-image flight layers. Build/run results are reported by the fix round; these
-regressions do not replace V6's physical-panel verification.
+image flight layers. Round 2 also covers role/platform inset fallbacks,
+per-appearance gradient encoding and sampling (opaque and translucent),
+explicit-plan ICC boot through a real session, wide text presentation layers,
+candidate profile isolation through prepare/discard/commit, discrete large-HDR
+transitions, and bounded ICC caching with live values surviving eviction.
+The suggested native `platform-color` profile-fallback bake bypass was rejected:
+`parse_platform` admits only plain legacy colors or a legacy `light-dark` pair;
+profile fallbacks fail compilation before bake validation. Build/run results
+are reported by the fix round; these regressions do not replace V6's physical-panel verification.
 
 The five checks keep their 60 s. Anything on a simulator, browser or device
 runs in the async lane or by a person.
@@ -935,19 +958,32 @@ It is not built for Linux.
 
 ## 11. Not built
 
-- **Runner ownership of color tables:** `WIDE`, `PROFILED` and `DECLARED`
-  still belong to the process. Overflow now refuses; it never clips. Two
-  runners still share capacity, and a later declaration with the same profile
-  name changes future parses in the other runner. Already-interned values keep
-  their source. Fixing this requires threading runner context through style
-  parsing, wire decoding and color lookup; deferred from the PR #94 fix round.
-  Apple's ICC asset resolution/cache is fixed independently: owning resolver
-  at decode, immutable content hash thereafter.
+- **Runner ownership of interned color tables:** `WIDE` and `PROFILED`
+  remain process-global, immutable after insertion, with shared capacity
+  (4096 and 1024 respectively). Overflow refuses, never clips. Candidate
+  preparation can still consume slots even when discarded; values are not
+  reclaimed. Declared profile names are now isolated per compiler/plan parse,
+  and interned profile values retain their resolved source and intent. Direct
+  callers of kernel profile parsing/wire decoding must bind an explicit
+  `profiled::declarations` scope. Per-runner interning/reclamation would require
+  context in style values, wire decoding and host lookup, and remains deferred.
+  Apple's independent ICC cache is bounded and live values own their handles.
 - **CSS missing components:** `none` still becomes zero before interpolation,
-  including alpha. CSS Color 4 carry-forward needs missingness on the color
-  value, analogous-component conversion between spaces, canonical/wire
-  round-tripping and motion/recorder changes. This is a value-model change,
-  deferred from this fix round; do not rely on `none` to borrow a component.
+  including alpha and same-space endpoints. Valid CSS is accepted. The
+  narrower same-space fix was examined in round 2: a mask on `Wide` would
+  cover modern gradient interiors but not legacy `rgb`/`hsl`/`hwb` (already
+  reduced to `Rgba8`), gradient stop endpoints (emitted directly), or motion
+  (`Value` stores premultiplied components without missingness). Completing
+  carry-forward before premultiplication also needs those value paths plus
+  canonical/wire and Rust/JS recorder round-tripping. That coordinated change
+  remains deferred; do not rely on `none` to borrow a component. See
+  [CSS Color 4, interpolating with missing components](https://www.w3.org/TR/css-color-4/#interpolation-missing).
+- **Motion storage range:** `Moving` stays the compact signed 1/2048 encoding.
+  Authored endpoints outside −16…15.999 linear sRGB are discrete on native
+  transitions, rather than plateauing at the ceiling and jumping on completion.
+  This is an intentional limit relative to browser interpolation; no wire or
+  schema change was made. Spring overshoot within otherwise supported
+  transitions still uses that compact frame range.
 - **Inset profile colors:** predefined wide colors shade in linear sRGB with
   extended components retained; arbitrary ICC colors remain unshaded because
   the kernel cannot transform profiles. At the wide interning cap, an inset

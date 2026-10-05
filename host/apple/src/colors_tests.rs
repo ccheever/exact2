@@ -377,15 +377,86 @@ fn wide_shadow_motion_reaches_the_presenter_unclipped() {
 }
 
 #[test]
-fn mixed_appearance_gradient_keeps_one_wire_space() {
+fn mixed_appearance_gradient_keeps_each_schemes_wire_space() {
     let (_, batch) = boot("component A\n  view\n    box width=20 height=20 background-image=\"linear-gradient(light-dark(red, color(display-p3 1 0 0)), blue)\"\n");
     let parsed = ops(&batch);
     let gradient = parsed
         .iter()
         .find_map(|op| op["style"].get("background_image"))
         .unwrap();
-    assert_eq!(gradient["space"], "srgb-linear");
-    assert_eq!(gradient["stops"][1], 1.0);
-    assert_eq!(gradient["stops"][4], 1.0);
+    assert!(gradient["space"].is_null());
+    assert_eq!(gradient["darkSpace"], "srgb-linear");
+    assert_eq!(gradient["stops"][1], 255);
+    assert_eq!(gradient["stops"][4], 255);
     assert!(gradient["dark"][1].as_f64().unwrap() > 1.1);
+}
+
+#[test]
+fn mixed_appearance_translucent_gradient_keeps_legacy_premultiplication() {
+    for (first, second, legacy_key, wide_key) in [
+        (
+            "light-dark(rgb(255 0 0 / 50%), color(display-p3 1 0 0))",
+            "light-dark(rgb(0 0 255 / 25%), color(display-p3 0 0 1))",
+            "stops",
+            "dark",
+        ),
+        (
+            "light-dark(color(display-p3 1 0 0), rgb(255 0 0 / 50%))",
+            "light-dark(color(display-p3 0 0 1), rgb(0 0 255 / 25%))",
+            "dark",
+            "stops",
+        ),
+    ] {
+        let (_, batch) = boot(&format!("component A\n  view\n    box background-image=\"linear-gradient({first}, {second})\"\n"));
+        let parsed = ops(&batch);
+        let gradient = parsed
+            .iter()
+            .find_map(|op| op["style"].get("background_image"))
+            .unwrap();
+        let expected = exact_kernel::gradient::BackgroundImage::parse(
+            "linear-gradient(rgb(255 0 0 / 50%), rgb(0 0 255 / 25%))",
+        )
+        .unwrap();
+        let ramp =
+            exact_kernel::gradient::premultiplied_ramp(&expected.layers()[0].resolved(false));
+        let stops = gradient[legacy_key].as_array().unwrap();
+        assert_eq!(stops.len(), ramp.len() * 5);
+        for (row, (at, c)) in stops.chunks_exact(5).zip(ramp) {
+            assert!((row[0].as_f64().unwrap() - f64::from(at)).abs() < 0.00001);
+            assert_eq!(
+                &row[1..],
+                &[c.r(), c.g(), c.b(), c.a()].map(serde_json::Value::from)
+            );
+        }
+        assert!(gradient[wide_key][1].as_f64().unwrap() > 1.1);
+    }
+}
+
+#[test]
+fn hdr_colors_outside_motion_storage_change_discretely() {
+    for value in [
+        "color(rec2100-linear 32 32 32)",
+        "color(srgb-linear 1000 1000 1000)",
+    ] {
+        let (mut host, _) = boot(&format!("component A\n  state on = false\n  action go\n    on = true\n  view\n    column\n      button testId=\"go\" press=go\n        text \"Go\"\n      box testId=\"b\" width=20 height=20 background-color=(on ? \"{value}\" : \"#000\") box-shadow=(on ? \"0 2px 4px {value}\" : \"0 2px 4px #000\") transition=\"background-color 1s linear, box-shadow 1s linear\"\n"));
+        let go = view(&host, "go");
+        let batch = host.dispatch_at(go, exact_runner::Event::Press, 100.0);
+        let json: serde_json::Value = serde_json::from_str(&batch).unwrap();
+        assert_eq!(
+            json["motion"], false,
+            "unsupported range must be discrete: {batch}"
+        );
+        let changes = ops(&batch);
+        let style = &changes
+            .iter()
+            .find(|op| op["style"].get("background_color").is_some())
+            .unwrap()["style"];
+        assert!(style["background_color"]["cs"][0]["v"][0].as_f64().unwrap() > 31.0);
+        assert!(
+            style["box_shadow"][0]["c"]["cs"][0]["v"][0]
+                .as_f64()
+                .unwrap()
+                > 31.0
+        );
+    }
 }

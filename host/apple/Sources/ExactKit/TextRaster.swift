@@ -27,7 +27,8 @@ struct TextRasterImage {
     /// The part of the box these pixels answer for: the box and any ink past
     /// it, within a band's clip. `frame` is the same unless the job crops.
     let covered: CGRect
-    /// The ink's peak over SDR white, or 0 for SDR ink (LLP 1100 D8).
+    /// The ink's peak: 0 for ordinary SDR, 1 for extended SDR storage,
+    /// above 1 for HDR (LLP 1100 D8).
     var headroom: Float = 0
 }
 
@@ -182,7 +183,6 @@ struct TextRasterJob {
               pixelWidth < CGFloat(Int.max), pixelHeight < CGFloat(Int.max) else { return nil }
         let width = Int(pixelWidth), height = Int(pixelHeight)
         let (space, headroom, deep) = format
-        let hdr = headroom > 1
         let pixelBytes = deep ? 8 : 4
         let bitmapInfo = deep
             ? CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.floatComponents.rawValue | CGBitmapInfo.byteOrder16Little.rawValue
@@ -196,7 +196,7 @@ struct TextRasterJob {
         defer {
             surface.unlock(options: [], seed: nil)
             if let profile = space.copyPropertyList() { IOSurfaceSetValue(surface, kIOSurfaceColorSpace, profile) }
-            if hdr, #available(macOS 15, *) { IOSurfaceSetValue(surface, kIOSurfaceContentHeadroom, NSNumber(value: headroom)) }
+            if deep, #available(macOS 15, *) { IOSurfaceSetValue(surface, kIOSurfaceContentHeadroom, NSNumber(value: headroom)) }
         }
         guard let ctx = CGContext(data: surface.baseAddress, width: width, height: height, bitsPerComponent: deep ? 16 : 8,
                                   bytesPerRow: surface.bytesPerRow, space: space, bitmapInfo: bitmapInfo)
@@ -217,7 +217,7 @@ struct TextRasterJob {
             else { return nil }
             paint(lines, positions, frame: frame, height: height, scale: scale, into: ctx)
             guard var image = ctx.makeImage() else { return nil }
-            if hdr, #available(iOS 18, tvOS 18, *), let tagged = CGImageCreateCopyWithContentHeadroom(headroom, image) { image = tagged }
+            if deep, #available(iOS 18, tvOS 18, *), let tagged = CGImageCreateCopyWithContentHeadroom(headroom, image) { image = tagged }
             return TextRasterImage(image: image, frame: frame, covered: covered, headroom: headroom)
         }
         #endif
@@ -230,8 +230,11 @@ struct TextRasterJob {
     #if os(macOS)
     /// A raster's headroom, as `render` tagged its surface, or 0.
     static func headroom(of surface: IOSurface) -> Float {
-        guard #available(macOS 15, *) else { return 0 }
-        return (IOSurfaceCopyValue(surface, kIOSurfaceContentHeadroom) as? NSNumber)?.floatValue ?? 0
+        // Float text always needs extended presentation, even on macOS 14,
+        // before IOSurface has a standard content-headroom key.
+        let storage: Float = IOSurfaceGetBytesPerElement(surface) == 8 ? 1 : 0
+        guard #available(macOS 15, *) else { return storage }
+        return max(storage, (IOSurfaceCopyValue(surface, kIOSurfaceContentHeadroom) as? NSNumber)?.floatValue ?? 0)
     }
     #endif
 

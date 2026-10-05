@@ -2,6 +2,12 @@ import XCTest
 import CoreGraphics
 import CoreText
 import IOSurface
+import QuartzCore
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 @testable import ExactKit
 
 /// LLP 1100 D3: a profile's colour is made by Core Graphics in the profile's
@@ -52,6 +58,61 @@ final class ProfileColorTests: XCTestCase {
         XCTAssertNil(missing.cgColor(dark: false))
     }
 
+    #if os(macOS)
+    func testFloatTextSurfaceWithoutHeadroomKeepsExtendedStorage() throws {
+        let surface = try XCTUnwrap(IOSurface(properties: [.width: 10, .height: 10,
+            .bytesPerElement: 8, .pixelFormat: UInt32(0x52476841)]))
+        XCTAssertEqual(TextRasterJob.headroom(of: surface), 1)
+        let layer = CALayer()
+        layer.applyTextRange(headroom: TextRasterJob.headroom(of: surface), limit: nil)
+        if #available(macOS 26, *) { XCTAssertEqual(layer.preferredDynamicRange, .high) }
+        else { XCTAssertTrue(layer.wantsExtendedDynamicRangeContent) }
+    }
+
+    func testExplicitPlanBootInstallsItsProfileResolver() throws {
+        let dir = try root(), app = ExactApp.shared
+        let oldRoot = app.assetRoot
+        defer { app.assetRoot = oldRoot; try? FileManager.default.removeItem(at: dir) }
+        let profile = try XCTUnwrap(CGColorSpace(name: CGColorSpace.displayP3)?.copyICCData()) as Data
+        try profile.write(to: dir.appendingPathComponent("assets/brand.icc"))
+        let source = "color-profile --explicit-test src=\"assets/brand.icc\"\ncomponent App\n  view\n    box width=20 height=20 background-color=\"color(--explicit-test 1 0 0)\"\n"
+        try source.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
+        compiler.arguments = ["build", dir.appendingPathComponent("app.contract").path, "-o", dir.appendingPathComponent("app.plan").path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        app.assetRoot = dir
+        let session = app.makeSession()
+        defer { session.destroy() }
+        let batch = session.boot(plan: try Data(contentsOf: dir.appendingPathComponent("app.plan")), size: CGSize(width: 100, height: 100))
+        XCTAssertNil(batch.error)
+        let value = try XCTUnwrap(batch.ops.compactMap { $0.style["background_color"] }.first)
+        XCTAssertGreaterThan(try XCTUnwrap(value.cgColor(dark: false)?.components)[0], 1.05)
+        let view = try XCTUnwrap(session.presenter.views.values.first { $0.style["background_color"] != nil })
+        XCTAssertNotNil(view.cgColor("background_color"))
+    }
+    #endif
+
+    func testProfileCacheIsBoundedAndLiveValuesSurviveEviction() throws {
+        let dir = try root()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let bytes = try XCTUnwrap(CGColorSpace(name: CGColorSpace.displayP3)?.copyICCData()) as Data
+        let url = dir.appendingPathComponent("assets/brand.icc"), resolver = AssetResolver(root: dir)
+        try bytes.write(to: url)
+        let live = try row(resolver)
+        for i in 0..<80 {
+            var generation = bytes
+            // ICC's profile ID is metadata; the color transform stays valid.
+            generation[84] = UInt8(i)
+            generation[85] = 1
+            try generation.write(to: url)
+            XCTAssertNotNil(try row(resolver).cgColor(dark: false))
+        }
+        XCTAssertLessThanOrEqual(ProfileSpaces.cacheCount, 64)
+        XCTAssertGreaterThan(try XCTUnwrap(live.cgColor(dark: false)?.components)[0], 1.05)
+    }
+
     func testICCConversionUsesTheAuthoredRenderingIntent() throws {
         let root = try root()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -84,8 +145,46 @@ final class ProfileColorTests: XCTestCase {
             let image = try XCTUnwrap(TextRasterJob(source: source, ranges: [CFRange(location: 0, length: 4)], baselines: [28], flush: 0, box: box, size: box.size, scale: 2).render())
             #if os(macOS)
             XCTAssertEqual(IOSurfaceGetBytesPerElement(image.surface), 8, "profile outside P3 needs float storage")
+            XCTAssertEqual(TextRasterJob.headroom(of: image.surface), image.headroom)
+            if name == "cg:kCGColorSpaceDCIP3" { XCTAssertEqual(image.headroom, 1, "wide SDR exercises both presentation branches") }
+            let session = ExactApp.shared.makeSession()
+            defer { session.destroy() }
+            session.presenter.apply(wireBatch([
+                ["op": "create", "id": 1, "kind": "text", "props": ["text": "Wide"]],
+                ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 100, "h": 40]
+            ]))
+            let node = try XCTUnwrap(session.presenter.views[1])
+            node.textRaster = image.surface; node.textRasterScale = 2
+            for frame in [box, box.insetBy(dx: -2, dy: -2)] {
+                node.textRasterFrame = frame
+                node.presentTextRaster()
+                let ink = try XCTUnwrap(node.textRasterOverflowLayer ?? node.layer)
+                if #available(macOS 26, *) {
+                    XCTAssertEqual(ink.preferredDynamicRange, .high)
+                    XCTAssertEqual(ink.contentsHeadroom, CGFloat(image.headroom))
+                } else { XCTAssertTrue(ink.wantsExtendedDynamicRangeContent) }
+            }
             #else
             XCTAssertEqual(image.image.bitsPerComponent, 16)
+            if #available(iOS 18, tvOS 18, *) { XCTAssertEqual(image.image.contentHeadroom, image.headroom, accuracy: 0.001) }
+            let session = ExactApp.shared.makeSession()
+            defer { session.destroy() }
+            session.presenter.apply(wireBatch([
+                ["op": "create", "id": 1, "kind": "text", "props": ["text": "Wide"]],
+                ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 100, "h": 40]
+            ]))
+            let node = try XCTUnwrap(session.presenter.views[1])
+            let key = TextRasterKey(spec: node.paragraphSpec(), size: box.size, box: box, scale: 2)
+            node.textRasterKey = key; node.textRasterReady = false
+            node.showTextRaster(image, for: key)
+            let ink = try XCTUnwrap(node.textRasterLayer)
+            if #available(iOS 26, tvOS 26, *) {
+                XCTAssertEqual(ink.preferredDynamicRange, .high)
+                XCTAssertEqual(ink.contentsHeadroom, CGFloat(image.headroom))
+            }
+
             #endif
         }
     }

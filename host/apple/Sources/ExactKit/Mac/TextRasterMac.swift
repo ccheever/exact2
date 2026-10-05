@@ -286,8 +286,10 @@ extension NodeView {
             layer.contentsScale = textRasterScale
             layer.contentsGravity = .resize
             layer.contents = surface
+            layer.applyTextRange(headroom: headroom, limit: style["dynamic_range_limit"]?.string)
         } else {
             layer.contents = nil
+            layer.applyTextRange(headroom: 0, limit: style["dynamic_range_limit"]?.string)
             let ink = textRasterOverflowLayer ?? CALayer()
             if ink.superlayer == nil { layer.addSublayer(ink) }
             textRasterOverflowLayer = ink
@@ -306,6 +308,7 @@ extension NodeView {
         textRasterOverflowLayer?.removeFromSuperlayer()
         textRasterOverflowLayer = nil
         if textRaster != nil, wantsUpdateLayer { layer?.contents = nil }
+        layer?.setValue(nil, forKey: CALayer.textHeadroomKey)
         textRaster = nil
         textRasterKey = nil
         textRasterReady = false

@@ -743,7 +743,7 @@ fn a_bare_node_s_colour_is_the_platform_s_text_colour_and_its_tint_the_accent() 
 /// LLP 1100 D3.
 #[test]
 fn a_profiles_colour_is_the_platforms_to_draw() {
-    use super::profiled::{declare, profiled, Source};
+    use super::profiled::{declarations, profiled, Source};
     let dci = ColorValue::parse_light_dark("color(--dci-p3 1 0.5 0)").unwrap();
     let ColorValue::Profiled(id) = dci else {
         panic!("{dci:?}")
@@ -760,7 +760,7 @@ fn a_profiles_colour_is_the_platforms_to_draw() {
         ColorValue::parse_light_dark("color(--nobody 1 0 0)").is_none(),
         "undeclared"
     );
-    declare("--kernel-test-cmyk", "assets/cmyk.icc", "perceptual");
+    let _profiles = declarations([("--kernel-test-cmyk", "assets/cmyk.icc", "perceptual")]);
     let cmyk =
         ColorValue::parse_light_dark("color(--kernel-test-cmyk 0.1 0.8 0.2 0.05 / 50%)").unwrap();
     let ColorValue::Profiled(id) = cmyk else {

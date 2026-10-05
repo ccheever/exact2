@@ -34,15 +34,39 @@ pub struct ProfiledValue {
 
 /// A declared profile: its name, ICC asset and rendering intent.
 type Declared = (Box<str>, Box<str>, Box<str>);
-static DECLARED: Mutex<Vec<Declared>> = Mutex::new(Vec::new());
+thread_local! {
+    static DECLARED: std::cell::RefCell<Vec<Declared>> = const { std::cell::RefCell::new(Vec::new()) };
+}
 static PROFILED: Mutex<Vec<Arc<ProfiledValue>>> = Mutex::new(Vec::new());
 const PROFILED_CAP: usize = 1024;
 
-/// An app's `@color-profile`; a later declaration of a name replaces it.
-pub fn declare(name: &str, src: &str, intent: &str) {
-    if let Ok(mut d) = DECLARED.lock() {
-        d.retain(|(n, ..)| &**n != name);
-        d.push((name.into(), src.into(), intent.into()));
+/// A parse scope's declarations, restored on return or unwinding. The guard
+/// stays on its creating thread; interned values retain their resolved source.
+pub struct DeclarationScope {
+    previous: Vec<Declared>,
+    thread: std::marker::PhantomData<std::rc::Rc<()>>,
+}
+
+/// Bind a compiler/plan's declarations only while its styles are being parsed.
+/// Candidate preparation and other runners cannot publish into this scope.
+pub fn declarations<'a>(
+    rows: impl IntoIterator<Item = (&'a str, &'a str, &'a str)>,
+) -> DeclarationScope {
+    let next = rows
+        .into_iter()
+        .map(|(n, s, i)| (n.into(), s.into(), i.into()))
+        .collect();
+    DeclarationScope {
+        previous: DECLARED.with(|d| d.replace(next)),
+        thread: std::marker::PhantomData,
+    }
+}
+
+impl Drop for DeclarationScope {
+    fn drop(&mut self) {
+        DECLARED.with(|d| {
+            d.replace(std::mem::take(&mut self.previous));
+        });
     }
 }
 
@@ -64,12 +88,14 @@ pub fn parse_profiled(text: &str) -> Option<ColorValue> {
         }
         Source::Named(apple)
     } else {
-        let declared = DECLARED.lock().ok()?;
-        let (_, src, intent) = declared.iter().find(|d| *d.0 == *name)?;
-        Source::Icc {
-            src: src.clone(),
-            intent: intent.clone(),
-        }
+        DECLARED.with(|declared| {
+            let declared = declared.borrow();
+            let (_, src, intent) = declared.iter().find(|d| *d.0 == *name)?;
+            Some(Source::Icc {
+                src: src.clone(),
+                intent: intent.clone(),
+            })
+        })?
     };
     let n = exact_color::number_text;
     let mut canonical = format!("color({name}");

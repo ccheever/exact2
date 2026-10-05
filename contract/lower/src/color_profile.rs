@@ -4,7 +4,11 @@ use crate::{LowerError, Lowerer};
 use contract_syntax::{Expr, File};
 
 impl Lowerer<'_> {
-    pub(crate) fn declare_color_profiles(&mut self, file: &File) {
+    pub(crate) fn declare_color_profiles(
+        &mut self,
+        file: &File,
+    ) -> exact_kernel::style::profiled::DeclarationScope {
+        let mut declarations = Vec::new();
         for p in &file.color_profiles {
             let mut src = None;
             let mut intent = "relative-colorimetric".to_string();
@@ -30,7 +34,7 @@ impl Lowerer<'_> {
             match src {
                 Some(src) => {
                     // Known to the kernel's parser before any row that names it.
-                    exact_kernel::style::profiled::declare(&p.name, &src, &intent);
+                    declarations.push((p.name.clone(), src.clone(), intent.clone()));
                     self.b.color_profile(&p.name, &src, &intent);
                 }
                 None => self.errors.push(LowerError {
@@ -43,5 +47,8 @@ impl Lowerer<'_> {
                 }),
             }
         }
+        exact_kernel::style::profiled::declarations(
+            declarations.iter().map(|(n, s, i)| (&**n, &**s, &**i)),
+        )
     }
 }

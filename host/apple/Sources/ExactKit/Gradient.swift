@@ -32,7 +32,9 @@ struct Gradient {
     private let dark: [CGFloat]?
     /// Stops CSS interpolated outside sRGB (LLP 1100 D2): already dense, in
     /// extended linear sRGB with alpha 0–1.
-    private let linear: Bool
+    private let lightLinear: Bool
+    private let darkLinear: Bool
+    private func linear(dark: Bool) -> Bool { dark && self.dark != nil ? darkLinear : lightLinear }
 
     init?(_ value: BatchValue?) {
         guard case .object(let o)? = value, let light = o["stops"]?.numbers,
@@ -50,7 +52,8 @@ struct Gradient {
         }
         self.light = light.map { CGFloat($0) }
         dark = o["dark"]?.numbers.map { $0.map { CGFloat($0) } }
-        linear = o["space"]?.string == "srgb-linear"
+        lightLinear = o["space"]?.string == "srgb-linear"
+        darkLinear = o["darkSpace"]?.string == "srgb-linear"
     }
 
     /// A `background-image`'s layers (LLP 1077 D5): one gradient's object,
@@ -87,7 +90,7 @@ struct Gradient {
     /// steps leave it nothing to disagree about.
     func stops(dark isDark: Bool, dense: Bool = false) -> ([CGFloat], [CGColor]) {
         var s = isDark ? dark ?? light : light
-        if linear, let space = CGColorSpace(name: CGColorSpace.extendedLinearSRGB) {
+        if linear(dark: isDark), let space = CGColorSpace(name: CGColorSpace.extendedLinearSRGB) {
             var locations: [CGFloat] = [], colors: [CGColor] = []
             for i in stride(from: 0, to: s.count, by: 5) {
                 locations.append(s[i])
@@ -175,7 +178,7 @@ struct Gradient {
             return
         }
         let (locations, colors) = stops(dark: dark)
-        guard let g = CGGradient(colorsSpace: CGColorSpace(name: linear ? CGColorSpace.extendedLinearSRGB : CGColorSpace.sRGB), colors: colors as CFArray, locations: locations) else { return }
+        guard let g = CGGradient(colorsSpace: CGColorSpace(name: linear(dark: dark) ? CGColorSpace.extendedLinearSRGB : CGColorSpace.sRGB), colors: colors as CFArray, locations: locations) else { return }
         switch place {
         case .axial(let a, let b):
             ctx.drawLinearGradient(g, start: a, end: b, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])

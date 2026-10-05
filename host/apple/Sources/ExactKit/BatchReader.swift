@@ -245,8 +245,9 @@ struct BatchReader {
         case 34: return .string(try string())
         case 123:
             var object = try values()
-            if let name = object["s"]?.string, name.hasPrefix("icc:") {
-                object["s"] = .string(ProfileSpaces.bind(name, resolver: profileResolver))
+            if let name = object["s"]?.string, name.hasPrefix("icc:"),
+               let handle = ProfileSpaces.bind(name, resolver: profileResolver) {
+                object["s"] = .profile(handle)
             }
             return .object(object)
         case 91: return .array(try array { try $0.value() })

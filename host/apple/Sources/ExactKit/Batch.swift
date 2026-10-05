@@ -7,10 +7,15 @@ import CoreGraphics
 /// JSON values for style rows and the heterogeneous capability payloads. No
 /// Objective-C containers or conditional bridges enter ordinary presentation.
 enum BatchValue: Equatable {
-    case number(Double), string(String), bool(Bool), array([BatchValue]), object([String: BatchValue]), null
+    case number(Double), string(String), profile(ProfileSpaces.Handle), bool(Bool), array([BatchValue]), object([String: BatchValue]), null
 
     var number: Double? { if case .number(let n) = self { return n }; return nil }
-    var string: String? { if case .string(let s) = self { return s }; return nil }
+    var string: String? {
+        if case .string(let s) = self { return s }
+        if case .profile(let p) = self { return p.key }
+        return nil
+    }
+    var profileSpace: CGColorSpace? { if case .profile(let p) = self { return p.space }; return nil }
     var array: [BatchValue]? { if case .array(let a) = self { return a }; return nil }
     var numbers: [Double]? {
         guard let a = array else { return nil }
@@ -79,7 +84,7 @@ enum BatchValue: Equatable {
            case .object(let half) = halves[dark && halves.count > 1 ? 1 : 0],
            let name = half["s"]?.string, let v = half["v"]?.numbers {
             // @ref LLP 1100 D3
-            if let space = ProfileSpaces.space(name) {
+            if let space = half["s"]?.profileSpace ?? ProfileSpaces.space(name) {
                 guard v.count == space.numberOfComponents + 1 else { return nil }
                 guard let color = CGColor(colorSpace: space, components: v.map { CGFloat($0) }) else { return nil }
                 // CGColor carries no rendering intent. Apply the authored ICC
@@ -105,6 +110,7 @@ enum BatchValue: Equatable {
         switch self {
         case .number(let n): return NSNumber(value: n)
         case .string(let s): return s
+        case .profile(let p): return p.key
         case .bool(let b): return b
         case .array(let a): return a.map(\.any)
         case .object(let o): return o.mapValues(\.any)
