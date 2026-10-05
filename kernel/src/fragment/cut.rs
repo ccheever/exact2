@@ -258,23 +258,13 @@ impl<'a> Cutter<'a> {
                     }
                     let over = bottom - limit;
                     out.shortage = Some(out.shortage.map_or(over, |s: f32| s.min(over)));
-                    match best {
-                        Some((_, at, restart)) => break Some((at, restart)),
-                        // The first unit is taller than the column: it
-                        // starts the column and overflows it.
-                        None => match {
-                            let (top, _) = self.unit(pos);
-                            out.unbroken = out.unbroken.max(bottom - top);
-                            self.next(pos)
-                        } {
-                            Some(n) => {
-                                let (_, forced, restart) = self.candidate(n, first);
-                                let _ = forced;
-                                break Some((n, restart));
-                            }
-                            None => break None,
-                        },
+                    if let Some((_, at, restart)) = best {
+                        break Some((at, restart));
                     }
+                    // The first unit is taller than the column: it starts
+                    // the column and overflows it.
+                    out.unbroken = out.unbroken.max(bottom - self.unit(pos).0);
+                    break self.next(pos).map(|n| (n, self.candidate(n, first).2));
                 }
                 match self.next(pos) {
                     Some(n) => pos = n,
