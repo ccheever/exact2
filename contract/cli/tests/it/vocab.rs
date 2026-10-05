@@ -88,7 +88,21 @@ fn contextual_attributes_are_refused_elsewhere() {
         ("reachend", "view", "reachend=done"),
         ("text-transform", "input", "text-transform=\"uppercase\""),
         ("selectionchange", "view", "selectionchange=done"),
+        ("name", "view", "name=\"station\""),
         ("markup", "view", "markup=\"markdown\""),
+        (
+            "metadata",
+            "view",
+            "metadata=MediaMetadata(title=\"a\", artist=\"\", album=\"\", artwork=\"\")",
+        ),
+        ("seekbackward", "view", "seekbackward=done"),
+        ("seekforward", "view", "seekforward=done"),
+        ("seekto", "view", "seekto=done"),
+        ("previoustrack", "view", "previoustrack=done"),
+        ("nexttrack", "view", "nexttrack=done"),
+        ("stop", "view", "stop=done"),
+        ("seekbackwardOffset", "view", "seekbackwardOffset=15"),
+        ("seekforwardOffset", "view", "seekforwardOffset=15"),
     ];
     let listed: Vec<&str> = contract_lower::vocab::CONTEXTUAL
         .iter()
