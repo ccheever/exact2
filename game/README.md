@@ -315,6 +315,14 @@ arguments for settings, messages for things that happen once.
 The generated proof uses `pin(tick, snapshot)` and `pinSave(name, path)`;
 Rust tests use `sim.assert_pin(include_str!("../../pins.json"))`.
 
+Pins cover the simulation only. Presentation state (`#[derive(Presentation)]`,
+`Game::present`) is outside hashes and saves, so prove looks separately: assert
+presentation values (`sim.world().get::<Offset>(e)`) at an explicit tick, and compare
+pixels at an explicit tick and alpha; never by moving a pin. "Settled" means the
+simulation settled; a bobbing world rests. Agent state reports simulated poses
+(`Transform`, `global`); the displayed pose is `World::drawn`, and presentation rows
+appear beside the components they decorate, read-only.
+
 ```sh
 bun game/prove.mjs ./my-game
 bun game/prove.mjs ./my-game --hosts linux,web --compare-saves

@@ -253,9 +253,33 @@ it, and the guard stays armed after a caught panic; a tick reading or writing a
 presentation component panics too. Rebuilding presentation is not a simulation
 mutation (it does not reset settling). A save carrying presentation rows is refused,
 and a present that fails on a restored world refuses the restore.
-`Offset(Transform)` is the built-in one: the renderer draws an entity at its pose
-times its offset. Parented children keep their own poses; props on a rigged
-entity's sockets follow it. Picking, layout and physics use the simulated pose.
+The stock renderer draws these built-in presentation components without a shader:
+`Offset(Transform)` (drawn pose `drawn(parent)·local·offset`, so an offset on a root
+moves its displayed hierarchy, and socketed props follow the drawn rig), `Opacity`
+(dithered coverage fading, multiplied down the Parent chain; it never reveals a child
+of a hidden ancestor), `Tint` (a primitive's colour multiply and added emission) and,
+for models, `NodeMaterials`/`MaterialOverrides`. `World::drawn(e)` is the displayed
+pose and opacity, in the same walk as `World::is_visible`. Picking, layout, physics
+and gameplay use the simulated pose.
+
+**The authoring rule: save the cause, derive the appearance.** Anything later
+gameplay reads stays simulation state; only its look is presentation. Examples:
+
+- Rivals' aim recoil: the shot (its tick and spread, drawn from the world RNG
+  because it changes where the bullet goes) is simulation; the gun kick is an
+  `Offset` derived in `present` from ticks since `last_shot_tick`, with any jitter
+  from `p.rng(salt)`.
+- Garden's mutation: the roll and the weight it sets are simulation (they change
+  sale price and growth); the shimmer of a mutated fruit is a `NodeMaterials` or
+  `Tint` derived from that saved mutation.
+- Tracers and explosions that gameplay never queries may be emitters; entities a
+  tick creates or despawns (a projectile, a crater that blocks movement) stay
+  simulation, because `present` cannot spawn and keeps no state of its own.
+- A purely cosmetic blink belongs in `Opacity` written by `present`, not in a
+  `Visible` toggled each tick (which moves pins).
+
+`present` holds no state between calls: a flash or a decay derives from a simulated
+timestamp, never from its previous output.
 
 Mark cosmetic entities `Ambient`. Declare `ambient_resource::<T>()` and
 `derived_publication(name)` in setup/register when appropriate; these policies
