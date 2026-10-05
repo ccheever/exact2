@@ -9,15 +9,20 @@ const DAY = 80, DAWN = 8;
 if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say, look}) => {
   const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
   if (process.argv.includes('--looks')) {
-    // Each look chosen on the title: the camp by day, then night at the fire
-    // with the flashlight raised.
+    // Each look chosen on the title: the camp by day, the trees north of it,
+    // then night back at the fire with the flashlight raised.
     for (const [name, button] of [['greybox', 'look-greybox'], ['pass', 'look-pass']]) await look(name, async frame => {
       const s = await open(), game = s.world('world');
       await s.tap(button);
       await s.tap('play');
       await game.run(1500);
       await frame('day', s);
-      await game.run((DAY - DAWN + 2) * 1000);
+      await game.hold('KeyW', 5000);
+      await game.run(400);
+      await frame('trees', s);
+      await game.hold('KeyS', 5000);
+      // Two seconds into the night, as --screenshot-only's night frame.
+      await game.run((DAY - DAWN + 2) * 1000 - 10_400);
       await game.hold('KeyW', 700);
       await game.tap('KeyF');
       await game.run(300);

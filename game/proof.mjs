@@ -18,7 +18,7 @@ import { decodePng, diff, diffPicture, encodePng, shrink } from '../scripts/png.
  * the comparison), and matches its reference while at most `off` of its pixels
  * differ by more than `band` in a channel (a model, a light or a sky gone) and
  * the mean difference is at most `mean` (the picture washed out or darkened). */
-export const LOOKS = {scale:8, step:4, band:24, off:0.01, mean:2};
+export const LOOKS = {scale:8, step:4, band:16, off:0.005, mean:1.5};
 export function lookImage(window) {
   const image = shrink(window, LOOKS.scale);
   for (let i = 0; i < image.data.length; i++) image.data[i] = Math.min(255, Math.round(image.data[i] / LOOKS.step) * LOOKS.step);
@@ -846,7 +846,7 @@ export async function proof(meta, script) {
   const looksRun = args.includes('--looks'), lookCollect = process.env.EXACT_LOOKS_COLLECT === '1';
   const lookDir = resolve(app, 'looks'), lookOut = resolve(out, 'looks'), lookFrames = [];
   const lookRefs = looksRun && existsSync(resolve(lookDir, 'looks.json')) ? JSON.parse(readFileSync(resolve(lookDir, 'looks.json'), 'utf8')) : {frames:{}};
-  const retakeLooks = proofCommand(resolve(import.meta.dir, 'prove.mjs'), app, '--looks', '--retake', '--reason', '<why the pictures changed>');
+  const retakeLooks = proofCommand(resolve(import.meta.dir, 'prove.mjs'), relative(process.cwd(), app) || '.', '--looks', '--retake', '--reason', '<why the pictures changed>');
   const lookFrame = async (key, session) => {
     mkdirSync(lookOut, {recursive:true});
     const window = resolve(lookOut, `${key}.window.png`);
@@ -862,7 +862,7 @@ export async function proof(meta, script) {
     const was = decodePng(bytes), d = compareLook(was, image);
     lookFrames.push({key, ...d});
     const picture = resolve(lookOut, `${key}.diff.png`);
-    if (!d.ok && was.width === image.width && was.height === image.height) writeFileSync(picture, encodePng(diffPicture(was, image, LOOKS.band)));
+    if (!d.ok && was.width === image.width && was.height === image.height) writeFileSync(picture, encodePng(diffPicture(was, image, LOOKS.band, LOOKS.scale / 2)));
     check(d.ok ? `look ${key} matches its reference: ${formatLook(d)}`
       : `look ${key} differs from its reference: ${formatLook(d)}; reference | now | difference: ${relative(process.cwd(), picture)}; if intended: ${retakeLooks}`, d.ok);
   };
@@ -996,8 +996,10 @@ export async function proof(meta, script) {
       await script({open, check, equal, out, host, say, pin, pinSave, look});
       finished = true;
       if (looksRun && !lookFrames.length) check('the proof takes its looks\' frames (look(name, body) under --looks)', false);
+      if (looksRun && !lookCollect && Object.keys(lookRefs.frames ?? {}).length && (lookRefs.scale !== LOOKS.scale || lookRefs.step !== LOOKS.step))
+        check(`looks.json's references were taken at scale ${lookRefs.scale}, step ${lookRefs.step}, not ${LOOKS.scale}, ${LOOKS.step}; ${retakeLooks}`, false);
       if (looksRun && !lookCollect) for (const key of Object.keys(lookRefs.frames ?? {}))
-        check(`look ${key} captured; if intentionally removed, retake: ${retakeLooks}`, lookFrames.some(f => f.key === key));
+        if (!lookFrames.some(f => f.key === key)) check(`look ${key} captured; if intentionally removed, retake: ${retakeLooks}`, false);
       if (!process.argv.some(arg => PARTIAL.includes(arg)))
         for (const section of ['ticks','saves']) for (const key of Object.keys(previousPins[section] ?? {}))
           check(`pin ${key} observed; if intentionally removed, update the proof and pins.json together`, key in pins[section]);

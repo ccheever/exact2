@@ -7,9 +7,6 @@
   ],
   "scale": 8,
   "step": 4,
-  "band": 24,
-  "off": 0.01,
-  "mean": 2,
   "frames": {
     "classic-title": {
       "bytes": 3121,
@@ -37,8 +34,8 @@
     }
   },
   "bytes": 49871,
-  "reason": "first references: classic, art pass and night, the title and a free-for-all",
-  "inputs": "33626d0eb5f99accb79e51b0c652e065bea2ea36c2de5b659c9022e25e618753",
-  "at": "013dac629edfbbe634431f1dd31ef15286449d4e",
-  "generated": "bun game/prove.mjs rivals --looks --retake --reason 'first references: classic, art pass and night, the title and a free-for-all'"
+  "reason": "looks.json records the pictures' scale and step; the tolerance lives in game/proof.mjs",
+  "inputs": "c33cd5d2c3e22dd58afce4efc12a083d59be1f8a1a2f847f33ed10c7c020dd81",
+  "at": "601b6e2275d2544cc92c3013747e52674b5f6f99",
+  "generated": "bun game/prove.mjs rivals --looks --retake --reason 'looks.json records the pictures'\\'' scale and step; the tolerance lives in game/proof.mjs'"
 }

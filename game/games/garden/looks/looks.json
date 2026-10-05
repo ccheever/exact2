@@ -7,9 +7,6 @@
   ],
   "scale": 8,
   "step": 4,
-  "band": 24,
-  "off": 0.01,
-  "mean": 2,
   "frames": {
     "classic-start": {
       "bytes": 8198,
@@ -45,8 +42,8 @@
     }
   },
   "bytes": 123898,
-  "reason": "first references: four looks, a fresh plot and a grown garden",
-  "inputs": "8a6a370e593fd05f355b9d96c3b088c8dd4739d24a7feeab835fcacc6094f5ff",
-  "at": "013dac629edfbbe634431f1dd31ef15286449d4e",
-  "generated": "bun game/prove.mjs garden --looks --retake --reason 'first references: four looks, a fresh plot and a grown garden'"
+  "reason": "looks.json records the pictures' scale and step; the tolerance lives in game/proof.mjs",
+  "inputs": "ab460bd11b7244c1d740ee7c551ea5b6fb29b44ef17dda98c6e9fa9ea8aa6fee",
+  "at": "601b6e2275d2544cc92c3013747e52674b5f6f99",
+  "generated": "bun game/prove.mjs garden --looks --retake --reason 'looks.json records the pictures'\\'' scale and step; the tolerance lives in game/proof.mjs'"
 }

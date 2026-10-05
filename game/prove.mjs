@@ -198,7 +198,7 @@ async function looks() {
   // Delete a reference no frame takes any more.
   for (const key of Object.keys(before.frames ?? {})) if (!frames[key]) { rmSync(resolve(dir, `${key}.png`), {force:true}); console.log(`look ${key}: removed`); }
   const inputs = a.summary.inputs, bytes = Object.values(frames).reduce((n, f) => n + f.bytes, 0);
-  writeFileSync(file, JSON.stringify({game:before.game ?? name, host:'web', viewport:[1280, 720], ...LOOKS, frames, bytes,
+  writeFileSync(file, JSON.stringify({game:before.game ?? name, host:'web', viewport:[1280, 720], scale:LOOKS.scale, step:LOOKS.step, frames, bytes,
     reason, inputs, at:pinRevision(app, inputs),
     generated:proofCommand(import.meta.path, local ? app : name, '--looks', '--retake', '--reason', reason)}, null, 2) + '\n');
   console.log(`LOOKS RETAKEN ${name}: ${keys.length} frames, ${bytes} bytes in ${relative(process.cwd(), dir)}`);

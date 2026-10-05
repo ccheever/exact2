@@ -424,10 +424,11 @@ bun game/games/garden/proof.mjs web --looks       # the same comparison, directl
 ```
 
 A frame is the whole window, HUD included, shrunk 8× to 160 × 90 by box average,
-with each channel rounded to a multiple of 4. It matches while at most 1% of its
-pixels differ by more than 24 in a channel (a model, a light or a sky gone) and the
-mean difference is at most 2 (the picture washed out or darkened); `LOOKS` in
-[proof.mjs](proof.mjs) holds the numbers. A failure names the look and frame and
+with each channel rounded to a multiple of 4. It matches while at most 0.5% of its
+pixels differ by more than 16 in a channel (a model, a light or a sky gone) and the
+mean difference is at most 1.5 (the picture washed out or darkened, which can move
+every pixel a little and none by 16); `LOOKS` in [proof.mjs](proof.mjs) holds the
+numbers. A failure names the look and frame and
 writes `<look>-<frame>.diff.png` (the reference, the frame now, the difference in
 red) beside the full-size `<look>-<frame>.window.png` in the run's `looks/`. A look
 that throws fails as `look <name> ran to its last frame`; the other looks still run.
@@ -435,12 +436,14 @@ The run's PASS is about pictures only, never pins.
 
 References change only through `--retake`, which needs `--reason`, captures every
 frame twice and refuses unless the two agree, deletes references no frame takes any
-more, and records the reason, commit, input digest and each PNG's SHA-256 in
-`looks/looks.json`. A reference whose bytes differ from that record fails. `looks/`
-is not a build input. The references are Chrome's WebGPU pictures on the machine that
-took them. On it, repeated runs and rebuilds match pixel for pixel; the tolerance
-is there for another GPU or driver, though no other machine has been tried yet.
-Garden (8 frames), forest (4) and rivals (6) carry 216 KB of references.
+more, and records the reason, commit, input digest, scale and step and each PNG's
+SHA-256 in `looks/looks.json`. A reference whose bytes differ from that record
+fails. `looks/` is not a build input. The references are Chrome's WebGPU pictures
+on the machine that took them. There, repeated runs, rebuilds and another Chrome
+(the system's 154 against Chrome for Testing 153) match pixel for pixel in the
+world; only a focus ring on a title moved (0.3%). Another GPU or driver has not
+been tried; the tolerance is there for it. Garden (8 frames), forest (6) and
+rivals (6) carry 247 KB of references.
 
 In a game's proof, `look(name, body)` runs one look and `frame(id, session)` takes
 one of its frames:

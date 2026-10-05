@@ -149,19 +149,20 @@ export function shrink({ width, height, data }, k) {
 
 /** Two images of one size side by side, then their difference: the reference
  * dimmed to gray, each pixel whose largest channel differs by more than `band`
- * in red, brighter for a larger difference. */
-export function diffPicture(reference, actual, band = 8) {
-  const { width: w, height: h } = reference, out = new Uint8Array(w * 3 * h * 4);
+ * in red, brighter for a larger difference; each pixel drawn `zoom` × `zoom`. */
+export function diffPicture(reference, actual, band = 8, zoom = 1) {
+  const { width: w, height: h } = reference, W = w * 3 * zoom, out = new Uint8Array(W * h * zoom * 4);
+  const put = (x, y, rgba) => { for (let dy = 0; dy < zoom; dy++) for (let dx = 0; dx < zoom; dx++) out.set(rgba, ((y * zoom + dy) * W + x * zoom + dx) * 4); };
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const i = (y * w + x) * 4, row = y * w * 3;
-    out.set(reference.data.subarray(i, i + 4), (row + x) * 4);
-    out.set(actual.data.subarray(i, i + 4), (row + w + x) * 4);
+    const i = (y * w + x) * 4;
+    put(x, y, reference.data.subarray(i, i + 4));
+    put(w + x, y, actual.data.subarray(i, i + 4));
     let m = 0;
     for (let c = 0; c < 3; c++) m = Math.max(m, Math.abs(reference.data[i + c] - actual.data[i + c]));
     const gray = (reference.data[i] + reference.data[i + 1] + reference.data[i + 2]) / 9;
-    out.set(m > band ? [128 + Math.min(127, m), 0, 0, 255] : [gray, gray, gray, 255], (row + 2 * w + x) * 4);
+    put(2 * w + x, y, m > band ? [128 + Math.min(127, m), 0, 0, 255] : [gray, gray, gray, 255]);
   }
-  return { width: w * 3, height: h, data: out };
+  return { width: W, height: h * zoom, data: out };
 }
 
 /** The RGBA bytes of a rectangle of an image, as an image. */
