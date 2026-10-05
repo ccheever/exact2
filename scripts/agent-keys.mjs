@@ -35,6 +35,10 @@ export function withHeldModifiers(method, event, heldKeys) {
  * `+`). `text` is what the key types: nothing with Control or Meta held, a
  * shortcut's (chat F3, kanban F27 in the x2apps diaries).
  */
+const PUNCTUATION = { '-': 'Minus', '_': 'Minus', '=': 'Equal', '+': 'Equal', '[': 'BracketLeft', '{': 'BracketLeft', ']': 'BracketRight', '}': 'BracketRight',
+  '\\': 'Backslash', '|': 'Backslash', ';': 'Semicolon', ':': 'Semicolon', "'": 'Quote', '"': 'Quote', '`': 'Backquote', '~': 'Backquote',
+  ',': 'Comma', '<': 'Comma', '.': 'Period', '>': 'Period', '/': 'Slash', '?': 'Slash',
+  '!': 'Digit1', '@': 'Digit2', '#': 'Digit3', '$': 'Digit4', '%': 'Digit5', '^': 'Digit6', '&': 'Digit7', '*': 'Digit8', '(': 'Digit9', ')': 'Digit0' };
 export function cdpKey(chord) {
   const held = new Set();
   let code = chord, key, vk, location = 0;
@@ -51,7 +55,9 @@ export function cdpKey(chord) {
   // A key by its `key` name works as on every other target (pomodoro F5): a
   // letter or digit on its US key, punctuation on its own, a named key.
   else if (/^[a-zA-Z0-9]$/.test(code)) { key = code; vk = code.toUpperCase().charCodeAt(0); code = /\d/.test(code) ? `Digit${code}` : `Key${code.toUpperCase()}`; }
-  else if (code.length === 1 && code !== ' ') { key = code; vk = 0; code = { '-': 'Minus', '=': 'Equal', '[': 'BracketLeft', ']': 'BracketRight', '\\': 'Backslash', ';': 'Semicolon', "'": 'Quote', '`': 'Backquote', ',': 'Comma', '.': 'Period', '/': 'Slash' }[code] ?? ''; }
+  // Shifted punctuation is the physical key under it, as Linux's driver_key
+  // and Apple's KeyCodes.codeName name it (b6 review C2): `!` is Digit1.
+  else if (code.length === 1 && code !== ' ') { key = code; vk = 0; code = PUNCTUATION[code] ?? ''; }
   else {
     const special = { ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], ArrowLeft: ['ArrowLeft', 37], ArrowRight: ['ArrowRight', 39], Space: [' ', 32], ' ': [' ', 32], Enter: ['Enter', 13], Escape: ['Escape', 27], Tab: ['Tab', 9], Backspace: ['Backspace', 8], Delete: ['Delete', 46], Home: ['Home', 36], End: ['End', 35], PageUp: ['PageUp', 33], PageDown: ['PageDown', 34] }[code];
     if (!special) throw new Error(`key: unsupported key ${code}`);

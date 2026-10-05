@@ -565,3 +565,9 @@ test('a type step keeps its newlines, quotes and clipboard words', () => {
   expect(typeCommand('type "the note" hello')).toEqual(['the note','hello']);
   expect([typeCommand('type editor paste a\\nb c'),typeCommand('type editor copy')]).toEqual([['editor',{clipboard:'paste',text:'a\nb c'}],['editor',{clipboard:'copy'}]]);
 });
+
+test('shifted punctuation is the physical key under it, as on Linux and Apple (b6 review C2)', () => {
+  for (const [key, code] of [['!', 'Digit1'], ['@', 'Digit2'], ['+', 'Equal'], ['?', 'Slash'], ['~', 'Backquote'], [')', 'Digit0'], ['-', 'Minus']])
+    expect(cdpKey(key)).toMatchObject({ key, code });
+  expect(cdpKey('Shift++')).toMatchObject({ key: '+', code: 'Equal', modifiers: 8 });
+});
