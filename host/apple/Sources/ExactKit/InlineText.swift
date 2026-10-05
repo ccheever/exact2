@@ -132,8 +132,9 @@ extension NodeView {
         #if os(macOS)
         if let readerParagraph { return readerParagraph.offset(at: point, node: self) }
         #endif
-        let box = contentBox()
-        guard box.contains(point), let paragraph = paragraphLayout() else { return nil }
+        // A fragmented paragraph's point, in its unfragmented box (LLP 1093 D8).
+        let box = paragraphBox()
+        guard let point = paragraphPoint(point), box.contains(point), let paragraph = paragraphLayout() else { return nil }
         let spec = paragraphSpec()
         guard let line = paragraph.lineIndex(at: CGPoint(x: point.x - box.minX, y: point.y - box.minY), align: spec.align, width: box.width) else { return nil }
         let x = box.minX + paragraph.origin(line, align: spec.align, width: box.width)

@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 11
+#define EXACT_ABI_VERSION 12
 
 #ifdef __cplusplus
 extern "C" {
@@ -263,6 +263,11 @@ typedef struct ExactCanvasText {
 typedef struct ExactCanvasMetrics { double v[11]; } ExactCanvasMetrics;
 typedef ExactCanvasMetrics (*ExactCanvasTextFn)(void *ctx, const ExactCanvasText *run);
 void exact_set_canvas_text(ExactRuntime rt, ExactCanvasTextFn measure);
+/* LLP 1093 D6: each line box's bottom, in content coordinates, of the paragraph a request
+ * answers, with exact_set_measure's context. Writes min(count, cap) floats and returns count.
+ * NULL (the default) keeps every paragraph whole in a multi-column flow. */
+typedef size_t (*ExactLinesFn)(void *ctx, const ExactMeasureRequest *request, float *out, size_t cap);
+void exact_set_lines(ExactRuntime rt, ExactLinesFn lines);
 void exact_set_wake(ExactRuntime rt, ExactWakeFn wake, void *ctx);
 void exact_set_fonts(ExactRuntime rt, ExactFontsFn fonts, void *ctx);
 

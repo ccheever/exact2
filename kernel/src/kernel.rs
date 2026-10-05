@@ -308,6 +308,13 @@ impl Kernel {
         &self.arena
     }
 
+    /// The arena, the engine tree and the measurer, for the multicol probe.
+    #[cfg(test)]
+    pub(crate) fn parts(&mut self) -> (&NodeArena, &LayoutTree, &mut dyn TextMeasurer) {
+        let tree = self.layout.as_deref().and_then(LayoutMirror::tree_ref);
+        (&self.arena, tree.expect("laid out"), self.measurer.as_mut())
+    }
+
     /// Root wire ids in attach order.
     pub fn roots(&self) -> Vec<ViewId> {
         self.arena

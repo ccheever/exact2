@@ -3,6 +3,7 @@
 mod animation;
 mod apply;
 mod browser_cases;
+mod browser_columns;
 mod browser_controls;
 mod browser_flex;
 mod browser_paint_order;

@@ -873,6 +873,9 @@ final class Presenter {
             case .sticky:
                 if flats.isFlat(id) { flats.promote(id) }
                 stickies.apply(id, op.payload)
+            case .fragments:
+                if flats.isFlat(id) { flats.promote(id) }
+                views[id]?.applyColumns(op.payload)
             case .destroy:
                 elements.destroyed(id)
                 stickies.forget(id)

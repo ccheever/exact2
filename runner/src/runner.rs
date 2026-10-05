@@ -464,6 +464,7 @@ pub struct Runner<D: DataSource> {
     input_source: Option<ViewId>,
     journal_start: usize,
     flow_warned: exact_kernel::SortedSet<exact_kernel::NodeKey>,
+    fragment_warned: exact_kernel::SortedSet<exact_kernel::NodeKey>,
     /// The lists already found conforming to their types, so a live answer
     /// is checked where it changed (LLP 1053 §0 G8).
     conformed: std::cell::RefCell<crate::conform::Conformed>,
@@ -867,6 +868,7 @@ impl<D: DataSource> Runner<D> {
             input_source: None,
             journal_start: 0,
             flow_warned: Default::default(),
+            fragment_warned: Default::default(),
             conformed: Default::default(),
         };
         runner.init_slots(carried, launch)?;
@@ -1062,6 +1064,25 @@ impl<D: DataSource> Runner<D> {
                     let why = node.flow_refusal().map_or("", |r| r.message());
                     self.log(format!(
                         "wrap-flow: text #{} has auto height and is not flowed: {why} (LLP 1043.000 §8)",
+                        node.id
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Journal, once per box, each box a multi-column flow kept whole across
+    /// a column's end where Chrome would fragment it (LLP 1093 D10).
+    pub fn report_fragment_skipped(&mut self, keys: &[exact_kernel::NodeKey]) {
+        for &key in keys {
+            if self.fragment_warned.insert(key) {
+                if let Some(node) = self.kernel.node_by_key(key) {
+                    let why = self
+                        .kernel
+                        .fragment_refusal(key)
+                        .map_or("", |r| r.message());
+                    self.log(format!(
+                        "columns: #{} is kept whole in its column: {why} (LLP 1093 D10)",
                         node.id
                     ));
                 }

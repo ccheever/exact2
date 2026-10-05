@@ -27,7 +27,7 @@ extension NodeView {
         #endif
         // The kernel measures the CSS content box; borders and padding must
         // not become extra wrapping room when that paragraph is painted.
-        let width = contentBox().width
+        let width = paragraphBox().width
         if textLayoutValid, let cached = cachedTextLayout, cached.width == width { return cached.paragraph }
         guard let paragraph = text?.paragraph(paragraphSpec(), width: width, flow: flowShapes.map { $0.translated(CGPoint(x: -contentBox().minX, y: -contentBox().minY)) }) else { return nil }
         if paragraph.flowIncomplete { presenter?.session?.log("wrap-flow: text #\(id) is incomplete and uses ordinary layout") }

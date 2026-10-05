@@ -903,7 +903,12 @@ impl<'a> Lowerer<'a> {
                 for a in &own {
                     self.errors.extend(native::refused(tag, a));
                 }
+                let flex = tags::flex_container(tag, expanded);
                 for (index, a) in expanded.iter().enumerate() {
+                    if let Some(e) = flex.and_then(|f| tags::multicol_on_flex(f, a).err()) {
+                        self.errors.push(e);
+                        continue;
+                    }
                     if native::leftover(tag, a)
                         || refused.contains(&a.name.as_str())
                         || dataset::word(&a.name).is_some()

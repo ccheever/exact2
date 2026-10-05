@@ -1018,6 +1018,7 @@ final class Presenter {
             case .rank:
                 if let rank = op.payload["rank"] as? NSNumber { views[id]?.setRank(rank.int64Value) }
             case .sticky: stickies.apply(id, op.payload)
+            case .fragments: views[id]?.applyColumns(op.payload)
             case .destroy:
                 elements.destroyed(id)
                 stickies.forget(id)

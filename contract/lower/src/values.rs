@@ -615,9 +615,27 @@ pub(crate) fn check_style_value(
             {
                 return err("lower-attr-value", format!("`text-indent=\"{v}\"`: exact2 implements a length (a number of pixels, or `rem` or `em`; negative hangs the first line); a percentage of the containing block and the `hanging` and `each-line` keywords are not implemented. For a hanging indent write a negative length with the same `padding-left`"), span);
             }
+            // @ref LLP 1093 §1 — each refused by what it would need.
+            if let Some(why) = multicol_value(rows, v.trim()) {
+                return err(
+                    "lower-attr-value",
+                    format!("`{}=\"{v}\"`: {why}", a.name),
+                    span,
+                );
+            }
             if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
                 return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);
             }
+        }
+        // @ref LLP 1093 D4 — a positive integer, as CSS says.
+        if (rows.contains(&StyleId::Widows) || rows.contains(&StyleId::Orphans))
+            && numeric_literal(value).is_some_and(|n| n < 1.0)
+        {
+            return err(
+                "lower-attr-value",
+                format!("`{}` is a positive integer", a.name),
+                span,
+            );
         }
         // @ref LLP 1061 D1 — a press that makes a node vanish or flip is a
         // typo, not a feel.
@@ -1138,4 +1156,44 @@ pub(crate) fn bounded_column(tag: &str, attrs: &[Attr], inherited: bool) -> bool
             matches!(a.name.as_str(), "height" | "max-height")
                 && !matches!(&a.value, Expr::Str(s, _) if s == "auto")
         }) || shrinking_scroll(attrs, inherited))
+}
+
+/// Why a multi-column or break value is refused (LLP 1093 §1), if it is.
+fn multicol_value(rows: &[StyleId], v: &str) -> Option<&'static str> {
+    let has = |row| rows.contains(&row);
+    if has(StyleId::ColumnRuleStyle)
+        && matches!(
+            v,
+            "dashed" | "dotted" | "double" | "groove" | "ridge" | "inset" | "outset"
+        )
+    {
+        return Some("the native hosts paint `none`, `hidden` and `solid` rules, as they paint borders; Chrome would paint this one and they would not");
+    }
+    if (has(StyleId::BreakBefore) || has(StyleId::BreakAfter))
+        && matches!(
+            v,
+            "page"
+                | "left"
+                | "right"
+                | "recto"
+                | "verso"
+                | "always"
+                | "all"
+                | "region"
+                | "avoid-page"
+                | "avoid-region"
+        )
+    {
+        return Some("is a page or region break, and exact2 fragments only into columns (pages and regions stay out, LLP 1093 §5); use `column`, `avoid-column`, `avoid` or `auto`");
+    }
+    if has(StyleId::BreakInside) && matches!(v, "avoid-page" | "avoid-region") {
+        return Some("is a page or region value, and exact2 fragments only into columns; use `avoid-column`, `avoid` or `auto`");
+    }
+    if has(StyleId::ColumnFill) && v == "balance-all" {
+        return Some("balances every fragment of paged media, which exact2 does not have; use `balance` or `auto`");
+    }
+    if has(StyleId::ColumnWidth) && v.ends_with('%') {
+        return Some("CSS `column-width` is a length or `auto`, never a percentage; use `column-count` to divide the width");
+    }
+    None
 }

@@ -34,6 +34,8 @@ pub(crate) mod control;
 pub(crate) mod damage;
 pub mod gradient;
 pub use gradient::GradientPaint;
+mod fragments;
+pub(crate) use fragments::{center as tap_point, hits};
 pub(crate) use lift::{Ghost, Lift};
 pub(crate) mod inline;
 mod lift;
@@ -1064,6 +1066,7 @@ impl Painter {
         // @ref LLP 1063 — a layout transition's size is the surface's alone.
         let surface = paint.geometry(shown.surface(rect));
         paint.paint(self.backend.as_mut(), &surface, ts);
+        self.column_rules(walk.scene.kernel, node, rect, ts);
         let outer = geometry.outer;
         let content = geometry.content;
         let s = node.style;
@@ -1094,72 +1097,7 @@ impl Painter {
                     }
                 }
             }
-            NodeType::Text => {
-                // The kernel measures a Text subtree as one paragraph. Inline
-                // descendants deliberately have zero frames, not paint boxes.
-                let build = || {
-                    let mut spec = text_spec(&node.computed_style(StyleMask::INHERITED), "");
-                    spec.runs = node
-                        .text_runs()
-                        .iter()
-                        .map(|run| Run::from_style(&run.text, run.style))
-                        .collect();
-                    spec.shown(node.props.str(PropId::Markup) == Some("markdown"))
-                };
-                let paragraph = if let Some(stamp) = node.paragraph_stamp() {
-                    // @ref LLP 1043.000 §3 D7 — ordinary text takes the same
-                    // retained identity path; flow only adds exclusion geometry.
-                    self.text.borrow_mut().flow_identified(
-                        &stamp,
-                        content.2,
-                        &node
-                            .flow_shapes()
-                            .iter()
-                            .map(|s| s.translate(-geometry.inset.0, -geometry.inset.1))
-                            .collect::<Vec<_>>(),
-                        self.accepted_text.get(&node.key),
-                        build,
-                    )
-                } else {
-                    let spec = build();
-                    (!spec.is_empty())
-                        .then(|| self.text.borrow_mut().paragraph(&spec, Some(content.2)))
-                };
-                if let Some(paragraph) = paragraph {
-                    let mut palette = Vec::new();
-                    text_palette(walk.scene.kernel, node, self.dark, &mut palette);
-                    presented_text_colors(walk, node, &paragraph, &mut palette);
-                    walk.text.insert(node.key, paragraph.clone());
-                    // CSS `text-overflow: ellipsis` in a clipping box: an
-                    // over-wide line ends in "…" (LLP 1053 G5; paint only).
-                    let shown = (s.text_overflow == exact_kernel::TextOverflow::Ellipsis
-                        && effective_overflow(node).0 != Overflow::Visible)
-                        .then(|| paragraph.ellipsized(content.2))
-                        .flatten()
-                        .unwrap_or_else(|| paragraph.clone());
-                    // Inline backgrounds, under the glyphs, per line fragment.
-                    let mut backgrounds = Vec::new();
-                    text_backgrounds(walk.scene.kernel, node, None, self.dark, &mut backgrounds);
-                    for (r, color) in shown.run_backgrounds(&backgrounds) {
-                        self.backend.fill(
-                            &Shape::rect((content.0 + r.0, content.1 + r.1, r.2, r.3)),
-                            color,
-                            ts,
-                        );
-                    }
-                    let kernel = walk.scene.kernel;
-                    self.text_decorations(kernel, &shown, &palette, (content.0, content.1), ts);
-                    self.text_paint(
-                        node,
-                        kernel,
-                        &shown,
-                        &palette,
-                        (content.0, content.1),
-                        rect,
-                        ts,
-                    );
-                }
-            }
+            NodeType::Text => self.text_node(walk, node, &geometry, rect, ts),
             NodeType::TextInput => {
                 let value = node.props.str(PropId::Value).unwrap_or("");
                 let placeholder = value.is_empty();

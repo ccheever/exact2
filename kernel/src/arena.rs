@@ -49,6 +49,8 @@ pub struct NodeArena {
     // @ref LLP 1043.000 §3 D4 — no per-node vector or allocation.
     pub(crate) flow: IdMap<u32, crate::flow::FlowState>,
     pub(crate) exclusion_slots: SlotSet,
+    /// @ref LLP 1093 D7 — multi-column containers and their last cuts.
+    pub(crate) frag: crate::fragment::FragState,
     /// Slots whose style writes a row in `rem`/`em` (LLP 1069.000 D3).
     pub(crate) relative_slots: SlotSet,
     /// Slots that are `position: sticky` (LLP 1083 D3).
@@ -106,6 +108,7 @@ impl Clone for NodeArena {
             frames: self.frames.clone(),
             flow: self.flow.clone(),
             exclusion_slots: self.exclusion_slots.clone(),
+            frag: self.frag.clone(),
             relative_slots: self.relative_slots.clone(),
             sticky_slots: self.sticky_slots.clone(),
             timelines: self.timelines.clone(),
@@ -168,6 +171,7 @@ impl NodeArena {
         self.renew_text_namespace();
         self.flow.clear();
         self.exclusion_slots.clear();
+        self.frag = Default::default();
         self.relative_slots.clear();
         self.sticky_slots.clear();
         self.timelines = Default::default();
@@ -748,6 +752,7 @@ impl NodeArena {
 
     pub(crate) fn free_slot(&mut self, slot: u32) {
         self.exclusion_slots.remove(slot);
+        self.frag.forget(slot);
         self.relative_slots.remove(slot);
         self.sticky_slots.remove(slot);
         self.layout_dirty.remove(slot);
@@ -851,6 +856,11 @@ impl NodeArena {
             self.sticky_slots.insert(slot);
         } else {
             self.sticky_slots.remove(slot);
+        }
+        if crate::fragment::is_multicol(&style) {
+            self.frag.containers.insert(slot);
+        } else {
+            self.frag.containers.remove(slot);
         }
         self.styles[slot as usize] = self.shared.intern(style);
     }
@@ -1008,6 +1018,9 @@ mod tests {
             (StyleId::TextTransform, text("uppercase")),
             (StyleId::TextIndent, number(24.0)),
             (StyleId::Hyphens, text("auto")),
+            // LLP 1093 D4.
+            (StyleId::Widows, number(4.0)),
+            (StyleId::Orphans, number(3.0)),
             (StyleId::TextShadow, text("1px 2px 3px #000")),
             (StyleId::TextStrokeWidth, number(2.0)),
             (StyleId::TextStrokeColor, text("#ff0000")),

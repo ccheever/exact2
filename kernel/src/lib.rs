@@ -34,6 +34,7 @@ pub mod corner;
 pub mod error;
 pub mod export;
 mod flow;
+pub mod fragment;
 pub mod generated;
 pub mod gradient;
 pub mod grouped;

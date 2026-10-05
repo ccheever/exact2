@@ -870,6 +870,7 @@ pub(super) fn capacities(paragraph: &Paragraph) -> usize {
     }
     let mut bytes = paragraph.source.accessible_capacity_bytes
         + vector(&paragraph.baselines)
+        + vector(&paragraph.bottoms)
         + vector(&paragraph.layouts)
         + paragraph.flow.as_ref().map_or(0, |f| f.capacity_bytes());
     for layouts in paragraph.layouts.iter() {

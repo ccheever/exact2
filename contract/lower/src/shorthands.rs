@@ -24,13 +24,29 @@ pub(crate) fn rows(name: &str) -> &'static [StyleId] {
         "border-bottom" => &[BorderWidthBottom, BorderStyleBottom, BorderColorBottom],
         "border-left" => &[BorderWidthLeft, BorderStyleLeft, BorderColorLeft],
         "text-decoration" => &[TextDecorationLine],
+        // @ref LLP 1093 §1
+        "columns" => &[ColumnWidth, ColumnCount],
+        "column-rule" => &[ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor],
+        "column-count" => &[ColumnCount],
+        "column-rule-width" => &[ColumnRuleWidth],
         _ => unreachable!("known shorthand"),
     }
 }
 
 pub(crate) fn component(value: &Expr, name: &str, index: usize) -> Result<Expr, LowerError> {
     let mut out = value.clone();
+    // A longhand whose keywords the row does not hold: a literal keyword
+    // becomes its number, anything else is the row's own value.
+    let longhand = matches!(name, "column-count" | "column-rule-width");
     match &mut out {
+        Expr::Str(text, span) if longhand => out = columns_longhand(name, text, *span)?,
+        Expr::Number(n, span) if name == "column-count" && *n < 1.0 => {
+            return err("lower-attr-value", "`column-count` is a positive integer or `auto`", *span);
+        }
+        _ if longhand && !matches!(value, Expr::Ternary(..) | Expr::Match { .. } | Expr::Let { .. }) => {}
+        Expr::Str(text, span) if name == "columns" => {
+            out = columns(text, *span)?[index].clone();
+        }
         Expr::Ternary(_, yes, no, _) => {
             **yes = component(yes, name, index)?;
             **no = component(no, name, index)?;
@@ -43,7 +59,7 @@ pub(crate) fn component(value: &Expr, name: &str, index: usize) -> Result<Expr, 
         Expr::Str(text, span) => {
             if name == "text-decoration" { out = Expr::Str(decoration(text, *span)?, *span); }
             else {
-                let part = border(text, *span)?[index % 3].clone();
+                let part = border(name, text, *span)?[index % 3].clone();
                 out = if index.is_multiple_of(3) {
                     let pt = part.ends_with("pt");
                     let value: f64 = part.strip_suffix("px").or_else(|| part.strip_suffix("pt")).unwrap_or(&part).parse().unwrap();
@@ -71,25 +87,32 @@ fn words(text: &str) -> Vec<&str> {
     .collect()
 }
 
-fn border(text: &str, span: Span) -> Result<[String; 3], LowerError> {
+fn border(name: &str, text: &str, span: Span) -> Result<[String; 3], LowerError> {
     let mut width = None;
     let mut style = None;
     let mut color = None;
     for word in words(text) {
         let lower = word.to_ascii_lowercase();
-        if matches!(lower.as_str(), "none" | "hidden" | "solid" | "inset") {
+        // A border paints `inset`; a column rule does not (LLP 1093 §1).
+        let rule = name == "column-rule";
+        if matches!(lower.as_str(), "none" | "hidden" | "solid") || (lower == "inset" && !rule) {
             if style.replace(lower).is_some() {
                 return err(
                     "lower-css-shorthand",
-                    "border has more than one line style",
+                    format!("`{name}` has more than one line style"),
                     span,
                 );
             }
         } else if matches!(
             lower.as_str(),
-            "dotted" | "dashed" | "double" | "groove" | "ridge" | "outset"
+            "dotted" | "dashed" | "double" | "groove" | "ridge" | "inset" | "outset"
         ) {
-            return err("lower-css-shorthand", format!("CSS border style `{word}` is not implemented by native painters; supported styles are none, hidden, solid and inset"), span);
+            let supported = if rule {
+                "none, hidden and solid"
+            } else {
+                "none, hidden, solid and inset"
+            };
+            return err("lower-css-shorthand", format!("CSS line style `{word}` in `{name}` is not implemented by native painters; supported styles are {supported}"), span);
         } else if matches!(lower.as_str(), "thin" | "medium" | "thick")
             || word
                 .strip_suffix("px")
@@ -109,7 +132,7 @@ fn border(text: &str, span: Span) -> Result<[String; 3], LowerError> {
             if width.replace(value.into()).is_some() {
                 return err(
                     "lower-css-shorthand",
-                    "border has more than one line width",
+                    format!("`{name}` has more than one line width"),
                     span,
                 );
             }
@@ -122,12 +145,12 @@ fn border(text: &str, span: Span) -> Result<[String; 3], LowerError> {
                 )
                 .is_err()
             {
-                return err("lower-css-shorthand", format!("`{word}` is not an admitted border width, style or color; widths are nonnegative px/pt lengths or thin/medium/thick"), span);
+                return err("lower-css-shorthand", format!("`{word}` is not an admitted `{name}` width, style or color; widths are nonnegative px/pt lengths or thin/medium/thick"), span);
             }
             if color.replace(word.into()).is_some() {
                 return err(
                     "lower-css-shorthand",
-                    "border has more than one color",
+                    format!("`{name}` has more than one color"),
                     span,
                 );
             }
@@ -136,7 +159,7 @@ fn border(text: &str, span: Span) -> Result<[String; 3], LowerError> {
     if text.trim().is_empty() {
         return err(
             "lower-css-shorthand",
-            "border needs a width, style or color",
+            format!("`{name}` needs a width, style or color"),
             span,
         );
     }
@@ -145,6 +168,83 @@ fn border(text: &str, span: Span) -> Result<[String; 3], LowerError> {
         style.unwrap_or("none".into()),
         color.unwrap_or("currentcolor".into()),
     ])
+}
+
+// `columns`: `<column-width> || <column-count>`, each `auto` when not given.
+fn columns(text: &str, span: Span) -> Result<[Expr; 2], LowerError> {
+    let mut width = None;
+    let mut count = None;
+    let mut autos = 0;
+    let parts = words(text);
+    for word in &parts {
+        if *word == "auto" {
+            autos += 1;
+        } else if let Ok(n) = word.parse::<u16>() {
+            if n == 0 || count.replace(n).is_some() {
+                return err(
+                    "lower-css-shorthand",
+                    "`columns` takes one positive column count",
+                    span,
+                );
+            }
+        } else if !word.ends_with('%') && width.is_none() {
+            width = Some(
+                match word.strip_suffix("px").unwrap_or(word).parse::<f64>() {
+                    Ok(n) if n >= 0.0 => Expr::Number(n, span),
+                    _ => Expr::Str((*word).into(), span),
+                },
+            );
+        } else {
+            return err("lower-css-shorthand", format!("`{word}` is not a column width (a length) or count (a positive integer) for `columns`"), span);
+        }
+    }
+    if parts.is_empty()
+        || parts.len() > 2
+        || autos + width.is_some() as usize + count.is_some() as usize != parts.len()
+    {
+        return err(
+            "lower-css-shorthand",
+            "`columns` is `<column-width> || <column-count>`, each `auto` when left out",
+            span,
+        );
+    }
+    Ok([
+        width.unwrap_or_else(|| Expr::Str("auto".into(), span)),
+        Expr::Number(f64::from(count.unwrap_or(0)), span),
+    ])
+}
+
+// `column-count` or `column-rule-width` as a literal: its row's number.
+fn columns_longhand(name: &str, text: &str, span: Span) -> Result<Expr, LowerError> {
+    let word = text.trim();
+    let n = match (name, word) {
+        ("column-count", "auto") => Some(0.0),
+        ("column-count", _) => word.parse::<u16>().ok().filter(|n| *n > 0).map(f64::from),
+        (_, "thin") => Some(1.0),
+        (_, "medium") => Some(3.0),
+        (_, "thick") => Some(5.0),
+        _ => word
+            .strip_suffix("px")
+            .unwrap_or(word)
+            .parse::<f64>()
+            .ok()
+            .filter(|n| *n >= 0.0),
+    };
+    match n {
+        Some(n) => Ok(Expr::Number(n, span)),
+        None if name == "column-count" => err(
+            "lower-attr-value",
+            format!("`column-count=\"{text}\"`: a positive integer or `auto`"),
+            span,
+        ),
+        None => err(
+            "lower-attr-value",
+            format!(
+                "`column-rule-width=\"{text}\"`: a length in px, or `thin`, `medium` or `thick`"
+            ),
+            span,
+        ),
+    }
 }
 
 fn decoration(text: &str, span: Span) -> Result<String, LowerError> {
