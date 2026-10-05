@@ -151,10 +151,11 @@ extension Agent {
         // A row a grouped list draws, or its toggle's or detail button's
         // control (LLP 1084 D5): the finger aims at UIKit's cell or
         // accessory, never the hidden authored node beneath it.
-        var target: UIView = v
-        if let shown = presenter.groupedLists.shown(v) {
-            guard let drawn = shown else { return ["error": "tap #\(v.id): its cell is outside the list's port; scroll it into view first"] }
-            target = drawn
+        var target: UIView = v, port: UIScrollView?
+        switch presenter.groupedLists.shown(v) {
+        case .refused(let why): return ["error": "tap #\(v.id): \(why)"]
+        case .view(let drawn, let list): target = drawn; port = list
+        case nil: break
         }
         let drawnBox = target === v ? nil : box(target)
         guard let local = drawnBox.map({ CGPoint(x: at["x"] as? Double ?? $0.midX, y: at["y"] as? Double ?? $0.midY) }) ?? tapPoint(at, node: v) else {
@@ -167,6 +168,16 @@ extension Agent {
             return ["error": "tap #\(v.id): the point is outside the viewport; scroll it into view first"]
         }
         if let why = obscured(target, at: p, hit: seen!) { return ["error": "tap #\(v.id): \(why)"] }
+        // What a list draws is hit itself, in the list's port: never an
+        // ancestor beside a clipped cell, which the landing check would pass.
+        if let port {
+            guard port.convert(port.bounds, to: nil).contains(p) else {
+                return ["error": "tap #\(v.id): the point is outside the list's port; scroll it into view first"]
+            }
+            guard seen === target || seen!.isDescendant(of: target) else {
+                return ["error": "tap #\(v.id): \((seen as? NodeView).map { "node #\($0.id)" } ?? String(describing: Swift.type(of: seen!))) covers its middle"]
+            }
+        }
         // Stage 3's boundary, over the target, every node enclosing it (an
         // invoker around a label) and every node enclosing what the finger
         // would hit.

@@ -134,14 +134,22 @@ final class GroupedListHost {
 
     /// Where a real finger aimed at `node` lands, for a row this host draws
     /// (LLP 1080.000 D4): the row's cell; on its toggle's control, the cell's
-    /// switch; on its detail button's, that accessory. `.some(nil)` when the
-    /// cell is off the list's port (UIKit made none); nil for any node this
-    /// host does not draw, which the ordinary aim takes.
-    func shown(_ node: NodeView) -> UIView?? {
+    /// switch; on its detail button's, that accessory, with the collection
+    /// view whose port the point must be in. A refusal when the cell is off
+    /// that port or the accessory is not shown; nil for any node this host
+    /// does not draw, which the ordinary aim takes.
+    enum Aim { case view(UIView, port: UIScrollView), refused(String) }
+    func shown(_ node: NodeView) -> Aim? {
         guard let (list, row) = list(drawing: node.id) else { return nil }
-        guard let cell = list.cell(row.view), list.collection.bounds.intersects(cell.frame) else { return .some(nil) }
-        guard row.view != node.id else { return cell }
-        return list.accessory(row.view) ?? cell
+        guard let cell = list.cell(row.view), list.collection.bounds.intersects(cell.frame) else {
+            return .refused("its cell is outside the list's port; scroll it into view first")
+        }
+        guard row.view != node.id else { return .view(cell, port: list.collection) }
+        // Never the row in its place: its press is not the control's.
+        guard let control = list.accessory(row.view) else {
+            return .refused("its \(row.accessory == "toggle" ? "switch" : "detail button") is not shown")
+        }
+        return .view(control, port: list.collection)
     }
 
     /// The agent's `tap` on a row UIKit draws: the cell's own selection, as a
