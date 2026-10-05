@@ -610,6 +610,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.select_options(view), |n| n)
         }
 
+        /// A radio's group and the radios its arrows move to (x2apps
+        /// survey #2), JSON; returns its length.
+        #[no_mangle]
+        pub extern "C" fn exact_radio_group(rt: u32, view: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.radio_group(view), |n| n)
+        }
+
         /// A command's data (`share`, LLP 1069.003; `saveFile`, LLP
         /// 1069.010), JSON in the input buffer; returns the ruling's length
         /// (`refused`, `ticket`, `present`).

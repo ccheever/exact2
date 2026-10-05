@@ -2,7 +2,8 @@
 //! system UI about to run (`share`, LLP 1069.003; `saveFile`, LLP 1069.010),
 //! an auth session's arm and report (LLP 1069.006), a host line into the
 //! runner's journal, a select's options for the menu the presenter
-//! builds (LLP 1069.001 D5), a grouped list's sections (LLP 1084), and
+//! builds (LLP 1069.001 D5), a radio's group (x2apps survey #2), a
+//! grouped list's sections (LLP 1084), and
 //! whether a followed link names one of the app's routes (LLP 1038 §7).
 use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
@@ -240,6 +241,34 @@ impl<D: DataSource> Bridge<D> {
             Some(i) => format!("],\"chosen\":{i}}}"),
             None => "],\"chosen\":null}".into(),
         });
+        self.output = json.into_bytes();
+        self.output.len() as u32
+    }
+
+    /// A radio's group (`exact_radio_group`, x2apps survey #2), as JSON in
+    /// the output buffer: `{"group":[...],"next":id|null,"previous":id|null}`,
+    /// the radios of its `name` in tree order (`Kernel::radio_group`, itself
+    /// alone when it has none) and the enabled radio each arrow moves the
+    /// check to (`Kernel::radio_step`). Not a batch: nothing changes.
+    pub fn radio_group(&mut self, view: u32) -> u32 {
+        let id = |v: Option<u32>| v.map_or("null".into(), |v| v.to_string());
+        let json = match self.host.as_ref() {
+            Some(h) => {
+                let kernel = h.runner().kernel();
+                let group: Vec<String> = kernel
+                    .radio_group(view)
+                    .iter()
+                    .map(u32::to_string)
+                    .collect();
+                format!(
+                    "{{\"group\":[{}],\"next\":{},\"previous\":{}}}",
+                    group.join(","),
+                    id(kernel.radio_step(view, true)),
+                    id(kernel.radio_step(view, false))
+                )
+            }
+            None => "{\"group\":[],\"next\":null,\"previous\":null}".into(),
+        };
         self.output = json.into_bytes();
         self.output.len() as u32
     }

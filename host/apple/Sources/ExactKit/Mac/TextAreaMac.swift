@@ -36,6 +36,8 @@ final class TextArea: NSTextView {
     /// `textDidEndEditing`, which AppKit posts whenever the focus leaves.
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
+        // A selection a script set while it had no focus (x2apps codeedit #2).
+        if ok, let owner { owner.presenter?.fieldSelections.focused(owner) }
         if ok, let owner, owner.handlers.contains("focus") { owner.presenter?.focus(owner.id) }
         return ok
     }
@@ -236,14 +238,20 @@ extension NodeView {
 /// Its cell serves the node's ARIA attributes (`FieldCell`, Accessibility.swift).
 final class Field: NSTextField {
     override class var cellClass: AnyClass? { get { FieldCell.self } set {} }
-    override func becomeFirstResponder() -> Bool { focused(super.becomeFirstResponder(), delegate) }
+    override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
 }
 final class SecureField: NSSecureTextField {
     override class var cellClass: AnyClass? { get { SecureFieldCell.self } set {} }
-    override func becomeFirstResponder() -> Bool { focused(super.becomeFirstResponder(), delegate) }
+    override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
 }
-private func focused(_ ok: Bool, _ delegate: NSTextFieldDelegate?) -> Bool {
-    if ok, let owner = delegate as? NodeView, owner.handlers.contains("focus") { owner.presenter?.focus(owner.id) }
+/// The field editor selects the whole value as it takes a field, which is
+/// no `select` of the person's; a selection a script set while the field
+/// had no focus is shown instead (x2apps codeedit #2).
+private func focused(_ delegate: NSTextFieldDelegate?, _ become: () -> Bool) -> Bool {
+    let owner = delegate as? NodeView, selections = owner?.presenter?.fieldSelections
+    let ok = selections?.quietly(become) ?? become()
+    if ok, let owner { selections?.focused(owner) }
+    if ok, let owner, owner.handlers.contains("focus") { owner.presenter?.focus(owner.id) }
     return ok
 }
 #endif

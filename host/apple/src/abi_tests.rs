@@ -893,6 +893,77 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
 }
 
 #[test]
+fn a_fields_selection_kinds_and_a_radios_group_reach_the_runner() {
+    // x2apps codeedit #2: kinds 40 to 42 carry the selection; survey #2:
+    // the presenter reads a radio's group and its arrows' moves.
+    let bytes = contract::compile(
+        r#"component App
+  state text = ""
+  state caret = ""
+  state picked = ""
+  state color = "red"
+  action edit(value: string, e: InputEvent)
+    text = value
+    caret = `${e.selectionStart} ${e.selectionEnd} ${e.selectionDirection}`
+  action chose(e: InputEvent)
+    picked = `${e.selectionStart}-${e.selectionEnd} ${e.selectionDirection}`
+  action pick(value: string)
+    color = value
+  view
+    box
+      input testId="field" value=text input=edit change=edit select=chose
+      input type="radio" name="c" value="red" checked=color == "red" change=pick testId="red"
+      input type="radio" name="c" value="gray" disabled=true checked=color == "gray" change=pick testId="gray"
+      input type="radio" name="c" value="blue" checked=color == "blue" change=pick testId="blue"
+"#,
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&bytes, StorageModule::default(), Hooks::none(), 400., 800.);
+    let id = |b: &Bridge<StorageModule>, test_id: &str| {
+        let kernel = b.host.as_ref().unwrap().runner().kernel();
+        kernel
+            .node_by_key(kernel.find_by_test_id(test_id)[0])
+            .unwrap()
+            .id
+    };
+    let field = id(&bridge, "field");
+    let slot = |b: &Bridge<StorageModule>, name: &str| {
+        let slots = b.host.as_ref().unwrap().carry().slots;
+        slots.into_iter().find(|(n, _)| n == name).map(|(_, v)| v)
+    };
+    let send = |b: &mut Bridge<StorageModule>, view: u32, kind: u32, payload: &str| {
+        let len = b.input_write(payload.as_bytes());
+        let n = b.dispatch(view, kind, len, 0.);
+        std::str::from_utf8(b.output_bytes(n as usize))
+            .unwrap()
+            .to_owned()
+    };
+    let out = send(&mut bridge, field, 40, "2,2,none,a,\nb");
+    assert!(out.contains("\"error\":null"), "{out}");
+    assert_eq!(slot(&bridge, "text"), Some(Value::str("a,\nb")));
+    assert_eq!(slot(&bridge, "caret"), Some(Value::str("2 2 none")));
+    send(&mut bridge, field, 41, "0,1,forward,a,\nb");
+    assert_eq!(slot(&bridge, "caret"), Some(Value::str("0 1 forward")));
+    send(&mut bridge, field, 42, "1,3,backward,a,\nb");
+    assert_eq!(slot(&bridge, "picked"), Some(Value::str("1-3 backward")));
+    let out = send(&mut bridge, field, 42, "3,1,none,abc");
+    assert!(out.contains("invalid field selection"), "{out}");
+    let (red, gray, blue) = (id(&bridge, "red"), id(&bridge, "gray"), id(&bridge, "blue"));
+    let n = bridge.radio_group(red);
+    let json = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert_eq!(
+        json,
+        format!("{{\"group\":[{red},{gray},{blue}],\"next\":{blue},\"previous\":{blue}}}")
+    );
+    send(&mut bridge, blue, 1, "blue");
+    assert_eq!(slot(&bridge, "color"), Some(Value::str("blue")));
+    let out = send(&mut bridge, blue, 1, "red");
+    assert!(out.contains("a radio reports its own"), "{out}");
+}
+
+#[test]
 fn surface_record_abi_distinguishes_an_invalid_empty_record_from_disposal() {
     let plan = contract::compile("shape Hud\n  beacons: number\ncomponent App\n  resource hud = exactSurface(\"world\") as shape Hud\n  view\n    text `${hud.beacons}`\n").unwrap();
     let mut bridge = Bridge::new();

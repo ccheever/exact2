@@ -796,6 +796,7 @@ extension Agent {
                     if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = focus.textFieldShouldReturn(f) }
                     else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }
                     f.heard = nil
+                } else if presenter.controls.radioKey(focus, name, held: held) { // x2apps survey #2
                 } else if focus.handlers.contains("press"), name == "Enter" || name == " " { presenter.press(focus.id) }
             }
             return ["typed": Int(v.id), "key": key, "value": v.textArea?.text ?? v.field?.text ?? "", "delivery": "recognized"]

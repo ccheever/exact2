@@ -686,8 +686,17 @@ public final class ExactSession {
             apply(batch)
         }
         presenter.onPress = { [unowned self] id in apply(runtime.press(id, held: presenter.pressHeld, now: now())) }
-        presenter.onChange = { [unowned self] id, value in apply(runtime.change(id, documentValue(id, value), now: now())) }
-        presenter.onInput = { [unowned self] id, value in apply(runtime.input(id, value, now: now())) }
+        // A text field's `input` and `change` carry the selection the edit
+        // left, its `select` the one the person or a script made (x2apps
+        // codeedit #2, `FieldSelections`).
+        presenter.onChange = { [unowned self] id, value in
+            let value = documentValue(id, value)
+            apply(runtime.change(id, value, selection: presenter.fieldSelections.reported(id, value), now: now()))
+        }
+        presenter.onInput = { [unowned self] id, value in
+            apply(runtime.input(id, value, selection: presenter.fieldSelections.reported(id, value), now: now()))
+        }
+        presenter.fieldSelections.onSelect = { [unowned self] id, value, selection in apply(runtime.fieldSelect(id, value, selection, now: now())) }
         // @ref LLP 1069.001 D4 — a toggle is HTML's `input` then `change`,
         // each where the node hears it.
         presenter.onChecked = { [unowned self] id, on in
@@ -701,6 +710,7 @@ public final class ExactSession {
             if change, handlers.contains("change") { apply(runtime.change(id, value, now: now())) }
         }
         presenter.selectOptions = { [unowned self] id in runtime.selectOptions(id) }
+        presenter.controls.radioGroup = { [unowned self] id in runtime.radioGroup(id) }
         presenter.buttonFace = { [unowned self] id in runtime.buttonFace(id) }
         presenter.onIntrinsic = { [unowned self] sizes in whenIdle { [unowned self] in apply(runtime.intrinsics(sizes)) } }
         #if os(iOS)
@@ -1056,6 +1066,10 @@ public final class ExactSession {
                 }
                 if name == "focus" || name == "selectText" {
                     app.deliver { [weak self] in self?.presenter.focusElement(args, selectText: name == "selectText") }
+                    continue
+                }
+                if name == "setSelectionRange" {
+                    app.deliver { [weak self] in self?.presenter.fieldSelections.setSelectionRange(args) }
                     continue
                 }
                 if name == "blur" {

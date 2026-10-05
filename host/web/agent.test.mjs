@@ -1132,6 +1132,10 @@ test('tree --ax: parity joins by unique testId, normalizes the fixture controls,
   expect(findings.map(f => f.detail)).toEqual(['name "Add" (web) vs "Plus" (uikit)']);
   expect(unjoined).toEqual([]);
   expect(() => axParity({ ...web, spanned: true }, ios)).toThrow(/spanned/);
+  // A drawn radio is a radio, its checked state the UIKit reply's own (x2apps survey #2).
+  const radioWeb = axReply([el(0, 'radio', 'Red', { testId: 'red', states: { checked: true } })]);
+  const radioIos = axReply([el(0, 'button', 'Red', { testId: 'red', states: { checked: true, selected: true }, native: { role: ['button', 'selected'], class: 'ExactRadio' } })], { source: 'uikit' });
+  expect(axParity(radioWeb, radioIos).findings).toEqual([]);
 });
 
 test('tree --ax: no findings means clean only with complete coverage and the expected views joined', () => {

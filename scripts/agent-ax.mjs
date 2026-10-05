@@ -259,6 +259,8 @@ export function axRole(e, source) {
     const traits = Array.isArray(raw) ? raw : [];
     if (e.native?.class === 'UITextField' || e.native?.class === 'UITextView') return 'textbox';
     if (traits.includes('button') && (e.value === 'checked' || e.value === 'unchecked')) return 'checkbox';
+    // UIKit has no radio trait: the host's drawn radio says so by its class (x2apps survey #2).
+    if (e.native?.class === 'ExactRadio') return 'radio';
     if (traits.includes('link')) return 'link';
     if (traits.includes('header')) return 'heading';
     // An aria-pressed toggle: Chrome's is a `button` with a pressed state.
