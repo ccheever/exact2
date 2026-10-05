@@ -20,13 +20,6 @@ enum PositionArea {
                 bottom: popover.number("margin_bottom"), left: popover.number("margin_left"))
     }
 
-    /// Whether `area` centres the box on the invoker horizontally: CSS's
-    /// `anchor-center` self-alignment, which a single-keyword area (`top` is
-    /// `top span-all`), an area spanning all three columns, and `center` take.
-    static func centred(_ area: String) -> Bool {
-        area == "top" || area == "bottom" || area == "center" || area.hasSuffix("span-all")
-    }
-
     /// The current option belongs to this opening, like the open state.
     struct History {
         var area = "", fallbacks = "", size = CGSize.zero, margins = Margins()
