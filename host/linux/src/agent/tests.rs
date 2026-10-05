@@ -646,6 +646,27 @@ fn resize_input_uses_presenter_and_paints_before_ack() {
     }
 }
 
+/// The driver's `close` (the window's close button, `beforeunload`): the
+/// Linux presenter closes no window, and says so rather than doing nothing.
+#[test]
+fn close_is_refused_by_name() {
+    let plan = contract::compile("component App\n  view\n    text \"a\"\n").unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (390.0, 844.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let reply = handle(&mut p, r#"{"op":"tap","close":true}"#);
+    assert!(
+        reply.contains("unsupported: the Linux presenter closes no window"),
+        "{reply}"
+    );
+}
+
 #[test]
 fn a_hover_never_presses_and_a_key_is_never_text() {
     let plan = contract::compile("component App\n  state hot = false\n  state presses = 0\n  state text = \"kept\"\n  state lastKey = \"\"\n  action hovered(value)\n    hot = value\n  action pressed\n    presses = presses + 1\n  action edit(value)\n    text = value\n  action keyed(value)\n    lastKey = value\n  view\n    column width=300 height=300\n      box hover=hovered press=pressed testId=\"hot\" width=200 height=60\n      box testId=\"away\" width=200 height=60\n      input value=text change=edit key=keyed testId=\"field\" height=32\n      text `${hot} ${presses} ${text} ${lastKey}` testId=\"log\" height=20\n").unwrap();

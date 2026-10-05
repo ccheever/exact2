@@ -66,6 +66,21 @@ extension Agent {
     /// animator (LLP 1070.000 §11): the fixed point is where it lands.
     func nativeInFlight() -> Bool { !presenter.collections.animating.isEmpty }
 
+    /// `tap {close:true}`: the window's close button, pressed as ⌘W, File ▸
+    /// Close Window and the red button press it (`performClose`), so its
+    /// delegate asks the session's `beforeunload` first (studio diary R17)
+    /// and a window it keeps stays open. Whoever owns the window decides:
+    /// the app's adapter, or an embedder's delegate. A closed window takes
+    /// its session with it, and the app's last one the app.
+    func closeWindow() -> [String: Any] {
+        guard contact == nil else { return ["error": "release the held contact before closing the window"] }
+        guard let window = presenter.viewport.window else { return ["error": "no window to close"] }
+        window.performClose(nil)
+        let closed = !window.isVisible
+        return ["closed": closed, "delivery": "platform-window", "native": "NSWindow.performClose"]
+            .merging(closed ? [:] : ["kept": "the window's delegate kept it open (a `beforeunload` called `preventDefault()`)"]) { a, _ in a }
+    }
+
     /// Diagnostic tap {resize:[w,h]} (LLP 1041 §8). Resize the containing
     /// NSWindow, allowing ExactView's ordinary fit/inset path to follow.
     /// Never assign the viewport frame or subtract titlebar/toolbar heights:

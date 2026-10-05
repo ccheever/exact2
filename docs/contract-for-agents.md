@@ -119,6 +119,11 @@ another viewport, and a test's first step `size <w>x<h>` does the same for that 
 `resize <w>x<h>`, an operation and a test step, resizes it mid-drive as a person
 dragging the window's edge would: the browser's viewport, a macOS window, the
 Linux presenter. An iOS app's viewport is the device's screen, so iOS refuses it.
+`close`, an operation and a test step, presses the window's close button as ⌘W
+or the red button would (the agent's window is never key, so a typed ⌘W reaches
+nothing): the window asks its `beforeunload` first, and the reply says
+`closed: true`, or `closed: false` for a window a handler kept (the web's
+"Leave site?" is answered "Stay"). macOS and the web; iOS and Linux refuse it.
 `--storage <name>` keeps a named scratch store between drives on every host (on
 the web, a kept browser profile served on one port per name); without it a web
 drive is a fresh profile, so its storage ends with the drive. To show what
@@ -805,7 +810,9 @@ above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
 what is in flight lands, with each answer's `then`, the clock unmoved), `resize
 800x600` (the window, mid-test), `reload`
 (the app restarts on the store it had, its state and clock starting over, so a
-test shows what persists),
+test shows what persists), `close` (the window's close button, as ⌘W: a
+`beforeunload` that calls `preventDefault()` keeps it open and the test goes on
+to the app's "Save changes?"; macOS and the web),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text; a control's value, so a `select` reads its chosen value, not its
 options; else its descendants' — a button's label — else a field's value), and

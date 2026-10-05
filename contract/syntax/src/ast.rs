@@ -325,6 +325,13 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `close`: the window's close button, as ⌘W or the red button press
+    /// it, asking its `beforeunload` first (the driver's `close`, studio
+    /// diary R17); a window a handler keeps stays, and the test goes on.
+    Close {
+        /// Where.
+        span: Span,
+    },
     /// `expect state name == literal`: a slot, derive, or resource from the
     /// `state` reply, or a field of one (`name.field.field`, feed F10),
     /// compared to a number, string, bool, or `none`.
@@ -1191,6 +1198,7 @@ impl Step {
             | Step::Clipboard { span, .. }
             | Step::Clock { span, .. }
             | Step::Reload { span, .. }
+            | Step::Close { span }
             | Step::Resize { span, .. }
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }

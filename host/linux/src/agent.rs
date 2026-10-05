@@ -258,6 +258,11 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             if request.get("resize").is_some() {
                 return resize(p, &request);
             }
+            // The window's close button (`beforeunload`, studio diary R17):
+            // the Linux presenter closes no window, as the guide says.
+            if request.get("close").is_some() {
+                return error("unsupported: the Linux presenter closes no window (no `beforeunload`); close drives a macOS window or the browser's page");
+            }
             if let Some(reply) = p.control_tap(&request) {
                 return reply.to_string();
             }

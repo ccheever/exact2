@@ -125,7 +125,7 @@ record_variants! {
         Size { width, height, span }, Epoch { value, span }, TimeZone { zone, span },
         Locale { tag, span }, Seed { seed, span }, BeforeData { span }, Type { target, text, append, span }, Key { target, key, span },
         Pick { target, paths, span }, Clipboard { target, edit, text, span },
-        Clock { arg, span }, Reload { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectTree { target, present, span },
+        Clock { arg, span }, Reload { span }, Close { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectTree { target, present, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
     }
 }

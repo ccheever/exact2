@@ -190,6 +190,15 @@ fn a_test_resizes_the_window_mid_test() {
 }
 
 #[test]
+fn a_test_closes_the_window_as_its_close_button_does() {
+    // studio diary R17: `beforeunload` and "Save changes?" are driven.
+    let tests = contract::tests("test \"t\"\n  type \"note\" \"x\"\n  close\n").unwrap();
+    assert!(matches!(&tests[0].steps[1], Step::Close { .. }));
+    let json = contract::tests_json(&tests);
+    assert!(json.contains("{\"op\":\"close\",\"line\":3}"), "{json}");
+}
+
+#[test]
 fn a_test_answers_a_held_picker_by_its_node() {
     // files F11: a picker's hold is answered by the node its answer
     // arrives at, never by a ticket a test cannot predict.

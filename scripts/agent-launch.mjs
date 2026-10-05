@@ -411,3 +411,29 @@ export class Cdp {
     });
   }
 }
+
+/** The tab closed as a person closes it (studio diary R17), the Chrome carrier's `tap {close:true}`: `Page.close` runs
+ * the page's `beforeunload`; a handler that prevented it opens Chrome's "Leave site?" (given the page's sticky
+ * activation, as for a person), answered "Stay". Either the dialog or the target's detach comes; after the second the
+ * page is gone. */
+export async function closePage(req, { cdp, sessionId, call, frame }) {
+  if (Object.keys(req).some(k => !['op', 'close'].includes(k)) || req.close !== true) return { error: 'tap close takes no other input fields' };
+  let listener, timer;
+  const outcome = new Promise((ok) => {
+    listener = (msg) => {
+      if (msg.sessionId === sessionId && msg.method === 'Page.javascriptDialogOpening' && msg.params.type === 'beforeunload') ok('dialog');
+      else if (msg.method === 'Target.detachedFromTarget' && msg.params.sessionId === sessionId) ok('closed');
+    };
+    cdp.listeners.push(listener);
+    timer = setTimeout(() => ok('timeout'), 5000);
+  });
+  try {
+    call('Page.close').catch(() => {});
+    const how = await outcome;
+    if (how === 'timeout') return { error: 'the page neither closed nor asked to stay within 5 s of Page.close' };
+    if (how === 'closed') return { closed: true, delivery: 'browser-window', native: 'Page.close' };
+    await call('Page.handleJavaScriptDialog', { accept: false });
+    await frame();
+    return { closed: false, kept: 'a `beforeunload` called `preventDefault()`: the browser asked "Leave site?", answered "Stay"', delivery: 'browser-window', native: 'Page.close' };
+  } finally { clearTimeout(timer); cdp.listeners.splice(cdp.listeners.indexOf(listener), 1); }
+}

@@ -320,6 +320,7 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu" | "into" STR
               | "clock" ( "settle" | "data" | [ "+" ] NUMBER [ "real" ] ) NL
               | "resize" NUMBER "x" NUMBER NL        (* the window, mid-test: 800x600 *)
               | "reload" NL
+              | "close" NL                           (* the window's close button *)
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
               | "expect" "text" STRING "==" STRING NL
@@ -352,7 +353,13 @@ value, as Playwright's `fill`; `append` adds the text after the value the tree
 shows (a prefilled reply). `reload` restarts the app on the store it had: the
 web page loads again in the same profile, a native app relaunches on the same
 scratch store. Its state starts over and the clock is 0 again; what the app
-stored is what it reads, so persistence is testable.
+stored is what it reads, so persistence is testable. `close` presses the
+window's close button as ⌘W or the red button does (the driver's `close`): its
+`beforeunload` handlers hear it, and a window one keeps stays open, so the
+test goes on to the app's own "Save changes?" (on the web the browser's "Leave
+site?", answered "Stay"). A window that closes, by `close` or by a press the app
+answers with `close()`, takes the session with it, and a step after it fails
+naming the line. macOS and the web; iOS and Linux close no window and refuse it.
 `type` on a `select` chooses an enabled option by value, else by its one label;
 on a date, time or range input it sets the value in HTML's format; on a checkbox
 it takes `true` or `false`. A target out of view is scrolled into view first.

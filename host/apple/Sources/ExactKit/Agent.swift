@@ -173,8 +173,24 @@ public final class Agent {
         // after a frame, so the frame is rendered here, not left to the
         // display link to get to between two calls).
         case "tap":
-            let r: [String: Any]
-            if req["resize"] != nil {
+            var r: [String: Any]
+            #if os(macOS)
+            let wasOpen = presenter.viewport.window?.isVisible == true
+            #endif
+            if req["close"] != nil {
+                // The window's close button, as ⌘W and File ▸ Close Window
+                // press it: an input, as `resize` is, so a `beforeunload`
+                // flow can be driven (the agent's window is never key, so a
+                // ⌘W it typed would go nowhere).
+                guard req.keys.allSatisfy({ ["op", "session", "close"].contains($0) }), req["close"] as? Bool == true else {
+                    Agent.reply(["error": "tap close takes no other input fields"]); return
+                }
+                #if os(macOS)
+                r = closeWindow()
+                #else
+                r = ["error": "unsupported: an iOS app closes no window; close drives a macOS window or the browser's page (`beforeunload`)"]
+                #endif
+            } else if req["resize"] != nil {
                 // LLP 1041 §8's opt-in diagnostic is an input variant, not a
                 // ninth operation. Reject ambiguous input before touching UI.
                 guard req.keys.allSatisfy({ ["op", "session", "resize"].contains($0) }),
@@ -190,6 +206,12 @@ public final class Agent {
             } else if let into = req["into"] as? [String: Any] {
                 r = intoView(req, into)
             } else { r = session.canvases.releaseContact(req) ?? tap(req) }
+            #if os(macOS)
+            // A press the app answered with `close()` (a "Don't Save") took
+            // the window, and its session with it: the reply says so, as
+            // `close`'s does, since nothing is left to read after it.
+            if wasOpen, r["error"] == nil, req["close"] == nil, presenter.viewport.window?.isVisible != true { r["closed"] = true }
+            #endif
             session.canvases.settle(now: session.now())
             Agent.reply(tagged(r))
         case "type": let r = releaseCanvasKey(req) ?? type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))

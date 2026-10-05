@@ -104,8 +104,12 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // a mutation's `then`, a timer, a transition) lands at a clock step. A
     // failed expect after an input with none says so (kanban F19).
     let input = null;
+    // The line whose `close` closed the window, if one did.
+    let closedAt = null;
     // An input the host could not perform fails its step: an unsupported drag or a refused tap did nothing to assert on.
-    const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); };
+    // An input that closed the window (`close`, or a press the app answered with `close()`) ends what can run.
+    let current = null;
+    const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); if (r?.closed) closedAt = current; };
     // With no input since the clock last moved, a request still in flight (the boot's own, or one a jump
     // left on real time) is named: the expect read the value before its reply (workout F1).
     const fail = async (message) => {
@@ -117,6 +121,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       try { await data(); } catch (e) { failures.push(`${t.name}: waiting for the app's data before the first step: ${e.message}`); }
       for (const st of failures.length ? [] : t.steps) {
         const at = `${t.name}: line ${st.line}`;
+        if (closedAt != null) { failures.push(`${at}: the window closed at line ${closedAt}, so nothing after it runs`); break; }
+        current = st.line;
         try {
           switch (st.op) {
             case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': break; // the session opened with it
@@ -140,6 +146,9 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
             case 'clock': await s.clock(st.arg); input = null; break;
             case 'resize': delivered(await s.resize(st.width, st.height)); input = st.line; break;
+            // The window's close button (studio diary R17): a window a `beforeunload` keeps stays and the test goes on;
+            // one that closed takes the session, so a step after it fails naming it.
+            case 'close': delivered(await s.closeWindow()); input = st.line; break;
             case 'screenshot': await s.screenshot(st.path); break;
             case 'expect-tree': {
               const tree = await s.tree();
@@ -178,7 +187,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         }
       }
     } finally {
-      await s.close();
+      // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
+      await s.close().catch((e) => { if (closedAt == null) throw e; });
     }
     results.push({ name: t.name, failures });
     if (base) rmSync(resolve(base, store), { recursive: true, force: true });

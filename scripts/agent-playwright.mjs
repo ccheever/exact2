@@ -184,6 +184,17 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         await page.setViewportSize({ width: pair[0], height: pair[1] }); await frame();
         return { resized: pair, viewport: await page.evaluate(() => [innerWidth, innerHeight]), delivery: 'browser-viewport' };
       }
+      // The tab closed with its `beforeunload` run (agent.mjs's Chrome carrier): a prevented one's dialog answered "Stay".
+      if (req.op === 'tap' && req.close !== undefined) {
+        if (Object.keys(req).some(k => !['op', 'close'].includes(k)) || req.close !== true) return { error: 'tap close takes no other input fields' };
+        const asked = new Promise(ok => page.once('dialog', ok)), gone = new Promise(ok => page.once('close', () => ok(null)));
+        await page.close({ runBeforeUnload: true });
+        const dialog = await Promise.race([asked, gone, new Promise(ok => setTimeout(() => ok(undefined), 5000))]);
+        if (dialog === undefined) return { error: 'the page neither closed nor asked to stay within 5 s of closing it' };
+        if (dialog === null) return { closed: true, delivery: 'browser-window', native: 'page.close' };
+        await dialog.dismiss(); await frame();
+        return { closed: false, kept: 'a `beforeunload` called `preventDefault()`: the browser asked to leave, answered "Stay"', delivery: 'browser-window', native: 'page.close' };
+      }
       if (req.op === 'clock' && await page.evaluate(() => typeof ImageDecoder === 'undefined' && [...document.images].some(i => /\.(gif|webp)(?:[?#]|$)/i.test(i.currentSrc || i.src)))) throw new Error(`${name} clock refuses: this engine has no ImageDecoder, so an animated GIF/WebP would run on wall time`);
       return JSON.parse(await page.evaluate(req => globalThis.exact.agentSettled(req).then(JSON.stringify), req));
     };
