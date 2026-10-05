@@ -950,7 +950,9 @@ on real time). An input step ends with what it settled: an answer the data
 module gave in the input's turn, and its mutation's `then`, are there for the
 next step. Otherwise the clock stands still between steps: a reply on real time
 (a store's, the network's) or a transition an input started lands at a `clock`
-step, so `clock settle` before the `expect` that depends on it. A timer
+step, so `clock settle` before the `expect` that depends on it. A storage write
+the web answers in the input's turn is a reply on real time on iOS and macOS, so
+a test meant for both settles after every input that writes. A timer
 (`after`, `every(ms)`) fires when the clock reaches or passes its time: `clock
 settle` fires it only if it reaches it while advancing to a motion's end, so
 move to it with `clock +N` (a `task … after(1, restore)` needs `clock +1`).
