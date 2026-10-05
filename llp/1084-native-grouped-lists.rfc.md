@@ -233,6 +233,23 @@ Proofs: `contract/cli/tests/it/grouped_list.rs`
 `a_cardless_section_draws_no_separators_and_takes_only_transparent`;
 `GroupedListIOSTests.testACardlessSectionsCellsAreClear`.
 
+## 6.3 A real touch on what the list draws (2026-10-04, Signal Clone)
+
+Under `--touch platform` (LLP 1080.000), `tap` on a row, its toggle's control
+or its detail button was aimed at the hidden authored node and refused
+(`_UISystemBackgroundView covers its middle`). The aim (D4) now takes the view
+UIKit draws for it, as D8's host activation does: the row's cell, the cell's
+switch, or UIKit's detail button (a control in the cell outside its content).
+It is refused when the cell is outside the list's port. Its middle, the
+covering check and the node the dispatch log must see the touch land on (the
+list's) are that view's. A custom row needs nothing: its views are carried
+into the cell.
+
+Proofs: `GroupedListIOSTests.testARealTouchAimsAtTheCellOrAccessoryUIKitDraws`;
+`scripts/smoke-touch.mjs` taps `contract/corpus/grouped-touch.contract`'s
+switch twice, its detail button and a row with real touches, each read back
+from the app's state.
+
 ## 7. Open
 
 - **`sidebar` and `sidebarPlain`.** These are UIKit's other two appearances. They wait for an iPad or Mac consumer.

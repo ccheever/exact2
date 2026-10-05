@@ -132,6 +132,18 @@ final class GroupedListHost {
     /// button): the agent finds it in UIKit's cell, not the hidden row.
     func draws(_ id: UInt32) -> Bool { list(drawing: id) != nil }
 
+    /// Where a real finger aimed at `node` lands, for a row this host draws
+    /// (LLP 1080.000 D4): the row's cell; on its toggle's control, the cell's
+    /// switch; on its detail button's, that accessory. `.some(nil)` when the
+    /// cell is off the list's port (UIKit made none); nil for any node this
+    /// host does not draw, which the ordinary aim takes.
+    func shown(_ node: NodeView) -> UIView?? {
+        guard let (list, row) = list(drawing: node.id) else { return nil }
+        guard let cell = list.cell(row.view), list.collection.bounds.intersects(cell.frame) else { return .some(nil) }
+        guard row.view != node.id else { return cell }
+        return list.accessory(row.view) ?? cell
+    }
+
     /// The agent's `tap` on a row UIKit draws: the cell's own selection, as a
     /// finger's; on a toggle's control, its switch's flip; on a detail
     /// button, its accessory's action. Refused, having done nothing, when
@@ -356,6 +368,24 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     func cell(_ id: UInt32) -> UICollectionViewCell? {
         source.indexPath(for: id).flatMap { collection.cellForItem(at: $0) }
+    }
+
+    /// The control a row's accessory shows: its switch, or UIKit's detail
+    /// button (a control in the cell outside its content). Nil for any other.
+    func accessory(_ id: UInt32) -> UIView? {
+        switch rows[id]?.accessory {
+        #if !os(tvOS)
+        case "toggle": return switches[id].flatMap { $0.window != nil ? $0 : nil }
+        #endif
+        case "detail":
+            guard let cell = cell(id) as? UICollectionViewListCell else { return nil }
+            func control(_ v: UIView) -> UIControl? {
+                if v === cell.contentView { return nil }
+                return (v as? UIControl) ?? v.subviews.lazy.compactMap(control).first
+            }
+            return control(cell)
+        default: return nil
+        }
     }
 
     /// Whether the section holding `id` draws its card.

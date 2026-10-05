@@ -148,14 +148,25 @@ extension Agent {
             }
             at["x"] = offset["x"]; at["y"] = offset["y"]
         }
-        guard let local = tapPoint(at, node: v) else { return ["error": "tap #\(req["id"] ?? v.id): no visible text fragment; scroll it into view first"] }
+        // A row a grouped list draws, or its toggle's or detail button's
+        // control (LLP 1084 D5): the finger aims at UIKit's cell or
+        // accessory, never the hidden authored node beneath it.
+        var target: UIView = v
+        if let shown = presenter.groupedLists.shown(v) {
+            guard let drawn = shown else { return ["error": "tap #\(v.id): its cell is outside the list's port; scroll it into view first"] }
+            target = drawn
+        }
+        let drawnBox = target === v ? nil : box(target)
+        guard let local = drawnBox.map({ CGPoint(x: at["x"] as? Double ?? $0.midX, y: at["y"] as? Double ?? $0.midY) }) ?? tapPoint(at, node: v) else {
+            return ["error": "tap #\(req["id"] ?? v.id): no visible text fragment; scroll it into view first"]
+        }
         let vp = presenter.viewport
         let p = vp.convert(CGPoint(x: local.x + vp.contentOffset.x, y: local.y + vp.contentOffset.y), to: nil)
         let seen = win.hitTest(p, with: nil)
         if !CGRect(origin: .zero, size: vp.bounds.size).contains(local) || seen == nil {
             return ["error": "tap #\(v.id): the point is outside the viewport; scroll it into view first"]
         }
-        if let why = obscured(v, at: p, hit: seen!) { return ["error": "tap #\(v.id): \(why)"] }
+        if let why = obscured(target, at: p, hit: seen!) { return ["error": "tap #\(v.id): \(why)"] }
         // Stage 3's boundary, over the target, every node enclosing it (an
         // invoker around a label) and every node enclosing what the finger
         // would hit.
