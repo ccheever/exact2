@@ -92,8 +92,21 @@ final class VideoView {
     /// The last source resolved per name (`src`, `poster`): its authored text
     /// and what it resolved to. A resolution reads the file system.
     private var resolved: [String: (source: String, url: URL?)] = [:]
-    /// The media events the arm reports (LLP 1042 §3); others are not sent.
-    static let events: Set<String> = ["loadedmetadata", "canplay", "play", "playing", "pause", "ended", "waiting", "seeking", "seeked", "ratechange", "volumechange", "timeupdate", "durationchange", "error"]
+    /// The media events the arm reports (LLP 1042 §3), and the media
+    /// session's six (LLP 1098 D2); others are not sent.
+    static let events: Set<String> = ["loadedmetadata", "canplay", "play", "playing", "pause", "ended", "waiting", "seeking", "seeked", "ratechange", "volumechange", "timeupdate", "durationchange", "error", "seekbackward", "seekforward", "seekto", "previoustrack", "nexttrack", "stop"]
+    /// A remote play's latch over the visibility threshold (LLP 1098 D3):
+    /// it holds across the `paused` bound when it was set, the app's stale
+    /// `true` included, until a later commit writes `true` or the element
+    /// rises above the threshold.
+    private var latched = false
+    private var latchedFrom: String?
+    /// The arm's media session report (NowPlaying.swift), and the driver's
+    /// last `tap … mediasession` request and answer (LLP 1098 D10).
+    private(set) var sessionReport: [String: Any] = [:]
+    private var remoteRequests = 0
+    private var remoteRequest: String?
+    private var remoteResult: (n: String, status: String)?
     private var visibilityThreshold: CGFloat? {
         guard let owner, owner.props["paused"] != nil,
               let raw = owner.props["playbackVisibilityThreshold"],
@@ -166,12 +179,14 @@ final class VideoView {
             autoplay.load(autoplay: props["autoplay"] == "true")
         }
         if props["paused"] != nil { autoplay.disarm() }
+        if latched, props["paused"] != latchedFrom { if props["paused"] == "true" { latched = false } else { latchedFrom = props["paused"] } }
         if let threshold = visibilityThreshold {
             if owner.presenter?.videoVisibility == nil { owner.presenter?.videoVisibility = VideoVisibilityHost() }
             owner.presenter?.videoVisibility?.track(self)
             let ratio = VideoVisibilityHost.fraction(owner)
             visibilityBlocked = ratio <= 0 || ratio < threshold
-            if visibilityBlocked { props["paused"] = "true" }
+            if !visibilityBlocked { latched = false } // above it the authored value applies anyway
+            if visibilityBlocked && !latched { props["paused"] = "true" }
         } else if autoplayRule {
             visibilityBlocked = false
             if owner.presenter?.videoVisibility == nil { owner.presenter?.videoVisibility = VideoVisibilityHost() }
@@ -185,17 +200,21 @@ final class VideoView {
             owner.presenter?.videoVisibility?.remove(self)
         }
         props["objectFit"] = owner.style["object_fit"]?.string ?? "contain"
-        for name in ["src", "poster"] {
+        for name in ["src", "poster", "mediaArtwork"] {
             if let source = props[name], !source.isEmpty {
                 let url: URL?
                 if let hit = resolved[name], hit.source == source { url = hit.url } else {
                     url = NodeView.resolveSource(source, app: owner.presenter?.session?.app)
                     resolved[name] = (source, url)
                 }
-                props[name] = url?.absoluteString ?? ""
+                // The artwork keeps its authored source for `state` (LLP 1098 D1, D7).
+                props[name == "mediaArtwork" ? "mediaArtworkURL" : name] = url?.absoluteString ?? ""
                 if name == "src" && url == nil { props["sourceError"] = "Unsupported media source" }
             }
         }
+        // Under the driver the session is built and reported, never published (LLP 1098 D10).
+        if ExactEnv.agentMode { props["exactPublish"] = "false" }
+        if let remoteRequest { props["exactRemote"] = remoteRequest }
         var listeners = owner.handlers.intersection(Self.events)
         if autoplayRule { listeners.formUnion(["pause", "play"]) }
         if !listeners.isEmpty { props["exactListeners"] = listeners.sorted().joined(separator: " ") }
@@ -214,6 +233,7 @@ final class VideoView {
     func state() -> [String: Any] {
         if let handle { VideoModule.shared?.state(handle) }
         var result = observed
+        result.removeValue(forKey: "session")
         if visibilityThreshold != nil, let owner {
             result["intersectionRatio"] = VideoVisibilityHost.fraction(owner)
             result["visibilityPaused"] = visibilityBlocked
@@ -221,9 +241,21 @@ final class VideoView {
         if autoplayRule { result["autoplayOffscreenPaused"] = autoplay.holding }
         return result
     }
+    /// The driver's `tap … mediasession` (LLP 1098 D10): the arm runs the
+    /// command target's own path; its status, or nil with no arm.
+    func remote(_ action: String, seconds: Double?) -> String? {
+        guard handle != nil else { return nil }
+        remoteRequests += 1
+        remoteRequest = "\(remoteRequests) \(action)" + (seconds.map { " \($0)" } ?? "")
+        remoteResult = nil
+        update()
+        return remoteResult.flatMap { $0.n == String(remoteRequests) ? $0.status : nil }
+    }
     private func receive(_ message: [String: Any]) {
-        if let state = message["state"] as? [String: Any] { observed = state }
+        if let state = message["state"] as? [String: Any] { observed = state; sessionReport = state["session"] as? [String: Any] ?? sessionReport }
+        if let result = message["remoteResult"] as? [String: String] { remoteResult = (result["n"] ?? "", result["status"] ?? "") }
         guard let owner else { return }
+        if message["remote"] as? String == "play" { latched = true; latchedFrom = owner.props["paused"] }
         let w = observed["videoWidth"] as? Double ?? 0, h = observed["videoHeight"] as? Double ?? 0
         let size: CGSize? = w > 0 && h > 0 ? CGSize(width: w, height: h) : nil
         if size != intrinsicSize {

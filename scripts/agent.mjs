@@ -1066,7 +1066,6 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       try { node = await s.target(target); }
       catch (error) { throw await tapRefusal(s, target, error); }
       // @ref LLP 1098 D10 — a media element's session action, as the platform's handler: no reveal, no box, never a press.
-      if (opts.mediaSession !== undefined && !['web', 'linux', 'windows'].includes(host)) throw new Error(`mediasession: ${host} has no media session yet (LLP 1098 stage 3)`);
       if (opts.mediaSession !== undefined) return s.landed({ ...await carrier.input(node.id, 'mediasession', opts), tapped: node.id, target, delivery: 'substituted', carrier: host, mode: timing });
       if (opts.mouse) {
         if (!['web', 'linux', 'windows'].includes(host)) throw new Error(`${host} does not carry explicit mouse clicks`);

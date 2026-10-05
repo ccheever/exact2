@@ -1,4 +1,5 @@
 // @ref LLP 1042. An AVPlayer and native presentation survive every layout/keyboard change.
+// The media session (LLP 1098) is NowPlaying.swift's, compiled into this arm.
 import Foundation
 import AVFoundation
 import AVKit
@@ -54,7 +55,7 @@ private enum SharedAssets {
     static func forget(_ url: URL) { if let key = key(url) { cache.removeObject(forKey: key) } }
 }
 
-private final class VideoArm: NSObject {
+private final class VideoArm: NSObject, NowPlayingPlayer {
     let player = AVPlayer()
     let container = VideoContainer(frame: .zero)
     let poster = PlatformImageView(frame: .zero)
@@ -101,6 +102,9 @@ private final class VideoArm: NSObject {
     /// The media events the node handles. Only these, and state snapshots,
     /// cross the ABI, as the web glue sends only handled events.
     var listeners: Set<String> = []
+    /// AVKit's own Now Playing publication, off while a claimant owns the
+    /// media session (LLP 1098 D7); a controller made later takes it.
+    var avkitPublishes = true
 
     init(context: UnsafeMutableRawPointer?, callback: @escaping VideoCallback) {
         self.context = context; self.callback = callback
@@ -126,6 +130,7 @@ private final class VideoArm: NSObject {
             player.observe(\.volume, options: [.new]) { [weak self] _, _ in self?.volumeChanged() },
             player.observe(\.isMuted, options: [.new]) { [weak self] _, _ in self?.volumeChanged() }
         ]
+        NowPlaying.shared.joined(self)
     }
     /// The periodic observer runs only while `timeupdate` is handled; `state`
     /// reads the time from the player when asked.
@@ -181,9 +186,49 @@ private final class VideoArm: NSObject {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in self?.emit(event, payload: payload) }; return
         }
+        if Self.moves.contains(event) { NowPlaying.shared.moved(self) }
         guard event == "snapshot" || listeners.contains(event) else { return }
-        guard let data = try? JSONSerialization.data(withJSONObject: ["event": event, "payload": payload, "state": snapshot]) else { return }
+        send(["event": event, "payload": payload])
+    }
+    /// One message to ExactKit, with the state snapshot and this player's media session.
+    func send(_ message: [String: Any]) {
+        var message = message
+        var state = snapshot
+        state["session"] = NowPlaying.shared.report(self)
+        message["state"] = state
+        guard let data = try? JSONSerialization.data(withJSONObject: message) else { return }
         data.withUnsafeBytes { callback(context, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
+    }
+    /// The reports that move the published position or state (LLP 1098 D4).
+    static let moves: Set<String> = ["loadedmetadata", "durationchange", "play", "pause", "ratechange", "seeked", "ended"]
+
+    // MARK: - the media session (LLP 1098; NowPlaying.swift)
+    var sessionProps: [String: String] { props }
+    var sessionPaused: Bool { player.timeControlStatus == .paused }
+    /// HTML's duration: a live item's is infinite, an unknown one NaN.
+    var sessionDuration: Double {
+        guard let item = player.currentItem else { return .nan }
+        return item.status == .readyToPlay && item.duration.isIndefinite ? .infinity : item.duration.seconds
+    }
+    var sessionElapsed: Double { seconds }
+    var sessionRate: Double { Double(rate) }
+    /// A remote play is a person's: ExactKit latches it over the visibility threshold (D3).
+    func sessionPlay() {
+        guard !invalidated else { return }
+        send(["remote": "play"])
+        wantsPlay = true
+        if player.currentItem == nil { loadSource() }
+        play()
+    }
+    func sessionPause() { guard !invalidated else { return }; wantsPlay = false; player.pause() }
+    func sessionAction(_ name: String, payload: String) { emit(name, payload: payload) }
+    func sessionAVKitPublishes(_ on: Bool) {
+        avkitPublishes = on
+        #if os(macOS)
+        presentation.updatesNowPlayingInfoCenter = on
+        #elseif os(iOS)
+        controller?.updatesNowPlayingInfoCenter = on
+        #endif
     }
     /// `error`'s payload is a stable code, never AVFoundation's text (jukebox
     /// F6): the web glue's (media-glue.js) MediaError words, `invalid-value`
@@ -207,7 +252,7 @@ private final class VideoArm: NSObject {
         guard !invalidated else { return }
         let status = player.timeControlStatus
         let paused = status == .paused
-        if paused != lastPaused { lastPaused = paused; emit(paused ? "pause" : "play") }
+        if paused != lastPaused { lastPaused = paused; emit(paused ? "pause" : "play"); if !paused { NowPlaying.shared.played(self) } }
         if status != lastTimeStatus {
             lastTimeStatus = status
             if status == .playing { poster.isHidden = true; emit("playing") }
@@ -272,6 +317,23 @@ private final class VideoArm: NSObject {
         configureItem()
         if let error = props["sourceError"], error != old["sourceError"] { fail("src-not-supported", error) }
         layout()
+        NowPlaying.shared.updated(self)
+        // The driver's `tap … mediasession` (LLP 1098 D10): `<n> <action> [seconds]`,
+        // the command target's own path, its status reported back at once.
+        if changed("exactRemote"), let request = props["exactRemote"] {
+            let parts = request.split(separator: " ").map(String.init)
+            let status: String
+            if parts.count < 2 { status = "unreadable" }
+            else if NowPlaying.shared.owner !== self { status = "notOwner" }
+            else {
+                switch NowPlaying.shared.perform(parts[1], seconds: parts.count > 2 ? Double(parts[2]) : nil) {
+                case .success: status = "success"
+                case .noActionableNowPlayingItem: status = "noOwner"
+                default: status = "commandFailed"
+                }
+            }
+            send(["remoteResult": ["n": parts.first ?? "", "status": status]])
+        }
         emit()
     }
     func set<Value: Equatable>(_ key: ReferenceWritableKeyPath<AVPlayer, Value>, _ value: Value) {
@@ -404,6 +466,9 @@ private final class VideoArm: NSObject {
             // `renderInContext` throws on (object-fit does not animate in CSS).
             native.videoGravity = gravity
             controller = native
+            #if os(iOS)
+            native.updatesNowPlayingInfoCenter = avkitPublishes
+            #endif
             container.insertSubview(native.view, belowSubview: poster)
             inline?.playerLayer.player = nil
             inline?.removeFromSuperview()
@@ -458,6 +523,7 @@ private final class VideoArm: NSObject {
     func invalidate() {
         guard !invalidated else { return }
         invalidated = true; generation += 1; posterGeneration += 1
+        NowPlaying.shared.left(self)
         player.pause()
         if let tick { player.removeTimeObserver(tick) }; tick = nil
         observations.removeAll(); playerObservations.removeAll()

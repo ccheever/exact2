@@ -944,6 +944,10 @@ async function main(args) {
   // build carries all four: a development plan or a later bundle may reach
   // one. Nothing is refused for a module left out: each loader says by name
   // that its module is absent, and a canvas then draws with Core Graphics.
+  // @ref LLP 1098 D8 — the lock screen and Control Center show only a non-mixable playback session's media, and the audio
+  // stops at the lock without the background mode: an app that claims the media session states both.
+  const iosModes = app.manifest.host?.ios?.backgroundModes ?? [];
+  if (ios && !tv && buildReceipt.graph.mediaSession && !(app.manifest.audio_session === 'playback' && iosModes.includes('audio'))) throw new Error('host/apple: a media session needs `audio_session: "playback"` and `"audio"` in `host.ios.backgroundModes` in app.json on iOS: the lock screen shows only a playback session\'s media');
   const reaches = buildReceipt.graph.loads;
   const settled = cargoProfile === 'release' && level === '0' && Array.isArray(reaches);
   const carries = (module) => !settled || reaches.includes(module);
@@ -1008,8 +1012,10 @@ async function main(args) {
   const hasWeb = !tv && carries('web'), hasVideo = carries('video'), hasSvg = carries('svg');
   if (hasWeb) arms.push(arm(webArgs, resolve(root, 'host/apple/webarm/WebArm.swift'), webBuilt));
   const videoBuilt = resolve(webBuildDir, videoLoadName);
-  const videoArgs = webArgs.map(value => value === 'ExactWebArm' ? 'ExactVideoArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? resolve(root, 'host/apple/videoarm/VideoArm.swift') : value === webBuilt ? videoBuilt : value === 'WebKit' ? 'AVKit' : value);
-  if (hasVideo) arms.push(arm(videoArgs, resolve(root, 'host/apple/videoarm/VideoArm.swift'), videoBuilt));
+  // The video arm and its media session (LLP 1098 D7): both sources are its key and its inputs, with MediaPlayer.
+  const video = ['VideoArm.swift', 'NowPlaying.swift'].map(f => resolve(root, 'host/apple/videoarm', f));
+  const videoArgs = webArgs.flatMap(value => value === 'ExactWebArm' ? ['ExactVideoArm'] : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? video : value === webBuilt ? [videoBuilt] : value === 'WebKit' ? ['AVKit', '-framework', 'MediaPlayer'] : [value]);
+  if (hasVideo) arms.push(arm(videoArgs, video, videoBuilt));
   // The sound arm (LLP 1096 D8): Swift over a C mixer, so the render thread
   // runs no Swift. The C is compiled first to an object named by its content,
   // and linked into the one dylib with its header imported.

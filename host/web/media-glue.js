@@ -161,7 +161,7 @@ for (const name of actions) remote[name] = (d = {}) => {
   const el = owner, state = el && states.get(el);
   if (!state || state.retired || !el.isConnected || !el.exactMedia.handlers.includes(name)) return null;
   const seek = name === 'seekbackward' || name === 'seekforward', ok = n => Number.isFinite(n) && n >= 0;
-  const seekOffset = seek ? (ok(d.seekOffset) ? d.seekOffset : state.offsets[`${name}Offset`]) : 0, seekTime = name === 'seekto' ? d.seekTime : 0;
+  const seekOffset = seek ? (ok(d.seekOffset) && d.seekOffset > 0 ? d.seekOffset : state.offsets[`${name}Offset`]) : 0, seekTime = name === 'seekto' ? d.seekTime : 0;
   if (!ok(seekTime)) return null;
   state.emit(name, `${seekOffset} ${seekTime} ${d.fastSeek ? 1 : 0}`);
   return { seekOffset, seekTime };
