@@ -19,6 +19,26 @@ import AppKit
 import UniformTypeIdentifiers
 
 extension NodeView {
+    // Any button holds the pointer, as in a browser (review b5-b 1): the
+    // secondary's moves and the middle button's down, moves and up are the
+    // held node's pointer events too, `buttons` 2 or 4 (`pointerSample`).
+    override func rightMouseDragged(with event: NSEvent) {
+        pointerDragged(event)
+        if canvasInput?.pointer(event, phase: "move") != true { super.rightMouseDragged(with: event) }
+    }
+    override func otherMouseDown(with event: NSEvent) {
+        pointerPressed(event)
+        if canvasInput?.pointer(event, phase: "down") != true { super.otherMouseDown(with: event) }
+    }
+    override func otherMouseDragged(with event: NSEvent) {
+        pointerDragged(event)
+        if canvasInput?.pointer(event, phase: "move") != true { super.otherMouseDragged(with: event) }
+    }
+    override func otherMouseUp(with event: NSEvent) {
+        pointerReleased(event)
+        if canvasInput?.pointer(event, phase: "up") != true { super.otherMouseUp(with: event) }
+    }
+
     /// `wheel` at this node and its ancestors, once per event however many
     /// of the views on the way pass it up; true when a handler prevented
     /// its default, and the scroll stops here.

@@ -82,6 +82,7 @@ mod source_locations;
 mod source_map;
 mod strings;
 mod styles;
+mod styles_rows;
 mod surface;
 mod svg;
 mod symbols;
