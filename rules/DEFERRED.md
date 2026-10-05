@@ -373,6 +373,25 @@ reading. Nothing that isn't HTML is added by it.
   view transitions moved behind the deck lane. LLP 1020 §6. What stays no from
   exact1's webview: `top` topology, navigation policy, the controller ops, `allow`,
   author-facing `srcdoc` — each with its return trigger in LLP 1020 §5.)
+- **Expanded (LLP 1096; admitted by the orchestrator under Charlie's
+  2026-10-04 delegation, "make decisions without me"):** short sounds an
+  action can schedule: a `sound` declaration (a WAV in `assets/`, at most 10
+  s), `playSound(src, at=, gain=, group=)`, `playSounds(hits)` and
+  `stopSounds(group=)`. The runner keeps the voice table; the web plays
+  through Web Audio, Apple through one mixer in an arm loaded on demand;
+  Linux and Windows keep the record; `app.json`'s `audio_session` picks the
+  Apple session. Consumers: drums (R1–R3), snake (F1), trivia (F5).
+  Unblocks a retriggered, sample-accurate hit without two media elements per
+  voice or a 2 ms poll. Take (offered in LLP 1096 §9 Q1, accepted): the
+  `audio` element stops being the sound-effect path — R1's retrigger change
+  to the media glue is not built, and the guide's "Ding" recipe and LLP 1042
+  §8's sound-effect paragraph are deleted. Round-1 review A held that neither
+  is doing-list work; to the extent it is not, the admission stands on the
+  orchestrator's waiver under the same delegation. Still out: synthesis,
+  pitch and rate, pan, loops, fades and gain automation, effects, a handle to
+  one voice, a stop at a future time, compressed formats, sound produced by a
+  data module, microphone input, and output on Linux and Windows (LLP 1096
+  §7). No tag is added.
 - No camera anything.
 - ~~No gradient style rows. A gradient with anything on it is a canvas surface with
   children (LLP 1014 §5 — the take for widening `canvas`; the three rows return when a
