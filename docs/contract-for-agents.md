@@ -738,7 +738,9 @@ The driver has ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 commands. Use `tree` to find targets, `state` for data and delivery, `layout` for
 geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: per
 plan site, evaluations, unchanged results, instances created and retired), and
-screenshots for rendered output. Logs name refused operations and data errors.
+screenshots for rendered output. `state.tasks` gives each task's next due time
+(`null` while a gated task is idle or an `after` is spent) and `state.queued` each
+queue mutation's waiting sends. Logs name refused operations and data errors.
 For a game canvas, JavaScript `s.tap("world", {mouse:true, at:[x,y]})` sends one
 primary mouse click on web, Windows, and Linux. `{contextmenu:true, at:[x,y]}`
 sends a right-click. Coordinates are relative to the target's top-left; omit
