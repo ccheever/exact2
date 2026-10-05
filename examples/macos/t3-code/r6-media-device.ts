@@ -61,6 +61,10 @@ export function restoreDeviceTarget(client: T3Client, panelKey: string, target: 
   if (!store.targets.has(panelKey)) store.targets.set(panelKey, target);
 }
 
+export function selectDeviceTarget(client: T3Client, panelKey: string, target?: DeviceTarget): void {
+  if (target) storeOf(client).targets.set(panelKey, target); else storeOf(client).targets.delete(panelKey);
+}
+
 /** DevicePanel deviceKey. */
 export const deviceKey = (device: { hostId: string; id?: string; deviceId?: string }) => `${device.hostId}\u0000${device.id ?? device.deviceId ?? ''}`;
 const message = (error: unknown, fallback: string) => (error instanceof Error && error.message ? error.message : fallback);

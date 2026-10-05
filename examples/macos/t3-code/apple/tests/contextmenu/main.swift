@@ -18,6 +18,18 @@ final class ContextMenuTests: XCTestCase {
         XCTAssertTrue(menu.items.allSatisfy { $0.isSeparatorItem || $0.isEnabled })
     }
 
+    func testPanelTabMenuKeepsPlainOrderAndDisabledCloseActions() {
+        let menu = T3ContextMenu().menu(for: [["id": "rename", "label": "Rename"], ["id": "close", "label": "Close"],
+            ["id": "close-others", "label": "Close others", "disabled": true],
+            ["id": "close-to-right", "label": "Close to the right", "disabled": true], ["id": "close-all", "label": "Close all"]])
+        XCTAssertEqual(menu.items.map(\.title), ["Rename", "Close", "Close others", "Close to the right", "Close all"])
+        XCTAssertFalse(menu.items.contains(where: \.isSeparatorItem))
+        XCTAssertTrue(menu.items.allSatisfy { $0.image == nil })
+        XCTAssertFalse(menu.items[2].isEnabled)
+        XCTAssertFalse(menu.items[3].isEnabled)
+        XCTAssertTrue(menu.items[4].isEnabled)
+    }
+
     func testChoosingAnItemReportsItsId() {
         _ = NSApplication.shared
         let owner = T3ContextMenu()
@@ -75,7 +87,9 @@ final class ContextMenuTests: XCTestCase {
     }
 }
 
-let suite = XCTestSuite(forTestCaseClass: ContextMenuTests.self)
+let suite = XCTestSuite(name: "Context menus and tab input")
+suite.addTest(XCTestSuite(forTestCaseClass: ContextMenuTests.self))
+suite.addTest(XCTestSuite(forTestCaseClass: TabInputTests.self))
 suite.run()
 let run = suite.testRun!
 print("context menu tests: \(run.executionCount) run, \(run.totalFailureCount) failed")

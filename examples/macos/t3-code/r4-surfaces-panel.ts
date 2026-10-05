@@ -6,6 +6,8 @@
 // this model lists it as a tab and keeps it in step. Every op here is a
 // `shelllocal:surface-*` (or `shell:surface-*` for writes) routed from
 // shell-commands.ts, so the window's root state only learns `shell.panel.open`.
+import { closeSurface, closePanelSurfaces, openDeviceSurface, editTabName, tabRename, copyTabPath, showTabMenu } from './right-panel-tabs';
+import { selectDeviceTarget } from './r6-media-device';
 import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
 import { ClientError, type Files, type Native } from './protocol';
@@ -30,9 +32,9 @@ import { deviceTargetOf, restoreDeviceTarget, type DeviceTarget } from './r6-med
 import type { PrTarget } from './r5-panels-pr';
 
 export type SurfaceKind = 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment';
-export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number; pr?: PrTarget; attachment?: AttachmentMeta; device?: DeviceTarget };
+export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number; pr?: PrTarget; attachment?: AttachmentMeta; device?: DeviceTarget; title?: string };
 export type PanelState = { surfaces: Surface[]; active: string; visible: boolean; userRevision: number };
-export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean };
+export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean; renaming: boolean; renameValue: string };
 export type PanelView = {
   open: boolean; kind: string; active: string; count: number; tabs: PanelTab[];
   files: FilesView; prs: PrsView; device: DeviceView; deviceSetup: boolean; pr: PrSurfaceView; attachment: AttachmentView; deviceMini: R6DeviceMini; tabStrip: TabStrip;
@@ -65,11 +67,7 @@ function upsert(state: PanelState, surface: Surface, activate = true): void {
 }
 /** rightPanelStore.closeSurface: the neighbour at the closed index becomes active; no tabs closes the panel. */
 export function closeSurfaceIn(state: PanelState, id: string): void {
-  const index = state.surfaces.findIndex(entry => entry.id === id);
-  if (index < 0) return;
-  state.surfaces.splice(index, 1);
-  if (state.active === id) state.active = state.surfaces[Math.min(index, state.surfaces.length - 1)]?.id ?? '';
-  if (!state.surfaces.length) { state.visible = false; state.active = ''; }
+  closeSurface(state, id);
 }
 /** rightPanelStore.openFile: "." is the explorer; a file replaces the standalone explorer tab and bumps its reveal. */
 export function openFileIn(state: PanelState, requested: string, line: number): Surface {
@@ -167,21 +165,26 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   state.userRevision++;
   if (op === 'open') return openSurface(client, native, id || value);
   if (op === 'file') { await openFileSurface(client, native, id, Number(value) || 0, value === 'tree'); return ''; }
+  if (op === 'menu') { const action = await showTabMenu(client, native, state, id, value === 'key'); return action && panelState(client) === state ? surfaceLocal(client, native, action, id, '') : ''; }
+  if (op.startsWith('rename')) { editTabName(state, op, id, value); return ''; }
+  if (op === 'copy-path') { const surface = state.surfaces.find(entry => entry.id === id); if (surface) await copyTabPath(client, native, surface); return ''; }
   if (op === 'activate') {
     const surface = state.surfaces.find(entry => entry.id === id);
     if (!surface) return '';
     state.active = id; state.visible = true;
+    if (surface.kind === 'device') selectDeviceTarget(client, panelKey(client), surface.device);
     if (surface.kind === 'diff') await showDiff(client, native);
     else { client.diffOpen = false; if (surface.kind === 'file') await ensureFile(client, native, surface.path, false); if (surface.kind === 'files') await ensureTree(client, native); }
     return '';
   }
-  if (op === 'close') {
-    const wasDiff = id === 'diff';
-    closeSurfaceIn(state, id);
-    if (wasDiff) client.diffOpen = false;
+  if (['close', 'close-others', 'close-to-right', 'close-all'].includes(op)) {
+    await closePanelSurfaces(client, state, op, id);
+    if (panelState(client) !== state) return '';
+    if (!state.surfaces.some(entry => entry.kind === 'diff')) client.diffOpen = false;
     const next = state.surfaces.find(entry => entry.id === state.active);
     if (next?.kind === 'diff' && state.visible && !client.diffOpen) await showDiff(client, native);
     else if (next && next.kind !== 'diff') client.diffOpen = false;
+    if (next?.kind === 'device') selectDeviceTarget(client, panelKey(client), next.device);
     return '';
   }
   if (op === 'hide') { state.visible = false; client.diffOpen = false; client.diffLoading = false; return ''; }
@@ -197,10 +200,12 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (op.startsWith('pr-')) return prsLocal(client, native, op.slice(3), id, value);
   if (op.startsWith('device-')) return deviceLocal(client, native, op.slice(7), id, value);
   if (op.startsWith('r6dev-')) {
-    const effect = await r6DeviceLocal(client, native, deviceStateOf(client), panelKey(client), op.slice(6), value);
-    if (effect === 'close') closeSurfaceIn(state, 'device');
+    const key = panelKey(client), closingId = state.active;
+    const effect = await r6DeviceLocal(client, native, deviceStateOf(client), key, op.slice(6), value);
+    if (effect === 'close') closeSurfaceIn(state, closingId);
+    if (panelState(client) !== state) return '';
     if (effect === 'hide') { state.visible = false; client.diffOpen = false; }
-    if (effect === 'reopen') { client.diffOpen = false; upsert(state, singleton('device')); }
+    if (effect === 'reopen') { client.diffOpen = false; const target = deviceTargetOf(client, key); if (target) openDeviceSurface(state, target); }
     return '';
   }
   throw new ClientError(`Unknown surface action: ${op}`);
@@ -209,7 +214,12 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
 export async function surfaceCommand(client: T3Client, native: Native, storage: Files, op: string, id: string, value: string): Promise<string> {
   if (op.startsWith('pr-')) return prsCommand(client, native, storage, op.slice(3), id, value);
   if (op.startsWith('r5-')) return r5Command(client, native, storage, op.slice(3), id); // r5-panels-surfaces.ts
-  if (op.startsWith('r6dev-')) { if (await r6DeviceCommand(client, native, deviceStateOf(client), panelKey(client), op.slice(6), id, value)) closeSurfaceIn(panelState(client), 'device'); return ''; }
+  if (op.startsWith('r6dev-')) {
+    const state = panelState(client), key = panelKey(client), closingId = state.active;
+    if (await r6DeviceCommand(client, native, deviceStateOf(client), key, op.slice(6), id, value)) closeSurfaceIn(state, closingId);
+    if (op === 'r6dev-open') { const target = deviceTargetOf(client, key); if (target) openDeviceSurface(state, target); }
+    return '';
+  }
   if (op.startsWith('device-')) {
     const result = await deviceCommand(client, native, op.slice(7), id, value);
     // DeviceSetup onComplete: open the Device surface once onboarding is saved.
@@ -220,13 +230,14 @@ export async function surfaceCommand(client: T3Client, native: Native, storage: 
 }
 
 function tabOf(client: T3Client, surface: Surface, active: string, pending: ReadonlySet<string>): PanelTab {
+  const editor = tabRename(panelState(client)), rename = { renaming: editor.id === surface.id, renameValue: editor.id === surface.id ? editor.value : '' };
   const r5 = r5Tab(client, surface);
-  if (r5) return { id: surface.id, kind: surface.kind, ...r5, active: surface.id === active, pending: false };
+  if (r5) return { id: surface.id, kind: surface.kind, ...r5, ...rename, active: surface.id === active, pending: false };
   const name = surface.path.slice(Math.max(surface.path.lastIndexOf('/'), surface.path.lastIndexOf('\\')) + 1);
   const device = surface.kind === 'device' ? deviceTab(client, panelKey(client)) : null; // lane r7-device: the open device's name and mark
-  const title = surface.kind === 'diff' ? 'Diff' : surface.kind === 'files' ? 'Files' : surface.kind === 'file' ? name : surface.kind === 'pull-requests' ? 'Pull requests' : device?.title ?? 'Device';
-  const icon = surface.kind === 'diff' ? 'file-diff' : surface.kind === 'files' ? 'files' : surface.kind === 'pull-requests' ? 'link-2' : surface.kind === 'device' ? device?.icon ?? 'smartphone' : '';
-  return { id: surface.id, kind: surface.kind, title, icon, tone: '', fileToken: surface.kind === 'file' ? fileIconToken(surface.path) : '', active: surface.id === active, pending: pending.has(surface.path) };
+  const title = surface.kind === 'diff' ? 'Diff' : surface.kind === 'files' ? 'Files' : surface.kind === 'file' ? name : surface.kind === 'pull-requests' ? 'Pull requests' : surface.title || surface.device?.name || device?.title || 'Device';
+  const icon = surface.kind === 'diff' ? 'file-diff' : surface.kind === 'files' ? 'files' : surface.kind === 'pull-requests' ? 'link-2' : surface.kind === 'device' ? (surface.device ? surface.device.platform === 'android' ? 'android' : 'apple' : 'smartphone') : '';
+  return { id: surface.id, kind: surface.kind, ...rename, title, icon, tone: '', fileToken: surface.kind === 'file' ? fileIconToken(surface.path) : '', active: surface.id === active, pending: pending.has(surface.path) };
 }
 
 /** The panel's projection for ShellView: tabs, the active surface's body and the device wizard. */
@@ -238,8 +249,8 @@ export async function panelView(client: T3Client, native: Native | null | undefi
     if (effects.device) restoreDeviceTarget(client, panelKey(client), effects.device);
     if (effects.diff && native?.available) await showDiff(client, native);
   }
-  const deviceSurface = state.surfaces.find(entry => entry.kind === 'device');
-  if (deviceSurface) deviceSurface.device = deviceTargetOf(client, panelKey(client)); // saved with the panel (r11-device-panels.ts)
+  const deviceSurface = state.surfaces.find(entry => entry.id === state.active && entry.kind === 'device');
+  if (deviceSurface) selectDeviceTarget(client, panelKey(client), deviceSurface.device);
   syncDiff(client, state);
   if (!availability(client).files) reconcileFiles(state);
   const active = state.surfaces.find(entry => entry.id === state.active) ?? null;

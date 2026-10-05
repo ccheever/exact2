@@ -1,12 +1,12 @@
 ---
 name: 20261005-right-panel-tab-menu
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: in-progress
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
-branch: null
+branch: daehyeon/t3code-right-panel-tab-menu
 pr_url: null
 verified_commit: null
 ---
@@ -129,14 +129,63 @@ Required environment: lane backend with the device fixture hub, oracle build, Xc
 
 ## Progress
 
-Planned. No branch.
+Implemented on `daehyeon/t3code-right-panel-tab-menu`, forked from the retained
+round-12 implementation snapshot `1c6b4a12a`. Framework remains `c1522fdac` with
+its existing parking patch; this is **not** the planned main migration. The user
+on 2026-10-06 authorized independent task implementation in parallel before the
+common procedural PR gates. Those dependencies remain pending for verification
+and delivery, not represented as merged.
+
+- Extracted menu/rename/close policies and optional per-kind close guard/cleanup.
+  Single close consults the guard; every removal runs cleanup, including bulk.
+  Async cleanup preserves newly opened tabs and newer selection.
+- Host/device tab identities use escaped host and device IDs, replace the generic
+  picker tab, retain individual titles/targets across save/relaunch, and select
+  the matching stream when activated. In-flight device commands capture their
+  owning panel and target before awaiting native work.
+- Contract supplies inline rename, selected-text-on-open, commit/blur, cancel,
+  context menu and icon labels. AppKit adds middle-click, double-click, Shift-F10,
+  rename Escape and text-editor shortcut isolation using existing element hooks.
+  Native context menus use the pointer or the focused tab for keyboard opening.
+- Existing toast/clipboard bridge handles relative paths and failure descriptions.
+  Browser/Mute remains deferred (X1); no terminal guard is registered here.
+- Library `20261005-platforms-v3`: foundations, layout-and-interaction,
+  accessibility, design, platforms, testing-and-debugging; native behavior follows
+  the app's current ExactElement and AppKit hooks. No framework source changed.
+
+Coordinator integration: `T3Module` installs/removes/destroys
+`RightPanelTabsInput`; root `chatLocal` clears launcher-only `rightPanel` for
+menu/close operations so Close all closes the panel. Shared-file integration is
+owned by the coordinating branch and must be included before acceptance.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 2026-10-06 parallel implementation | task branch over `1c6b4a12a`; Bun 1.4.2, Swift/Xcode 27 SDK, macOS | Focused and full Bun tests, strict tsc; AppKit menu/input suite (results below) | Source tests and local-only `/tmp/t3-tabs-bun.log`, `/tmp/t3-tabs-swift.log` | Shared integration, main migration, live input/oracle acceptance remain unverified |
+
+Development results (2026-10-06):
+
+- `bun test examples/macos/t3-code`: **1167 passed, 0 failed**; 20 task-specific
+  tests cover close policies, guard/cleanup, async cleanup, device identity,
+  persistence, selection, menu eligibility/disabled actions, rename and copy toasts.
+- README strict `tsc --noEmit ... app.ts`: passed.
+- README AppKit compilation recipe, `contextmenu` target (all module Swift plus
+  `ExactNativeModule.swift` and generated data keys): compiled; **11 tests passed**,
+  including real NSMenu item order and enabled state, middle click, double-click,
+  Shift-F10 and element teardown. Existing R8 selector warnings remain unchanged.
+- Initial standalone Swift invocation lacked XCTest framework/runtime search paths;
+  the README paths resolved this. One compile corrected Swift's
+  `performKeyEquivalent(with:)` label. Middle-click fixture initially constructed
+  button zero; corrected CG event construction proved button-two handling.
+- Contract compilation, native app bundle and repository-wide gates are coordinator
+  integration checks, not claimed here. Editor live focus/IME, attended pointer
+  menu and device-fixture relaunch remain unverified.
 
 ## Next action
 
-`prepare` after the three dependencies merge.
+Ready for coordinator integration and practical compilation checks, then `verify`
+after the common dependency records are reconciled. Do not close this ticket or
+claim live input, clipboard, device fixture/relaunch or oracle acceptance from
+unit/AppKit tests. The user's 2026-10-06 instruction supersedes pixel-perfect
+screenshot/fix loops. No real clipboard or personal app data was used.

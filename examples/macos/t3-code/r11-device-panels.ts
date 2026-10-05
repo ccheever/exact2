@@ -14,10 +14,10 @@ import type { DeviceTarget } from './r6-media-device';
 
 export type R11SavedSurface =
   | { id: 'diff'; kind: 'diff'; path: ''; line: 0 }
-  | { id: 'device'; kind: 'device'; path: ''; line: 0; device?: DeviceTarget }
+  | { id: string; kind: 'device'; path: ''; line: 0; device?: DeviceTarget; title?: string }
   | { id: string; kind: 'pull-request'; path: ''; line: 0; pr: PrTarget }
   | { id: string; kind: 'attachment'; path: string; line: 0; attachment: AttachmentMeta };
-export type R11Surface = { id: string; kind: string; path: string; line: number; pr?: unknown; attachment?: unknown; device?: unknown };
+export type R11Surface = { id: string; kind: string; path: string; line: number; pr?: unknown; attachment?: unknown; device?: unknown; title?: string };
 export const R11_KINDS = new Set(['diff', 'device', 'pull-request', 'attachment']);
 
 /** rightPanelStore's DeviceTabTarget, or nothing when malformed. */
@@ -44,9 +44,10 @@ function attachmentOf(value: unknown): AttachmentMeta | null {
 export function keepR11(surface: R11Surface): R11SavedSurface | null {
   if (surface.kind === 'diff') return surface.id === 'diff' ? { id: 'diff', kind: 'diff', path: '', line: 0 } : null;
   if (surface.kind === 'device') {
-    if (surface.id !== 'device') return null;
     const device = deviceTarget(surface.device);
-    return device ? { id: 'device', kind: 'device', path: '', line: 0, device } : { id: 'device', kind: 'device', path: '', line: 0 };
+    const id = device ? `device:${encodeURIComponent(device.hostId)}:${encodeURIComponent(device.deviceId)}` : 'device';
+    if (surface.id !== id && surface.id !== 'device') return null;
+    return { id: surface.id, kind: 'device', path: '', line: 0, ...(device ? { device } : {}), ...(surface.title ? { title: surface.title } : {}) };
   }
   if (surface.kind === 'pull-request') {
     const pr = prTargetOf(surface.pr);
@@ -61,11 +62,11 @@ export function keepR11(surface: R11Surface): R11SavedSurface | null {
 
 /** A saved record's surface fields as read back (the raw entry, before keepR11 re-validates it). */
 export function readR11(entry: Obj): R11Surface {
-  return { id: str(entry.id), kind: str(entry.kind), path: str(entry.path), line: num(entry.line), pr: entry.pr, attachment: entry.attachment, device: entry.device };
+  return { id: str(entry.id), kind: str(entry.kind), path: str(entry.path), line: num(entry.line), pr: entry.pr, attachment: entry.attachment, device: entry.device, title: str(entry.title) };
 }
 
 /** What the restored panel must do once it is in place: reopen the Diff's own panel and name the device. */
 export function restoredEffects(surfaces: readonly R11Surface[], active: string, visible: boolean): { diff: boolean; device: DeviceTarget | undefined } {
-  const device = deviceTarget(surfaces.find(surface => surface.kind === 'device')?.device);
+  const device = deviceTarget((surfaces.find(surface => surface.kind === 'device' && surface.id === active) ?? surfaces.find(surface => surface.kind === 'device'))?.device);
   return { diff: visible && active === 'diff' && surfaces.some(surface => surface.id === 'diff'), device };
 }

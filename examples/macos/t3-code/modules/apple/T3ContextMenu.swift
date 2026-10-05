@@ -9,12 +9,16 @@ final class T3ContextMenu: NSObject {
     private var chosen: String?
 
     /// Items: [{ id, label, destructive?, disabled?, separatorBefore? }]. Main thread only.
-    func show(_ items: [[String: Any]], in window: NSWindow?) -> String? {
+    func show(_ items: [[String: Any]], in window: NSWindow?, keyboard: Bool = false) -> String? {
         let menu = self.menu(for: items)
         chosen = nil
         let target = window ?? NSApp.keyWindow ?? NSApp.mainWindow
         if let view = target?.contentView, let window = target {
-            let point = view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            let focused = window.firstResponder as? NSView
+            let point: NSPoint
+            if keyboard, let focused, focused.isDescendant(of: view) {
+                point = view.convert(NSPoint(x: focused.bounds.midX, y: focused.bounds.midY), from: focused)
+            } else { point = view.convert(window.mouseLocationOutsideOfEventStream, from: nil) }
             menu.popUp(positioning: nil, at: point, in: view)
         } else {
             menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
@@ -62,7 +66,7 @@ final class T3ContextMenu: NSObject {
             let items = request["items"] as? [[String: Any]] ?? []
             // NSMenuItem.target is weak: keep the owner alive across the modal popUp.
             let owner = T3ContextMenu()
-            let picked = owner.show(items, in: NSApp.keyWindow)
+            let picked = owner.show(items, in: NSApp.keyWindow, keyboard: request["anchor"] as? String == "focus")
             withExtendedLifetime(owner) {}
             let clicked: Any = picked.map { $0 as Any } ?? NSNull()
             let value: [String: Any] = ["clicked": clicked]
