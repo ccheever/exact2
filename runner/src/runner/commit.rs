@@ -130,6 +130,24 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
+    /// An input at the host's time `now_ms`: the clock moves there first,
+    /// firing every timer due by then, so the action's `now()` — and a sound
+    /// it schedules (LLP 1096 D3) — is the event's time, as on the JS
+    /// target, not the last timer's. The commits in order, the event's last,
+    /// at `now_ms`; a timer's refusal rides along and the event still runs.
+    pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> Advanced {
+        let mut a = self.advance_timed(now_ms);
+        match self.dispatch(view, event) {
+            Ok(receipt) => a.receipts.push(Timed {
+                at_ms: now_ms.max(self.now_ms),
+                receipt,
+            }),
+            Err(e) => a.error = Some(e),
+        }
+        a.now_ms = self.now_ms;
+        a
+    }
+
     /// Move the clock to `now_ms`, firing every timer due, in order, each at
     /// its own due time. A refusal stops the advance there: the commits so
     /// far are returned with their times, the clock stays at the refusing

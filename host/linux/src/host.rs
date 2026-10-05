@@ -750,16 +750,9 @@ impl<D: DataSource> Host<D> {
             self.log(refusal);
             return Some(refusal.into());
         }
-        match self.runner.dispatch(view, event) {
-            Ok(receipt) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Err(e) => self.commit(&[], Some(format!("{e:?}"))),
-        }
+        // At the event's time: an action's `now()` is the host's (LLP 1096 D3).
+        let a = self.runner.dispatch_at(view, event, self.now_ms);
+        self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
     }
 
     // Current eligibility only DENIES an old picture's target. It never finds

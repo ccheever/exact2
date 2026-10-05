@@ -685,6 +685,14 @@
       "additionalProperties": false,
       "description": "Where app.ts runs: `placement` is \"main\" (the default) or \"worker\". The TypeScript module's placement (LLP 1027.002), globally and per platform, and the directories it imports from outside the app."
     },
+    "audio_session": {
+      "type": "string",
+      "enum": [
+        "ambient",
+        "playback"
+      ],
+      "description": "The audio session the app's sounds, media and canvas audio share (LLP 1096 D8): ambient by default, so the ring/silent switch mutes them and other apps' audio keeps playing; playback for an app whose sound is the point (a drum machine, a player). iOS and tvOS set the AVAudioSession category; WebKit's Audio Session API takes it as navigator.audioSession.type; the Mac has no session."
+    },
     "dev": {
       "type": "object",
       "properties": {

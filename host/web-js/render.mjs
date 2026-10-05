@@ -32,9 +32,10 @@ export function renderer(dist) {
   // comes before anything the render decides (the head a server flushes as
   // a request arrives), then the head's fields, the document and its
   // checkpoint.
-  const ROOT = '<div id="exact-root"></div>', ENTRY = '<script type="module" src="./app.js"></script>';
+  // The root carries what the build wrote on it: `data-audio-session` (LLP 1096 D7).
+  const ROOT = /<div id="exact-root"( data-audio-session="[a-z-]+")?><\/div>/.exec(shell), ENTRY = '<script type="module" src="./app.js"></script>';
   const title = shell.indexOf('<title>'), stop = shell.indexOf('>\n', shell.indexOf('<meta name="viewport"', title)) + 2;
-  const root = shell.indexOf(ROOT), entry = shell.indexOf(ENTRY);
+  const root = ROOT?.index ?? -1, entry = shell.indexOf(ENTRY), rootAttrs = ROOT?.[1] ?? '';
   const viewport = esc(/<meta name="viewport" content="([^"]*)"/.exec(shell)?.[1] ?? 'width=device-width, initial-scale=1');
   const headOf = preload => shell.slice(0, title).replace(/<html[^>]*>/, '<html lang="en" dir="ltr">') + `<script>${capture}</script>\n`
     + (preload ? shell.slice(stop, root) : shell.slice(stop, root).replace(/<link rel="modulepreload" href="[^"]*">\n/g, ''));
@@ -61,7 +62,7 @@ export function renderer(dist) {
       const fields = `<title>${esc(out.title || name)}</title><meta name="viewport" content="${viewport}">${out.description ? `<meta name="description" content="${esc(out.description)}">` : ''}`;
       const checkpoint = `{"location":${JSON.stringify(url.pathname + url.search)},"time":${JSON.stringify(out.time)},"logic":null,"answers":${out.answers},"pending":${JSON.stringify(out.pending)}}`;
       const digest = createHash('sha256').update(out.root).digest('hex').slice(0, 16);
-      const rest = `${fields}\n<div id="exact-root">${out.root}</div>${shell.slice(root + ROOT.length, entry)}`
+      const rest = `${fields}\n<div id="exact-root"${rootAttrs}>${out.root}</div>${shell.slice(root + ROOT[0].length, entry)}`
         + `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${info.activate}">${checkpoint.replace(/</g, '\\u003c')}</script>${shell.slice(entry + ENTRY.length)}`;
       return { html: head + rest, rest, status: info.notfound ? 404 : 200, settled: !out.pending.length, render: out.render, location, policy: info.policy };
     } };

@@ -847,13 +847,9 @@ impl<D: DataSource> Host<D> {
     /// `error`, and the presenter is untouched (as the kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> String {
         self.now_ms = now_ms.max(self.now_ms);
-        match self.runner.dispatch(view, event) {
-            Ok(receipt) => {
-                let at_ms = self.now_ms;
-                self.commit(&[Timed { at_ms, receipt }], None)
-            }
-            Err(e) => self.commit(&[], Some(format!("{e:?}"))),
-        }
+        // At the event's time: an action's `now()` is the host's (LLP 1096 D3).
+        let a = self.runner.dispatch_at(view, event, self.now_ms);
+        self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
     }
 
     /// [`Host::dispatch_at`] at the clock's last value.

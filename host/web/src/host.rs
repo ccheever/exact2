@@ -589,13 +589,9 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.now_ms = now_ms.max(self.now_ms);
-        match self.runner.dispatch(view, event) {
-            Ok(receipt) => {
-                let at_ms = self.now_ms;
-                self.batch_for(&[Timed { at_ms, receipt }], None)
-            }
-            Err(e) => self.batch_for(&[], Some(&format!("{e:?}"))),
-        }
+        // At the event's time: an action's `now()` is the page's (LLP 1096 D3).
+        let a = self.runner.dispatch_at(view, event, self.now_ms);
+        self.batch_for(&a.receipts, a.error.map(|e| format!("{e:?}")).as_deref())
     }
 
     /// [`Host::dispatch_at`] at the clock's last value.

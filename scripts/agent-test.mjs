@@ -181,7 +181,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               const found = sounds.voices.some((v) => v.src === st.src && clauses.every((k) => v[k] === st[k]));
               if (found !== st.present) {
                 const of = sounds.voices.filter((v) => v.src === st.src).slice(-8).map((v) => `#${v.id} at ${v.at} gain ${v.gain} ends ${v.ends} by ${v.by}`);
-                await fail(`${at}: expected ${st.present ? 'a' : 'no'} voice of "${st.src}"${said}; ${of.length ? `its voices: ${of.join('; ')}` : 'it has no voice'}`);
+                // A voice is recorded by the commit that issued it: no clock hint applies.
+                failures.push(`${at}: expected ${st.present ? 'a' : 'no'} voice of "${st.src}"${said}; ${of.length ? `its voices: ${of.join('; ')}` : 'it has no voice'}`);
               }
               break;
             }
