@@ -1055,7 +1055,7 @@ function nodeDetail(id, plan = false) {
   const cs = getComputedStyle(el);
   node.browser = Object.fromEntries(Object.entries(INHERITED_CSS).map(([row, prop]) => [row, cs.getPropertyValue(prop)]));
   const flow = textflow?.facts(id);
-  if (flow) { node.flow = flow; node.flow_shapes = flow.shapes; } if (el.getClientRects().length > 1) node.fragments = [...el.getClientRects()].map(rect); // a box a multi-column flow fragments, one rect per column (LLP 1093 D12)
+  if (flow) { node.flow = flow; node.flow_shapes = flow.shapes; } if (el.getClientRects().length > 1) node.column_fragments = [...el.getClientRects()].map(rect); // a box a multi-column flow fragments, one rect per column (LLP 1093 D12)
   node.observed = { clock: now(), wall: Date.now() };
   return node;
 }

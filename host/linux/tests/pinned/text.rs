@@ -441,7 +441,10 @@ fn a_paragraph_across_columns_paints_hits_and_taps_its_fragments() {
     let (para, flow) = (id("para"), id("flow"));
     // `layout`: two fragments, two lines then one, and the columns.
     let reply: serde_json::Value = serde_json::from_str(&p.layout_json(Some(para), false)).unwrap();
-    let frags = reply["node"]["fragments"].as_array().unwrap().clone();
+    let frags = reply["node"]["column_fragments"]
+        .as_array()
+        .unwrap()
+        .clone();
     assert_eq!(frags.len(), 2, "{reply}");
     assert_eq!(
         (frags[0]["x"].as_f64(), frags[1]["x"].as_f64()),

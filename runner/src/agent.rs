@@ -634,7 +634,7 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         );
     };
     if let Some(frags) = kernel.fragments(node.key) {
-        s.push_str(",\"fragments\":[");
+        s.push_str(",\"column_fragments\":[");
         for (i, g) in frags.iter().enumerate() {
             s.push_str(if i > 0 { ",{" } else { "{" });
             rect(&mut s, f.x + g.x, f.y + g.y, g.width, g.height);
