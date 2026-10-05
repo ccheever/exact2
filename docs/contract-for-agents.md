@@ -597,7 +597,10 @@ Every route (a node with a `navigationKey` under the root) is a direct child of 
 root or of a `role="tabpanel"` in it — through `each` and `when`, never another
 element: the compiler refuses one behind a wrapper (`lower-route-place`). Make each
 route `position="absolute" inset=0`: the hosts hide a covered route, as
-`visibility: hidden` does, so an in-flow route still takes its room.
+`visibility: hidden` does, so an in-flow route still takes its room. A covered
+route stays mounted (its nodes are in `tree`, marked `inactive`), so a `testId`
+two screens share names two nodes: give each screen its own (`list-error`,
+`detail-error`).
 
 A route does not scroll by itself, as a `div` does not: content taller than it is
 never seen. A fixed shell (a map, a camera, a chat whose composer stays put) is
@@ -815,7 +818,9 @@ lift is scripted, so the reads run inside the hold and `during` needs one
 waiting for a store's or the network's reply on real time (unless a timer fires
 first); its reply says what is still in flight (`inflight`, on every host), and `clock settle` lands it.
 `clock data` lands it without moving the clock: the data module's activation and
-every request in flight, each answer's `then` with it, no timer fired.
+every request in flight, each answer's `then` with it, no timer fired. A CLI drive's
+first operation runs at boot, before any of that has landed (an authored test lands
+it before its first step), so a drive that reads or taps data starts with `clock data`.
 A playing `video` or `audio` is on real time too: the clock never seeks or holds it, so
 between operations it moves only as far as the drive took. `clock +N real` lets
 N ms of real time pass with the clock moving beside it, a step at a time: a
