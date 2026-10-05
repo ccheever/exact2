@@ -126,7 +126,7 @@ shape Greeting
 component ${title.replaceAll(' ', '')}
   resource greeting = greeting("${title}") as shape Greeting
   view
-    main testId="root" width="100%" height="100%" padding=24 background-color="light-dark(#ffffff, #111111)"
+    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=24 background-color="light-dark(#ffffff, #111111)"
       text greeting.text font-size=28 color="light-dark(#111111, #eeeeee)" testId="greeting"
 `,
     'app.test.contract': `test "the greeting loads"

@@ -3,8 +3,10 @@
 //! a keyframe's colour and the kernel's `Color::parse` both take these.
 //! The rules follow `exact-canvas`'s parser, which Chrome checked: legacy
 //! commas need percentages, the modern space form takes numbers too, a hue
-//! takes `deg`, `grad`, `rad` or `turn`, and alpha is a number or a
-//! percentage after `/` (or a fourth comma value).
+//! takes `deg`, `grad`, `rad` or `turn` (an angle nowhere else), and alpha
+//! is a number or a percentage after `/` (or a fourth comma value). `none`
+//! is refused: a missing component has to survive interpolation (CSS Color 4
+//! §12.2), and a flattened zero would animate differently from the browser.
 
 /// `hsl(…)`, `hsla(…)` or `hwb(…)` as `[r, g, b, a]`, or `None`.
 pub fn hue(text: &str) -> Option<[u8; 4]> {
@@ -17,13 +19,14 @@ pub fn hue(text: &str) -> Option<[u8; 4]> {
     }
     let legacy = body.contains(',');
     let (parts, alpha) = args(body)?;
-    let Part::Num(h) = part(parts[0])? else {
-        return None;
+    let h = match part(parts[0])? {
+        Part::Num(h) | Part::Angle(h) => h,
+        Part::Pct(_) => return None,
     };
     let frac = |t: &str| match part(t)? {
         Part::Pct(p) => Some((p / 100.0).clamp(0.0, 1.0)),
         Part::Num(n) if !legacy => Some((n / 100.0).clamp(0.0, 1.0)),
-        Part::Num(_) => None,
+        Part::Num(_) | Part::Angle(_) => None,
     };
     let (x, y) = (frac(parts[1])?, frac(parts[2])?);
     let (r, g, b) = if name == "hwb" {
@@ -38,7 +41,7 @@ pub fn hue(text: &str) -> Option<[u8; 4]> {
         None => 1.0,
         Some(Some(Part::Num(v))) => v,
         Some(Some(Part::Pct(p))) => p / 100.0,
-        Some(None) => return None,
+        Some(Some(Part::Angle(_)) | None) => return None,
     };
     let byte = |v: f64| (v * 255.0).round().clamp(0.0, 255.0) as u8;
     Some([byte(r), byte(g), byte(b), byte(a.clamp(0.0, 1.0))])
@@ -48,13 +51,12 @@ pub fn hue(text: &str) -> Option<[u8; 4]> {
 enum Part {
     Num(f64),
     Pct(f64),
+    /// In degrees; a hue only.
+    Angle(f64),
 }
 
-/// A component: a number, a percentage, an angle in degrees, or `none`.
+/// A component: a number, a percentage, or an angle in degrees.
 fn part(t: &str) -> Option<Part> {
-    if t == "none" {
-        return Some(Part::Num(0.0));
-    }
     if let Some(p) = t.strip_suffix('%') {
         return number(p).map(Part::Pct);
     }
@@ -65,7 +67,7 @@ fn part(t: &str) -> Option<Part> {
         ("turn", 360.0),
     ] {
         if let Some(v) = t.strip_suffix(unit) {
-            return number(v).map(|v| Part::Num(v * degrees));
+            return number(v).map(|v| Part::Angle(v * degrees));
         }
     }
     number(t).map(Part::Num)
@@ -150,6 +152,11 @@ mod tests {
             "hsl(red 1% 1%)",
             "hsl(0 1% 1% /)",
             "rgb(0 0 0)",
+            "hsl(0 100deg 50%)",
+            "hsl(0 100% 50% / 1deg)",
+            "hsl(none 100% 50%)",
+            "hsl(0 100% 50% / none)",
+            "hsl(50% 100% 50%)",
         ] {
             assert_eq!(hue(bad), None, "{bad}");
         }

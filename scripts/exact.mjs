@@ -448,6 +448,8 @@ export function contract(args, env = process.env) {
   const clean = {...env};
   delete clean.RUSTUP_TOOLCHAIN;
   delete clean.CARGO_TARGET_DIR;
+  const binary = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
+  if (!existsSync(binary)) console.error('exact contract: building the Contract compiler once (a few minutes on a cold checkout)…');
   const result = spawnSync('cargo', [`+${pin}`, 'run', '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract', '--', ...args], {stdio: 'inherit', env: clean});
   if (result.error) throw new Error(`cargo: ${result.error.message} (install rustup from https://rustup.rs)`);
   return result.status ?? 1;

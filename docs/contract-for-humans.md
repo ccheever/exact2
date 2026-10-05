@@ -731,8 +731,9 @@ call outside them fails. The capabilities are:
 - *There is no storage or network at build time.* The build bakes each
   resource's first value into the plan, and a storage call then is refused
   with `code: 'bake'`. Catch that and return a first-frame value, as `books`
-  does: a source that throws during the bake fails a native build. The app
-  asks again when it runs. A `fetch` at bake is left unbaked instead; to show
+  does: a source that throws during the bake fails the build on native hosts
+  and in the bake-based development producers. (The web's JS build happens to
+  leave it unbaked; don't rely on that.) The app asks again when it runs. A `fetch` at bake is left unbaked instead; to show
   something better than the type's zero meanwhile, give the resource an
   `else` placeholder, as `quote` does.
 - *An open database locks its file.* A mutation and the refresh it triggers

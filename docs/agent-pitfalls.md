@@ -25,6 +25,14 @@ guide's rules don't make obvious.
   `overlays-content` with a `role="toolbar" toolbarPlacement="keyboard"` for a
   toolbar that rides the keyboard without relayout (LLP 1008 §9.1). (Signal Clone.)
 
+- **The app is wider than the window, and its tests still pass.** A root with
+  `width="100%"` and `padding=24` is 48 points too wide: sizes are `content-box`, as
+  on the web, so padding adds to the width. Buttons at the right edge are cut off,
+  and an `expect` never sees it. Fix: `box-sizing="border-box"` on any box sized in
+  percent that also has padding or a border (`exact new`'s template does), and
+  `min-width=0` on a `flex=1` input in a row. Look at a screenshot on each host.
+  (Fresh-agent README trial, 2026-10-04.)
+
 ## Lists and scrolling
 
 - **A tap that changes one row of a long list takes ~80 ms on the web.** Cause: the
