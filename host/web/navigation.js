@@ -258,8 +258,8 @@ export const navigation = {
 export function afterPaintPieces(load, o) {
   let live = null, loading = null;
   const queue = [];
-  const start = () => loading ??= Promise.all([load('./collection-glue.js', 'collectionGlue'), load('./motion-glue.js', 'motionGlue')])
-    .then(([c, m]) => {
+  const start = () => loading ??= Promise.all([load('./collection-glue.js', 'collectionGlue'), load('./motion-glue.js', 'motionGlue'), load('./group-glue.js', 'groupGlue')])
+    .then(([c, m, g]) => {
       const common = { views: o.views, now: o.now, generation: o.generation, inert: o.inert, applyBatch: o.applyBatch, ready: o.ready };
       const request = facts => o.wasm('exact_motion', m.motionBytes(facts)) ?? { accepted: false };
       const collections = c.collectionController({ root: o.root, views: o.views, agent: !!o.agent?.(), settled: () => arrange.commit(), report(bytes) {
@@ -267,7 +267,7 @@ export function afterPaintPieces(load, o) {
         return batch ? c.applyCollectionFeedback(batch, o.applyBatch) : false;
       } });
       const motion = m.motionController({ ...common, releaseInteraction: pointer => collections.releaseInteraction(pointer), request });
-      const arrange = m.arrangeController({ ...common, collections, motion, request });
+      const arrange = m.arrangeController({ ...common, collections, motion, request, grouped: g.groupController, root: o.root });
       live = { collections, motion, arrange };
       for (const [piece, name, args] of queue.splice(0)) {
         try { live[piece][name](...args); } catch (error) { console.error(`exact: ${piece}.${name} failed`, error); }
@@ -291,7 +291,7 @@ export function afterPaintPieces(load, o) {
   for (const name of ['animate', 'retire', 'heightBinding', 'transformBinding', 'attachSwipe', 'attachHeightDrag', 'attachTransformDrag']) motion[name] = call('motion', name);
   // A pan's release velocity (LLP 1057 §10.6): only once motion is here.
   motion.pan = { sample: (...a) => live?.motion.panSample(...a), velocity: (...a) => live?.motion.panVelocity(...a) };
-  const arrange = { binding: call('arrange', 'binding'), state: call('arrange', 'state') };
+  const arrange = { binding: call('arrange', 'binding'), state: call('arrange', 'state'), group: call('arrange', 'group') };
   for (const piece of [motion, arrange]) for (const name of ['commit', 'reset', 'destroy']) piece[name] = call(piece === motion ? 'motion' : 'arrange', name, false);
   motion.followTimelines = call('motion', 'followTimelines', false);
   // Every first batch commits the (empty) collection set: a use only with items.

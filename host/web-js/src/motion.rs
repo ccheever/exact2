@@ -102,6 +102,17 @@ impl Em<'_> {
         self.drag_targets(PropId::ReorderFor)
     }
 
+    /// A grip whose `reorderFor` is not a literal: its list is the strict
+    /// ancestor its value names at run time (reorder.js `reorderBinding`).
+    pub(super) fn computed_reorder(&self, i: u32) -> bool {
+        let plan = self.plan;
+        plan.nodes[i as usize]
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+            .any(|b| b.kind == BindingKind::Prop && b.id == PropId::ReorderFor as u16)
+    }
+
     fn drag_targets(&self, prop: PropId) -> std::collections::BTreeMap<u32, u32> {
         let plan = self.plan;
         let literal = |i: u32, prop: PropId| {

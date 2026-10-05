@@ -663,7 +663,7 @@ function apply(batch) {
       case "height-drag": { motion.heightBinding(op); break; }
       case "transform-drag": { motion.transformBinding(op); break; }
       case "reorder-drag": { arrange.binding(op); break; }
-      case "reorder-state": { arrange.state(op); break; }
+      case "reorder-state": { arrange.state(op); break; } case "reorder-group": { arrange.group(op); break; }
       case "canvas2d": { pieces.canvas2d(op); break; } // LLP 1056 D7
       case "surface": {
         // A canvas's inputs (LLP 1009 D2): to the GPU module when it is

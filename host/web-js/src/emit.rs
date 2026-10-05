@@ -1173,6 +1173,12 @@ impl Em<'_> {
             self.motion = true;
             let on = self.uses.rt("onReorder");
             let _ = write!(self.out, "{on}({e},e{l});");
+        } else if self.computed_reorder(i) {
+            // A computed `reorderFor` (a board's `cards-${col.id}`, LLP 1094
+            // D1) names its list at run time, as the runner's binding does.
+            self.motion = true;
+            let on = self.uses.rt("onReorder");
+            let _ = write!(self.out, "{on}({e},null);");
         }
         self.wrap_flow(i, &e, scope)?;
         let mut edges = ["0".to_string(), "0".to_string()];
