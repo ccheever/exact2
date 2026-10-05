@@ -615,13 +615,15 @@ Put models, sprite PNGs and WAV or Ogg Vorbis sounds under `art/`;
 each texture as RGBA8, BC and ASTC files of which a device fetches one
 ([texture payloads](bake/README.md#texture-payloads)). Name the authored `x.tex`
 everywhere. Declare simulation dependencies in `Game::ASSETS`; setup waits for them.
-Put everything else the game shows in `Game::STREAMED`: those are fetched from the
-start, but Play does not wait for them; each draws as it lands and stays resident.
-They never compete with the first frame: one an entity shows is fetched with
-what setup and the screen wait for, the rest only once nothing else is in flight,
-and a device prepares none before its first drawn frame, then a few models per
-frame, shown ones first. Simulation cannot read a streamed asset (`w.model` is None), so
-load order never reaches the hash; a save refuses only while a shown one is in
+Put everything else the game shows in `Game::STREAMED`: Play does not wait for
+them; each draws as it lands and stays resident. They never compete with the
+first frame: one an entity shows is fetched with what setup and the screen wait
+for, the rest only once nothing else is in flight, and a device prepares none
+before its first drawn frame, then a few models per frame, shown ones first.
+`Game::prefetch(name, args)` says which are fetched before anything shows them
+(all, by default): a look that never shows a set leaves it unfetched, and a live
+switch to one that does fetches the set then, what it shows first. Simulation
+cannot read a streamed asset (`w.model` is None), so load order never reaches the hash; a save refuses only while a shown one is in
 flight. A model whose animation a tick reads (root motion, markers, sockets it
 queries) belongs in `ASSETS`. A streamed model, or one loaded on sight, animates
 from `Game::present` instead: `animation::ShownClips` names clips at times derived from

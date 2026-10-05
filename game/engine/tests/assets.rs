@@ -904,6 +904,66 @@ fn shown_streamed_models_go_first_and_unprepared_ones_never_hold_drawing() {
     assert!(sim.model_prepared("z.model"));
 }
 
+// The garden's classic look downloaded the art pass's models (about 1.5 MB
+// gzipped on the web) it never showed. What a game fetches ahead of sight
+// follows its arguments (`Game::prefetch`): a live switch to the look that
+// shows them fetches what it shows first, then the rest; nothing reaches the
+// simulation, and what arrived stays resident across switches back.
+#[test]
+fn prefetch_follows_the_arguments_and_a_live_switch_fetches_the_new_set() {
+    #[derive(Default, Args)]
+    struct Look {
+        #[live]
+        pass: bool,
+    }
+    struct Looks;
+    impl Game for Looks {
+        const ID: &'static str = "streamed-looks";
+        const STREAMED: &'static [&'static str] = &["a.model", "b.model", "fern.model"];
+        type Args = Look;
+        fn prefetch(name: &str, look: &Look) -> bool {
+            look.pass && name != "fern.model"
+        }
+        fn setup(w: &mut World, _: &Look) {
+            w.spawn_named("tree", (Transform::default(),));
+        }
+        fn present(p: &mut Present, look: &Look) {
+            if let (true, Some(tree)) = (look.pass, p.named("tree")) {
+                p.insert(tree, DrawnMesh::model("b.model"));
+            }
+        }
+        fn tick(_: &mut World, _: &Input, _: &Look) {}
+    }
+    let model = bin::to_vec(&asset::Model::default());
+    let mut sim = Sim::<Looks>::new(Look::default()).unwrap();
+    assert!(
+        sim.take_assets().is_empty(),
+        "the classic look fetches none"
+    );
+    sim.run(100.);
+    assert!(sim.take_assets().is_empty());
+    let hash = sim.world().hash();
+    sim.bind(&[Value::Bool(true)], None).unwrap();
+    // What the new look shows first, alone; then the rest of its set.
+    assert_eq!(sim.take_assets(), ["b.model"]);
+    sim.asset("b.model", Some(&model)).unwrap();
+    assert_eq!(sim.take_assets(), ["a.model"]);
+    sim.asset("a.model", Some(&model)).unwrap();
+    assert_eq!(sim.world().hash(), hash, "arrival never reaches the hash");
+    sim.bind(&[Value::Bool(false)], None).unwrap();
+    sim.run(100.);
+    assert!(sim.take_assets().is_empty());
+    assert!(
+        sim.take_retired_assets().is_empty(),
+        "the set stays resident"
+    );
+    let state = sim.agent(r#"{"op":"state"}"#);
+    assert!(
+        state.contains(r#"{"name":"a.model","state":"Loaded"}"#) && !state.contains("fern.model"),
+        "{state}"
+    );
+}
+
 #[test]
 fn streamed_declarations_refuse_sounds_and_names_setup_also_waits_for() {
     struct Sound;

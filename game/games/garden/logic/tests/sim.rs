@@ -1268,7 +1268,8 @@ fn the_art_pass_draws_day_and_night_without_simulating_them() {
 }
 
 /// Every look's generated models register at setup, and none takes a name
-/// the art pass streams: the classic and generated looks never draw one.
+/// the art pass streams: the classic and generated looks never draw one, nor
+/// download one; a switch to the art pass fetches its models then.
 #[test]
 fn no_look_generates_a_streamed_model_name() {
     use exact_game::{Game, Mesh};
@@ -1277,6 +1278,14 @@ fn no_look_generates_a_streamed_model_name() {
     game.run(900_000.0);
     for art in ["", "golden", "storybook"] {
         switch(&mut game, 1, art);
+        game.run(100.0);
+        let fetched = game.take_assets();
+        assert!(
+            !fetched
+                .iter()
+                .any(|n| Garden::STREAMED.contains(&n.as_str())),
+            "look {art:?} fetches the art pass: {fetched:?}"
+        );
         let w = game.world();
         let names = w
             .query::<&Mesh>()
@@ -1293,6 +1302,16 @@ fn no_look_generates_a_streamed_model_name() {
             }
         }
     }
+    switch(&mut game, 1, "pass");
+    let fetched = game.take_assets();
+    assert!(
+        !fetched.is_empty()
+            && fetched
+                .iter()
+                .all(|n| Garden::STREAMED.contains(&n.as_str()))
+            && fetched.len() < Garden::STREAMED.len(),
+        "what the art pass shows, alone first: {fetched:?}"
+    );
 }
 
 /// The art pass under the paranoid modes: every sampled tick rebuilds the
