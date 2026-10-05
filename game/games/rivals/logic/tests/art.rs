@@ -8,21 +8,14 @@ use rivals_logic::weapons::{Rocket, Weapon};
 use rivals_logic::{Options, Rivals};
 
 fn game(bots: u32, art: &str) -> Sim<Rivals> {
-    let mut sim = Sim::<Rivals>::new(Options {
+    // The bake's models and textures, delivered as a host delivers them.
+    let mut sim = Sim::<Rivals>::baked(Options {
         seed: 7,
         bots,
         art: art.into(),
         ..Options::default()
-    })
-    .unwrap();
+    });
     sim.viewport(1280.0, 720.0);
-    sim
-}
-/// The baked models and textures, for saves (which wait for what is shown).
-fn loaded(mut sim: Sim<Rivals>) -> Sim<Rivals> {
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/");
-    sim.load_assets(|name| std::fs::read(format!("{dir}{name}")))
-        .expect("bake the art first: bun game/app/shells.mjs game/games/rivals --test");
     sim
 }
 
@@ -127,10 +120,10 @@ fn an_unknown_look_is_refused() {
 
 #[test]
 fn the_pass_saves_and_continues_identically() {
-    let mut sim = loaded(game(3, "pass"));
+    let mut sim = game(3, "pass");
     scripted(&mut sim, 6);
     let saved = sim.save().unwrap();
-    let mut copy = loaded(game(3, "pass"));
+    let mut copy = game(3, "pass");
     copy.restore(&saved).unwrap();
     assert_eq!(copy.world().hash(), sim.world().hash());
     // Key edges only: they are stamped on each sim's own clock.

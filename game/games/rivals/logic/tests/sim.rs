@@ -6,7 +6,7 @@ use rivals_logic::round::Round;
 use rivals_logic::{Options, Rivals};
 
 fn game(options: Options) -> Sim<Rivals> {
-    let mut sim = Sim::<Rivals>::new(Options { seed: 7, ..options }).unwrap();
+    let mut sim = Sim::<Rivals>::baked(Options { seed: 7, ..options });
     sim.viewport(1280.0, 720.0);
     sim
 }

@@ -153,7 +153,7 @@ fn sim() -> Sim<Living> {
         ..Default::default()
     };
     let model = bin::to_vec(&model);
-    Sim::with_assets((), |name| match name {
+    Sim::with_assets((), move |name: &str| match name {
         "fox.model" => Ok(model.clone()),
         _ => Err(name.to_owned()),
     })

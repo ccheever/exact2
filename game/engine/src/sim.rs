@@ -3,7 +3,9 @@ use crate::{Args, ArgumentKind, PointerPhase};
 use std::{collections::VecDeque, marker::PhantomData};
 
 mod assets;
+mod delivery;
 mod paranoid;
+pub use delivery::Delivery;
 mod snapshot;
 
 /// One immutable simulation instant; Copy keeps world borrows short in game code.
@@ -188,6 +190,8 @@ pub struct Sim<G: Game> {
     paranoid_skipped: u64,
     // An edit through world_mut since the last present: the next advance presents.
     present_owed: bool,
+    // A hostless test's asset source (`with_assets`, `baked`); hosts deliver.
+    delivery: Option<Delivery>,
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
@@ -196,15 +200,6 @@ pub(crate) fn micros(ms: f64) -> i64 {
     (ms * 1000.0).round() as i64
 }
 impl<G: Game> Sim<G> {
-    /// Construct and load assets with the same loader as `load_assets`.
-    pub fn with_assets<E: std::fmt::Display>(
-        args: G::Args,
-        loader: impl FnMut(&str) -> Result<Vec<u8>, E>,
-    ) -> Result<Self, String> {
-        let mut sim = Self::new(args)?;
-        sim.load_assets(loader).map_err(|e| e.to_string())?;
-        Ok(sim)
-    }
     /// Assert a test hash against the game's single pins.json (included by its test).
     /// Unknown metadata fields are skipped by Data; no generated Rust is needed.
     pub fn assert_pin(&self, pins: &str) {
@@ -621,6 +616,7 @@ impl<G: Game> Sim<G> {
             paranoid_owed: false,
             paranoid_skipped: 0,
             present_owed: false,
+            delivery: None,
             game: PhantomData,
         })
     }
@@ -1277,10 +1273,7 @@ impl<G: Game> Sim<G> {
         if self.last_us.is_none() {
             self.advance(0.0, Clock::Seekable);
         }
-        self.advance(
-            self.last_us.unwrap_or(0) as f64 / 1000.0 + ms,
-            Clock::Seekable,
-        )
+        self.advance_delivering(self.last_us.unwrap_or(0) as f64 / 1000.0 + ms)
     }
     /// Queue device input now, replacing its `at_ms` with the current host
     /// clock. World time and host time differ after restore; use this when a
@@ -1343,6 +1336,7 @@ impl<G: Game> Sim<G> {
                 break;
             }
             self.advance(at, Clock::Seekable);
+            self.deliver_or_panic();
         }
         let settled = self.quiescent();
         if !settled {

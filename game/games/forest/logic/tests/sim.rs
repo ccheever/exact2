@@ -8,13 +8,13 @@ use forest_logic::{Forest, Options};
 
 const TICK: f64 = 1000.0 / 60.0;
 
+/// A forest fed its baked art as a host feeds it (`Sim::baked`).
 fn game(trees: u32, lite: bool) -> Sim<Forest> {
-    Sim::<Forest>::new(Options {
+    Sim::<Forest>::baked(Options {
         trees,
         lite,
         ..Options::default()
     })
-    .unwrap()
 }
 
 fn place(sim: &mut Sim<Forest>, name: &str, at: Vec3) {
@@ -394,14 +394,13 @@ fn wolves_wander_and_dawn_counts_a_night() {
 }
 
 fn charging_deer() -> Sim<Forest> {
-    let mut sim = Sim::<Forest>::new(Options {
+    let mut sim = Sim::<Forest>::baked(Options {
         trees: 0,
         wolves: 0,
         children: 0,
         lite: true,
         ..Options::default()
-    })
-    .unwrap();
+    });
     place(&mut sim, "player", Vec3::new(20., 0.95, 0.));
     place(&mut sim, "deer", Vec3::new(20., 1.6, 9.));
     {
@@ -1096,22 +1095,12 @@ fn material_compasses_choose_the_requested_kind_and_restore_the_landmark() {
     );
 }
 
-/// The bake's outputs: `shells.mjs --test` bakes `art/` into `assets/` first.
-fn baked(name: &str) -> Result<Vec<u8>, String> {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
-    std::fs::read(dir.join(name)).map_err(|e| format!("{name}: {e}"))
-}
-
 fn looked(art: &str, trees: u32) -> Sim<Forest> {
-    Sim::<Forest>::with_assets(
-        Options {
-            trees,
-            art: art.into(),
-            ..Options::default()
-        },
-        baked,
-    )
-    .unwrap()
+    Sim::<Forest>::baked(Options {
+        trees,
+        art: art.into(),
+        ..Options::default()
+    })
 }
 
 /// The game apart from how it is drawn: every gameplay component and resource,

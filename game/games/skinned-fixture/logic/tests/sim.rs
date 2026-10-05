@@ -9,7 +9,7 @@ fn assets() -> std::collections::BTreeMap<String, Vec<u8>> {
 }
 fn sim() -> Sim<SmallGame> {
     let assets = assets();
-    let mut s = Sim::with_assets(Options::default(), |name| {
+    let mut s = Sim::with_assets(Options::default(), move |name: &str| {
         assets.get(name).cloned().ok_or(name.to_owned())
     })
     .unwrap();

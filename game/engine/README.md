@@ -256,7 +256,11 @@ events still queued after coalescing and refusals. Equal world hashes may hide
 different queues; equal counts still omit event payloads, order and timestamps.
 Only the full save establishes byte equality.
 
-`sim.load_assets(|name| std::fs::read(name))?` loads headless dependencies, including
+`Sim::baked(args)` feeds a hostless simulation the game's baked `assets/` as a host
+does: what setup awaits first, then what each `run` asks for, at its end or
+`Delivery::after_ticks` later ([game guide](../README.md#assets-animation-and-placed-ui));
+`Sim::with_assets(args, loader)` does the same from any loader.
+`sim.load_assets(|name| std::fs::read(name))?` loads what is asked for once, including
 declared `.sound` assets, which the primitive module also decodes; a save records
 their content identity, as it does a level's.
 `sim.save()?` checks current mesh roots even before requests are drained and
