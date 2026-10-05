@@ -141,8 +141,11 @@ A script drives the same session in JavaScript: `const s = await open({ host:
 'web', app, epoch, timeZone, storage, size: [390, 844] })` from `scripts/agent.mjs`
 (`size` is `[width, height]`, or the CLI's `'390x844'`), then
 `s.tap(target, opts)`, `s.type(target, text | { key })`, `s.clock(arg)`,
-`s.tree()`, `s.state()`, `s.logs()`, `s.layout()`, `s.screenshot(path)` and
-`s.close()` — the CLI's operations by the same names. `s.op(request)` is the
+`s.tree()`, `s.state()`, `s.logs()`, `s.layout()`, `s.screenshot(path)`,
+`s.resize(width, height)`, `s.prefer({ … })`, `s.perf(target)` and `s.close()` — the
+CLI's operations by the same names. `app` is the app's name; an app outside the exact2
+checkout is found through `EXACT_APP_DIR` (its directory), as its own `exact.mjs agent`
+sets it, and `webDist` alone does not select an app. `s.op(request)` is the
 host's wire beneath them: it addresses views by numeric `id`, and it refuses a
 request it would answer by doing nothing (a `target`, an unknown op, a web
 `tap` with no browser input behind it). A reload or a raw browser step goes
