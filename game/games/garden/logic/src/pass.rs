@@ -695,14 +695,15 @@ fn mutation(kind: u8, muts: u8, phase: f32, hz: f32) -> Option<MaterialOverride>
         let rate = 0.3;
         (c, c.map(|v| v * 0.7), Shimmer::Hue { rate, phase })
     } else if muts & crops::GOLD != 0 {
-        // A glint three radians a second, between 0.1 and 1 of its glow.
+        // A glint three radians a second, between 0.1 and 1 of its glow;
+        // the glow is faint, so the polished metal is what reads.
         let glint = Shimmer::Pulse {
             rate: 3.0 / TAU,
             phase,
             low: 0.1,
             high: 1.0,
         };
-        ([1.0, 0.7, 0.16], [0.55, 0.36, 0.05], glint)
+        ([1.0, 0.7, 0.16], [0.14, 0.09, 0.012], glint)
     } else if muts & crops::SHOCKED != 0 {
         let flicker = Shimmer::Flicker {
             rate: hz,

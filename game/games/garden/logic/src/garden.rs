@@ -338,8 +338,17 @@ fn ripen(w: &mut World, e: Entity) {
     w.require_mut::<Transform>(e).scale = Vec3::splat(size);
     // The classic look's colour; the art pass draws its own (pass::present).
     let color = crops::fruit_color(kind, muts);
-    *w.require_mut::<Material>(e) = if muts & (crops::GOLD | crops::RAINBOW | crops::SHOCKED) != 0 {
-        paint(color).emissive(color[0] * 0.5, color[1] * 0.5, color[2] * 0.5)
+    // Rainbow and Shocked glow; Gold glows faintly, since the looks that
+    // draw it as metal (golden, storybook, the art pass) need its shine to read.
+    let glow = if muts & (crops::RAINBOW | crops::SHOCKED) != 0 {
+        0.5
+    } else if muts & crops::GOLD != 0 {
+        0.2
+    } else {
+        0.
+    };
+    *w.require_mut::<Material>(e) = if glow > 0. {
+        paint(color).emissive(color[0] * glow, color[1] * glow, color[2] * glow)
     } else {
         paint(color)
     };
