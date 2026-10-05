@@ -797,3 +797,63 @@ fn soft_particles_fade_where_they_meet_the_scene() {
     );
     assert!(clear.abs_diff(centre(0., 2.)) <= 2, "{clear}");
 }
+
+#[derive(Default, Args)]
+struct ShadeArgs {
+    opacity: f32,
+}
+struct Shade;
+impl Game for Shade {
+    const ID: &'static str = "look-shade";
+    type Args = ShadeArgs;
+    fn setup(w: &mut World, _: &ShadeArgs) {
+        w.insert_resource(Environment {
+            fog: None,
+            bloom: None,
+            ..Default::default()
+        });
+        // Top-down: the ground, a raised cube, and a low sun from +X.
+        w.spawn((
+            Transform::at(0., 7., 5.).looking_at(Vec3::ZERO, Vec3::Y),
+            Camera::default(),
+        ));
+        w.spawn((Transform::default(), Mesh::plane(20., 20.)));
+        w.spawn_named("block", (Transform::at(0., 1.5, 0.), Mesh::cube(1.)));
+        w.spawn((
+            Transform::at(6., 6., 0.).looking_at(Vec3::ZERO, Vec3::Y),
+            DirectionalLight::default(),
+        ));
+    }
+    fn tick(_: &mut World, _: &Input, _: &ShadeArgs) {}
+    fn present(w: &mut World, args: &ShadeArgs) {
+        if args.opacity < 1. {
+            let e = w.named("block").unwrap();
+            w.insert(e, Opacity(args.opacity));
+        }
+    }
+}
+
+#[test]
+fn primitive_shadows_dither_with_opacity_and_vanish_at_zero() {
+    let Some(gpu) = gpu() else { return };
+    // Shadowed ground texels on the side away from the sun.
+    let shadow = |opacity: f64| {
+        let mut s = WorldSurface::<Shade>::default();
+        s.bind(&[Value::Number(opacity)], None).unwrap();
+        let (p, _) = fixture::render(&gpu, &mut s, &frame()).unwrap();
+        assert!(s.error().is_none(), "{:?}", s.error());
+        let lit = p.at(100, 64)[1];
+        (0..128)
+            .flat_map(|y| (0..128).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let c = p.at(x, y)[1];
+                (c as u32) * 10 < (lit as u32) * 8
+            })
+            .count()
+    };
+    let (solid, half, gone) = (shadow(1.), shadow(0.5), shadow(0.));
+    eprintln!("dark texels: solid {solid}, half {half}, gone {gone}");
+    assert!(solid > 100, "{solid}");
+    assert!(gone == 0, "Opacity 0 casts nothing: {gone}");
+    assert!(half > 0 && half < solid, "{half} between 0 and {solid}");
+}

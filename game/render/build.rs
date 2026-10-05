@@ -26,6 +26,7 @@ fn main() {
         "transform",
         "shadow_sample",
         "forward",
+        "fade",
         "lights",
         "shadow",
         "sky",

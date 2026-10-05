@@ -20,6 +20,8 @@ pub const MATERIAL_WGSL: &str = concat!(
 pub const MATERIAL_SHADOWS_WGSL: &str = concat!(
     include_str!("../shaders/shadow_sample.wgsl"),
     "\n",
+    include_str!("../shaders/fade.wgsl"),
+    "\n",
     include_str!("../shaders/lights.wgsl"),
     "\n",
     include_str!("../shaders/material_shadows.wgsl")
