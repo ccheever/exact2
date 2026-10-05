@@ -4,6 +4,29 @@
 use super::*;
 
 impl Model {
+    /// The call's state from the voice page: felt as it connects and ends.
+    pub fn voice_state(&mut self, state: &str) {
+        match state {
+            "connected" => self.feel("success"),
+            "ended" => self.feel("light"),
+            _ => {}
+        }
+    }
+
+    /// Fleet's voice page for the open session (`…/voice?thread=<native id>`
+    /// through the relay) and the bearer for its first request's header;
+    /// `None` unless Codex's voice can join it.
+    pub fn voice(&self) -> Option<(String, String)> {
+        let conn = self.conn.as_ref()?;
+        let key = self.open.as_ref()?;
+        let session = self.live_session(key).filter(|s| s.can_talk())?;
+        let url = conn.session_url(&self.route_of(&self.via), &key.0, &key.1, "voice");
+        Some((
+            format!("{url}?thread={}", crate::api::encode(&session.native_id)),
+            conn.bearer(),
+        ))
+    }
+
     /// Draw a page more of the open conversation's history.
     pub fn show_earlier(&mut self) {
         let Some(key) = self.open.clone() else { return };

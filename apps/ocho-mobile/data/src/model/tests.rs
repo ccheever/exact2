@@ -638,3 +638,27 @@ fn a_long_thread_opens_on_its_last_page_and_shows_earlier_on_request() {
     assert_eq!(drawn(&m), 100);
     assert_eq!(earlier(&m), "");
 }
+
+#[test]
+fn a_live_codex_thread_offers_voice_through_the_relay() {
+    let mut m = paired();
+    m.poll_request();
+    m.poll_done(Ok(codex_answer("idle")));
+    m.open("mac", "c1");
+    let (url, auth) = m.voice().expect("a live Codex app-server thread");
+    assert_eq!(
+        url,
+        "https://fleet-relay.fly.dev/m/mac/api/machines/mac/sessions/c1/voice?thread=thread-1"
+    );
+    assert_eq!(auth, "Bearer t", "the bearer goes in a header, not the URL");
+    assert_eq!(crate::view::session(&m)["canTalk"], true);
+    // A terminal session, or one Codex never opened, has no voice.
+    m.open("mac", "s1");
+    assert!(m.voice().is_none());
+    let mut a = codex_answer("idle");
+    a["fleet"]["machines"][0]["last"]["sessions"][0]["native_id"] = json!("");
+    m.poll_request();
+    m.poll_done(Ok(a));
+    m.open("mac", "c1");
+    assert!(m.voice().is_none());
+}

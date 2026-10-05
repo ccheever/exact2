@@ -25,6 +25,7 @@ final class OchoMobileModule: ExactModule {
             "title-reveal": ExactNativeFactory { props, events in TitleReveal(props: props, events: events) },
             "glass-button": ExactNativeFactory { props, events in GlassButton(props: props, events: events) },
             "glass-composer": ExactNativeFactory { props, events in GlassComposer(props: props, events: events) },
+            "voice-call": ExactNativeFactory { props, events in VoiceCall(props: props, events: events) },
         ]
     }
 

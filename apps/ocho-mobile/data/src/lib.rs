@@ -32,6 +32,7 @@ const GRANTS: &str = "net.fetch https://fleet-relay.fly.dev\n\
 net.fetch https://fleet-service.eliot-4cd.workers.dev\n\
 secret.keep ocho.install\n\
 device.camera purpose.camera\n\
+device.microphone purpose.microphone\n\
 secret.keep ocho.connection\n\
 secret.keep ocho.desktop";
 
@@ -143,6 +144,7 @@ impl OchoMobile {
             "retry" => m.retry(),
             "dismiss" => m.dismiss(),
             "earlier" => m.show_earlier(),
+            "voice" => m.voice_state(&a),
             "composer" => {
                 if let Some(text) = a.strip_prefix("s:") {
                     m.send_text(text);

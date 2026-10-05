@@ -136,6 +136,9 @@ const SESSION: Shape = Record(&[
     ("failed", Str),
     ("scrollRevision", Num),
     ("composerHeight", Num),
+    ("canTalk", Bool),
+    ("voiceUrl", Str),
+    ("voiceAuth", Str),
 ]);
 
 const PAIR: Shape = Record(&[("draft", Str), ("error", Str)]);

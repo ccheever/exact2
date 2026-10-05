@@ -23,6 +23,8 @@ routes nav
   sessions "/"
     session "/s/:machine/:id"
     scan "/scan"
+    // A voice call with Codex about the open session, over Fleet's bridge.
+    voice "/voice"
     // `ocho://pair/<pairing>`: the relay's pairing page opens the app here.
     pair "/pair/:p"
 
@@ -132,6 +134,9 @@ shape Session
   failed: string
   scrollRevision: number
   composerHeight: number
+  canTalk: bool
+  voiceUrl: string
+  voiceAuth: string
 shape Page
   visibilityState: string
   onLine: bool
@@ -249,6 +254,14 @@ component OchoMobile
     send ui = dispatch("pair-typed", value, "", now())
   action pair writes ui
     send ui = dispatch("pair", "", "", now())
+  // Talk to Codex: the call opens over the conversation; closing it ends the
+  // call (the page hangs up) and keeps the conversation open.
+  action talk(value: string) writes nav
+    nav = push(nav, "/voice")
+  action endTalk(value: string) writes nav
+    nav = back(nav)
+  action voiceSaid(value: string) writes ui
+    send ui = dispatch("voice", value, "", now())
   action startScan writes nav, scanState
     scanState = ""
     nav = push(nav, "/scan")
@@ -286,9 +299,12 @@ component OchoMobile
         when e.name == "scan"
           column navigationKey=`${e.id}` navigationPresentation="modal" testId="scan-screen" position="absolute" top=0 right=0 bottom=0 left=0 background-color="#000000"
             Scanner(state=scanState, scanned=scanned, said=scannerSaid, close=backPressed)
+        when e.name == "voice"
+          column navigationKey=`${e.id}` navigationPresentation="modal" testId="voice-screen" position="absolute" top=0 right=0 bottom=0 left=0 class=Page
+            VoiceCall(model=vm.session, close=endTalk, said=voiceSaid)
         when e.name == "session"
           column navigationKey=`${e.id}` testId="session-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" class=Page padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
-            Conversation(model=vm.session, draft=draft, backTapped=back, back=backPressed, write=write, sendDraft=sendDraft, sized=composerSaid, earlier=showEarlier, retry=retry, dismiss=dismiss, blur=headerBlur)
+            Conversation(model=vm.session, talk=talk, draft=draft, backTapped=back, back=backPressed, write=write, sendDraft=sendDraft, sized=composerSaid, earlier=showEarlier, retry=retry, dismiss=dismiss, blur=headerBlur)
 
 // The activity indicator: a ring with one dark quarter, turning.
 component Spinner
@@ -423,6 +439,19 @@ component Pairing
               text "Pair" font-size=17 font-weight=600 class=(model.draft == "" ? Tertiary : Accent)
 
 // The camera, a frame to aim with, and what the camera can do.
+// The call: Fleet's voice page (start, mute, end, captions, coding
+// approvals) in a native web view, under a close button.
+component VoiceCall
+  props
+    model: Session
+    close: action
+    said: action
+  view
+    column flex=1 min-height=0 position="relative"
+      voice-call testId="voice-call" flex=1 min-height=0 url=model.voiceUrl auth=model.voiceAuth message=said
+      row position="absolute" top=12 right=16 z-index=2
+        glass-button testId="close-voice" symbol="xmark" said="End call" change=close width=44 height=44
+
 component Scanner
   props
     state: string
@@ -444,6 +473,7 @@ component Scanner
 component Conversation
   props
     model: Session
+    talk: action
     draft: string
     backTapped: action
     back: action
@@ -477,7 +507,10 @@ component Conversation
             when model.offline
               box width=7 height=7 border-radius=4 flex-shrink=0 background-color="light-dark(#8e8e93, #8e8e93)"
             text (model.status != "" ? model.status : (model.offline ? `${model.host} · offline` : model.host)) testId="session-status" min-width=0 font-size=12 line-height="16px" line-clamp=1 class=(model.blocked ? Warn : Secondary)
-        box width=44 height=44 flex-shrink=0
+        when model.canTalk
+          glass-button testId="talk" symbol="waveform" said="Talk to Codex" change=talk width=44 height=44 flex-shrink=0
+        else
+          box width=44 height=44 flex-shrink=0
       scroll testId="transcript" scrollFollowEnd=true keyboardDismissMode="interactive" scrollTop=(1000000 + model.scrollRevision) flex=1 min-height=0 overflow-x="hidden"
         column
           box height="calc(env(safe-area-inset-top) + 52px)" flex-shrink=0

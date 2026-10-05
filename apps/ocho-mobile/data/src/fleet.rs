@@ -49,6 +49,16 @@ pub struct Session {
 }
 
 impl Session {
+    /// Codex's voice can join it: a live Codex app-server thread (Fleet's
+    /// voice bridge needs its connection; an EAS worker exposes none).
+    pub fn can_talk(&self) -> bool {
+        self.provider == "codex"
+            && !self.codex_socket.is_empty()
+            && !self.native_id.is_empty()
+            && !self.eas
+            && !self.ended()
+    }
+
     /// Working: the spinner.
     pub fn working(&self) -> bool {
         matches!(self.state.as_str(), "running" | "starting")

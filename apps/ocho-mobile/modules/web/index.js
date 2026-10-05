@@ -2,7 +2,7 @@
 // `message` event's `unavailable`) and the pairing screen offers the paste
 // field instead. Events as on iOS: change (a code's text), message (state).
 export const abi = 1;
-export const roster = { 'qr-scanner': { snapshot: false }, 'progressive-blur': { snapshot: false }, 'title-reveal': { snapshot: false }, 'glass-button': { snapshot: false }, 'glass-composer': { snapshot: false } };
+export const roster = { 'qr-scanner': { snapshot: false }, 'progressive-blur': { snapshot: false }, 'title-reveal': { snapshot: false }, 'glass-button': { snapshot: false }, 'glass-composer': { snapshot: false }, 'voice-call': { snapshot: false } };
 
 // `<progressive-blur>` on the web: a backdrop blur masked by the same fade.
 function blur(element, props) {
@@ -82,6 +82,14 @@ function composerSize(handle) {
 }
 
 export function create(tag, element, json, event) {
+  // A browser can't put the bearer on a frame's first request: voice is the
+  // iOS app's.
+  if (tag === 'voice-call') {
+    Object.assign(element.style, { display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', font: '17px system-ui', color: 'GrayText', textAlign: 'center' });
+    element.textContent = 'Voice with Codex is in the Ocho iPhone app.';
+    event(7);
+    return { element, tag };
+  }
   if (tag === 'glass-composer') {
     Object.assign(element.style, { display: 'flex', alignItems: 'flex-end', gap: '6px', padding: '5px 5px 5px 16px', boxSizing: 'border-box',
       borderRadius: '22px', background: 'color-mix(in srgb, Canvas 70%, transparent)', backdropFilter: 'blur(12px)', webkitBackdropFilter: 'blur(12px)' });
