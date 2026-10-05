@@ -623,9 +623,10 @@ key it lands before (`none` at the end) and, for an action taking one more
 parameter, `ReorderEvent { from, to }`. The action decides where the row goes: a board whose cards join the bottom
 of the column they are dropped on ignores that key when `from != to`. A board
 is columns in a plain horizontal `scroll`, each a header, a grouped list
-(`flex=1 min-height=…`: the list is the drop target, so one that only fits its
-rows leaves the column below it dead, and a card dropped there snaps home) and its
-quick-add; give each grip `touch-action="none"`
+(`flex=1 min-height=…`: the list is the drop target, where the lifted card's centre
+is inside its scroll box, so space below a list that only fits its rows does not
+take the card: a release there lands at the last gap the drag passed over, or goes
+home) and its quick-add; give each grip `touch-action="none"`
 and no `press`, `pan`, `pointerdown` or `key` of its own, so the host's keys
 (Space, the arrows, Enter, Escape) work on it. The host draws the lifted row,
 holds the drop until the move shows (a second at most) and scrolls the lists
@@ -831,7 +832,8 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
 - Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
   1038 D11), which calls the root's `navigate`. On the web a CLI drive goes back as
   the browser's back button does with `tap <root> history -1`, `<root>` being the
-  navigation root's `testId` (the node with `navigationBack`: give it one); native hosts refuse it, and a
+  navigation root (the node with `navigationBack`) by its `testId`, the simplest
+  handle, or its view number from `tree`; native hosts refuse it, and a
   test file has no such step yet.
 
 A `head` node supplies document metadata. The innermost active value wins for
