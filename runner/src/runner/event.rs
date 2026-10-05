@@ -129,13 +129,16 @@ pub enum ControlValue {
     Checked(bool),
     /// A file input's picked files (LLP 1069.002 D3), in selection order.
     Files(Vec<super::picker::Picked>),
+    /// A text field's text with its selection as the edit left it, which
+    /// its `InputEvent` reports (x2apps codeedit #2).
+    Field(String, super::FieldSelection),
 }
 
 impl ControlValue {
     /// The value as the action receives it.
     pub(super) fn value(&self) -> Value {
         match self {
-            Self::Text(text) => Value::str(text),
+            Self::Text(text) | Self::Field(text, _) => Value::str(text),
             Self::Checked(on) => Value::Bool(*on),
             Self::Files(files) => Value::list(files.iter().map(|f| f.value()).collect()),
         }
@@ -186,6 +189,9 @@ pub enum Event {
     /// `cancel`, LLP 1069.002 D2). A node without a `cancel` handler takes
     /// it as nothing.
     Cancel,
+    /// A text field's selection changed (HTML's `select`, x2apps codeedit
+    /// #2): its text, and the selection its `InputEvent` reports.
+    FieldSelect(String, super::FieldSelection),
     /// Markdown toolbar facts. Selection offsets remain local to the editor.
     Select {
         /// Space-separated active format names.
@@ -487,72 +493,6 @@ impl Event {
             Event::PressWith(held) => Some(held.mouse()),
             _ => None,
         }
-    }
-
-    /// Decode host kind 21: formats, mixed (0/1), unavailable, then the link
-    /// remainder, separated by newlines. Token lists never contain newlines;
-    /// a target may, so the final remainder is kept verbatim.
-    pub fn selection_payload(payload: &str) -> Option<Self> {
-        let mut parts = payload.splitn(4, '\n');
-        let formats = parts.next()?;
-        let mixed = match parts.next()? {
-            "0" => false,
-            "1" => true,
-            _ => return None,
-        };
-        let unavailable = parts.next()?;
-        let link = parts.next()?;
-        let tokens = |s: &str| s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b' ');
-        if !tokens(formats) || !tokens(unavailable) {
-            return None;
-        }
-        Some(Self::Select {
-            formats: formats.into(),
-            mixed,
-            link: link.into(),
-            unavailable: unavailable.into(),
-        })
-    }
-
-    /// Decode a media event carried as `name\npayload` through host kind 19.
-    pub fn media_payload(payload: &str) -> Option<Self> {
-        let (name, value) = payload.split_once('\n')?;
-        let kind = EventKind::from_name(name)?;
-        if !(EventKind::Loadedmetadata as u8..=EventKind::Canplay as u8).contains(&(kind as u8)) {
-            return None;
-        }
-        if matches!(kind, EventKind::Timeupdate | EventKind::Durationchange)
-            && !exact_num::parse_f64(value).ok()?.is_finite()
-        {
-            return None;
-        }
-        Some(Self::Media(kind, value.into()))
-    }
-
-    /// Decode ABI kind 35 (`selectionchange`): `start,end,` then the
-    /// selected text verbatim; offsets are whole, `0 <= start <= end`.
-    pub fn selection_change_payload(payload: &str) -> Option<Self> {
-        let mut parts = payload.splitn(3, ',');
-        let start: u32 = parts.next()?.parse().ok()?;
-        let end: u32 = parts.next()?.parse().ok()?;
-        let text = parts.next()?;
-        (start <= end).then(|| Self::SelectionChange {
-            text: text.into(),
-            start: f64::from(start),
-            end: f64::from(end),
-        })
-    }
-
-    /// Decode ABI kind 32 (`copy`), 33 (`cut`) or 34 (`paste`): the
-    /// payload is the clipboard's plain text, verbatim.
-    pub fn clipboard_payload(kind: u32, payload: &str) -> Option<Self> {
-        let kind = match kind {
-            32 => EventKind::Copy,
-            33 => EventKind::Cut,
-            34 => EventKind::Paste,
-            _ => return None,
-        };
-        Some(Self::Clipboard(kind, payload.into()))
     }
 
     /// Decode exactly four comma-separated geometry dimensions. Hosts validate
@@ -1010,7 +950,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Input(_) => "input",
                 Event::Change(_) => "change",
                 Event::Cancel => "cancel",
-                Event::Select { .. } => "select",
+                Event::Select { .. } | Event::FieldSelect(..) => "select",
                 Event::Hover(true) => "hover in",
                 Event::Hover(false) => "hover out",
                 Event::Focus => "focus",
@@ -1081,8 +1021,26 @@ impl<D: DataSource> Runner<D> {
             Event::Change(value) => Some(self.control_payload(view, "change", value)?),
             _ => None,
         };
+        // The `InputEvent` (x2apps codeedit #2): the target as the event
+        // leaves it, a text field's selection the host's report.
+        let (control, record) = match (&event, control) {
+            (Event::Input(v) | Event::Change(v), Some(p)) => {
+                let reported = match v {
+                    ControlValue::Field(_, s) => Some(*s),
+                    _ => None,
+                };
+                let record = self.input_record(view, &p, reported);
+                (Some(p), Some(record))
+            }
+            (Event::FieldSelect(text, s), _) => (
+                None,
+                Some(self.input_record(view, &Value::str(text), Some(*s))),
+            ),
+            _ => (None, None),
+        };
         let (kind, payload, name) = match &event {
             Event::ReorderDrop { .. } => (EventKind::Reorderdrop, None, "reorderdrop"),
+            Event::FieldSelect(..) => (EventKind::Select, record.clone(), "select"),
             Event::Press | Event::PressWith(_) => (EventKind::Press, None, "press"),
             Event::Input(_) => (EventKind::Input, control, "input"),
             Event::Change(_) => (EventKind::Change, control, "change"),
@@ -1173,6 +1131,7 @@ impl<D: DataSource> Runner<D> {
         // A drop's `ReorderEvent` names its lists (LLP 1094 D2).
         let record = match &event {
             Event::ReorderDrop { .. } => Some(self.reorder_record(view)),
+            Event::Input(_) | Event::Change(_) => record,
             _ => event.record(),
         };
         match event {

@@ -92,6 +92,9 @@ pub const HOST_COMMANDS: &[&str] = &[
     // menu's Reload does; a host without a dev menu refuses it.
     "reload",
     "selectText",
+    // `el.setSelectionRange(start, end, direction)` on a text field by its
+    // `id` (x2apps codeedit #2): `setSelectionRange("editor", 4, 4)`.
+    "setSelectionRange",
     "setScheme",
     // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
     "showPicker",

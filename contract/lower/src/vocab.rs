@@ -25,6 +25,7 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
     ("reachend", "`list`"),
     ("text-transform", "any tag but `input` and `textarea`"),
     ("selectionchange", "`text`"),
+    ("name", "`input type=\"radio\"`"),
     ("markup", "`text` or `textarea`"),
 ];
 

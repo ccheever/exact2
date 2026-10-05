@@ -474,7 +474,7 @@ fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), Anal
                 children,
                 ..
             } => {
-                let control = contract_syntax::input_control(tag, attrs);
+                let control = contract_syntax::payload_control(tag, attrs);
                 for a in attrs {
                     if is_handler(&a.name, &a.value) {
                         check_handler(&a.name, &a.value, scope, a.span, control, view)?;

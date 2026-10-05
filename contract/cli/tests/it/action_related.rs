@@ -146,8 +146,12 @@ fn all_event_payload_arities_share_the_lowering_rule() {
         contract_analyze::handler_arity("reorderdrop", 0),
         Some(2..=3)
     );
+    // `input` and `change` their value, then optionally the `InputEvent`
+    // (x2apps codeedit #2).
+    for event in ["input", "change"] {
+        assert_eq!(contract_analyze::handler_arity(event, 0), Some(1..=2));
+    }
     for (event, count) in [
-        ("change", 1),
         ("hover", 1),
         ("timeupdate", 1),
         ("durationchange", 1),

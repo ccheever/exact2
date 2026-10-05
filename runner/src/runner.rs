@@ -10,6 +10,8 @@ mod admission;
 mod commit;
 mod control;
 mod event;
+mod field;
+pub use field::{FieldSelection, SelectionDirection};
 mod host_kinds;
 mod pointer;
 pub use pointer::{DropEvent, PointerEvent, WheelEvent};

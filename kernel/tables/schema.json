@@ -1376,6 +1376,12 @@
       "name": "reorderGroup",
       "kind": "str",
       "_comment": "@ref LLP 1094 D1: SortableJS's `group` name on a vertical `list virtualized=true` with a `reorderdrop` and an `id`: the mounted lists of one session sharing a non-empty value exchange rows, the drop firing once on the target list's `reorderdrop`."
+    },
+    {
+      "id": 239,
+      "name": "name",
+      "kind": "str",
+      "_comment": "HTML's `name` on `input type=radio` (x2apps survey #2): its radio button group. The radios of one non-empty name in one window are exclusive, and the arrow keys move the check among them in tree order; a radio with none is a group of its own."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

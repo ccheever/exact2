@@ -309,7 +309,12 @@ fn state_initializers_refuse_later_names_and_leaked_locals() {
     let error = contract::compile(source).unwrap_err();
     assert_eq!(error.id, "type-duplicate-name", "{error}");
     assert!(error.message.contains("first on line 4"), "{error}");
-    assert!(error.message.contains("mutations and actions share one set of names"), "{error}");
+    assert!(
+        error
+            .message
+            .contains("mutations and actions share one set of names"),
+        "{error}"
+    );
 }
 
 #[test]

@@ -912,7 +912,7 @@ impl<'a> Lowerer<'a> {
                     }
                     if let Err(e) = self.attr(
                         tag,
-                        contract_syntax::input_control(tag, attrs),
+                        contract_syntax::payload_control(tag, attrs),
                         a,
                         scope,
                         locals,

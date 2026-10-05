@@ -539,7 +539,10 @@ fn a_mutations_clauses_may_continue_on_indented_lines() {
     let [edited, saved] = &a.mutations[..] else {
         panic!("two mutations: {:?}", a.mutations.len())
     };
-    assert_eq!(edited.refreshes.iter().map(|r| &*r.0).collect::<Vec<_>>(), ["page"]);
+    assert_eq!(
+        edited.refreshes.iter().map(|r| &*r.0).collect::<Vec<_>>(),
+        ["page"]
+    );
     assert_eq!(edited.then.as_ref().map(|t| &*t.0), Some("followEdit"));
     assert!(saved.queue);
     assert_eq!(saved.refreshes.len(), 2);

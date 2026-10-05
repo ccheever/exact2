@@ -1,9 +1,37 @@
 //! The positional event payloads shared with the runner: `select`'s
 //! (LLP 1045 D6), a file input's `change` (LLP 1069.002 D3), the
 //! pointer's (LLP 1056 §3 stage 3), `key`'s optional `KeyboardEvent`,
-//! `scroll`'s optional `ScrollEvent` (chat F4) and `reorderdrop`'s optional
-//! `ReorderEvent` (LLP 1094 D2).
-use super::{Shapes, Ty};
+//! `scroll`'s optional `ScrollEvent` (chat F4), `reorderdrop`'s optional
+//! `ReorderEvent` (LLP 1094 D2), and the `InputEvent` of `input`, `change`
+//! and a text field's `select` (x2apps codeedit #2), with the
+//! `setSelectionRange` command's arguments.
+use super::{err, infer, Scope, Shapes, Ty, TypeError};
+use contract_syntax::{Expr, Span};
+
+/// `setSelectionRange("id", start, end[, direction])`: HTML's method, its
+/// field named first by `id` (x2apps codeedit #2).
+pub(super) fn selection_range_args(
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> Result<(), TypeError> {
+    let types: Vec<Ty> = args
+        .iter()
+        .map(|a| infer(a, scope, shapes))
+        .collect::<Result<_, _>>()?;
+    if matches!(
+        types.as_slice(),
+        [Ty::String, Ty::Number, Ty::Number] | [Ty::String, Ty::Number, Ty::Number, Ty::String]
+    ) {
+        return Ok(());
+    }
+    err(
+        "type-set-selection-range",
+        "`setSelectionRange(\"id\", start, end)` or `setSelectionRange(\"id\", start, end, \"backward\")`: the field's `id`, the UTF-16 offsets, and optionally `forward`, `backward` or `none`",
+        span,
+    )
+}
 
 /// The DOM event record a handler's event offers its action as an optional
 /// last parameter, after whatever the event always carries (`key`'s name):
@@ -24,6 +52,9 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "press" => Some("MouseEvent"),
         "copy" | "cut" | "paste" => Some("ClipboardEvent"),
         "selectionchange" => Some("Selection"),
+        // The target as HTML's `input` and `change` leave it (x2apps
+        // codeedit #2, survey #2): its value, checked state and selection.
+        "input" | "change" => Some("InputEvent"),
         "resize" => Some("DOMRectReadOnly"),
         "reorderdrop" => Some("ReorderEvent"),
         _ => None,
@@ -51,6 +82,25 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("ctrlKey".into(), Ty::Bool),
             ("altKey".into(), Ty::Bool),
             ("metaKey".into(), Ty::Bool),
+        ],
+    );
+    // What `input` and `change` hand an action that takes one more
+    // parameter, and a text field's `select` its payload (x2apps codeedit
+    // #2, survey #2): the target's own fields as the event fires, by the
+    // DOM's names, as `ScrollEvent` carries the scroller's — its `value`
+    // (a checkbox's or a radio's `value`, `on` when it has none), whether it
+    // is `checked`, and a text field's selection in UTF-16 units with its
+    // direction (`forward`, `backward` or `none`); a control that has no
+    // text selection reports 0, 0 and `none`. In the order
+    // `exact_runner::Event::record` writes it.
+    shapes.map.insert(
+        "InputEvent".into(),
+        vec![
+            ("value".into(), Ty::String),
+            ("checked".into(), Ty::Bool),
+            ("selectionStart".into(), Ty::Number),
+            ("selectionEnd".into(), Ty::Number),
+            ("selectionDirection".into(), Ty::String),
         ],
     );
     // DOM's `ClipboardEvent`, its data as plain text (`getData("text/plain")`):

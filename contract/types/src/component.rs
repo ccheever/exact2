@@ -451,6 +451,10 @@ fn refine_params_from_view(
                 // checked (LLP 1069.001 D4); a text field's, its text.
                 let control = contract_syntax::input_control(tag, attrs);
                 let checkbox = control == Some("checkbox");
+                // A text field's `select` is HTML's, its selection the
+                // `InputEvent` (x2apps codeedit #2); the Markdown editor's
+                // carries its formats.
+                let field = contract_syntax::payload_control(tag, attrs) == Some("field");
                 // A file input's `change` carries the picked files (LLP
                 // 1069.002 D3); its `cancel`, nothing.
                 let file = control == Some("file");
@@ -564,6 +568,7 @@ fn refine_params_from_view(
                                 }
                                 "timeupdate" | "durationchange" => vec![Ty::Number],
                                 "hover" => vec![Ty::Bool],
+                                "select" if field => vec![Ty::Record("InputEvent".into())],
                                 "select" => vec![Ty::Record("MarkdownSelection".into())],
                                 "scroll" | "panrelease" | "resize" => {
                                     vec![Ty::Number, Ty::Number]

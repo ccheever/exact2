@@ -339,7 +339,7 @@ fn unknown_types_list_named_choices_at_the_original_import() {
         .unwrap();
     let expected = contract::compile_path(&root).unwrap_err();
     assert_eq!(expected.id, "type-unknown");
-    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `ClipboardEvent`, `Contact`, `DOMRectReadOnly`, `DragEvent`, `Geometry`, `KeyboardEvent`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`, `Wrapper`, `Zulu`");
+    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `ClipboardEvent`, `Contact`, `DOMRectReadOnly`, `DragEvent`, `Geometry`, `InputEvent`, `KeyboardEvent`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`, `Wrapper`, `Zulu`");
     let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
     same_error(&errors[0], &expected);
     assert_eq!(errors[0]["file"], model.to_str().unwrap());
@@ -367,9 +367,9 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
         // file `change`, pointer, `reorderdrop`, scroll, `selectionchange` and wheel payloads
         // every file can name, and `Geometry` what `frame` and `measure` answer.
         let extra = if prefix.contains("Later") {
-            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Geometry`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"
+            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Geometry`, `InputEvent`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"
         } else {
-            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Geometry`, `KeyboardEvent`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"
+            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Geometry`, `InputEvent`, `KeyboardEvent`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"
         };
         assert_eq!(error.id, "type-unknown");
         assert_eq!(
@@ -380,7 +380,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     let root = app.write("app.contract", &format!("routes nav\n  home \"/\"\n{body}"));
     let error = contract::compile_path(&root).unwrap_err();
     assert_eq!(error.id, "type-unknown");
-    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Entry`, `Geometry`, `KeyboardEvent`, `MarkdownSelection`, `MouseEvent`, `Params`, `Picked`, `PointerEvent`, `ReorderEvent`, `Router`, `ScrollEvent`, `Selection`, `Tab`, `WheelEvent`"));
+    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Entry`, `Geometry`, `InputEvent`, `KeyboardEvent`, `MarkdownSelection`, `MouseEvent`, `Params`, `Picked`, `PointerEvent`, `ReorderEvent`, `Router`, `ScrollEvent`, `Selection`, `Tab`, `WheelEvent`"));
     // Field resolution has already seen later declarations, even when it fails
     // while resolving the first shape's fields.
     let root = app.write("app.contract", "shape First\n  value: Ltaer\nshape Later\n  value: string\ncomponent App\n  view\n    text \"hello\"\n");
@@ -388,7 +388,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     assert_eq!(error.id, "type-unknown");
     assert!(error
         .message
-        .ends_with("`First`, `Geometry`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"));
+        .ends_with("`First`, `Geometry`, `InputEvent`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"));
 }
 
 #[test]
@@ -1388,12 +1388,12 @@ fn refusals_from_the_app_diaries_name_the_fix() {
     says(
         "shape Task\n  id: string\n  done: bool\ncomponent App\n  resource tasks = loadTasks() as shape list<Task>\n  action flipTask(id: string)\n    refresh tasks\n  view\n    column\n      each t in tasks key=t.id\n        input type=\"checkbox\" checked=t.done change=flipTask(t.id)\n",
         "analyze-handler-arity",
-        "`change=flipTask(t.id)` calls `flipTask` with `t.id` and then the checkbox's new `checked` (bool); declare `action flipTask(id: string, checked: bool)`",
+        "`change=flipTask(t.id)` calls `flipTask` with `t.id` and then the checkbox's new `checked` (bool); declare `action flipTask(id: string, checked: bool)`, or `action flipTask(id: string, checked: bool, event: InputEvent)` for its `InputEvent`",
     );
     says(
         "component App\n  state q = \"\"\n  action setQ\n    q = \"\"\n  view\n    input value=q input=setQ\n",
         "analyze-handler-arity",
-        "`input=setQ` calls `setQ` with the field's new `value` (string); declare `action setQ(value: string)`",
+        "`input=setQ` calls `setQ` with the field's new `value` (string); declare `action setQ(value: string)`, or `action setQ(value: string, event: InputEvent)` for its `InputEvent`",
     );
     says(
         "component App\n  state n = 0\n  action save(id: string, extra: number)\n    n = 1\n  view\n    button \"s\" press=save(\"a\")\n",

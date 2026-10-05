@@ -87,7 +87,7 @@ pub(crate) fn control(
     if tag == "select" {
         if let Some(a) = attrs
             .iter()
-            .find(|a| matches!(a.name.as_str(), "type" | "checked"))
+            .find(|a| matches!(a.name.as_str(), "type" | "checked" | "name"))
         {
             return err(
                 "lower-attr-tag",
@@ -101,10 +101,21 @@ pub(crate) fn control(
         return Ok(Some("select"));
     }
     if tag != "input" {
-        if let Some(a) = attrs.iter().find(|a| a.name == "checked") {
+        if let Some(a) = attrs
+            .iter()
+            .find(|a| matches!(a.name.as_str(), "checked" | "name"))
+        {
             return err(
                 "lower-attr-tag",
-                format!("`checked` belongs to `input type=\"checkbox\"`, not `{tag}`"),
+                format!(
+                    "`{}` belongs to `input type=\"{}\"`, not `{tag}`",
+                    a.name,
+                    if a.name == "name" {
+                        "radio"
+                    } else {
+                        "checkbox"
+                    }
+                ),
                 a.span,
             );
         }
@@ -129,11 +140,20 @@ pub(crate) fn control(
         }
     }
     let control = contract_syntax::input_control(tag, attrs);
-    if control != Some("checkbox") {
+    if !matches!(control, Some("checkbox" | "radio")) {
         if let Some(a) = attrs.iter().find(|a| a.name == "checked") {
             return err(
                 "lower-attr-tag",
-                "`checked` belongs to `input type=\"checkbox\"`; a text field's is `value`",
+                "`checked` belongs to `input type=\"checkbox\"` and `\"radio\"`; a text field's is `value`",
+                a.span,
+            );
+        }
+    }
+    if control != Some("radio") {
+        if let Some(a) = attrs.iter().find(|a| a.name == "name") {
+            return err(
+                "lower-attr-tag",
+                "`name` groups `input type=\"radio\"`s: the radios of one name are exclusive",
                 a.span,
             );
         }
@@ -253,6 +273,19 @@ pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
                 (StyleId::MarginLeft, "4"),
             ],
             fixed_props: &[(PropId::AccessibilityRole, "checkbox")],
+            positional: None,
+        },
+        // A radio (x2apps survey #2): the margins Chrome's UA sheet gives
+        // `input[type=radio]` (`3px 3px 0px 5px`) and ARIA's role.
+        "radio" => Tag {
+            node_type: NodeType::Control,
+            fixed_styles: &[
+                (StyleId::MarginTop, "3"),
+                (StyleId::MarginRight, "3"),
+                (StyleId::MarginBottom, "0"),
+                (StyleId::MarginLeft, "5"),
+            ],
+            fixed_props: &[(PropId::AccessibilityRole, "radio")],
             positional: None,
         },
         // A range: Chrome's UA margin (`2px`) and ARIA's role.

@@ -388,6 +388,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "change" => AttrTarget::Handler("change"),
         "input" => AttrTarget::Handler("input"),
         "checked" => AttrTarget::Prop(p("checked")),
+        // HTML's radio button group (x2apps survey #2).
+        "name" => AttrTarget::Prop(p("name")),
         // @ref LLP 1069.002 D1, D2 — a file input's types and count, and
         // HTML's `cancel` when its picker is dismissed.
         "accept" => AttrTarget::Prop(p("accept")),
