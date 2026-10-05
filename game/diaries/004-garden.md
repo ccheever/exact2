@@ -1347,3 +1347,21 @@ strict collector. Root checks all pass in 86.287 s: build 0.407, tests
 2.074, caps 0.088 and boot 0.015 s. Binary-reported test execution sums to
 39.87 s; the local timing target is missed again, with no game proof
 running concurrently. Logs: `/tmp/exact2-compost-root-*.log`.
+
+Strict acceptance in `artifacts/prove/run-casLNI/` succeeds at feature commit
+`48d883bdc`. Linux Off/Save/FreshGame take 20.797/6.180/6.153 s; web takes
+105.926/102.780/92.845 s; release Linux takes 53.271 s including its build.
+All seven runs agree with the independent macOS candidate on source inputs,
+pins, ten comparable state observations and all fifteen save files. The
+close-time candidate has one additional offline-session sample; reconstructing
+its ordinary observations from the transcript gives the same ten as the
+collector. Every descendant audit passes with no recorded children left.
+Only the collector updates `pins.json`, for the saved food/fed fields and the
+new compost continuation `a95c5aec8548b855…`. An ordinary Linux proof then
+passes the accepted pins in 2.242 s (`artifacts/compost-accepted-linux/`).
+Comparison evidence: `/tmp/exact2-compost-strict-comparison.json`.
+
+A read-only fetch after acceptance work began finds main through `b83acf98a`,
+ten commits beyond the previous integration, chiefly grouped-list cardless
+sections and reviewed sound/storage designs. Those fetched changes are not
+in this feature's accepted source; integrate them at the next work boundary.
