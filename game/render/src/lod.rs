@@ -223,7 +223,7 @@ mod tests {
 mod gpu_tests {
     use exact_game::{Mesh, ModelLod, Pose, Transform, World};
     use exact_gpu::wgpu;
-    // A crowd member: a skinned near level, a static box far away.
+    // One 32×32 frame from the eye (0, 1, camera), looking at the origin.
     fn draw(renderer: &mut crate::Renderer, camera: f32) {
         let texture = renderer.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
