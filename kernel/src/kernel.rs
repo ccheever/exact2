@@ -137,7 +137,7 @@ impl<'a> NodeRef<'a> {
     /// The run style this node's text measures and paints with: its own text
     /// rows, else its paragraph's, else the initial values.
     pub fn text_style(&self) -> TextStyle {
-        TextStyle::from_style(&self.computed_style(StyleMask::INHERITED))
+        self.arena.text_style(self.slot)
     }
 
     /// The nearest explicit HTML spelling-check hint in the logical tree.
