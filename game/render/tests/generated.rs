@@ -166,6 +166,111 @@ fn generated_props_upload_once_share_a_draw_and_keep_vertex_colors() {
     }
 }
 
+/// Four white quads in one generated model, lit head-on by the sun with no
+/// ambient, through an orthographic camera far enough away that every quad sits
+/// at the mirror direction: matte, glossy, metal, and black but emissive green.
+struct Parts;
+impl Game for Parts {
+    const ID: &'static str = "generated-parts";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.insert_resource(Environment {
+            background: Some([0.; 3]),
+            ambient: 0.,
+            bloom: None,
+            fog: None,
+            ..Default::default()
+        });
+        let quad = |x: f32| asset::MeshData {
+            positions: [[-0.4, -0.4], [0.4, -0.4], [0.4, 0.4], [-0.4, 0.4]]
+                .into_iter()
+                .flat_map(|[px, py]| [x + px, py, 0.])
+                .collect(),
+            normals: [0., 0., 1.].repeat(4),
+            uvs: vec![0.; 8],
+            indices: vec![0, 1, 2, 0, 2, 3],
+            bounds: [x - 0.4, -0.4, 0., x + 0.4, 0.4, 0.],
+            ..Default::default()
+        };
+        let parts = asset::Model::parts([
+            (quad(-1.5), asset::MaterialData::surface(0., 1.)),
+            (quad(-0.5), asset::MaterialData::surface(0., 0.15)),
+            (quad(0.5), asset::MaterialData::surface(1., 1.)),
+            (
+                quad(1.5),
+                asset::MaterialData {
+                    base_color: [0., 0., 0., 1.],
+                    emissive: [0., 1., 0.],
+                    ..asset::MaterialData::surface(0., 1.)
+                },
+            ),
+        ]);
+        let mesh = w.generated_model("parts.model", parts).unwrap();
+        w.spawn((Transform::default(), mesh));
+        let head_on = Transform::at(0., 0., 400.).looking_at(Vec3::ZERO, Vec3::Y);
+        w.spawn((
+            head_on,
+            DirectionalLight {
+                illuminance: 0.4 / exact_game_render::PHOTOMETRIC_SCALE,
+                shadows: false,
+                ..Default::default()
+            },
+        ));
+        w.spawn((
+            head_on,
+            Camera {
+                projection: Projection::Orthographic {
+                    height: 1.,
+                    integer_scale: false,
+                },
+                ..Default::default()
+            },
+        ));
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+#[test]
+fn a_generated_model_shades_each_part_with_its_own_material() {
+    let Some(gpu) = test_device::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let mut surface = WorldSurface::<Parts, ModelExecutor, true>::default();
+    surface.bind(&[], None).unwrap();
+    surface.device_ready(exact_gpu::wgpu::Features::empty());
+    surface.prepare_assets(
+        &gpu.device,
+        &gpu.queue,
+        exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+    );
+    let frame = Frame {
+        width: 256.,
+        height: 64.,
+        scale: 1.,
+        now_ms: 0.,
+        seekable: true,
+        period_ms: 0.,
+        children_generation: 0,
+        shader_generation: 0,
+    };
+    let (pixels, _) = fixture::render(&gpu, &mut surface, &frame).unwrap();
+    assert!(surface.error().is_none(), "{:?}", surface.error());
+    let [matte, glossy, metal, glow] = [32, 96, 160, 224].map(|x| pixels.at(x, 32));
+    let luma = |p: [u8; 4]| u16::from(p[0]) + u16::from(p[1]) + u16::from(p[2]);
+    assert!(luma(matte) > 60, "lit matte part: {matte:?}");
+    assert!(
+        luma(glossy) > luma(matte) * 3 / 2,
+        "roughness: {glossy:?} vs {matte:?}"
+    );
+    assert!(
+        luma(metal) * 3 / 2 < luma(matte),
+        "metallic: {metal:?} vs {matte:?}"
+    );
+    assert!(
+        glow[1] > 100 && u16::from(glow[1]) > 3 * u16::from(glow[0]),
+        "emissive: {glow:?}"
+    );
+}
+
 struct Grove;
 #[derive(Default, Args)]
 struct GroveArgs {

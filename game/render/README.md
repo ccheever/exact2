@@ -643,7 +643,8 @@ live content is not a total GPU-memory budget. GPU tests report when no adapter
 is available; a headless proof establishes simulation evidence, not pixels.
 
 Generated `World::generated` models use the existing model preparation and
-geometry/material/winding batches. Repeated handles share one CPU model, one GPU
+geometry/material/winding batches; a `Model::parts` model's per-part metallic,
+roughness and emission are shaded as a baked material's are. Repeated handles share one CPU model, one GPU
 upload and one draw group; preparation reuses its content digest across frames.
 `MeshData.colors` is optional linear RGBA. Both model and primitive vertex paths
 multiply the material base colour; model alpha also multiplies vertex alpha,

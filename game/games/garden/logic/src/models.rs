@@ -4,7 +4,10 @@ use crate::{
     looks::{dir, Look},
     sculpt::*,
 };
-use exact_game::{asset::MeshData, *};
+use exact_game::{
+    asset::{MaterialData, MeshData, Model},
+    *,
+};
 use std::f32::consts::{PI, TAU};
 
 pub(crate) fn gardener(l: &Look) -> MeshData {
@@ -847,18 +850,23 @@ pub(crate) fn plant(kind: usize, l: &Look) -> MeshData {
 }
 
 /// Fruit is tinted by its entity's material (ripeness, mutations), so the
-/// mesh carries only shading: greys, with a painted highlight above white.
-pub(crate) fn fruit(kind: usize, l: &Look) -> MeshData {
+/// mesh carries only shading, in greys. The skin is its own part, as glossy as
+/// its crop (glossier in the toy look); seeds are gilt, stems and leaves matte.
+pub(crate) fn fruit(kind: usize, l: &Look) -> Model {
     let c = &CROPS[kind];
-    let mut m = Sculpt::default();
+    let (mut skin, mut m, mut gilt) = (Sculpt::default(), Sculpt::default(), Sculpt::default());
     let r = c.fruit_size;
-    let gloss = if l.toy { 0.75 } else { 0.45 };
-    let light = Vec3::new(-0.45, 0.8, 0.4).normalize();
-    let shine = move |d: Vec3, base: f32| {
-        let h = d.dot(light).max(0.);
-        let v = base * (0.7 + 0.3 * (d.y * 0.5 + 0.5)) + gloss * math::powi(h, 6);
-        [v; 3]
-    };
+    let shine = |d: Vec3, base: f32| [base * (0.7 + 0.3 * (d.y * 0.5 + 0.5)); 3];
+    let roughness = match c.id {
+        "tomato" => 0.2,
+        "apple" | "grape" => 0.25,
+        "strawberry" | "watermelon" | "mango" | "dragon" => 0.3,
+        "blueberry" | "corn" | "pumpkin" => 0.45,
+        "bamboo" | "cactus" => 0.5,
+        "carrot" => 0.6,
+        "coconut" => 0.85,
+        _ => 0.35,
+    } * if l.toy { 0.75 } else { 1. };
     let dark = [0.42; 3];
     match c.id {
         "carrot" => {
@@ -869,7 +877,7 @@ pub(crate) fn fruit(kind: usize, l: &Look) -> MeshData {
                 })
                 .chain([(r * 1.17, r * 0.4), (r * 1.18, 0.)])
                 .collect();
-            m.lathe(Vec3::ZERO, &profile, 12, |y, a| {
+            skin.lathe(Vec3::ZERO, &profile, 12, |y, a| {
                 let groove = 0.86 + 0.14 * math::sin(y * 95.).abs();
                 let v = groove * (0.85 + 0.15 * math::cos(a - 2.2));
                 [v; 3]
@@ -882,7 +890,7 @@ pub(crate) fn fruit(kind: usize, l: &Look) -> MeshData {
             );
         }
         "strawberry" => {
-            m.lathe(
+            skin.lathe(
                 Vec3::ZERO,
                 &[
                     (-r * 1.1, 0.),
@@ -903,11 +911,11 @@ pub(crate) fn fruit(kind: usize, l: &Look) -> MeshData {
                 let a = i as f32 * 2.39996;
                 let y = -r * 0.8 + r * 1.2 * hash(i + 5);
                 let rad = r * (0.86 - 0.5 * ((y / r - 0.1) * 0.9).abs().min(1.)) * 0.98;
-                m.ball(
+                gilt.ball(
                     Vec3::Y * y + dir(a) * rad,
                     Vec3::splat(r * 0.06),
-                    [1.5, 1.3, 0.6],
-                    [1.6, 1.4, 0.7],
+                    [0.85, 0.68, 0.3],
+                    [1.0, 0.85, 0.45],
                     0.,
                 );
             }
@@ -924,7 +932,7 @@ pub(crate) fn fruit(kind: usize, l: &Look) -> MeshData {
             );
         }
         "blueberry" => {
-            m.ellipsoid(
+            skin.ellipsoid(
                 Vec3::ZERO,
                 Vec3::new(r, r * 0.9, r),
                 Quat::IDENTITY,
@@ -944,7 +952,7 @@ pub(crate) fn fruit(kind: usize, l: &Look) -> MeshData {
             );
         }
         "tomato" => {
-            m.ellipsoid(
+            skin.ellipsoid(
                 Vec3::ZERO,
                 Vec3::new(r, r * 0.82, r),
                 Quat::IDENTITY,
@@ -974,7 +982,7 @@ pub(crate) fn fruit(kind: usize, l: &Look) -> MeshData {
             );
         }
         "corn" => {
-            m.ellipsoid(
+            skin.ellipsoid(
                 Vec3::ZERO,
                 Vec3::new(r * 0.55, r * 1.3, r * 0.55),
                 Quat::IDENTITY,
@@ -993,7 +1001,7 @@ pub(crate) fn fruit(kind: usize, l: &Look) -> MeshData {
             }
         }
         "watermelon" => {
-            m.ellipsoid(
+            skin.ellipsoid(
                 Vec3::ZERO,
                 Vec3::new(r * 1.2, r * 0.85, r * 0.85),
                 Quat::IDENTITY,
@@ -1010,7 +1018,7 @@ pub(crate) fn fruit(kind: usize, l: &Look) -> MeshData {
         "pumpkin" => {
             for i in 0..9u32 {
                 let a = i as f32 * TAU / 9.;
-                m.ellipsoid(
+                skin.ellipsoid(
                     dir(a) * r * 0.42,
                     Vec3::new(r * 0.6, r * 0.78, r * 0.48),
                     Quat::from_rotation_y(-a),
@@ -1031,7 +1039,7 @@ pub(crate) fn fruit(kind: usize, l: &Look) -> MeshData {
         }
         "apple" | "mango" => {
             if c.id == "apple" {
-                m.lathe(
+                skin.lathe(
                     Vec3::ZERO,
                     &[
                         (-r * 0.85, 0.),
@@ -1051,7 +1059,7 @@ pub(crate) fn fruit(kind: usize, l: &Look) -> MeshData {
                     },
                 );
             } else {
-                m.ellipsoid(
+                skin.ellipsoid(
                     Vec3::ZERO,
                     Vec3::new(r * 0.8, r * 1.05, r * 0.68),
                     Quat::from_rotation_z(0.35),
@@ -1087,13 +1095,13 @@ pub(crate) fn fruit(kind: usize, l: &Look) -> MeshData {
                 })
                 .chain([(r * 1.62, 0.)])
                 .collect();
-            m.lathe(Vec3::ZERO, &profile, 10, |y, a| {
+            skin.lathe(Vec3::ZERO, &profile, 10, |y, a| {
                 let sheath = 0.78 + 0.22 * math::sin((y / r) * 9.).abs();
                 [sheath * (0.85 + 0.15 * math::cos(a - 2.2)); 3]
             });
         }
         "coconut" => {
-            m.ellipsoid(
+            skin.ellipsoid(
                 Vec3::ZERO,
                 Vec3::new(r, r * 1.08, r),
                 Quat::IDENTITY,
@@ -1116,7 +1124,7 @@ pub(crate) fn fruit(kind: usize, l: &Look) -> MeshData {
             }
         }
         "cactus" => {
-            m.ellipsoid(
+            skin.ellipsoid(
                 Vec3::ZERO,
                 Vec3::new(r * 0.72, r, r * 0.72),
                 Quat::IDENTITY,
@@ -1127,21 +1135,21 @@ pub(crate) fn fruit(kind: usize, l: &Look) -> MeshData {
                 let a = i as f32 * 2.39996;
                 let y = -0.7 + 1.4 * hash(i + 11);
                 let ring = math::sqrt(1. - y * y);
-                m.ball(
+                skin.ball(
                     Vec3::new(
                         math::cos(a) * ring * r * 0.72,
                         y * r,
                         math::sin(a) * ring * r * 0.72,
                     ),
                     Vec3::splat(r * 0.06),
-                    [1.4; 3],
-                    [1.5; 3],
+                    [0.9; 3],
+                    [1.0; 3],
                     0.,
                 );
             }
         }
         "dragon" => {
-            m.ellipsoid(
+            skin.ellipsoid(
                 Vec3::ZERO,
                 Vec3::new(r * 0.78, r, r * 0.78),
                 Quat::IDENTITY,
@@ -1167,7 +1175,7 @@ pub(crate) fn fruit(kind: usize, l: &Look) -> MeshData {
                 let ring = (1. - t) * 0.75 + 0.1;
                 let a = i as f32 * 2.39996;
                 let p = Vec3::Y * (r * 0.9 - t * r * 2.0) + dir(a) * ring * r;
-                m.ellipsoid(
+                skin.ellipsoid(
                     p,
                     Vec3::new(r * 0.36, r * 0.4, r * 0.36),
                     Quat::IDENTITY,
@@ -1185,9 +1193,19 @@ pub(crate) fn fruit(kind: usize, l: &Look) -> MeshData {
                 |_, _| dark,
             );
         }
-        _ => m.ellipsoid(Vec3::ZERO, Vec3::splat(r), Quat::IDENTITY, (10, 14), |d| {
+        _ => skin.ellipsoid(Vec3::ZERO, Vec3::splat(r), Quat::IDENTITY, (10, 14), |d| {
             shine(d, 1.)
         }),
     }
-    m.finish()
+    let parts = [
+        (skin, MaterialData::surface(0., roughness)),
+        (m, MaterialData::surface(0., 0.8)),
+        (gilt, MaterialData::surface(1., 0.35)),
+    ];
+    Model::parts(
+        parts
+            .into_iter()
+            .filter(|(part, _)| !part.is_empty())
+            .map(|(part, material)| (part.finish(), material)),
+    )
 }

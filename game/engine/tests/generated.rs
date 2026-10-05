@@ -167,3 +167,62 @@ fn setup_reconstructs_generated_geometry_and_drops_old_identities() {
     assert_eq!(sim.world().save(), fresh.world().save());
     sim.restore(&fresh.save().unwrap()).unwrap();
 }
+
+#[test]
+fn a_parts_model_keeps_each_part_material_in_its_identity() {
+    use exact_game::asset::{MaterialData, Model, Node};
+    let mut lifted = triangle();
+    for y in lifted.positions.iter_mut().skip(1).step_by(3) {
+        *y = 2.;
+    }
+    lifted.bounds = [0., 2., 0., 1., 2., 1.];
+    let gloss = MaterialData::surface(0., 0.2);
+    let gold = MaterialData {
+        base_color: [1., 0.8, 0.3, 1.],
+        emissive: [0.5, 0.4, 0.],
+        ..MaterialData::surface(1., 0.3)
+    };
+    let model = || Model::parts([(triangle(), gloss.clone()), (lifted.clone(), gold.clone())]);
+    let mut w = World::new(60, 0);
+    let mesh = w.generated_model("fruit.model", model()).unwrap();
+    w.spawn((Transform::default(), mesh));
+    let m = w.model("fruit.model").unwrap();
+    assert_eq!(m.bounds, [0., 0., 0., 1., 2., 1.]);
+    let parts: Vec<_> = m
+        .nodes
+        .iter()
+        .map(|n| &m.materials[m.meshes[n.mesh.unwrap() as usize].material as usize])
+        .map(|p| (p.metallic, p.roughness, p.emissive))
+        .collect();
+    assert_eq!(parts, [(0., 0.2, [0.; 3]), (1., 0.3, [0.5, 0.4, 0.])]);
+    let saved = w.save();
+    let world = || {
+        let mut w = World::new(60, 0);
+        w.register::<Mesh>();
+        w.register::<Transform>();
+        w
+    };
+    let mut matte = world();
+    let mut rough = model();
+    rough.materials[0].roughness = 1.;
+    matte.generated_model("fruit.model", rough).unwrap();
+    let refused = matte.load(&saved).unwrap_err().to_string();
+    assert!(refused.contains("fruit.model"), "{refused}");
+    let mut same = world();
+    same.generated_model("fruit.model", model()).unwrap();
+    same.load(&saved).unwrap();
+
+    // `generated` is the one-part, matte, non-metal case, with the same identity.
+    w.generated("rock.model", triangle()).unwrap();
+    let single = Model {
+        bounds: triangle().bounds,
+        meshes: vec![triangle()],
+        materials: vec![MaterialData::surface(0., 1.)],
+        nodes: vec![Node {
+            mesh: Some(0),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    w.generated_model("rock.model", single).unwrap();
+}

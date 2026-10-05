@@ -259,9 +259,15 @@ Declare a data-authored level with
 JSON levels need no `game.assets` setting. Agent asset state includes their value;
 malformed fields report their path.
 
-`w.generated("island.model", mesh_data)` registers immutable geometry during setup.
+`w.generated("island.model", mesh_data)` registers immutable geometry during setup,
+matte and not metal (`MaterialData::surface(0., 1.)`).
 Clone the returned `Mesh` for repeated props. `w.generated_model(name, model)` takes a
-whole `asset::Model` (several meshes, nodes and materials); its materials may sample
+whole `asset::Model` (several meshes, nodes and materials), shaded like a baked one.
+`asset::Model::parts([(skin, MaterialData::surface(0., 0.3)), (seeds, gold)])` builds
+one from parts, each a mesh with its own material, so code-made art can be glossy,
+metallic or emissive per part; `MaterialData`'s `Default` is glTF's, fully metallic.
+A material is part of the model's identity. The entity's `Material` still tints and
+adds emission to every part; its metallic and roughness do not reach a model. Materials may sample
 textures named in `model.textures`, such as a shared `art/textures/` PNG, which become
 the model's dependencies and are requested like a baked model's. Saves store names and content identities,
 not vertices, so reconstruct from the same level and seed before restoring. Changed

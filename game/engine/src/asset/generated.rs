@@ -80,28 +80,60 @@ impl AssetStore {
         Ok(())
     }
 }
+impl MaterialData {
+    /// An untextured opaque surface, white until vertex colours or the entity's
+    /// `Material` tint it: what code-made parts want. (`Default` is glTF's
+    /// material, which is fully metallic.)
+    pub fn surface(metallic: f32, roughness: f32) -> Self {
+        Self {
+            metallic,
+            roughness,
+            ..Default::default()
+        }
+    }
+}
+impl Model {
+    /// A model of parts for [`World::generated_model`], each a mesh drawn with
+    /// its own material: code-made art that is glossy, metallic or emissive per
+    /// part, prepared and shaded as a baked model's materials are. Part `i` is
+    /// mesh, material and node `i` (a `MaterialOverride` addresses it as
+    /// material `i`); the bounds cover every part.
+    pub fn parts(parts: impl IntoIterator<Item = (MeshData, MaterialData)>) -> Self {
+        let mut model = Model::default();
+        for (i, (mut mesh, material)) in parts.into_iter().enumerate() {
+            let b = mesh.bounds;
+            model.bounds = if i == 0 {
+                b
+            } else {
+                let a = model.bounds;
+                std::array::from_fn(|k| {
+                    if k < 3 {
+                        a[k].min(b[k])
+                    } else {
+                        a[k].max(b[k])
+                    }
+                })
+            };
+            mesh.material = i as u32;
+            model.meshes.push(mesh);
+            model.materials.push(material);
+            model.nodes.push(Node {
+                mesh: Some(i as u32),
+                ..Default::default()
+            });
+        }
+        model
+    }
+}
 impl World {
     /// Register immutable CPU geometry during setup; entities retain only its name.
     /// Reconstruct from the same declared level/seed before restoring a save. Saves
     /// retain its content identity, never vertices; changed generators refuse by name.
     /// Repeating an identical registration reuses the existing shared allocation.
+    /// The mesh draws with [`MaterialData::surface`]`(0., 1.)`, matte and not
+    /// metal; [`Model::parts`] gives each part its own material.
     pub fn generated(&mut self, name: &str, mesh: MeshData) -> Result<Mesh, String> {
-        self.generated_model(
-            name,
-            Model {
-                bounds: mesh.bounds,
-                meshes: vec![mesh],
-                materials: vec![MaterialData {
-                    metallic: 0.,
-                    ..Default::default()
-                }],
-                nodes: vec![Node {
-                    mesh: Some(0),
-                    ..Default::default()
-                }],
-                ..Default::default()
-            },
-        )
+        self.generated_model(name, Model::parts([(mesh, MaterialData::surface(0., 1.))]))
     }
     /// `generated` for a whole model: several meshes, nodes and materials, which
     /// may sample textures by name (`model.textures`, indexed by each material's

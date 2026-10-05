@@ -376,6 +376,11 @@ impl Sculpt {
         self.sheet(&rows, true);
     }
 
+    /// Nothing added yet: a model part with no geometry is left out.
+    pub fn is_empty(&self) -> bool {
+        self.0.positions.is_empty()
+    }
+
     pub fn finish(mut self) -> MeshData {
         let mut lo = Vec3::splat(f32::INFINITY);
         let mut hi = Vec3::splat(f32::NEG_INFINITY);

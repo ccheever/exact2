@@ -318,7 +318,7 @@ pub fn setup(w: &mut World, style: Style) {
     for kind in 0..CROPS.len() {
         w.generated(&format!("plant-{kind}.model"), plant(kind, l))
             .expect("plant mesh");
-        w.generated(&format!("fruit-{kind}.model"), fruit(kind, l))
+        w.generated_model(&format!("fruit-{kind}.model"), fruit(kind, l))
             .expect("fruit mesh");
     }
     let trees = w
@@ -327,12 +327,16 @@ pub fn setup(w: &mut World, style: Style) {
     let flowers = w
         .generated("flowers.model", flower_bank(l))
         .expect("flower mesh");
-    let grass = w.generated("meadow-grass.model", meadow(l)).expect("meadow mesh");
+    let grass = w
+        .generated("meadow-grass.model", meadow(l))
+        .expect("meadow mesh");
     let hills = w
         .generated("backdrop.model", backdrop(l))
         .expect("backdrop mesh");
     let rail = w.generated("rail.model", rail(l)).expect("rail mesh");
-    let tub = w.generated("rain-barrel.model", barrel(l)).expect("barrel mesh");
+    let tub = w
+        .generated("rain-barrel.model", barrel(l))
+        .expect("barrel mesh");
     let bed = scale(l.mound.0, 0.8);
     for (name, position, mesh, material) in [
         (
