@@ -261,8 +261,18 @@ impl<D: DataSource> Runner<D> {
             self.pending_mut[m] = true;
         }
         // An asked send reads again what its mutation declares it changes,
-        // with the arguments of this commit (D4).
-        self.reread_next = self.declared_refreshes(m);
+        // with the arguments of this commit (D4). Answered at once, it has
+        // landed: what it changes is forced, as an action's or a reply's
+        // landing forces it — a re-read would drop a source that answers
+        // later, and no reply would come to ask again (b6 review A1).
+        if later.is_some() {
+            self.reread_next = self.declared_refreshes(m);
+        } else {
+            self.reread_next.clear();
+            for r in self.declared_refreshes(m) {
+                self.force_refresh(r);
+            }
+        }
         if let Err(e) = self
             .router_change()
             .and_then(|_| self.settle(false))

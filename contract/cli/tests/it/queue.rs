@@ -608,3 +608,67 @@ fn a_task_key_refuses_a_reply_and_a_commit_made_again() {
         .journal()
         .any(|l| l.contains("a failed request (0 asked again) refused: TaskKey")));
 }
+
+/// A source whose `save` answers now and whose `items` answers later once
+/// booted: the shape of a module that writes at once and lists by fetch.
+#[derive(Default)]
+struct Shelf {
+    lists: usize,
+}
+
+impl DataSource for Shelf {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        match source {
+            "items" => Ok(Value::Number(0.0)),
+            other => Err(DataError::UnknownSource(other.into())),
+        }
+    }
+    fn answer(
+        &mut self,
+        _: &mut exact_runner::Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        match source {
+            "save" => Ok(Answer::Now(ack(args[0].as_str().unwrap_or(""), 0))),
+            "items" => {
+                self.lists += 1;
+                Ok(Answer::Later(Request::post_json("https://desk.test/items", "")))
+            }
+            other => Err(DataError::UnknownSource(other.into())),
+        }
+    }
+}
+
+/// b6 review A1: a `next` whose send answers at once has landed, so what
+/// its mutation refreshes is forced — asked again even with unchanged
+/// arguments — as an action's send answered at once forces it. A re-read
+/// would drop the later answer and nothing would ever ask again.
+#[test]
+fn a_next_answered_at_once_forces_what_it_refreshes() {
+    let src = "shape Ack\n  op: string\n  n: number\ncomponent App\n  resource items = items() as shape number\n  mutation save as shape Ack queue refreshes items\n  action pair\n    send save = save(\"a\")\n    send save = save(\"b\")\n  view\n    text `${items}`\n";
+    let baked = contract::bake(contract::compile(src).unwrap(), Shelf::default()).unwrap();
+    let mut r = Runner::boot(
+        baked,
+        Shelf::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let items = |r: &mut Runner<Shelf>| {
+        r.take_requests()
+            .iter()
+            .filter(|q| q.target == "items")
+            .count()
+    };
+    items(&mut r);
+    r.act("pair", vec![]).unwrap();
+    assert_eq!(items(&mut r), 1, "the first send's landing asks items");
+    r.advance(1.0).unwrap();
+    assert_eq!(
+        items(&mut r),
+        1,
+        "the queued send's landing asks items again"
+    );
+}
