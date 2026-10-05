@@ -8,10 +8,10 @@ use std::{
     path::PathBuf,
     sync::atomic::{AtomicUsize, Ordering},
 };
-const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/storage.hbc"));
-const APP: &str = "dev.exact.storage-test";
-const GRANTS: &str = "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
-fn plan() -> Plan {
+pub(crate) const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/storage.hbc"));
+pub(crate) const APP: &str = "dev.exact.storage-test";
+pub(crate) const GRANTS: &str = "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
+pub(crate) fn plan() -> Plan {
     contract::compile(
         r#"
 shape Result
@@ -37,9 +37,9 @@ component App
     )
     .unwrap()
 }
-struct Root(PathBuf);
+pub(crate) struct Root(pub(crate) PathBuf);
 impl Root {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         Self(std::env::temp_dir().join(format!(
             "exact-storage-{}-{}",
@@ -47,7 +47,7 @@ impl Root {
             NEXT.fetch_add(1, Ordering::Relaxed)
         )))
     }
-    fn module(&self) -> Module {
+    pub(crate) fn module(&self) -> Module {
         let mut m = Module::new(HBC.to_vec(), APP, GRANTS);
         // Functional fixtures carry no wall-clock budget; it is not a stable
         // gate on a shared test machine.
@@ -67,39 +67,32 @@ impl Drop for Root {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
-fn args(op: &str, value: &str) -> Vec<Value> {
+pub(crate) fn args(op: &str, value: &str) -> Vec<Value> {
     vec![Value::str(op), Value::str(value)]
 }
-fn text(v: Value) -> String {
+pub(crate) fn text(v: Value) -> String {
     match v {
         Value::Record(fields) => fields[0].as_str().unwrap().into(),
         other => panic!("{other:?}"),
     }
 }
-fn response(body: &str) -> Outcome {
+pub(crate) fn response(body: &str) -> Outcome {
     Outcome::Response(Response {
         status: 200,
         headers: vec![],
         body: body.as_bytes().to_vec(),
     })
 }
-fn finish(m: &mut Module, s: &mut Store, a: &[Value], mut answer: Answer) -> String {
-    for _ in 0..100 {
-        match answer {
-            Answer::Now(v) => return text(v),
-            Answer::Later(request) => {
-                let token = request
-                    .continuation
-                    .expect("storage never invents an HTTP request");
-                let work = m.continuation(token).expect("live continuation");
-                let outcome = std::thread::spawn(work).join().unwrap();
-                answer = m.parse(s, "work", a, outcome).unwrap();
-            }
-        }
-    }
-    panic!("storage did not settle")
+/// One answer to its end, then the background work it left, as a native
+/// host runs both (LLP 1097 D5).
+pub(crate) fn finish(m: &mut Module, s: &mut Store, a: &[Value], answer: Answer) -> String {
+    let mut done = super::background::drive(m, s, vec![(a.to_vec(), answer)], |_, _| {
+        panic!("storage never invents an HTTP request")
+    });
+    assert_eq!(done.len(), 1, "storage did not settle");
+    done.remove(0)
 }
-fn call(m: &mut Module, s: &mut Store, op: &str, value: &str) -> String {
+pub(crate) fn call(m: &mut Module, s: &mut Store, op: &str, value: &str) -> String {
     let a = args(op, value);
     let answer = m.answer(s, "work", &a).unwrap();
     finish(m, s, &a, answer)
@@ -309,35 +302,17 @@ fn storage_then_fetch_then_storage_preserves_each_answer_context() {
     let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
     let aa = args("fetch", "a");
     let bb = args("fetch", "b");
-    let mut pending = vec![
+    let pending = vec![
         (aa.clone(), m.answer(&mut s, "work", &aa).unwrap()),
         (bb.clone(), m.answer(&mut s, "work", &bb).unwrap()),
     ];
-    let mut done = vec![];
-    for _ in 0..100 {
-        if pending.is_empty() {
-            break;
-        }
-        let (a, answer) = pending.remove(0);
-        match answer {
-            Answer::Now(v) => done.push(text(v)),
-            Answer::Later(request) => {
-                let outcome = if let Some(token) = request.continuation {
-                    std::thread::spawn(m.continuation(token).unwrap())
-                        .join()
-                        .unwrap()
-                } else {
-                    assert_eq!(
-                        request.url,
-                        format!("https://example.test/{}", a[1].as_str().unwrap())
-                    );
-                    response("reply")
-                };
-                let next = m.parse(&mut s, "work", &a, outcome).unwrap();
-                pending.push((a, next));
-            }
-        }
-    }
+    let mut done = super::background::drive(&mut m, &mut s, pending, |a, request| {
+        assert_eq!(
+            request.url,
+            format!("https://example.test/{}", a[1].as_str().unwrap())
+        );
+        response("reply")
+    });
     done.sort();
     assert_eq!(done, vec!["a:reply", "b:reply"]);
     assert!(matches!(s.get("session"), Some("a" | "b")));
@@ -347,7 +322,7 @@ fn storage_then_fetch_then_storage_preserves_each_answer_context() {
 /// write made before a value returned at once, and one queued behind the
 /// module's storage chain and begun after the answer's own promise resolved,
 /// or after a value it gave at once (drums R10). The browser runs each to its
-/// end; so does Hermes, before the reply.
+/// end; so does Hermes, after the reply, as background work (LLP 1097).
 #[test]
 fn storage_an_answer_does_not_await_still_lands() {
     let root = Root::new();
@@ -984,9 +959,12 @@ component App
     assert_eq!(read(&runner, "peeked"), "h:peeked");
     assert_eq!(read(&runner, "listing"), "h:2");
     assert!(!runner.has_pending(), "everything settled");
+    // `peek` reads a file that may not be there and says so: its failed
+    // read is journaled (LLP 1097 D8), and nothing else failed.
     let refusals: Vec<&str> = runner
         .journal()
         .filter(|l| l.contains("pending on nothing") || l.contains("failed"))
+        .filter(|l| !l.contains("storage failed: readFile app:/data/note: ENOENT"))
         .collect();
     assert!(refusals.is_empty(), "{refusals:#?}");
 }

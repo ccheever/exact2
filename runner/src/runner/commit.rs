@@ -848,6 +848,7 @@ impl<D: DataSource> Runner<D> {
         self.notes.clear();
         self.commands.clear();
         self.requests.clear();
+        self.drop_background();
         self.forgot |= !self.pending.is_empty();
         self.pending.clear();
         self.unsent.clear();
@@ -990,7 +991,11 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The requests the host is to run since the last take (LLP 1016 D2).
+    /// The module's background round goes out here when it has one (LLP
+    /// 1097 D5), and its journal lines come in.
     pub fn take_requests(&mut self) -> Vec<RequestOut> {
+        self.take_data_logs();
+        self.arm_background();
         std::mem::take(&mut self.requests)
     }
 
@@ -1046,32 +1051,47 @@ impl<D: DataSource> Runner<D> {
 
     /// Every request in flight: the resource's or mutation's name and its ticket.
     pub fn pending(&self) -> Vec<(String, u64)> {
-        self.pending
+        let mut out: Vec<(String, u64)> = self
+            .pending
             .iter()
             .filter(|p| !self.device_holds.iter().any(|h| h.ticket == p.ticket))
             .map(|p| (self.target_name(p.target), p.ticket))
-            .collect()
+            .collect();
+        out.extend(
+            self.background_ticket()
+                .map(|t| (super::background::NAME.to_string(), t)),
+        );
+        out
     }
 
     /// Whether any request is in flight (the agent's `settle` waits on it).
     /// An open stream counts only until its first message (LLP 1016.000
     /// D5): after that it is open, not in flight, or `settle` never ends.
     /// A request held for the agent (LLP 1069.007 D3) is not I/O either: no
-    /// clock waits on it.
+    /// clock waits on it. The module's background round is (LLP 1097 D9).
     pub fn has_pending(&self) -> bool {
-        self.pending
-            .iter()
-            .any(|p| p.in_flight() && !self.device_holds.iter().any(|h| h.ticket == p.ticket))
+        self.background_ticket().is_some()
+            || self
+                .pending
+                .iter()
+                .any(|p| p.in_flight() && !self.device_holds.iter().any(|h| h.ticket == p.ticket))
     }
 
     /// The requests in flight, as `has_pending` counts them: the agent's
     /// `state.pending` (a held request is listed there under `device`).
+    /// The module's background round is listed last, as `background`.
     pub fn in_flight(&self) -> Vec<(String, u64)> {
-        self.pending
+        let mut out: Vec<(String, u64)> = self
+            .pending
             .iter()
             .filter(|p| p.in_flight() && !self.device_holds.iter().any(|h| h.ticket == p.ticket))
             .map(|p| (self.target_name(p.target), p.ticket))
-            .collect()
+            .collect();
+        out.extend(
+            self.background_ticket()
+                .map(|t| (super::background::NAME.to_string(), t)),
+        );
+        out
     }
 
     /// Every open stream: its resource, ticket, and counts (the agent's
@@ -1095,7 +1115,7 @@ impl<D: DataSource> Runner<D> {
     /// commit and lets go of the work for any it holds that isn't (LLP 1016
     /// D5): a superseded or forgotten reply would only be dropped here.
     pub fn holds(&self, ticket: u64) -> bool {
-        self.pending.iter().any(|p| p.ticket == ticket)
+        self.is_background(ticket) || self.pending.iter().any(|p| p.ticket == ticket)
     }
 
     /// The host brought back the outcome of request `ticket`: the source
@@ -1119,6 +1139,11 @@ impl<D: DataSource> Runner<D> {
         outcome: Outcome,
         elapsed_ms: Option<u64>,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
+        if self.is_background(ticket) {
+            // Its own path (LLP 1097 D5): no commit, no `then`, no update.
+            self.background_landed(outcome);
+            return Ok(None);
+        }
         let mut summary = outcome.summary();
         if let Some(ms) = elapsed_ms {
             exact_num::push_text!(&mut summary, "; wall {} ms", ms);

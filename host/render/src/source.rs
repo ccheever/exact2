@@ -133,4 +133,20 @@ impl<D: DataSource> DataSource for Anonymous<D> {
     fn discard(&mut self, token: u64) {
         self.inner.discard(token);
     }
+    fn background(&mut self, store: &Store) -> Option<exact_runner::Request> {
+        self.inner.background(store)
+    }
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<exact_runner::Request>, DataError> {
+        self.inner.background_landed(store, outcome)
+    }
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        self.inner.background_state()
+    }
+    fn take_logs(&mut self) -> Vec<String> {
+        self.inner.take_logs()
+    }
 }

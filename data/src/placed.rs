@@ -685,6 +685,41 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         self.inner.as_mut()?.continuation(token)
     }
 
+    /// Background work is the inline module's alone (LLP 1097 D6): a
+    /// worker's answers wait for their storage, so nothing is forwarded
+    /// while an owner holds the module.
+    fn background(&mut self, store: &Store) -> Option<Request> {
+        match self.inner.as_mut() {
+            Some(inner) if self.owner.is_none() => inner.background(store),
+            _ => None,
+        }
+    }
+
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<Request>, DataError> {
+        match self.inner.as_mut() {
+            Some(inner) if self.owner.is_none() => inner.background_landed(store, outcome),
+            _ => Ok(None),
+        }
+    }
+
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        match self.inner.as_ref() {
+            Some(inner) if self.owner.is_none() => inner.background_state(),
+            _ => None,
+        }
+    }
+
+    fn take_logs(&mut self) -> Vec<String> {
+        match self.inner.as_mut() {
+            Some(inner) if self.owner.is_none() => inner.take_logs(),
+            _ => Vec::new(),
+        }
+    }
+
     /// A replacement keeps its placement (LLP 1027.002 §6). A moved source
     /// has no `Self` left here to pair; a built one is replaced through its
     /// template.

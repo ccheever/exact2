@@ -128,6 +128,31 @@ impl Native {
     }
 }
 
+/// The continuation token of a module's background work (LLP 1097 D5):
+/// reserved, as an executor's own tokens are, and passed through every
+/// composer unchanged, so a forwarder never consumes a round's token and a
+/// [`DataSource::forgotten`] never prunes it.
+pub const BACKGROUND: u64 = u64::MAX - 2;
+
+/// A module's background storage (LLP 1097 D8): `state.background`, and
+/// the `background` count a `clock` reply carries.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BackgroundState {
+    /// Background operations waiting behind the one in flight.
+    pub queued: u64,
+    /// Background operations in flight: 0 or 1.
+    pub in_flight: u64,
+    /// The module's storage operations queued or in flight, an answer's or
+    /// the background's: what `clock settle` waits for.
+    pub operations: u64,
+    /// Background operations that landed, since load.
+    pub done: u64,
+    /// Background operations that failed, since load.
+    pub failed: u64,
+    /// The last failure's journal line.
+    pub last: Option<String>,
+}
+
 /// A request still in flight, as [`DataSource::forgotten`] names it.
 #[derive(Debug, Clone, Copy)]
 pub struct InFlight<'a> {
@@ -223,6 +248,44 @@ pub trait DataSource {
     /// 1027.002 D3, the cleanup of rolled-back calls).
     fn discard(&mut self, token: u64) {
         let _ = token;
+    }
+
+    /// Work the module started that no answer waits for (LLP 1097 D5): the
+    /// next round, a continuation under [`BACKGROUND`], or `None`. The
+    /// runner polls it whenever no round is out; it arms only when the
+    /// module's storage operation in flight is the background's, and
+    /// returns `None` while a round is out. A source that forwards
+    /// `dispatch` forwards this, `background_landed`, `background_state`
+    /// and `take_logs` too.
+    fn background(&mut self, store: &Store) -> Option<crate::request::Request> {
+        let _ = store;
+        None
+    }
+
+    /// A background round's outcome: the next round, or `None` when the
+    /// operation in flight is no longer the background's or nothing was
+    /// delivered. It makes no commit: no Contract `then` runs, no resource
+    /// is asked again (D4).
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<crate::request::Request>, DataError> {
+        let _ = (store, outcome);
+        Ok(None)
+    }
+
+    /// The module's background storage now, or `None` for a source that
+    /// has none (LLP 1097 D8).
+    fn background_state(&self) -> Option<BackgroundState> {
+        None
+    }
+
+    /// The module's journal lines since the last take (LLP 1097 D8): its
+    /// failed storage, its unhandled rejections, and its `console`, which
+    /// the runner writes to the journal.
+    fn take_logs(&mut self) -> Vec<String> {
+        Vec::new()
     }
 
     /// Activate deferred logic after first pixel; binary-bound sources do nothing.

@@ -48,7 +48,9 @@
 
 #![deny(missing_docs)]
 
+mod background;
 mod crypto;
+mod door;
 mod engine;
 mod native;
 mod paired;
@@ -65,6 +67,7 @@ pub use exact_runner::Placement;
 pub use native::{Changed, LaterHandler, NativeModule, NativeReply};
 pub use paired::Paired;
 
+use door::{c_string, host_door};
 use engine::{Engine, HostFn};
 use exact_plan::{Plan, Value};
 use exact_runner::{
@@ -73,11 +76,11 @@ use exact_runner::{
 };
 use serde_json::Value as Json;
 use std::collections::HashMap;
-use std::ffi::{c_char, c_void, CStr};
+use std::ffi::c_void;
 use std::sync::Arc;
 use std::time::Instant;
 use watch::{Watch, Watched};
-use wire::{canvas_image, canvas_measure, outcome_to_json, request_from_json};
+use wire::outcome_to_json;
 
 type NativeFactory = fn(&str) -> Box<dyn NativeModule>;
 
@@ -181,6 +184,10 @@ struct HostState {
     baking: bool,
     /// Storage calls the bake refused so far (see [`Module::answer_for`]).
     bake_refusals: u64,
+    /// The runtime's own journal lines since the last take (LLP 1097 D8).
+    journal: Vec<String>,
+    /// A background round is running: storage is not refused as at bake.
+    background: bool,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
@@ -225,6 +232,11 @@ pub struct Module {
     /// The agent's launch seed, when the agent drives this process (LLP
     /// 1069.005 D2b); a built worker instance takes its template's.
     agent_seed: Option<u64>,
+    /// Runs inline, on the runner's thread (LLP 1097 D6): storage an answer
+    /// did not await moves to the background. An instance a worker owner
+    /// builds runs one turn to its end, and keeps its answers waiting.
+    main_thread: bool,
+    background: background::Background,
 }
 
 impl std::fmt::Debug for Module {
@@ -237,169 +249,6 @@ impl std::fmt::Debug for Module {
             .field("parked", &self.parked.len())
             .finish()
     }
-}
-
-/// The one door from the module into Rust (`__exact_host` in the prelude).
-///
-/// # Safety
-/// Called by the shim on the engine's thread with `ctx` the `HostState` the
-/// engine was created with, and `a`/`b` NUL-terminated for the call.
-unsafe extern "C" fn host_door(
-    ctx: *mut c_void,
-    op: u32,
-    a: *const c_char,
-    b: *const c_char,
-    out: *mut *mut c_char,
-) -> i32 {
-    let state = &mut *(ctx as *mut HostState);
-    let a = CStr::from_ptr(a).to_string_lossy();
-    let b = CStr::from_ptr(b).to_string_lossy();
-    let reply: Result<Option<String>, String> = match op {
-        1 => match a.parse::<u64>() {
-            Ok(ticket) => match request_from_json(&b) {
-                Ok(request) => {
-                    state.requests.push((ticket, request));
-                    Ok(None)
-                }
-                Err(e) => Err(format!("fetch: {e}")),
-            },
-            Err(_) => Err("fetch: a ticket that is not a number".into()),
-        },
-        2 => Ok(state.store.and_then(|s| (*s).get(&a).map(str::to_string))),
-        3 => match state.store {
-            Some(s) => (*s)
-                .set(&a, &b)
-                .map(|_| None)
-                .map_err(|e| format!("store.set: {e:?}")),
-            None => Err("store.set: no store at bake".into()),
-        },
-        4 => match state.store {
-            Some(s) => (*s)
-                .forget(&a)
-                .map(|_| None)
-                .map_err(|e| format!("store.forget: {e:?}")),
-            None => Err("store.forget: no store at bake".into()),
-        },
-        // Storage's availability, as the prelude's refusal code (kanban
-        // F28): none at bake; none for a drive that names no scratch store;
-        // none where the host configured no directories.
-        5 => match state.store {
-            Some(store) => {
-                // A read even at bake: the build compiles no answer that tried.
-                (*store).observe_external_read();
-                if state.baking {
-                    state.bake_refusals += 1;
-                    Err("bake".into())
-                } else {
-                    // `a` is the path a file operation names: a document
-                    // needs no app storage, as for a Rust source.
-                    let document = state.documents && a.starts_with("doc:/");
-                    Ok((!state.storage && !document).then(|| {
-                        if state.agent.is_some() {
-                            "agent"
-                        } else {
-                            "unsupported"
-                        }
-                        .into()
-                    }))
-                }
-            }
-            None => Err("bake".into()),
-        },
-        6 => {
-            if a == "kind" {
-                // A native executor can always link a module; no read.
-                Ok(Some("native".into()))
-            } else if a == "available" {
-                // Only a linked, configured module: `native.available` is false
-                // at bake, in agent mode, and when the app links none. Whether
-                // there is one is the device's fact, not the build's: an answer
-                // that asks is not compiled, and the host asks it again.
-                if let Some(store) = state.store {
-                    (*store).observe_external_read();
-                }
-                Ok((state.native.is_some() || state.hosted).then(|| "native".into()))
-            } else if a == "watch" {
-                // The answer watches a device topic; its announcement asks
-                // the answer again (LLP 1016.002).
-                if let Some(store) = state.store {
-                    (*store).observe_topic(&b);
-                }
-                Ok(None)
-            } else if a == "later" {
-                Ok(state.later.then(|| "later".into()))
-            } else {
-                if let Some(store) = state.store {
-                    (*store).observe_external_read();
-                }
-                match (&mut state.native, state.store) {
-                    (Some(module), Some(_)) => serde_json::from_str(&b)
-                        .map_err(|error| error.to_string())
-                        .and_then(|request| module.call(&request))
-                        .map(|reply| Some(reply.to_string())),
-                    // The host's app module, on this thread (LLP 1067.000 D9).
-                    (None, Some(_)) if state.hosted => match &state.hosted_call {
-                        Some(call) => call(b.as_bytes())
-                            .map(|reply| Some(String::from_utf8_lossy(&reply).into_owned())),
-                        None => Err("the app's module answers no native.call".into()),
-                    },
-                    _ => Err(
-                        "native storage is unavailable during bake or in an unconfigured host"
-                            .into(),
-                    ),
-                }
-            }
-        }
-        7 => pure::call(&a, &b).map(Some),
-        // The answer drew secure randomness (LLP 1069.005 D2): the device's,
-        // so bake compiles none of it. No store (an in-process query): no mark.
-        8 => {
-            if let Some(store) = state.store {
-                (*store).observe_entropy();
-            }
-            Ok(None)
-        }
-        9 => canvas_measure(state.canvas.as_ref(), &a).map(Some),
-        // Under the agent, `b` bytes of its repeatable stream as hex; else
-        // nothing, and the draw is the OS's (LLP 1069.005 D2b).
-        11 => Ok(state.agent.as_mut().map(|stream| {
-            let mut bytes = vec![0; b.parse::<usize>().unwrap_or(0).min(65_536)];
-            stream.fill(&mut bytes);
-            crypto::hex(&bytes)
-        })),
-        10 => Ok(canvas_image(state.canvas.as_ref(), &a)),
-        12 => Ok(crypto::auth_callback(state, &a)),
-        other => Err(format!("__exact_host: no op {other}")),
-    };
-    *out = std::ptr::null_mut();
-    match reply {
-        Ok(None) => 0,
-        Ok(Some(text)) => {
-            *out = c_string(&text);
-            0
-        }
-        Err(text) => {
-            *out = c_string(&text);
-            1
-        }
-    }
-}
-
-/// A malloc'd copy the shim frees.
-fn c_string(text: &str) -> *mut c_char {
-    let bytes = text.as_bytes();
-    // SAFETY: malloc'd with room for the NUL; the shim `free`s it.
-    unsafe {
-        let p = libc_malloc(bytes.len() + 1) as *mut u8;
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len());
-        *p.add(bytes.len()) = 0;
-        p as *mut c_char
-    }
-}
-
-extern "C" {
-    #[link_name = "malloc"]
-    fn libc_malloc(size: usize) -> *mut c_void;
 }
 
 /// One step of a call as the prelude reports it.
@@ -445,6 +294,8 @@ impl Module {
             overruns: 0,
             canvas_surfaces: Vec::new(),
             agent_seed: None,
+            main_thread: true,
+            background: Default::default(),
         };
         module.with_agent_seed(exact_data::crypto::AgentStream::agent_seed())
     }
@@ -504,6 +355,9 @@ impl Module {
         let native_slot = template.native_slot.clone();
         Box::new(move || {
             let mut module = Module::new(bytecode, app_id, grants).with_agent_seed(agent_seed);
+            // Before `activate`, which loads: a worker's answers wait for
+            // their storage (LLP 1097 D6).
+            module.main_thread = false;
             // The template's interrupt reaches the instance on its owner, and
             // its native handle finds the instance's long-call handler.
             module.watch = watch;
@@ -615,6 +469,11 @@ impl Module {
         engine
             .load(PRELUDE)
             .map_err(|e| format!("exact-js: the prelude did not load: {e}"))?;
+        if self.main_thread {
+            engine
+                .call("__exact_main_thread", ["", "", ""])
+                .map_err(|e| format!("exact-js: the prelude did not load: {e}"))?;
+        }
         self.host.storage = self.directories.is_some();
         if let Some(paths) = &self.directories {
             if let Some(factory) = self.native_factory {
@@ -684,6 +543,7 @@ impl Module {
         self.native_slot.set(None);
         self.parked.clear();
         self.host.requests.clear();
+        self.background = Default::default();
     }
 
     /// Whether an engine is up.
@@ -1154,6 +1014,9 @@ impl DataSource for Module {
 
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
         let _ = store;
+        if token == exact_runner::BACKGROUND {
+            return self.background_dispatch();
+        }
         let deferred = self
             .parked
             .iter()
@@ -1213,6 +1076,9 @@ impl DataSource for Module {
     }
 
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+        if token == exact_runner::BACKGROUND {
+            return Some(self.storage.as_ref()?.continuation());
+        }
         if self
             .parked
             .iter()
@@ -1422,6 +1288,29 @@ impl DataSource for Module {
 
     /// The bake's path and the in-process path: no store, and an answer that
     /// awaits a fetch cannot be given now.
+    fn background(&mut self, store: &Store) -> Option<Request> {
+        let _ = store;
+        self.background_request()
+    }
+
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<Request>, DataError> {
+        let _ = store;
+        self.background_round(outcome)
+    }
+
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        self.storage.as_ref()?;
+        Some(self.background.state.clone())
+    }
+
+    fn take_logs(&mut self) -> Vec<String> {
+        self.journal_lines()
+    }
+
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         match self.begin(None, None, source, args)? {
             Answer::Now(v) => Ok(v),
@@ -1441,7 +1330,9 @@ impl DataSource for Module {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
-        self.begin(Some(store), None, source, args)
+        let answer = self.begin(Some(store), None, source, args);
+        self.refresh_background();
+        answer
     }
 
     fn parse(
@@ -1451,7 +1342,9 @@ impl DataSource for Module {
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
-        self.resume(store, None, source, args, outcome)
+        let answer = self.resume(store, None, source, args, outcome);
+        self.refresh_background();
+        answer
     }
 
     fn answer_for(
@@ -1463,6 +1356,7 @@ impl DataSource for Module {
     ) -> Result<Answer, DataError> {
         let refused = self.host.bake_refusals;
         let answer = self.begin(Some(store), Some(target), source, args);
+        self.refresh_background();
         // A resource whose answer failed after the bake refused it storage
         // is the device's to answer, as one that fetches is: the bake shows
         // its placeholder and a launch asks it (kanban2 #5: an uncaught
@@ -1486,7 +1380,9 @@ impl DataSource for Module {
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
-        self.resume(store, Some(target), source, args, outcome)
+        let answer = self.resume(store, Some(target), source, args, outcome);
+        self.refresh_background();
+        answer
     }
 }
 

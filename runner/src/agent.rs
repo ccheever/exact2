@@ -912,6 +912,19 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         );
     }
     s.push(']');
+    // The module's background storage (LLP 1097 D8), where it has any.
+    if let Some(b) = runner.background_state() {
+        let _ = write!(
+            s,
+            ",\"background\":{{\"queued\":{},\"inFlight\":{},\"done\":{},\"failed\":{},\"last\":",
+            b.queued, b.in_flight, b.done, b.failed
+        );
+        match &b.last {
+            Some(line) => quote(line, &mut s),
+            None => s.push_str("null"),
+        }
+        s.push('}');
+    }
     schedule::tasks(runner, &mut s);
     schedule::queued(runner, &mut s);
     // Notifications posted under the agent, where none reaches the system.

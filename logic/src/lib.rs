@@ -286,6 +286,28 @@ impl<D: DataSource> DataSource for Swappable<D> {
             embedded.discard(token);
         }
     }
+    fn background(&mut self, store: &Store) -> Option<exact_runner::Request> {
+        self.embedded.as_mut()?.background(store)
+    }
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<exact_runner::Request>, DataError> {
+        match self.embedded.as_mut() {
+            Some(embedded) => embedded.background_landed(store, outcome),
+            None => Ok(None),
+        }
+    }
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        self.embedded.as_ref()?.background_state()
+    }
+    fn take_logs(&mut self) -> Vec<String> {
+        self.embedded
+            .as_mut()
+            .map(DataSource::take_logs)
+            .unwrap_or_default()
+    }
     fn bind(&mut self, plan: &Plan) {
         if let Some(embedded) = &mut self.embedded {
             embedded.bind(plan);

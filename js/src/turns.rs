@@ -25,8 +25,12 @@ impl Module {
 
     /// Whether anything in the module may yet settle a waiting answer: a
     /// fetch, a storage step, a stream, an answer not yet begun.
+    /// The module's storage queued or in flight counts, an answer's or the
+    /// background's (LLP 1097 D2: an answer may await background work).
     pub(crate) fn outstanding(&self) -> bool {
-        !self.streams.is_empty() || self.parked.iter().any(|(_, p)| p.ticket != WAITING)
+        !self.streams.is_empty()
+            || self.background.state.operations > 0
+            || self.parked.iter().any(|(_, p)| p.ticket != WAITING)
     }
 
     /// Ask a waiting answer again when something landed since it parked,
@@ -87,5 +91,6 @@ impl Module {
         }
         // What landed may settle an answer waiting on another's work.
         self.progress += 1;
+        self.refresh_background();
     }
 }
