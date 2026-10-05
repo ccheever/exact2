@@ -113,8 +113,10 @@ export function residencyProbe(model, texture, popName) {
       const result = new Promise((ok,reject)=>{
         receive=ok; timer=setTimeout(()=>reject(new Error('residency probe timeout')),20000);
       });
+      // The changed bytes belong to this probe alone: a later fetch of the
+      // texture (a device loss's re-upload) is served the true file.
       try { await session.type('world',{key}); return await result; }
-      finally { clearTimeout(timer); receive=null; }
+      finally { clearTimeout(timer); receive=null; changedTexture=false; }
     },
   };
 }
