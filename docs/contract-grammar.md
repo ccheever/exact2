@@ -130,7 +130,10 @@ keyframes, or timeline, declared by the used file or named by its own `use`
 lines. A name another file declares and this one does not name is refused
 (`contract-use-missing`). The keyframes an `animation`, `animation-name` or
 `exit-animation` literal names, and a `clock(Name)` literal, resolve in the
-file that writes them; a name computed at run time is matched as written.
+file that writes them; a name computed at run time is matched as written. A
+keyword beside a computed value whose slot is unknown (`${x} linear 1s`), when
+`linear` is also keyframes another file's `linear` renamed, is refused
+(`contract-animation-ambiguous`): quote the name (`'linear'`).
 Fonts are app-wide. A used file cannot declare routes. The root file's first
 component remains the root. A name both declared and used
 (`contract-use-shadows`), one name used from two declarations
@@ -421,7 +424,7 @@ Signatures are authored forms; localization's internal lowered signature differs
 | `stack(router)` | `list<Entry>` |
 | `top(router)` | `Entry` |
 | `depth(router)` | Number |
-| `params(router, parameterName)` | `list<string>` |
+| `params(router, parameterName)` | `list<string>`: that parameter's non-empty values over the selected stack, bottom first, duplicates kept (one entry's own value is `entry.params.<name>`, `""` where its route does not bind it; the name must be a parameter of some route) |
 | `searchParam(entry, name)` | String |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders |
 | `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it: in the viewport, every scroll offset applied, transforms not |

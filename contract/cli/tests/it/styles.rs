@@ -1208,6 +1208,23 @@ fn css_flex_shorthands_lower_in_order_to_the_longhands() {
     for value in ["-1", "1 -2 auto", "1 2 3px garbage", "1 2 3"] {
         assert_eq!(refused(&format!("flex=\"{value}\"")).id, "lower-attr-value");
     }
+    // A computed basis is the longhands' (Depot): the refusal says so, and
+    // the longhands take it.
+    let e = contract::compile(
+        "component App\n  state w = 200\n  view\n    row\n      view flex=`0 0 ${w}px`\n",
+    )
+    .unwrap_err();
+    assert!(
+        e.message
+            .contains("write the longhands, as in `flex-grow=1 flex-shrink=1 flex-basis=w`"),
+        "{e}"
+    );
+    let r = boot("component App\n  state w = 200\n  view\n    row\n      view flex-grow=1 flex-shrink=0 flex-basis=`${w}px` testId=\"item\"\n");
+    let s = style_of(&r, "item");
+    assert_eq!(
+        (s.flex_grow, s.flex_shrink, s.flex_basis),
+        (1.0, 0.0, Dimension::Points(200.0))
+    );
 }
 
 #[test]

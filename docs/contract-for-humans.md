@@ -886,8 +886,9 @@ label an image; `aria-labelledby` (the ids of the elements whose text names this
 one, as a radiogroup names itself by its visible heading) wins over `aria-label`;
 `aria-describedby` (the ids of the elements whose text describes
 this one) and `aria-description` are its description. `aria-invalid`,
-`aria-required` and `aria-haspopup` take their ARIA words or a bool; UIKit has
-no property for those three, so iOS exposes none of them.
+`aria-required`, `aria-haspopup` and `aria-current` (a navigation link's
+`"page"`, a wizard's `"step"`) take their ARIA words or a bool; UIKit has no
+property for those four, so iOS exposes none of them.
 Font sizes, touch targets, focus behavior, and contrast remain author decisions.
 
 Declare bundled fonts at file scope:
@@ -951,6 +952,11 @@ Safari) they refuse with `cancel` too: read `exactPage().canOpenFiles` to tell
 that from a person's dismissal and offer an import instead. A save there still
 works: what the app writes to its handle downloads under the suggested name. File content, durable storage, and permissions belong
 in the data module. See [file-picker syntax](../contract/corpus/file-pickers.contract).
+
+On tvOS, `focusGuide="auto"` on a container guides a remote move entering its
+box to the descendant that last held focus, or its first focusable descendant.
+Moving within the container keeps UIKit's geometry. Other hosts ignore the
+attribute and retain their normal focus order.
 
 ### Choosing a native button
 

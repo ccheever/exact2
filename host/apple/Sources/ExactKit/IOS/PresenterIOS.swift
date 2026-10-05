@@ -96,6 +96,9 @@ final class Presenter {
     lazy var navigation = NavigationHost(presenter: self)
     #if os(tvOS)
     lazy var menuKey = MenuKey(presenter: self)
+    lazy var focusGuides = FocusGuides(presenter: self)
+    /// The `testId` of the node that last held the remote's focus.
+    var focusKey: String?
     #endif
     lazy var modals = ModalHost(presenter: self)
     /// SVG scenes and CSS animations (LLP 1055 D4, D7).
@@ -942,9 +945,10 @@ final class Presenter {
         navigation.sync(batch)
         #if os(tvOS)
         menuKey.sync()
+        focusGuides.sync()
         #endif
         segments.sync()
-        controls.sync()
+        controls.sync(contents: batch.controls, touched: touchedIDs)
         menus.sync()
         glassGroups.reconcile()
         let changed = touchedAndAbove(touchedIDs)
@@ -1124,6 +1128,15 @@ final class Presenter {
     /// Magnify the preview without reflowing its text, keeping the source's
     /// outside edge and vertical center. Later content keeps its source-relative
     /// position; clamp the complete projection above the keyboard/safe area.
+    /// A scroll whose batch skipped the pass (`ExactSession.applyUnlessEmpty`):
+    /// what the pass does that the scroll moved. A context preview follows its
+    /// source out of the scrolled box, and the fixed gradients its
+    /// compensation moved are aimed again after it, as the pass aims them.
+    func scrolledWithoutPass() {
+        positionContexts()
+        reaimFixedGradients()
+    }
+
     private func positionContexts() {
         for id in contextNodes {
             guard let node = views[id] else { continue }

@@ -317,6 +317,10 @@ Commands, from this directory:
 | \`bun exact.mjs update\` | after exact2 moves or changes its patches; it rewrites \`exact.mjs\` |
 | app.json \`"commands": {"verify": ["bun", "verify.mjs"]}\` | the app's own verbs: \`bun exact.mjs verify web\` runs \`bun verify.mjs web\` here; \`update\` keeps them |
 
+Keep drive scripts, evidence, logs and runtime files in \`.exact/\` (git-ignored):
+no build, watcher or freshness check reads it. Anything else in this folder is a
+source: changing it makes the driver refuse to drive until the app is rebuilt.
+
 The loop: generate the types, edit, \`contract build --json\` until it prints \`[]\`,
 \`test web\`, look at it with \`agent web … screenshot\`, then the native hosts.
 \`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup --check\` names anything this machine is missing.

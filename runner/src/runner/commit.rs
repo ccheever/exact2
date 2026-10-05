@@ -93,7 +93,7 @@ impl<D: DataSource> Runner<D> {
                     continuation: p.continuation,
                 })
                 .collect();
-            self.data.forgotten(&in_flight);
+            self.data.forgotten(&self.store, &in_flight);
         }
     }
 

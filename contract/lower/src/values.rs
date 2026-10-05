@@ -814,6 +814,10 @@ pub(crate) fn aria_words(prop: PropId) -> Option<(&'static str, &'static [&'stat
             "aria-haspopup",
             &["true", "false", "menu", "listbox", "tree", "grid", "dialog"],
         ),
+        PropId::AccessibilityCurrent => (
+            "aria-current",
+            &["true", "false", "page", "step", "location", "date", "time"],
+        ),
         _ => return None,
     })
 }
@@ -847,6 +851,9 @@ pub(crate) fn check_prop_value(
             "`target` takes \"_blank\" or \"_self\"",
             span,
         );
+    }
+    if prop == PropId::FocusGuide && matches!(value, Expr::Str(s, _) if s != "auto") {
+        return err("lower-attr-value", "`focusGuide` takes \"auto\"", span);
     }
     if prop == PropId::AccessibilityLive
         && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "off" | "polite" | "assertive"))

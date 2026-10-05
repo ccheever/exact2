@@ -109,7 +109,11 @@ pub fn default(row: StyleId) -> Option<&'static str> {
 pub fn open_set(name: &str) -> Option<&'static str> {
     if name.starts_with("data-") {
         Some(DATA_NOTE)
-    } else if crate::native::is_module_tag(name) && crate::lint::fragmentation(name).is_none() {
+    } else if crate::native::is_module_tag(name)
+        && crate::lint::fragmentation(name).is_none()
+        // An `aria-*` name is an attribute ARIA has or does not, never a module.
+        && !name.starts_with("aria-")
+    {
         Some(MODULE_NOTE)
     } else {
         None

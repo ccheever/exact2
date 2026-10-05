@@ -527,3 +527,306 @@ fn a_missing_package_is_watched_at_every_ancestor() {
         graph.consulted
     );
 }
+
+// Round 6 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_surface_head_is_the_drawing_modules_not_a_function() {
+    let dir = Dir::new("surface-head");
+    dir.write(
+        "ui.contract",
+        "fn chart(n: number): number = n\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\ncomponent App\n  view\n    column\n      Card()\n      canvas surface=chart() width=10 height=10\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(
+        e.as_ref().is_none_or(|e| e.id != "contract-use-missing"),
+        "{e:?}"
+    );
+}
+
+#[test]
+fn a_task_does_not_hide_a_prop_named_t() {
+    let dir = Dir::new("task-t");
+    dir.write(
+        "ui.contract",
+        "fn t(k: string): string = \"from-fn\"\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    dir.write("strings/en.json", r#"{"hi":"Hello"}"#);
+    // The checker's scope holds no tasks: the prop `t` is the innermost
+    // binding, so `t(…)` is the imported fn, not the strings intrinsic.
+    let root = dir.write(
+        "app.contract",
+        "use t, Card from \"./ui.contract\"\ncomponent App\n  props\n    t: string\n  state n = 0\n  action go\n    n = n + 1\n  task t mount\n    every(1000, go)\n  view\n    column\n      Card()\n      text t(\"hi\")\n",
+    );
+    match contract::compile_path(&root) {
+        Ok(plan) => assert!(format!("{plan:?}").contains("from-fn")),
+        // A root with props, or a task named like a prop, is the checker's
+        // to refuse; what must not happen is an unknown function.
+        Err(e) => assert!(
+            e.id != "type-unknown-function" && e.id != "contract-use-missing",
+            "{e}"
+        ),
+    }
+}
+
+#[test]
+fn many_times_in_a_shorthand_do_not_overflow() {
+    let dir = Dir::new("many-times");
+    let times = vec!["1s"; 300].join(" ");
+    dir.write(
+        "ui.contract",
+        "keyframes p\n  to opacity=0\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        &format!("use Card from \"./ui.contract\"\nkeyframes p\n  to opacity=1\ncomponent App\n  view\n    column\n      Card()\n      view animation=\"{times}\"\n"),
+    );
+    let _ = contract::compile_path(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_installs_own_path_is_watched_so_relinking_it_rebuilds() {
+    let dir = Dir::new("relink");
+    dir.write(
+        "v1/package.json",
+        r#"{"name":"ui","exports":"./index.contract"}"#,
+    );
+    dir.write(
+        "v1/index.contract",
+        "component Card\n  view\n    text \"v1\"\n",
+    );
+    std::fs::create_dir_all(dir.0.join("app/node_modules")).unwrap();
+    std::os::unix::fs::symlink(dir.0.join("v1"), dir.0.join("app/node_modules/ui")).unwrap();
+    let root = dir.write(
+        "app/app.contract",
+        "use Card from \"ui\"\ncomponent App\n  view\n    Card()\n",
+    );
+    let graph = contract::source_graph(&root);
+    assert!(
+        graph
+            .consulted
+            .contains(&dir.0.join("app/node_modules/ui/package.json")),
+        "{:?}",
+        graph.consulted
+    );
+}
+
+// Round 7 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_component_argument_named_surface_is_a_call_like_any_other() {
+    let dir = Dir::new("surface-arg");
+    dir.write(
+        "ui.contract",
+        "fn val(): number = 2\ncomponent Card\n  view\n    Label(surface=val())\ncomponent Label\n  props\n    surface: number\n  view\n    text `${surface}`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nfn val(): number = 1\ncomponent App\n  view\n    column\n      Card()\n      text `${val()}`\n",
+    );
+    // The same program with the library's `fn` spelled apart: one plan.
+    let flat = dir.write(
+        "flat.contract",
+        "fn two(): number = 2\nfn val(): number = 1\ncomponent App\n  view\n    column\n      Label(surface=two())\n      text `${val()}`\ncomponent Label\n  props\n    surface: number\n  view\n    text `${surface}`\n",
+    );
+    assert_eq!(
+        contract::compile_path(&root).unwrap().encode(),
+        contract::compile_path(&flat).unwrap().encode()
+    );
+}
+
+#[test]
+fn a_nearer_install_and_the_offered_export_path_are_watched() {
+    let dir = Dir::new("nearer");
+    dir.write(
+        "repo/node_modules/ui/package.json",
+        r#"{"name":"ui","exports":"./index.contract"}"#,
+    );
+    dir.write(
+        "repo/node_modules/ui/index.contract",
+        "component Card\n  view\n    text \"v1\"\n",
+    );
+    let root = dir.write(
+        "repo/apps/demo/app.contract",
+        "use Card from \"ui\"\ncomponent App\n  view\n    Card()\n",
+    );
+    contract::compile_path(&root).unwrap();
+    let graph = contract::source_graph(&root);
+    for path in [
+        "repo/apps/demo/node_modules/ui/package.json",
+        "repo/apps/node_modules/ui/package.json",
+        "repo/node_modules/ui/index.contract",
+    ] {
+        assert!(
+            graph.consulted.contains(&dir.0.join(path)),
+            "{path}: {:?}",
+            graph.consulted
+        );
+    }
+}
+
+// Round 8 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_component_argument_is_a_value_not_a_style_row() {
+    let dir = Dir::new("arg-value");
+    let root = dir.write(
+        "app.contract",
+        "use Activity as Shared from \"exact:motion\"\ntimeline Activity\ncomponent App\n  view\n    Label(animationTimeline=\"clock(Shared)\")\ncomponent Label\n  props\n    animationTimeline: string\n  view\n    text animationTimeline\n",
+    );
+    let text = plan(&root);
+    assert!(text.contains("clock(Shared)"), "{text}");
+}
+
+#[test]
+fn a_generated_name_is_never_a_binding_of_its_own_file() {
+    let dir = Dir::new("generated-own");
+    dir.write(
+        "ui.contract",
+        "fn val(s: string): string = s\ncomponent Card\n  state n = 0\n  action val__ui(x: number)\n    n = x\n  view\n    button press=val__ui(1) testId=\"b\"\n      text `${val(\"x\")}`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nfn val(s: string): string = s\ncomponent App\n  view\n    column\n      Card()\n      text `${val(\"y\")}`\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(e.as_ref().is_none_or(|e| e.id != "type-argument"), "{e:?}");
+}
+
+#[test]
+fn a_relative_use_is_watched_by_the_path_written() {
+    let dir = Dir::new("relative-written");
+    dir.write(
+        "lib/v1.contract",
+        "component Card\n  view\n    text \"v1\"\n",
+    );
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(
+        dir.0.join("lib/v1.contract"),
+        dir.0.join("lib/entry.contract"),
+    )
+    .unwrap();
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./lib/entry.contract\"\ncomponent App\n  view\n    Card()\n",
+    );
+    #[cfg(unix)]
+    {
+        let graph = contract::source_graph(&root);
+        assert!(
+            graph.consulted.contains(&dir.0.join("lib/entry.contract")),
+            "{:?}",
+            graph.consulted
+        );
+    }
+}
+
+// Round 9 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_keyword_beside_a_computed_value_that_is_also_renamed_keyframes_is_refused() {
+    // `${easing} linear 1s`: `linear` is the easing if the value is a time,
+    // the name if it is an easing. No rename is right for both (round 10).
+    let dir = Dir::new("computed-easing");
+    dir.write(
+        "ui.contract",
+        "keyframes linear\n  to opacity=0\ncomponent Card\n  state easing = \"ease\"\n  view\n    view animation=`${easing} linear 1s`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes linear\n  to opacity=1\ncomponent App\n  view\n    Card()\n",
+    );
+    let e = contract::compile_path(&root).unwrap_err();
+    assert_eq!(e.id, "contract-animation-ambiguous", "{e}");
+}
+
+#[test]
+fn a_compiler_declared_type_is_no_files_name() {
+    let dir = Dir::new("builtin-type");
+    dir.write(
+        "ui.contract",
+        "fn PointerEvent(x: number): number = x\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\ncomponent App\n  state x = 0\n  action point(e: PointerEvent)\n    x = e.offsetX\n  view\n    column\n      Card()\n      view pointerdown=point width=10 height=10\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(
+        e.as_ref().is_none_or(|e| e.id != "contract-use-missing"),
+        "{e:?}"
+    );
+}
+
+#[test]
+fn a_shape_named_path_does_not_take_the_routers_call() {
+    let dir = Dir::new("shape-path");
+    dir.write(
+        "ui.contract",
+        "shape path\n  n: number\ncomponent Card\n  view\n    text path(\"home\")\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nroutes nav\n  home \"/\"\ncomponent App\n  view\n    column\n      Card()\n      text path(\"home\")\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(
+        e.as_ref().is_none_or(|e| e.id != "type-record-base"),
+        "{e:?}"
+    );
+}
+
+// Round 10 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_computed_part_fills_no_slot_and_the_name_motion_reads_is_renamed() {
+    let dir = Dir::new("computed-slot");
+    dir.write(
+        "ui.contract",
+        "keyframes spin\n  to opacity=0\ncomponent Card\n  state dur = \"1s\"\n  view\n    view animation=`${dur} ease spin`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes spin\n  to opacity=1\ncomponent App\n  view\n    Card()\n",
+    );
+    let text = plan(&root);
+    assert!(text.contains(" ease spin__ui"), "{text}");
+}
+
+#[test]
+fn a_type_is_a_shape_never_a_renamed_fn() {
+    let dir = Dir::new("type-not-fn");
+    dir.write(
+        "ui.contract",
+        "fn PointerEvent(x: number): number = x\ncomponent Card\n  state x = 0\n  action point(e: PointerEvent)\n    x = e.offsetX\n  view\n    view pointerdown=point width=10 height=10\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nfn PointerEvent(x: number): number = x\ncomponent App\n  view\n    Card()\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(e.as_ref().is_none_or(|e| e.id != "type-unknown"), "{e:?}");
+}
+
+#[test]
+fn a_route_pages_source_is_a_data_source_not_a_fn() {
+    let dir = Dir::new("route-pages");
+    dir.write(
+        "ui.contract",
+        "fn ids(x: number): number = x\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nroutes nav\n  home \"/\"\n  item \"/item/:id\" render=build pages=ids()\ncomponent App\n  view\n    Card()\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(
+        e.as_ref().is_none_or(|e| e.id != "contract-use-missing"),
+        "{e:?}"
+    );
+}

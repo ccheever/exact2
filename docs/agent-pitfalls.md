@@ -80,14 +80,15 @@ guide's rules don't make obvious.
   it has not built (84 pt with `estimated-item-height=52`). Fix:
   `scroll-start="end"` on the `list` (LLP 1010 §6.5), not a `scrollTop` write or a
   `scrollIntoView` after the first command. (Signal Clone, build 4.)
-- **The app works hard at rest.** Cause: it commits state on a timer (a clock
-  written every 250 ms), so every tick is a batch and the host runs its whole
-  post-apply pass (navigation, controls, menus, every scroller's position) four
-  times a second; before `32805146` this also cut the reader's scrolling. Fix:
-  write state only when it changes (a minute-resolution clock; poll fast only while
-  something is in flight), and remove `scroll=` handlers left over from
-  experiments: each commits per scroll frame. (Signal Clone, build 2; QUEUE has
-  the host side.)
+- **The app works hard at rest.** Cause: it commits state that shows on a timer
+  (a clock's text written every 250 ms), so every tick changes a view and the host
+  runs its whole post-apply pass (navigation, controls, menus, every scroller's
+  position) four times a second; before `32805146` this also cut the reader's
+  scrolling. A timer's or a scroll handler's commit whose writes show nowhere
+  skips that pass; any other still runs it. Fix: write state
+  only when it changes (a minute-resolution clock; poll fast only while something
+  is in flight), and remove `scroll=` handlers left over from experiments: each
+  runs an action per scroll frame. (Signal Clone, build 2.)
 
 - **A custom row in a grouped list overflows its card on the right.** Cause:
   the sheet already gives each row its margin (16 pt, or 56 pt after an icon)
@@ -237,28 +238,17 @@ guide's rules don't make obvious.
   `apps/messages/app.contract`'s inbox row (`thread-swipe-…`). (Ledger2 DIARY, "Needed:
   swipe gesture", about 15 minutes, 2026-10-04.)
 
-- **A write left running after a source answers can be lost on iOS or macOS.** The
-  web kept it; the native host did not, and a list was empty after a relaunch. Cause:
-  the native data executor runs a source's promises while a request waits on them,
-  one request at a time, so a `promise` started and not awaited (a fire-and-forget
-  SQLite write) can stay unfinished, and an answer queues behind a request still in
-  flight. Fix: await the write before answering, or carry it in a
-  request of its own that the view sends (a `flush` source called with the change).
-  (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
-
-- **Two quick sends to one mutation lost the first write on iOS.** Two adds in a
-  row (`send changed = addTask(…)` from consecutive inputs) kept only the second:
-  the log said `forget request 11 (changed)`, and the first insert, queued behind
-  a storage turn still open, never landed; the web finished it. Cause: a second `send` to a mutation
-  forgets the request in flight (its reply is dropped by design); the native
-  executor finishes a forgotten request already in a storage step, but drops one
-  that has not reached its first (QUEUE). Fix until then: give each write that can
-  be in flight at once a mutation of its own, or keep the edits in Contract state and
-  send the whole of it each time, from the value assigned (`let next = …`, then
-  `tasks = next` and `send saved = saveTasks(next)`: a statement reads the state the
-  action started with), so a later request that supersedes an earlier one already
-  carries every change. (Authoring
-  bench, LLP 1087, t2-todo on iOS, 2026-10-05.)
+- **A mutation that answers at once leaves an async `refreshes` resource stale.** After
+  `send added = addItem()` with `refreshes items`, the list kept its old answer and
+  nothing was logged, on the web and on iOS. Cause: the refresh at the send only
+  re-reads, which drops a request, and the forced refresh comes when the mutation's
+  reply lands; a source that answers synchronously never lands a reply later (QUEUE).
+  A resource whose re-read answers synchronously is not affected. Fix until then:
+  have the refreshed resource answer its updated value synchronously once loaded
+  (works on every host). Making the mutation's source `async` is enough on the web,
+  but natively a promise already resolved when the call returns still answers at
+  once: there it must still wait on a storage or fetch step. (Authoring bench,
+  LLP 1087, t2-todo on web and iOS: about 40 minutes, 2026-10-05.)
 
 ## Driving and testing
 
@@ -266,9 +256,27 @@ guide's rules don't make obvious.
   `verify.mjs` beside `app.contract` made the driver refuse the next drive until
   `bun exact.mjs web-build`. Cause: a file in the app folder counts as a build input
   unless it is an output (a screenshot, a log) or git-ignored outside the input trees
-  (`data/`, `web/`, `assets/` and the like count even when ignored). Fix: keep drive
-  scripts outside the app folder. (Authoring
-  bench, LLP 1087: five builders, 2026-10-05.)
+  (`data/`, `web/`, `assets/` and the like count even when ignored); any `.json`
+  counts, since the bake captures it. Fix: keep drive scripts, evidence, logs and
+  runtime files in the app's `.exact/` (no build, dev-loop watcher or freshness
+  check reads a dot directory at the app's root), or outside the app folder.
+  (Authoring bench, LLP 1087: five builders, 2026-10-05; Depot's evidence JSON,
+  2026-10-05.)
+
+- **A latency test passes at once, or a reply never lands.** Cause: every drive
+  holds the app's clock, in every browser and on every host: `clock +N` moves the
+  app's time and nothing else, while a `fetch`, a storage call or a stream's next
+  message arrives on real time. Fix: `clock settle` to land what is in flight;
+  `clock +N real` to let N ms of wall time pass with the clock moving alongside
+  (polling, a server push, a measured latency). `state` lists what is pending.
+  (Depot on three backends, 2026-10-05.)
+
+- **A date input reads `10/05/2026` beside a label the app wrote in UTC.** Cause:
+  `input type="date"`/`"time"` show the browser's own locale format and mean a
+  local wall time, as on the web; the app's label used another zone. Fix: label in
+  the viewer's zone, or pass `--locale` and `--time-zone` on a drive (`locale` and
+  `time-zone` lines in a test file) so both agree and the run stays reproducible.
+  (Depot, 2026-10-05.)
 
 - **An iOS screenshot right after a tap shows a segmented control on its old
   segment.** The tree says the new one is selected. Cause: UIKit animates the

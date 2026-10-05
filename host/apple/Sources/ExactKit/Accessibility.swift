@@ -70,17 +70,19 @@ extension NodeView {
     }
     /// The ARIA states AppKit has no property for, under the attribute
     /// names browsers serve them by: WebKit's `AXInvalid` (onboarding F22),
-    /// Chromium's `AXHasPopup` and `AXPopupValue` (spreadsheet F20). A
+    /// Chromium's `AXHasPopup` and `AXPopupValue` (spreadsheet F20), WebKit's
+    /// `AXARIACurrent` (Depot: a navigation link's `aria-current`). A
     /// `false` (or absent) state serves none.
     func ariaAttribute(_ name: String) -> Any? {
         switch name {
         case "AXInvalid": return props["accessibilityInvalid"].flatMap { ["", "false"].contains($0) ? nil : $0 }
         case "AXHasPopup": return props["accessibilityHasPopup"].flatMap { ["", "false"].contains($0) ? nil : true }
         case "AXPopupValue": return props["accessibilityHasPopup"].flatMap { ["", "false"].contains($0) ? nil : $0 == "true" ? "menu" : $0 }
+        case "AXARIACurrent": return props["accessibilityCurrent"].flatMap { ["", "false"].contains($0) ? nil : $0 }
         default: return nil
         }
     }
-    static let ariaAttributes = ["AXInvalid", "AXHasPopup", "AXPopupValue"]
+    static let ariaAttributes = ["AXInvalid", "AXHasPopup", "AXPopupValue", "AXARIACurrent"]
     var accessibilityVisible: Bool {
         guard paragraphOwner.window != nil, !inert else { return false }
         #if os(macOS)
@@ -113,7 +115,7 @@ extension NodeView {
         // An `input`'s `aria-label` names its field, as a text area's names it.
         if let field, field.accessibilityLabel() != authoredLabel { field.setAccessibilityLabel(authoredLabel) }
         #else
-        // UIKit has no property for `aria-required`, `aria-invalid` or `aria-haspopup`.
+        // UIKit has no property for `aria-required`, `aria-invalid`, `aria-haspopup` or `aria-current`.
         let target: UIView = field ?? presenter?.controls.controls[id] ?? textArea as UIView? ?? self
         if target.accessibilityHint != description { target.accessibilityHint = description }
         #endif

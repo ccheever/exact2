@@ -551,75 +551,20 @@ fn origin(root: &Path, mounts: &[(String, PathBuf)], name: &Path) -> PathBuf {
     }
 }
 
-/// The Contract packages the app's sources use (LLP 1091 D10), by each name
-/// they were reached by: the stage links `node_modules/<name>` to each, so
-/// the staged compile reads the very files the original did, by the paths
-/// it did — an export that is a link, a relative use, one directory under
-/// two names all resolve as they did outside.
-fn packages(app: &Path) -> Result<Vec<(String, PathBuf)>, String> {
-    let mut out: Vec<(String, PathBuf)> = Vec::new();
-    for package in contract::source_graph(&app.join("app.contract")).packages {
-        match out.iter().find(|(name, _)| *name == package.name) {
-            Some((_, root)) if *root != package.root => {
-                return Err(format!(
-                "two copies of the package `{}` ({} and {}) are used; the bake links one per name",
-                package.name,
-                root.display(),
-                package.root.display()
-            ))
-            }
-            Some(_) => {}
-            None => out.push((package.name, package.root)),
-        }
-    }
-    Ok(out)
-}
-
-/// Link each package into the stage's `node_modules`, replacing what the
-/// last bake linked (the stage holds no other `node_modules`: the capture
-/// skips it). A package the capture copied — a directory of the app outside
-/// its `node_modules`, a workspace beside it — is linked to that staged copy,
-/// the one the stage's relative uses reach, so both ways to it are one file.
-fn link_packages(stage: &Path, app: &Path, packages: &[(String, PathBuf)]) -> Result<(), String> {
-    let modules = stage.join("node_modules");
-    match std::fs::remove_dir_all(&modules) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-            return Err(format!("{}: {e}", modules.display()))
-        }
-        _ => {}
-    }
-    for (name, root) in packages {
-        let target = match root.strip_prefix(app) {
-            Ok(inside) if !inside.components().any(|c| c.as_os_str() == "node_modules") => {
-                stage.join(inside)
-            }
-            _ => root.clone(),
-        };
-        let link = modules.join(name);
-        std::fs::create_dir_all(link.parent().unwrap()).map_err(|e| e.to_string())?;
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&target, &link)
-            .map_err(|e| format!("{}: {e}", link.display()))?;
-        // A junction needs no privilege where a symbolic link does. A copy
-        // would make one declaration two, so there is none.
-        #[cfg(windows)]
-        if std::os::windows::fs::symlink_dir(&target, &link).is_err() {
-            let junction = std::process::Command::new("cmd")
-                .args(["/C", "mklink", "/J"])
-                .arg(&link)
-                .arg(&target)
-                .output()
-                .map_err(|e| e.to_string())?;
-            if !junction.status.success() {
-                return Err(format!(
-                    "cannot link the package `{name}` into the stage ({}): {}",
-                    link.display(),
-                    String::from_utf8_lossy(&junction.stderr).trim()
-                ));
-            }
-        }
-    }
-    Ok(())
+/// Every Contract source compiling the app reads, and every `package.json`
+/// its resolution read, by path, with their bytes (LLP 1091 D10): read
+/// before the compile and after, so a plan is built from one state of the
+/// app's packages as of the app's own files, or the bake is refused.
+fn contract_inputs(app: &Path) -> Result<BTreeMap<PathBuf, Option<Vec<u8>>>, String> {
+    let graph = contract::source_graph(&app.join("app.contract"));
+    Ok(graph
+        .sources
+        .iter()
+        .map(|source| &source.path)
+        .filter(|path| path.is_absolute())
+        .chain(&graph.consulted)
+        .map(|path| (path.clone(), std::fs::read(path).ok()))
+        .collect())
 }
 
 /// Capture the app-local source graph, and the directories the manifest
@@ -645,6 +590,10 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             }
             if matches!(&*name, ".git" | "node_modules" | "target" | "dist")
                 || name.starts_with(".exact-js-bake-")
+                // The app's dot directories hold what no build reads: `.exact/`
+                // keeps an agent's diary, evidence, logs and runtime files
+                // (Depot: a `results.json` beside the app made every build stale).
+                || (at == root && name.starts_with('.') && entry.path().is_dir())
                 // The driver reads a test file; no build does, so editing
                 // one rebuilds nothing (trivia F8).
                 || name.ends_with(".test.contract")
@@ -802,7 +751,7 @@ fn bake_in(
     tools.check_engine()?;
     let app = app.canonicalize().map_err(|e| e.to_string())?;
     let captured = sources(&app)?;
-    let package_roots = packages(&app)?;
+    let inputs = contract_inputs(&app)?;
     if !captured.contains_key(Path::new("app.ts"))
         || !captured.contains_key(Path::new("app.contract"))
     {
@@ -843,36 +792,26 @@ fn bake_in(
         }
     }
     *previous = captured.clone();
-    link_packages(stage, &app, &package_roots)?;
-    // A changed graph (including a newly added import) is a refused capture.
-    if sources(&app)? != captured || packages(&app)? != package_roots {
-        return Err("app sources changed during capture; retry the build".into());
-    }
-    // A package's sources are read where they live; the app's, in the stage.
-    let staged_copy = |root: &PathBuf| {
-        root.strip_prefix(&app)
-            .is_ok_and(|inside| !inside.components().any(|c| c.as_os_str() == "node_modules"))
-    };
-    let moves: Vec<(PathBuf, PathBuf)> = package_roots
-        .iter()
-        .filter(|(_, root)| !staged_copy(root))
-        .map(|(_, root)| (root.clone(), root.clone()))
-        .chain([(stage.to_path_buf(), app.clone())])
-        .collect();
+    // The Contract is compiled where it lives, as the web build compiles it
+    // (LLP 1091 D10): its uses, packages and links resolve as they do for
+    // every other reader, with no staged copy to tell apart from the
+    // original. The capture is checked again after, so the plan is built
+    // from the bytes captured, or the bake is refused.
     // Every independent refusal, one after another as `contract build`
     // prints them, in the bake's output and the dev overlay.
     let development = matches!(mode, BakeMode::Development { .. });
-    let (plan, mut source_map) =
-        contract::compile_path_all(&stage.join("app.contract"), development).map_err(|errors| {
-            errors
-                .into_iter()
-                .map(|e| contract_error(e, &moves))
-                .collect::<Vec<_>>()
-                .join("\n")
-        })?;
-    if let Some(map) = source_map.as_mut() {
-        map.relocate_sources_through(&moves)?;
+    let compiled = contract::compile_path_all(&app.join("app.contract"), development);
+    // A changed graph (including a newly added import) is a refused capture.
+    if sources(&app)? != captured || contract_inputs(&app)? != inputs {
+        return Err("app sources changed during capture; retry the build".into());
     }
+    let (plan, source_map) = compiled.map_err(|errors| {
+        errors
+            .into_iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    })?;
     let mut declarations = contract::typescript(&plan)?;
     // Canvas 2D (LLP 1056 D1): a module that exports `draw` and `surfaces`
     // speaks ABI 2, and only it carries the recorder.
@@ -1015,37 +954,6 @@ fn exports(source: &str, name: &str) -> bool {
         list.split(|c: char| c == ',' || c == '{' || c.is_whitespace())
             .any(|w| w == name)
     })
-}
-
-fn contract_error(mut error: contract::CompileError, moves: &[(PathBuf, PathBuf)]) -> String {
-    // The staged path an app reads as its own, or its package's: the error's
-    // file and each related one.
-    let moves: Vec<_> = moves
-        .iter()
-        .map(|(staged, original)| {
-            let canonical = staged.canonicalize().unwrap_or_else(|_| staged.clone());
-            (staged, canonical, original)
-        })
-        .collect();
-    let own = |path: &Path| {
-        moves.iter().find_map(|(staged, canonical, original)| {
-            path.strip_prefix(staged)
-                .or_else(|_| path.strip_prefix(canonical))
-                .ok()
-                .map(|relative| original.join(relative))
-        })
-    };
-    if let Some(path) = error.file.as_mut() {
-        if let Some(mapped) = own(path) {
-            *path = mapped.into_boxed_path();
-        }
-    }
-    for path in error.related.iter_mut().filter_map(|r| r.file.as_mut()) {
-        if let Some(mapped) = own(path) {
-            *path = mapped;
-        }
-    }
-    error.to_string()
 }
 
 /// With async break checks in every loop and function, so a host can

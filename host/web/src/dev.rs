@@ -44,9 +44,23 @@ pub struct Session {
     source_map: bool,
 }
 
+/// A used file as it reads: its time and a fingerprint of its bytes, so a
+/// link retargeted at a twin, a copy that kept its times, or a junction
+/// moved on any platform is a change. Used files are small Contract sources
+/// and manifests.
 fn stamp_of(path: &Path) -> Option<(SystemTime, u64)> {
+    use std::hash::{Hash, Hasher};
     let meta = std::fs::metadata(path).ok()?;
-    Some((meta.modified().ok()?, meta.len()))
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    std::fs::read(path).ok()?.hash(&mut hasher);
+    // And, where the platform has one, which file it is: a link retargeted
+    // at a byte-identical twin whose relative uses differ.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        (meta.dev(), meta.ino()).hash(&mut hasher);
+    }
+    Some((meta.modified().ok()?, hasher.finish()))
 }
 
 /// The files compiling `root` reads besides itself: used files, packages'

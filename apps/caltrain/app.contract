@@ -115,7 +115,8 @@ component Caltrain
   action focusDeparture(id)
     focus = some(id)
   derive skyOn = match sky { case some(c) => true, case none => false }
-  derive canvasColor = match sky { case some(c) => c, case none => "#ffffff" }
+  // With the sky off, a light grey page: the white cards keep their edges.
+  derive canvasColor = match sky { case some(c) => c, case none => "#edf0f4" }
   action hoverStation(id, over)
     hoverId = id
     hoverOn = over
@@ -235,7 +236,7 @@ component Content
     // One column on a phone; on a TV, two halves: the station and its map
     // on the left, the departures (or the station list) on the right.
     view display="flex" flex-direction=(tv ? "row" : "column") gap=(tv ? 0 : 16) padding=(tv ? 0 : 20) max-width=(tv ? 4000 : 640) align-self="center" width="100%" height=(tv ? "100%" : "auto") box-sizing="border-box"
-      column gap=16 width=(tv ? "50%" : "100%") padding=(tv ? 20 : 0) box-sizing="border-box" testId="column-station"
+      column gap=16 width=(tv ? "50%" : "100%") padding=(tv ? 20 : 0) box-sizing="border-box" focusGuide="auto" testId="column-station"
         // An update is staged (LLP 1030 D7): say so, and let the person take it
         // now — with carry, the selected station survives — or at the next launch.
         when delivery.staged
@@ -252,37 +253,44 @@ component Content
               text `${distanceText(station.distance)} · ${walkText(station.distance)}` font-size="0.75em" color="#666666"
             column gap=6 align-items="flex-end"
               // The development host's Reload, as its dev menu has it. Only a
-              // TV shows it: a Siri Remote has no gesture for the dev menu.
-              when tv
-                button press=reloadApp aria-label="Reload" testId="reload" padding=8 border-radius=8 background-color="#eeeeee"
-                  text "Reload" font-size="0.75em" font-weight=600
-              button press=openStations aria-label="Change station" testId="change-station" padding=8 border-radius=8 background-color="#eeeeee"
-                text "Change station" font-size="0.8125em" font-weight=600
-              button press=openDeck aria-label="Open web deck" testId="open-deck" padding=8 border-radius=8 background-color="#eeeeee"
-                text "Web deck" font-size="0.75em" font-weight=600
-              row gap=6
+              // The large buttons, the full width of the column: a remote's Up
+              // from a small button below lands here even when none is above it.
+              column gap=6 align-items="flex-end" width="100%" focusGuide="auto"
+                // TV shows it: a Siri Remote has no gesture for the dev menu.
+                when tv
+                  button press=reloadApp aria-label="Reload" testId="reload" padding=8 border-radius=8 background-color="#eeeeee"
+                    text "Reload" font-size="0.75em" font-weight=600
+                button press=openStations aria-label="Change station" testId="change-station" padding=8 border-radius=8 background-color="#eeeeee"
+                  text "Change station" font-size="0.8125em" font-weight=600
+                button press=openDeck aria-label="Open web deck" testId="open-deck" padding=8 border-radius=8 background-color="#eeeeee"
+                  text "Web deck" font-size="0.75em" font-weight=600
+              // The small buttons get room for a focus ring (a TV remote, Tab, VoiceOver);
+              // a TV draws its ring outside the button, so its rows are wider apart.
+              row gap=(tv ? 12 : 6)
                 // A TV has no light and dark scheme for the app to choose.
                 when not tv
                   button press=setScheme("light") aria-label="Light" testId="scheme-light"
                     text "Light" font-size="0.75em"
                   button press=setScheme("dark") aria-label="Dark" testId="scheme-dark"
                     text "Dark" font-size="0.75em"
-                button press=toggleSky aria-label="Toggle the sky" testId="sky-toggle"
+                button press=toggleSky aria-label="Toggle the sky" testId="sky-toggle" padding=8 border-radius=8
                   when sky
                     text "Sky off" font-size="0.75em"
                   else
                     text "Sky on" font-size="0.75em"
-              row gap=6
-                button press=setMaterial("glass") aria-label="Glass" testId="material-glass"
+              row gap=(tv ? 12 : 6)
+                button press=setMaterial("glass") aria-label="Glass" testId="material-glass" padding=8 border-radius=8
                   text "Glass" font-size="0.75em" font-weight=600
-                button press=setMaterial("ink") aria-label="Ink" testId="material-ink"
+                button press=setMaterial("ink") aria-label="Ink" testId="material-ink" padding=8 border-radius=8
                   text "Ink" font-size="0.75em" font-weight=600
-                button press=setMaterial("crt") aria-label="CRT" testId="material-crt"
+                button press=setMaterial("crt") aria-label="CRT" testId="material-crt" padding=8 border-radius=8
                   text "CRT" font-size="0.75em" font-weight=600
-                button press=toggleDeck aria-label="Deck" testId="deck-toggle"
+                button press=toggleDeck aria-label="Deck" testId="deck-toggle" padding=8 border-radius=8
                   text "Deck" font-size="0.75em" font-weight=600 color=accent
         when screen == "home"
-          column padding=20 gap=4 height=220 box-sizing="border-box" justify-content="flex-end" testId="aurora"
+          // A fixed band of sky on a TV, where the left column has room; on a
+          // phone it fits its text, so the departures stay on screen.
+          column padding=20 gap=4 height=(tv ? 220 : "auto") box-sizing="border-box" justify-content="flex-end" testId="aurora"
             when material == "glass"
               text "Next stop" font-size="0.75em" font-weight=700 letter-spacing=1.2 color=(sky ? "#9ad8ff" : "#2a6f9e")
               text station.name font-size="2.125em" font-weight=800 color=(sky ? "#ffffff" : "#111111") testId="aurora-title"
@@ -341,13 +349,15 @@ component Content
 
 // The departures' half: on a TV its own scroll, the full height, so the
 // station on the left stays put while the remote moves down the board.
+// Its focus guide brings a Right from the left column back to the row the
+// remote last left.
 component Pane
   props
     tv: bool
   slot
   view
     when tv
-      scroll width="50%" height="100%" testId="column-board"
+      scroll width="50%" height="100%" focusGuide="auto" testId="column-board"
         column gap=16 padding=20 box-sizing="border-box"
           children
     else

@@ -42,6 +42,9 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
 /// instances that differ only in size (a waveform's bars) come out equal.
 /// `width` and `height` still cross for a `video` (`keep_size`): its view
 /// asks whether its box waits on its metadata (`HeavyLeaves.created`).
+/// `box_sizing` crosses: a projected segmented control fills its tablist's
+/// content box, and a border-box minimum must also hold the padding and
+/// border around it (LLP 1059 D2a).
 fn presenter_ignores(name: &str) -> bool {
     matches!(
         name,
@@ -68,7 +71,6 @@ fn presenter_ignores(name: &str) -> bool {
             | "left"
             | "row_gap"
             | "column_gap"
-            | "box_sizing"
             | "grid_auto_flow"
             | "grid_template_columns"
             | "grid_template_rows"

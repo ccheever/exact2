@@ -234,9 +234,9 @@ struct Gradient {
     }
 
     /// A gradient layer covering `bounds`, placed in `box` (same space).
-    func apply(_ layer: CAGradientLayer, bounds: CGRect, box: CGRect, dark: Bool, limit: String? = nil) {
+    func apply(_ layer: CAGradientLayer, bounds: CGRect, box: CGRect, dark: Bool, limit: String? = nil, stops made: ([CGFloat], [CGColor])? = nil) {
         let place = placement(in: box)
-        var (locations, colors) = stops(dark: dark, dense: true)
+        var (locations, colors) = made ?? stops(dark: dark, dense: true)
         let unit = { (p: CGPoint) in
             CGPoint(x: bounds.width > 0 ? (p.x - bounds.minX) / bounds.width : 0, y: bounds.height > 0 ? (p.y - bounds.minY) / bounds.height : 0)
         }

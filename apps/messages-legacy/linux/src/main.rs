@@ -98,8 +98,8 @@ impl DataSource for Messages {
     fn native(&self) -> Option<exact_runner::Native> {
         self.0.native()
     }
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
-        self.0.forgotten(in_flight);
+    fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
+        self.0.forgotten(store, in_flight);
     }
 }
 type ExactEmbeddedData = Messages;

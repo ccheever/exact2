@@ -326,12 +326,15 @@ fn changing_day_during_initial_load_replaces_the_retired_read() {
     let Answer::Later(request) = &next else {
         panic!("new arguments must restart the retired read")
     };
-    app.data.forgotten(&[InFlight {
-        target: Target::Mutation(0),
-        source: "loadCalendar",
-        args: &args,
-        continuation: request.continuation,
-    }]);
+    app.data.forgotten(
+        &app.store,
+        &[InFlight {
+            target: Target::Mutation(0),
+            source: "loadCalendar",
+            args: &args,
+            continuation: request.continuation,
+        }],
+    );
     assert!(matches!(
         app.data.dispatch(old.continuation.unwrap(), &app.store),
         Dispatch::Missing

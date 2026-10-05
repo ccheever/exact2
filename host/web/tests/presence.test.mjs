@@ -88,6 +88,7 @@ beforeAll(async () => {
   server = createServer((req, res) => {
     if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
     res.writeHead(200, { 'content-type': req.url === '/' ? 'text/html' : 'text/javascript' });
+    if (req.url === '/js/names.js') { res.end('export const sourceTypes = {};'); return; }
     const path = req.url.startsWith('/js/') ? req.url.slice(4) : req.url.slice(1);
     const js = resolve(WEB, '../web-js', path);
     res.end(req.url === '/' ? page : readFileSync(req.url.startsWith('/js/') && existsSync(js) ? js : resolve(WEB, path)));

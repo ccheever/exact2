@@ -1385,12 +1385,24 @@
     },
     {
       "id": 240,
+      "name": "accessibilityCurrent",
+      "kind": "str",
+      "_comment": "ARIA `aria-current` (Depot feedback, 2026-10-05): `page`, `step`, `location`, `date`, `time`, `true` or `false`, the current item of a set (a navigation link, a wizard's step); a bool expression is written as `true`/`false`. AppKit serves WebKit's `AXARIACurrent`; UIKit has no such property, so iOS exposes none."
+    },
+    {
+      "id": 241,
+      "name": "focusGuide",
+      "kind": "str",
+      "_comment": "`focusGuide=\"auto\"` on a container: on tvOS a focus guide over its box sends a remote move that enters it from outside to the descendant that last held the focus, else its first focusable one (react-native-tvos TVFocusGuideView `autoFocus`). Other hosts ignore it; their Tab order is sequential."
+    },
+    {
+      "id": 242,
       "name": "colorSpace",
       "kind": "str",
       "_comment": "LLP 1100 D12a: getContext's `colorSpace`, `srgb` (default) or `display-p3`."
     },
     {
-      "id": 241,
+      "id": 243,
       "name": "colorType",
       "kind": "str",
       "_comment": "LLP 1100 D12a: getContext's `colorType`, `unorm8` (default) or `float16`."

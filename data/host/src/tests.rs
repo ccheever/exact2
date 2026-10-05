@@ -599,7 +599,11 @@ impl DataSource for Continuing {
     fn dispatch(&mut self, _: u64, _: &Store) -> exact_runner::Dispatch {
         exact_runner::Dispatch::Host(7)
     }
-    fn forgotten(&mut self, in_flight: &[exact_runner::InFlight<'_>]) {
+    fn forgotten(
+        &mut self,
+        _store: &exact_runner::Store,
+        in_flight: &[exact_runner::InFlight<'_>],
+    ) {
         self.heard
             .borrow_mut()
             .extend(in_flight.iter().map(|f| f.continuation));
@@ -628,7 +632,7 @@ fn forgotten_hands_a_child_its_own_tokens_and_lets_go_of_the_rest() {
         continuation: Some(continuation),
     };
     // The second replaced the first: the child hears its own token back.
-    host.forgotten(&[in_flight(second)]);
+    host.forgotten(&store, &[in_flight(second)]);
     assert_eq!(heard.borrow().as_slice(), [Some(7)]);
     assert!(matches!(
         host.dispatch(first, &store),
@@ -639,7 +643,7 @@ fn forgotten_hands_a_child_its_own_tokens_and_lets_go_of_the_rest() {
         host.dispatch(second, &store),
         exact_runner::Dispatch::Host(7)
     ));
-    host.forgotten(&[in_flight(second)]);
+    host.forgotten(&store, &[in_flight(second)]);
     assert_eq!(heard.borrow().as_slice(), [Some(7), None]);
 }
 

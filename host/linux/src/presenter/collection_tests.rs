@@ -720,7 +720,7 @@ fn height_projection_refines_real_25k_port_through_hold_ticks_resize_and_typing(
     target = 420
   view
     box width="100%" height="100%"
-      input value=draft change=edit testId="input"
+      input value=draft input=edit testId="input"
       button press=grow testId="grow"
         text "grow"
       column position="absolute" bottom=0 width="100%" height=target max-height="100%" padding=8 border-width=2 border-style="solid" box-sizing="border-box" transition="height spring(300,30,1)" testId="panel"

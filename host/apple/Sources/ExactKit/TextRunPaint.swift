@@ -131,6 +131,7 @@ final class TextRunShadow: NSObject {
 }
 
 extension NSAttributedString.Key {
+    static let exactHidden = NSAttributedString.Key("ExactRunHidden")
     static let exactShadow = NSAttributedString.Key("ExactRunShadow")
 }
 
@@ -142,7 +143,8 @@ extension TextLinePaint {
     static func drawShadowed(_ line: CTLine, in ctx: CGContext, scale: CGFloat) -> Bool {
         let runs = CTLineGetGlyphRuns(line) as! [CTRun]
         let shadows = runs.map(TextRunShadow.of)
-        guard shadows.contains(where: { $0 != nil }) else { return false }
+        func hidden(_ run: CTRun) -> Bool { (CTRunGetAttributes(run) as NSDictionary)[NSAttributedString.Key.exactHidden] as? Bool == true }
+        guard shadows.contains(where: { $0 != nil }) || runs.contains(where: hidden) else { return false }
         var i = 0
         while i < runs.count {
             var j = i + 1
@@ -152,7 +154,7 @@ extension TextLinePaint {
                 s.set(on: ctx, scale: scale)
                 ctx.beginTransparencyLayer(auxiliaryInfo: nil)
             }
-            for k in i..<j {
+            for k in i..<j where !hidden(runs[k]) {
                 ctx.textPosition = .zero
                 CTRunDraw(runs[k], ctx, CFRange())
             }

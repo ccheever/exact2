@@ -860,16 +860,11 @@
       result.then(function (v) { call.status = "done"; call.value = v; }, function (e) { call.status = "failed"; call.error = e; });
       return JSON.stringify({ tag: 3, call: call.id });
     }
-    currentCall = null;
-    // A value given at once while a write it started is still in flight
-    // waits for the write, as a promised one does (`settle`).
-    if (owes(call)) {
-      calls.set(call.id, call);
-      call.status = "done"; call.value = result;
-      return JSON.stringify({ tag: 3, call: call.id });
-    }
-    call.replied = true;
-    return ok(result);
+    // Even a synchronous answer can queue storage in a microtask. Drain
+    // that turn before replying, with its owner still installed.
+    calls.set(call.id, call);
+    call.status = "done"; call.value = result;
+    return JSON.stringify({ tag: 3, call: call.id });
   };
   // Canvas 2D (LLP 1056 D1): the module's draw seam, when it exports `draw`.
   // Text is measured and image handles are answered where the draw runs

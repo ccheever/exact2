@@ -651,7 +651,7 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
     /// end it. The running turn is judged by key and by the calls recorded
     /// here, never by its own token, which a forwarder above can't translate
     /// once dispatched. Each child hears what is in flight in its own tokens.
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
+    fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
         let tokens: HashSet<u64> = in_flight.iter().filter_map(|f| f.continuation).collect();
         self.recorded.retain(|token, _| tokens.contains(token));
         self.continuations.retain(|token, _| tokens.contains(token));
@@ -716,11 +716,15 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
                     Some(InFlight { continuation, ..*f })
                 })
                 .collect();
-            if rust {
-                self.rust.forgotten(&view);
-            } else {
-                self.javascript.forgotten(&view);
-            }
+            let grants = self.child_grants(rust);
+            let mut local = store.clone();
+            local.with_grants(&grants, |scoped| {
+                if rust {
+                    self.rust.forgotten(scoped, &view);
+                } else {
+                    self.javascript.forgotten(scoped, &view);
+                }
+            });
         }
     }
 

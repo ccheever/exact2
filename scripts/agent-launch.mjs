@@ -2,10 +2,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
+import { filesystemLock } from './filesystem.mjs';
 import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -185,7 +186,9 @@ const listed = changed => changed.slice(0, 3).join(', ') + (changed.length > 3 ?
 
 /** Throws when `changed` names anything: what, since which build, and the command that rebuilds it. */
 export function refuseStale(what, built, changed, command) {
-  if (changed.length) throw staleError(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}`);
+  // A file no build reads belongs in the app's `.exact/` (Depot: evidence JSON beside the app refused every drive).
+  const hint = changed.some(p => /\.json$/.test(p) && !/(^|\/)(app|package|tsconfig)\.json$/.test(p)) ? '; a file no build reads (evidence, logs, runtime state) belongs in the app\'s `.exact/`, which no build, watcher or freshness check reads' : '';
+  if (changed.length) throw staleError(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}${hint}`);
 }
 
 /** A refusal that a rebuild answers: the driver exits 3 for it, so an app's
@@ -310,7 +313,7 @@ export function gitIgnored(dir, keep = []) {
 // deck, a game's art and logic, a native module's scripts, the host crates,
 // fonts and strings). A build reads more than the bake captures, so the rule
 // names the outputs and leaves everything else an input.
-const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world)$/i;
+export const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world)$/i;
 export const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|ios|macos|linux)(\/|$)/;
 /** A skip for an app's own files that no build reads. A file a build can
  * read always counts, ignored by Git or not: what the bake captures, anything
@@ -510,4 +513,32 @@ export class Cdp {
       }
     });
   }
+}
+
+/** The simulator has one running process per bundle id, across every checkout.
+ * Hold an OS lock through launch and close; a crashed driver releases it through
+ * the helper's stdin. Permanent lock files avoid unlink/reacquire races. */
+export async function exclusiveIOS(udid, bundle, launch, { directory = resolve(tmpdir(), 'exact-ios-drives'), timeout = 60000 } = {}) {
+  const path = createHash('sha256').update(JSON.stringify([udid, bundle])).digest('hex') + '/.lock';
+  const started = Date.now();
+  let release, holding;
+  for (;;) {
+    let acquired;
+    const ready = new Promise(resolve => { acquired = resolve; });
+    const done = new Promise(resolve => { release = resolve; });
+    holding = filesystemLock(directory, path, async () => { acquired(); await done; });
+    try { await Promise.race([ready, holding]); break; }
+    catch (error) {
+      if (!error.message.includes('stream is locked by another publisher')) throw error;
+      if (Date.now() - started >= timeout) throw new Error(`iOS drive busy for ${bundle} on ${udid}: another drive still owns this simulator app after ${timeout / 1000}s`);
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+  const unlock = async () => { release(); await holding; };
+  try {
+    const carrier = await launch(), close = carrier.close.bind(carrier);
+    let closed;
+    carrier.close = () => closed ??= (async () => { try { await close(); } finally { await unlock(); } })();
+    return carrier;
+  } catch (error) { await unlock(); throw error; }
 }

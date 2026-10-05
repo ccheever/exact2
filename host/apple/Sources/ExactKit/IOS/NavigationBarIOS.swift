@@ -161,7 +161,12 @@ struct BadgeFace: Equatable {
         light = colours(false); dark = colours(true)
         corners = box.cornerSizes(in: CGRect(x: 0, y: 0, width: size, height: size))
     }
-    var source: String { "\(text)|\(symbol ?? "")|\(light)|\(dark)|\(corners)|\(size)" }
+    // Joined by hand: interpolating an array goes through reflection, and
+    // every batch builds each route's source.
+    var source: String {
+        let rgba = { (c: [[Double]]) in c.map { $0.map { String($0) }.joined(separator: ",") }.joined(separator: ";") }
+        return "\(text)|\(symbol ?? "")|\(rgba(light))|\(rgba(dark))|\(corners.map { "\($0.width)x\($0.height)" }.joined(separator: ","))|\(size)"
+    }
 
     var image: UIImage {
         let light = draw(self.light).withRenderingMode(.alwaysOriginal)
@@ -202,6 +207,10 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
     }
 
     func navigationController(_ nav: UINavigationController, didShow controller: UIViewController, animated: Bool) {
+        // Restoring a hidden bar changes the route's safe area. Lay out its
+        // container before reporting that cover to the kernel.
+        nav.view.setNeedsLayout()
+        nav.view.layoutIfNeeded()
         host?.navigationController(nav, didShow: controller, animated: animated)
         app?.navigationController?(nav, didShow: controller, animated: animated)
     }
@@ -252,11 +261,29 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
 /// controller rather than in it.
 final class TitleSegments: NSObject {
     let control = UISegmentedControl()
+    /// What it was last sized for: its titles and the traits that size text.
+    private(set) var sized: (titles: [String], traits: [AnyHashable])?
     let press: SegmentPress
     init(host: NavigationHost) {
         press = SegmentPress(host: host)
         super.init()
         control.addTarget(press, action: #selector(SegmentPress.changed(_:)), for: .valueChanged)
+        // Sized again when text size or weight changes, no batch needed.
+        MainActor.assumeIsolated {
+            control.registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self]) { [weak self] (_: UISegmentedControl, _: UITraitCollection) in
+                if let titles = self?.sized?.titles { self?.fit(titles) }
+            }
+        }
+    }
+    /// Sized for `titles` unless it already is: sizing lays it out, and
+    /// every batch projects every tab's routes.
+    func fit(_ titles: [String]) {
+        let t = control.traitCollection
+        let traits: [AnyHashable] = [t.preferredContentSizeCategory, t.legibilityWeight.rawValue]
+        guard sized?.titles != titles || sized?.traits != traits else { return }
+        sized = (titles, traits)
+        control.sizeToFit()
+        control.frame.size.width = max(control.frame.width, CGFloat(titles.count) * 90)
     }
 }
 private var titleSegmentsKey: UInt8 = 0
@@ -373,7 +400,7 @@ extension NavigationHost {
             let canGoBack = index > 0 && canInvokeBack
             let scroll = contentScroll(of: c)
             let dataset = c.node.props["dataset"]
-            let source = "\(shape.map { "\($0.header.id)|\($0.title)|\($0.level)|\($0.leading.map(\.source))|\($0.trailing.map(\.source))|\($0.group?.source ?? "")" } ?? "-")|\(canGoBack)"
+            let source = "\(shape.map { "\($0.header.id)|\($0.title)|\($0.level)|\($0.leading.map(\.source).joined(separator: "\u{1F}"))|\($0.trailing.map(\.source).joined(separator: "\u{1F}"))|\($0.group?.source ?? "")" } ?? "-")|\(canGoBack)"
             // The hook runs again after anything Exact wrote to the item (the
             // Back control the route above gives it, too) and when the route
             // moves to another stack (a root whose tabs changed).
@@ -452,8 +479,7 @@ extension NavigationHost {
         let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? UISegmentedControl.noSegment
         if control.selectedSegmentIndex != selected { control.selectedSegmentIndex = selected }
         control.accessibilityIdentifier = list?.props["testId"]
-        control.sizeToFit()
-        control.frame.size.width = max(control.frame.width, CGFloat(titles.count) * 90)
+        segments.fit(titles)
         if c.navigationItem.titleView !== control { c.navigationItem.titleView = control }
     }
 

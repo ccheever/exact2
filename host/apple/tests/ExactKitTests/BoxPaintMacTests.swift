@@ -157,6 +157,8 @@ final class BoxPaintMacTests: XCTestCase {
             ["op": "create", "id": 2, "kind": "view", "style": ["z_index": 3.0, "background_color": [255.0, 0.0, 0.0, 255.0]]],
             ["op": "create", "id": 3, "kind": "view", "style": ["background_color": [0.0, 0.0, 255.0, 255.0]]],
             ["op": "create", "id": 4, "kind": "view", "style": ["background_color": [0.0, 0.0, 0.0, 255.0]]],
+            // LLP 1083: the kernel sends paint rank separately from style.
+            ["op": "rank", "id": 2, "rank": 6],
             ["op": "children", "id": 1, "ids": [2, 3, 4]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 100.0],

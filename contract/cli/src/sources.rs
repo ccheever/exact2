@@ -411,7 +411,15 @@ impl Loader<'_> {
                                     .enumerate()
                                     .any(|(other, names)| other != index && names.contains(name)))
                     };
-                    while taken.contains(&(kind, unique.clone())) || roster(&unique) {
+                    // A generated name is no binding's in any file either, or
+                    // the binding's calls (in its own file too) would reach it.
+                    let bound_anywhere = |unique: &str| {
+                        unique != name && bound.iter().any(|names| names.contains(unique))
+                    };
+                    while taken.contains(&(kind, unique.clone()))
+                        || roster(&unique)
+                        || bound_anywhere(&unique)
+                    {
                         n += 1;
                         unique = if n == 2 {
                             format!("{name}__{stem}")
@@ -503,6 +511,19 @@ impl Loader<'_> {
             names,
             elsewhere: HashMap::new(),
             roster: Some(compiler_call),
+            builtin_types: builtin_types(),
+            shapes: self
+                .units
+                .iter()
+                .enumerate()
+                .flat_map(|(u, unit)| {
+                    unit.file
+                        .shapes
+                        .iter()
+                        .filter_map(move |s| unique[u].get(&(Kind::Call, s.name.clone())))
+                })
+                .cloned()
+                .collect(),
         });
         Ok(())
     }
@@ -591,6 +612,14 @@ impl Loader<'_> {
             components: all!(components),
         }
     }
+}
+
+/// The types the compiler declares for every program, read from the type
+/// checker's own declarations of an empty file.
+fn builtin_types() -> HashSet<String> {
+    contract_types::check_declarations(&File::default())
+        .map(|shapes| shapes.map.into_keys().collect())
+        .unwrap_or_default()
 }
 
 /// A call the compiler answers itself: the roster, and the intrinsics the

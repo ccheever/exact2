@@ -440,7 +440,12 @@ stage 1 lands, and stage 2 waits on them.
 - r4 (2026-10-05): the code review's second round (§11).
 - r5 (2026-10-05): the code review's third round (§12).
 - r6 (2026-10-05): the code review's fourth round (§13).
-- r7 (2026-10-05): the code review's fifth and last round (§14).
+- r7 (2026-10-05): the code review's fifth round (§14).
+- r8 (2026-10-05): round 6; the bake compiles in place (§15).
+- r9 (2026-10-05): round 7 (§16).
+- r10 (2026-10-05): round 8 (§17).
+- r11 (2026-10-05): round 9 (§18).
+- r12 (2026-10-05): round 10 (§19).
 
 ## 9. Review dispositions (round 1)
 
@@ -669,4 +674,87 @@ round 5's fixes themselves introduce is unreviewed.
 | Astra 4: a failed TypeScript generation installed no package watcher | The producer re-reads the graph after every generation, failed or not |
 | Astra 5: a linked package whose manifest refused was not watched | A consulted manifest's directory is watched as a package |
 | Astra 6 / Grok 3: a missing package was looked for at four ancestors; a fresh app with no `node_modules` did not see its install | Every ancestor is recorded; the JS loop watches the directory where a missing `node_modules` would be made |
+
+## 15. Code review round 6 dispositions
+
+Charlie authorized up to ten more rounds after round 5 ("let's get this right"). Round 6
+(`llp/reviews/code-2026-10-05-1091-r6.{astra,grok}.md`): Astra UNSOUND, Grok SOUND WITH CHANGES.
+Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1: a package re-exporting another split a declaration in the stage (a staged copy and its original); Grok 2: the Windows junction command split on `&` | Structural: **the TypeScript bake compiles the app's Contract where it lives**, as the web build does, and checks the capture after the compile, so the plan is built from the bytes captured or the bake is refused. The stage holds the TypeScript alone; the package links, the staged-copy rule, relocation and the Windows junction are deleted. This supersedes §5's and §12–§14's staging |
+| Astra 2: `canvas surface=chart()` named a function | A `surface` call's head is the drawing module's; only its arguments are rewritten |
+| Grok 1: a task named `t` hid a prop `t` | Tasks are not bindings (the checker's scope holds none) |
+| Astra 7: 256 times overflowed a `u8` | The count saturates |
+| Astra 4: relinking an install to another directory did not rebuild the wasm session | The install's own `package.json` path is watched as well as its real one |
+| Astra 3: a watch root that is a link stopped the TypeScript producer | Package roots are watched at their real paths; one that cannot be watched is said, not a stop |
+| Astra 5: the producer missed an install where no `node_modules` was | It watches the directory where that `node_modules` would be made |
+| Astra 6: Completion Storm's build scripts did not track used files | They call `contract::rerun_if_changed` |
+
+## 16. Code review round 7 dispositions
+
+Round 7 (`llp/reviews/code-2026-10-05-1091-r7.{astra,grok}.md`): both UNSOUND, both confirming
+round 6's inputs fixed. Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1 / Grok 1: round 6's `surface` exception also kept a component argument's or another element's `surface=f()` head | Only on `canvas`, the one tag that owns `surface` |
+| Astra 2: the bake's recheck compared package names and roots, not their bytes | The bake reads every Contract source and consulted manifest the compile reads, before and after, and refuses on any difference |
+| Grok 2: the bake still refused two versions of one package, a rule of the links | Gone with them |
+| Astra 3: a link retargeted at a twin (same time and length) did not rebuild the wasm session | Its stamp has the file's inode and device |
+| Astra 4: retargeting an exported link inside a package went unseen | The export's offered path is watched; the TypeScript watcher reads a link as its target and the target's metadata |
+| Astra 5: a nearer install than the one resolved went unseen | Every nearer candidate is watched even when a farther one resolves |
+| Grok 3: the TypeScript producer's missing-`node_modules` watch assumed `/` | Either separator |
+| Found while verifying: the nearer candidates reached `build.rs` as `rerun-if-changed` paths that did not exist, so Cargo reran every build and the driver called it stale | `contract::rerun_if_changed` lists only paths that exist (a failed build reruns its script anyway); the dev loops still watch the candidates. Driven: a second macOS build is a no-op (1.8 s) |
+
+## 17. Code review round 8 dispositions
+
+Round 8 (`llp/reviews/code-2026-10-05-1091-r8.{astra,grok}.md`): both UNSOUND. Both found that
+round 7's nearer-install candidates broke deploy: the closure check `realpath`ed them and threw, so
+deploying `markdown` or `llp` (whose `@exact/reading` is hoisted) failed on main. Every finding is
+taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1 / Grok 1: deploy's closure check threw on a consulted path that does not exist | It checks only consulted paths that exist (a missing one is where resolution found nothing); `scripts/deploy-paths.test.mjs`, which had required the throw, now requires the opposite |
+| Astra 2: component arguments went through the style rows' `class`, `animation` and timeline rewriting | A component argument is a value: only its expression is rewritten |
+| Astra 3: a generated name (`val__ui`) could be an action's in its own file | A generated name avoids every binding in every file |
+| Astra 4: dropping missing paths from Cargo lost a nearer install | Cargo watches the `package.json` and lockfile beside a nearer `node_modules`, which an install edits |
+| Astra 5: a relative use through a link was watched only by its target | Watched by the path written too |
+| Astra 6 / Grok 2: a link retargeted at an older file, or an install link retargeted, went unseen by the JS loop and the TypeScript producer | A package's events are edits whatever their time; both loops watch an install that is a link as one entry of its directory |
+| Astra 7 / Grok 3: the TypeScript producer's graph filter assumed `/` | Path tests by `path.relative`, separators either way |
+| Astra 8 / Grok 4: off Unix, a stamp had no file identity | It carries the file's creation time |
+
+## 18. Code review round 9 dispositions
+
+Round 9 (`llp/reviews/code-2026-10-05-1091-r9.{astra,grok}.md`): Astra UNSOUND, Grok SOUND WITH
+CHANGES (round 8 fixed but for one Cargo case, no new bug from its fixes). Every plan stays
+byte-identical.
+
+| Finding | Disposition |
+|---|---|
+| Astra 1: with a computed part, a literal keyword that names keyframes was read as its keyword | Taken: with a computed part, a literal naming keyframes this file sees is the name |
+| Astra 2: a compiler-declared type (`PointerEvent`) was refused when another file had a `fn` of its name | Taken: the compiler's types (read from the checker's declarations of an empty file) are no file's name |
+| Astra 3: a library shape named `path` took its own file's router `path()` once renamed | Taken: a call of `path` whose name in scope is a shape, or nothing, is the router's, as the checker reads it |
+| Astra 5: a Windows copy that kept its times defeated the wasm session's stamp | Taken, for every platform: a used file's stamp is a fingerprint of its bytes |
+| Astra 6 / Grok 2: an app's own link retargeted at an older file was dropped by the JS loop | Taken: freshness is the entry's own time (`lstat`) |
+| Astra 7: a Contract source in a dot directory of the app was not watched | Taken: both loops watch every source the compile read |
+| Astra 8: a linked `node_modules` directory retargeted went unseen | Taken: every link on the way to a consulted path is one watched directory entry |
+| Astra 4 / Grok 1: a Rust build does not see a package installed nearer than the one it resolved | **Declined.** Cargo can only watch files, or directories by recursive scan; the directory a nearer install would make (`apps/node_modules`, `apps/markdown/node_modules`) does not exist and its parent is a tree of other apps or the app itself, so a recursive watch would rebuild on every unrelated edit. Installing a package is a dependency change, and `cargo build` after it rebuilds the plan once any input it watches changes; the dev loops, which can watch one directory entry, do see it. Recorded in QUEUE |
+
+## 19. Code review round 10 dispositions
+
+Round 10 (`llp/reviews/code-2026-10-05-1091-r10.{astra,grok}.md`): both UNSOUND. Both found that
+round 9's rule for a computed part in an `animation` (a literal naming keyframes is the name) was
+wrong. Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1 / Grok 1: round 9 renamed the first literal naming keyframes beside a computed part, though `motion` may read it as a keyword | Round 9's rule is gone. The reader reads as `motion` does with a computed part filling nothing; a computed part whose text says its slot (`steps(${n}, …)`, `${d}ms`) fills it. Where a part's slot is unknown and a keyword beside it is also renamed keyframes, no reading is right for every value, so the compile is refused (`contract-animation-ambiguous`), naming the fix: quote the name, or name the keyframes otherwise |
+| Astra 2 / Grok 2: a type annotation followed a renamed `fn` of its name (`PointerEvent`), and bare `action` was not exempt | A type is a shape: a written type is renamed only to a shape this file sees; else a compiler type or `action` stays; else another file's name is refused |
+| Astra 3: a route's `pages=source()` head was read as a `fn` | It names a data source, as a resource does; only its arguments are rewritten |
+| Astra 4: a content fingerprint misses a link retargeted at a byte-identical file whose relative uses differ | The stamp is the bytes and, on Unix, the inode |
+| Astra 5 / Grok 3: the TypeScript producer did not descend into a dot directory holding a source | Its watch descends into any directory on the way to a source |
+| Astra 6: the JS loop dropped a link in a dot directory | It watches every path resolution looked at, as written, and the directories on the way to them |
 

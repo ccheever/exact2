@@ -41,6 +41,8 @@ struct Run: Hashable {
     var href: String = ""
     /// The inline box's `background-color`: paint, never metrics.
     var background: [Double]? = nil
+    /// CSS visibility hides ink without changing shaping or descendant visibility.
+    var hidden = false
     /// Its own `text-shadow` (offset x, y, blur, r g b a) when the
     /// paragraph's runs differ (`Spec.gatherShadows`), and its
     /// `-webkit-text-stroke` (width, r g b a): paint (LLP 1077 D3, D7).
@@ -52,7 +54,7 @@ struct Run: Hashable {
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
               lhs.letterSpacing == rhs.letterSpacing, lhs.numeric == rhs.numeric, lhs.color == rhs.color,
               lhs.decoration == rhs.decoration, lhs.href == rhs.href,
-              lhs.background == rhs.background, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke else { return false }
+              lhs.hidden == rhs.hidden, lhs.background == rhs.background, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke else { return false }
         // CoreText's ranges address the original UTF16 source. Swift String's
         // canonical equality would alias NFC/NFD paragraphs with different
         // source lengths, so both equality and hashing use the exact UTF8.
@@ -77,6 +79,7 @@ struct Run: Hashable {
         hasher.combine(decoration)
         hasher.combine(href)
         hasher.combine(background)
+        hasher.combine(hidden)
         hasher.combine(shadow)
         hasher.combine(stroke)
     }
@@ -401,6 +404,7 @@ extension Spec {
         value.ellipsis = false
         value.source = SourceMap()
         for i in value.runs.indices {
+            value.runs[i].hidden = false
             value.runs[i].color = nil
             value.runs[i].decoration = ""
             value.runs[i].href = ""
@@ -786,6 +790,7 @@ final class TextEngine {
         var offset = 0
         for r in spec.runs {
             var a: [NSAttributedString.Key: Any] = [.font: font(r), .foregroundColor: r.color.map(TextEngine.color) ?? color]
+            if r.hidden { a[.exactHidden] = true }
             // A centred stroke over the fill: Core Text's negative width,
             // in percent of the run's size (LLP 1077 D7). Each run's own.
             if let st = r.stroke, st.count == 5, st[0] > 0, r.size > 0 {
@@ -796,7 +801,7 @@ final class TextEngine {
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
             if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-            if let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
+            if !r.hidden, let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
                 let f = a[.font] as! PlatformFont
                 let (ascent, descent) = CSSLineBox.content(f as CTFont)
                 a[.exactBackground] = InlineBackground(color: fill.cgColor, ascent: ascent, descent: descent)
