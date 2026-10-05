@@ -814,6 +814,10 @@ pub(crate) fn aria_words(prop: PropId) -> Option<(&'static str, &'static [&'stat
             "aria-haspopup",
             &["true", "false", "menu", "listbox", "tree", "grid", "dialog"],
         ),
+        PropId::AccessibilityCurrent => (
+            "aria-current",
+            &["true", "false", "page", "step", "location", "date", "time"],
+        ),
         _ => return None,
     })
 }

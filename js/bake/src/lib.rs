@@ -596,6 +596,10 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             }
             if matches!(&*name, ".git" | "node_modules" | "target" | "dist")
                 || name.starts_with(".exact-js-bake-")
+                // The app's dot directories hold what no build reads: `.exact/`
+                // keeps an agent's diary, evidence, logs and runtime files
+                // (Depot: a `results.json` beside the app made every build stale).
+                || (at == root && name.starts_with('.') && entry.path().is_dir())
                 // The driver reads a test file; no build does, so editing
                 // one rebuilds nothing (trivia F8).
                 || name.ends_with(".test.contract")

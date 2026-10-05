@@ -163,6 +163,8 @@ async function typecheck() {
     for (const entry of readdirSync(from, { withFileTypes: true })) {
       const name = entry.name, path = resolve(from, name);
       if (['.git', 'node_modules', 'target', 'dist'].includes(name) || name.startsWith('.exact-js-bake-') || (top && name === 'app.contract.d.ts')) continue;
+      // The app's dot directories (`.exact/`: an agent's evidence, logs, runtime files) are no source, as in js/bake's capture.
+      if (top && name.startsWith('.') && entry.isDirectory()) continue;
       if (top && mounts.some(([mount]) => mount === name)) continue;
       // Links are refused, except a document link outside the static trees
       // (CLAUDE.md → AGENTS.md), as js/bake's capture: no build reads one.

@@ -594,6 +594,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "tabindex" => AttrTarget::Prop(p("tabIndex")),
         "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
         "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
+        "aria-current" => AttrTarget::Prop(p("accessibilityCurrent")), // Depot: a nav link's page
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),

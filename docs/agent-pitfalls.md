@@ -278,9 +278,27 @@ guide's rules don't make obvious.
   `verify.mjs` beside `app.contract` made the driver refuse the next drive until
   `bun exact.mjs web-build`. Cause: a file in the app folder counts as a build input
   unless it is an output (a screenshot, a log) or git-ignored outside the input trees
-  (`data/`, `web/`, `assets/` and the like count even when ignored). Fix: keep drive
-  scripts outside the app folder. (Authoring
-  bench, LLP 1087: five builders, 2026-10-05.)
+  (`data/`, `web/`, `assets/` and the like count even when ignored); any `.json`
+  counts, since the bake captures it. Fix: keep drive scripts, evidence, logs and
+  runtime files in the app's `.exact/` (no build, dev-loop watcher or freshness
+  check reads a dot directory at the app's root), or outside the app folder.
+  (Authoring bench, LLP 1087: five builders, 2026-10-05; Depot's evidence JSON,
+  2026-10-05.)
+
+- **A latency test passes at once, or a reply never lands.** Cause: every drive
+  holds the app's clock, in every browser and on every host: `clock +N` moves the
+  app's time and nothing else, while a `fetch`, a storage call or a stream's next
+  message arrives on real time. Fix: `clock settle` to land what is in flight;
+  `clock +N real` to let N ms of wall time pass with the clock moving alongside
+  (polling, a server push, a measured latency). `state` lists what is pending.
+  (Depot on three backends, 2026-10-05.)
+
+- **A date input reads `10/05/2026` beside a label the app wrote in UTC.** Cause:
+  `input type="date"`/`"time"` show the browser's own locale format and mean a
+  local wall time, as on the web; the app's label used another zone. Fix: label in
+  the viewer's zone, or pass `--locale` and `--time-zone` on a drive (`locale` and
+  `time-zone` lines in a test file) so both agree and the run stays reproducible.
+  (Depot, 2026-10-05.)
 
 - **An iOS screenshot right after a tap shows a segmented control on its old
   segment.** The tree says the new one is selected. Cause: UIKit animates the

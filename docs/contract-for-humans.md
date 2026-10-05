@@ -886,8 +886,9 @@ label an image; `aria-labelledby` (the ids of the elements whose text names this
 one, as a radiogroup names itself by its visible heading) wins over `aria-label`;
 `aria-describedby` (the ids of the elements whose text describes
 this one) and `aria-description` are its description. `aria-invalid`,
-`aria-required` and `aria-haspopup` take their ARIA words or a bool; UIKit has
-no property for those three, so iOS exposes none of them.
+`aria-required`, `aria-haspopup` and `aria-current` (a navigation link's
+`"page"`, a wizard's `"step"`) take their ARIA words or a bool; UIKit has no
+property for those four, so iOS exposes none of them.
 Font sizes, touch targets, focus behavior, and contrast remain author decisions.
 
 Declare bundled fonts at file scope:

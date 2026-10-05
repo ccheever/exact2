@@ -185,7 +185,9 @@ const listed = changed => changed.slice(0, 3).join(', ') + (changed.length > 3 ?
 
 /** Throws when `changed` names anything: what, since which build, and the command that rebuilds it. */
 export function refuseStale(what, built, changed, command) {
-  if (changed.length) throw staleError(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}`);
+  // A file no build reads belongs in the app's `.exact/` (Depot: evidence JSON beside the app refused every drive).
+  const hint = changed.some(p => /\.json$/.test(p) && !/(^|\/)(app|package|tsconfig)\.json$/.test(p)) ? '; a file no build reads (evidence, logs, runtime state) belongs in the app\'s `.exact/`, which no build, watcher or freshness check reads' : '';
+  if (changed.length) throw staleError(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}${hint}`);
 }
 
 /** A refusal that a rebuild answers: the driver exits 3 for it, so an app's
@@ -310,7 +312,7 @@ export function gitIgnored(dir, keep = []) {
 // deck, a game's art and logic, a native module's scripts, the host crates,
 // fonts and strings). A build reads more than the bake captures, so the rule
 // names the outputs and leaves everything else an input.
-const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world)$/i;
+export const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world)$/i;
 export const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|ios|macos|linux)(\/|$)/;
 /** A skip for an app's own files that no build reads. A file a build can
  * read always counts, ignored by Git or not: what the bake captures, anything

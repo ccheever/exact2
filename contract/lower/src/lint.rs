@@ -38,6 +38,64 @@ pub(crate) fn fragmentation(name: &str) -> Option<&'static str> {
     })
 }
 
+/// WAI-ARIA 1.2's states and properties: an unknown `aria-*` name is told
+/// whether ARIA has it, and which of these Contract carries (`tags::attr`).
+const ARIA: &[&str] = &[
+    "aria-activedescendant",
+    "aria-atomic",
+    "aria-autocomplete",
+    "aria-braillelabel",
+    "aria-brailleroledescription",
+    "aria-busy",
+    "aria-checked",
+    "aria-colcount",
+    "aria-colindex",
+    "aria-colindextext",
+    "aria-colspan",
+    "aria-controls",
+    "aria-current",
+    "aria-describedby",
+    "aria-description",
+    "aria-details",
+    "aria-disabled",
+    "aria-dropeffect",
+    "aria-errormessage",
+    "aria-expanded",
+    "aria-flowto",
+    "aria-grabbed",
+    "aria-haspopup",
+    "aria-hidden",
+    "aria-invalid",
+    "aria-keyshortcuts",
+    "aria-label",
+    "aria-labelledby",
+    "aria-level",
+    "aria-live",
+    "aria-modal",
+    "aria-multiline",
+    "aria-multiselectable",
+    "aria-orientation",
+    "aria-owns",
+    "aria-placeholder",
+    "aria-posinset",
+    "aria-pressed",
+    "aria-readonly",
+    "aria-relevant",
+    "aria-required",
+    "aria-roledescription",
+    "aria-rowcount",
+    "aria-rowindex",
+    "aria-rowindextext",
+    "aria-rowspan",
+    "aria-selected",
+    "aria-setsize",
+    "aria-sort",
+    "aria-valuemax",
+    "aria-valuemin",
+    "aria-valuenow",
+    "aria-valuetext",
+];
+
 pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
     let hint = match tags::renamed(&a.name) {
         Some(new @ ("press" | "change" | "input")) => format!(
@@ -57,6 +115,26 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
         }
         None if a.name == "className" => {
             "; `class` names a `style` declared in this file, as in `class=Card`".into()
+        }
+        None if a.name.starts_with("aria-") => {
+            let carried: Vec<&str> = ARIA
+                .iter()
+                .copied()
+                .filter(|n| tags::attr(n).is_some())
+                .collect();
+            let what = if ARIA.contains(&a.name.as_str()) {
+                "is ARIA's, and Contract does not carry it yet".to_string()
+            } else {
+                match tags::similar_attr(&a.name, false) {
+                    Some(n) => format!("is not ARIA's (did you mean `{n}`?)"),
+                    None => "is not ARIA's".to_string(),
+                }
+            };
+            format!(
+                "; `{}` {what}; Contract carries {}",
+                a.name,
+                carried.join(", ")
+            )
         }
         None => tags::similar_attr(&a.name, false)
             .map(|n| format!("; did you mean `{n}`?"))
