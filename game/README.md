@@ -502,11 +502,56 @@ action names to descriptions, and a `transcript` JSONL path. Action names start
 with a lowercase letter and contain lowercase letters, digits, `_` or `-`;
 descriptions and the goal must be nonempty strings. Setup errors name every
 invalid action before making a request. Jev returns a
-`choice`, its probabilities, usage and request duration. The game script executes
-that named action through the ordinary session driver. The key comes from
-`AI_GATEWAY_API_KEY` in the driver's environment and never enters the app. Only
-the supplied observation is sent to the gateway. Unknown choices, missing keys
-and network errors refuse the step; there is no substitute policy or retry loop.
+`choice`, its confidence (and, from the gateway, probabilities), usage and request
+duration. The game script executes that named action through the ordinary session
+driver. Only the supplied observation leaves the machine, and no key enters the app.
+Unknown choices, missing sources and network errors refuse the step; there is no
+substitute policy or retry loop.
+
+The model behind `decide` is chosen in the driver's environment; every source reads
+the same request (goal, observation, choices) and must answer one offered action id:
+
+| `EXACT_JEV_SOURCE` | Needs | Asks |
+|---|---|---|
+| `gateway` | `AI_GATEWAY_API_KEY` | `typesafe-ai/jev` on the Vercel AI Gateway |
+| `anthropic` | `ANTHROPIC_API_KEY` | the Messages API, structured output, effort `low` |
+| `claude` | the Claude Code CLI, logged in | `claude -p` with no tools, settings or project files |
+
+Unset, a gateway key wins, then an Anthropic key; `claude` is only ever named. The
+last two take `EXACT_JEV_MODEL` (default `claude-opus-5-5`). With none of these the
+playtest refuses at its first decision and names all of them. Each transcript row
+records its `source`. Through the CLI a decision takes 6–30 s (a 12-decision compost
+playtest on `claude-haiku-4-5`: about 6 minutes).
+
+A recorded playtest replays without any model: `--replay <recording>` (a
+`*decisions.jsonl`, or the artifact directory holding one) feeds its decisions in
+order, by action id, to the current build. Pass the flags the recording ran with;
+`summary.json` keeps them as `args` from now on, and a changed goal at decision 1
+says so. The replay writes to `artifacts/replay-<host>` (`EXACT_PROOF_OUT` moves it):
+
+```sh
+bun game/games/garden/proof.mjs web --playtest --compost --replay game/games/garden/artifacts/jev-compost-web
+```
+
+Each decision compares what the build shows with what the recording showed
+(all but `recent`, which repeats earlier observations). A difference in words
+alone (the same numbers in the same order) is noted as `REPLAY wording or shape
+only`, so a rewritten sentence without numbers reads as wording too. A changed
+number is a value divergence and a HUD row or control that came or went is a
+row change; the first of each is reported with the decision that saw it. An entity
+handle (`{index, generation}`) that moved slot is a note: one entity more or fewer
+spawned earlier shifts every later one. A recorded action the build no longer
+offers, a build that wants more or fewer decisions than were recorded, a changed
+number among the outcome file's values, or a different final tick fails the proof
+and names the first value divergence and row change. Changed words in the outcome, a number
+recorded where its label was, or a field only one run recorded are notes. A
+different world hash is a note too, listed by entity name and component, since a
+scene or art change rewrites entities the play never touched. `replay.json` holds
+every decision's differences. Replay checks that HUD and gameplay changes keep a
+recorded play's meaning; it cannot say what a model would choose differently now.
+
+Recordings are artifacts, so they are not committed: replay one from the checkout
+that made it, or copy its directory alongside.
 
 Forest's `bun game/games/forest/proof.mjs web --playtest` is the first consumer
 (`macos` works too). It allows at most 48 decisions, reads only the visible HUD,

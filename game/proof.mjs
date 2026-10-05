@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { open as openSession, render } from '../scripts/agent.mjs';
@@ -14,10 +15,16 @@ import { closeFilesystemReader } from '../scripts/filesystem.mjs';
  * The caller owns observation, input delivery and the number of decisions.
  * Only the supplied state leaves the machine; credentials never enter the game.
  * A failed request or unknown choice refuses the step, without inventing a move.
- * The JSONL transcript records decisions, not a deterministic proof or a save. */
-export async function decide({state, choices, goal, transcript,
-  key = process.env.AI_GATEWAY_API_KEY, fetch: request = globalThis.fetch}) {
-  if (!key?.trim()) throw new Error('Jev playtest needs AI_GATEWAY_API_KEY in the driver environment');
+ * The JSONL transcript records decisions, not a deterministic proof or a save.
+ *
+ * Every source reads the same request (observation, goal, choices) and answers
+ * one allowed action: `gateway` (AI_GATEWAY_API_KEY, typesafe-ai/jev),
+ * `anthropic` (ANTHROPIC_API_KEY, the Messages API) or `claude` (the Claude
+ * Code CLI's own login). EXACT_JEV_SOURCE names one; unset, a gateway key wins,
+ * then an Anthropic key. A proof run with `--replay` arms a recorded transcript
+ * instead (`loadReplay`), and no source is asked. */
+export async function decide({state, choices, goal, transcript, replay = armedReplay,
+  source, key, model, env = process.env, fetch: request = globalThis.fetch, spawn: run = spawn}) {
   const entries = Object.entries(choices ?? {});
   const problems = [];
   if (typeof goal !== 'string' || !goal.trim()) problems.push('goal must be a nonempty string');
@@ -29,32 +36,264 @@ export async function decide({state, choices, goal, transcript,
   if (problems.length) throw new Error(`Jev playtest: ${problems.join('; ')}`);
   const body = {model:'typesafe-ai/jev', state, questions:{action:{
     type:'choice', instructions:goal, criteria:choices}}};
+  if (replay) {
+    const result = replayDecision(replay, body);
+    if (transcript) appendFileSync(transcript, JSON.stringify({request:body, ...result}) + '\n');
+    return result;
+  }
+  const live = liveSource({source, key, model, env});
   const encoded = JSON.stringify(body);
   if (Buffer.byteLength(encoded) > 64 * 1024) throw new Error('Jev observation exceeds 64 KiB; summarize the player state');
   const started = performance.now();
-  let reply;
+  const row = {request:body, source:{name:live.name, model:live.model}};
+  let answer;
   try {
-    const response = await request('https://ai-gateway.vercel.sh/v1/evaluate', {
-      method:'POST', headers:{'content-type':'application/json', authorization:`Bearer ${key.trim()}`},
-      body:encoded, signal:AbortSignal.timeout(30_000),
-    });
-    if (!response.ok) throw new Error(`Jev HTTP ${response.status}`);
-    reply = await response.json();
+    answer = await JEV_ASK[live.name]({body, encoded, live, request, run});
   } catch (error) {
     // A transport's diagnostic may contain request headers; do not propagate it.
-    const message = /^Jev HTTP \d+$/.test(error?.message) ? error.message : 'Jev request failed or timed out';
-    if (transcript) appendFileSync(transcript, JSON.stringify({request:body, error:message}) + '\n');
+    const message = /^Jev (HTTP \d+|CLI exited \S+|refused)$/.test(error?.message) ? error.message : 'Jev request failed or timed out';
+    if (transcript) appendFileSync(transcript, JSON.stringify({...row, error:message}) + '\n');
     throw new Error(message);
   }
-  const answer = reply?.answers?.action;
   if (typeof answer?.choice !== 'string' || !Object.hasOwn(choices, answer.choice)) {
-    if (transcript) appendFileSync(transcript, JSON.stringify({request:body, error:'Jev returned no allowed action'}) + '\n');
+    if (transcript) appendFileSync(transcript, JSON.stringify({...row, error:'Jev returned no allowed action'}) + '\n');
     throw new Error('Jev returned no allowed action');
   }
   const result = {choice:answer.choice, confidence:answer.confidence,
-    probabilities:answer.probabilities, usage:reply.usage, milliseconds:Math.round(performance.now() - started)};
-  if (transcript) appendFileSync(transcript, JSON.stringify({request:body, ...result}) + '\n');
+    probabilities:answer.probabilities, usage:answer.usage, milliseconds:Math.round(performance.now() - started)};
+  if (transcript) appendFileSync(transcript, JSON.stringify({...row, ...result}) + '\n');
   return result;
+}
+
+const JEV_MODEL = 'claude-opus-5-5';
+/** The live source a decision asks; a refusal names every way to supply one. */
+export function liveSource({source, key, model, env = process.env} = {}) {
+  const gatewayKey = (key ?? env.AI_GATEWAY_API_KEY)?.trim(), anthropicKey = env.ANTHROPIC_API_KEY?.trim();
+  const name = source ?? (env.EXACT_JEV_SOURCE?.trim() || (gatewayKey ? 'gateway' : anthropicKey ? 'anthropic' : ''));
+  const needs = 'set AI_GATEWAY_API_KEY (Vercel AI Gateway, typesafe-ai/jev), ANTHROPIC_API_KEY (Anthropic Messages API) or EXACT_JEV_SOURCE=claude (the Claude Code CLI\'s own login) in the driver environment, or replay a recording with --replay <transcript>';
+  if (!name) throw new Error(`Jev playtest has no model source: ${needs}`);
+  if (!Object.hasOwn(JEV_ASK, name)) throw new Error(`EXACT_JEV_SOURCE=${name} is not a Jev source; use gateway, anthropic or claude`);
+  if (name === 'gateway' && !gatewayKey) throw new Error(`Jev playtest needs AI_GATEWAY_API_KEY for EXACT_JEV_SOURCE=gateway; otherwise ${needs}`);
+  if (name === 'anthropic' && !anthropicKey) throw new Error(`Jev playtest needs ANTHROPIC_API_KEY for EXACT_JEV_SOURCE=anthropic; otherwise ${needs}`);
+  return {name, key:name === 'gateway' ? gatewayKey : name === 'anthropic' ? anthropicKey : undefined,
+    model:name === 'gateway' ? 'typesafe-ai/jev' : model ?? (env.EXACT_JEV_MODEL?.trim() || JEV_MODEL)};
+}
+
+// A model other than Jev reads the same request: the goal, the observation and
+// the allowed actions. It answers with one action id and a confidence.
+const JEV_SYSTEM = 'You are Jev, playtesting a video game as its player. You see only what the player sees: the visible HUD text in `state` and your recent actions. Choose exactly one of the allowed actions in `choices`, by its id, that best advances `goal` from this state. Report your confidence (0 to 1) that it is the best action.';
+const jevPrompt = body => JSON.stringify({goal:body.questions.action.instructions,
+  state:body.state, choices:body.questions.action.criteria});
+const jevSchema = body => ({type:'object', additionalProperties:false, required:['choice','confidence'],
+  properties:{choice:{type:'string', enum:Object.keys(body.questions.action.criteria)}, confidence:{type:'number'}}});
+const JEV_ASK = {
+  async gateway({encoded, live, request}) {
+    const response = await request('https://ai-gateway.vercel.sh/v1/evaluate', {
+      method:'POST', headers:{'content-type':'application/json', authorization:`Bearer ${live.key}`},
+      body:encoded, signal:AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) throw new Error(`Jev HTTP ${response.status}`);
+    const reply = await response.json(), answer = reply?.answers?.action;
+    return answer && {choice:answer.choice, confidence:answer.confidence, probabilities:answer.probabilities, usage:reply.usage};
+  },
+  async anthropic({body, live, request}) {
+    const response = await request('https://api.anthropic.com/v1/messages', {
+      method:'POST', signal:AbortSignal.timeout(120_000),
+      headers:{'content-type':'application/json', 'x-api-key':live.key, 'anthropic-version':'2023-06-01',
+        'anthropic-beta':'server-side-fallback-2026-07-01'},
+      body:JSON.stringify({model:live.model, max_tokens:16000, fallbacks:'default', system:JEV_SYSTEM,
+        output_config:{effort:'low', format:{type:'json_schema', schema:jevSchema(body)}},
+        messages:[{role:'user', content:jevPrompt(body)}]}),
+    });
+    if (!response.ok) throw new Error(`Jev HTTP ${response.status}`);
+    const reply = await response.json();
+    if (reply?.stop_reason === 'refusal') throw new Error('Jev refused');
+    const text = reply?.content?.find(block => block.type === 'text')?.text;
+    const answer = text ? JSON.parse(text) : null;
+    return answer && {choice:answer.choice, confidence:answer.confidence,
+      usage:{inputTokens:reply.usage?.input_tokens, outputTokens:reply.usage?.output_tokens}};
+  },
+  // The CLI answers from its own login. It runs outside the repository, with no
+  // tools, settings or project instructions joining the request.
+  async claude({body, live, run}) {
+    const child = run('claude', ['-p', '--output-format', 'json', '--tools', '', '--no-session-persistence',
+      '--setting-sources', '', '--effort', 'low', '--model', live.model, '--system-prompt', JEV_SYSTEM,
+      '--json-schema', JSON.stringify(jevSchema(body))], {cwd:tmpdir(), stdio:['pipe', 'pipe', 'ignore']});
+    let output = '';
+    child.stdout.on('data', data => output += data);
+    child.stdin.end(jevPrompt(body));
+    const timer = setTimeout(() => child.kill('SIGKILL'), 180_000);
+    const code = await new Promise((ok, fail) => { child.on('close', ok); child.on('error', fail); })
+      .finally(() => clearTimeout(timer));
+    if (code !== 0) throw new Error(`Jev CLI exited ${code}`);
+    const reply = JSON.parse(output);
+    if (reply.is_error) throw new Error('Jev refused');
+    const answer = reply.structured_output;
+    return answer && {choice:answer.choice, confidence:answer.confidence,
+      usage:{inputTokens:reply.usage?.input_tokens, outputTokens:reply.usage?.output_tokens, costUSD:reply.total_cost_usd}};
+  },
+};
+
+// Replay feeds a recorded transcript's decisions in order, by action id. Each
+// step compares what the current build shows with what the recording showed;
+// a recorded action the build no longer offers stops the replay there.
+let armedReplay = null;
+/** Read a recorded transcript (a `*decisions.jsonl`, or the directory holding
+ * exactly one) before the run truncates anything; `arm` makes decide use it. */
+export function loadReplay(path, {arm = true} = {}) {
+  let file = resolve(path);
+  if (statSync(file).isDirectory()) {
+    const found = readdirSync(file).filter(name => name.endsWith('decisions.jsonl'));
+    if (found.length !== 1) throw new Error(`--replay ${path}: expected one *decisions.jsonl, found ${found.length ? found.join(', ') : 'none'}`);
+    file = resolve(file, found[0]);
+  }
+  const rows = readFileSync(file, 'utf8').split('\n').filter(line => line.trim()).map(line => JSON.parse(line));
+  if (!rows.length || rows.some(row => !row?.request?.questions?.action))
+    throw new Error(`--replay ${path}: not a Jev transcript (no recorded decisions)`);
+  const replay = {path:file, rows, cursor:0, steps:[]};
+  if (arm) armedReplay = replay;
+  return replay;
+}
+
+/** A replay that cannot continue: its message is the whole report. */
+export class ReplayDivergence extends Error {}
+
+const numbers = value => JSON.stringify(value)?.match(/-?\d+(?:\.\d+)?/g) ?? [];
+/** Two observations' differences, leaf by leaf: `copy` when only the words
+ * changed (the same numbers in the same order), `shape` when a number stands
+ * where text showing it was, `handle` when an entity handle moved slot, `value`
+ * when a number changed, `added`/`removed` when a field came or went. */
+export function observationChanges(before, after, path = '', changes = []) {
+  const record = value => value !== null && typeof value === 'object';
+  // An entity handle names which slot the engine allocated, not what the play did:
+  // one entity more or fewer spawned earlier (a scene change) shifts every later one.
+  const handle = value => record(value) && equal(Object.keys(value).sort(), ['generation', 'index']);
+  if (handle(before) && handle(after)) {
+    if (!equal(before, after)) changes.push({path, kind:'handle', before, after});
+  } else if (record(before) && record(after) && Array.isArray(before) === Array.isArray(after)) {
+    for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      const at = path ? `${path}.${key}` : key;
+      if (!Object.hasOwn(after, key)) changes.push({path:at, kind:'removed', before:before[key]});
+      else if (!Object.hasOwn(before, key)) changes.push({path:at, kind:'added', after:after[key]});
+      else observationChanges(before[key], after[key], at, changes);
+    }
+  } else if (!equal(before, after)) {
+    // A number where text was (or the reverse) keeps its meaning when the text
+    // showed that number: the harness recorded the value instead of its label.
+    const label = typeof before === 'number' ? after : before, value = typeof before === 'number' ? before : after;
+    const shape = typeof before !== typeof after && typeof label === 'string' && typeof value === 'number'
+      && numbers(label).map(Number).includes(value);
+    const copy = typeof before === 'string' && typeof after === 'string' && equal(numbers(before), numbers(after));
+    changes.push({path, kind:copy ? 'copy' : shape ? 'shape' : 'value', before, after});
+  }
+  return changes;
+}
+
+function replayDecision(replay, body) {
+  const index = replay.cursor, recorded = replay.rows[index];
+  if (!recorded || recorded.error) {
+    replay.diverged = index + 1;
+    const ended = recorded ? `ended with a refused decision (${recorded.error})` : `ended after ${replay.rows.length} decisions`;
+    throw new ReplayDivergence(`replay diverged at decision ${index + 1}: the current build asks for another decision, but the recording ${ended}${replayLocator(replay)}`);
+  }
+  const was = recorded.request, now = body;
+  // `recent` repeats earlier observations, already compared at their own step.
+  const {recent: _was, ...wasState} = was.state ?? {}, {recent: _now, ...nowState} = now.state ?? {};
+  const changes = [
+    ...observationChanges(was.questions.action.instructions, now.questions.action.instructions, 'goal'),
+    ...observationChanges(wasState, nowState, 'state'),
+    ...observationChanges(was.questions.action.criteria, now.questions.action.criteria, 'choices'),
+  ];
+  replay.steps.push({decision:index + 1, choice:recorded.choice, changes});
+  replay.cursor++;
+  if (!Object.hasOwn(now.questions.action.criteria, recorded.choice)) {
+    replay.diverged = index + 1;
+    const here = changes.filter(c => c.path.startsWith('state')).slice(0, 6).map(formatChange).join('; ');
+    throw new ReplayDivergence(`replay diverged at decision ${index + 1}: the recorded action ${JSON.stringify(recorded.choice)} is not offered (offered: ${Object.keys(now.questions.action.criteria).join(', ')})${here ? `; the observation differs: ${here}` : '; the observation is the same'}${replayLocator(replay, index + 1)}`);
+  }
+  return {choice:recorded.choice, confidence:recorded.confidence, probabilities:recorded.probabilities,
+    source:{name:'replay', from:replay.path, decision:index + 1}};
+}
+
+const formatChange = c => `${c.kind} ${c.path}: ${c.kind === 'added' ? '' : JSON.stringify(c.before) + ' → '}${c.kind === 'removed' ? '(gone)' : JSON.stringify(c.after)}`;
+const sameMeaning = c => ['copy', 'shape', 'handle'].includes(c.kind);
+// A changed number in a field both builds show locates a gameplay divergence;
+// a HUD row or control that came or went is the build's shape, reported apart.
+const of = kinds => step => step.changes.filter(c => kinds.includes(c.kind) && c.path !== 'goal');
+const valueChanges = of(['value']), rowChanges = of(['added', 'removed']);
+const first = (replay, changes, before = Infinity) => replay.steps.find(step => step.decision < before && changes(step).length);
+const firstValue = (replay, before) => first(replay, valueChanges, before);
+function replayLocator(replay, before) {
+  const value = firstValue(replay, before), row = first(replay, rowChanges, before);
+  return (value ? `; first value divergence at decision ${value.decision}: ${valueChanges(value).slice(0, 4).map(formatChange).join('; ')}` : '')
+    + (row ? `; first added or removed row at decision ${row.decision}: ${rowChanges(row).slice(0, 4).map(formatChange).join('; ')}` : '');
+}
+
+/** The replay's verdict after the playtest: every recorded decision fed, and
+ * the same outcome as the recording (`replayOutcome`). Changed words are notes. */
+export function finishReplay(replay, {check, say, out, interrupted = false}) {
+  if (armedReplay === replay) armedReplay = null;
+  say(`REPLAY ${replay.cursor} of ${replay.rows.length} recorded decisions fed from ${relative(process.cwd(), replay.path)}`);
+  const goal = replay.steps[0]?.changes.find(c => c.path === 'goal');
+  if (goal) say(`REPLAY the goal differs from the recording's (${goal.kind}); pass the flags it ran with (its summary.json args, where recorded)`);
+  const worded = new Map();
+  for (const step of replay.steps) for (const c of step.changes)
+    if (sameMeaning(c) && c.path !== 'goal') worded.set(c.path, (worded.get(c.path) ?? 0) + 1);
+  if (worded.size) say(`REPLAY wording or shape only: ${[...worded].map(([path, n]) => `${path} ×${n}`).join(', ')}`);
+  const step = firstValue(replay), row = first(replay, rowChanges);
+  if (row) say(`REPLAY first added or removed row at decision ${row.decision} (${row.choice}): ${rowChanges(row).slice(0, 6).map(formatChange).join('; ')}`);
+  say(step ? `REPLAY first value divergence at decision ${step.decision} (${step.choice}): ${valueChanges(step).slice(0, 6).map(formatChange).join('; ')}`
+    : `REPLAY every observation shows the recording's numbers${row ? '' : ' and controls'}`);
+  const report = {from:replay.path, recorded:replay.rows.length, fed:replay.cursor, diverged:replay.diverged ?? null,
+    firstValueDivergence:step?.decision ?? null, firstRowChange:row?.decision ?? null, steps:replay.steps};
+  if (!interrupted) {
+    const fed = replay.rows.filter(row => !row.error).length;
+    check(replay.cursor >= fed ? `replay fed all ${fed} recorded decisions`
+      : `replay fed all recorded decisions: the current build stopped after ${replay.cursor} of ${fed}${replayLocator(replay)}`, replay.cursor >= fed);
+    const name = basename(replay.path).replace(/decisions\.jsonl$/, 'outcome.json');
+    const was = resolve(dirname(replay.path), name), now = resolve(out, name);
+    if (existsSync(was) && existsSync(now)) {
+      report.outcome = replayOutcome(JSON.parse(readFileSync(was, 'utf8')), JSON.parse(readFileSync(now, 'utf8')));
+      for (const line of report.outcome.notes) say(`REPLAY ${line}`);
+      check(report.outcome.same ? `replay outcome matches the recording (${report.outcome.basis})`
+        : `replay outcome differs from the recording: ${report.outcome.differences.slice(0, 6).map(formatChange).join('; ')}${report.outcome.differences.length > 6 ? `; ${report.outcome.differences.length - 6} more in replay.json` : ''}${replayLocator(replay)}`,
+        report.outcome.same);
+    } else say(`REPLAY no outcome to compare (${existsSync(was) ? 'this run wrote none' : 'the recording has none'})`);
+  }
+  writeFileSync(resolve(out, 'replay.json'), JSON.stringify(report, null, 2) + '\n');
+  return report;
+}
+
+/** Outcomes agree when the playtest's own outcome values do (changed words, a
+ * value recorded in place of its label, or a field only one run recorded are
+ * notes) and the world ended on the
+ * same tick. An identical world hash says so; a different one is listed by
+ * entity name and component as a note, since a scene or art change rewrites
+ * entities the play never touched. Every decision's observation was compared. */
+export function replayOutcome(was, now) {
+  const {world: a, ...wasRest} = was, {world: b, ...nowRest} = now;
+  const rest = observationChanges(wasRest, nowRest, 'outcome');
+  // A field only one side recorded is the harness's change, not the play's.
+  const notes = rest.filter(c => c.kind !== 'value').map(c => `outcome ${c.kind === 'copy' ? 'wording' : c.kind === 'shape' || c.kind === 'handle' ? c.kind : 'field'}: ${formatChange(c)}`);
+  const differences = rest.filter(c => c.kind === 'value');
+  let basis = 'the outcome\'s values', world = [];
+  if (a || b) {
+    if (a?.tick !== b?.tick) differences.unshift({path:'world.tick', kind:'value', before:a?.tick, after:b?.tick});
+    else if (a.hash === b.hash) basis = `the outcome's values; world tick ${b.tick}, hash ${b.hash}`;
+    else {
+      const byName = w => Object.fromEntries((w.entities ?? []).map(e => [e.name ?? `#${e.id}`, e.components]));
+      world = observationChanges(byName(a), byName(b), 'world');
+      const counts = new Map();
+      for (const c of world) {
+        const [, entity, component] = c.path.split('.');
+        const key = component ? component : c.kind === 'added' ? 'entities added' : c.kind === 'removed' ? 'entities removed' : entity;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      notes.push(`world hash ${a.hash} → ${b.hash} at tick ${b.tick}${world.length ? `: ${world.length} inspected differences (${[...counts].sort((x, y) => y[1] - x[1]).slice(0, 8).map(([k, n]) => `${k} ×${n}`).join(', ')}; replay.json lists them)` : ' with equal inspected entities: the engine\'s hash changed'}`);
+      basis = `the outcome's values and world tick ${b.tick}; the world hash differs`;
+    }
+  }
+  return {same:!differences.length, basis, notes, differences, world};
 }
 
 /** Some runtime-created stacks omit the informative Error message. */
@@ -534,11 +773,17 @@ export async function proof(meta, script) {
   const root = fileURLToPath(new URL('..', import.meta.url));
   const args = process.argv.slice(2), device = args.includes('--device');
   const phone = args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined;
-  const host = args.find(arg => !arg.startsWith('--') && arg !== phone) ?? 'linux';
+  const recording = args.includes('--replay') ? args[args.indexOf('--replay') + 1] : undefined;
+  const host = args.find(arg => !arg.startsWith('--') && arg !== phone && arg !== recording) ?? 'linux';
   if (device && host !== 'ios') throw new Error('--device requires the ios proof host');
   if (args.includes('--phone') && (!device || !phone || phone.startsWith('--'))) throw new Error('--phone requires --device and a device name or identifier');
+  if (args.includes('--replay') && (!recording || recording.startsWith('--') || !args.includes('--playtest')))
+    throw new Error('--replay needs --playtest and a recorded transcript: a *decisions.jsonl or the artifact directory holding it');
   const destination = device ? 'ios-device' : host;
-  const out = resolve(process.env.EXACT_PROOF_OUT ?? resolve(app, 'artifacts', destination));
+  // Read the recording before the playtest truncates its own transcript.
+  const replay = recording ? loadReplay(recording) : null;
+  const out = resolve(process.env.EXACT_PROOF_OUT ?? resolve(app, 'artifacts', replay ? `replay-${destination}` : destination));
+  if (replay && out === dirname(replay.path)) throw new Error('--replay would overwrite its recording; set EXACT_PROOF_OUT to another directory');
   const buildOut = resolve(app, 'artifacts');
   mkdirSync(buildOut, {recursive:true});
   const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(app, 'dist'));
@@ -654,7 +899,7 @@ export async function proof(meta, script) {
       };
     }});
   };
-  let inputDigest;
+  let inputDigest, finished = false;
   try {
     if (!['web','macos','ios','linux','windows'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
     const appInfo = resolveApp(name);
@@ -698,12 +943,15 @@ export async function proof(meta, script) {
     if (!built) say(`BUILD cached ${name} ${destination}`);
     if (!process.argv.includes('--build-only')) {
       await script({open, check, equal, out, host, say, pin, pinSave});
+      finished = true;
       if (!process.argv.some(arg => ['--screenshot-only','--capture40','--playtest'].includes(arg)))
         for (const section of ['ticks','saves']) for (const key of Object.keys(previousPins[section] ?? {}))
           check(`pin ${key} observed; if intentionally removed, update the proof and pins.json together`, key in pins[section]);
     }
-  } catch (error) { check('proof interrupted',false,formatProofError(error)); }
-  finally {
+  } catch (error) {
+    if (error instanceof ReplayDivergence) check(error.message, false);
+    else check('proof interrupted',false,formatProofError(error));
+  } finally {
     await closeSessions(monitor, sample, sessions, check);
     if (reusableWeb) await reusableWeb.close();
     closeFilesystemReader(); // The static server's resident reader is this process's child.
@@ -738,6 +986,7 @@ export async function proof(meta, script) {
           matches, finalWorlds.map(({session, tick, hash}) => ({session, tick, hash})));
       }
     }
+    if (replay && !process.argv.includes('--build-only')) finishReplay(replay, {check, say, out, interrupted:!finished});
     writeFileSync(resolve(out,'process-cleanup.json'),JSON.stringify({recorded:[...recorded],remaining,auditUnavailable, ...(auditError ? {auditError} : {})},null,2)+'\n');
     const saves = [...new Set(replies.filter(r => r.method === 'screenshot' && r.args[2] === 'save' && !r.error).map(r => r.args[0]))].sort().map(path => {
       const name = basename(path), bytes = readFileSync(path);
@@ -746,7 +995,7 @@ export async function proof(meta, script) {
     const partial = process.argv.some(arg => ['--build-only','--screenshot-only','--capture40','--playtest'].includes(arg));
     const status = proofStatus({failures, expected:previousPins, pins, collecting, partial});
     if (!compareParanoid && process.env.EXACT_PROOF_COMPARE !== '1') finalWorlds.push(...observations.values());
-    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), status, inputs:inputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
+    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), args, status, inputs:inputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
     if (process.argv.includes('--report')) for (const hint of facilityReport(replies)) say(`REPORT ${hint}`);
     say(`PROOF ${status} ${name} ${destination}: ${failures.length} failures; ${((performance.now()-started)/1000).toFixed(3)} s`);
     if (status === 'PASS' && host === 'linux') say(`Capture the PNG: ${proofCommand(fileURLToPath(meta.url), 'web')}`);
