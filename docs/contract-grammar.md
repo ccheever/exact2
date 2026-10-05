@@ -129,7 +129,11 @@ names are its own declarations and the names its `use` lines list, each
 optionally renamed with `as` (LLP 1091): a component, shape, function, style,
 keyframes, or timeline, declared by the used file or named by its own `use`
 lines. A name another file declares and this one does not name is refused
-(`contract-use-missing`). The keyframes an `animation`, `animation-name` or
+(`contract-use-missing`): one refusal a file, naming every `use` line the file
+lacks — the line it has for that file, extended, or a new one — and `contract
+fmt --uses <root.contract>` writes them (`bun exact.mjs update` does too, for an
+app outside this repo). A name two files declare, or one the compiler gave on a
+collision (`Card__ui`), is left to the author and said. The keyframes an `animation`, `animation-name` or
 `exit-animation` literal names, and a `clock(Name)` literal, resolve in the
 file that writes them; a name computed at run time is matched as written.
 Fonts are app-wide. A used file cannot declare routes. The root file's first

@@ -7,6 +7,7 @@
 use crate::ast::*;
 use crate::parser::SyntaxError;
 use crate::Span;
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 /// The namespaces a top-level name lives in. Shapes and `fn`s share one:
@@ -38,6 +39,32 @@ impl Kind {
     }
 }
 
+/// A name another loaded file declares, which a file does not see.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Elsewhere {
+    /// The declaring file, as a refusal shows it.
+    pub file: String,
+    /// The loader's index of that file.
+    pub unit: usize,
+    /// The declaration's own name, which a `use` names: a generated one
+    /// (`Card__ui`) is not.
+    pub declared: String,
+    /// Every file that declares a name `declared` in this namespace, by
+    /// the loader's index: more than one, and which is meant is the author's.
+    pub declaring: Vec<usize>,
+}
+
+/// A reference to a name only another file declares.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Missing {
+    /// Its namespace.
+    pub kind: Kind,
+    /// The name as written.
+    pub name: String,
+    /// Where.
+    pub span: Span,
+}
+
 /// One file's view of the program's names.
 #[derive(Debug, Default)]
 pub struct Scope {
@@ -47,7 +74,11 @@ pub struct Scope {
     /// Names other loaded files declare that this file does not see, to the
     /// file that declares them, so a reference to one is refused with the
     /// `use` that would bring it rather than resolved behind the author's back.
-    pub elsewhere: HashMap<(Kind, String), String>,
+    pub elsewhere: HashMap<(Kind, String), Elsewhere>,
+    /// Every reference [`rescope`] met to a name in `elsewhere`, in order:
+    /// the loader refuses them together, naming each `use` line the file
+    /// lacks, so one compile shows them all (rules: every failure in one run).
+    pub missing: RefCell<Vec<Missing>>,
     /// Whether a call names a roster function, which no file declares and
     /// every file sees: never another file's name, so never refused.
     pub roster: Option<fn(&str) -> bool>,
@@ -60,22 +91,20 @@ impl Scope {
 
     /// The program-unique name `name` means here; `Ok(None)` for a name no
     /// loaded file declares (a roster function, a primitive, a binding), left
-    /// for later passes to resolve or refuse.
+    /// for later passes to resolve or refuse — and for one another file
+    /// declares, recorded in `missing` for the loader to refuse.
     fn resolve(&self, kind: Kind, name: &str, span: Span) -> Result<Option<&str>, SyntaxError> {
         if let Some(to) = self.get(kind, name) {
             return Ok(Some(to));
         }
-        match self.elsewhere.get(&(kind, name.to_owned())) {
-            Some(file) => Err(SyntaxError {
-                id: "contract-use-missing",
-                message: format!(
-                    "`{name}` is a {} declared in `{file}`, which this file does not name: add `use {name} from \"…\"` (LLP 1091 D1)",
-                    kind.what()
-                ),
+        if self.elsewhere.contains_key(&(kind, name.to_owned())) {
+            self.missing.borrow_mut().push(Missing {
+                kind,
+                name: name.to_owned(),
                 span,
-            }),
-            None => Ok(None),
+            });
         }
+        Ok(None)
     }
 
     fn rename(&self, kind: Kind, name: &mut String, span: Span) -> Result<(), SyntaxError> {

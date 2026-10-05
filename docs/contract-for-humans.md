@@ -131,7 +131,9 @@ Each file has its own names (LLP 1091): its own declarations, and the names its
 `use` lines list. Nothing comes along unnamed: if `parts.contract` uses `Icon`,
 `Card` still works, but this file writes `Icon()` only after naming it too,
 from `./icons.contract` or from `./parts.contract`, which passes on what it
-names. `as` renames one name in this file. Any component, shape, `fn`, style,
+names. The refusal names the lines a file lacks, and `contract fmt --uses
+app.contract` writes them in every file of the app. `as` renames one name in
+this file. Any component, shape, `fn`, style,
 keyframes or timeline can be named; there is no `export` keyword.
 
 Two files may declare the same name: each file's references mean its own
