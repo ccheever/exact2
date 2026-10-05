@@ -89,6 +89,26 @@ guide's rules don't make obvious.
   on the root and an `id="back"` button on every pushed screen (LLP 1038 §6).
   **Candidate diagnostic:** the compiler could warn on a stacked route with no
   control of that id.
+- **A sheet won't swipe down to dismiss.** It springs back (the log says "modal
+  dismissal refused: no enabled navigationBack control in the active route").
+  Cause: as for edge-swipe back, the swipe presses the control named by the root's
+  `navigationBack`, and a `navigationPresentation="modal"` route with no enabled
+  control of that id refuses it; `closedby="none"` refuses it too. Fix: an
+  `id="back"` button (Cancel, Done) in every sheet (`ModalIOS.swift`,
+  `refusesDismissal`). (Exact-new iOS app feedback, 2026-10-04.)
+- **A screen doesn't scroll or bounce, and its large title never collapses.**
+  Cause: a stacked route gets a `UIScrollView` only from a `scroll` (or
+  `overflow-y="auto"`) inside it; a plain column of content is a fixed view. Fix:
+  put the content in a `scroll flex=1 min-height=0 id="content"` right after the
+  header and add `navigationScroll="content"` to the route, so the title collapses
+  and content passes under the bar. (Exact-new iOS app feedback, 2026-10-04.)
+- **The app looks like an imitation of iOS.** Cause: controls built from boxes
+  (a painted switch, buttons laid out as a tab bar or a title bar, rows drawn as a
+  grouped list). Fix: the native Contract forms
+  ([the agent guide](contract-for-agents.md#views-layout-and-interaction), "Prefer
+  native controls"); a hand-built lookalike of a system control is a bug. Match a
+  reference's structure and controls, not its pixels. (Exact-new iOS app feedback,
+  2026-10-04.)
 - **The agent's screenshots and tree don't show the native bars.** Under
   `scripts/agent.mjs` the navigation bar, tab bar, `UIMenu`s and header search are
   not presented; the authored header, tablist and popover paint instead, by design.
@@ -162,11 +182,20 @@ guide's rules don't make obvious.
 
 ## Driving and testing
 
+- **The agent taps the simulator by screen coordinates** (`axe tap -x -y`,
+  `simctl`), and the drive breaks whenever layout moves. Cause: the controls have
+  no `testId`, or the driver was not used on iOS. Fix: give every control a
+  `testId` and drive with `bun exact.mjs agent ios tree "tap <testId>"
+  "screenshot s.png"`; find targets with `tree`, or `tree --ax` for the
+  accessibility tree. (Exact-new iOS app feedback, 2026-10-04.)
+
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
   `scripts/agent.mjs` for dates that read as intended and stay reproducible; in a test
   file, `epoch "…"` and `time-zone "…"` lines, so a run without the flags still means it.
-- **`axe` stops delivering taps.** After `axe touch --down --up --delay` (a long
+- **`axe` stops delivering taps.** Use `axe` only as a last resort, for native
+  chrome only a normal launch presents (bars, `UIMenu`s); drive everything else
+  with `agent ios` by `testId`. After `axe touch --down --up --delay` (a long
   press) or an `axe drag`, a following `axe tap` often reaches no window; it is
   intermittent, and a native bar button can miss the same way with no gesture
   before it. `axe touch --down --up` lands more often, not always. Fix: use the

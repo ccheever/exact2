@@ -21,6 +21,37 @@ export function textOf(nodes, node) {
   return runs.length ? runs.join('') : node.props.value;
 }
 
+const interactive = (n) => n.handlers?.length > 0 || n.type === 'Control' || n.type === 'TextInput';
+const spans = (nodes, n) => { const at = nodes.indexOf(n); let end = at + 1; while (end < nodes.length && nodes[end].depth > n.depth) end++; return [at, end]; };
+const name = (n) => n.props.testId ?? (n.props.accessibilityLabel ? `"${n.props.accessibilityLabel}"` : null);
+
+/** A target no testId carries, by the name a person reads (`nodes` a whole `tree` reply's, in preorder): the node whose
+ * accessibilityLabel is exactly `target`, else whose text (`textOf`) is. Interactive matches win; of nested ones the
+ * outermost interactive, or the innermost otherwise; an active screen's over a covered one's. More than one left refuses,
+ * naming them; none returns null. */
+export function nodeNamed(nodes, target) {
+  for (const read of [(n) => n.props.accessibilityLabel, (n) => textOf(nodes, n)]) {
+    let found = nodes.filter((n) => read(n) != null && String(read(n)).trim() === target);
+    if (!found.length) continue;
+    if (found.some(interactive)) found = found.filter(interactive);
+    const within = (a, b) => { const [i, end] = spans(nodes, b); const j = nodes.indexOf(a); return a !== b && j > i && j < end; };
+    found = found.filter((n) => !found.some((m) => interactive(n) ? within(n, m) : within(m, n)));
+    if (found.some((n) => !n.inactive)) found = found.filter((n) => !n.inactive);
+    if (found.length === 1) return found[0];
+    throw new Error(`${JSON.stringify(target)} names ${found.length} views: ${found.slice(0, 8).map((n) => `${n.id}${n.props.testId ? ` (${n.props.testId})` : ''} ${n.type}`).join(', ')}${found.length > 8 ? ', …' : ''}; target one by its view id`);
+  }
+  return null;
+}
+
+/** A few targets an agent can name instead of a point: interactive views' testIds and labels, else their text. */
+export function targetsIn(nodes, limit = 12) {
+  const named = [...new Set(nodes.filter((n) => interactive(n) && !n.inactive).map((n) => {
+    const text = textOf(nodes, n);
+    return name(n) ?? (text != null && String(text).trim() ? JSON.stringify(String(text).trim()) : null);
+  }).filter(Boolean))];
+  return named.length ? `; targets here: ${named.slice(0, limit).join(', ')}${named.length > limit ? ', …' : ''}` : '';
+}
+
 /** Where a native host keeps a drive's scratch stores (host/apple and host/linux `configure_storage`), or
  * null where the driver cannot reach them: an iOS simulator's are in its app container and go with the app. */
 export function storeBase(appId, host, env = process.env, home = homedir()) {

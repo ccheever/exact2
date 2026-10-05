@@ -290,12 +290,33 @@ Commands, from this directory:
 | \`bun exact.mjs web\` | the web dev loop, at the URL it prints (8765 unless another loop holds it) |
 | \`bun exact.mjs test web\` | build the web app if needed, then run \`app.test.contract\` (also \`macos\`, \`ios\`) |
 | \`bun exact.mjs agent web tree "tap <id>" "screenshot out.png"\` | drive the app as a person would |
+| \`bun exact.mjs agent ios tree "tap <testId>" "screenshot s.png"\` | the same on an iOS simulator; drive by \`testId\`, never by coordinates |
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
 | \`bun exact.mjs update\` | after exact2 moves or changes its patches |
 
 The loop: generate the types, edit, \`contract build --json\` until it prints \`[]\`,
 \`test web\`, look at it with \`agent web … screenshot\`, then the native hosts.
 \`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup --check\` names anything this machine is missing.
+
+Build it native. A hand-built lookalike of a system control is a bug; write the
+Contract form and each host draws its own (the agent guide's "Prefer native
+controls"): \`button appearance="auto"\`, \`list appearance="auto"\` with
+\`section\`s for a settings screen, \`input type="checkbox" switch\`, \`type="range"\`,
+date and time inputs, \`select\`, a \`popover="auto" role="menu"\`, a \`role="tablist"\`,
+and a route whose first child is a \`header\` holding one heading (the nav bar).
+A screen scrolls only inside a \`scroll\` (or \`overflow-y="auto"\`); right after the
+header and named by the route's \`navigationScroll\`, it also collapses a large
+title. A sheet swipes down, and a pushed screen swipes back, only when the route
+has an enabled control whose \`id\` is the root's \`navigationBack\`.
+
+Drive it by \`testId\`, never by screen coordinates: give every control a \`testId\`,
+find targets with \`tree\` (\`tree --ax\` for the platform's accessibility tree), and
+\`tap\`/\`type\` them with \`agent ios\` as with \`agent web\`. Under the agent the
+authored header and tablist stand in for the native bars and take the same taps.
+
+Match a reference's structure, controls and hierarchy, not its pixels: native
+controls set their own metrics. Don't measure sub-point positions; stop when it
+reads as the same app.
 
 Contract libraries: \`use Card from "@scope/ui"\` reads an installed package's
 \`.contract\` files (\`bun add @scope/ui\`, or \`"@me/ui": "file:../ui"\` in

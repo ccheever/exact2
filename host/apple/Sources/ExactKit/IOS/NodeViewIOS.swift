@@ -1292,8 +1292,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // An orthogonal carousel's computed auto axis has no vertical travel.
         // Making that axis bounce traps Mac wheel input instead of letting the
         // enclosing page scroll. Keep elastic feedback for vertical content,
-        // including short vertical lists that have no horizontal overflow.
-        sv.alwaysBounceVertical = sv.scrollsY && (size.height > sv.bounds.height + 0.5 || size.width <= sv.bounds.width + 0.5)
+        // including short vertical lists that have no horizontal overflow and
+        // short screens that leave vertical room: a carousel is as tall as its
+        // content, and a stray point of width must not cost a page its bounce.
+        let carousel = size.width > sv.bounds.width + 0.5 && content.height >= sv.bounds.height - 0.5
+        sv.alwaysBounceVertical = sv.scrollsY && (size.height > sv.bounds.height + 0.5 || !carousel)
     }
 
     override func layoutSubviews() {

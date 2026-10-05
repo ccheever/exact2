@@ -14,7 +14,9 @@
 //   tap @<id> <choice> | type @<id> <value>   (by the node it answers at, or its capability: files F11)
 //   clock <ms|+ms|+ms real|settle> | prefer <media feature or page fact> <value> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]
 //   bun scripts/agent.mjs trace <file>   (a development session's trace, LLP 1079 D5: no app runs)
-// A target is a testId or a view id; each op is one argument (quote it).
+// A target is a testId, a view id, or else a view's exact accessibility label or text
+// (an interactive one first; several refuse, naming them; `tap "Sky off"` quotes one of
+// several words); each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
@@ -44,7 +46,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { dragTap } from './agent-drag.mjs';
-import { runTests } from './agent-test.mjs';
+import { runTests, nodeNamed, targetsIn } from './agent-test.mjs';
 import { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, pickedPaths, mouseContact, withHeldModifiers } from './agent-keys.mjs';
 export { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, pickedPaths, mouseContact } from './agent-keys.mjs';
 import { appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
@@ -958,7 +960,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const req = { op: 'tree' };
       if (target != null) req.target = typeof target === 'number' || /^\d+$/.test(String(target)) ? Number(target) : target;
       if (shallow !== false) req.shallow = shallow;
-      const reply = await s.op(req);
+      const reply = await s.op(req).catch(async (e) => { if (typeof req.target !== 'string' || !/no view matches/.test(e.message)) throw e; req.target = (await s.find(target)).id; return s.op(req); });
       const canvas = target != null && shallow === false ? reply.nodes?.find((n) => n.id === req.target || n.props?.testId === req.target) : null;
       return canvas?.world ? s.op({op:"tree", id:canvas.id, world:true, ...under}) : reply;
     },
@@ -975,7 +977,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     /** `perf [<target>]` (LLP 1079 D2): the plan sites under a view (every root's without one), each with its work across its instances' lifetimes and its source line; `{frames:true}` is the host's presented frames (D4). */
     async perf(target, frames) {
       if (frames) return s.op({ op: 'perf', frames: true, ...(frames.late != null ? { late: frames.late } : {}) });
-      const r = await s.op({ op: 'perf', ...(target != null ? { target: /^\d+$/.test(String(target)) ? Number(target) : target } : {}) });
+      const r = await s.op({ op: 'perf', ...(target != null ? { target: /^\d+$/.test(String(target)) ? Number(target) : (await s.find(target)).id } : {}) });
       if (await sourceMaps.refresh()) for (const site of r.sites) { const n = { planDigest: r.plan, site: site.site }; sourceMaps.attach(n); site.source = n.sourceMap; }
       return { target: target ?? null, ...r };
     },
@@ -988,10 +990,11 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (target != null && at) return s.op({op:"layout", id:(await s.find(target)).id, world:true, x:at[0], y:at[1]});
       const req = { op: 'layout', ...(inspect.native ? { native: inspect.native } : {}) };
       if (target != null) {
-        req.id = (await s.find(target)).id;
+        const found = await s.find(target); // by label or text: checked as its id
+        req.id = found.id;
         if (await sourceMaps.refresh()) req.plan = true;
         const reply = await s.op(req);
-        identifyInspectedNode(reply, target);
+        identifyInspectedNode(reply, found.props.testId === target ? target : found.id);
         // The JS target keeps no runner to name its plan: it is the plan this carrier serves.
         if (reply.node && carrier.host === 'web' && reply.node.site != null && !reply.node.planDigest && mapLocator && existsSync(mapLocator)) reply.node.planDigest = createHash('sha256').update(readFileSync(mapLocator)).digest('hex');
         if (reply.node) sourceMaps.attach(reply.node);
@@ -1006,16 +1009,18 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const text = String(target), colon = text.indexOf(':');
       const node = await s.find(target, false);
       if (node) return { id: node.id };
-      if (colon < 0) throw new Error(`no view matches ${target}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)`);
+      if (colon < 0) await s.find(target); // refuses, naming the targets there are
       return { id: (await s.find(text.slice(0, colon))).id, entity: text.slice(colon + 1) };
     },
-    /** The node for a target: a testId (first in preorder on a selected route; a covered screen's copy only when no active one carries it) or a view id. */
+    /** The node for a target: a testId (first in preorder on a selected route; a covered screen's copy only when no active one carries it), a view id, else the one view whose label or text it is (`nodeNamed`). */
     async find(target, required = true) {
       if (target == null) throw new Error(`no view matches ${target}`);
-      const t = await s.op(required ? {op:'tree', target, shallow:true} : {op:'tree'});
-      const matches = typeof target === 'number' || /^\d+$/.test(String(target)) ? t.nodes.filter((n) => n.id === Number(target)) : t.nodes.filter((n) => n.props.testId === target);
-      const node = matches.find((n) => !n.inactive) ?? matches[0];
-      if (!node && required) throw new Error(`no view matches ${target}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)`);
+      const byId = typeof target === 'number' || /^\d+$/.test(String(target));
+      const t = required ? await s.op({op:'tree', target, shallow:true}).catch((e) => { if (byId || !/no view matches/.test(e.message)) throw e; return null; }) : null;
+      const nodes = t?.nodes ?? (await s.op({op:'tree'})).nodes;
+      const matches = byId ? nodes.filter((n) => n.id === Number(target)) : nodes.filter((n) => n.props.testId === target);
+      const node = matches.find((n) => !n.inactive) ?? matches[0] ?? (byId ? undefined : nodeNamed(nodes, String(target)) ?? undefined);
+      if (!node && required) throw new Error(`no view matches ${target} by testId, label or text${targetsIn(nodes)}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)`);
       return node;
     },
     /**
@@ -1348,14 +1353,16 @@ async function main(argv) {
   // A trace a person's session saved (LLP 1079 D5), read back with no app running.
   if (host === 'trace' && ops.length === 1) { const t = await readTrace(ops[0], traceLocators); console.log(flags.json ? JSON.stringify(t) : renderTrace(t)); return 0; }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--size <w>x<h>] [--json] <op> [<op> …]\n  desktop carriers open 420x900 unless --size names another viewport; tap and type scroll a target out of view into it first; web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | mouse | dblclick | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | drag <dx> <dy> [from <x> <y>] [mouse: the left button, desktop pointers] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …: after the move, the finger down]] | tap <target> down [at <x> <y>], then tap move [by] <x> <y> [over <ms>] | tap hold <ms> | tap up | tap cancel | type <target> <text…> (a select, date, time, range or checkbox: its value) | type <target> key <Name> [for <ms>] | type <target> copy | cut | paste <text…> (the clipboard event at the focus) | tap @N|@<id> <choice> | type @N|@<id> <value> | clock <ms|+ms|+ms real|settle> | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--size <w>x<h>] [--json] <op> [<op> …]\n  desktop carriers open 420x900 unless --size names another viewport; a target is a testId, a view id, or a view\'s exact label or text (`tap "Sky off"`); tap and type scroll a target out of view into it first; web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | mouse | dblclick | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | drag <dx> <dy> [from <x> <y>] [mouse: the left button, desktop pointers] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …: after the move, the finger down]] | tap <target> down [at <x> <y>], then tap move [by] <x> <y> [over <ms>] | tap hold <ms> | tap up | tap cancel | type <target> <text…> (a select, date, time, range or checkbox: its value) | type <target> key <Name> [for <ms>] | type <target> copy | cut | paste <text…> (the clipboard event at the focus) | tap @N|@<id> <choice> | type @N|@<id> <value> | clock <ms|+ms|+ms real|settle> | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, browser, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
   let at = 0;
   // One op line; `perf … during "<op>" …` drives its own through here.
   const step = async (line) => {
-      const [op, ...args] = line.trim().split(/\s+/);
+      // A target of several words is quoted inside the op: `tap "Sky off"`.
+      const named = line.trim().match(/^(tap|type|tree|state|layout|perf)\s+"((?:[^"\\]|\\.)*)"(?:\s+([\s\S]*))?$/);
+      const [op, ...args] = named ? [named[1], JSON.parse(`"${named[2]}"`), ...(named[3] ? named[3].split(/\s+/) : [])] : line.trim().split(/\s+/);
       let r;
       switch (op) {
         case 'tree': r = args[0] === '--ax' ? await s.tree(args[1], {ax: true}) : await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
