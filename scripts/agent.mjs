@@ -901,17 +901,14 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   if (world && host !== 'web' && !device) env = {...env, EXACT_WORLD:resolve(world)};
   if (device && host !== 'ios') throw new Error('--device is supported for the standalone ios client');
   if (host !== 'web' && browser !== 'chrome') throw new Error(`--browser is only supported by the web carrier, not ${host}`);
-  // `timing: 'platform'` (LLP 1035.003 D5, opt-in): the carrier stays and the driver still owns the runner's clock,
-  // but UIKit's own transitions, sheet presentations and keyboard animations run at their natural timing — the
-  // ordinary app with a socket, for observing an interactive gesture's native motion. The frozen clock is the
-  // default the smoke depends on. Replies say `mode: "platform"`.
+  // `timing: 'platform'` (LLP 1035.003 D5): UIKit motion uses natural timing; the driver still owns
+  // the runner's clock. The smoke defaults to frozen time; replies name the mode.
   if (!['agent', 'platform'].includes(timing)) throw new Error(`timing: agent or platform, not ${timing}`);
   if (timing === 'platform') env = { ...(env ?? {}), EXACT_AGENT_TIMING: 'platform' };
   // `touch: 'platform'` (LLP 1080.000, opt-in): a plain `tap` on an iOS simulator is a real touch from the XCTest runner, `delivery: platform`.
   if (!['agent', 'platform'].includes(touch) || (touch === 'platform' && (device || !['ios', 'host-ios'].includes(host)))) throw new Error(`touch: platform is an iOS simulator's (LLP 1080.000), not ${device ? 'a phone' : host}'s`);
-  // A drive has no app storage unless it names a scratch store apart from the app's real files (`--storage <name>`), kept
-  // between drives: a tree under the cache base on native; on the web, Chrome's profile for it and its page's origin
-  // (agent-launch.mjs `webStore`; Firefox and WebKit open a fresh one each drive). EXACT_AGENT_STORAGE_FRESH empties it.
+  // `--storage <name>` keeps a scratch store apart from real files: native cache trees or Chrome's
+  // named profile/origin (`webStore`). Firefox/WebKit start fresh; EXACT_AGENT_STORAGE_FRESH empties it.
   if (storage !== undefined && (!/^[A-Za-z0-9._-]+$/.test(storage) || ['.', '..'].includes(storage))) throw new Error("--storage: one name of letters, digits, '.', '-' or '_'");
   if (storage !== undefined && host !== 'web') env = { ...(env ?? {}), EXACT_AGENT_STORAGE: storage };
   // The CLI's `390x844` is accepted from a script too; anything else names the two forms.
