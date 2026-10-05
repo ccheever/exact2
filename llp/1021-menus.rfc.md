@@ -787,10 +787,31 @@ menu's glass and the dismissal. In the delegate:
   preview, phase}` once the menu is showing (a provider has run), with
   `phase` `commit` after a commit. A configuration UIKit asked for that
   ended as a tap is never reported.
-- A row with a context menu is not parked in the node pool (`NodePoolIOS`):
-  the pool refuses a view with interactions or gesture recognizers, as it
-  refused the `contextmenu` recognizer before. A list of such rows builds
-  each row it shows. QUEUE has this.
+- **A row with a context menu parks in the node pool** (`NodePoolIOS`, a
+  virtualized `list`'s rows; 2026-10-05). The pool had refused any view with
+  interactions or gesture recognizers, the `contextmenu` long press
+  included. It now admits a context menu's own while they are at rest: the
+  long press in `.possible`, the interaction, and the eight recognizers and
+  two interactions UIKit adds with it, which the host records as it adds it.
+  The interaction stays on the view while it is parked, no node's: the
+  delegate reads the node from the view, and a parked view is hidden. At
+  the next sync it becomes the new node's, if that node names a popover,
+  and otherwise comes off with the long press back on. Removing and adding
+  it would cost much of what pooling saves. A tree that leaves the pool
+  takes its interactions with it. UIKit leaves a click-presentation
+  feedback generator behind when only the menu's interaction is removed
+  (measured), so the host removes the ones it recorded too. A focus a menu
+  set aside goes back only to the node it was taken from, never to a node
+  the view was lent to since. A row whose menu is up, or whose long press
+  is judging a touch, is not parked: it is destroyed as before, and its
+  menu ends as any unmounted source's does. Measured on the native fixture's 200-row Rows list, every
+  row naming a popover, reuse on: eight flings, three runs each, a
+  measurement-only Save Trace on SIGUSR1. Before, 0–2 takes. After, 132–187
+  takes, and batch apply over the 10-second window fell from 358–441 ms to
+  261–298 ms, with p90 per batch from 2.1–2.6 ms to 1.9–2.2 ms. Neither had
+  a late frame on the simulator. The Signal clone's chat list is not a
+  virtualized `list`, and its rows are swipe rows that the pool refuses for
+  their live scroll view, so this does not reach it.
 
 **macOS.** A secondary click on the node fires its `contextmenu` (as it
 did), then, on the next turn, pops up the popover's menu rows as an

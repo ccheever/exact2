@@ -25,7 +25,10 @@ import UIKit
 
 final class MenuFocus {
     private weak var presenter: Presenter?
-    private weak var held: UIResponder?
+    private weak var held: UIResponder? { didSet { heldIncarnation = (held as? NodeView)?.incarnation } }
+    /// The held node's incarnation: a view the node pool has since lent to
+    /// another node is not given the focus it set aside.
+    private var heldIncarnation: UInt64?
     /// While set, a node gaining or losing the focus dispatches nothing.
     private(set) var quiet = false
     /// The focus a bar's touch set aside waits for the next touch on the view.
@@ -86,8 +89,10 @@ final class MenuFocus {
     func restore() {
         untilNextTouch = false
         guard let responder = held else { return }
+        let incarnation = heldIncarnation
         held = nil
         guard let view = responder as? UIView, view.window != nil, responder.canBecomeFirstResponder else { return }
+        if let node = view as? NodeView, node.incarnation != incarnation || presenter?.views[node.id] !== node { return }
         if let now = FirstResponder.current, !String(describing: type(of: now)).hasPrefix("_UITypeSelect") { return }
         quiet = true
         defer { quiet = false }
