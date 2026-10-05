@@ -1,8 +1,9 @@
 use crate::{Body, Collider};
 use bincode::Options;
 use exact_game::{
-    data::{DataError, Reader, Writer},
-    Data, Entity, Transform,
+    bin,
+    data::{Bulk, DataError, Reader, Writer},
+    hash, Data, Entity, Transform,
 };
 use rapier3d::{
     pipeline::{FillHoles, PhysicsWorld},
@@ -13,9 +14,27 @@ use std::{
     collections::{BTreeMap, BTreeSet},
 };
 
-// Bump when Rapier, its serde representation, or bincode options change.
-// v3 writes each static collider that its entry rebuilds bit-exactly as a hole.
-const SNAPSHOT: &[u8] = b"EXPHYS\0\x03";
+// Bump when Rapier, its serde representation, bincode options or the saved form
+// change. v3 writes each static collider that its entry rebuilds bit-exactly as a
+// hole; v4 saves the entries as pages.
+const SNAPSHOT: &[u8] = b"EXPHYS\0\x04";
+
+// Entries are ordered by entity (index, then generation), as `Entity` orders.
+// A key, unlike an Entity, can bound a range: a page is a run of indices.
+pub(crate) type Key = (u32, u32);
+pub(crate) fn key(e: Entity) -> Key {
+    (e.index(), e.generation())
+}
+// A page holds the entries of 256 consecutive entity indices.
+const PAGE_BITS: u32 = 8;
+fn page_of(index: u32) -> usize {
+    (index >> PAGE_BITS) as usize
+}
+fn page_range(page: usize) -> std::ops::Range<Key> {
+    let lo = (page as u64) << PAGE_BITS;
+    let hi = (lo + (1 << PAGE_BITS)).min(u32::MAX as u64);
+    (lo as u32, 0)..(hi as u32, 0)
+}
 
 #[derive(Clone, Debug, Default, Data)]
 pub(crate) struct Entry {
@@ -46,32 +65,70 @@ pub(crate) struct Synced {
     pub presentation: u64,
     pub revisions: [u64; 4],
 }
-// Collider handles already index a dense Rapier arena. Keep the verified
-// generation at that slot, avoiding a tree lookup per collider during capture.
-// This derived table has at most the arena's high-water slot count; a reused
-// slot cannot inherit the previous collider's verification.
+// Which colliders a capture may write as holes. Collider handles already index a
+// dense Rapier arena: the verified generation sits at its slot, so a reused slot
+// cannot inherit the previous collider's verification. `pending` holds every
+// collider not verified, so a capture compares only those: an unchanged static
+// world costs nothing here. A collider whose comparison fails stays pending and
+// is compared again at every capture, so whether a collider is a hole depends on
+// the live state alone, never on when it was last compared.
 #[derive(Default)]
-pub(crate) struct Elidable(Vec<Option<u32>>);
+pub(crate) struct Elidable {
+    verified: Vec<Option<u32>>,
+    pending: BTreeSet<[u32; 2]>,
+}
 impl Elidable {
     fn contains(&self, h: &[u32; 2]) -> bool {
-        self.0.get(h[0] as usize).copied().flatten() == Some(h[1])
+        self.verified.get(h[0] as usize).copied().flatten() == Some(h[1])
     }
     fn insert(&mut self, h: [u32; 2]) {
         let slot = h[0] as usize;
-        if self.0.len() <= slot {
-            self.0.resize(slot + 1, None);
+        if self.verified.len() <= slot {
+            self.verified.resize(slot + 1, None);
         }
-        self.0[slot] = Some(h[1]);
+        self.verified[slot] = Some(h[1]);
+        self.pending.remove(&h);
     }
+    // A new or edited collider: compare it at the next capture.
+    pub fn forget(&mut self, h: [u32; 2]) {
+        if self.contains(&h) {
+            self.verified[h[0] as usize] = None;
+        }
+        self.pending.insert(h);
+    }
+    // A removed collider.
     pub fn remove(&mut self, h: &[u32; 2]) {
         if self.contains(h) {
-            self.0[h[0] as usize] = None;
+            self.verified[h[0] as usize] = None;
         }
+        self.pending.remove(h);
+    }
+}
+// What capture derived from each page of entries: the page's row count and
+// digest, and its saved bytes. Sync and writeback forget a page they touch.
+#[derive(Clone, Default)]
+struct Page {
+    digest: Option<(u64, u64)>,
+    bytes: Option<Vec<u8>>,
+}
+#[derive(Clone, Default)]
+pub(crate) struct Pages(Vec<Page>);
+impl Pages {
+    pub fn touch(&mut self, e: Entity) {
+        if let Some(p) = self.0.get_mut(page_of(e.index())) {
+            *p = Page::default();
+        }
+    }
+    fn page(&mut self, page: usize) -> &mut Page {
+        if self.0.len() <= page {
+            self.0.resize(page + 1, Page::default());
+        }
+        &mut self.0[page]
     }
 }
 pub(crate) struct Live {
     pub rapier: PhysicsWorld,
-    pub entries: BTreeMap<Entity, Entry>,
+    pub entries: BTreeMap<Key, Entry>,
     pub reverse: BTreeMap<[u32; 2], Entity>,
     // Derived from entries: entities holding a Rapier body, entities that were
     // parented at the last sync, and each index's entry.
@@ -82,26 +139,35 @@ pub(crate) struct Live {
     pub removed: Vec<[u32; 2]>,
     pub synced: Option<Synced>,
     // Static colliders verified equal to their entry's rebuild since last edited;
-    // sync forgets every row it visits.
+    // sync forgets each row it changes.
     pub elidable: Elidable,
+    pub pages: Pages,
 }
 impl Live {
-    fn new(rapier: PhysicsWorld, entries: BTreeMap<Entity, Entry>) -> Self {
+    fn new(rapier: PhysicsWorld, entries: BTreeMap<Key, Entry>) -> Self {
+        let reverse: BTreeMap<_, _> = entries
+            .values()
+            .filter_map(|e| e.collider_handle.map(|h| (h, e.entity)))
+            .collect();
         Self {
-            reverse: entries
-                .values()
-                .filter_map(|e| e.collider_handle.map(|h| (h, e.entity)))
-                .collect(),
+            elidable: Elidable {
+                verified: Vec::new(),
+                pending: reverse.keys().copied().collect(),
+            },
+            reverse,
             bodies: entries
                 .values()
                 .filter(|e| e.body_handle.is_some())
                 .map(|e| e.entity)
                 .collect(),
             parented: BTreeSet::new(),
-            slots: entries.keys().map(|e| (e.index(), *e)).collect(),
+            slots: entries
+                .values()
+                .map(|e| (e.entity.index(), e.entity))
+                .collect(),
             removed: Vec::new(),
             synced: None,
-            elidable: Elidable::default(),
+            pages: Pages::default(),
             rapier,
             entries,
         }
@@ -116,38 +182,66 @@ impl Default for Live {
         Self::new(rapier, BTreeMap::new())
     }
 }
+// The saved form: the snapshot, then each nonempty page of entries in index
+// order, every page a `Vec<Entry>` in `bin`. Exactly one form exists for each
+// state, so equal states save equal bytes. `Executor::write` writes it in place.
 #[derive(Default, Data)]
+struct Form {
+    bytes: Vec<u8>,
+    pages: Vec<Vec<u8>>,
+}
+#[derive(Default)]
 pub(crate) struct Saved {
     bytes: Vec<u8>,
-    entries: Vec<Entry>,
-    #[data(skip)]
     pub live: Option<Live>,
-    #[data(skip)]
     pub dirty: bool,
-    // The snapshot bytes' hash, and whether `entries` lags the live entries.
-    #[data(skip)]
+    // The snapshot bytes' digest.
     bytes_hash: Option<u64>,
-    #[data(skip)]
-    entries_stale: bool,
 }
 impl Saved {
     pub fn live(&mut self) -> &mut Live {
         self.live.get_or_insert_with(Live::default)
     }
-    fn decode(&mut self) -> Result<(), DataError> {
-        if self.bytes.is_empty() {
-            return Ok(());
+    // Read the saved form: entries strictly ascending by index, grouped by page.
+    fn read_form(form: Form) -> Result<Self, DataError> {
+        let mut entries = BTreeMap::new();
+        let mut last: Option<(usize, u32)> = None;
+        for bytes in &form.pages {
+            let page: Vec<Entry> = bin::from_slice(bytes)
+                .map_err(|e| DataError::new(format!("physics: invalid entries: {e}")))?;
+            let first = page
+                .first()
+                .ok_or_else(|| DataError::new("physics: an entries page is empty"))?;
+            let number = page_of(first.entity.index());
+            if last.is_some_and(|(p, _)| p >= number) {
+                return Err(DataError::new("physics: entries pages out of order"));
+            }
+            for e in page {
+                let index = e.entity.index();
+                if page_of(index) != number || last.is_some_and(|(_, i)| i >= index) {
+                    return Err(DataError::new("physics: entries out of order"));
+                }
+                last = Some((number, index));
+                entries.insert(key(e.entity), e);
+            }
         }
-        let payload = self.bytes.strip_prefix(SNAPSHOT).ok_or_else(|| {
+        if form.bytes.is_empty() && !entries.is_empty() {
+            return Err(DataError::new("physics: entries without a snapshot"));
+        }
+        Self::decode(form.bytes, entries)
+    }
+    fn decode(bytes: Vec<u8>, entries: BTreeMap<Key, Entry>) -> Result<Self, DataError> {
+        if bytes.is_empty() {
+            return Ok(Self::default());
+        }
+        let payload = bytes.strip_prefix(SNAPSHOT).ok_or_else(|| {
             DataError::new(format!(
-                "physics: expected EXPHYS v3 (v1/v2 snapshots predate static-collider rebuilds; start a new world); saw {:02x?}",
-                &self.bytes[..self.bytes.len().min(8)]
+                "physics: expected EXPHYS v4 (v1–v3 snapshots predate paged entries; start a new world); saw {:02x?}",
+                &bytes[..bytes.len().min(8)]
             ))
         })?;
-        let entries: BTreeMap<_, _> = self.entries.iter().map(|e| (e.entity, e)).collect();
-        let owners: BTreeMap<_, _> = self
-            .entries
-            .iter()
+        let owners: BTreeMap<_, _> = entries
+            .values()
             .filter_map(|e| Some((e.collider_handle?, e)))
             .collect();
         // A hole over a missing or invalid entry fails the read by name; nothing
@@ -155,13 +249,13 @@ impl Saved {
         let mut refused = None;
         // A filled hole is its entry's rebuild by construction: elidable without
         // re-verifying, so a restore does not re-serialize every static collider.
-        let mut filled = Elidable::default();
+        let mut filled = Vec::new();
         let fill = |h: ColliderHandle| {
             let rebuilt = owners
                 .get(&raw(h))
                 .ok_or("physics: a collider hole has no entry")
                 .and_then(|e| rebuild(e));
-            filled.insert(raw(h));
+            filled.push(raw(h));
             rebuilt.map_err(|e| refused = Some(e)).ok()
         };
         let rapier = bincode::DefaultOptions::new()
@@ -171,11 +265,15 @@ impl Saved {
                 Some(why) => DataError::new(format!("physics: invalid snapshot: {why}")),
                 None => DataError::new(format!("physics: invalid snapshot: {e}")),
             })?;
-        let entries = entries.into_iter().map(|(k, e)| (k, e.clone())).collect();
         let mut live = Live::new(rapier, entries);
-        live.elidable = filled;
-        self.live = Some(live);
-        Ok(())
+        for h in filled {
+            live.elidable.insert(h);
+        }
+        Ok(Self {
+            bytes,
+            live: Some(live),
+            ..Self::default()
+        })
     }
     fn refresh(&mut self) -> usize {
         if self.dirty {
@@ -191,53 +289,124 @@ impl Saved {
                     )
                     .expect("physics: snapshot serialization");
                 self.bytes_hash = None;
-                self.entries_stale = true;
             }
             self.dirty = false;
         }
         self.bytes.len()
     }
-    // A save (or a clone) needs the entries themselves; a hash needs only digests.
-    fn entries(&mut self) {
-        if std::mem::take(&mut self.entries_stale) {
-            if let Some(live) = &self.live {
-                self.entries = live.entries.values().cloned().collect();
-            }
+    // Each nonempty page in index order, for `each` to read from the cache.
+    fn pages(&mut self, mut each: impl FnMut(usize, &mut Page, &mut BTreeMap<Key, Entry>)) {
+        let Some(live) = &mut self.live else {
+            return;
+        };
+        let Some(&(last, _)) = live.entries.keys().next_back() else {
+            return;
+        };
+        for number in 0..=page_of(last) {
+            each(number, live.pages.page(number), &mut live.entries);
         }
     }
-    // What a hash reads in place of the saved content: the snapshot bytes' hash and
-    // each entry's hash in entity order. Both are functions of the saved content
-    // alone, recomputed identically after a load; only touched entries are rehashed.
+    fn write_form(&mut self, w: &mut dyn Writer) {
+        // Encode the pages no save has encoded since they were touched; an empty
+        // page encodes as nothing and is left out.
+        self.pages(|number, page, entries| {
+            page.bytes.get_or_insert_with(|| {
+                let rows = entries.range(page_range(number));
+                let count = rows.clone().count();
+                if count == 0 {
+                    return Vec::new();
+                }
+                let mut e = bin::Encoder::default();
+                e.begin_seq(count);
+                for (_, entry) in rows {
+                    e.item();
+                    entry.write(&mut e);
+                }
+                e.end_seq();
+                e.finish()
+            });
+        });
+        let pages: Vec<&[u8]> = match &self.live {
+            Some(live) => live
+                .entries
+                .keys()
+                .next_back()
+                .map_or(&[][..], |&(last, _)| &live.pages.0[..=page_of(last)])
+                .iter()
+                .filter_map(|p| p.bytes.as_deref().filter(|b| !b.is_empty()))
+                .collect(),
+            None => Vec::new(),
+        };
+        // The derived `Form::write`, over the cached bytes instead of copies.
+        w.begin_struct();
+        w.field("bytes");
+        w.bytes(Bulk::U8(&self.bytes));
+        w.field("pages");
+        w.begin_seq(pages.len());
+        for page in pages {
+            w.item();
+            w.bytes(Bulk::U8(page));
+        }
+        w.end_seq();
+        w.end_struct();
+    }
+    // What a hash reads in place of the saved content: the snapshot bytes' digest,
+    // then each nonempty page's number and digest, a page's digest covering its
+    // row count and each entry's hash in entity order. All are functions of the
+    // saved content alone, recomputed identically after a load; only touched
+    // entries are rehashed, and only touched pages recombined.
     fn digest(&mut self) -> u64 {
         let bytes = *self
             .bytes_hash
-            .get_or_insert_with(|| exact_game::hash::of(&self.bytes));
-        let mut h = exact_game::hash::Hasher::default();
+            .get_or_insert_with(|| digest_bytes(&self.bytes));
+        let mut h = hash::Hasher::default();
         bytes.write(&mut h);
-        match &mut self.live {
-            Some(live) => {
-                (live.entries.len() as u64).write(&mut h);
-                for entry in live.entries.values_mut() {
+        self.pages(|number, page, entries| {
+            let (rows, digest) = *page.digest.get_or_insert_with(|| {
+                let mut h = hash::Hasher::default();
+                let mut rows = 0u64;
+                for (_, entry) in entries.range_mut(page_range(number)) {
+                    rows += 1;
                     let d = match entry.digest {
                         Some(d) => d,
-                        None => {
-                            let d = exact_game::hash::of(entry);
-                            entry.digest = Some(d);
-                            d
-                        }
+                        None => *entry.digest.insert(hash::of(entry)),
                     };
                     d.write(&mut h);
                 }
+                rows.write(&mut h);
+                (rows, h.finish())
+            });
+            if rows != 0 {
+                (number as u64).write(&mut h);
+                digest.write(&mut h);
             }
-            None => {
-                (self.entries.len() as u64).write(&mut h);
-                for entry in &self.entries {
-                    exact_game::hash::of(entry).write(&mut h);
-                }
-            }
-        }
+        });
         h.finish()
     }
+}
+// The snapshot bytes' digest: four SplitMix64 lanes over interleaved little-endian
+// words, so megabytes are not one serial multiply chain, then the engine's hash
+// over the lanes, the length and the tail.
+fn digest_bytes(bytes: &[u8]) -> u64 {
+    fn mix(mut n: u64) -> u64 {
+        n = (n ^ (n >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        n = (n ^ (n >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        n ^ (n >> 31)
+    }
+    let mut lanes: [u64; 4] = [1, 2, 3, 4].map(|k: u64| mix(k.wrapping_mul(0x9e37_79b9_7f4a_7c15)));
+    let mut blocks = bytes.chunks_exact(32);
+    for block in &mut blocks {
+        for (lane, word) in lanes.iter_mut().zip(block.chunks_exact(8)) {
+            *lane = mix(*lane ^ u64::from_le_bytes(word.try_into().unwrap())).rotate_left(27);
+        }
+    }
+    let mut h = hash::Hasher::default();
+    for lane in lanes {
+        lane.write(&mut h);
+    }
+    (bytes.len() as u64).write(&mut h);
+    h.bytes(Bulk::U8(blocks.remainder()));
+    h.finish()
 }
 #[derive(Default)]
 pub(crate) struct Executor(
@@ -253,13 +422,18 @@ impl Clone for Executor {
     fn clone(&self) -> Self {
         let mut s = self.0.borrow_mut();
         s.refresh();
-        s.entries();
-        let mut saved = Saved {
-            bytes: s.bytes.clone(),
-            entries: s.entries.clone(),
-            ..Saved::default()
-        };
-        saved.decode().expect("physics: own snapshot must decode");
+        let entries = s
+            .live
+            .as_ref()
+            .map(|l| l.entries.clone())
+            .unwrap_or_default();
+        let mut saved =
+            Saved::decode(s.bytes.clone(), entries).expect("physics: own snapshot must decode");
+        // The same entries: their digests (cloned with them) and pages hold.
+        if let (Some(to), Some(from)) = (&mut saved.live, &s.live) {
+            to.pages = from.pages.clone();
+        }
+        saved.bytes_hash = s.bytes_hash;
         Self(RefCell::new(saved), RefCell::new(None))
     }
 }
@@ -277,15 +451,13 @@ impl Data for Executor {
         if w.digests() {
             s.digest().write(w);
         } else {
-            s.entries();
-            s.write(w);
+            s.write_form(w);
         }
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-        let mut next = Saved::default();
-        next.read(r)?;
-        next.decode()?;
-        *self.0.get_mut() = next;
+        let mut form = Form::default();
+        form.read(r)?;
+        *self.0.get_mut() = Saved::read_form(form)?;
         *self.1.get_mut() = None;
         Ok(())
     }
@@ -310,11 +482,11 @@ fn verify(live: &mut Live) {
     // and walks each collider twice (size, then bytes); only the bytes are needed.
     let (mut actual, mut rebuilt) = (Vec::new(), Vec::new());
     let options = bincode::DefaultOptions::new();
-    for (h, e) in &live.reverse {
-        if live.elidable.contains(h) {
+    let mut verified = Vec::new();
+    for h in &live.elidable.pending {
+        let Some(entry) = live.reverse.get(h).and_then(|e| live.entries.get(&key(*e))) else {
             continue;
-        }
-        let entry = &live.entries[e];
+        };
         let co = &live.rapier.colliders[ColliderHandle::from_raw_parts(h[0], h[1])];
         let same = |fresh: rapier3d::prelude::Collider| {
             actual.clear();
@@ -324,8 +496,11 @@ fn verify(live: &mut Live) {
                 && actual == rebuilt
         };
         if rebuild(entry).is_ok_and(same) {
-            live.elidable.insert(*h);
+            verified.push(*h);
         }
+    }
+    for h in verified {
+        live.elidable.insert(h);
     }
 }
 pub(crate) fn raw(handle: ColliderHandle) -> [u32; 2] {
@@ -340,16 +515,16 @@ mod tests {
 
     #[test]
     fn snapshot_refusal_names_expected_format_and_seen_bytes() {
-        let mut saved = Saved {
-            bytes: b"random!!".to_vec(),
-            ..Saved::default()
-        };
-        let error = saved.decode().unwrap_err().to_string();
+        let bytes = b"random!!".to_vec();
+        let error = Saved::decode(bytes.clone(), BTreeMap::new())
+            .err()
+            .unwrap()
+            .to_string();
         assert!(
-            error.contains("EXPHYS v3") && error.contains("start a new world"),
+            error.contains("EXPHYS v4") && error.contains("start a new world"),
             "{error}"
         );
-        assert!(error.contains(&format!("{:02x?}", saved.bytes)), "{error}");
+        assert!(error.contains(&format!("{bytes:02x?}")), "{error}");
     }
 
     // A save is input: a hole over an entry that cannot be rebuilt is refused by
@@ -365,8 +540,10 @@ mod tests {
         let physics = w.resource::<crate::Physics>();
         let mut good = physics.executor.0.borrow_mut();
         good.refresh();
-        good.entries();
-        let (bytes, entries) = (good.bytes.clone(), good.entries.clone());
+        let (bytes, entries) = (
+            good.bytes.clone(),
+            good.live.as_ref().unwrap().entries.clone(),
+        );
         let shape = |shape| Collider {
             shape,
             ..Collider::default()
@@ -428,22 +605,16 @@ mod tests {
         ];
         for (collider, pose, why) in cases {
             let mut entries = entries.clone();
-            entries[0].collider = collider;
-            entries[0].pose = pose;
-            let mut saved = Saved {
-                bytes: bytes.clone(),
-                entries,
-                ..Saved::default()
-            };
-            let error = saved.decode().unwrap_err().to_string();
+            let first = entries.values_mut().next().unwrap();
+            first.collider = collider;
+            first.pose = pose;
+            let error = Saved::decode(bytes.clone(), entries)
+                .err()
+                .unwrap()
+                .to_string();
             assert!(error.contains(why), "{why}: {error}");
         }
-        let mut saved = Saved {
-            bytes,
-            entries,
-            ..Saved::default()
-        };
-        saved.decode().unwrap();
+        Saved::decode(bytes, entries).unwrap();
     }
 
     #[test]
@@ -525,7 +696,7 @@ mod tests {
             {
                 let saved = executor.0.borrow();
                 let live = saved.live.as_ref().unwrap();
-                if let Some(handle) = live.entries.get(&e).and_then(|e| e.collider_handle) {
+                if let Some(handle) = live.entries.get(&key(e)).and_then(|e| e.collider_handle) {
                     if matches!(stage, 8 | 10) {
                         let old: [u32; 2] = previous_collider.unwrap();
                         assert_eq!(handle[0], old[0], "exercise Rapier slot reuse");
@@ -539,7 +710,7 @@ mod tests {
                     .serialize_into(
                         &mut expected,
                         &live.rapier.with_holes(|h, co| {
-                            let entry = &live.entries[&live.reverse[&raw(h)]];
+                            let entry = &live.entries[&key(live.reverse[&raw(h)])];
                             rebuild(entry).is_ok_and(|fresh| {
                                 options.serialize(co).unwrap() == options.serialize(&fresh).unwrap()
                             })
@@ -569,14 +740,98 @@ mod tests {
             b"EXPHYS\0\x01broken".to_vec(),
             b"EXPHYS\0\x02broken".to_vec(),
             b"EXPHYS\0\x03broken".to_vec(),
+            b"EXPHYS\0\x04broken".to_vec(),
         ] {
-            let saved = Saved {
+            let form = Form {
                 bytes,
-                ..Saved::default()
+                pages: Vec::new(),
             };
-            let result = bin::from_slice::<Executor>(&bin::to_vec(&saved));
+            let result = bin::from_slice::<Executor>(&bin::to_vec(&form));
             assert!(result.is_err(), "stale physics accepted by Data::read");
             assert!(result.unwrap_err().to_string().contains("physics"));
+        }
+    }
+
+    // 600 static colliders over three pages, a falling box on the last.
+    fn paged_world() -> exact_game::World {
+        use exact_game::World;
+        let mut w = World::new(60, 0);
+        crate::register(&mut w);
+        for i in 0..600 {
+            w.spawn((
+                Transform::at((i % 30) as f32 * 2.0, 0.0, (i / 30) as f32 * 2.0),
+                Collider::default(),
+            ));
+        }
+        w.spawn((
+            Transform::at(1.0, 3.0, 1.0),
+            Body::default(),
+            Collider::default(),
+        ));
+        crate::step(&mut w);
+        w
+    }
+
+    // One saved form per state: pages ascend, each holds only its own indices in
+    // order, and none is empty. Any other arrangement is refused by name.
+    #[test]
+    fn saved_entry_pages_are_canonical() {
+        let w = paged_world();
+        let saved = bin::to_vec(&w.resource::<crate::Physics>().executor);
+        let form: Form = bin::from_slice(&saved).unwrap();
+        assert_eq!(form.pages.len(), 3);
+        let again = bin::from_slice::<Executor>(&saved).unwrap();
+        assert_eq!(
+            bin::to_vec(&again),
+            saved,
+            "a read form saves the same bytes"
+        );
+        let refused = |pages: Vec<Vec<u8>>, bytes: Vec<u8>| {
+            let form = Form { bytes, pages };
+            bin::from_slice::<Executor>(&bin::to_vec(&form))
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_default()
+        };
+        let p = &form.pages;
+        let b = &form.bytes;
+        let swapped = vec![p[1].clone(), p[0].clone(), p[2].clone()];
+        assert!(refused(swapped, b.clone()).contains("out of order"));
+        let twice = vec![p[0].clone(), p[0].clone(), p[1].clone(), p[2].clone()];
+        assert!(refused(twice, b.clone()).contains("out of order"));
+        let mut merged: Vec<Entry> = bin::from_slice(&p[0]).unwrap();
+        merged.extend(bin::from_slice::<Vec<Entry>>(&p[1]).unwrap());
+        let merged = vec![bin::to_vec(&merged), p[2].clone()];
+        assert!(refused(merged, b.clone()).contains("out of order"));
+        let empty = vec![bin::to_vec(&Vec::<Entry>::new()), p[0].clone()];
+        assert!(refused(empty, b.clone()).contains("page is empty"));
+        assert!(refused(p.clone(), Vec::new()).contains("without a snapshot"));
+        assert!(refused(vec![b"junk".to_vec()], b.clone()).contains("invalid entries"));
+    }
+
+    // A restore rebuilds every hole, and its first step's full sync finds every
+    // static row unchanged: the next capture compares no static collider, and
+    // the restored world continues exactly as the original does.
+    #[test]
+    fn a_restored_static_world_stays_warm() {
+        let mut w = paged_world();
+        let mut r = exact_game::World::new(60, 0);
+        crate::register(&mut r);
+        r.load(&w.save()).unwrap();
+        for _ in 0..3 {
+            crate::step(&mut w);
+            crate::step(&mut r);
+            for world in [&w, &r] {
+                world.resource::<crate::Physics>().refresh_snapshot();
+            }
+            {
+                let physics = r.resource::<crate::Physics>();
+                let saved = physics.executor.0.borrow();
+                let pending = saved.live.as_ref().unwrap().elidable.pending.len();
+                assert_eq!(pending, 1, "only the body's collider");
+            }
+            assert_eq!(w.hash(), r.hash());
+            assert_eq!(w.save(), r.save());
         }
     }
 }

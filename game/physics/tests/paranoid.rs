@@ -18,8 +18,8 @@ fn obsolete_snapshot_refusal_keeps_destination_unchanged() {
     sim.key_down("KeyW");
     let before = sim.save().unwrap();
     let mut old = before.clone();
-    let at = old.windows(8).position(|s| s == b"EXPHYS\0\x03").unwrap();
-    for (version, bound) in [(1, false), (2, false), (1, true), (2, true)] {
+    let at = old.windows(8).position(|s| s == b"EXPHYS\0\x04").unwrap();
+    for (version, bound) in [(1, false), (3, false), (2, true), (3, true)] {
         old[at + 7] = version;
         let error = if bound {
             sim.restore_bound(&old)
@@ -29,7 +29,7 @@ fn obsolete_snapshot_refusal_keeps_destination_unchanged() {
         .unwrap_err()
         .to_string();
         assert!(
-            error.contains("EXPHYS v3") && error.contains("predate"),
+            error.contains("EXPHYS v4") && error.contains("predate"),
             "{error}"
         );
         assert!(

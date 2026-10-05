@@ -143,28 +143,67 @@ fn forest_trunks_per_tick_and_save() {
     }
 }
 
-// A full world hash at Forest scale: static trunks, one walking capsule. The
-// Physics resource is part of the hash, and each step changes it: its snapshot is
-// re-encoded and hashed again.
+fn ms(f: impl FnOnce()) -> f64 {
+    let t = Instant::now();
+    f();
+    (t.elapsed().as_secs_f64() * 1e5).round() / 100.
+}
+fn median(mut v: Vec<f64>) -> f64 {
+    v.sort_by(f64::total_cmp);
+    v[v.len() / 2]
+}
+// State capture at Forest scale: static trunks, one walking capsule. The Physics
+// resource is part of the hash and the save, and each step changes it. Warm rows
+// follow a step; restored rows follow a load and its first step. Medians of five.
 #[test]
 #[ignore = "measurement"]
-fn hash_of_a_static_forest() {
-    for trees in [20_000, 100_000] {
+fn capture_of_a_static_forest() {
+    use exact_game_physics::Physics;
+    for trees in [20_000, 100_000, 250_000] {
         let mut w = forest(trees);
-        for _ in 0..3 {
-            forest_tick(&mut w);
-        }
-        let (mut snapshot, mut hash) = (Vec::new(), Vec::new());
+        forest_tick(&mut w);
+        let cold = ms(|| {
+            std::hint::black_box(w.hash());
+        });
+        let (mut snapshot, mut hash, mut save, mut world_save) = (vec![], vec![], vec![], vec![]);
         for _ in 0..5 {
             forest_tick(&mut w);
-            let t = Instant::now();
-            w.resource::<exact_game_physics::Physics>()
-                .refresh_snapshot();
-            snapshot.push((t.elapsed().as_secs_f64() * 1e5).round() / 100.);
-            let t = Instant::now();
-            std::hint::black_box(w.hash());
-            hash.push((t.elapsed().as_secs_f64() * 1e5).round() / 100.);
+            snapshot.push(ms(|| {
+                w.resource::<Physics>().refresh_snapshot();
+            }));
+            hash.push(ms(|| {
+                std::hint::black_box(w.hash());
+            }));
+            save.push(ms(|| {
+                std::hint::black_box(exact_game::bin::to_vec(&*w.resource::<Physics>()));
+            }));
+            world_save.push(ms(|| {
+                std::hint::black_box(w.save());
+            }));
         }
-        println!("SCALE hash trees={trees} snapshot_ms={snapshot:?} then_hash_ms={hash:?}");
+        let saved = w.save();
+        let mut restored = (vec![], vec![]);
+        for _ in 0..5 {
+            let mut r = World::new(60, 0);
+            physics::register(&mut r);
+            r.load(&saved).unwrap();
+            forest_tick(&mut r);
+            restored.0.push(ms(|| {
+                std::hint::black_box(r.hash());
+            }));
+            restored.1.push(ms(|| {
+                std::hint::black_box(exact_game::bin::to_vec(&*r.resource::<Physics>()));
+            }));
+        }
+        println!(
+            "SCALE capture trees={trees} cold_hash_ms={cold} warm_snapshot_ms={} then_hash_ms={} physics_save_ms={} world_save_ms={} save_bytes={} restored_step_hash_ms={} restored_physics_save_ms={}",
+            median(snapshot),
+            median(hash),
+            median(save),
+            median(world_save),
+            saved.len(),
+            median(restored.0),
+            median(restored.1),
+        );
     }
 }

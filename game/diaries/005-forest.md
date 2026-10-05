@@ -1788,3 +1788,41 @@ tick: the art pass's feed is 1.0 ms at 2k trees, 1.9 at 5k and 5.6 at 20k (0.18 
 20k with `present` off), while every scene holds 60 fps to 20k in headless Chrome
 (`bench.mjs`); QUEUE has the follow-up. `proof.mjs web --screenshot-only --art`
 writes `artifacts/web/art-*.png`.
+
+## Physics capture follows what changed (2026-10-05)
+
+A profile at 100k trees split a warm capture (10.8 ms quiet) into Rapier's encode
+(4.3 ms: the broad-phase BVH 2.4, collider holes about 1.2), hashing those 9.3 MB
+(3.8 ms) and walking 100k entry digests (2.2 ms). A physics save also wrote every
+entry through the structured encoder: 18.9 MB, 33–38 ms. Each static collider
+cost its entry on every hash and save, and a capture still walked every collider
+handle to find the few unverified ones. A restore's first step undid its own
+warm start: the full sync forgot every hole's verification.
+
+EXPHYS v4 keeps v3's Rapier bytes and saves the entries as pages of 256 entity
+indices, each a `bin` `Vec<Entry>` encoded once until sync or writeback touches
+it; one form per state, any other refused by name. A hash reads each page's
+cached digest. Capture compares only colliders not yet verified. Sync forgets a
+row only when it differs from its entry, so a restored static world stays warm.
+The snapshot bytes' digest runs four interleaved lanes. Physics pins (`pile-600`,
+`minimal-120`) move; every Transform, Body and event over 600 ticks of the four
+scenes, Off/Save/FreshGame, is identical to the previous build, and Wasm under
+Bun agrees with arm64.
+
+Four alternating release runs of `capture_of_a_static_forest` (medians of five
+samples each; load average 60–150 from other lanes throughout, so read ratios
+rather than absolutes):
+
+| Trees | Warm hash before / after | Physics save | World save | Restored step + hash |
+| --- | ---: | ---: | ---: | ---: |
+| 20,000 | 1.79 / 0.22 ms | 15.4 / 0.54 ms | 33.7 / 12.7 ms | 58.6 / 21.5 ms |
+| 100,000 | 9.92 / 1.36 ms | 78.1 / 2.72 ms | 173.8 / 85.0 ms | 130.5 / 120.0 ms |
+| 250,000 | 32.7 / 2.46 ms | 202.9 / 5.97 ms | 456.6 / 164.6 ms | 609.9 / 333.3 ms |
+
+The warm snapshot encode is unchanged (4.8 / 5.7 ms at 100k): the BVH is
+Parry's, with private fields and no record of changed nodes, and a moving leaf's
+change flags shift its serialized length every step, so fixed chunks of the
+bytes cannot be reused either. A first save after a load still encodes every
+page (47 / 68 ms at 100k), and cold hashing is unchanged. Saves grow 0.2% (one
+name table a page). Forest's Linux proof fails only its 11 pins after tick 0,
+with byte-identical continuation saves; Rivals' passes with unchanged pins.
