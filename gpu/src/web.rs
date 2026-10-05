@@ -50,6 +50,18 @@ pub fn asset_failed(id: u32, name: &str, reason: &str) -> bool {
     with(|m| m.asset(id, name, Err(crate::AssetError::Failed(reason.into())))).unwrap_or(false)
 }
 
+/// A development reload's changed asset names, a JSON array; returns the
+/// JSON array of names the surface takes in place.
+pub fn assets_changed(id: u32, names_json: &str) -> String {
+    let names: Vec<String> = crate::json::parse_values(names_json)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_owned))
+        .collect();
+    let taken = with(|m| m.assets_changed(id, &names)).unwrap_or_default();
+    crate::json::strings(&taken)
+}
+
 /// Create the device and the module (asynchronous: WebGPU's adapter and
 /// device requests are).
 pub async fn load(registry: &'static Registry) -> Result<(), JsValue> {
@@ -534,6 +546,12 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_asset(id: u32, name: &str, bytes: Option<Vec<u8>>) -> bool {
             $crate::web::asset(id, name, bytes.as_deref())
+        }
+        /// A development reload's changed names (JSON array); the JSON array
+        /// of those the surface takes in place, to be asked for again.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_assets_changed(id: u32, names_json: &str) -> String {
+            $crate::web::assets_changed(id, names_json)
         }
         /// Deliver a terminal host transport failure.
         #[::wasm_bindgen::prelude::wasm_bindgen]

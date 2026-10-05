@@ -99,6 +99,37 @@ impl<G: Game> Sim<G> {
         assets.requested.extend(names.iter().cloned());
         names
     }
+    /// A development reload has new bytes under these names (LLP 1046.009 G2):
+    /// each one this world already received is asked for again, and its
+    /// arrival replaces the old content in the running world — a level or a
+    /// sound included, whose change a delivery otherwise refuses. Nothing
+    /// restarts and nothing is carried; the world keeps running on the old
+    /// content until the new arrives. Names it never received, and generated
+    /// models (made, not fetched), are ignored. Returns the names it took.
+    pub fn assets_changed<'a>(&mut self, names: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+        use crate::asset::AssetState;
+        let mut taken = Vec::new();
+        for name in names {
+            let assets = &self.world.assets;
+            let received = matches!(
+                assets.states.get(name),
+                Some(AssetState::Loaded | AssetState::Failed(_))
+            );
+            let generated = name.ends_with(".model")
+                && (assets.identities.contains_key(name) || assets.drawn_generated.contains(name));
+            if !received || generated || taken.iter().any(|n| n == name) {
+                continue;
+            }
+            let assets = &mut *self.world.assets;
+            assets.requested.remove(name);
+            assets.redelivery.insert(name.into());
+            assets.replacing.insert(name.into());
+            // The host forgets its answer, so the name may be asked again.
+            assets.retired.push(name.into());
+            taken.push(name.to_owned());
+        }
+        taken
+    }
     /// `Game::STREAMED` models delivered but not yet prepared for the device,
     /// those an entity shows first. A device-backed surface prepares none
     /// before its first drawn frame and a few per frame after it, so streamed

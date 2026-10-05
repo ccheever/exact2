@@ -510,11 +510,27 @@ impl<G: Game> Sim<G> {
         self.world.assets.request(name);
         self.world.assets.requested.insert(name.into());
         self.world.assets.redelivery.remove(name);
+        let replacing = self.world.assets.replacing.contains(name);
+        if replacing {
+            self.world.assets.replacing.remove(name);
+        }
         let result = result.and_then(|content| match content {
-            Content::Level(text) => self.deliver_level(name, text).map(|()| None),
-            Content::Sound(sound) => self.deliver_sound(name, sound).map(|()| None),
+            Content::Level(text) => self.deliver_level(name, text, replacing).map(|()| None),
+            Content::Sound(sound) => self.deliver_sound(name, sound, replacing).map(|()| None),
             other => Ok(Some(other)),
         });
+        // A replacement that fails keeps the content the world already runs on.
+        if replacing {
+            if let Err(reason) = &result {
+                return Err(format!("asset `{name}`: replacement refused: {reason}"));
+            }
+            self.world.assets.replaced.insert(name.into());
+            // What a look derived from the old level is derived again now,
+            // paused or not: presentation reads the level as the tick does.
+            if name.ends_with(".level.json") && !self.setup_pending {
+                Self::present(&mut self.world, &self.args);
+            }
+        }
         match result {
             Ok(None) => {}
             Ok(Some(Content::Level(_) | Content::Sound(_))) => unreachable!(),

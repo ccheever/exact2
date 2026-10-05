@@ -222,6 +222,14 @@ impl<'w> Present<'w> {
         const { assert!(!C::PRESENTATION, "Game::present reads the simulation") };
         self.world.require(target)
     }
+    /// The declared level as delivered (`World::shared_level`): a table a look
+    /// reads, which a development reload may replace.
+    pub fn shared_level<T: crate::Data + Send + Sync + 'static>(
+        &self,
+        name: &str,
+    ) -> Result<std::sync::Arc<T>, crate::DataError> {
+        self.world.shared_level(name)
+    }
     /// Whether a living entity has this component.
     pub fn has<C: Component>(&self, e: Entity) -> bool {
         const { assert!(!C::PRESENTATION, "Game::present reads the simulation") };

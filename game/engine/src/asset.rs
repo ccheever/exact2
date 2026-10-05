@@ -14,7 +14,7 @@ pub(crate) mod level;
 mod map;
 mod sound;
 pub use build::{across, MeshBuilder};
-pub use level::{Level, LevelValue};
+pub use level::{Checked, Level, LevelValue};
 pub use sound::{SoundAsset, SoundData, SOUND_BYTE_BUDGET, SOUND_RATES};
 /// Renderer-neutral pose records and rig geometry.
 pub mod pose;
@@ -512,6 +512,12 @@ pub(crate) struct Assets {
     pub requested: BTreeSet<String>,
     pub prepared: BTreeSet<String>,
     pub redelivery: BTreeSet<String>,
+    /// Names a development reload announced new bytes for (`Sim::assets_changed`),
+    /// until they arrive: their delivery replaces rather than refuses a change.
+    pub replacing: BTreeSet<String>,
+    /// Names whose content a development reload replaced, until the game
+    /// takes the notice (`World::take_replaced`).
+    pub replaced: BTreeSet<String>,
     /// Names an entity's mesh or sprite showed when requests were last taken:
     /// shown `Game::STREAMED` models are fetched and prepared first.
     pub shown: BTreeSet<String>,
@@ -556,6 +562,8 @@ impl std::ops::Deref for AssetStore {
             requested: BTreeSet::new(),
             prepared: BTreeSet::new(),
             redelivery: BTreeSet::new(),
+            replacing: BTreeSet::new(),
+            replaced: BTreeSet::new(),
             shown: BTreeSet::new(),
             dependencies: map::AssetMap::EMPTY,
             dependents: map::AssetMap::EMPTY,
@@ -659,6 +667,7 @@ impl Assets {
         self.requested.remove(&name);
         self.prepared.remove(&name);
         self.redelivery.remove(&name);
+        self.replacing.remove(&name);
         self.retired.push(name);
     }
     pub fn state_json(&self) -> String {

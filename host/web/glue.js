@@ -208,6 +208,24 @@ function assetNamespace(cards) {
   return assets;
 }
 function releaseAssets(assets) { for (const card of assets?.values() ?? []) if (card.objectURL) URL.revokeObjectURL(card.objectURL); }
+// An asset-only dev generation (the plan this page runs, no code) reaches the
+// running GPU surfaces by name: nothing restarts and no world is carried
+// (LLP 1046.009 G2). Only a game's own kinds qualify; a picture, a font or a
+// shader a plan may use boots the plan as before.
+let committedPlan = null;
+const GAME_ASSET = /^assets\/.+\.(model|tex|sound|level\.json)$/;
+function sameBytes(a, b) { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; }
+function replaceAssets(bytes, assets) {
+  const old = devAssets, gpu = globalThis.exact.gpu;
+  if (!(old instanceof Map) || !committedPlan || !sameBytes(bytes, committedPlan) || typeof gpu?.assetsChanged !== "function") return false;
+  const changed = [...assets].filter(([name, card]) => old.get(name)?.sha256 !== card.sha256).map(([name]) => name)
+    .concat([...old.keys()].filter(name => !assets.has(name)));
+  if (!changed.length || !changed.every(name => GAME_ASSET.test(name))) return false;
+  devAssets = assets;
+  if (!gpu.assetsChanged(changed.map(name => name.slice("assets/".length)))) { devAssets = old; return false; }
+  releaseAssets(old);
+  return true;
+}
 const lists = new Map();
 let listSelection, listSelectionLoading;
 // A virtualized list has logical rows; its (`collection`) feedback is navigation.js's.
@@ -1327,6 +1345,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   navigation.reset(batch.ops.find(op => op.op === "router"));
   const oldAssets = devAssets;
   devAssets = assets;
+  committedPlan = module ? null : plan;
   shaderCommit?.();
   // Tear down without yielding; ownership guards refuse retired views.
   incarnation += 1;
@@ -1392,6 +1411,7 @@ globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(),
     if (!module && !rust && (logicInfo || activeModule)) throw new Error('a module client requires a paired plan/module generation');
     if (rust && globalThis.exact.compat?.inputs?.rustMode !== 'browser') throw new Error('Rust replacement is disabled in this client; rebuild it');
     const assets = assetNamespace(cards);
+    if (!module && !rust && bytes && await mutate(() => current() && replaceAssets(bytes, assets))) return true;
     let candidate = null;
     try {
       if (module) candidate = { ...module, realm: await moduleLoader.prepare(module, logicInfo) };

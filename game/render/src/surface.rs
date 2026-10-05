@@ -381,6 +381,34 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
         self.finish_restore();
         self.dirty = true;
     }
+    fn assets_changed(&mut self, names: &[String]) -> Vec<String> {
+        // A texture family's payloads (`x.bc.tex`) change with their authored name.
+        let authored: Vec<String> = names
+            .iter()
+            .map(|n| {
+                if ASSETS {
+                    self.payloads.authored(n).to_owned()
+                } else {
+                    n.clone()
+                }
+            })
+            .collect();
+        let Some(sim) = &mut self.sim else {
+            return Vec::new();
+        };
+        let taken = sim.assets_changed(authored.iter().map(String::as_str));
+        if !taken.is_empty() {
+            self.assets_dirty = true;
+            self.dirty = true;
+        }
+        // The host's names, so it can tell which of its changes landed.
+        names
+            .iter()
+            .zip(&authored)
+            .filter(|(_, a)| taken.contains(a))
+            .map(|(n, _)| n.clone())
+            .collect()
+    }
     fn prepare_assets(
         &mut self,
         device: &wgpu::Device,

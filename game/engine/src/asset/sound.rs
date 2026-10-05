@@ -137,16 +137,23 @@ impl SoundAsset {
 }
 
 impl<G: crate::Game> crate::Sim<G> {
-    pub(crate) fn deliver_sound(&mut self, name: &str, data: SoundData) -> Result<(), String> {
+    /// `replacing`, as `deliver_level`'s: a development reload's new bytes.
+    pub(crate) fn deliver_sound(
+        &mut self,
+        name: &str,
+        data: SoundData,
+        replacing: bool,
+    ) -> Result<(), String> {
         if !G::ASSETS.contains(&name) {
             return Err(format!("sound `{name}` is not declared by Game::ASSETS"));
         }
         let sound = SoundAsset::new(&data);
         let assets = &mut self.world_mut().assets;
-        if assets
-            .identities
-            .get(name)
-            .is_some_and(|old| *old != sound.digest)
+        if !replacing
+            && assets
+                .identities
+                .get(name)
+                .is_some_and(|old| *old != sound.digest)
         {
             return Err(format!(
                 "sound `{name}` cannot change after delivery; restart with the new sound"
