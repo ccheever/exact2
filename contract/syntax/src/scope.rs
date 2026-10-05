@@ -663,11 +663,11 @@ impl Rewriter<'_> {
                 }
                 names
             } else {
+                // In `animation-name` each item is one name; a computed comma
+                // may separate literals, so every literal is a name.
                 tokens
                     .into_iter()
-                    .next()
                     .filter(|(_, t)| !t.contains(HOLE))
-                    .into_iter()
                     .collect()
             };
             for (start, token) in names {
@@ -717,6 +717,15 @@ impl Rewriter<'_> {
     /// bare name is the clock pass's.
     fn timeline(&mut self, value: &mut Expr) -> R {
         match value {
+            // A bare name is the clock pass's to rewrite; one another file
+            // declares and this file neither names nor binds is recorded with
+            // the file's other missing names (§21).
+            Expr::Ident(name, span) => {
+                if !self.local(name) && self.scope.get(Kind::Timeline, name).is_none() {
+                    self.scope.resolve(Kind::Timeline, name, *span)?;
+                }
+                Ok(())
+            }
             Expr::Str(text, span) => {
                 let Some(name) = text
                     .trim()
@@ -796,9 +805,12 @@ impl Rewriter<'_> {
                         .scope
                         .get(Kind::Call, name)
                         .is_none_or(|to| self.scope.shapes.contains(to));
+                // `t` is the strings intrinsic unless a `fn t` is in the
+                // program (this file's, renamed with it) or an action, prop or
+                // inject of the name is the innermost binding.
                 let intrinsic = routing
                     || matches!(name.as_str(), "pending" | "failed")
-                    || (name == "t" && !self.callable_t());
+                    || (name == "t" && !declared && !self.callable_t());
                 if !intrinsic && (declared || !(self.local(name) || roster)) {
                     self.scope.rename(Kind::Call, name, *span)?;
                 }
@@ -1012,6 +1024,14 @@ fn literal_roles(tokens: &[(usize, &str)], hole: char) -> Vec<(bool, bool)> {
                 // side is read as more of this kind of guess, so here it is
                 // a fresh animation's slots.
                 out.push((Shorthand::default(), false));
+                // …and what follows the comma in the same value fills the
+                // next animation's slots.
+                for role in ROLES {
+                    let mut next = Shorthand::default();
+                    if let Some(named) = next.fill(role) {
+                        out.push((next, named));
+                    }
+                }
                 for role in ROLES {
                     let mut next = state.clone();
                     if let Some(named) = next.fill(role) {

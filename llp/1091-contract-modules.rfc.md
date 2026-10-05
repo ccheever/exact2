@@ -450,6 +450,7 @@ stage 1 lands, and stage 2 waits on them.
 - r14 (2026-10-05): round 12 (§22).
 - r15 (2026-10-05): round 13 (§23).
 - r16 (2026-10-05): round 14 (§24).
+- r17 (2026-10-05): round 15, the last authorized (§25).
 
 ## 9. Review dispositions (round 1)
 
@@ -845,4 +846,26 @@ CHANGES. Every finding is taken; every plan stays byte-identical.
 | Grok 3: a `fn` beside another file's shape of its name refused at once, ending the batch | Its refusal is reported with the file's missing names; the batch goes on |
 | Grok 2: a folded consulted path leaving the root could name a file outside the snapshot | A folded path outside the using file's root is not recorded |
 | Astra 5: the TypeScript producer skipped a Contract source under a skipped directory (`target/`) | Its watch descends into any directory on the way to a source the compile read |
+
+## 25. Code review round 15 dispositions, and where the reviews stopped
+
+Round 15 (`llp/reviews/code-2026-10-05-1091-r15.{astra,grok}.md`), the last Charlie authorized: both
+UNSOUND. Every finding is taken; every plan stays byte-identical. **These fixes were not
+reviewed**: a sixteenth round was not authorized.
+
+| Finding | Fix |
+|---|---|
+| Astra 3 / Grok 1: round 14 renamed every `fn t`, though the checker calls a program's `fn t` before the strings intrinsic (`types/src/lib.rs`), so a file's own `t(…)` went to the intrinsic | `t` is renamed like any name; a call of `t` is the intrinsic only when no `fn t` is in this file's scope and no action, prop or inject of the name is the innermost binding; another file's `fn t` is renamed when this file calls `t` without naming it |
+| Astra 4: an aliased `shape path` became the router's `path()` | A shape spelled `path` is always renamed |
+| Astra 1: a computed comma in `animation-name` left the literal after it unrenamed | In `animation-name` every literal is a name |
+| Astra 2: a computed `, ease` begins the next animation and fills its easing | A computed part may end one animation and fill a slot of the next |
+| Astra 6 / Grok 2: a fixed `use` could bring a declaration another `use` already brings | Said, not written |
+| Grok 3: the cycle test counted edges no fix would write | Only edges with one declarer, no clash and a reaching specifier count |
+| Astra 7: a bare `animation-timeline=Name` another file declares was not among the missing names | Recorded with them, unless a binding of the name is in scope |
+| Astra 5: the TypeScript producer skipped a Contract source under an asset directory | Its watch descends to any source the compile read |
+
+Fifteen rounds of code review (§10–§25) took the findings from thirteen to five or six a round,
+all in two areas after round 8: renaming keyframes named in `animation` text beside computed values,
+and the dev loops' and `fmt --uses`' edges. No finding after round 8 changed a plan in this
+repository.
 

@@ -423,7 +423,9 @@ fn computed_easings_times_tabs_and_infinities_are_read_as_motion_reads_them() {
 }
 
 #[test]
-fn a_state_named_t_does_not_stop_the_strings_intrinsic() {
+fn a_fn_t_in_scope_is_called_as_the_checker_calls_it() {
+    // The checker calls a program's `fn t` before the strings intrinsic
+    // (types/src/lib.rs); a `fn t` this file names is that `fn`, renamed or not.
     let dir = Dir::new("t-state");
     dir.write(
         "ui.contract",
@@ -435,7 +437,7 @@ fn a_state_named_t_does_not_stop_the_strings_intrinsic() {
         "use t, Card from \"./ui.contract\"\ncomponent App\n  state t = 0\n  view\n    column\n      Card()\n      text t(\"hi\")\n",
     );
     let text = plan(&root);
-    assert!(!text.contains("from-fn"), "{text}");
+    assert!(text.contains("from-fn"), "{text}");
 }
 
 #[test]
@@ -481,14 +483,14 @@ fn t_follows_its_innermost_binding() {
         "fn helper(k: string): string = \"wrong\"\ncomponent Card\n  view\n    text \"c\"\n",
     );
     dir.write("strings/en.json", r#"{"hi":"Hello"}"#);
-    // A `match` binder of `t` is nearer than the action: the call is the
-    // strings intrinsic.
+    // `t` names the imported `fn` here, which the checker calls before the
+    // strings intrinsic whatever binds `t` nearer (types/src/lib.rs).
     let root = dir.write(
         "app.contract",
         "use helper as t, Card from \"./ui.contract\"\ncomponent App\n  state n = 0\n  action t\n    n = 1\n  view\n    column\n      Card()\n      text (match some(1) { case some(t) => t(\"hi\"), case none => \"\" })\n",
     );
     let text = plan(&root);
-    assert!(!text.contains("wrong"), "{text}");
+    assert!(text.contains("wrong"), "{text}");
 }
 
 #[test]
@@ -1106,4 +1108,68 @@ fn a_fn_beside_a_foreign_shape_does_not_stop_the_other_missing_names() {
         .unwrap_or_default();
     let all = format!("{errors:?}");
     assert!(all.contains("Note") && all.contains("Row"), "{all}");
+}
+
+// Round 15 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_fn_t_stays_a_fn_beside_any_import() {
+    let dir = Dir::new("fn-t-import");
+    let root = dir.write(
+        "app.contract",
+        "use Activity from \"exact:motion\"\nfn t(n: number): number = n\ncomponent App\n  view\n    text `${t(1)}`\n",
+    );
+    contract::compile_path(&root).unwrap();
+}
+
+#[test]
+fn an_aliased_shape_spelled_path_is_still_its_constructor() {
+    let dir = Dir::new("alias-path");
+    dir.write("ui.contract", "shape path\n  n: number\n");
+    let root = dir.write(
+        "app.contract",
+        "use path as Point from \"./ui.contract\"\ncomponent App\n  state p = Point(n=1)\n  view\n    text `${p.n}`\n",
+    );
+    contract::compile_path(&root).unwrap();
+}
+
+#[test]
+fn computed_commas_in_animation_name_and_values_after_a_comma() {
+    let dir = Dir::new("comma-more");
+    dir.write(
+        "ui.contract",
+        "keyframes spin\n  to opacity=0\nkeyframes pulse\n  to opacity=0\nkeyframes linear\n  to opacity=0\ncomponent Card\n  state sep = \",\"\n  state more = \", ease\"\n  view\n    column\n      view animation-name=`spin ${sep} pulse` animation-duration=\"1s\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes spin\n  to opacity=1\nkeyframes pulse\n  to opacity=1\nkeyframes linear\n  to opacity=1\ncomponent App\n  view\n    Card()\n",
+    );
+    let text = plan(&root);
+    assert!(
+        text.contains("spin__ui") && text.contains(" pulse__ui"),
+        "{text}"
+    );
+    // `, ease` then `linear`: `linear` is the easing or the name by the value.
+    dir.write(
+        "ui.contract",
+        "keyframes spin\n  to opacity=0\nkeyframes linear\n  to opacity=0\ncomponent Card\n  state more = \", ease\"\n  view\n    view animation=`spin 1s ${more} linear 1s`\n",
+    );
+    let e = contract::compile_path(&root).unwrap_err();
+    assert_eq!(e.id, "contract-animation-ambiguous", "{e}");
+}
+
+#[test]
+fn a_bare_timeline_name_joins_the_missing_names() {
+    let dir = Dir::new("bare-timeline");
+    dir.write("clock.contract", "timeline Pending\n");
+    dir.write(
+        "ui.contract",
+        "use Pending from \"./clock.contract\"\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes p\n  to opacity=0\ncomponent App\n  view\n    column\n      Card()\n      view animation=\"p 1s\" animation-timeline=Pending\n",
+    );
+    let e = contract::compile_path(&root).unwrap_err();
+    assert_eq!(e.id, "contract-use-missing", "{e}");
 }

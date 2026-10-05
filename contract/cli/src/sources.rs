@@ -462,12 +462,19 @@ impl Loader<'_> {
                 .map_err(|e| vec![e.into()])?;
         }
         if !missing.is_empty() || !refused.is_empty() {
+            // Only the edges a fix would write: one declarer, no clash, a
+            // specifier that reaches it.
             self.proposed = missing
                 .iter()
                 .flat_map(|(index, found)| {
                     found
                         .iter()
-                        .filter(|(_, e)| e.declaring.iter().filter(|&&u| u != *index).count() == 1)
+                        .filter(|(m, e)| {
+                            e.declared == m.name
+                                && e.declaring.iter().filter(|&&u| u != *index).count() == 1
+                                && self.clash(*index, e.unit, &m.name).is_none()
+                                && self.specifier(*index, e.unit).is_some()
+                        })
                         .map(move |(_, e)| (*index, e.unit))
                 })
                 .collect();
@@ -556,7 +563,11 @@ impl Loader<'_> {
                             // An intrinsic's spelling: a `fn` of it is never
                             // what a call of the name reads, so one imported
                             // under another name must not take it back.
-                            && (matches!(name, "action" | "pending" | "failed" | "t")
+                            && (matches!(name, "action" | "pending" | "failed")
+                                // A shape spelled `path`: its constructor is
+                                // the router's `path()` under any alias.
+                                || (name == "path"
+                                    && unit.file.shapes.iter().any(|s| s.name == name))
                                 || (index > 0 && exact_plan::Stdlib::from_name(name).is_some())
                                 || captures(name)
                                 || bound
