@@ -3,10 +3,11 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// LLP 1070.000 §6.2: a correction marked smooth (a smooth `scrollIntoView`,
-/// or a `scroll-behavior: smooth` list following its end) is UIKit's scroll
-/// animation; while it runs the fill reports no travel (which would cancel a
-/// request); an ordinary correction is set at once.
+/// LLP 1070.000 §6.2, LLP 1010 §6.8: a correction marked smooth (a smooth
+/// `scrollIntoView`, or a `scroll-behavior: smooth` list following its end)
+/// is one 0.3 s ease-in-out motion of the port; while it runs the fill
+/// reports no travel (which would cancel a request); a later smooth target
+/// retargets it from what shows; an ordinary correction is set at once.
 final class SmoothCollectionIOSTests: XCTestCase {
     private var window: UIWindow!
     override func tearDown() { window?.isHidden = true; window = nil; super.tearDown() }
@@ -25,6 +26,10 @@ final class SmoothCollectionIOSTests: XCTestCase {
     private func collections(revision: Int, correction: Any) -> [String: Any] {
         ["op": "collections", "items": [["view": 1, "revision": revision, "scrollSequence": 0, "count": 50, "totalExtent": 2000,
             "rows": [["view": 10, "root": 10, "epoch": 1]], "correction": correction]]]
+    }
+    private func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+    private func moving(_ scroll: UIScrollView) -> Bool {
+        (scroll.layer.animationKeys() ?? []).contains { ((scroll.layer.animation(forKey: $0) as? CAPropertyAnimation)?.keyPath ?? "").hasPrefix("bounds") }
     }
     private func list(_ p: Presenter, correction: Any) {
         p.apply(wireBatch([collections(revision: 1, correction: correction),
@@ -45,19 +50,24 @@ final class SmoothCollectionIOSTests: XCTestCase {
         XCTAssertTrue(p.collections.animating.contains(1), "the host animates to it")
         XCTAssertEqual(try XCTUnwrap(p.collections.geometry(1)).offset, 1700, accuracy: 0.5, "the runner plans from where it is headed")
         XCTAssertNil(p.collections.motion?(1), "no travel reported while it runs")
-        XCTAssertLessThan(scroll.contentOffset.y, 1700, "not set at once")
-        // UIKit runs the animation on a screen's display link, which a unit
-        // test's window may not drive; its end is what matters here.
-        scroll.setContentOffset(CGPoint(x: 0, y: 1700), animated: false)
-        p.views[1]?.scrollViewDidEndScrollingAnimation(scroll)
+        spin(0.03)
+        XCTAssertTrue(moving(scroll), "the port animates to it, from the next turn")
+        spin(0.6)
         XCTAssertFalse(p.collections.animating.contains(1), "the animation ended")
-        // A smooth correction while one runs is held, then taken when it lands.
-        // (The move above was a scroll: corrections answer its sequence.)
+        XCTAssertEqual(scroll.contentOffset.y, 1700, accuracy: 0.5)
+        // A smooth correction while one runs retargets it at once, from what
+        // shows: never held to land without animation.
         let seq = String(try XCTUnwrap(p.collections.entries[1]?.cursor.sequence))
         p.apply(wireBatch([collections(revision: 3, correction: ["scrollSequence": seq, "offset": 1000, "smooth": true])]))
         XCTAssertTrue(p.collections.animating.contains(1))
         p.apply(wireBatch([collections(revision: 4, correction: ["scrollSequence": seq, "offset": 1200, "smooth": true])]))
-        XCTAssertEqual(p.collections.owedTargets[1]?.y, 1200, "held, not restarted")
+        XCTAssertNil(p.collections.owedTargets[1], "retargeted, not held")
+        XCTAssertEqual(p.collections.animationTargets[1]?.y, 1200)
+        spin(0.03)
+        XCTAssertTrue(moving(scroll))
+        spin(0.6)
+        XCTAssertFalse(p.collections.animating.contains(1))
+        XCTAssertEqual(scroll.contentOffset.y, 1200, accuracy: 0.5)
     }
 
     /// A sent message's end-follow arrives in the batch whose composer
@@ -88,8 +98,8 @@ final class SmoothCollectionIOSTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(p.collections.geometry(1)).offset, at, accuracy: 0.5)
     }
 
-    /// UIKit's end of an animation that was stopped and replaced ends
-    /// nothing: it is away from the running animation's target.
+    /// The end of an animation that was stopped and replaced ends nothing:
+    /// only the running one's completion ends it.
     func testAStoppedAnimationsEndLeavesTheNextOneRunning() throws {
         let p = presenter()
         list(p, correction: NSNull())
@@ -97,20 +107,14 @@ final class SmoothCollectionIOSTests: XCTestCase {
         let seq = String(try XCTUnwrap(p.collections.entries[1]?.cursor.sequence))
         p.apply(wireBatch([collections(revision: 2, correction: ["scrollSequence": seq, "offset": 1700, "smooth": true])]))
         p.apply(wireBatch([collections(revision: 3, correction: ["scrollSequence": seq, "offset": 0])]))
+        XCTAssertFalse(moving(scroll), "an ordinary correction stops it where it is")
+        XCTAssertEqual(scroll.contentOffset.y, 0, accuracy: 0.5)
         p.apply(wireBatch([collections(revision: 4, correction: ["scrollSequence": seq, "offset": 900, "smooth": true])]))
         XCTAssertTrue(p.collections.animating.contains(1))
-        // At the top edge, before the new animation has moved the port.
-        p.views[1]?.scrollViewDidEndScrollingAnimation(scroll)
-        XCTAssertTrue(p.collections.animating.contains(1), "a stale end, away from the target")
-        scroll.contentOffset.y = 900
-        p.views[1]?.scrollViewDidEndScrollingAnimation(scroll)
+        spin(0.6)
         XCTAssertFalse(p.collections.animating.contains(1), "its own end")
         XCTAssertNil(p.collections.animationSerial[1], "nothing kept for a list that is not animating")
-        // One that moved and stopped short (a clamp) ends too.
-        p.apply(wireBatch([collections(revision: 5, correction: ["scrollSequence": seq, "offset": 1500, "smooth": true])]))
-        scroll.contentOffset.y = 1100
-        p.views[1]?.scrollViewDidEndScrollingAnimation(scroll)
-        XCTAssertFalse(p.collections.animating.contains(1), "stopped short after moving: its own end")
+        XCTAssertEqual(scroll.contentOffset.y, 900, accuracy: 0.5)
     }
 
     func testAnOrdinaryCorrectionIsSetAtOnce() throws {

@@ -245,6 +245,8 @@ final class CollectionHost {
     /// while it ran).
     var animationTargets: [UInt32: CGPoint] = [:]
     var owedTargets: [UInt32: CGPoint] = [:]
+    /// iOS: lists whose smooth correction begins on the next turn.
+    var startOwed = Set<UInt32>()
     /// The running animation's number, for each animating list only: a
     /// callback for one that has since been stopped, or replaced, is not
     /// this one's.

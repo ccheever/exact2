@@ -88,9 +88,11 @@ extension CollectionHost {
         guard delta != 0, delta.isFinite else { return }
         let horizontal = entries[id]?.snapshot.horizontal ?? false
         if animating.contains(id), let headed = owedTargets[id] ?? animationTargets[id] {
-            // Setting the offset would stop the animation where it is: the
-            // rows moved, so where it lands moves with them.
-            owedTargets[id] = horizontal ? CGPoint(x: headed.x + CGFloat(delta), y: headed.y) : CGPoint(x: headed.x, y: headed.y + CGFloat(delta))
+            // The rows moved under a running smooth correction: where it
+            // lands moves with them, retargeted from what shows.
+            let moved = horizontal ? CGPoint(x: headed.x + CGFloat(delta), y: headed.y) : CGPoint(x: headed.x, y: headed.y + CGFloat(delta))
+            owedTargets[id] = nil
+            animateOffset(id, scroll, to: moved)
             return
         }
         let insets = scroll.adjustedContentInset
@@ -138,13 +140,66 @@ extension CollectionHost {
               !scroll.isTracking, !scroll.isDragging, !scroll.isDecelerating else { return }
         let gap = abs(target.y - scroll.contentOffset.y) + abs(target.x - scroll.contentOffset.x)
         guard gap > 0.5 else { return }
-        let animate = gap > 24 && !ExactEnv.agentFreezes
-        if animate {
-            beginAnimation(id, to: target)
-        } else if animating.contains(id) {
-            stopAnimation(id)
+        if ExactEnv.agentFreezes {
+            if animating.contains(id) { stopAnimation(id) }
+            scroll.setContentOffset(target, animated: false)
+        } else {
+            animateOffset(id, scroll, to: target)
         }
-        scroll.setContentOffset(target, animated: animate)
+    }
+    /// A smooth correction: one ease-in-out motion of `smoothDuration` from
+    /// where the port shows now. A later target while it runs retargets from
+    /// the current presentation, never a jump (LLP 1010 §6.8): a list
+    /// following its end first heads for an estimated row and then for the
+    /// measured one. UIKit's own `setContentOffset(_:animated:)` could only
+    /// restart from rest, so a second target waited and landed at once.
+    func animateOffset(_ id: UInt32, _ scroll: UIScrollView, to target: CGPoint) {
+        if offsetMoving(scroll) {
+            startOffsetAnimation(id, scroll, to: target)
+            return
+        }
+        // Begun on the next turn with the last target this turn gives: a list
+        // following its end hears its estimated row and then the measured one
+        // in one turn, and two motions begun milliseconds apart showed a step
+        // back before the scroll.
+        let scheduled = animating.contains(id) && animationTargets[id] != nil && !offsetMoving(scroll) && startOwed.contains(id)
+        beginAnimation(id, to: target)
+        guard !scheduled else { return }
+        startOwed.insert(id)
+        DispatchQueue.main.async { [weak self, weak scroll] in
+            guard let self else { return }
+            self.startOwed.remove(id)
+            guard let scroll, self.animating.contains(id), let latest = self.animationTargets[id] else { return }
+            self.startOffsetAnimation(id, scroll, to: latest)
+        }
+    }
+    func offsetMoving(_ scroll: UIScrollView) -> Bool {
+        (scroll.layer.animationKeys() ?? []).contains { ((scroll.layer.animation(forKey: $0) as? CAPropertyAnimation)?.keyPath ?? "").hasPrefix("bounds") }
+    }
+    private func startOffsetAnimation(_ id: UInt32, _ scroll: UIScrollView, to target: CGPoint) {
+        let serial = beginAnimation(id, to: target)
+        UIView.animate(withDuration: Self.smoothDuration, delay: 0,
+                       options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]) {
+            scroll.contentOffset = target
+        } completion: { [weak self] _ in
+            guard let self, self.animationSerial[id] == serial else { return }
+            self.animationEnded(id, atTarget: true)
+        }
+    }
+    /// UIKit's batch-update and scroll timing, which Signal's transcript rides.
+    static let smoothDuration: TimeInterval = 0.3
+    /// Stops a smooth correction where it shows: the port takes the
+    /// presented offset, so a drag or an ordinary correction starts from
+    /// what the reader sees.
+    func haltOffsetAnimation(_ scroll: UIScrollView) {
+        startOwed.removeAll()
+        let keys = (scroll.layer.animationKeys() ?? []).filter { key in
+            ((scroll.layer.animation(forKey: key) as? CAPropertyAnimation)?.keyPath ?? "").hasPrefix("bounds")
+        }
+        guard !keys.isEmpty else { return }
+        let shown = scroll.layer.presentation()?.bounds.origin ?? scroll.contentOffset
+        for key in keys { scroll.layer.removeAnimation(forKey: key) }
+        scroll.contentOffset = shown
     }
     func correct(_ id: UInt32, top: Double, extent: Double, smooth: Bool = false) {
         guard let node = presenter?.views[id], let scroll = node.scroll else { return }
@@ -171,23 +226,22 @@ extension CollectionHost {
         // between are not (§11 declares it). Under the agent's frozen clock
         // it lands at once.
         let animate = smooth && !ExactEnv.agentFreezes && node.window != nil
-        if animate, animating.contains(id) {
-            // Already on its way: a new animated set would restart UIKit's
-            // ease from rest, and corrections arriving as rows are measured
-            // made the scroll creep. It goes on; this target is taken when
-            // it lands (`animationEnded`).
-            owedTargets[id] = target
-            return
-        }
         if !animate, animating.contains(id) {
             // An ordinary correction stops it, even where it already is.
+            haltOffsetAnimation(scroll)
             stopAnimation(id)
             scroll.setContentOffset(target, animated: false)
             return
         }
+        if animate {
+            // On its way or at rest: one motion from what shows, retargeted
+            // if one runs (`animateOffset`).
+            if !animating.contains(id), scroll.contentOffset == target { return }
+            animateOffset(id, scroll, to: target)
+            return
+        }
         guard scroll.contentOffset != target else { return }
-        if animate { beginAnimation(id, to: target) }
-        scroll.setContentOffset(target, animated: animate)
+        scroll.setContentOffset(target, animated: false)
     }
     /// A row's frame in the scroll view, as a range along the list's axis.
     private func span(_ view: UIView, in scroll: UIScrollView, horizontal: Bool) -> ClosedRange<CGFloat> {

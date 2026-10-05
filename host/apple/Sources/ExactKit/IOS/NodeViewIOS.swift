@@ -618,6 +618,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         followingEndAnimated = false
+        // A smooth correction stops where it shows (`animateOffset`).
+        if presenter?.collections.animating.contains(id) == true { presenter?.collections.haltOffsetAnimation(scrollView) }
         presenter?.collections.animationEnded(id, dragging: true)
         presenter?.collections.userIntent(id, travel: true)
         retainedScrollTop = nil
