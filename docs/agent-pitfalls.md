@@ -257,8 +257,10 @@ guide's rules don't make obvious.
   executor finishes a forgotten request already in a storage step, but drops one
   that has not reached its first (QUEUE). Fix until then: give each write that can
   be in flight at once a mutation of its own, or keep the edits in Contract state and
-  send the whole of it each time (`send saved = saveTasks(tasks)`), so a later
-  request that supersedes an earlier one already carries every change. (Authoring
+  send the whole of it each time, from the value assigned (`let next = …`, then
+  `tasks = next` and `send saved = saveTasks(next)`: a statement reads the state the
+  action started with), so a later request that supersedes an earlier one already
+  carries every change. (Authoring
   bench, LLP 1087, t2-todo on iOS, 2026-10-05.)
 
 ## Driving and testing
