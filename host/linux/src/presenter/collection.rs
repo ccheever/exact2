@@ -411,7 +411,10 @@ impl<D: DataSource> Presenter<D> {
             if target != current || ((changed_top || changed_left) && target != *offset) {
                 let before = *offset;
                 cursor.model_offset(node.key, target, self.display.attached(), offset);
-                if *offset != before {
+                // The boot's own offsets are no reader's scroll: a browser
+                // page hears none, its input opening after them (rt.js
+                // `Booting`; Messages' rows opened at scrollLeft 70).
+                if *offset != before && !self.booting {
                     self.collection.scroll_event(view, node.key);
                     self.executor.notify();
                 }
