@@ -33,6 +33,10 @@ macro_rules! canvas_jni {
 
             type Host = $crate::canvas::CanvasHost<$data>;
 
+            /// How long after boot the library's read-only pages are let go of
+            /// (boot's own work is done; see `release_library_pages_after`).
+            const RELEASE_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
+
             thread_local! {
                 static HOST: RefCell<Option<Host>> = const { RefCell::new(None) };
                 /// The op stream the last `frame` returned; the reader reads it in place.
@@ -87,6 +91,7 @@ macro_rules! canvas_jni {
                 match Host::boot(PLAN, COMPAT, (width as u32, height as u32), scale) {
                     Ok(h) => {
                         HOST.with(|slot| *slot.borrow_mut() = Some(h));
+                        $crate::android::release_library_pages_after(RELEASE_AFTER);
                         JNI_TRUE
                     }
                     Err(e) => {
@@ -166,6 +171,7 @@ macro_rules! canvas_jni {
                         h.set_borrowed(false);
                         HOST.with(|s| *s.borrow_mut() = Some(h));
                         PRIMED.with(|p| *p.borrow_mut() = first);
+                        $crate::android::release_library_pages_after(RELEASE_AFTER);
                         JNI_TRUE
                     }
                     Err(e) => {
