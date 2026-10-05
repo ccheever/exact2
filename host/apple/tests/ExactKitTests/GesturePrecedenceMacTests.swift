@@ -80,12 +80,16 @@ final class GesturePrecedenceMacTests: XCTestCase {
             ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup", "pointermove", "contextmenu"]],
             ["op": "create", "id": 2, "kind": "button", "handlers": ["wheel"]],
             ["op": "create", "id": 3, "kind": "view", "handlers": ["wheel"]],
-            ["op": "roots", "ids": [1, 2, 3]],
+            ["op": "create", "id": 4, "kind": "button", "handlers": ["wheel"]],
+            ["op": "roots", "ids": [1, 2, 3, 4]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 150.0, "w": 200.0, "h": 50.0],
-            ["op": "frame", "id": 3, "x": 0.0, "y": 220.0, "w": 200.0, "h": 50.0]
+            ["op": "frame", "id": 3, "x": 0.0, "y": 220.0, "w": 200.0, "h": 50.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 280.0, "w": 200.0, "h": 20.0]
         ])
         p.views[2]!.props["disabled"] = "true"; p.views[3]!.props["disabled"] = "true"
+        // A disabled link is the web's `<a>`, which `disabled` does not touch (review b5-delta).
+        p.views[4]!.props["disabled"] = "true"; p.views[4]!.props["href"] = "/docs"
         var log: [String] = []
         p.onPointer = { id, kind, sample in
             log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id) \(sample.buttons)")
@@ -106,7 +110,8 @@ final class GesturePrecedenceMacTests: XCTestCase {
         let wheel = { NSEvent(cgEvent: CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -3, wheel2: 0, wheel3: 0)!)! }
         _ = p.views[3]!.wheel(wheel())
         _ = p.views[2]!.wheel(wheel())
-        XCTAssertEqual(log, ["event 37 3"], "the disabled box hears the wheel, the disabled button does not")
+        _ = p.views[4]!.wheel(wheel())
+        XCTAssertEqual(log, ["event 37 3", "event 37 4"], "the disabled box and link hear the wheel, the disabled button does not")
     }
 
     /// LLP 1056 §3: a free pointer's moves are one a display frame, the

@@ -9,13 +9,15 @@ use std::collections::BTreeSet;
 /// A form control HTML lets `disabled` take out of focus and input: a
 /// button, an input or a control. On any other box `disabled` means
 /// nothing to focus or keys, as Chrome's `<div disabled>` (LLP 1088 D7.3,
-/// amended 2026-10-04).
+/// amended 2026-10-04); a pressable with an `href` is the web's `<a>`,
+/// which `disabled` does not touch either (review b5-delta).
 pub(crate) fn disabled_control(n: &exact_kernel::NodeRef<'_>) -> bool {
     n.props.bool(PropId::Disabled) == Some(true)
-        && matches!(
-            n.node_type,
-            NodeType::Pressable | NodeType::TextInput | NodeType::Control
-        )
+        && match n.node_type {
+            NodeType::Pressable => n.props.str(PropId::Href).is_none(),
+            NodeType::TextInput | NodeType::Control => true,
+            _ => false,
+        }
 }
 
 impl<D: DataSource> Presenter<D> {

@@ -393,7 +393,8 @@ fn the_pointer_events_carry_their_record_from_the_content_box() {
 }
 
 /// A `wheel` is heard by a disabled box (it means nothing on a `<div>`, as
-/// in Chrome) and not by a disabled button (review b5-b 4).
+/// in Chrome) and a disabled link (an `<a>`), and not by a disabled button
+/// (review b5-b 4, b5-delta).
 #[test]
 fn a_disabled_box_hears_the_wheel_and_a_disabled_button_does_not() {
     const WHEELS: &str = r#"component App
@@ -402,10 +403,14 @@ fn a_disabled_box_hears_the_wheel_and_a_disabled_button_does_not() {
     seen = `${seen} box${e.deltaY}`
   action button(e: WheelEvent)
     seen = `${seen} button${e.deltaY}`
+  action link(e: WheelEvent)
+    seen = `${seen} link${e.deltaY}`
   view
     column width=400 height=400
       box wheel=box disabled=true testId="pad" width=200 height=100
       button "Off" wheel=button disabled=true testId="off" height=40
+      link href="/docs" wheel=link disabled=true testId="docs" height=40
+        text "Docs"
       text seen testId="log" height=20
 "#;
     let (mut p, error) = Presenter::boot_with(
@@ -423,7 +428,11 @@ fn a_disabled_box_hears_the_wheel_and_a_disabled_button_does_not() {
     p.wheel_at(x + 10., y + 10., 0., 30.);
     let (x, y, _, _) = p.rect_of(id(&p, "off")).unwrap();
     p.wheel_at(x + 10., y + 10., 0., 40.);
-    assert_eq!(log(&p), " box30");
+    // A disabled link is the web's `<a>`: `disabled` means nothing there
+    // either (review b5-delta).
+    let (x, y, _, _) = p.rect_of(id(&p, "docs")).unwrap();
+    p.wheel_at(x + 10., y + 10., 0., 50.);
+    assert_eq!(log(&p), " box30 link50");
 }
 
 /// LLP 1051.000 D1 (changed 2026-10-04; the kanban diary's F4): `frame()`

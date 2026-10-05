@@ -803,7 +803,8 @@ negative value is focusable but skipped by Tab, a handler's element included
 (`button tabindex=(revealed ? 0 : -1)` keeps a hidden swipe action out of the order).
 An inert or `display: none` element is never focusable, nor is a disabled `button`,
 `input`, `textarea` or control. `disabled` means nothing on a box, as on a `<div>` in
-Chrome: `box tabindex=0 disabled=true` is still a Tab stop. Tab and Shift-Tab walk
+Chrome: `box tabindex=0 disabled=true` is still a Tab stop, and so is a `link` with
+an `href` (the web's `<a>`, which `disabled` does not touch). Tab and Shift-Tab walk
 and wrap on the web, macOS, iPadOS's hardware keyboard and Linux; tvOS's remote skips a
 negative value and keeps UIKit's geometric order.
 

@@ -17,8 +17,13 @@ extension NodeView {
     /// `disabled` where HTML defines it: a button, an input, a control. It
     /// takes those out of focus and keys; on any other box it means nothing
     /// there, as Chrome's `<div disabled>` (LLP 1088 D7.3, amended
-    /// 2026-10-04). A press is still refused on any disabled node.
-    var formDisabled: Bool { disabled && ["button", "input", "textarea", "control"].contains(kind) }
+    /// 2026-10-04). A pressable with an `href` is the web's `<a>`, which
+    /// `disabled` does not touch either. A press is still refused on any
+    /// disabled node.
+    var formDisabled: Bool {
+        disabled && ["button", "input", "textarea", "control"].contains(kind)
+            && !(kind == "button" && props["href"] != nil)
+    }
 }
 
 extension KeyCodes {
