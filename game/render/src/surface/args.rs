@@ -23,7 +23,6 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         }
         if let Some(sim) = &mut self.sim {
             let generation = sim.generation();
-            let models = sim.world().model_revision();
             sim.bind_with(
                 values,
                 at_ms,
@@ -39,7 +38,6 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                 ),
             )
             .map_err(SurfaceError)?;
-            self.assets_dirty |= models != sim.world().model_revision();
             if generation != sim.generation() {
                 self.hook_clock.reset();
                 if let Some((_, feed)) = &mut self.render {

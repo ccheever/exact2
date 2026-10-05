@@ -877,6 +877,56 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
         .is_none());
 }
 
+/// A model `Game::present` makes at a tick boundary (a look's model first
+/// drawn mid-play, with no binding or delivery to mark assets dirty) is
+/// prepared by the next frame and drawn.
+#[test]
+fn a_model_present_makes_mid_play_is_prepared_by_the_next_frame() {
+    let Some(gpu) = gpu() else { return };
+    struct Late;
+    impl Game for Late {
+        const ID: &'static str = "present-generated";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named("crate", (Transform::default(), Mesh::cube(1.)));
+            w.spawn((Transform::at(0., 0., 8.), Camera::default()));
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+        fn present(p: &mut exact_game::Present<'_>, _: &()) {
+            if p.tick() < 3 {
+                return;
+            }
+            let mesh = p
+                .generated("late.model", || exact_game::asset::MeshData {
+                    positions: vec![-1., -1., 0., 1., -1., 0., 0., 1., 0.],
+                    normals: vec![0., 0., 1., 0., 0., 1., 0., 0., 1.],
+                    uvs: vec![0.; 6],
+                    indices: vec![0, 1, 2],
+                    bounds: [-1., -1., 0., 1., 1., 0.],
+                    ..Default::default()
+                })
+                .unwrap();
+            let e = p.named("crate").unwrap();
+            p.insert(e, exact_game::DrawnMesh::new(mesh));
+        }
+    }
+    let mut s = WorldSurface::<Late, crate::ModelExecutor, true>::default();
+    s.device_ready(exact_gpu::wgpu::Features::empty());
+    s.bind(&[], None).unwrap();
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    for tick in 0..=10 {
+        s.assets();
+        s.prepare_assets(&gpu.device, &gpu.queue, format);
+        fixture::render(&gpu, &mut s, &frame(tick as f64 * 1000. / 60.)).unwrap();
+    }
+    let sim = s.sim().unwrap();
+    assert!(sim.world().tick() >= 3);
+    assert!(sim.model_prepared("late.model"));
+    let renderer = &s.render.as_ref().unwrap().0;
+    assert!(renderer.models.loaded.contains_key("late.model"));
+    assert!(!renderer.models.records.is_empty(), "the model is drawn");
+}
+
 #[test]
 fn performance_recording_arms_only_through_diagnostic_state() {
     let mut s = surface();

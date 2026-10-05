@@ -146,6 +146,53 @@ impl World {
         if self.tick() != 0 {
             return Err(format!("generated `{name}`: register during setup"));
         }
+        if self.assets.drawn_generated.contains(name) {
+            return Err(format!(
+                "generated `{name}`: Game::present made this name (Present::generated_model); a model the simulation names takes another"
+            ));
+        }
+        self.check_generated(name, &model)?;
+        let digest = crate::hash::of(&model);
+        if let Some(prior) = self.assets.models.get(name) {
+            if self.assets.identities.get(name) != Some(&digest)
+                || crate::hash::of(prior.model.as_ref()) != digest
+            {
+                return Err(format!(
+                    "generated `{name}`: immutable name already registered with different content"
+                ));
+            }
+            return Ok(Mesh::asset(name));
+        }
+        for texture in &model.textures {
+            self.assets.required.insert(texture.clone());
+        }
+        self.assets.identify(name, digest);
+        self.assets.declared.insert(name.into());
+        self.install_generated(name, model);
+        Ok(Mesh::asset(name))
+    }
+    /// `Present::generated_model`: made by `make` the first time a present
+    /// names it, then kept; nothing a tick reads or a save holds names it.
+    pub(crate) fn drawn_generated_model(
+        &mut self,
+        name: &str,
+        make: impl FnOnce() -> Model,
+    ) -> Result<Mesh, String> {
+        if self.assets.drawn_generated.contains(name) {
+            return Ok(Mesh::asset(name));
+        }
+        if self.assets.identities.contains_key(name) {
+            return Err(format!(
+                "generated `{name}`: Game::setup registered this name for the simulation; a model only present draws takes another"
+            ));
+        }
+        let model = make();
+        self.check_generated(name, &model)?;
+        self.assets.drawn_generated.insert(name.into());
+        self.install_generated(name, model);
+        Ok(Mesh::asset(name))
+    }
+    fn check_generated(&self, name: &str, model: &Model) -> Result<(), String> {
         if !super::asset_name(name) || !name.ends_with(".model") {
             return Err(format!("generated `{name}`: expected a .model asset name"));
         }
@@ -158,29 +205,18 @@ impl World {
         }
         model
             .validate()
-            .map_err(|e| format!("generated `{name}`: {e}"))?;
-        let digest = crate::hash::of(&model);
-        if let Some(prior) = self.assets.models.get(name) {
-            if self.assets.identities.get(name) != Some(&digest)
-                || crate::hash::of(prior.model.as_ref()) != digest
-            {
-                return Err(format!(
-                    "generated `{name}`: immutable name already registered with different content"
-                ));
-            }
-            return Ok(Mesh::asset(name));
-        }
+            .map_err(|e| format!("generated `{name}`: {e}"))
+    }
+    /// Install a generated model, Loaded once its textures (requested here) are.
+    fn install_generated(&mut self, name: &str, model: Model) {
         self.assets.request(name);
         for texture in &model.textures {
             self.assets.request(texture);
-            self.assets.required.insert(texture.clone());
         }
         let ready = model
             .textures
             .iter()
             .all(|t| self.assets.states.get(t) == Some(&AssetState::Loaded));
-        self.assets.identify(name, digest);
-        self.assets.declared.insert(name.into());
         let model_textures = model.textures.clone();
         self.assets.models.insert(name.into(), model.into());
         self.assets.set_dependencies(name, model_textures);
@@ -190,6 +226,5 @@ impl World {
             AssetState::Pending
         };
         self.assets.states.insert(name.into(), state);
-        Ok(Mesh::asset(name))
     }
 }

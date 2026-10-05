@@ -1,7 +1,5 @@
 # Queue
 
-- **Every generated look's models are made at setup** (2026-10-05, garden's live `art`): setup generates all three generated looks' models (~55 ms native, against 2.5–28 ms for one), so a look can switch live. Generating a look's models when it is first drawn would cost what is shown.
-
 - **A shimmering model look is one instance-buffer write per entity** (2026-10-05, garden's art pass after kept presentation): ~140 gold, rainbow or shocked fruit at 12,100 plants are about 0.38 of the feed's 0.49 ms a present, nearly all `queue.write_buffer` calls in `patch_draw_looks` (their records are scattered, so merging nearby spans did not help). Looks in a buffer of their own written once per feed, or a shimmer the shader animates from a saved phase, would make it one write.
 
 - **`Game::STREAMED` is fixed per game** (2026-10-05, garden art pass). Streamed models no longer touch the first frame (fetched after what is shown, prepared after the first drawn frame, eight per frame), but the garden's classic look still downloads the art pass's 220 models (about 1.5 MB gzipped) it may never show. Letting declarations depend on setup arguments would scope them, at the cost of refetching on a look switch.

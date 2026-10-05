@@ -173,6 +173,53 @@ fn looks_at_scale() {
     }
 }
 
+/// What a look costs to start in (an empty garden), and to switch to live
+/// from classic the first time and again in a restored garden bearing every
+/// crop's fruit: the best of nine fresh games each, which a loaded machine
+/// disturbs least. A look's generated models are made when
+/// it first draws them, so a game pays for the looks it shows.
+#[test]
+#[ignore]
+fn setup_per_look() {
+    use exact_game::Args;
+    let best = |v: Vec<f64>| v.into_iter().fold(f64::INFINITY, f64::min);
+    let bind = |game: &mut Sim<Garden>, art: &str| {
+        let options = Options {
+            seed: 1,
+            art: art.into(),
+            ..Options::default()
+        };
+        let t = Instant::now();
+        game.bind(&options.values(), None).unwrap();
+        ms(t)
+    };
+    let mut grown = look(false, "");
+    send(&mut grown, "fill 100");
+    grown.run(1_800_000.0);
+    let grown = grown.save().unwrap();
+    println!("| look | setup ms | first switch, grown ms | switch again, grown ms |");
+    for art in ["", "pass", "golden", "storybook"] {
+        let (mut setup, mut first, mut again) = (vec![], vec![], vec![]);
+        for _ in 0..9 {
+            let t = Instant::now();
+            drop(std::hint::black_box(look(false, art)));
+            setup.push(ms(t));
+            let mut game = look(false, "");
+            game.restore(&grown).unwrap();
+            first.push(bind(&mut game, art));
+            bind(&mut game, "");
+            again.push(bind(&mut game, art));
+        }
+        let name = if art.is_empty() { "classic" } else { art };
+        println!(
+            "| {name} | {:.1} | {:.1} | {:.1} |",
+            best(setup),
+            best(first),
+            best(again)
+        );
+    }
+}
+
 #[test]
 #[ignore]
 fn economy_at_scale() {

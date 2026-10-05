@@ -75,7 +75,9 @@ impl<G: Game> Sim<G> {
                     && !assets.requested.contains(*n)
                     // A generated model is registered, never fetched: pending, it
                     // waits for its textures and is Loaded when they arrive.
-                    && !(n.ends_with(".model") && assets.identities.contains_key(*n))
+                    && !(n.ends_with(".model")
+                        && (assets.identities.contains_key(*n)
+                            || assets.drawn_generated.contains(*n)))
             })
             .map(|(n, _)| n.clone())
             .collect();
