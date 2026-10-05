@@ -19,6 +19,11 @@ import UIKit
 /// in its own bounds (`applyImageLayer` defers to it).
 struct FlightLook {
     var image: CGRect
+    /// The leaver's decoded image, drawn while the arriver's own is still
+    /// loading: a new node's raster lands a turn or more after the commit
+    /// that hides the leaver, and a flight drawing nothing until then showed
+    /// no photo at all for a frame or two on a device (LLP 1013.000 D4).
+    var stand: NativeRasterLease? = nil
 }
 
 /// Where a leaver was shown when its name moved on.
@@ -28,6 +33,8 @@ struct FlightSource {
     /// An image's fitted rectangle as a fraction of its box.
     var fit: CGRect?
     var natural: CGSize?
+    /// The leaver's decoded image (`FlightLook.stand`), held for the flight.
+    var raster: NativeRasterLease?
     /// The root of the presentation the leaver was in: a flight from an
     /// overlay over the routes into a route flies over that overlay.
     weak var root: UIView?
@@ -66,9 +73,14 @@ extension Presenter {
                                 width: look.image.width / max(leaver.bounds.width, 1), height: look.image.height / max(leaver.bounds.height, 1))
             source.natural = flying.source.natural ?? leaver.raster?.image.naturalSize
             source.radius = leaver.layer.cornerRadius
+            source.raster = leaver.raster ?? look.stand
+            // The size of the image the stand draws, with it: after the
+            // flying view's own raster landed, that is the replacement's.
+            source.natural = source.raster?.image.naturalSize ?? source.natural
         } else if leaver.kind == "image", let natural = leaver.raster?.image.naturalSize {
             source.fit = Self.fitFraction(natural: natural, box: leaver.bounds.size, fit: leaver.style["object_fit"]?.string ?? "fill")
             source.natural = natural
+            source.raster = leaver.raster
         }
         source.root = presentationRoot(of: leaver)
         if let old = flights[id] { landFlight(old) }
@@ -135,6 +147,8 @@ extension Presenter {
     /// A destroyed arriver's flight ends with it.
     func forgetFlight(_ id: UInt32) {
         guard let f = flights.removeValue(forKey: id) else { return }
+        // The look holds the leaver's lease (`stand`): it goes with the flight.
+        f.view?.flightLook = nil
         f.view?.removeFromSuperview()
         f.slot?.removeFromSuperview()
         f.container.map(Self.dropEmptyLayer)
@@ -149,6 +163,7 @@ extension Presenter {
     /// A reset ends every flight, its view and layer with it.
     func resetFlights() {
         for f in flights.values {
+            f.view?.flightLook = nil
             f.view?.removeFromSuperview(); f.slot?.removeFromSuperview(); f.container?.removeFromSuperview()
         }
         flights = [:]
@@ -223,10 +238,11 @@ extension Presenter {
         view.frame = shown
         view.layer.cornerRadius = mix(f.source.radius, view.cornerRadii(in: CGRect(origin: .zero, size: to.size)).max() ?? 0)
         if view.kind == "image" {
-            let natural = view.raster?.image.naturalSize ?? f.source.natural ?? .zero
+            let natural = view.raster?.image.naturalSize ?? f.source.raster?.image.naturalSize ?? f.source.natural ?? .zero
             let end = Self.fitFraction(natural: natural, box: to.size, fit: view.style["object_fit"]?.string ?? "fill")
             let start = f.source.fit ?? end
-            view.flightLook = FlightLook(image: Self.flightImage(from: from.size, fit: start, to: to.size, fit: end, progress: p))
+            view.flightLook = FlightLook(image: Self.flightImage(from: from.size, fit: start, to: to.size, fit: end, progress: p),
+                                         stand: view.raster == nil ? f.source.raster : nil)
             view.applyImageLayer()
         } else {
             view.flightLook = FlightLook(image: CGRect(origin: .zero, size: shown.size))

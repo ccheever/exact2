@@ -1,0 +1,25 @@
+# Code review: a flight's arriver draws the leaver's image until its own lands (the photo flicker), 2026-10-05 (grok)
+
+- **Family:** xAI. `grok-4.7` via `~/.grok/bin/grok`, reasoning effort xhigh, `--no-subagents`, `--cwd /tmp/x20`, plain output.
+- **Method:** one brief (sha256 `c21d8135309c7eb72f750693d158b82aa5ad224a7ac7b06d6e74700c30683184`), shared with astra. Round 1, blind to the other review. Reviewed the uncommitted diff in a worktree at `86b3d1818`. The author (Claude) is not a reviewer.
+- **Transcription:** the review's findings and verdict, unedited.
+- **Verdict:** READY WITH CHANGES.
+- **Disposition (r2):** 1 taken: the interrupted branch takes `natural` from the raster it keeps, and `showFlight` sizes the fit from `view.raster ?? source.raster ?? source.natural`. 2 taken: `forgetFlight` and `resetFlights` clear `flightLook` (iOS and Mac). Tests taken: the arriver's own raster is delivered and drawn at its own aspect with the stand let go; a flight ended early drops the look. DEFERRED: a tinted image's `draw(_:)` path still needs its own raster; an animated leaver's stand shows its first frame.
+
+---
+
+[P2] An interrupted flight draws the replacement image at the original leaver's aspect — `host/apple/Sources/ExactKit/IOS/FlightsIOS.swift:76`
+
+On an interruption, `source.raster` becomes `leaver.raster ?? look.stand` while `source.natural` stays `flying.source.natural` (line 74). Those are the same image only until the flying view's own raster lands. After that, `leaver.raster` is the replacement (the full photo) and `flying.source.natural` is still the thumbnail. `showFlight` then paints that raster (`FlightsIOS.swift:239`, same on Mac at `FlightsMac.swift:75` and `:207`) with `view.raster?.image.naturalSize ?? f.source.natural` (`FlightsIOS.swift:235`). The stand's pixels and the fit rectangle describe different images, and `contentsGravity = .resize` stretches the stand into the stale rectangle until the new arriver's raster arrives. A first flight does not do this: there the stored raster and natural size are both the leaver's. Derive natural size from the lease you keep (`source.raster?.image.naturalSize`), and use that same size in `showFlight` while the stand is what's drawn.
+
+The forward flight is consistent, and the lease does not outlive the flight in any lasting way. `NativeRasterLease` is a class. `Flight.source.raster` holds it until `landFlight`, `forgetFlight`, or `resetFlights`. `FlightLook` is a struct, so each assignment copies the reference, not the pixels. `view.flightLook` is the only stored copy. The next `showFlight` after `view.raster` becomes non-nil sets `stand` to nil, and `landFlight` nils `flightLook` before `applyImageLayer` drops the layer, while the `Flight` argument is still alive. `forgetFlight` and `resetFlights` leave `flightLook` set, so the view keeps the lease until it deinits. Destroy and `reset()` drop the view in that same turn. Nothing else retains a `FlightLook`. `CALayer.contents` retains the `CGImage`, which owns its charge, so releasing the lease does not free pixels the layer still shows.
+
+`AnimatedRasters.frame(for:)` returns nil unless the player’s image is that view’s own raster (`AnimatedRasters.swift:71-73`). A stand-in view has no raster, so the stand `CGImage` is what gets drawn. The leaver’s current GIF frame is not carried. The stand is `RasterImage.image`, the first frame.
+
+Off flight, iOS `flightLook` is nil, so the new guard is the old `raster?.image` check. With a stand, `flightLook` is non-nil and `applyImageLayer` returns in the flight branch, before the non-flight fit uses `bitmap`. Mac draws the stand on the flight layer path (`BoxLayerMac.swift:291`), which is the path an untinted image with a layer takes, including clips that would otherwise use `draw(_:)`. `draw(_:)` still requires `raster?.image` (`NodeViewMac.swift:1317`, iOS at `NodeViewIOS.swift:1366`), so a tinted flight still paints nothing until its own raster exists. That blank is the old behavior. Tint never entered the layer path.
+
+A low-resolution thumbnail flying into a different full image is acceptable. Until the arriver’s raster is set, the stand and the fit both use the leaver. On the next `showFlight` the pixels and the natural size switch together. Same aspect means the rectangle does not move. A different aspect jumps once, which is the first moment the destination size is known. One display can sneak in earlier: `acceptRaster` calls `setNeedsDisplay`, and iOS `display()` calls `applyImageLayer`, which prefers `raster?.image` while `flightLook.image` is still the stand’s rectangle. Same aspect, that frame is already the right rectangle.
+
+`testAnArriverDrawsTheLeaversImageUntilItsOwnLands` does load a real PNG, destroy the leaver, and check that the arriver’s `imageLayer.contents` is that same `CGImage` at progress 0 and 0.5. That locks the reported blank-frame bug. It never gives the arriver its own raster, so a stand that never lets go would still pass, and `drawn.frame.width == 400` matches both the leaver and the arriver in this fixture.
+
+READY WITH CHANGES
