@@ -75,6 +75,53 @@ pub(super) struct ShapeData {
     metrics: Metrics,
     strut: (f32, f32),
     pub(super) run_metrics: Vec<FontMetrics>,
+    /// Each line's `(first, rest)` inset, points: a Markdown list item's
+    /// head indent, its first line's less the marker hung before it (LLP
+    /// 1045 D4). Empty when no run has an indent.
+    insets: Vec<(f32, f32)>,
+}
+
+/// Each hard line's inset: a line takes the indent of the run its first
+/// character (or its newline) is in, and when that run is a hung marker,
+/// the marker's shaped advance comes off the first line's.
+fn line_insets(spec: &Spec, lines: &[Line], font_size: f32) -> Vec<(f32, f32)> {
+    if spec.runs.iter().all(|r| r.indent == 0.0) {
+        return Vec::new();
+    }
+    let mut first_runs = Vec::with_capacity(lines.len());
+    let mut open = true;
+    for (index, run) in spec.runs.iter().enumerate() {
+        for byte in run.text.bytes() {
+            if std::mem::take(&mut open) {
+                first_runs.push(index);
+            }
+            open = byte == b'\n';
+        }
+    }
+    lines
+        .iter()
+        .enumerate()
+        .map(|(line, shaped)| {
+            let Some(&index) = first_runs.get(line) else {
+                return (0.0, 0.0);
+            };
+            let run = &spec.runs[index];
+            let marker: f32 = if run.hang {
+                shaped
+                    .shape
+                    .spans
+                    .iter()
+                    .flat_map(|span| &span.words)
+                    .flat_map(|word| &word.glyphs)
+                    .filter(|glyph| glyph.metadata == index)
+                    .map(|glyph| glyph.width(font_size))
+                    .sum()
+            } else {
+                0.0
+            };
+            (run.indent - marker, run.indent)
+        })
+        .collect()
 }
 impl ShapedSource {
     pub(super) fn flow_box<'a>(&self, glyphs: impl Iterator<Item = &'a LayoutGlyph>) -> (f32, f32) {
@@ -157,7 +204,7 @@ impl ShapedSource {
             .map(|((r, w), family)| catalog::Catalog::attrs(r, *w, family.cosmic()))
             .unwrap_or_else(Attrs::new);
         buffer.set_rich_text(spans, &default, Shaping::Advanced, align);
-        let lines = buffer
+        let lines: Vec<Line> = buffer
             .lines
             .into_iter()
             .map(|line| {
@@ -185,6 +232,7 @@ impl ShapedSource {
             })
             .collect();
         drop(catalog);
+        let insets = line_insets(&spec, &lines, metrics.font_size);
         let mut source = Self {
             spec,
             catalog: lease,
@@ -193,6 +241,7 @@ impl ShapedSource {
                 metrics,
                 strut,
                 run_metrics,
+                insets,
             }),
             accessible_capacity_bytes: 0,
             flow: RefCell::new(None),
@@ -273,19 +322,38 @@ impl ShapedSource {
                 .enumerate()
                 .map(|(index, line)| {
                     let mut output = Vec::new();
+                    // A list item's lines are laid out in what its indent
+                    // leaves, then moved over by it; its first line's own
+                    // inset (less a hung marker) is cosmic-text's indent.
+                    let (first, rest) = self.data.insets.get(index).copied().unwrap_or_default();
                     // CSS `text-indent`: the paragraph's first line only.
+                    let indent = if index == 0 { spec.text_indent } else { 0.0 };
                     line.shape.layout_to_buffer_indented(
                         &mut scratch,
                         self.data.metrics.font_size,
-                        width.map(|w| w.max(0.)),
+                        width.map(|w| (w - rest).max(0.)),
                         wrap,
                         ellipsize,
                         line.align,
                         &mut output,
                         None,
                         Hinting::Disabled,
-                        if index == 0 { spec.text_indent } else { 0.0 },
+                        indent + first - rest,
                     );
+                    if rest != 0.0 {
+                        // From the start edge: `rtl` lays out from the right.
+                        let shift = if spec.direction == exact_kernel::Direction::Rtl {
+                            0.0
+                        } else {
+                            rest
+                        };
+                        for laid in &mut output {
+                            laid.w += rest;
+                            for glyph in &mut laid.glyphs {
+                                glyph.x += shift;
+                            }
+                        }
+                    }
                     output
                 })
                 .collect()

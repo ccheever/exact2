@@ -1,12 +1,13 @@
 //! A paragraph's paint-only run data in canonical run order: colour and
 //! source (the palette), and inline backgrounds (LLP 1053 §0).
 use super::rgba;
-use crate::text::RunPaint;
+use crate::text::markup::QUIET;
+use crate::text::{Paragraph, RunPaint};
 use exact_kernel::{Kernel, NodeRef, NodeType, PropId, StyleId};
 
 /// Mirror the canonical run ownership (own text suppresses descendants),
 /// retaining paint-only information without adding it to the metric ABI.
-pub(super) fn text_palette(
+pub(crate) fn text_palette(
     kernel: &Kernel,
     node: &NodeRef<'_>,
     dark: bool,
@@ -85,11 +86,14 @@ pub(super) fn presented_color(walk: &super::Walk<'_, '_>, node: &NodeRef<'_>) ->
         .color(exact_motion::Property::Color)
 }
 
-/// The paragraph's run colours with presented ones applied, run by run.
+/// The paragraph's run colours with presented ones applied, run by run. A
+/// Markdown paragraph's one source run paints as its expanded runs, the
+/// quieter roles (markers, quotes) at the web's `opacity: 0.62` (LLP 1045 D3).
 pub(super) fn presented_text_colors(
     walk: &super::Walk<'_, '_>,
     node: &NodeRef<'_>,
-    palette: &mut [RunPaint],
+    paragraph: &Paragraph,
+    palette: &mut Vec<RunPaint>,
 ) {
     for run in palette.iter_mut() {
         if let Some(n) = walk.scene.kernel.node(run.source) {
@@ -98,5 +102,15 @@ pub(super) fn presented_text_colors(
             }
         }
     }
-    let _ = node;
+    if node.props.str(PropId::Markup) == Some("markdown") && palette.len() == 1 {
+        let ink = palette[0];
+        palette.clear();
+        palette.extend(paragraph.runs().iter().map(|run| {
+            let mut paint = ink;
+            if run.mark & QUIET != 0 {
+                paint.color[3] = (f32::from(paint.color[3]) * 0.62).round() as u8;
+            }
+            paint
+        }));
+    }
 }

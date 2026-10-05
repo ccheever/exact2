@@ -34,7 +34,7 @@ pub(crate) mod control;
 pub(crate) mod damage;
 pub mod gradient;
 pub use gradient::GradientPaint;
-mod inline;
+pub(crate) mod inline;
 mod placed;
 mod presented;
 mod region;
@@ -1085,7 +1085,7 @@ impl Painter {
                         .iter()
                         .map(|run| Run::from_style(&run.text, run.style))
                         .collect();
-                    spec.collapse_white_space()
+                    spec.shown(node.props.str(PropId::Markup) == Some("markdown"))
                 };
                 let paragraph = if let Some(stamp) = node.paragraph_stamp() {
                     // @ref LLP 1043.000 §3 D7 — ordinary text takes the same
@@ -1109,7 +1109,7 @@ impl Painter {
                 if let Some(paragraph) = paragraph {
                     let mut palette = Vec::new();
                     text_palette(walk.scene.kernel, node, self.dark, &mut palette);
-                    presented_text_colors(walk, node, &mut palette);
+                    presented_text_colors(walk, node, &paragraph, &mut palette);
                     walk.text.insert(node.key, paragraph.clone());
                     // CSS `text-overflow: ellipsis` in a clipping box: an
                     // over-wide line ends in "…" (LLP 1053 G5; paint only).

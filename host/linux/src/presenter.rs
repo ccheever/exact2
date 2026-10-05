@@ -58,6 +58,7 @@ mod height_drag;
 #[cfg(test)]
 mod height_drag_tests;
 mod images;
+mod links;
 mod preferences;
 mod retained_action;
 mod reveal;
