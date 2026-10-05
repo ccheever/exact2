@@ -1,0 +1,117 @@
+// Tennis's rules, driven event by event: `contract verify` runs these on the
+// runner and on the Lean semantics and compares every step; the world's own
+// tests (logic/tests/rules.rs) hold the Rust tick to the same program.
+
+test "an ace wins the point"
+  tap "toss"
+  tap "serveBall"
+  tap "landBox"
+  tap "landCourt"
+  expect state nearPoints == 1
+  expect state call == "Ace"
+  expect state phase == "dead"
+  tap "next"
+  expect state phase == "ready"
+  expect state call == ""
+
+test "a fault, then a double fault"
+  tap "toss"
+  tap "serveBall"
+  tap "net"
+  expect state call == "Fault"
+  expect state fault == true
+  tap "next"
+  expect state call == "Fault"
+  tap "toss"
+  tap "serveBall"
+  expect state call == ""
+  tap "landOut"
+  expect state farPoints == 1
+  expect state fault == false
+  expect state call == "Double fault"
+
+test "a serve that clips the tape into the box is a let"
+  tap "toss"
+  tap "serveBall"
+  tap "clip"
+  tap "landBox"
+  expect state call == "Let"
+  expect state nearPoints == 0
+  expect state farPoints == 0
+  tap "next"
+  expect state phase == "ready"
+
+test "a rally: return, out"
+  tap "toss"
+  tap "serveBall"
+  tap "landBox"
+  tap "hit"
+  expect state nearHit == false
+  expect state rally == 2
+  tap "landOut"
+  expect state nearPoints == 1
+  expect state call == "Out"
+
+test "events out of phase change nothing"
+  tap "hit"
+  tap "landBox"
+  tap "net"
+  tap "next"
+  tap "serveBall"
+  expect state phase == "ready"
+  expect state rally == 0
+
+test "deuce, advantage and the game"
+  tap "toss"
+  tap "serveBall"
+  tap "landBox"
+  tap "hit"
+  tap "landCourt"
+  tap "landCourt"
+  tap "next"
+  tap "toss"
+  tap "serveBall"
+  tap "landBox"
+  tap "hit"
+  tap "landCourt"
+  tap "landCourt"
+  tap "next"
+  tap "toss"
+  tap "serveBall"
+  tap "landBox"
+  tap "hit"
+  tap "landCourt"
+  tap "landCourt"
+  expect state call == "Unreturned"
+  tap "next"
+  expect state farLabel == "40"
+  tap "toss"
+  tap "serveBall"
+  tap "landBox"
+  tap "landCourt"
+  tap "next"
+  tap "toss"
+  tap "serveBall"
+  tap "landBox"
+  tap "landCourt"
+  tap "next"
+  tap "toss"
+  tap "serveBall"
+  tap "landBox"
+  tap "landCourt"
+  expect state call == "Ace · Deuce"
+  tap "next"
+  tap "toss"
+  tap "serveBall"
+  tap "landBox"
+  tap "landCourt"
+  expect state nearLabel == "AD"
+  tap "next"
+  tap "toss"
+  tap "serveBall"
+  tap "landBox"
+  tap "landCourt"
+  expect state call == "Ace · Game You"
+  expect state nearGames == 1
+  expect state nearServes == false
+  expect state nearPoints == 0

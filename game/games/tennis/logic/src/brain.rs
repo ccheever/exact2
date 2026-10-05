@@ -211,7 +211,7 @@ pub fn score_line(m: &Match) -> String {
         "games: Jev {} – opponent {} (first to {}); points: Jev {} – opponent {}; {} serving",
         m.games[1],
         m.games[0],
-        crate::rules::FIRST_TO,
+        m.first_to(),
         jev,
         you,
         if m.server == Side::Far {

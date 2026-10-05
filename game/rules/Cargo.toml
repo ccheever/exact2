@@ -1,0 +1,16 @@
+# A Contract program run inside a world's tick (LLP 1046.009 §3.3): a game's
+# rules as a compiled plan, their slots saved in the world.
+[package]
+name = "exact-game-rules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+exact-game = { path = "../engine" }
+exact-plan = { path = "../../plan" }
+exact-runner = { path = "../../runner" }
+
+[dev-dependencies]
+contract = { path = "../../contract/cli" }

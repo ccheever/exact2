@@ -1,0 +1,215 @@
+// Tennis's rules: scoring, the serve and the point's flow (LLP 1046.009 §3.3).
+// The world runs this program inside its tick. Its kernels (the ball's flight,
+// the players' swings) raise the events below; its slots live in the world's
+// saved `Rules` resource (game/rules). The view is the event table: one
+// handler per event the world may raise, and the only actions it may call,
+// which is what the Lean proofs quantify over (semantics/Apps/Proofs/TennisRules).
+
+fn name(near: bool): string = near ? "You" : "Jev"
+fn label(p: number): string = p == 0 ? "0" : p == 1 ? "15" : p == 2 ? "30" : "40"
+// Games to win the match. A `fn`, not a `derive`, so an action reads it
+// without settlement (and a proof without the settled derives).
+fn gamesToWin(): number = 4
+
+component TennisRules
+  // Games, then points, for you (near) and Jev (far).
+  state nearGames = 0
+  state farGames = 0
+  state nearPoints = 0
+  state farPoints = 0
+  state nearServes = true
+  // The first serve of this point has faulted.
+  state fault = false
+  // ready → toss → rally → dead → ready …, and over once someone has won.
+  state phase = "ready"
+  // The umpire's last call.
+  state call = ""
+  // "", "near" or "far".
+  state winner = ""
+  // Strokes this rally, the serve included.
+  state rally = 0
+  state played = 0
+  state longest = 0
+  // The ball in play: who hit it last, whether it is a serve, its bounces,
+  // and whether it clipped the tape.
+  state nearHit = true
+  state serve = false
+  state bounces = 0
+  state cord = false
+  // The last point, for the world's side effects (sounds, scouting).
+  state pointTo = ""
+  state pointCall = ""
+
+  derive firstTo = gamesToWin()
+  // Points alternate courts: deuce (the receiver's right) on even totals.
+  derive deuceCourt = (nearPoints + farPoints) % 2 == 0
+  // A fault or a let replays the serve sooner than a decided point.
+  derive deadSeconds = call == "Fault" or call == "Let" ? 0.9 : 1.6
+  derive nearLabel = nearPoints >= 3 and farPoints >= 3 ? (nearPoints > farPoints ? "AD" : "40") : label(nearPoints)
+  derive farLabel = nearPoints >= 3 and farPoints >= 3 ? (farPoints > nearPoints ? "AD" : "40") : label(farPoints)
+  derive prompt = (phase == "ready" and nearServes ? (fault ? "Second serve — J or K to toss, again to hit" : "Your serve — J or K to toss, again to hit")
+    : phase == "toss" and nearServes ? "Hit at the top of the toss"
+    : phase == "ready" ? "Jev to serve"
+    : "")
+  derive pressure = (nearPoints >= 3 and nearPoints > farPoints ? (nearGames + 1 >= gamesToWin() ? "match point" : nearServes ? "game point" : "break point")
+    : farPoints >= 3 and farPoints > nearPoints ? (farGames + 1 >= gamesToWin() ? "match point" : nearServes ? "break point" : "game point")
+    : "")
+
+  // The dead time has run out: the next point, or the end of the match.
+  action next
+    if phase == "dead"
+      if winner != ""
+        phase = "over"
+      else
+        rally = 0
+        call = call == "Fault" ? "Fault" : ""
+        phase = "ready"
+        nearHit = nearServes
+        serve = false
+        bounces = 0
+        cord = false
+
+  // The server puts the ball in the air.
+  action toss
+    if phase == "ready"
+      phase = "toss"
+
+  // Nobody hit the toss: catch it and toss again.
+  action dropToss
+    if phase == "toss"
+      phase = "ready"
+
+  // The server strikes the toss.
+  action serveBall
+    if phase == "toss"
+      rally = rally + 1
+      call = ""
+      phase = "rally"
+      nearHit = nearServes
+      serve = true
+      bounces = 0
+      cord = false
+
+  // The receiver returns the ball in play.
+  action hit
+    if phase == "rally" and bounces < 2
+      rally = rally + 1
+      nearHit = not nearHit
+      serve = false
+      bounces = 0
+      cord = false
+
+  // The ball hit the net.
+  action net
+    if phase == "rally"
+      if serve
+        faulted()
+      else
+        point(not nearHit, "Net")
+
+  // The ball clipped the tape and went on.
+  action clip
+    if phase == "rally"
+      cord = true
+
+  // The ball bounced: on the hitter's own half, out, in the court, or (for a
+  // serve) in the right service box. The kernel says which; these four are
+  // the events.
+  action landOwn
+    land("own")
+  action landOut
+    land("out")
+  action landCourt
+    land("court")
+  action landBox
+    land("box")
+
+  action land(spot: string)
+    if phase == "rally"
+      if bounces == 0
+        if serve
+          if spot == "box"
+            if cord
+              call = "Let"
+              phase = "dead"
+            else
+              bounces = 1
+          else
+            faulted()
+        else if spot == "own"
+          point(not nearHit, "Net")
+        else if spot == "out"
+          point(not nearHit, "Out")
+        else
+          bounces = 1
+      else
+        point(nearHit, serve ? "Ace" : rally >= 3 ? "Winner" : "Unreturned")
+
+  action faulted
+    if phase == "rally"
+      if fault
+        point(not nearServes, "Double fault")
+      else
+        fault = true
+        call = "Fault"
+        phase = "dead"
+
+  // Award a point and announce the score. Every action is guarded by the
+  // phase it belongs to, so nothing changes once the match is over.
+  action point(toNear: bool, how: string)
+    if phase == "rally"
+      let a = (toNear ? nearPoints : farPoints) + 1
+      let b = toNear ? farPoints : nearPoints
+      let g = (toNear ? nearGames : farGames) + 1
+      let game = a >= 4 and a >= b + 2
+      let won = game and g >= gamesToWin()
+      let says = (game ? (won ? `Game, set and match ${name(toNear)}` : `Game ${name(toNear)}`)
+        : a >= 3 and b >= 3 ? (a == b ? "Deuce" : `Advantage ${name(toNear)}`)
+        : "")
+      played = played + 1
+      longest = max(longest, rally)
+      fault = false
+      if game
+        nearPoints = 0
+        farPoints = 0
+        nearServes = not nearServes
+        if toNear
+          nearGames = g
+        else
+          farGames = g
+        if won
+          winner = toNear ? "near" : "far"
+      else if toNear
+        nearPoints = a
+      else
+        farPoints = a
+      call = says == "" ? how : `${how} · ${says}`
+      phase = "dead"
+      pointTo = toNear ? "near" : "far"
+      pointCall = how
+
+  view
+    column
+      button press=next testId="next"
+        text "next"
+      button press=toss testId="toss"
+        text "toss"
+      button press=dropToss testId="dropToss"
+        text "dropToss"
+      button press=serveBall testId="serveBall"
+        text "serveBall"
+      button press=hit testId="hit"
+        text "hit"
+      button press=net testId="net"
+        text "net"
+      button press=clip testId="clip"
+        text "clip"
+      button press=landOwn testId="landOwn"
+        text "landOwn"
+      button press=landOut testId="landOut"
+        text "landOut"
+      button press=landCourt testId="landCourt"
+        text "landCourt"
+      button press=landBox testId="landBox"
+        text "landBox"
+      text call testId="call"

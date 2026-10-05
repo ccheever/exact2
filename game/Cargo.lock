@@ -596,6 +596,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-game-rules"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-game",
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
 name = "exact-gpu"
 version = "0.1.0"
 dependencies = [

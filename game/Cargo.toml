@@ -2,7 +2,7 @@
 # from the root `members`, so exact2's five checks never compile it. It consumes
 # exact2 by path, as an app outside the repository does.
 [workspace]
-members = ["engine", "derive", "bake", "render", "physics", "audio", "app", "look"]
+members = ["engine", "derive", "bake", "render", "physics", "audio", "app", "look", "rules"]
 exclude = ["games", "bench"]
 resolver = "2"
 
@@ -20,6 +20,9 @@ exact-game-physics = { path = "physics" }
 exact-game-audio = { path = "audio" }
 exact-game-look = { path = "look" }
 exact-game-app = { path = "app" }
+exact-game-rules = { path = "rules" }
+# A game that compiles a Contract program at build (its rules, LLP 1046.009).
+contract = { path = "../contract/cli" }
 exact-data-host = { path = "../data/host" }
 # A game's Rust data source asks app storage (files, SQLite) through these,
 # as Fieldnotes' does: `exact_data::storage::request` and its JSON.
@@ -107,4 +110,6 @@ opt-level = 3
 [profile.gpu-dev.package.exact-game-physics]
 opt-level = 3
 [profile.gpu-dev.package.exact-game-audio]
+opt-level = 3
+[profile.gpu-dev.package.exact-game-rules]
 opt-level = 3

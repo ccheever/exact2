@@ -1,6 +1,7 @@
 //! Tennis against Jev: forehands on J, backhands on K, first to four games.
-//! The world owns the court, the ball, the rules and both players' bodies;
-//! Jev (through Contract's `jev` resource) only chooses the far player's intent.
+//! The world owns the court, the ball and both players' bodies; the rules are
+//! a Contract program it runs (rules.rs, ../rules/rules.contract). Jev
+//! (through Contract's `jev` resource) only chooses the far player's intent.
 pub mod ball;
 pub mod brain;
 mod court;
@@ -12,7 +13,7 @@ use brain::{Brain, Intent, Scouting, Situation};
 use exact_game::audio::{self, AudioListener};
 use exact_game::*;
 use players::{Hand, Meet, Player, CONTACT};
-use rules::{Match, Phase, Side};
+use rules::{raise, Match, Phase, Side};
 
 #[derive(Default, Args)]
 pub struct Options {
@@ -29,47 +30,32 @@ pub struct Options {
     pub plan: String,
 }
 
+/// The ball's physics. Who hit it, its bounces and whether it is a serve are
+/// the rules' (`Match::hitter`, `bounces`, `serve`, `cord`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Component)]
 pub struct Ball {
     pub flight: Flight,
     /// Moving under physics (tossed, live or dribbling after the point).
     pub live: bool,
-    pub hitter: Side,
-    pub bounces: u32,
-    pub serve: bool,
-    /// Clipped the tape since it was hit.
-    pub cord: bool,
     /// Predicted first bounce of a ball coming at you.
     pub mark: Option<Vec3>,
 }
 
-/// What the HUD reads through `exactSurface("world")`.
+/// What the HUD reads through `exactSurface("world")` besides the rules'
+/// own slots and derives (`rules::publish`): Jev's side.
 #[derive(Clone, Debug, Default, PartialEq, Data)]
 pub struct Hud {
-    pub you_games: u32,
-    pub jev_games: u32,
-    pub you_points: String,
-    pub jev_points: String,
-    pub serving: String,
-    pub call: String,
-    pub prompt: String,
     pub jev: String,
     pub jev_state: String,
     pub jev_status: String,
     /// The open question for Jev, or "" — the `jev` resource's argument.
     pub ask: String,
-    pub over: bool,
-    pub winner: String,
     pub asked: u32,
     pub on_time: u32,
     pub late: u32,
-    pub rally: u32,
-    pub longest: u32,
 }
 
 const TOSS_UP: f32 = 5.6;
-const DEAD: f32 = 1.6;
-const REPLAY: f32 = 0.9;
 
 pub struct Tennis;
 impl Game for Tennis {
@@ -86,7 +72,7 @@ impl Game for Tennis {
         w.reseed(args.seed);
         court::court(w);
         court::sounds(w);
-        w.insert_resource(Match::default());
+        rules::boot(w);
         w.insert_resource(Brain {
             offline: args.offline,
             state: if args.offline {
@@ -137,17 +123,22 @@ impl Game for Tennis {
         args.paused
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
+        rules::settle(w);
+        // A development reload: a new rules program, carried by slot name.
+        for message in input.messages() {
+            if let Some(hex) = message.strip_prefix("rules:") {
+                match rules::decode_hex(hex).and_then(|bytes| rules::install(w, &bytes)) {
+                    Ok(adopted) => w.log(format_args!("rules: new program ({adopted:?})")),
+                    Err(e) => w.log(format_args!("rules: kept the running program: {e}")),
+                }
+            }
+        }
         brain::receive(w, &args.plan);
         near(w, input);
         far(w);
         fly(w);
-        let m = w.resource::<Match>().clone();
-        let wait = if m.call == "Fault" || m.call == "Let" {
-            REPLAY
-        } else {
-            DEAD
-        };
-        if m.phase == Phase::Dead && (w.tick() - m.since) as f32 * w.dt() >= wait {
+        let m = Match::of(w);
+        if m.phase == Phase::Dead && (w.tick() - m.since) as f32 * w.dt() >= m.dead_seconds {
             next_point(w);
         }
         animate(w);
@@ -195,11 +186,10 @@ fn hand(side: Side, at: Vec3) -> Vec3 {
 
 /// Reset for the next point (or the second serve), and ask Jev for its serve.
 fn next_point(w: &mut World) {
-    let m = w.resource::<Match>().clone();
-    if m.winner.is_some() {
-        w.resource_mut::<Match>().enter(Phase::Over, w.tick());
+    if Match::of(w).phase == Phase::Dead && raise(w, "next").after.phase == Phase::Over {
         return;
     }
+    let m = Match::of(w);
     let deuce = m.deuce_court();
     let server = m.server;
     let receiver = server.other();
@@ -239,17 +229,8 @@ fn next_point(w: &mut World) {
             pos: held,
             ..Flight::default()
         },
-        hitter: server,
         ..Ball::default()
     };
-    {
-        let mut m = w.resource_mut::<Match>();
-        m.rally = 0;
-        if m.call != "Fault" {
-            m.call.clear();
-        }
-        m.enter(Phase::Ready, w.tick());
-    }
     if server == Side::Far {
         let second = m.fault;
         let incoming = format!(
@@ -304,7 +285,7 @@ fn place(at: Vec3, side: Side) -> String {
 }
 
 fn situation(w: &World, decide: &str, incoming: String) -> Situation {
-    let m = w.resource::<Match>();
+    let m = Match::of(w);
     let near_at = w.require::<Transform>("near").position;
     let far_at = w.require::<Transform>("far").position;
     let scouting = w.resource::<Scouting>();
@@ -327,7 +308,7 @@ fn situation(w: &World, decide: &str, incoming: String) -> Situation {
 /// Your side: run, toss, swing, and meet the ball on the contact tick.
 fn near(w: &mut World, input: &Input) {
     let (mut p, mut at) = load(w, Side::Near);
-    let m = w.resource::<Match>().clone();
+    let m = Match::of(w);
     let tick = w.tick();
     let serving = m.server == Side::Near && matches!(m.phase, Phase::Ready | Phase::Toss);
     let stroke = if input.pressed("forehand") {
@@ -393,6 +374,7 @@ fn near(w: &mut World, input: &Input) {
     p.swing = Some(swing);
     store(w, p, at);
     let b = ball(w);
+    let m = Match::of(w);
     if swing.hand == Hand::Serve {
         if m.phase == Phase::Toss && b.flight.pos.y >= 1.6 {
             let apex = TOSS_UP / 9.81;
@@ -408,9 +390,9 @@ fn near(w: &mut World, input: &Input) {
         return;
     }
     let returnable = m.phase == Phase::Rally
-        && b.hitter == Side::Far
-        && b.bounces < 2
-        && (!b.serve || b.bounces == 1);
+        && m.hitter == Side::Far
+        && m.bounces < 2
+        && (!m.serve || m.bounces == 1);
     let rel = players::relative(&p, at, b.flight.pos);
     let meet = if returnable {
         players::meet(swing.hand, rel)
@@ -504,11 +486,11 @@ fn toss(w: &World, side: Side) {
                 spin: Vec3::ZERO,
             },
             live: true,
-            hitter: side,
             ..Ball::default()
         },
     );
-    w.resource_mut::<Match>().enter(Phase::Toss, w.tick());
+    debug_assert_eq!(Match::of(w).server, side, "only the server tosses");
+    raise(w, "toss");
 }
 
 /// Launch the ball with scatter drawn from the world's RNG.
@@ -528,10 +510,6 @@ fn strike(w: &World, side: Side, from: Vec3, shot: players::Shot, serve: bool) {
         Ball {
             flight,
             live: true,
-            hitter: side,
-            bounces: 0,
-            serve,
-            cord: false,
             mark,
         },
     );
@@ -539,13 +517,8 @@ fn strike(w: &World, side: Side, from: Vec3, shot: players::Shot, serve: bool) {
     hitter.contact = 0;
     store(w, hitter, at);
     receive_plan(w, side.other(), flight, serve);
-    let mut m = w.resource_mut::<Match>();
-    m.rally += 1;
-    if serve {
-        m.call.clear();
-        m.enter(Phase::Rally, w.tick());
-    }
-    drop(m);
+    let raised = raise(w, if serve { "serveBall" } else { "hit" });
+    debug_assert_eq!(raised.after.hitter, side, "the rules agree who struck");
     sound(w, "hit", from, 0.9);
 }
 
@@ -570,7 +543,7 @@ fn receive_plan(w: &World, side: Side, flight: Flight, serve: bool) {
 /// Jev's side: serve, run to the planned contact, commit, swing, recover.
 fn far(w: &mut World) {
     let (mut p, mut at) = load(w, Side::Far);
-    let m = w.resource::<Match>().clone();
+    let m = Match::of(w);
     let tick = w.tick();
     let dt = w.dt();
     if m.server == Side::Far && m.phase == Phase::Ready {
@@ -633,7 +606,7 @@ fn far(w: &mut World) {
             rel.x.abs() <= 1.9 && rel.x * if p.hand == Hand::Forehand { 1.0 } else { -1.0 } >= -0.2;
         let reach = lateral_ok && (-1.0..=1.6).contains(&rel.y) && rel.z <= 2.6;
         let lunge = !reach && Vec2::new(rel.x, rel.y).length() <= 2.4 && rel.z <= 2.6;
-        let live = m.phase == Phase::Rally && b.hitter == Side::Near && b.bounces < 2;
+        let live = m.phase == Phase::Rally && m.hitter == Side::Near && m.bounces < 2;
         if live && (reach || lunge) {
             let intent = w.resource::<Brain>().last.clone().unwrap_or_default();
             let near_at = w.require::<Transform>("near").position;
@@ -678,10 +651,10 @@ fn far(w: &mut World) {
     store(w, p, at);
 }
 
-/// Move the ball and apply the rules to what it touches.
+/// Move the ball and raise what it touches as the rules' events.
 fn fly(w: &mut World) {
     let mut b = ball(w);
-    let m = w.resource::<Match>().clone();
+    let m = Match::of(w);
     if m.phase == Phase::Ready {
         let server = w.require::<Transform>(name(m.server)).position;
         b.flight.pos = hand(m.server, server);
@@ -702,80 +675,54 @@ fn fly(w: &mut World) {
     if m.phase == Phase::Toss && b.flight.vel.y < 0.0 && b.flight.pos.y < 1.0 {
         // Nobody hit the toss: catch it and toss again.
         w.log("toss dropped: serve again");
-        w.resource_mut::<Match>().enter(Phase::Ready, w.tick());
+        raise(w, "dropToss");
         return;
     }
     if m.phase != Phase::Rally {
         return;
     }
-    let receiver = b.hitter.other();
-    match touch {
-        Touch::Net if b.serve => fault(w),
-        Touch::Net => point(w, receiver, "Net"),
-        Touch::Cord => w.require_mut::<Ball>("ball").cord = true,
-        Touch::Bounce(at) if b.bounces == 0 => {
-            let side = Side::of_z(at.z);
-            if b.serve {
-                if side == receiver && ball::in_box(at, receiver.half(), m.deuce_court()) {
-                    if b.cord {
-                        w.log("let: the serve clipped the tape");
-                        w.resource_mut::<Match>().call = "Let".into();
-                        w.resource_mut::<Match>().enter(Phase::Dead, w.tick());
-                    } else {
-                        w.require_mut::<Ball>("ball").bounces = 1;
-                        if b.hitter == Side::Near && !m.fault {
-                            w.resource_mut::<Scouting>().first_serves_in += 1;
-                        }
-                    }
-                } else {
-                    fault(w);
-                }
-            } else if side == b.hitter {
-                point(w, receiver, "Net");
-            } else if !ball::in_court(at) {
-                point(w, receiver, "Out");
-            } else {
-                w.require_mut::<Ball>("ball").bounces = 1;
-            }
-        }
-        Touch::Bounce(_) => {
-            let call = if b.serve {
-                "Ace"
-            } else if m.rally >= 3 {
-                "Winner"
-            } else {
-                "Unreturned"
-            };
-            point(w, b.hitter, call);
-        }
-        _ => {}
-    }
-}
-
-fn fault(w: &mut World) {
-    let (second, server) = {
-        let m = w.resource::<Match>();
-        (m.fault, m.server)
+    // Where a bounce landed, as the rules ask: the hitter's own half, the
+    // receiver's service box on this point's court, the court, or out.
+    let receiver = m.hitter.other();
+    let event = match touch {
+        Touch::Net => "net",
+        Touch::Cord => "clip",
+        Touch::Bounce(at) if Side::of_z(at.z) == m.hitter => "landOwn",
+        Touch::Bounce(at) if ball::in_box(at, receiver.half(), m.deuce_court()) => "landBox",
+        Touch::Bounce(at) if ball::in_court(at) => "landCourt",
+        Touch::Bounce(_) => "landOut",
+        Touch::Air => return,
     };
-    if second {
-        if server == Side::Near {
-            w.resource_mut::<Scouting>().double_faults += 1;
-        }
-        point(w, server.other(), "Double fault");
-        return;
-    }
-    w.log(format_args!("fault: {}'s first serve", server.name()));
-    let mut m = w.resource_mut::<Match>();
-    m.fault = true;
-    m.call = "Fault".into();
-    m.enter(Phase::Dead, w.tick());
+    let raised = raise(w, event);
+    called(w, &raised);
 }
 
-/// Award a point, remember how it went, and announce the score.
-fn point(w: &mut World, to: Side, call: &str) {
-    let hitter = ball(w).hitter;
+/// The world's side of what the rules decided: the log, sounds and what Jev
+/// learns of your game.
+fn called(w: &World, r: &rules::Raised) {
+    let (b, a) = (&r.before, &r.after);
+    if a.bounces == 1 && b.bounces == 0 && a.serve && a.hitter == Side::Near && !a.fault {
+        w.resource_mut::<Scouting>().first_serves_in += 1;
+    }
+    if a.phase == Phase::Dead && a.call == "Let" {
+        w.log("let: the serve clipped the tape");
+    }
+    if a.fault && !b.fault {
+        w.log(format_args!("fault: {}'s first serve", b.server.name()));
+    }
+    if let Some((to, how)) = r.point() {
+        point(w, b, to, how, &a.call);
+    }
+}
+
+/// Remember how a point went and announce it.
+fn point(w: &World, before: &Match, to: Side, call: &str, line: &str) {
+    let hitter = before.hitter;
     {
         let mut s = w.resource_mut::<Scouting>();
+        if call == "Double fault" && before.server == Side::Near {
+            s.double_faults += 1;
+        }
         // The near player's lost point, charged to the stroke that erred or,
         // for a ball that got past, to the side it passed on.
         if to == Side::Far && call != "Double fault" {
@@ -799,16 +746,6 @@ fn point(w: &mut World, to: Side, call: &str) {
         };
         s.remember(format!("{} won the point: {call} ({who} shot)", to.name()));
     }
-    let mut m = w.resource_mut::<Match>();
-    let announcement = m.award(to);
-    m.call = if announcement.is_empty() {
-        call.into()
-    } else {
-        format!("{call} · {announcement}")
-    };
-    m.enter(Phase::Dead, w.tick());
-    let line = m.call.clone();
-    drop(m);
     w.log(format_args!("point {}: {line}", to.name()));
     let at = w.require::<Transform>("camera").position;
     sound(w, "point", at, 0.8);
@@ -820,7 +757,7 @@ fn point(w: &mut World, to: Side, call: &str) {
 /// Racket poses from each swing, the landing marker, and the ball in hand.
 fn animate(w: &World) {
     let tick = w.tick();
-    let m = w.resource::<Match>().clone();
+    let m = Match::of(w);
     for side in [Side::Near, Side::Far] {
         let p = *w.require::<Player>(name(side));
         let tossing = m.phase == Phase::Toss && m.server == side;
@@ -836,7 +773,7 @@ fn animate(w: &World) {
     let b = ball(w);
     let show = b
         .mark
-        .filter(|_| m.phase == Phase::Rally && b.hitter == Side::Far && b.bounces == 0);
+        .filter(|_| m.phase == Phase::Rally && m.hitter == Side::Far && m.bounces == 0);
     let mut marker = w.require_mut::<Transform>("marker");
     marker.position = show.map_or(Vec3::new(0.0, -1.0, 0.0), |at| Vec3::new(at.x, 0.006, at.z));
 }
@@ -853,28 +790,9 @@ fn follow_camera(w: &World) {
 }
 
 fn publish(w: &World) {
-    let m = w.resource::<Match>();
+    rules::publish(w);
     let brain = w.resource::<Brain>();
-    let (you, jev) = m.labels();
-    let prompt = match (m.phase, m.server) {
-        (Phase::Ready, Side::Near) if m.fault => "Second serve — J or K to toss, again to hit",
-        (Phase::Ready, Side::Near) => "Your serve — J or K to toss, again to hit",
-        (Phase::Toss, Side::Near) => "Hit at the top of the toss",
-        (Phase::Ready, Side::Far) => "Jev to serve",
-        _ => "",
-    };
     w.publish_record(&Hud {
-        you_games: m.games[0],
-        jev_games: m.games[1],
-        you_points: you,
-        jev_points: jev,
-        serving: if m.server == Side::Near {
-            "you".into()
-        } else {
-            "jev".into()
-        },
-        call: m.call.clone(),
-        prompt: prompt.into(),
         jev: brain.line.clone(),
         jev_state: brain.state.clone(),
         jev_status: brain.status.clone(),
@@ -883,13 +801,9 @@ fn publish(w: &World) {
             .as_ref()
             .map(|a| a.json.clone())
             .unwrap_or_default(),
-        over: m.phase == Phase::Over,
-        winner: m.winner.map(|s| s.name().to_string()).unwrap_or_default(),
         asked: brain.stats.asked,
         on_time: brain.stats.on_time,
         late: brain.stats.late,
-        rally: m.rally,
-        longest: m.longest_rally,
     });
 }
 
