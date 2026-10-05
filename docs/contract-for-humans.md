@@ -795,6 +795,21 @@ call outside them fails. The capabilities are:
 - *An open database locks its file.* A mutation and the refresh it triggers
   overlap, and the second `open` fails as busy. Queue every open, as
   `withBooks` does.
+- *A save need not be awaited.* An editor answers from memory and saves in
+  the answer, unawaited; the answer is there at once and the write finishes
+  behind it, in the order the edits were made, on every host:
+
+  ```ts
+  edit(store, args) {
+    song = apply(song, args);
+    storage.fs.atomicWriteFile(PATH, JSON.stringify(song)).catch(note);  // started now, not awaited
+    return song;
+  }
+  ```
+
+  Call storage in the answer rather than chaining it on a promise, keep a
+  failure (`note`) to say in the next answer, and put writes that must stay
+  together in one `transaction`.
 - *SQLite integers are `bigint`.* Convert them (`String(id)`, `Number(n)`)
   before returning; a Contract `number` is not a `bigint`.
 - *A domain failure is data.* `addBook` returns `ok: false` with a message

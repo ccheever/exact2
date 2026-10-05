@@ -1249,6 +1249,7 @@ dependencies = [
  "cc",
  "contract",
  "exact-data",
+ "exact-data-host",
  "exact-js-value",
  "exact-kernel",
  "exact-plan",

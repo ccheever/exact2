@@ -9,6 +9,11 @@ let tail: Promise<unknown> = Promise.resolve();
 let saves: Promise<unknown> = Promise.resolve(), saveError = "";
 let shared: Promise<{text:string}>;
 
+// Background work (LLP 1097): the last save started and not awaited, and
+// the last failure a background step reported to the app.
+let saving: Promise<unknown> = Promise.resolve(), lastError = "";
+const bytes = (value: string) => new Uint8Array(Array.from(value).map(c => c.charCodeAt(0)));
+
 // Writes an answer starts and does not await (kanban F22): the answer is
 // given before they land, and they must land all the same.
 function answer(source:string, args:unknown[], store:Store, storage:Storage, native:any) {
@@ -22,6 +27,49 @@ function answer(source:string, args:unknown[], store:Store, storage:Storage, nat
     return shared;
   }
   if (op === "shared-wait") return shared.then(() => ({text: "waited"}));
+  const song = storage.fs.directories.data + "/song";
+  // The summary's edit: answered from memory, saved unawaited, in the answer.
+  if (op === "save") {
+    saving = storage.fs.atomicWriteFile(song, bytes(value)).catch((e) => { lastError = String(e.code); });
+    return {text:"saved " + value};
+  }
+  // The same save chained behind the last one: issued when that lands.
+  if (op === "save-chained") {
+    saving = saving.then(() => storage.fs.atomicWriteFile(song, bytes(value))).catch((e) => { lastError = String(e.code); });
+    return {text:"saved " + value};
+  }
+  // An answer that awaits background work: waits with the module.
+  if (op === "await-saving") return saving.then(() => ({text:"after " + lastError}));
+  // 258 writes at once: one in flight, 256 waiting, the 258th refused.
+  if (op === "flood") {
+    const codes: Promise<string>[] = [];
+    for (let i = 0; i < 258; i++) codes.push(storage.fs.writeFile(storage.fs.directories.data + "/flood", bytes(String(i))).then(() => "ok", (e) => String(e.code)));
+    return codes[257].then((code) => ({text:code}));
+  }
+  // What a background step may not do: fetch, or call the native module.
+  if (op === "save-then-fetch") {
+    storage.fs.atomicWriteFile(song, bytes(value)).then(() => fetch("https://example.test/later")).catch((e) => { lastError = e.message; });
+    return {text:"saved " + value};
+  }
+  if (op === "save-then-native") {
+    storage.fs.atomicWriteFile(song, bytes(value)).then(() => native.call({value})).catch((e) => { lastError = e.message; });
+    return {text:"saved " + value};
+  }
+  // A background write that fails: its promise rejects, as on the web.
+  if (op === "save-bad") {
+    storage.fs.writeFile(storage.fs.directories.data + "/absent/file", bytes(value)).catch((e) => { lastError = String(e.code); });
+    return {text:"saved " + value};
+  }
+  if (op === "reject") { Promise.reject(new Error("lost " + value)); return {text:"answered"}; }
+  if (op === "last-error") return {text:lastError};
+  // Each part appended to one log, awaited in turn: two such answers
+  // interleave at their awaits, as two async calls do on the web (D4.5).
+  if (op === "append") {
+    return (async () => {
+      for (const part of value.split(",")) await storage.fs.appendFile(storage.fs.directories.data + "/log", bytes(part + ";"));
+      return {text:value};
+    })();
+  }
   if (op === "unawaited") {
     storage.fs.atomicWriteFile(storage.fs.directories.data + "/unawaited", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
     return {text:"answered"};

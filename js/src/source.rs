@@ -4,7 +4,26 @@ use super::*;
 
 impl DataSource for Module {
     fn take_logs(&mut self) -> Vec<String> {
-        Module::take_logs(self)
+        self.journal_lines()
+    }
+
+    fn background(&mut self, store: &Store) -> Option<Request> {
+        let _ = store;
+        self.background_request()
+    }
+
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<Request>, DataError> {
+        let _ = store;
+        self.background_round(outcome)
+    }
+
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        self.storage.as_ref()?;
+        Some(self.background.state.clone())
     }
 
     fn configure_storage(
@@ -28,10 +47,9 @@ impl DataSource for Module {
 
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
         let _ = store;
-        let deferred = self
-            .parked
-            .iter()
-            .any(|(_, p)| p.call == token && p.ticket == DEFERRED);
+        if token == exact_runner::BACKGROUND {
+            return self.background_dispatch();
+        }
         if self
             .parked
             .iter()
@@ -42,22 +60,14 @@ impl DataSource for Module {
                 Dispatch::Held
             });
         }
-        if !deferred {
-            return match self.continuation(token) {
-                Some(work) => Dispatch::Run(Work::Now(work)),
-                None => Dispatch::Missing,
-            };
+        match self.continuation(token) {
+            Some(work) => Dispatch::Run(Work::Now(work)),
+            None => Dispatch::Missing,
         }
-        if self.turn_open() {
-            self.held.push_back(token);
-            return Dispatch::Held;
-        }
-        Module::deferred_work()
     }
 
     fn release(&mut self, store: &Store) -> Vec<(u64, Dispatch)> {
         let _ = store;
-        self.finish_retired();
         // Waiting answers whose wait may be over are asked again.
         let mut released = Vec::new();
         for token in std::mem::take(&mut self.waiters) {
@@ -69,38 +79,12 @@ impl DataSource for Module {
                 None => {}
             }
         }
-        // Once the open turn has ended, the oldest held answer begins; the
-        // rest wait for the turn it may open in turn.
-        while !self.turn_open() {
-            let Some(token) = self.held.pop_front() else {
-                break;
-            };
-            if self
-                .parked
-                .iter()
-                .any(|(_, p)| p.call == token && p.ticket == DEFERRED)
-            {
-                released.push((token, Module::deferred_work()));
-                break;
-            }
-        }
         released
     }
 
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
-        if self
-            .parked
-            .iter()
-            .any(|(_, p)| p.call == token && p.ticket == DEFERRED)
-        {
-            // The owner-thread and test paths run turns in order already.
-            return Some(Box::new(|| {
-                Outcome::Response(Response {
-                    status: 200,
-                    headers: Vec::new(),
-                    body: Vec::new(),
-                })
-            }));
+        if token == exact_runner::BACKGROUND {
+            return Some(self.storage.as_ref()?.continuation());
         }
         // An owner thread runs one turn to its end, so another answer's
         // work cannot land while this one waits for it (LLP 1027.002).
@@ -166,22 +150,20 @@ impl DataSource for Module {
 
     /// A `Later` answer the runner dropped before handing it out — a refused
     /// pass, or a re-read whose reply's refresh asks again — is dropped here
-    /// too. Left parked, a deferred call shares its key with the call still
-    /// in flight, and `resume`, which finds a call by key, gave it that
-    /// call's storage step: the read's turn never ended, and every answer
-    /// held behind it waited forever (files diary F18: a mutation refreshing
-    /// a folder's preview mid-walk, behind a composer, whose `forgotten`
-    /// cannot name a dispatched call's token).
+    /// too. Left parked, a call shares its key with the call still in
+    /// flight, and `resume`, which finds a call by key, could give it that
+    /// call's storage step (files diary F18: a mutation refreshing a
+    /// folder's preview mid-walk, behind a composer, whose `forgotten`
+    /// cannot name a dispatched call's token). A targeted continuation no
+    /// longer replaces a call parked on its key (LLP 1097 D4.5): the runner
+    /// drops the new one here.
     fn discard(&mut self, token: u64) {
         let Some(at) = self.parked.iter().position(|(_, p)| p.call == token) else {
             return;
         };
         let (_, parked) = self.parked.remove(at);
-        self.held.retain(|held| *held != token);
         self.waiters.retain(|waiter| *waiter != token);
-        if parked.ticket != DEFERRED {
-            self.forget_calls(vec![parked.call]);
-        }
+        self.forget_calls(vec![parked.call]);
     }
 
     /// Calls whose requests the runner let go are dropped, here and in the
@@ -190,9 +172,13 @@ impl DataSource for Module {
     /// call it replaced; only the continuation token tells them apart, so a
     /// call whose token is not the one in flight goes too (minesweeper F10:
     /// a read replaced by its own refresh kept its turn open forever, and the
-    /// refresh, deferred behind it, never ran).
+    /// refresh never ran). Storage the forgotten call already issued still
+    /// runs; its Store writes do not land on a live answer's store (a let-go
+    /// runs with no store). A call that had not issued storage is not
+    /// replayed: LLP 1097 deletes that deferral.
     fn forgotten(&mut self, store: &Store, in_flight: &[InFlight<'_>]) {
-        self.retire_calls(store, in_flight);
+        let _ = store;
+        self.forget_in_flight(in_flight);
     }
 
     /// Stops the running call, or the next one to start, from any thread:
@@ -290,7 +276,9 @@ impl DataSource for Module {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
-        self.begin(Some(store), None, source, args)
+        let answer = self.begin(Some(store), None, source, args);
+        self.refresh_background();
+        answer
     }
 
     fn parse(
@@ -300,7 +288,9 @@ impl DataSource for Module {
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
-        self.resume(store, None, source, args, outcome)
+        let answer = self.resume(store, None, source, args, outcome);
+        self.refresh_background();
+        answer
     }
 
     fn answer_for(
@@ -312,6 +302,7 @@ impl DataSource for Module {
     ) -> Result<Answer, DataError> {
         let refused = self.host.bake_refusals;
         let answer = self.begin(Some(store), Some(target), source, args);
+        self.refresh_background();
         // A resource whose answer failed after the bake refused it storage
         // is the device's to answer, as one that fetches is: the bake shows
         // its placeholder and a launch asks it (kanban2 #5: an uncaught
@@ -321,7 +312,7 @@ impl DataSource for Module {
             Err(DataError::Unavailable(_))
                 if self.host.bake_refusals > refused && matches!(target, Target::Resource(_)) =>
             {
-                Ok(Answer::Later(Request::continuation(DEFERRED)))
+                Ok(Answer::Later(Request::continuation(UNASKED)))
             }
             answer => answer,
         }
@@ -335,6 +326,8 @@ impl DataSource for Module {
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
-        self.resume(store, Some(target), source, args, outcome)
+        let answer = self.resume(store, Some(target), source, args, outcome);
+        self.refresh_background();
+        answer
     }
 }

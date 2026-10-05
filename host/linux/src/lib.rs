@@ -64,6 +64,7 @@ mod placement;
 pub mod presenter;
 pub mod raster;
 mod surfaces;
+pub mod teardown;
 pub mod text;
 #[cfg(target_os = "linux")]
 pub mod vnc;

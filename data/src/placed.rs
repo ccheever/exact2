@@ -393,10 +393,13 @@ fn turn<D: DataSource>(
 }
 
 impl<D: DataSource + 'static> DataSource for Placed<D> {
+    /// The wrapper's envelope lines, plus the inline module's journal.
+    /// A worker owner keeps the module's journal (LLP 1097 D6): nothing of
+    /// it is forwarded while the owner holds it.
     fn take_logs(&mut self) -> Vec<String> {
-        if self.inline() {
+        if self.owner.is_none() {
             if let Some(source) = &mut self.inner {
-                self.logs.extend(source.take_logs());
+                self.logs.extend(DataSource::take_logs(source));
             }
         }
         std::mem::take(&mut self.logs)
@@ -701,6 +704,34 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
             return None;
         }
         self.inner.as_mut()?.continuation(token)
+    }
+
+    /// Background work is the inline module's alone (LLP 1097 D6): a
+    /// worker's answers wait for their storage, so nothing is forwarded
+    /// while an owner holds the module.
+    fn background(&mut self, store: &Store) -> Option<Request> {
+        match self.inner.as_mut() {
+            Some(inner) if self.owner.is_none() => inner.background(store),
+            _ => None,
+        }
+    }
+
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<Request>, DataError> {
+        match self.inner.as_mut() {
+            Some(inner) if self.owner.is_none() => inner.background_landed(store, outcome),
+            _ => Ok(None),
+        }
+    }
+
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        match self.inner.as_ref() {
+            Some(inner) if self.owner.is_none() => inner.background_state(),
+            _ => None,
+        }
     }
 
     /// A replacement keeps its placement (LLP 1027.002 §6). A moved source

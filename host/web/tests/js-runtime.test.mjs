@@ -7,7 +7,7 @@
 // update (review C3). rt.js runs beside stand-ins for the modules it imports,
 // with the real shape.js.
 import { test, expect } from 'bun:test';
-import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
@@ -22,6 +22,30 @@ for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', '
 // A view transition that holds every tree update (shared.js's commit returns before its callback).
 writeFileSync(resolve(dir, 'shared.js'), 'export const commit = (tail) => { globalThis.heldTail = tail; return true; };');
 writeFileSync(resolve(dir, 'presence-glue.js'), 'globalThis.exact.presence = () => ({ before() {}, after() {}, exit() {} });');
+// ts-data.js over a scripted store (the storage test below), written before
+// anything is imported from here: the loader reads this directory once.
+const stub = (file, text) => writeFileSync(resolve(dir, file), text);
+stub('admission.js', 'export const createSecretFacade = () => ({ read: false }); export const hasGrant = () => true; export const setAppGrantSet = g => g;');
+stub('admission-data.js', 'export const tsGrantSet = {};');
+stub('ts-fetch.js', 'export const answering = { call: null };');
+stub('names.js', 'export const sourceTypes = {};');
+stub('storage-environment.js', "export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store';");
+// A write lands a task later; a read answers at once: unqueued, it would overtake.
+stub('storage-fs.js', `const files = new Map(); export const createFileSystem = () => ({
+  atomicWriteFile: (p, v) => new Promise((ok, no) => setTimeout(() => p.includes('absent/') ? no(Object.assign(new Error('filesystem: No such file'), { code: 'ENOENT' })) : ok(files.set(p, v)), 5)),
+  writeFile: (p, v) => new Promise(ok => setTimeout(() => ok(files.set(p, v)), 1)),
+  readFile: async p => files.get(p) ?? '' });`);
+stub('app.mjs', `export const appId = 'test';
+  export function answer(source, [op, value], store, storage) {
+    if (op === 'save') { storage.fs.atomicWriteFile('app:/data/song', value).catch(() => {}); return 'saved ' + value; }
+    if (op === 'read') return storage.fs.readFile('app:/data/song');
+    if (op === 'bad') { storage.fs.atomicWriteFile('app:/data/absent/x', value).catch(() => {}); return 'saved'; }
+    const codes = [];
+    for (let i = 0; i < 258; i++) codes.push(storage.fs.writeFile('app:/data/flood', String(i)).then(() => 'ok', e => e.code));
+    return codes[257];
+  }`);
+const tsData = readFileSync(webJs('ts-data.js'), 'utf8').replace("'__APP_TS__'", JSON.stringify(resolve(dir, 'app.mjs'))).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '');
+writeFileSync(resolve(dir, 'ts-data.js'), tsData);
 
 test('a baked answer shows until the source is ready, then is asked; a settled one is not', async () => {
   const { res, data } = await import(resolve(dir, 'rt.js'));
@@ -234,6 +258,36 @@ test('notifications: refused without the grant, listed under the agent, else pos
 // JS target's Rust seam caps at 16 MiB a message, so conformance cannot carry
 // one (host/web-js/conformance/budget.contract); the runtime's checks are run
 // here, against the runner's texts (runner/src/runner/commit.rs, stdlib.rs).
+// The JS target's storage (LLP 1097 D3, D8, D9): one queue for the module's
+// operations, so a read issued after an unawaited write sees it, though the
+// store would answer the read first; at most 256 wait behind the one in
+// flight, the next refused `full` and journaled; each counts in flight until
+// it lands, and a failure is journaled. ts-data.js over a scripted store.
+test('storage keeps the order issued, a bound, a count, and a journal', async () => {
+  const { data, inflight, journal } = await import(resolve(dir, 'rt.js'));
+  const { install } = await import(resolve(dir, 'ts-data.js'));
+  install(data);
+  const before = inflight.n, ask = (op, value = '') => data.ts('work', [op, value], new Map());
+  expect(ask('save', 'one').v).toBe('saved one');
+  expect(ask('save', 'two').v).toBe('saved two');
+  const read = ask('read');
+  expect(inflight.n - before).toBe(3);
+  expect(data.background()).toMatchObject({ queued: 2, inFlight: 1 });
+  expect(await read.promise).toBe('two');
+  expect(await ask('flood').promise).toBe('full');
+  expect(journal.some(l => l.endsWith('storage refused: full (writeFile app:/data/flood)'))).toBe(true);
+  const drained = async () => {
+    for (let i = 0; i < 500 && (data.background().queued || data.background().inFlight); i++) await new Promise(r => setTimeout(r, 2));
+    await new Promise(r => setTimeout(r, 10));
+  };
+  await drained(); // the flood's 257 run in order first
+  ask('bad', 'x');
+  await drained();
+  expect(inflight.n).toBe(before);
+  expect(data.background()).toMatchObject({ queued: 0, inFlight: 0, failed: 1, last: 'storage failed: atomicWriteFile app:/data/absent/x: ENOENT filesystem: No such file' });
+  expect(journal.some(l => l.endsWith('storage failed: atomicWriteFile app:/data/absent/x: ENOENT filesystem: No such file'))).toBe(true);
+});
+
 test('a string past MAX_STRING joins to itself alone and is counted in UTF-8 bytes', async () => {
   const { x_join, K, cc, utf8, Trap } = await import(resolve(dir, 'budget.js'));
   const long = 'a'.repeat(2 ** 26 + 1);

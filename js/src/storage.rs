@@ -60,6 +60,19 @@ impl Session {
         })
     }
 
+    /// Wait on this thread, until `deadline`, for a completion to deliver
+    /// (or nothing left in flight): teardown's bounded wait (LLP 1097 D10).
+    pub fn wait_until(&self, deadline: Instant) -> bool {
+        loop {
+            if self.context.is_idle() || self.context.wait(Duration::from_millis(25)) {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+        }
+    }
+
     pub fn continuation(&self) -> Box<dyn FnOnce() -> Outcome + Send> {
         let context = self.context.clone();
         let alive = self.alive.clone();

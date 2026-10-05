@@ -1290,3 +1290,114 @@ fn aria_keyshortcuts_press_their_button_before_the_key_handlers() {
     key(&mut p, pad, "F13");
     assert_eq!(log(&mut p), format!("{before}close;key:F13;"));
 }
+
+/// Answers `save()` at once with 1 and leaves two storage operations to
+/// the background (LLP 1097 D5), each round 30 ms on the I/O worker.
+#[derive(Default)]
+struct Saving {
+    left: u64,
+    out: bool,
+    done: u64,
+}
+impl DataSource for Saving {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+    fn answer(
+        &mut self,
+        _: &mut exact_runner::Store,
+        _: &str,
+        _: &[Value],
+    ) -> Result<exact_runner::Answer, DataError> {
+        self.left += 2;
+        Ok(exact_runner::Answer::Now(Value::Number(1.0)))
+    }
+    fn dispatch(&mut self, token: u64, _: &exact_runner::Store) -> exact_runner::Dispatch {
+        assert_eq!(token, exact_runner::BACKGROUND);
+        exact_runner::Dispatch::Run(exact_runner::Work::Now(Box::new(|| {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            exact_runner::Outcome::Storage(Vec::new())
+        })))
+    }
+    fn background(&mut self, _: &exact_runner::Store) -> Option<exact_runner::Request> {
+        if self.out || self.left == 0 {
+            return None;
+        }
+        self.out = true;
+        Some(exact_runner::Request::continuation(
+            exact_runner::BACKGROUND,
+        ))
+    }
+    fn background_landed(
+        &mut self,
+        _: &exact_runner::Store,
+        _: exact_runner::Outcome,
+    ) -> Result<Option<exact_runner::Request>, DataError> {
+        self.out = false;
+        self.left -= 1;
+        self.done += 1;
+        Ok(None)
+    }
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        Some(exact_runner::BackgroundState {
+            queued: self.left.saturating_sub(1),
+            in_flight: self.left.min(1),
+            done: self.done,
+            ..Default::default()
+        })
+    }
+}
+
+/// LLP 1097 D9: `clock +N` does not wait for background storage and says
+/// how much is left beside `inflight`, a number; `clock settle` waits for
+/// it, and `state.background` counts what landed.
+#[test]
+fn clock_settle_waits_for_background_storage_and_a_jump_names_it() {
+    let plan = contract::compile(
+        "component App\n  resource item = save() as shape number else save()\n  view\n    text toString(item) testId=\"item\" height=20\n",
+    )
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        Saving::default(),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+    let jump = json(handle(&mut p, r#"{"op":"clock","to":10}"#));
+    assert!(jump["inflight"].is_u64(), "{jump}");
+    assert!(jump["background"].as_u64().is_some_and(|n| n > 0), "{jump}");
+    let settled = json(handle(&mut p, r#"{"op":"clock","settle":true}"#));
+    assert_eq!(settled["settled"], true, "{settled}");
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert_eq!(state["background"]["done"], 4, "{state}");
+    assert_eq!(state["background"]["inFlight"], 0, "{state}");
+    assert_eq!(state["pending"], serde_json::json!([]), "{state}");
+}
+
+/// LLP 1097 D10: an orderly exit pumps the module's storage to its end
+/// first, within its bound.
+#[test]
+fn an_orderly_exit_finishes_background_storage() {
+    let plan = contract::compile(
+        "component App\n  resource item = save() as shape number else save()\n  view\n    text toString(item) testId=\"item\" height=20\n",
+    )
+    .unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        Saving::default(),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(p.host().runner().background_operations() > 0);
+    crate::teardown::finish(&mut p, crate::teardown::EXIT_BOUND);
+    assert_eq!(p.host().runner().background_operations(), 0);
+    assert!(!p.host().runner().has_pending());
+}

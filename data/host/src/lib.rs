@@ -138,10 +138,6 @@ fn unavailable(s: impl Into<String>) -> DataError {
     DataError::Unavailable(s.into())
 }
 impl<D: DataSource> DataSource for Storage<D> {
-    fn take_logs(&mut self) -> Vec<String> {
-        self.source.take_logs()
-    }
-
     fn preload(&self) -> Result<bool, DataError> {
         self.source.preload()
     }
@@ -288,6 +284,10 @@ impl<D: DataSource> DataSource for Storage<D> {
     }
 
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
+        // The module's background round passes through (LLP 1097 D5).
+        if token == exact_runner::BACKGROUND {
+            return self.source.dispatch(token, store);
+        }
         match self.pending.get(&token) {
             Some(Pending::Child(child)) => {
                 let child = *child;
@@ -331,7 +331,30 @@ impl<D: DataSource> DataSource for Storage<D> {
         }
     }
 
+    fn background(&mut self, store: &Store) -> Option<exact_runner::Request> {
+        self.source.background(store)
+    }
+
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<exact_runner::Request>, DataError> {
+        self.source.background_landed(store, outcome)
+    }
+
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        self.source.background_state()
+    }
+
+    fn take_logs(&mut self) -> Vec<String> {
+        self.source.take_logs()
+    }
+
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+        if token == exact_runner::BACKGROUND {
+            return self.source.continuation(token);
+        }
         match self.pending.remove(&token)? {
             Pending::Child(token) => self.source.continuation(token),
             #[cfg(not(target_arch = "wasm32"))]

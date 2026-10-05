@@ -10,6 +10,23 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
   let sqlite = key && sqliteFactory?.(key, admitted.grantSet);
   let fsLoading, sqliteLoading;
   const queues = new Map(), waiters = new Map(), retired = new WeakSet();
+  // Each issued operation's owner, in a cell its completion reads when it
+  // lands, not at issue (LLP 1097 D7): an answer that replies before its
+  // storage lands hands it to the background (`rehome`), so a completion
+  // still in flight finds its new owner and is never dropped as retired.
+  const issued = new Map();
+  const track = owner => {
+    const cell = {owner};
+    let cells = issued.get(owner);
+    if (!cells) issued.set(owner, cells = new Set());
+    cells.add(cell);
+    return cell;
+  };
+  const untrack = cell => {
+    const cells = issued.get(cell.owner);
+    cells?.delete(cell);
+    if (cells && !cells.size) issued.delete(cell.owner);
+  };
   let disposed = false;
   const error = e => Object.assign(new win.Error(e?.message || String(e)), {kind:e?.kind || 'Unavailable', code:e?.code});
   const unavailable = () => error({kind:'Unavailable',message:'storage environment disposed'});
@@ -27,8 +44,10 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
     if (disposed) throw unavailable();
     return sqlite = createSqlite(key, admitted.grantSet);
   });
-  // A completion waits in its answer's queue until the answer's checkpoint.
-  const completion = owner => (complete, cleanup = () => {}) => {
+  // A completion waits in its owner's queue until that owner's checkpoint.
+  const completion = cell => (complete, cleanup = () => {}) => {
+    untrack(cell);
+    const owner = cell.owner;
     if (disposed || retired.has(owner)) { cleanup(); return; }
     const queue = queues.get(owner) || []; queue.push({complete, cleanup}); queues.set(owner, queue);
     waiters.get(owner)?.(); waiters.delete(owner);
@@ -38,7 +57,7 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
   // storage refusal does not apply.
   function work(promise) {
     if (disposed) return win.Promise.reject(unavailable());
-    const ready = completion(scope());
+    const ready = completion(track(scope()));
     return new win.Promise((resolve, reject) => {
       Promise.resolve(promise).then(value => ready(() => resolve(value)), e => ready(() => reject(e)));
     });
@@ -50,10 +69,10 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
       if (!toldAgent) { toldAgent = true; console.warn(`storage refused (agent): ${agentStorageRefusal}`); }
       return win.Promise.reject(error({message:agentStorageRefusal, code:'agent'}));
     }
-    const owner = scope();
-    const active = () => { if (disposed || retired.has(owner)) throw unavailable(); };
+    const cell = track(scope());
+    const active = () => { if (disposed || retired.has(cell.owner)) throw unavailable(); };
     return new win.Promise((resolve, reject) => {
-      const ready = completion(owner);
+      const ready = completion(cell);
       Promise.resolve().then(() => { active(); return invoke(active); }).then(
         value => ready(() => { try { resolve(convert(value)); } catch(e) { discard(value); reject(error(e)); } }, () => discard(value)),
         e => ready(() => reject(error(e))),
@@ -100,12 +119,40 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
       const backend = await databaseSystem(); active(); return backend.open(path);
     }, database, closeDiscarded)}),work}),
     async deliver(owner) {
+      await this.ready(owner);
+      this.deliverNow(owner);
+    },
+    // Until `owner` has a completion waiting (a background round waits here,
+    // outside the realm's turns, LLP 1097 D7).
+    async ready(owner) {
       if (disposed || retired.has(owner)) throw unavailable();
       if (!queues.get(owner)?.length) await new Promise(resolve => waiters.set(owner,resolve));
       if (disposed || retired.has(owner)) throw unavailable();
+    },
+    // Its first waiting completion, now; whether there was one.
+    deliverNow(owner) {
       const queue = queues.get(owner), complete = queue?.shift();
       if (!queue?.length) queues.delete(owner);
       if (complete) complete.complete();
+      return !!complete;
+    },
+    // An answer that replied with storage in flight hands it to `to` (the
+    // background), before its owner is retired: every cell still in flight
+    // and every completion queued (LLP 1097 D7).
+    rehome(owner, to) {
+      const cells = issued.get(owner);
+      if (cells) {
+        issued.delete(owner);
+        let into = issued.get(to);
+        if (!into) issued.set(to, into = new Set());
+        for (const cell of cells) { cell.owner = to; into.add(cell); }
+      }
+      const queued = queues.get(owner);
+      if (queued?.length) {
+        queues.delete(owner);
+        queues.set(to, [...(queues.get(to) || []), ...queued]);
+        waiters.get(to)?.(); waiters.delete(to);
+      }
     },
     retire(owner) {
       if (!owner) return;

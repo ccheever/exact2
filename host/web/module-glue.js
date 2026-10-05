@@ -98,8 +98,21 @@ export async function prepare(payload, admitted, id = nextId++) {
   let context = null, initializationError = null, disposed = false, tail = Promise.resolve();
   const seed = agentSeed(), stream = seed === null ? null : agentStream(seed, 'typescript');
   let storage;
+  // The module's journal (LLP 1097 D8): the runtime's own lines (a failed
+  // storage operation, an unhandled rejection) and its `console`, which the
+  // runner writes to `logs` as it does on every host.
+  const journal = [];
   win.addEventListener('error', event => { initializationError = event.message; event.preventDefault(); });
+  win.addEventListener('unhandledrejection', event => {
+    const reason = event.reason;
+    journal.push(`data: unhandled rejection: ${reason && typeof reason === 'object' && reason.message !== undefined ? reason.message : String(reason)}`);
+  });
+  for (const level of win.console ? ['log', 'info', 'warn', 'error', 'debug'] : []) {
+    const original = win.console[level].bind(win.console);
+    win.console[level] = (...args) => { journal.push(`console: ${args.map(a => typeof a === 'string' ? a : String(a)).join(' ')}`); original(...args); };
+  }
   win.__exact_host = (op, name, value) => {
+    if (op === 13) { journal.push(String(name)); return '1'; }
     if (!context) throw new Error('host call outside an answer');
     if (op === 6) {
     // A page module answers `native.later` on the page; nothing here can answer at once.
@@ -144,6 +157,10 @@ export async function prepare(payload, admitted, id = nextId++) {
       if (source === before) {
         win.__exact_storage = storage.capability;
         win.__exact_install_storage();
+        // The page's own realm: storage an answer did not await finishes
+        // after it, as the background's (LLP 1097 D6, D7). A worker realm
+        // (module-worker.js) never sets it.
+        win.__exact_main_thread?.();
       }
     }
     if ((win.exact?.abi !== 1 && win.exact?.abi !== 2) || win.exact.appId !== admitted.appId || !sameGrantDeclaration(childGrantSet, win.exact.grants) || typeof win.exact.answer !== 'function') throw new Error('module exports mismatch the admitted client');
@@ -151,6 +168,12 @@ export async function prepare(payload, admitted, id = nextId++) {
     // The runner's target first: two targets asking one source with equal
     // arguments are two calls (LLP 1027 D1a).
     const key = r => JSON.stringify([r.target ?? null,r.source,r.args]);
+    // The background (LLP 1097 D7): the owner its storage completions
+    // land on, and the answers parked until a background delivery may
+    // settle what they await.
+    const backgroundOwner = {};
+    const backgroundContext = () => ({owner:backgroundOwner,store:new Map(),grants:new Set(),reads:[],writes:[],externalRead:false,entropy:false,topics:[],requests:new Map(),early:new Map()});
+    let parked = [];
     const finish = (answer, request) => {
       const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead,entropy:context.entropy,topics:context.topics};
       const reported = answer.tag === 1 ? context.early.get(answer.ticket) : null;
@@ -164,9 +187,60 @@ export async function prepare(payload, admitted, id = nextId++) {
         if (result.request.stream) streams.set(key(request), {call:answer.call,owner:context.owner});
         else pending.set(key(request), {call:answer.call,ticket:answer.ticket,requests:context.requests,owner:context.owner});
       }
-      if (answer.tag !== 1) storage.retire(context.owner);
+      if (answer.tag !== 1) { storage.rehome(context.owner, backgroundOwner); storage.retire(context.owner); }
       context = null;
       return result;
+    };
+    // An answer between its storage steps keeps its store context and the
+    // realm's turn until its value is ready. One waiting with the module (its
+    // operation queued behind the background's, or a promise the background
+    // will settle) parks and lets the turn go; a background delivery asks it
+    // again (LLP 1097 D7).
+    const proceed = async (answer, request, done) => {
+      for (;;) {
+        if (answer.tag === 1 && answer.ticket === 0 && !answer.waiting) {
+          await storage.deliver(context.owner);
+          await checkpoint();
+          if (disposed) throw new Error('module environment disposed');
+          answer = JSON.parse(win.__exact_settle(String(answer.call)));
+          continue;
+        }
+        if (answer.tag === 1 && answer.waiting) {
+          parked.push({answer, request, context, done});
+          context = null;
+          return;
+        }
+        done.resolve(finish(answer, request));
+        return;
+      }
+    };
+    // Ask parked answers again, one at a time, in the turn that delivered.
+    const resettle = async () => {
+      const waiting = parked; parked = [];
+      for (const p of waiting) {
+        context = p.context;
+        try { await proceed(JSON.parse(win.__exact_settle(String(p.answer.call))), p.request, p.done); }
+        catch (error) { for (const drop of context?.early.values() ?? []) drop(); storage.retire(context?.owner); context = null; p.done.reject(error); }
+      }
+    };
+    // One background round, as the runner's background ticket runs it: wait
+    // outside the realm's turns for the background's next completion, so no
+    // answer waits for background work to begin, then take the turn to
+    // deliver it with the background current, and say what is left.
+    const backgroundRound = async () => {
+      await storage.ready(backgroundOwner);
+      const run = tail.then(async () => {
+        if (disposed) throw new Error('module environment disposed');
+        context = backgroundContext();
+        win.__exact_enter_background();
+        const delivered = storage.deliverNow(backgroundOwner);
+        await checkpoint();
+        if (disposed) throw new Error('module environment disposed');
+        context = null;
+        await resettle();
+        return {delivered, ...JSON.parse(win.__exact_background())};
+      });
+      tail = run.catch(() => {}); return run;
     };
     const begin = request => {
       if (disposed) throw new Error('module environment disposed');
@@ -194,22 +268,29 @@ export async function prepare(payload, admitted, id = nextId++) {
               if (disposed) throw new Error('module environment disposed');
               answer = JSON.parse(win.__exact_settle(String(answer.call)));
             }
-            // Keep this answer's store context while its storage is pending.
-            // Other answers queue behind it; a fetch releases the turn normally.
-            while (answer.tag === 1 && answer.ticket === 0) {
-              await storage.deliver(context.owner);
-              await checkpoint();
-              if (disposed) throw new Error('module environment disposed');
-              answer = JSON.parse(win.__exact_settle(String(answer.call)));
-            }
-            return finish(answer,request);
+            // Keep this answer's store context while its own storage is
+            // pending; other answers queue behind it; a fetch releases the
+            // turn normally, and so does an answer that parks.
+            const done = {}; done.promise = new Promise((resolve, reject) => { done.resolve = resolve; done.reject = reject; });
+            await proceed(answer, request, done);
+            return done;
           } catch (error) { for (const drop of context?.early.values() ?? []) drop(); storage.retire(context?.owner); context = null; throw error; }
         });
-        tail = run.catch(() => {}); return run;
+        tail = run.catch(() => {});
+        return run.then(done => done.promise);
       }});
       return {continuation:token};
     };
     const realm = { frame, meta, grantSet: childGrantSet, id, placement: 'main',
+      // The background's state, for the runner's poll (LLP 1097 D5, D8).
+      background: () => JSON.parse(win.__exact_background()),
+      // A background round: a turn the host runs under the runner's ticket.
+      backgroundRound() {
+        const token = nextTurn++;
+        turns.set(token, {id, request: {target: null}, run: backgroundRound});
+        return {token};
+      },
+      journal: () => journal.splice(0),
       // Canvas 2D (LLP 1056 D1): a draw awaits nothing, so it runs now.
       // Text is measured and images answered on the page (LLP 1056 D8, D9).
       draw: request => { const h = globalThis.exact?.canvas2dHost; return JSON.parse(win.__exact_draw(request, h?.measure, h?.image)); },
@@ -244,6 +325,12 @@ export async function prepare(payload, admitted, id = nextId++) {
           if (JSON.parse(streamKey)[0] === null || keep.has(streamKey)) continue;
           streams.delete(streamKey); storage.retire(open.owner); win.__exact_forget(String(open.call));
         }
+        parked = parked.filter(p => {
+          if ((p.request.target ?? null) === null || keep.has(key(p.request))) return true;
+          storage.retire(p.context.owner); win.__exact_forget(String(p.answer.call));
+          p.done.reject(new Error('the runner let this answer go'));
+          return false;
+        });
         forgetTurns(id, keep, key);
       },
       dispose() {
@@ -328,6 +415,11 @@ export function call(request) {
     return { ok: true };
   }
   if (request.op === 'forget') { realm.forget(request.inFlight ?? []); return { ok: true }; }
+  // Background work (LLP 1097 D5, D8): the page's realm has it; a worker's
+  // answers wait for their storage and it has none.
+  if (request.op === 'background') return realm.background ? realm.background() : { head: false };
+  if (request.op === 'background-round') return realm.backgroundRound ? realm.backgroundRound() : { error: 'no background work in a worker-placed module' };
+  if (request.op === 'journal') return { lines: realm.journal ? realm.journal() : [] };
   if (request.op === 'draw') return realm.draw ? realm.draw(request.request) : { error: 'a worker-placed module does not draw Canvas 2D yet' };
   if (request.op === 'retire') { realm.retire?.(request.retired); return { ok: true }; }
   if (request.op === 'answer' || request.op === 'resume') return realm.invoke(request);

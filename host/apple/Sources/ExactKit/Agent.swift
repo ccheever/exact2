@@ -113,7 +113,15 @@ public final class Agent {
                 completed.wait()
             }
         }
-        DispatchQueue.main.async { exit(0) }
+        DispatchQueue.main.async { exitAfterStorage() }
+    }
+
+    /// The drive ended: storage an answer started lands first, as a quit's
+    /// does (LLP 1097 D10), within the driver's patience (it kills at 2 s).
+    nonisolated(unsafe) static var exiting: StorageHold?
+    static func exitAfterStorage() {
+        let hold = StorageHold(bound: 1.5, pending: { routes.contains { $0.1.storageOperations > 0 } }, begin: { _ in }, end: { exit(0) })
+        if hold.hold() { exiting = hold } else { exit(0) }
     }
 
     /// One line: the session it names (or the default), then its operation.
@@ -122,7 +130,7 @@ public final class Agent {
               let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let op = req["op"] as? String
         else { reply(["error": "unreadable request: \(line)"]); return }
-        if op == "quit" { exit(0) }
+        if op == "quit" { exitAfterStorage(); return }
         // A slice building off main lands before the agent reads or acts
         // (LLP 1072 T9); under the agent slices are synchronous, so this is
         // for a carrier attached to an ordinary run.
@@ -505,6 +513,9 @@ public final class Agent {
                 var out = reply(landed)
                 let inflight = pendingCount()
                 if inflight > 0 { out["inflight"] = inflight }
+                // The module's background storage still to land (LLP 1097 D9).
+                let background = backgroundCount()
+                if background > 0 { out["background"] = background }
                 return out
             }
             if pendingCount() > 0 {
@@ -619,6 +630,15 @@ public final class Agent {
             if pendingCount() == 0 { return ["clock": from, "settled": true] }
         }
         return ["clock": from, "settled": false, "reason": "requests"]
+    }
+
+    /// The background's storage operations queued or in flight
+    /// (`state.background`, LLP 1097 D8).
+    func backgroundCount() -> Int {
+        guard let d = session.agent("{\"op\":\"state\"}").data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let b = o["background"] as? [String: Any] else { return 0 }
+        return (b["queued"] as? Int ?? 0) + (b["inFlight"] as? Int ?? 0)
     }
 
     /// How many requests the runner has in flight (`state.pending`).

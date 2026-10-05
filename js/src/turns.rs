@@ -1,156 +1,13 @@
-//! Storage turns and liveness: one storage turn at a time, as the browser's
-//! worker runs them; an answer waiting on another's work is asked again
-//! after each delivery (LLP 1027.003.000 §13); a call let go mid-turn runs
-//! its steps to the end (ledger F12).
-use super::{Key, Module, DEFERRED, WAITING};
-use exact_runner::{
-    Answer, DataError, Dispatch, InFlight, Outcome, Response, Store, Target, Value, Work,
-};
+//! Liveness: an answer waiting on another's work, or on the background's,
+//! is asked again after each delivery (LLP 1027.003.000 §13; LLP 1097 D2);
+//! a call let go mid-turn runs its steps to the end (ledger F12).
+use super::{Key, Module, WAITING};
+use exact_runner::{Dispatch, InFlight, Outcome, Response, Work};
 use std::collections::HashMap;
 
-pub(crate) struct Retired {
-    token: u64,
-    source: String,
-    args: Vec<Value>,
-    store: Store,
-}
-
 impl Module {
-    pub(crate) fn defer_turn(&self, source: &str) -> bool {
-        self.sigs.contains_key(source)
-            && (self.turn_open()
-                || (!self.draining_retired
-                    && self.parked.iter().any(|(_, p)| p.ticket == DEFERRED)))
-    }
-
-    pub(crate) fn begin_deferred(
-        &mut self,
-        store: &mut Store,
-        target: Option<Target>,
-        source: &str,
-        args: &[Value],
-    ) -> Result<Answer, DataError> {
-        // The token just removed was the oldest live turn. It must start
-        // before a newer retired one, which begin would otherwise drain.
-        let draining = self.draining_retired;
-        self.draining_retired = true;
-        let result = self.begin(Some(store), target, source, args);
-        self.draining_retired = draining;
-        result
-    }
-
-    /// Finish forgotten storage in a throwaway, grant-scoped Store. The
-    /// external effects survive; the discarded reply's Store writes do not.
-    pub(crate) fn retire_calls(&mut self, store: &Store, in_flight: &[InFlight<'_>]) {
-        let keep: HashMap<Key, Option<u64>> = in_flight
-            .iter()
-            .map(|f| {
-                (
-                    Module::key(Some(f.target), f.source, f.args),
-                    f.continuation,
-                )
-            })
-            .collect();
-        let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.parked)
-            .into_iter()
-            .partition(|(key, p)| {
-                key.0.is_some()
-                    && !matches!(keep.get(key), Some(None))
-                    && keep.get(key) != Some(&Some(p.call))
-            });
-        self.parked = kept;
-        let (ended, open): (Vec<_>, Vec<_>) = std::mem::take(&mut self.streams)
-            .into_iter()
-            .partition(|(key, _)| key.0.is_some() && !keep.contains_key(key));
-        self.streams = open;
-        let mut calls = Vec::new();
-        for ((_, source, _), p) in gone.into_iter().chain(ended) {
-            if p.ticket == DEFERRED {
-                if let Some(args) = p.deferred_args {
-                    self.retired.push_back(Retired {
-                        token: p.call,
-                        source,
-                        args,
-                        store: store.clone(),
-                    });
-                }
-            } else {
-                calls.push(p.call);
-            }
-        }
-        self.retired.make_contiguous().sort_by_key(|r| r.token);
-        self.forget_calls(calls);
-        // A discard can have marked a call even if this sweep found no new one.
-        let owed = self.engine.as_mut().is_some_and(|engine| {
-            engine
-                .call("__exact_let_go", ["", "", ""])
-                .is_ok_and(|r| r == "storage")
-        });
-        if owed {
-            let mut local = store.clone();
-            let grants = self.grants.clone();
-            local.with_grants(&grants, |store| {
-                self.host.store = Some(store as *mut Store);
-                self.finish_let_go();
-                self.host.store = None;
-            });
-        }
-        self.finish_retired();
-    }
-
-    /// A sent mutation is queued work even if a newer send wants its reply
-    /// slot. Execute it before the next turn; queries remain replaceable.
-    pub(crate) fn finish_retired(&mut self) {
-        if self.draining_retired || self.turn_open() {
-            return;
-        }
-        self.draining_retired = true;
-        while !self.turn_open() {
-            if self.retired.front().is_some_and(|r| {
-                self.parked
-                    .iter()
-                    .any(|(_, p)| p.ticket == DEFERRED && p.call < r.token)
-            }) {
-                break;
-            }
-            let Some(mut retired) = self.retired.pop_front() else {
-                break;
-            };
-            let grants = self.grants.clone();
-            retired.store.with_grants(&grants, |store| {
-                if let Err(error) = self.begin(Some(store), None, &retired.source, &retired.args) {
-                    self.logs
-                        .push(format!("forgotten mutation {}: {error:?}", retired.source));
-                }
-                let key = Module::key(None, &retired.source, &retired.args);
-                let tokens: Vec<_> = self
-                    .parked
-                    .iter()
-                    .chain(&self.streams)
-                    .filter(|(k, _)| *k == key)
-                    .map(|(_, p)| p.call)
-                    .collect();
-                // This retired reply has no recipient. Already-started storage
-                // finishes; a fetch retains the existing cancellation policy.
-                self.parked.retain(|(k, _)| *k != key);
-                self.streams.retain(|(k, _)| *k != key);
-                self.forget_calls(tokens);
-                self.host.store = Some(store as *mut Store);
-                self.finish_let_go();
-                self.host.store = None;
-            });
-        }
-        self.draining_retired = false;
-    }
-
-    /// Whether an answer is between storage steps: parked on its storage
-    /// continuation rather than on a fetch the host runs.
-    pub(crate) fn turn_open(&self) -> bool {
-        self.parked.iter().any(|(_, p)| p.ticket == 0)
-    }
-
-    /// A deferred answer's work: nothing to run, only a turn to wait for.
-    pub(crate) fn deferred_work() -> Dispatch {
+    /// A waiting answer's work: nothing to run, only an answer to ask again.
+    pub(crate) fn ask_again() -> Dispatch {
         Dispatch::Run(Work::Now(Box::new(|| {
             Outcome::Response(Response {
                 status: 200,
@@ -161,9 +18,12 @@ impl Module {
     }
 
     /// Whether anything in the module may yet settle a waiting answer: a
-    /// fetch, a storage step, a stream, an answer not yet begun.
+    /// fetch, a storage step, a stream. The module's storage queued or in flight counts, an answer's or the
+    /// background's (LLP 1097 D2: an answer may await background work).
     pub(crate) fn outstanding(&self) -> bool {
-        !self.streams.is_empty() || self.parked.iter().any(|(_, p)| p.ticket != WAITING)
+        !self.streams.is_empty()
+            || self.background.state.queued + self.background.state.in_flight > 0
+            || self.parked.iter().any(|(_, p)| p.ticket != WAITING)
     }
 
     /// Ask a waiting answer again when something landed since it parked,
@@ -178,7 +38,7 @@ impl Module {
             .find(|(_, p)| p.call == token && p.ticket == WAITING)?;
         if parked.progress < progress || !outstanding {
             parked.last = !outstanding;
-            return Some(Module::deferred_work());
+            return Some(Module::ask_again());
         }
         None
     }
@@ -194,21 +54,61 @@ impl Module {
         let Some(engine) = self.engine.as_mut() else {
             return;
         };
+        let mut owed = false;
         for call in calls {
-            let _ = engine.call("__exact_forget", [&call.to_string(), "", ""]);
+            owed |= engine
+                .call("__exact_forget", [&call.to_string(), "", ""])
+                .is_ok_and(|r| r == "storage");
         }
-        // Drain on the next answer/reply, with its Store installed. Draining
-        // here runs queued steps outside that context and refuses them as bake.
+        if owed {
+            self.finish_let_go();
+        }
+    }
+
+    /// Drop targeted calls the runner no longer has in flight. Storage a
+    /// call already issued still runs ([`Module::forget_calls`]). LLP 1097
+    /// deletes the answer-to-answer deferral, so a call that had not started
+    /// is not replayed later in a cloned store.
+    pub(crate) fn forget_in_flight(&mut self, in_flight: &[InFlight<'_>]) {
+        let keep: HashMap<Key, Option<u64>> = in_flight
+            .iter()
+            .map(|f| {
+                (
+                    Module::key(Some(f.target), f.source, f.args),
+                    f.continuation,
+                )
+            })
+            .collect();
+        let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.parked)
+            .into_iter()
+            .partition(|(key, parked)| {
+                key.0.is_some()
+                    && !matches!(keep.get(key), Some(None))
+                    && keep.get(key) != Some(&Some(parked.call))
+            });
+        self.parked = kept;
+        let (ended, open): (Vec<_>, Vec<_>) = std::mem::take(&mut self.streams)
+            .into_iter()
+            .partition(|(key, _)| key.0.is_some() && !keep.contains_key(key));
+        self.streams = open;
+        self.forget_calls(
+            gone.into_iter()
+                .chain(ended)
+                .map(|(_, parked)| parked.call)
+                .collect(),
+        );
     }
 
     /// Deliver the storage steps of calls let go mid-turn until none is left.
+    /// There is no store: a let-go answer's `store.set` does not land on the
+    /// live answer's store, and storage is not refused as at bake
+    /// (`HostState::between_answers`).
     pub(crate) fn finish_let_go(&mut self) {
-        if self.host.store.is_none() {
-            return;
-        }
         let (Some(session), Some(engine)) = (self.storage.as_ref(), self.engine.as_mut()) else {
             return;
         };
+        self.host.between_answers = true;
+        let mut delivered = false;
         while engine
             .call("__exact_let_go", ["", "", ""])
             .is_ok_and(|r| r == "storage")
@@ -220,8 +120,14 @@ impl Module {
             if engine.deliver_storage_one().is_err() || engine.drain().is_err() {
                 break;
             }
+            delivered = true;
+        }
+        self.host.between_answers = false;
+        if !delivered {
+            return;
         }
         // What landed may settle an answer waiting on another's work.
         self.progress += 1;
+        self.refresh_background();
     }
 }

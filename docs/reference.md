@@ -430,7 +430,8 @@ that reads storage; show a placeholder), `'agent'` (a scripted drive that names
 no scratch store, `--storage <name>`), `'unsupported'` (a host with no app
 storage). The operation was refused: `'denied'` (the grants do not cover it),
 the filesystem's POSIX name (`'ENOENT'`, `'EEXIST'`, `'ENOTDIR'`, `'EISDIR'`,
-`'ENOTEMPTY'`, `'EBUSY'`), else `'failed'`. Branch on the code, never the
+`'ENOTEMPTY'`, `'EBUSY'`), `'full'` (256 operations already wait behind the
+one in flight: the module's storage queue is full, LLP 1097), else `'failed'`. Branch on the code, never the
 message: `catch (e) { if (e.code === 'ENOENT') return empty; throw e; }`.
 
 A drive's app storage is a scratch store it names (`--storage <name>`) or none,
@@ -446,39 +447,59 @@ store}`), and the web's journal says `storage refused (agent): …` the first ti
 a refusal lands. A Rust module's storage request in such a drive is answered
 with the same message, never refused outright (trivia F7).
 
-An answer's storage and `fetch` steps run whether or not it awaits them once
-they have begun: a save that has started lands on every host (kanban F22, drums
-R10). On the JS web target the answer is given at once and a save left running
-finishes behind it, including one that begins in the microtask checkpoint after
-a value given at once. Hermes drains that checkpoint before replying, including
-when the answer is a synchronous value, and finishes storage the turn started;
-the answer waits only for steps already begun. A save still only queued behind
-an unsettled promise when the answer is given has been seen lost on iOS (two
-authoring-bench trials, 2026-10-05; QUEUE): await it before answering, or carry
-it in a request of its own. Await a save that depends on future external work so
-its lifetime and failure belong to the answer. So a native answer that saves is
-a reply on real time, as a `fetch`'s is: under the driver it lands at the next
-`clock` step, not with the input (`tap` then `expect` reads the state before it;
-on the web build an answer given at once is there already), and on a device it
-lands a few milliseconds after the input. An answer the runner asks while
-another's storage steps are in flight waits for them, so an editor that saves on
-every edit can trail by one write (drums R11): answer edits from memory and save
-from a `task` (`every(500, autosave)` sending a `persist` mutation when the
-document changed), or put `clock settle` after the edit in a native test. A
-storage or `fetch` call made when no answer is in flight is refused and logged,
-never silently dropped. Native console output reaches the agent's `logs` when
-the runner drains the module after an answer or reply; a write that never ran
-leaves no line.
+An answer waits for the storage it awaits, and only that (LLP 1097). Storage
+it starts and does not await finishes after it, as a page's does, on every
+host: the answer is given when its value is ready, and the write lands behind
+it as the module's background work. A save that has started lands on every host
+(kanban F22, drums R10). Hermes drains the microtask checkpoint before
+replying, including when the answer is a synchronous value, so a save chained
+behind a promise that is already resolved is issued as that answer's work and
+is not left with nobody to run it. So an editor answers from memory and saves
+in the answer, unawaited:
 
-A newer send may replace a mutation's reply, but a native mutation already
-queued behind a storage turn still runs its storage effects in submission order.
-Its reply and Store writes are discarded; uncommitted sends discarded by a
-refused pass do not run. Forgotten work that reaches a fetch retains the usual
-cancellation policy, and unloading drops work that has not begun. Reads remain
+```ts
+edit(store, args) {
+  song = apply(song, args);
+  storage.fs.atomicWriteFile(PATH, JSON.stringify(song)).catch(note);  // started now, not awaited
+  return song;
+}
+```
+
+Every storage operation of a module runs in one queue, in the order it was
+issued, one at a time, so a read issued after a write sees it. Call storage in
+the answer and let the queue order it, rather than chaining it on a promise: a
+`.then` issues its write only when the promise before it lands, so a read
+issued meanwhile overtakes it. Two answers interleave at their awaits, as two
+async calls do on the web: writes that must stay together go in one
+`transaction` (SQLite) or one operation. `clock settle` and a test's `reload`
+wait for the module's storage; `clock +N` names what is left (`background`,
+beside `inflight`), and `state.background` counts what landed and failed.
+Every failed storage operation, every unhandled rejection and every `console`
+line of the module reaches `logs` (`storage failed: …`, `data: unhandled
+rejection: …`, `console: …`). Storage is refused, with its line, during module
+evaluation (no answer has begun) and at bake; `fetch` and `native.call` are
+refused in background work, which no answer waits for (a `fetch` belongs in an
+answer). A storage or `fetch` call made when no answer is in flight is refused
+and logged, never silently dropped. A worker-placed source still answers once
+its storage has landed. A quit waits for the storage to land (macOS, five
+seconds; a Linux exit, five; iOS holds a background task while it lands; a
+native dev restart, one second); a web page being unloaded may lose what is in
+flight, as any page does. A native answer that saves is a reply on real time:
+under the driver it lands at the next `clock` step, not with the input (`tap`
+then `expect` reads the state before it; on the web build an answer given at
+once is there already), and on a device it lands a few milliseconds after the
+input.
+
+A newer send may replace a mutation's reply. An operation already issued still
+runs, in the order it was issued; the replaced reply is dropped, and that
+answer's Store writes are not the live answer's. A send dropped before it has
+issued storage does not run. Forgotten work that reaches a fetch retains the
+usual cancellation policy. Unloading finishes storage the module already
+started, within a second, and drops what has not begun. Reads remain
 replaceable. An answer the runner lets go between storage steps (a refresh it
 discards before a mutation lands, a read whose arguments changed or that a
 `refresh` replaced) still runs the steps it began, and the chain behind them, to
-their end before the next answer starts; only its answer is dropped, so
+their end; only its answer is dropped, so
 serializing storage through one promise chain composes with `refreshes` and
 fast-changing arguments (ledger F12, minesweeper F10).
 

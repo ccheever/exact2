@@ -415,15 +415,23 @@ guide's rules don't make obvious.
   ([the human guide](contract-for-humans.md#writing-the-data-module) shows one).
   (LLP 1086 reading-list example, 2026-10-04.)
 
-- **A native test reads an edit's state one input late, where the web's passes.**
-  `tap "tempo-up"` then `expect text "tempo" == "113"` passes on the web and reads
-  the old value under `test macos`. Cause: on Hermes an answer that saves (awaited
-  or not) is given once its storage steps land, a reply on real time like a
-  `fetch`'s, which lands at the next `clock` step; on the web build a value given
-  at once is there with the input. Fix: `clock settle` after the edit in the
-  test, or answer edits from memory and save from a `task` that sends a `persist`
-  mutation when the document changed ([the reference](reference.md#what-a-data-module-can-use)).
-  (x2apps drums R11, 2026-10-04.)
+- **A save that fails in the background is lost to the person.** An answer that
+  saves unawaited has replied before the write fails, so no answer reports it;
+  `logs` has `storage failed: …`, but the person sees nothing. Fix: keep the
+  error in the module (`.catch((e) => { saveError = e.message; })`) and say it
+  in the next answer. (LLP 1097, x2apps drums.)
+
+- **A read misses a save chained on a promise.** `saving = saving.then(() =>
+  storage.fs.atomicWriteFile(…))` issues the write only when the one before it
+  lands, so a read issued meanwhile runs first and sees the older file. Cause:
+  the module's storage runs in the order it was issued. Fix: call storage in
+  the answer (`storage.fs.atomicWriteFile(…).catch(note)`) and let the queue
+  order it. (LLP 1097 §1.)
+
+- **Two awaited writes of one answer had another's write between them.**
+  Answers interleave at their awaits, as two async calls do on the web. Fix: put
+  writes that must stay together in one `transaction` (SQLite) or one operation.
+  (LLP 1097 D4.)
 
 ## Working on exact2 itself
 

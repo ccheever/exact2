@@ -128,6 +128,30 @@ impl Native {
     }
 }
 
+/// The continuation token of a module's background work (LLP 1097 D5):
+/// reserved, as an executor's own tokens are, and passed through every
+/// composer unchanged, so a forwarder never consumes a round's token and a
+/// [`DataSource::forgotten`] never prunes it.
+pub const BACKGROUND: u64 = u64::MAX - 2;
+
+/// A module's storage (LLP 1097 D8): `state.background`, and the
+/// `background` count a `clock` reply carries. Its operations are counted
+/// module-wide, an answer's and the background's alike, as the JS target,
+/// which has no owners, counts them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BackgroundState {
+    /// Operations waiting behind the one in flight.
+    pub queued: u64,
+    /// Operations in flight: 0 or 1.
+    pub in_flight: u64,
+    /// Operations that landed, since load.
+    pub done: u64,
+    /// Operations that failed, since load.
+    pub failed: u64,
+    /// The last failure's journal line.
+    pub last: Option<String>,
+}
+
 /// A request still in flight, as [`DataSource::forgotten`] names it.
 #[derive(Debug, Clone, Copy)]
 pub struct InFlight<'a> {
@@ -169,12 +193,6 @@ impl Target {
 /// The app's data source: the one seam through which computation enters
 /// (LLP 1004 D4). Implemented once, in Rust, by the app's data crate.
 pub trait DataSource {
-    /// Console output since the last drain, including a refused answer's turn.
-    /// The runner journals it after each answer and reply (LLP 1012).
-    fn take_logs(&mut self) -> Vec<String> {
-        Vec::new()
-    }
-
     /// Host-selected application directories. Configuration records paths only;
     /// implementations must defer opening storage until after first pixel.
     fn configure_storage(
@@ -229,6 +247,45 @@ pub trait DataSource {
     /// 1027.002 D3, the cleanup of rolled-back calls).
     fn discard(&mut self, token: u64) {
         let _ = token;
+    }
+
+    /// Work the module started that no answer waits for (LLP 1097 D5): the
+    /// next round, a continuation under [`BACKGROUND`], or `None`. The
+    /// runner polls it whenever no round is out; it arms only when the
+    /// module's storage operation in flight is the background's, and
+    /// returns `None` while a round is out. A source that forwards
+    /// `dispatch` forwards this, `background_landed`, `background_state`
+    /// and `take_logs` too.
+    fn background(&mut self, store: &Store) -> Option<crate::request::Request> {
+        let _ = store;
+        None
+    }
+
+    /// A background round's outcome: the next round, or `None` when the
+    /// operation in flight is no longer the background's or nothing was
+    /// delivered. It makes no commit: no Contract `then` runs, no resource
+    /// is asked again (D4).
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<crate::request::Request>, DataError> {
+        let _ = (store, outcome);
+        Ok(None)
+    }
+
+    /// The module's background storage now, or `None` for a source that
+    /// has none (LLP 1097 D8).
+    fn background_state(&self) -> Option<BackgroundState> {
+        None
+    }
+
+    /// The module's journal lines since the last take (LLP 1012, LLP 1097
+    /// D8): console output, including a refused answer's turn, plus failed
+    /// storage and unhandled rejections. The runner writes them to the
+    /// journal after each answer and reply, and after a background round.
+    fn take_logs(&mut self) -> Vec<String> {
+        Vec::new()
     }
 
     /// Activate deferred logic after first pixel; binary-bound sources do nothing.

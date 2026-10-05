@@ -560,7 +560,7 @@ test('ts-data installs the native Store facade and a later gpu-glue shader uses 
   writeFileSync(resolve(dir, 'ts-data.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-data.js'), 'utf8')
     .replace('__APP_TS__', pathToFileURL(app).href).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '')
     .replace("from './rt.js'", "from './rt-stub.js'"));
-  writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[];export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n`);
+  writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[],inflight={n:0};export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n`);
   writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes={read:[[],'s'],kept:[[],'s']};\n`);
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
   writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(set)});\n`);
@@ -621,7 +621,7 @@ export function answer(name, args, store, storage) {
   writeFileSync(resolve(dir, 'ts-data.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-data.js'), 'utf8')
     .replace('__APP_TS__', pathToFileURL(app).href).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '')
     .replace("from './rt.js'", "from './rt-stub.js'"));
-  writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[];export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n`);
+  writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[],inflight={n:0};export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n`);
   const ledger = '{"days":["[",{"id":"s","transactions":["[",{"id":"s","amount":"n"}]}],"note":["?","s"]}';
   writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes={ledger:[["s"],${ledger}],later:[[],${ledger}],read:[[],"s"],stream:[[],"s"]};\n`);
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
@@ -770,5 +770,42 @@ export function answer(name, args, store, storage) {
       if (locationDescriptor) Object.defineProperty(globalThis, 'location', locationDescriptor); else delete globalThis.location;
       rmSync(dir, { recursive: true, force: true });
     }
+  }
+});
+
+// The page realm's storage hands an answer's operations to the background
+// before it retires the answer's owner (LLP 1097 D7): a write still in flight
+// when its answer replied resolves the app's promise through its re-pointed
+// cell, and a completion already queued for the answer moves with it.
+test('storage re-homes an answer\'s writes to the background before retiring it', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-rehome-'));
+  try {
+    cpSync(resolve(ROOT, 'host/web/storage.js'), resolve(dir, 'storage.js'));
+    writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const storageKey = () => 'k';");
+    // Each write lands when the test says.
+    writeFileSync(resolve(dir, 'storage-fs.js'), 'export const createFileSystem = () => ({ writeFile: () => new Promise(ok => globalThis.landWrite.push(ok)) });');
+    globalThis.landWrite = [];
+    const { createStorage } = await import(pathToFileURL(resolve(dir, 'storage.js')).href);
+    const answer = {}, background = {};
+    let owner = answer;
+    const storage = createStorage({ Error, Promise, structuredClone }, { appId: 'test', grantSet: null }, () => owner, 'k');
+    const results = [];
+    const first = storage.capability.fs.writeFile('app:/data/a', 'one').then(() => results.push('first'));
+    const second = storage.capability.fs.writeFile('app:/data/b', 'two').then(() => results.push('second'));
+    for (let i = 0; i < 20 && globalThis.landWrite.length < 2; i++) await new Promise(r => setTimeout(r, 1));
+    globalThis.landWrite.shift()(); // the first lands while the answer is current: queued for it
+    await new Promise(r => setTimeout(r, 1));
+    // The answer replies: its owner's storage becomes the background's.
+    storage.rehome(answer, background);
+    storage.retire(answer);
+    owner = null;
+    globalThis.landWrite.shift()(); // the second lands after its answer is gone
+    await storage.deliver(background);
+    await storage.deliver(background);
+    await Promise.all([first, second]);
+    expect(results).toEqual(['first', 'second']);
+  } finally {
+    delete globalThis.landWrite;
+    rmSync(dir, { recursive: true, force: true });
   }
 });

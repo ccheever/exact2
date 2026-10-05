@@ -1,7 +1,7 @@
 # LLP 1097: Storage that finishes after the answer
 
 **Type:** RFC
-**Status:** Accepted (r4, by the orchestrator under Charlie's delegation after three review rounds; Grok 4.7 only — Codex budget exhausted; round-3 findings folded unreviewed — the implementation review checks them).
+**Status:** Built (stages 1–3, 2026-10-04; As built in §6). Accepted (r4, by the orchestrator under Charlie's delegation after three review rounds; Grok 4.7 only — Codex budget exhausted; round-3 findings folded unreviewed — the implementation review checks them).
 - r1 (`96f781472`) was reviewed by Grok 4.7 (xhigh) with two scopes: semantics (`llp/reviews/1097-r1.grok-a.md`, NOT READY) and implementation (`llp/reviews/1097-r1.grok-b.md`, NOT READY).
 - r2 (`9db90ce57`) had a delta review (`llp/reviews/1097-r2.grok.md`, NOT READY: five MATERIAL, two MINOR, two NIT).
 - r3 (`c54843797`) resolved round 2, rejecting one finding with reasons, and had the final round (`llp/reviews/1097-r3.grok.md`, NOT READY: three MATERIAL, six MINOR, two NIT).
@@ -795,6 +795,75 @@ Each commit passes the five checks. Stage 1 starts once fix/data6 is on main.
      macOS.
    - If the macOS terminate wait slips, the rest lands and the slipped piece
      gets a `QUEUE.md` line.
+
+### As built (stages 1–3, 2026-10-04)
+
+All three stages landed on `impl/1097` in one day: the mechanism and the
+no-spin test, the deferral's deletion, the driver, the web, then teardown,
+lifecycle and docs. Where the build differs from the text above, it says so.
+
+- **The background round is not a `PendingReq`.** It is a field of its own
+  (`runner/src/runner/background.rs`): `holds`, `has_pending`, `in_flight`
+  and `pending` see it (listed as `background`), and it is outside the
+  checkpoint, `enqueue` and `forgotten`, so a refused commit's restore keeps
+  it and a commit that lets requests go cannot drop it. No `Target` variant,
+  so none of D5's match arms. Each round goes out under a **fresh ticket**,
+  so a host never sees a ticket it completed come back; one request is still
+  in flight at a time.
+- **The token passes through, unremapped.** `exact_runner::BACKGROUND`
+  (`u64::MAX - 2`) is forwarded unchanged by `Storage`, `Mixed` (to its
+  JavaScript child), `Placed` on `Main`, `Swappable`, the `configured!`
+  entry and the render host's `Anonymous`, so no forwarder consumes a
+  round's token or prunes it in `forgotten`.
+- **A fourth method, `background_state`**, carries `state.background` and
+  `clock`'s `background` count. Its operations are counted **module-wide**
+  (`queued` behind the one in flight, `inFlight`, `done`, `failed`, `last`),
+  an answer's and the background's alike, because the JS target has no
+  owners to tell them apart; `background: storage (N waiting)` and
+  `background: done (N operations)` mark a background run's start and end.
+- **Polling** is in `take_requests()`, which every host calls after each
+  answer, fulfil, release and commit; the module's journal lines are taken
+  there too, and after each round.
+- **The rejection tracker.** Hermes's tracker schedules its report with the
+  global `setTimeout`, which the prelude refuses; the prelude's `setTimeout`
+  runs the tracker's own callback (`bound onUnhandled`) at the next
+  checkpoint and refuses every other. The test proves it in the lean VM.
+- **Journal lines** go through a host op (13) natively and in the wasm
+  realm; `console` lines are `console: …`. Every failed storage operation is
+  journaled, so an app's expected first-launch `ENOENT` is a line too.
+- **Between answers** (a background round, a let-go call's steps, teardown)
+  there is no store, and storage is not refused as at bake. Without the
+  deferral, a targeted continuation no longer replaces a call parked on its
+  key: the runner names the one in flight (`forgotten`) or drops the new one
+  (`discard`), which keeps files F18's re-read case working.
+- **The wasm realm.** A background round waits for its completion outside
+  the realm's turns and takes a turn to deliver it; parked answers are asked
+  again in that turn. The realm's `console` and `unhandledrejection` reach the
+  journal. The JS target journals every unhandled rejection on the page (the
+  runtime handles its own), without reading stacks.
+- **Teardown.** `Module::unload` finishes the module's storage within a second,
+  so a dev restart, a reload and a drop all do. Linux's `teardown.rs` waits
+  five seconds at an agent's quit and a headless exit (the display loop has no
+  orderly exit). macOS (both delegates) and the agent's stdio end hold the quit
+  through `StorageHold` (`ExactKit/StorageHold.swift`): five seconds, and 1.5
+  for the driver, which kills at two. iOS and tvOS hold a background task from
+  `sceneDidEnterBackground` (both delegates). The XCTest is the platform-
+  neutral rule (`StorageHoldTests`: begin, end, bound, expiration), run by
+  `build.mjs --test`.
+- **The driver's `reload`** lands the storage with `clock data`, which fires
+  no timer; a full `clock settle` would. There is no interactive restart in
+  `agent.mjs`, so only the test step does it.
+- **Not built: the parity fixture** (§5), for want of a TypeScript app with
+  storage on a Linux host (`QUEUE.md`). The same steps were driven by hand on
+  drums on the JS target, the wasm target and macOS: `state.background` and
+  the storage lines matched, with host-specific messages under equal codes.
+- **Verified.** Drums at `7bad882` (R10's chain) persists on macOS and the
+  web; adopted drums (§D12: no `task autosave`, `persist` or `savedRev`; saves
+  unawaited in the answers) passes a new test of consecutive edits read with
+  no settle (R11) on the JS target, the wasm target and macOS, and its
+  persistence tests through `reload`; a macOS quit and a drive's end keep the
+  last write. Its velocity test fails before and after on every host (a
+  context-menu tap's delivery), unrelated.
 
 ## 7. Deferred, with preconditions
 

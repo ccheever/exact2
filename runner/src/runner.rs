@@ -7,6 +7,7 @@
 //! Kernel validation precedes every write; a refusal leaves the kernel untouched.
 
 mod admission;
+mod background;
 mod commit;
 mod control;
 mod event;
@@ -33,7 +34,8 @@ mod checkpoint;
 mod collection;
 mod source;
 pub use source::{
-    Announce, DataError, DataSource, InFlight, Interrupt, Native, NativeCall, NativeHandler, Target,
+    Announce, BackgroundState, DataError, DataSource, InFlight, Interrupt, Native, NativeCall,
+    NativeHandler, Target, BACKGROUND,
 };
 mod delivery;
 mod device;
@@ -380,6 +382,8 @@ pub struct Runner<D: DataSource> {
     /// `queue` mutations' waiting sends, `next`s and stalls (LLP 1092).
     queues: queue::Queues,
     next_ticket: u64,
+    /// The module's background work's round, when one is out (LLP 1097 D5).
+    background: background::Background,
     /// Files picked this run, for `app:/tmp/picked/` names (LLP 1069.002 D3).
     picked_count: u64,
     /// Second edges waiting for the first action's async targets to settle.
@@ -835,6 +839,7 @@ impl<D: DataSource> Runner<D> {
             then_due: Vec::new(),
             queues: Default::default(),
             next_ticket: 1,
+            background: Default::default(),
             picked_count: 0,
             forgot: false,
             refused_asks: Vec::new(),

@@ -10,7 +10,7 @@ import { createSecretFacade, hasGrant, setAppGrantSet } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
 import { answering } from './ts-fetch.js';
 import { sourceTypes } from './names.js';
-import { checkpoint, clock, commit, journal, painted, R, Resources } from './rt.js';
+import { checkpoint, clock, commit, inflight, journal, painted, R, Resources } from './rt.js';
 __AUTH_IMPORT__
 // Values cross by the plan's types (`named` into the module's objects,
 // `arrays` back into the runtime's arrays), with each type's converters made
@@ -141,12 +141,47 @@ const native = Object.freeze({
 // (js/src/prelude.js `storageCode`; kanban F28): 'agent' for a drive with no
 // scratch store, 'denied' past the grants, the filesystem's POSIX name, else
 // 'failed'.
-const coded = e => {
+const codedError = e => {
   const error = e instanceof Error ? e : new Error(String(e?.message ?? e));
   error.kind ??= 'Unavailable';
   error.code ??= /^denied: /.test(error.message) ? 'denied' : /\bbusy\b|database is locked/.test(error.message) ? 'EBUSY' : 'failed';
-  throw error;
+  return error;
 };
+const coded = e => { throw codedError(e); };
+// One queue for the module's storage, as on every host (LLP 1097 D3): each
+// operation runs when the one before it has settled, in the order issued,
+// so a read issued after a write sees it (storage-fs.js reads the store
+// directly); at most 256 wait behind the one in flight. A write an answer
+// does not await finishes after it, as a page's does, and counts in flight,
+// so the agent's settle waits for it (D9). Every failure is journaled (D8).
+const MAX_QUEUED = 256, queue = [], counts = { done: 0, failed: 0, last: null };
+let head = null;
+const issue = op => {
+  head = op;
+  Promise.resolve().then(op.run).then(v => landed(op, true, v), e => landed(op, false, e));
+};
+function landed(op, ok, value) {
+  head = null;
+  if (queue.length) issue(queue.shift());
+  // What the settle waits for ends after the reactions it lands (hooks.js).
+  setTimeout(() => inflight.n--);
+  if (ok) { counts.done++; op.resolve(value); return; }
+  const error = codedError(value), line = `storage failed: ${op.what}: ${error.code} ${error.message}`;
+  counts.failed++; counts.last = line;
+  journal.push(`t=${clock.now} ${line}`);
+  op.reject(error);
+}
+function queued(what, run) {
+  if (head && queue.length >= MAX_QUEUED) {
+    journal.push(`t=${clock.now} storage refused: full (${what})`);
+    return Promise.reject(Object.assign(new Error(`storage queue full: ${MAX_QUEUED} operations wait`), { kind: 'Unavailable', code: 'full' }));
+  }
+  inflight.n++;
+  return new Promise((resolve, reject) => {
+    const op = { what, run, resolve, reject };
+    if (head) queue.push(op); else issue(op);
+  });
+}
 let toldAgent = false;
 function storageOf(grants) {
   const admitted = ['fs-read', 'fs-write', 'sqlite-open'].some(kind => hasGrant(grants, kind));
@@ -171,16 +206,20 @@ function storageOf(grants) {
     throw Object.assign(new Error(`denied: ${op}`), { kind: 'Unavailable', code: 'denied' });
   });
   const databases = () => sqlite ??= key().then(k => import(new URL('./storage-sqlite.js', import.meta.url).href).then(m => m.createSqlite(k, grants)));
-  // A database's and a statement's methods refuse as storage's do.
-  const wrap = (o, convert) => Object.freeze(Object.fromEntries(Object.entries(convert).map(([m, then]) =>
-    [m, (...args) => Promise.resolve().then(() => o[m](...args)).then(then, coded)])));
-  const statement = s => wrap(s, { execute: null, query: null, close: null });
-  const database = d => wrap(d, { execute: null, query: null, prepare: statement, transaction: null, close: null });
+  // A database's and a statement's methods refuse as storage's do, in the queue.
+  const wrap = (o, convert, path) => Object.freeze(Object.fromEntries(Object.entries(convert).map(([m, then]) =>
+    [m, (...args) => queued(`${m} ${path}`, () => o[m](...args)).then(then ? v => then(v, path) : undefined)])));
+  const statement = (s, path) => wrap(s, { execute: null, query: null, close: null }, path);
+  const database = (d, path) => wrap(d, { execute: null, query: null, prepare: statement, transaction: null, close: null }, path);
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
-      ...Object.fromEntries(methods.map(m => [m, (...args) => (admitted ? (isDocument(args) ? documents() : files()).then(f => f[m](...structuredClone(args))) : denied(`fs.${m}`, isDocument(args))).catch(coded)])) }),
-    sqlite: Object.freeze({ open: path => (admitted ? databases().then(d => d.open(path)).then(database) : denied('sqlite.open')).catch(coded) }),
+      ...Object.fromEntries(methods.map(m => [m, (...args) => {
+        const captured = structuredClone(args);
+        const run = () => (isDocument(captured) ? documents() : files()).then(f => f[m](...captured));
+        return (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured))).catch(coded);
+      }])) }),
+    sqlite: Object.freeze({ open: path => (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path)) : denied('sqlite.open')).catch(coded) }),
     work: promise => Promise.resolve(promise),
   });
 }
@@ -191,6 +230,14 @@ export function install(data, mixed = false, modules = null) {
   data.appId = source.appId;
   data.grants = setAppGrantSet(tsGrantSet);
   const storage = storageOf(tsGrantSet);
+  // The module's storage, as the runner's `state.background` (LLP 1097 D8).
+  if (storage) data.background = () => ({ queued: queue.length, inFlight: head ? 1 : 0, ...counts });
+  // A rejection nothing handled reaches the journal, as on every host (D8):
+  // the page's own code handles its, so one unhandled is the module's.
+  if (typeof addEventListener === 'function') addEventListener('unhandledrejection', e => {
+    const r = e.reason;
+    journal.push(`t=${clock.now} data: unhandled rejection: ${r && typeof r === 'object' && r.message !== undefined ? r.message : String(r)}`);
+  });
   // `modules` loads native.js (an app with a module artifact), after first
   // paint (rt.js `painted`), whether or not anything asks `later`.
   load = modules && (() => painted().then(modules));
