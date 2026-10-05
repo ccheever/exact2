@@ -1,4 +1,3 @@
-
 use super::*;
 
 /// A named agent drive keeps `secret.keep` in its scratch tree, and a

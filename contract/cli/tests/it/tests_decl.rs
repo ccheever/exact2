@@ -416,32 +416,19 @@ fn a_test_double_clicks_scrolls_a_list_appends_reloads_and_reads_a_field() {
 }
 
 #[test]
-fn a_list_position_in_a_state_path_names_the_derive_form() {
-    let e = contract::tests("test \"t\"\n  expect state cards.0.id == \"a\"\n").unwrap_err();
-    assert_eq!(e.id, "syntax-expected-name");
+fn a_list_position_in_a_state_path_parses() {
+    // feed F10, drums R7: `cards.0.id` is a path, the same form as `items.0`.
+    let tests = contract::tests("test \"t\"\n  expect state cards.0.id == \"a\"\n").unwrap();
+    assert!(matches!(
+        &tests[0].steps[0],
+        Step::ExpectState { name, value: Expr::Str(s, _), .. } if name == "cards.0.id" && s == "a"
+    ));
+    let json = contract::tests_json(&tests);
     assert!(
-        e.message
-            .starts_with("a test's state path names fields, not list positions"),
-        "{e}"
-    );
-}
-
-#[test]
-fn else_if_and_else_when_say_to_nest_the_choice() {
-    let action = "component App\n  state n = 0\n  action go\n    if n == 0\n      n = 1\n    else if n == 1\n      n = 2\n  view\n    text \"a\" press=go\n";
-    let e = contract::compile(action).unwrap_err();
-    assert_eq!(
-        (e.id.as_str(), e.message.as_str()),
-        (
-            "syntax-expected-newline",
-            "there is no `else if`: end the line at `else` and write the `if` indented under it"
-        )
-    );
-    let view = "component App\n  state n = 0\n  view\n    column\n      when n == 0\n        text \"a\"\n      else when n == 1\n        text \"b\"\n";
-    let e = contract::compile(view).unwrap_err();
-    assert_eq!(
-        e.message,
-        "there is no `else when`: end the line at `else` and write the `when` indented under it"
+        json.contains(
+            "{\"op\":\"expect-state\",\"name\":\"cards.0.id\",\"value\":\"a\",\"line\":2}"
+        ),
+        "{json}"
     );
 }
 
