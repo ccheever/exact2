@@ -31,3 +31,18 @@ Verdict: DO NOT LAND
 2. **Should-fix — [contract/types/src/lib.rs:1303](/tmp/rv-hc1/contract/types/src/lib.rs:1303): filtering invalidates the saved child-error boundary.** Extend the new `close("swiped")` fixture with a child prop `value: number`, `text value + 1`, and pass `value="oops"`. `children` is recorded before filtering; removing `type-close` moves the expansion-only `type-operand` inside that boundary. [prefer_call_sites](/tmp/rv-hc1/contract/types/src/lib.rs:1417) consequently preserves a cascading error in the child alongside the actual bad-prop diagnostic. **Fix:** maintain the surviving prefix count when filtering, or suppress the duplicate before insertion; add this combined-error regression.
 
 Verdict: LAND WITH FIXES
+## Round 3 (the last), 2026-10-05
+
+- **Method:** `codex exec` as round 1, `-C` a detached worktree at `2cdc57f87`; brief sha256 `c66dc5c1dd0fce52d54874fe770ad17864c63c3b0630610223d033ddf12774bd`. Blind to grok's round 3.
+- **Verdict:** LAND.
+- **Disposition:** nothing to fix.
+
+---
+
+1. **Should-fix — resolved**, [actions.rs:189](/tmp/rv-hc1/contract/types/src/actions.rs:189): ambiguous `share(1)` and `close("swiped")` now skip host validation, including lifted copies whose statement spans are preserved. [posts.rs:58](/tmp/rv-hc1/contract/types/src/posts.rs:58) likewise skips `postMessage` surface validation.
+
+2. **Should-fix — resolved**, [lib.rs:1285](/tmp/rv-hc1/contract/types/src/lib.rs:1285): the post-check filter is removed, so the saved `children` boundary remains valid. For `value="oops"` with child text `value + 1`, [prefer_call_sites:1415](/tmp/rv-hc1/contract/types/src/lib.rs:1415) suppresses the expansion-only error while preserving the bad-prop diagnostic.
+
+No new actionable findings in the full diff. Verified by code inspection; no builds or tests run.
+
+Verdict: LAND

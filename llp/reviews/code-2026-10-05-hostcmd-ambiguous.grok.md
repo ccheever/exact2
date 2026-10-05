@@ -45,3 +45,22 @@ I'll review the fixes read-only against the five round-1 findings and the full c
 2. **Nit** — `contract/syntax/src/lib.rs:79`. The `HOST_COMMANDS` header still says a statement naming a command is the command, even inside an action of the same name. `action setScheme` / `setScheme(s)` is `syntax-call-ambiguous`. Say that a same-named action, action prop, or inject refuses the call.
 
 Verdict: LAND WITH FIXES
+
+## Round 3 (the last), 2026-10-05
+
+- **Method:** grok as round 1, `--cwd` a detached worktree at `2cdc57f87`; brief sha256 `6e3f6e7af970e924bbcc41c4ec2c2dbe53aa864a1ddd97736b0a79b6e53bebdd`. Blind to astra's round 3.
+- **Transcription:** stdout, unedited; the first sentences are progress narration.
+- **Verdict:** LAND.
+- **Disposition:** nothing to fix.
+
+---
+
+I'll review the round-3 fixes read-only: the delta from `25a4539ca` to `2cdc57f87`, then the full change from `58f264433`, against the two round-2 findings.The fix moves the skip into the checkers and drops the error filter. I'll read the call path and the test around that change to see whether the skip actually covers every diagnostic.Both round-2 findings are fixed in `2cdc57f87`, and the fix does not reintroduce the cutoff bug or a second host-command diagnostic.
+
+1. **Argument and surface checks.** `ambiguous` is recorded on `Shapes` before `posts::check_targets` (`contract/types/src/lib.rs:1243`). `check_command` returns immediately when the statement span is in that set (`contract/types/src/actions.rs:189`), so `type-share-argument`, `type-close`, `type-post-message`, and the other argument-span checks never run. `posts::check_targets` uses the same span set (`contract/types/src/posts.rs:58`). The old retain is gone (`contract/types/src/lib.rs:1300`). Spans are copied through substitution and lifting, so the child check and the inlined root check hit the same skip. The new `compile_path_all` case covers `share(1)` in the root, `close("swiped")`, and `postMessage("hi", "nowhere")` in the child, and expects only `syntax-call-ambiguous`.
+
+2. **`HOST_COMMANDS` header.** It now says a same-named action, `action` prop, or inject, including the action’s own body, is `syntax-call-ambiguous` (`contract/syntax/src/lib.rs:79`).
+
+No remaining findings.
+
+Verdict: LAND
