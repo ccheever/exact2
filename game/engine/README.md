@@ -190,6 +190,37 @@ builder does nothing. A looping definition plays until `audio::stop` or
 saved and hashed; PCM is delivery, outside both. Playback, PCM generation and the
 budgets belong to the separate [audio executor](../audio/README.md).
 
+### Procedural characters
+
+`exact_game::rig` builds a skinned, animated model from code: bones with lengths and
+radii become smooth-weighted capsules plus their skeleton, and clips come from gait
+parameters. `Rig::humanoid(height)` and `Rig::quadruped(length)` are presets;
+`Rig::new().bone(..).limb(..).spine(..)` builds any other. Register the model with
+`w.generated_model` (identity-checked like `w.generated`), then drive it like a baked one:
+
+```rust
+let r = rig::Rig::humanoid(1.8);
+let hero = w.generated_model("hero.model", r.model([
+    r.idle("idle"),
+    r.walk("walk", rig::Gait::walk(1.4)), // authored at 1.4 m/s
+    r.walk("run", rig::Gait::run(4.)),
+    r.flinch("flinch"),                   // an additive one-shot
+]))?;
+w.spawn_named("hero", (Transform::default(), hero,
+    Animator::new([rig::locomotion("move", "idle", [(1.4, "walk"), (4., "run")])]),
+    Layers(vec![Layer::new(Animation::play("flinch").once()).additive().weight(0.)])));
+w.spawn((Mesh::cuboid(Vec3::new(0.04, 0.04, 0.9)), SocketFollow::new("hero", "hand_r")));
+// Each tick, with the ground speed the body actually moves at:
+rig::drive(w, "hero", "move", speed);
+```
+
+Gaits blend by ground speed with a shared phase. `drive` picks the blend and the
+playback rate so planted feet stay planted at every speed: below the slowest gait it
+plays that gait slower (idle blends in under 5 cm/s), between gaits it corrects for
+the blended stride, and above the fastest it plays faster. Zero or negative speeds idle. Walk clips
+mark each footfall `step`. Every number comes from the engine's portable math, so
+the generated model's identity is the same on every host and saves restore.
+
 ## Saves and assets
 
 `Sim::save` captures the simulation; `Sim::restore` validates format, game identity,

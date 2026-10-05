@@ -19,6 +19,7 @@ pub mod math;
 pub mod motion;
 mod placed;
 mod present;
+pub mod rig;
 mod rng;
 pub mod scene;
 mod sim;
