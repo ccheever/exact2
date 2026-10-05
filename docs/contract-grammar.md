@@ -356,7 +356,8 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
                   | "pinch" NUMBER [ "at" NUMBER NUMBER ]
                   | "into" STRING
                   | "modifiers" STRING | "mediasession" STRING [ NUMBER ] ] NL
-              | "tap" STRING "drag" [ "-" ] NUMBER [ "-" ] NUMBER
+              | "tap" STRING "drag" ( "to" STRING [ "at" NUMBER NUMBER ]
+                  | [ "-" ] NUMBER [ "-" ] NUMBER )
                   { ( "press" | "over" | "hold" ) NUMBER
                   | "from" NUMBER NUMBER | "mouse" }
                   [ "during" { STRING } ] NL
