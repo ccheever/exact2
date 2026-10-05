@@ -5,12 +5,15 @@ Render hooks in a game, end to end: `app.json`'s `game.render` names the
 generated GPU shell exports `module!(WindGame, assets, hooks =
 game_render::Wind, shaders = game_render::shaders::SHADERS)`.
 
-- `render/src/wind*.wgsl`: a custom vertex material (`CustomMaterial`) over the
-  generated `reed.model`, composed after the engine's `MATERIAL_WGSL`; its paired
-  shadow pass bends the same way. Compiled in, because it needs the engine prelude.
-- `render/shaders/sky.wgsl`: a dusk sky in the background stage, shipped as a
-  shader asset (`gpu.shaderRoots` declares `render/shaders`), so an edit
-  reloads live.
+- `render/shaders/wind_forward.wgsl`, `wind_shadow.wgsl`: a custom vertex material
+  (`CustomMaterial`) over the generated `reed.model`; its paired shadow pass bends
+  the same way. `gpu.shaderPreludes` puts the engine's material WGSL and
+  `render/wgsl/wind.wgsl` in front of each, so they are ordinary shader assets.
+- `render/shaders/sky.wgsl`: a dusk sky in the background stage, after the engine's
+  frame-uniform prelude.
+- `render/build.rs` reflects the inventory exactly as the bake ships it (each shader
+  after its preludes), so `shaders::SHADERS` and `<name>::module()` match what hosts
+  register; nothing is assembled at run time, and every shader reloads live.
 
 The wind is presentation: it reads simulation time and never moves an entity. Its
 strength is a `#[derive(Presentation)] Gust` that `Game::present` rebuilds from the
