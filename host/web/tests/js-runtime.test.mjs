@@ -330,18 +330,19 @@ test('a submit runs before the field\'s next key or edit applies; the edit lands
   const { on } = await import(resolve(dir, 'rt.js'));
   const saved = globalThis.addEventListener;
   try {
-    for (const [tag, next] of [['input', 'beforeinput'], ['input', 'keydown'], ['textarea', 'keydown']]) {
+    // The handler's own field, both paths; an Enter that bubbled from a textarea inside the handler's element.
+    for (const [tag, origin, next] of [['input', 'input', 'beforeinput'], ['input', 'input', 'keydown'], ['main', 'textarea', 'keydown']]) {
       const win = [], field = [];
       globalThis.addEventListener = (type, f) => win.push([type, f]);
       const el = { localName: tag, value: 'Buy milk', addEventListener: (type, f, capture) => field.push([type, f, capture]),
         removeEventListener: (type, f) => { const i = field.findIndex(([t, g]) => t === type && g === f); if (i >= 0) field.splice(i, 1); } };
       const added = [];
       on(el, 'submit', () => { added.push(el.value); el.value = ''; }); // the action submits the draft and clears the bound field
-      const enter = { key: 'Enter', isComposing: false, defaultPrevented: false };
+      const enter = { key: 'Enter', isComposing: false, defaultPrevented: false, target: { localName: origin, isContentEditable: false } };
       for (const [type, f] of field.slice()) if (type === 'keydown') f(enter); // the field's own listener
       for (const [type, f] of win.splice(0)) if (type === 'keydown') f(enter); // the window's, last on the path
-      // A textarea's own Enter edits (a line break), so only its next key flushes.
-      expect(field.some(([type, , capture]) => type === 'beforeinput' && capture)).toBe(tag !== 'textarea');
+      // An Enter from a textarea edits (a line break), so only the next key flushes.
+      expect(field.some(([type, , capture]) => type === 'beforeinput' && capture)).toBe(origin !== 'textarea');
       for (const [type, f, capture] of field.slice()) if (type === next && capture) f({}); // the next key or edit, before it applies
       el.value += 'B'; // the browser applies it
       await new Promise(r => setTimeout(r, 5));
