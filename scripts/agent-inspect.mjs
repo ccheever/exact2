@@ -415,3 +415,23 @@ function renderAgreement(a) {
   if (a.truncated?.includes('disagreements')) out.push(`  … ${total - listed} more (truncated)`);
   return out.join('\n');
 }
+
+/** Explain a refused placed-child tap using the world's own visibility. */
+export async function tapRefusal(session, target, error) {
+  if (error.transport) return error; // the carrier failed: no diagnostic read can answer
+  try {
+    for (const canvas of (await session.tree()).nodes.filter(n => n.world)) {
+      const canvasName = canvas.props?.testId ?? canvas.id;
+      const outline = await session.tree(canvasName);
+      if (!outline.entities?.some(entity => entity.name === target)) continue;
+      const owner = `${canvasName}:${target}`;
+      const state = await session.state(owner).catch(() => null);
+      if (!state?.entity?.placed?.hidden) continue;
+      const box = await session.layout(owner);
+      const reason = box.entity?.visible?.behindCamera ? 'hidden (behind the camera)' : 'hidden';
+      error.message = `${target} is ${reason}: \`layout ${owner}\` (with --json before the quoted operation) shows visibility and any available screen box; layout ${target} shows the child when mounted`;
+      return error;
+    }
+  } catch { /* Preserve the original refusal if the diagnostic target also vanished. */ }
+  return error;
+}

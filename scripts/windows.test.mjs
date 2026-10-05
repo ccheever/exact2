@@ -9,7 +9,7 @@ import {resolve} from 'node:path';
 import {PassThrough} from 'node:stream';
 import {closeFilesystemReader, filesystem, filesystemErrorCode} from './filesystem.mjs';
 import {Cdp, chromium, closeWindowsBrowser, retainCleanupError, packagedBuildChanges, removeBrowserProfile} from './agent-launch.mjs';
-import {browserKey, open} from './agent.mjs';
+import {browserKey, open, typeCommand} from './agent.mjs';
 import {cdpKey, deliverClipboard, pasteChord, withHeldModifiers} from './agent-keys.mjs';
 import {focusForKey, playwrightPointer, withHeldKeys} from './agent-playwright.mjs';
 import {runCaps} from './caps.mjs';
@@ -554,4 +554,14 @@ test('packaged native freshness verifies executable-relative shader bytes', () =
     writeFileSync(shader,'edited'); expect(packagedBuildChanges(receipt,root)).toEqual([shader]);
     rmSync(shader); expect(packagedBuildChanges(receipt,root)).toEqual([shader]);
   } finally { rmSync(root,{recursive:true,force:true}); }
+});
+
+test('a type step keeps its newlines, quotes and clipboard words', () => {
+  expect(typeCommand('type editor hello for 100')).toEqual(['editor','hello for 100']);
+  expect(typeCommand('type editor key End for 40')).toEqual(['editor',{key:'End',for:40}]);
+  expect(typeCommand('type editor hello\\n\\nbody')).toEqual(['editor','hello\n\nbody']);
+  expect(typeCommand('type editor # A\n\nbody')).toEqual(['editor','# A\n\nbody']);
+  expect(typeCommand('type editor "a\\nb"')).toEqual(['editor','a\nb']);
+  expect(typeCommand('type "the note" hello')).toEqual(['the note','hello']);
+  expect([typeCommand('type editor paste a\\nb c'),typeCommand('type editor copy')]).toEqual([['editor',{clipboard:'paste',text:'a\nb c'}],['editor',{clipboard:'copy'}]]);
 });

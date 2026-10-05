@@ -20,10 +20,10 @@
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
 import { Cdp, closePage, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
-import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs } from './agent-inspect.mjs';
+import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs, tapRefusal } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
 import { axTree } from './agent-ax.mjs';
-export { sourceMapReader, identifyInspectedNode, render } from './agent-inspect.mjs';
+export { sourceMapReader, identifyInspectedNode, render, tapRefusal } from './agent-inspect.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -859,26 +859,6 @@ export function worldView(session, name) {
     },
     hold: (code, ms) => session.type(name, {key:code, for:ms}),
   };
-}
-
-/** Explain a refused placed-child tap using the world's own visibility. */
-export async function tapRefusal(session, target, error) {
-  if (error.transport) return error; // the carrier failed: no diagnostic read can answer
-  try {
-    for (const canvas of (await session.tree()).nodes.filter(n => n.world)) {
-      const canvasName = canvas.props?.testId ?? canvas.id;
-      const outline = await session.tree(canvasName);
-      if (!outline.entities?.some(entity => entity.name === target)) continue;
-      const owner = `${canvasName}:${target}`;
-      const state = await session.state(owner).catch(() => null);
-      if (!state?.entity?.placed?.hidden) continue;
-      const box = await session.layout(owner);
-      const reason = box.entity?.visible?.behindCamera ? 'hidden (behind the camera)' : 'hidden';
-      error.message = `${target} is ${reason}: \`layout ${owner}\` (with --json before the quoted operation) shows visibility and any available screen box; layout ${target} shows the child when mounted`;
-      return error;
-    }
-  } catch { /* Preserve the original refusal if the diagnostic target also vanished. */ }
-  return error;
 }
 
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
