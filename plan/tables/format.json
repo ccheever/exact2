@@ -730,7 +730,8 @@
       "seekto",
       "previoustrack",
       "nexttrack",
-      "stop"
+      "stop",
+      "fullscreenchange"
     ]
   },
   "_opcodes": "The expression VM: a stack machine over values with a small locals stack (`BindLocal` pops into it, `LoadLocal` copies from it, `DropLocal` pops it) for names an inline `match` binds and the item and index a `Map`/`Filter` callback binds. Each opcode names its operand layout; the decoder validates framing and every index operand. `depth` operands count enclosing instance scopes (0 = innermost). Type inference guarantees stack discipline; the VM still traps, never UB.",

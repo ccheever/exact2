@@ -64,6 +64,8 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     #else
     var controller: AVPlayerViewController?
     var inline: VideoLayerView?
+    /// The full-screen presentation `requestFullscreen` made, while it shows.
+    var fullscreen: FullscreenPlayer?
     var presentation: UIView? { controller?.view ?? inline }
     #endif
     let context: UnsafeMutableRawPointer?
@@ -594,6 +596,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         notifications.forEach(NotificationCenter.default.removeObserver); notifications.removeAll()
         player.replaceCurrentItem(with: nil)
         #if os(iOS) || os(tvOS)
+        fullscreen?.left = nil; fullscreen?.dismiss(animated: false); fullscreen = nil
         controller?.willMove(toParent: nil); controller?.view.removeFromSuperview(); controller?.removeFromParent()
         inline?.playerLayer.player = nil
         inline?.removeFromSuperview()
@@ -602,6 +605,60 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         container.removeFromSuperview()
     }
 }
+
+#if os(iOS) || os(tvOS)
+/// The full-screen player: AVKit's own controller on the inline one's
+/// AVPlayer, so the time, the play or pause, and the rate are the same ones
+/// when it closes (Menu on tvOS, Done on iOS) as when it opened.
+final class FullscreenPlayer: AVPlayerViewController {
+    var left: (() -> Void)?
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        guard isBeingDismissed || presentingViewController == nil else { return }
+        // Let go of the player first: AVKit pauses the one a closed controller holds.
+        player = nil
+        left?(); left = nil
+    }
+}
+
+extension VideoArm {
+    /// `requestFullscreen` (HTML's Element.requestFullscreen): the picture
+    /// takes the screen; `fullscreenchange` reports true, then false when it
+    /// closes. A second request while it shows, or an `audio`, does nothing.
+    func enterFullscreen() {
+        guard !invalidated, fullscreen == nil, props["semanticTag"] != "audio", player.currentItem != nil else { return }
+        var responder: UIResponder? = container.next
+        while let current = responder, !(current is UIViewController) { responder = current.next }
+        guard var host = responder as? UIViewController else { return }
+        while let shown = host.presentedViewController { host = shown }
+        let full = FullscreenPlayer()
+        full.player = player
+        full.videoGravity = .resizeAspect
+        full.modalPresentationStyle = .fullScreen
+        // One picture at a time: the inline view lets go of the player while
+        // the full-screen one shows it, and takes it back after.
+        controller?.player = nil
+        inline?.playerLayer.player = nil
+        full.left = { [weak self] in self?.leftFullscreen() }
+        fullscreen = full
+        host.present(full, animated: true) { [weak self] in self?.emit("fullscreenchange", payload: "true") }
+    }
+
+    private func leftFullscreen() {
+        guard !invalidated else { return }
+        fullscreen = nil
+        controller?.player = player
+        inline?.playerLayer.player = player
+        emit("fullscreenchange", payload: "false")
+    }
+}
+#else
+extension VideoArm {
+    func enterFullscreen() {
+        FileHandle.standardError.write(Data("exact video: requestFullscreen: not on macOS yet\n".utf8))
+    }
+}
+#endif
 
 @_cdecl("exact_video_create")
 public func videoCreate(_ context: UnsafeMutableRawPointer?, _ callback: VideoCallback?) -> UnsafeMutableRawPointer? {
@@ -616,6 +673,8 @@ public func videoUpdate(_ raw: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<
     guard let object = arm(raw), let bytes, let values = try? JSONSerialization.jsonObject(with: Data(bytes: bytes, count: count)) as? [String: String] else { return }
     object.update(values)
 }
+@_cdecl("exact_video_fullscreen")
+public func videoFullscreen(_ raw: UnsafeMutableRawPointer?) { arm(raw)?.enterFullscreen() }
 @_cdecl("exact_video_state")
 public func videoState(_ raw: UnsafeMutableRawPointer?) { arm(raw)?.emit() }
 @_cdecl("exact_video_destroy")

@@ -177,6 +177,20 @@ setting the property is not evidence of a completed session. App audio-session,
 background and remote-command policy are shared process capabilities; a leaf
 must not steal them from another Exact session.
 
+### Full screen
+
+`requestFullscreen("id")`, an action's host command, asks the `video` with
+that HTML id to take the screen, as HTML's `Element.requestFullscreen()`;
+`fullscreenchange(fullscreen)` reports `true` when it did and `false` when it
+left, by the command or the platform's own way out (AVKit's Done, the Siri
+Remote's Menu, Escape on the web). On iOS and tvOS the arm presents an
+AVPlayerViewController on the leaf's own AVPlayer, so the time, play or pause
+and rate are the same ones on both sides; the inline view lets go of the
+player while it shows, and the full-screen controller lets go of it before
+the inline view takes it back (AVKit pauses a player a closed controller
+still holds). macOS does not present it yet and says so in the log. The web
+calls the element's `requestFullscreen()`.
+
 ### Events and observations
 
 Standard events: loadedmetadata, canplay, play, playing, pause, ended, waiting,
@@ -232,7 +246,7 @@ represented as working booleans:
 
 - source/track child elements, external WebVTT and programmatic audio/subtitle
   selection; native embedded/HLS selections already belong to AVKit controls;
-- explicit play/fullscreen/PiP command results and capability/error objects,
+- explicit play/PiP command results and capability/error objects,
   including restoring the owning route after PiP;
 - interruption and route policy for the player (the iOS session category is
   LLP 1096 D8's `audio_session`; lock-screen metadata, Now Playing and remote
