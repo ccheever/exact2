@@ -4,8 +4,9 @@
 // archive's `exact_markup_pieces` turns it into display pieces — the same
 // function for measure and paint, so the two agree — and this file turns
 // those into `Run`s against the node's own font: headings are bigger and
-// bolder, code is the monospace family, links carry their target, and the
-// quieter roles (markers, quotes) take the ink at reduced opacity.
+// bolder, code is the monospace family, links carry their target, a list
+// item's runs its indent, and the quieter roles (markers, quotes) take the
+// ink at reduced opacity.
 import Foundation
 import CoreGraphics
 import CExact
@@ -50,6 +51,8 @@ enum MarkupRuns {
                 if p.font_weight != 0 { run.weight = Int(p.font_weight) }
                 if p.italic != 0 { run.italic = true }
                 if p.mono != 0 { run.family = monospaceFamily }
+                // A list item's indent and hung marker (LLP 1045 D4, `LineInsets`).
+                run.indent = CGFloat(p.indent); run.hang = p.hang != 0
                 if let href = p.href, p.href_len > 0 {
                     let target = String(decoding: UnsafeBufferPointer(start: href, count: p.href_len), as: UTF8.self)
                     run.href = MarkupRuns.target(target) ?? ""

@@ -15,6 +15,9 @@ enum TextMetricKey {
     }
     private static func fields(_ r: Run, _ h: inout Hasher) {
         fields(r.size, r.weight, r.family, r.italic, r.lineHeight, r.letterSpacing, r.numeric, &h)
+        // Only an expanded Markdown run has these; a plain run hashes as
+        // its request's does (LLP 1045 D4).
+        if r.indent != 0 || r.hang { h.combine(r.indent); h.combine(r.hang) }
     }
     private static func fields(_ r: ExactTextRun, _ h: inout Hasher) {
         fields(CGFloat(r.font_size), Int(r.font_weight), Int(r.font_family), r.italic != 0,
@@ -204,6 +207,8 @@ final class TextShape {
     // Unicode opportunities belong to this immutable source, never a width.
     // Filled lazily by the session's TextEngine; raster workers do not use it.
     var lineBreakBoundaries: [Int]?
+    /// Where each line starts (`lineInsets`), made once from this source.
+    var insets: LineInsets?
     private(set) var flow: TextFlowSource?
     private(set) var prepareCount = 0
     func preparedFlow() -> TextFlowSource {

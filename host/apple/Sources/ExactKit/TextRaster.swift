@@ -36,8 +36,8 @@ struct TextRasterJob {
     let flush: CGFloat
     /// CSS `text-align: justify`, at the box's width (`TextEngine.justified`).
     var justifies = false
-    /// The paragraph's first line's `text-indent` (`Spec.firstLineInset`).
-    var firstLineInset: (left: CGFloat, width: CGFloat) = (0, 0)
+    /// Where each line starts (`LineInsets`): `text-indent`, list indents.
+    var insets = LineInsets()
     let box: CGRect
     let size: CGSize
     let scale: CGFloat
@@ -79,7 +79,7 @@ struct TextRasterJob {
         } else {
             let typesetter = CTTypesetterCreateWithAttributedString(source)
             lines = ranges.map {
-                let inset = $0.location == 0 ? firstLineInset.width : 0
+                let inset = insets.at($0.location).width
                 return TextEngine.finishedLine(CTTypesetterCreateLine(typesetter, $0), source: source, range: $0,
                                                justify: justifies ? Double(box.width - inset) : nil)
             }
@@ -89,7 +89,7 @@ struct TextRasterJob {
             }
         }
         let positions = zip(lines, baselines).map { line, baseline in
-            let inset: (left: CGFloat, width: CGFloat) = CTLineGetStringRange(line).location == 0 ? firstLineInset : (0, 0)
+            let inset = insets.at(CTLineGetStringRange(line).location)
             return CGPoint(x: box.minX + inset.left + CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(box.width - inset.width))),
                            y: box.minY + baseline.rounded())
         }

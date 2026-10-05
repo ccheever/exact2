@@ -546,10 +546,20 @@ impl<D: DataSource> Presenter<D> {
         if self.press_range(hit, x) || self.toggle_control(hit, now_ms) {
             return Some(hit);
         }
+        // A link under the press is followed after the press's own handler,
+        // as a click's default action follows its listeners (LLP 1038 §7).
+        let link = self.link_at(hit, x, y);
         let Some(target) = self.handler_target(hit, EventKind::Press) else {
+            if let Some(href) = link {
+                self.follow(hit, &href, now_ms);
+                return Some(hit);
+            }
             return self.surface_pointer(hit, x, y, now_ms);
         };
         self.dispatch_press(target, now_ms, true);
+        if let Some(href) = link {
+            self.follow(hit, &href, now_ms);
+        }
         Some(target)
     }
 

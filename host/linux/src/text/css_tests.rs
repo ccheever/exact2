@@ -392,3 +392,80 @@ fn text_indent_insets_the_first_line_only() {
         "rtl first line ends 24 in from the right: {right}"
     );
 }
+
+/// LLP 1045 D4: a Markdown list item's lines all start at its level's
+/// indent (the browser's `padding-inline-start: 40px` per `<ul>`/`<ol>`),
+/// its marker hung before the first, ending at the indent, so ordered
+/// numbers right-align as the browser's outside markers do; the measured
+/// width is the painted one.
+#[test]
+fn a_markdown_list_items_lines_start_at_its_indent() {
+    let mut e = engine(DEJAVU, "DejaVu Sans");
+    let source = "Top\n\n- one two three four five six seven eight\n  - nested\n\n9. nine\n10. ten";
+    let s = spec(source, WhiteSpace::PreWrap).markdown();
+    let p = e.paragraph(&s, Some(200.0));
+    // Each visual line: its first glyph's run, where it starts, and where
+    // the marker (a hung run) ends.
+    let lines: Vec<(String, f32, Option<f32>)> = p
+        .layout_runs()
+        .filter(|line| !line.glyphs.is_empty())
+        .map(|line| {
+            let text = |g: &cosmic_text::LayoutGlyph| &s.runs[g.metadata];
+            let marker = line
+                .glyphs
+                .iter()
+                .filter(|g| text(g).hang)
+                .map(|g| g.x + g.w)
+                .reduce(f32::max);
+            let first = line
+                .glyphs
+                .iter()
+                .find(|g| !text(g).hang)
+                .map_or(0.0, |g| g.x);
+            let from = line
+                .glyphs
+                .iter()
+                .find(|g| !text(g).hang)
+                .map_or(0, |g| g.start);
+            (line.text[from..].trim().to_string(), first, marker)
+        })
+        .collect();
+    let at = |prefix: &str| {
+        lines
+            .iter()
+            .find(|l| l.0.starts_with(prefix))
+            .unwrap_or_else(|| panic!("{prefix}: {lines:?}"))
+    };
+    assert_eq!(at("Top").1, 0.0);
+    let (one, wrapped) = (
+        at("one"),
+        lines
+            .iter()
+            .find(|l| l.2.is_none() && l.1 > 0.0 && !l.0.starts_with("one"))
+            .unwrap(),
+    );
+    assert!(
+        (one.1 - 40.0).abs() < 0.01 && (one.2.unwrap() - 40.0).abs() < 0.01,
+        "{lines:?}"
+    );
+    assert!(
+        (wrapped.1 - 40.0).abs() < 0.01,
+        "a wrapped line starts at the indent: {lines:?}"
+    );
+    let nested = at("nested");
+    assert!(
+        (nested.1 - 80.0).abs() < 0.01 && (nested.2.unwrap() - 80.0).abs() < 0.01,
+        "{lines:?}"
+    );
+    for number in ["nine", "ten"] {
+        let l = at(number);
+        assert!(
+            (l.1 - 40.0).abs() < 0.01 && (l.2.unwrap() - 40.0).abs() < 0.01,
+            "{number}: {lines:?}"
+        );
+    }
+    // Measure answers what paint lays out.
+    let measured = e.measure(&s, AxisOffer::Definite(200.0));
+    assert_eq!((measured.height, measured.width), (p.height, p.width));
+    assert!(p.width <= 200.0, "{}", p.width);
+}

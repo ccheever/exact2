@@ -557,7 +557,8 @@ app (`/note/3`, one of its declared routes) navigates in it, through the
 navigation root's `navigate`, on every host; a path that names no route (a
 file beside a document) is the browser's, or natively the app's document to
 open. A relative path (`note/3`) has no base natively; write it from `/`. One to an absolute URL (`https://…`, `//…`) leaves the
-app: natively it opens in the system browser, and on the web in a new
+app: natively it opens in the system browser (the Linux host has none and
+logs it), and on the web in a new
 browsing context (`target="_blank" rel="external noopener"`), so the app is
 still there when the reader comes back. On the web, `target="_self"` keeps
 such a link in the page (it replaces the app) and `target="_blank"` opens a

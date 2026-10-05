@@ -1330,6 +1330,7 @@ dependencies = [
  "exact-canvas",
  "exact-data",
  "exact-kernel",
+ "exact-markdown",
  "exact-motion",
  "exact-plan",
  "exact-raster",

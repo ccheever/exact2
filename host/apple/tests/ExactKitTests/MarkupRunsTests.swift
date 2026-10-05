@@ -52,6 +52,10 @@ final class MarkupRunsTests: XCTestCase {
         XCTAssertEqual(bullet.color?[3], 255 * 0.62)
         XCTAssertEqual(runs.first { $0.text == "quoted" }?.color?[3], 255 * 0.62)
         // The item's text is its own run, followed by the block's newline glyph.
-        XCTAssertEqual(runs.first { $0.text == " one" }?.color?[3], 255)
+        XCTAssertEqual(runs.first { $0.text == "one" }?.color?[3], 255)
+        // The item's runs carry its indent, its marker hung before it (LLP 1045 D4).
+        XCTAssertTrue(bullet.hang); XCTAssertEqual(bullet.indent, 40)
+        XCTAssertEqual(runs.first { $0.text == "one" }?.indent, 40)
+        XCTAssertEqual(runs.first { $0.text == "quoted" }?.indent, 0)
     }
 }
