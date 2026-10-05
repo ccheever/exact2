@@ -351,7 +351,7 @@ export function renderAx(r) {
     const st = Object.entries(e.states ?? {}).filter(([, v]) => v !== false).map(([k, v]) => v === true ? k : `${k}=${v}`);
     const join = e.id == null ? ` (${e.native?.class ?? 'platform'})` : ` #${e.id}${e.via === 'owner' ? '^' : e.via === 'ancestor' ? '~' : ''}${e.testId != null ? ` [${e.testId}]` : ''}`;
     const f = e.frame ? ` ${e.frame.x},${e.frame.y} ${e.frame.w}×${e.frame.h}` : '';
-    lines.push(`${'  '.repeat(Math.max(0, d))}${e.role} ${q(e.name ?? '')}${e.value != null ? ` value=${q(e.value)}` : ''}${st.length ? ` [${st.join(' ')}]` : ''}${join}${f}${e.excluded?.length ? ` (excluded: ${e.excluded.join(', ')})` : ''}`);
+    lines.push(`${'  '.repeat(Math.max(0, d))}${e.role} ${q(e.name ?? '')}${e.value != null ? ` value=${q(e.value)}` : ''}${e.description ? ` description=${q(e.description)}` : ''}${st.length ? ` [${st.join(' ')}]` : ''}${join}${f}${e.excluded?.length ? ` (excluded: ${e.excluded.join(', ')})` : ''}`);
   }
   const findings = ax.findings ?? [];
   if (findings.length) {
