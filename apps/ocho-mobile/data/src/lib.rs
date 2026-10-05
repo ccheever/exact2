@@ -144,6 +144,7 @@ impl OchoMobile {
             "retry" => m.retry(),
             "dismiss" => m.dismiss(),
             "earlier" => m.show_earlier(),
+            "send-now" => m.send_now(&a),
             "voice" => m.voice_state(&a),
             "composer" => {
                 if let Some(text) = a.strip_prefix("s:") {

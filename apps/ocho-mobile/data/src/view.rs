@@ -311,14 +311,23 @@ pub(crate) fn session(m: &Model) -> Json {
             }));
         }
     }
-    // Fleet holds a Codex message until the running turn ends.
-    let queued = live.is_some_and(|s| s.working() && s.send_route() == SendRoute::Queue);
+    // Fleet holds a Codex message until the running turn ends: those wait in
+    // the tray over the composer (`queue`), each with "Send now", as Codex's
+    // own app shows them; the rest are bubbles at the transcript's end.
+    let working = live.is_some_and(|s| s.working() && s.send_route() == SendRoute::Queue);
+    let mut queue: Vec<Json> = Vec::new();
     for (i, p) in m.pending_for(key).enumerate() {
+        if working && p.queued {
+            queue.push(
+                json!({ "id": p.request_id, "text": p.text, "interrupting": p.interrupting }),
+            );
+            continue;
+        }
         out.push(json!({
             "id": format!("p{i}-{}", p.after),
             "kind": "user",
             "pending": true,
-            "queued": queued,
+            "queued": false,
             "blocks": markdown_doc::to_json(&markdown_doc::parse(&p.text), false),
         }));
     }
@@ -360,6 +369,7 @@ pub(crate) fn session(m: &Model) -> Json {
         "failed": failed,
         "scrollRevision": m.scroll_revision,
         "composerHeight": m.composer_height.max(44.0),
+        "queue": queue,
         "canTalk": voice.is_some(),
         "voiceUrl": voice.as_ref().map(|v| v.0.clone()).unwrap_or_default(),
         "voiceAuth": voice.map(|v| v.1).unwrap_or_default(),

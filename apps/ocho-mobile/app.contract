@@ -117,6 +117,10 @@ shape Message
   queued: bool
   blocks: list<MarkdownBlock>
   summary: string
+shape QueuedMessage
+  id: string
+  text: string
+  interrupting: bool
 shape Session
   open: bool
   title: string
@@ -134,6 +138,7 @@ shape Session
   failed: string
   scrollRevision: number
   composerHeight: number
+  queue: list<QueuedMessage>
   canTalk: bool
   voiceUrl: string
   voiceAuth: string
@@ -217,6 +222,9 @@ component OchoMobile
   action write(value: string) writes draft
     draft = value
   // The native composer's height, which its wrapped text decides.
+  // "Send now" on a queued message: interrupt the running turn for it.
+  action sendNow(value: string) writes ui
+    send ui = dispatch("send-now", value, "", now())
   action showEarlier writes ui
     send ui = dispatch("earlier", "", "", now())
   // The native composer's word: `h:<points>` (its height) or `s:<text>` (send
@@ -304,7 +312,7 @@ component OchoMobile
             VoiceCall(model=vm.session, close=endTalk, said=voiceSaid)
         when e.name == "session"
           column navigationKey=`${e.id}` testId="session-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" class=Page padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
-            Conversation(model=vm.session, talk=talk, draft=draft, backTapped=back, back=backPressed, write=write, sendDraft=sendDraft, sized=composerSaid, earlier=showEarlier, retry=retry, dismiss=dismiss, blur=headerBlur)
+            Conversation(model=vm.session, talk=talk, draft=draft, backTapped=back, back=backPressed, write=write, sendDraft=sendDraft, sized=composerSaid, earlier=showEarlier, sendNow=sendNow, retry=retry, dismiss=dismiss, blur=headerBlur)
 
 // The activity indicator: a ring with one dark quarter, turning.
 component Spinner
@@ -478,6 +486,7 @@ component Conversation
     backTapped: action
     back: action
     write: action
+    sendNow: action
     earlier: action
     sized: action
     sendDraft: action
@@ -525,8 +534,6 @@ component Conversation
                 column align-items="flex-end" gap=4 testId=entry.id
                   column max-width="85%" min-width=0 padding-left=14 padding-right=14 padding-top=9 padding-bottom=9 border-radius=20 background-color="light-dark(#e9e9eb, #262629)" opacity=(entry.pending ? 0.55 : 1)
                     MarkdownBlocks(blocks=entry.blocks, size=16, lineHeight=22)
-                  when entry.queued
-                    text "Queued · sends when Codex finishes" testId="queued" padding-right=6 font-size=12 line-height="16px" class=Tertiary
               when entry.kind == "assistant"
                 column testId=entry.id min-width=0
                   MarkdownBlocks(blocks=entry.blocks, size=16, lineHeight=23)
@@ -550,6 +557,20 @@ component Conversation
             image "symbol:close" font-size=13 font-weight=600 class=Icon
       when not model.canSend and model.note != ""
         text model.note testId="send-note" text-align="center" font-size=13 line-height="18px" padding-bottom=6 class=Secondary
+      // Messages waiting behind the running turn, as Codex's app shows them:
+      // over the composer, each with "Send now" (stop the turn, send it).
+      when length(model.queue) > 0
+        column testId="queue" margin-left=16 margin-right=16 gap=6
+          each q in model.queue key=q.id
+            row testId=`queued-${q.id}` align-items="center" gap=10 padding-left=16 padding-right=6 padding-top=6 padding-bottom=6 border-radius=22 backgroundMaterial="glass"
+              column flex=1 min-width=0 gap=1
+                text (q.interrupting ? "Interrupting…" : "Queued · sends when Codex finishes") font-size=12 line-height="16px" class=Secondary
+                text q.text font-size=15 line-height="20px" line-clamp=2 class=Label
+              when q.interrupting
+                box width=34 height=34 flex-shrink=0 display="flex" align-items="center" justify-content="center"
+                  Spinner(size=16)
+              else
+                glass-button testId=`send-now-${q.id}` symbol="arrow.up" said="Send now" prominent="true" token=q.id change=sendNow width=34 height=34 flex-shrink=0
       column testId="composer-bar" padding-left=16 padding-right=16 padding-top=6 padding-bottom=12 flex-shrink=1 min-height=52
         row align-items="flex-end" gap=10
           // UIKit's text view in real Liquid Glass, its send button the

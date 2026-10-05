@@ -166,6 +166,8 @@ pub struct Outgoing {
     pub thread: String,
     /// Where a queued message is in attach, send, detach.
     pub step: Step,
+    /// Interrupt the running turn for it (`interrupt-send`) instead of waiting.
+    pub interrupt: bool,
 }
 
 /// A queued Codex message's requests, in order.
@@ -189,6 +191,13 @@ pub struct Pending {
     pub text: String,
     /// The transcript's length when sent.
     pub after: usize,
+    /// Its idempotency key: what "Send now" asks for again.
+    pub request_id: String,
+    /// Through Codex's queue: it waits behind a running turn and can be sent
+    /// now instead, interrupting it.
+    pub queued: bool,
+    /// "Send now" was pressed: the turn is being interrupted for it.
+    pub interrupting: bool,
 }
 
 /// What survives a relaunch besides the pairing.
@@ -545,7 +554,9 @@ impl Model {
         if self.transcript.overdue(now, 30_000.0) {
             self.transcript_done(Err("No answer from the Mac.".into()));
         }
-        if self.send.overdue(now, 30_000.0) {
+        // An interrupting send waits on the server (up to 35 s) for the turn
+        // to stop before it answers.
+        if self.send.overdue(now, 45_000.0) {
             self.send_done(Err(
                 "No answer from the Mac; the message may not have arrived.".into(),
             ));

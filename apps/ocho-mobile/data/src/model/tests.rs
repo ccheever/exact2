@@ -438,12 +438,13 @@ fn a_message_to_a_working_codex_session_is_queued_behind_its_turn() {
     m.send_done(Ok(json!({"turns": [], "receipt": {"status": "queued"}})));
     assert!(m.failed.is_none());
     let view = crate::view::session(&m);
-    let entries = view["entries"].as_array().unwrap();
-    assert_eq!(entries.len(), 2);
-    assert!(
-        entries.iter().all(|e| e["queued"] == true),
-        "both wait for the turn"
+    assert_eq!(
+        view["entries"].as_array().unwrap().len(),
+        0,
+        "not bubbles in the transcript"
     );
+    let queue = view["queue"].as_array().unwrap();
+    assert_eq!(queue.len(), 2, "both wait for the turn, in the tray");
     assert_eq!(op(&m.send_request().unwrap().2)["operation"], "detach");
     m.send_done(Ok(json!({"turns": []})));
     // The second message goes the same way, in order.
@@ -661,4 +662,41 @@ fn a_live_codex_thread_offers_voice_through_the_relay() {
     m.poll_done(Ok(a));
     m.open("mac", "c1");
     assert!(m.voice().is_none());
+}
+
+#[test]
+fn send_now_asks_for_the_same_message_to_interrupt_the_turn() {
+    let mut m = paired();
+    m.poll_request();
+    m.poll_done(Ok(codex_answer("running")));
+    m.open("mac", "c1");
+    m.send_text("stop and do this instead");
+    let op = |body: &str| serde_json::from_str::<serde_json::Value>(body).unwrap();
+    m.send_request();
+    m.send_done(Ok(json!({"turns": []})));
+    let sent = op(&m.send_request().unwrap().2);
+    assert_eq!(sent["operation"], "send");
+    let id = sent["request_id"].as_str().unwrap().to_string();
+    m.send_done(Ok(json!({"receipt": {"status": "queued"}})));
+    m.send_request();
+    m.send_done(Ok(json!({"turns": []})));
+    assert_eq!(crate::view::session(&m)["queue"][0]["id"], id.as_str());
+    m.send_now(&id);
+    assert_eq!(crate::view::session(&m)["queue"][0]["interrupting"], true);
+    assert_eq!(op(&m.send_request().unwrap().2)["operation"], "attach");
+    m.send_done(Ok(json!({"turns": []})));
+    let again = op(&m.send_request().unwrap().2);
+    assert_eq!(again["operation"], "interrupt-send");
+    assert_eq!(
+        again["request_id"],
+        id.as_str(),
+        "the same message, not a second one"
+    );
+    assert_eq!(again["text"], "stop and do this instead");
+    // A second press while it interrupts asks nothing more.
+    m.send_done(Ok(json!({"receipt": {"status": "submitted"}})));
+    m.send_request();
+    m.send_done(Ok(json!({"turns": []})));
+    m.send_now(&id);
+    assert!(m.send_request().is_none());
 }

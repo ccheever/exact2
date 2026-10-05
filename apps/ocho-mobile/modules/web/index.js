@@ -51,6 +51,7 @@ function glassButton(handle, props) {
   element.setAttribute('role', 'button');
   element.setAttribute('aria-label', props.said ?? '');
   handle.enabled = props.enabled !== 'false';
+  handle.token = props.token;
   const items = props.menu ? JSON.parse(props.menu) : [];
   if (items.length) {
     const select = document.createElement('select');
@@ -120,7 +121,7 @@ export function create(tag, element, json, event) {
   if (tag === 'glass-button') {
     const handle = { element, event, tag };
     glassButton(handle, JSON.parse(json));
-    element.addEventListener('click', (e) => { if (handle.enabled && e.target === element) event(1, 'press'); });
+    element.addEventListener('click', (e) => { if (handle.enabled && e.target === element) event(1, handle.token ?? 'press'); });
     event(7);
     return handle;
   }

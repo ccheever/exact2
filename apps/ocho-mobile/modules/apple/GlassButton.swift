@@ -7,7 +7,8 @@
 // `prominent`, `enabled` (`false` dims it and takes no touches), and `menu`, a
 // JSON list of `{"id", "title", "destructive"}` that the button opens instead
 // of being pressed. Events: `change` ("press") when pressed, `message` (the
-// item's id) when a menu item is chosen.
+// item's id) when a menu item is chosen. `token`, when set, is what `change`
+// carries instead of "press".
 import Foundation
 
 #if os(iOS)
@@ -22,10 +23,12 @@ final class GlassButton: ExactNativeInstance {
 
     private let button = UIButton(type: .system)
     private var applied: [String: String] = [:]
+    /// What a press reports (`token`), so a row's button can say which row.
+    private var token = "press"
 
     init(props: [String: String], events: ExactNativeEvents) {
         super.init(events: events)
-        button.addAction(UIAction { [weak self] _ in self?.events.change("press") }, for: .primaryActionTriggered)
+        button.addAction(UIAction { [weak self] _ in self?.events.change(self?.token ?? "press") }, for: .primaryActionTriggered)
         apply(props)
         events.load()
     }
@@ -37,6 +40,7 @@ final class GlassButton: ExactNativeInstance {
     private func apply(_ props: [String: String]) {
         guard props != applied else { return }
         applied = props
+        token = props["token"] ?? "press"
         var config: UIButton.Configuration
         if #available(iOS 26.0, *) {
             config = props["prominent"] == "true" ? .prominentGlass() : .glass()

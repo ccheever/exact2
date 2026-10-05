@@ -119,6 +119,8 @@ const ENTRY: Shape = Record(&[
     ("summary", Str),
 ]);
 
+const QUEUED: Shape = Record(&[("id", Str), ("text", Str), ("interrupting", Bool)]);
+
 const SESSION: Shape = Record(&[
     ("open", Bool),
     ("title", Str),
@@ -136,6 +138,7 @@ const SESSION: Shape = Record(&[
     ("failed", Str),
     ("scrollRevision", Num),
     ("composerHeight", Num),
+    ("queue", List(&QUEUED)),
     ("canTalk", Bool),
     ("voiceUrl", Str),
     ("voiceAuth", Str),

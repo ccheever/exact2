@@ -4,6 +4,35 @@
 use super::*;
 
 impl Model {
+    /// "Send now" on a message waiting behind a running Codex turn: the same
+    /// request again as `interrupt-send`, which stops the turn and sends it.
+    pub fn send_now(&mut self, request_id: &str) {
+        let Some(at) = self
+            .pending
+            .iter()
+            .position(|p| p.request_id == request_id && p.queued && !p.interrupting)
+        else {
+            return;
+        };
+        let key = self.pending[at].key.clone();
+        let Some(thread) = self.live_session(&key).map(|s| s.native_id.clone()) else {
+            return;
+        };
+        self.pending[at].interrupting = true;
+        self.outbox.push_back(Outgoing {
+            key,
+            text: self.pending[at].text.clone(),
+            route: SendRoute::Queue,
+            request_id: request_id.to_string(),
+            thread,
+            step: Step::Attach,
+            interrupt: true,
+        });
+        self.send.bump();
+        self.feel("medium");
+        self.version += 1;
+    }
+
     /// The call's state from the voice page: felt as it connects and ends.
     pub fn voice_state(&mut self, state: &str) {
         match state {
@@ -68,19 +97,24 @@ impl Model {
             .get(&key)
             .map(|c| c.transcript.entries.len())
             .unwrap_or(0);
+        let request_id = format!("{:016x}{:016x}", self.now as u64, self.sent_count);
         self.pending.push(Pending {
             key: key.clone(),
             text: text.clone(),
             after,
+            request_id: request_id.clone(),
+            queued: route == SendRoute::Queue,
+            interrupting: false,
         });
         self.failed = None;
         self.outbox.push_back(Outgoing {
             key,
             text,
             route,
-            request_id: format!("{:016x}{:016x}", self.now as u64, self.sent_count),
+            request_id,
             thread,
             step: Step::Attach,
+            interrupt: false,
         });
         self.send.bump();
         self.feel("light");
@@ -114,6 +148,7 @@ impl Model {
                 let mut body = serde_json::json!({
                     "operation": match out.step {
                         Step::Attach => "attach",
+                        Step::Send if out.interrupt => "interrupt-send",
                         Step::Send => "send",
                         Step::Detach => "detach",
                     },
