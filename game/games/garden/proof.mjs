@@ -3,6 +3,12 @@
 // HUD; a filled garden saved, restored in a fresh process and continued; the
 // same save restored an hour later grows offline. `--scale` adds the
 // measurements in the diary (entity ramp, long seeks, save sizes).
+//
+// Checks read what the world publishes for its HUD (logic/src/hud.rs) and its
+// inspected state, never the Contract's copy, so the HUD's wording is free to
+// change. Where a check is about what the player reads (a control's
+// accessible name, a visible hint), it asks that the text exists and names
+// the published value, not that it is a particular sentence.
 import {resolve} from 'node:path';
 import {readFileSync, statSync, writeFileSync} from 'node:fs';
 import { proof, axNames, decide } from '../../proof.mjs';
@@ -10,18 +16,34 @@ import { proof, axNames, decide } from '../../proof.mjs';
 const EPOCH = Date.parse('2026-10-01T12:00:00Z');
 const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
 const text = (tree, id) => node(tree, id)?.props?.text;
-// A text node's label lives on its child text when the button wraps one.
+// A button's visible label: its own text, or the text it wraps (what Jev reads).
 const label = (tree, id) => {
   const n = node(tree, id);
-  if (!n) return undefined;
-  if (n.props?.text != null) return n.props.text;
-  return tree.nodes.find(m => m.parent === n.id && m.props?.text != null)?.props.text;
+  return n?.props?.text ?? tree.nodes.find(m => m.parent === n?.id && m.props?.text != null)?.props.text;
 };
 const ms = t => Math.round(performance.now() - t);
-// The exact purse, from the sheckles' authored label (its aria-label, the
-// runner's accessibilityLabel, on every host). The text itself is compact
-// ("379M¢"); a missing node or label is NaN, so every read is checked finite.
-const purseOf = tree => Number(node(tree, 'sheckles')?.props?.accessibilityLabel?.split(' ')[0]);
+// The world's published HUD record: the status, shop and backpack fields.
+const hud = async s => (await s.state()).world?.find(w => w.name === 'world')?.published ?? {};
+const seed = (h, id) => h.shop?.find(row => row.id === id);
+// The seed in hand, as the shop rows publish it.
+const holding = (h, id, owned) => seed(h, id)?.held === true && (owned === undefined || seed(h, id).owned === owned);
+// A published countdown ("… 0:19") in seconds; NaN when there is none.
+const seconds = value => { const m = /(\d+):(\d\d)\s*$/.exec(value ?? ''); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; };
+// The movement key a published direction names, as "(S)".
+const keyOf = value => /\(([WASD])\)/.exec(value ?? '')?.[1];
+// The player's tile ([x, z], from the published plot's numbers; null outside
+// the garden) and the crop growing on it (a shop id; null when empty).
+const plotOf = async (session, h) => {
+  const m = /(\d+), (\d+)/.exec(h.plot ?? '');
+  if (!m) return {tile:null, crop:null};
+  const tile = [Number(m[1]) - 1, Number(m[2]) - 1];
+  const {entities} = await session.world('world').snapshot({all:true});
+  const plant = entities.find(e => e.components?.Plant?.tile?.[0] === tile[0] && e.components.Plant.tile[1] === tile[1])?.components.Plant;
+  return {tile, crop: plant ? h.shop[plant.kind]?.id : null, plant};
+};
+const at = (plot, x, z) => plot.tile?.[0] === x && plot.tile?.[1] === z;
+// The crop the current market order asks for, by its published name.
+const ordered = (h, id) => !!seed(h, id) && (h.order ?? '').includes(seed(h, id).name);
 
 if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say}) => {
   const log = say ?? console.log;
@@ -54,28 +76,31 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const s = await open({epoch:EPOCH});
   const title = await s.tree();
   const titleAx = await axNames(s);
-  check('Play is focused and named', node(title, 'play')?.focused === true && (titleAx.unavailable || titleAx.name('play') === 'Play'));
-  check('title explains the loop', title.nodes.some(n => n.props?.text === 'It keeps growing while you are away'));
+  check('Play is focused and named', node(title, 'play')?.focused === true && (titleAx.unavailable || !!titleAx.name('play')));
+  check('title explains the loop', title.nodes.some(n => /away/i.test(n.props?.text ?? '')));
   await s.tap('play');
   const game = s.world('world');
   pin(0, await game.snapshot());
-  let t = await s.tree();
-  check('starting purse and hand', text(t, 'sheckles') === '20¢' && text(t, 'held') === 'Holding Carrot ×1', [text(t, 'sheckles'), text(t, 'held')]);
+  let h = await hud(s);
+  check('starting purse and hand', h.sheckles_n === 20 && holding(h, 'carrot', 1), [h.sheckles_n, seed(h, 'carrot')]);
   let ax = await axNames(s);
-  check('sheckles have an accessible name', ax.unavailable || ax.name('sheckles') === '20 sheckles', ax.name('sheckles'));
-  check('the shop lists every seed', (await s.tree('shop-list')).nodes.filter(n => n.props?.testId?.startsWith('shop-')).length === 15);
+  check('sheckles have an accessible name', ax.unavailable || ax.name('sheckles')?.includes(String(h.sheckles_n)), ax.name('sheckles'));
+  const shopList = await s.tree('shop-list');
+  check('the shop lists every seed', h.shop?.length > 0 && h.shop.every(row => node(shopList, `shop-${row.id}`)), h.shop?.map(row => row.id));
 
   await game.run(100);
-  check('the prompt offers to plant', text(await s.tree(), 'prompt') === 'E: plant Carrot (1 left)', text(await s.tree(), 'prompt'));
+  h = await hud(s);
+  check('the prompt offers to plant', !!node(await s.tree(), 'prompt') && h.plants === 0 && (h.prompt ?? '').includes(seed(h, 'carrot').name), h.prompt);
   const plotColor = snapshot => snapshot.entities.find(e => e.name === 'plot-north')?.components.Material.color;
   const emptyPlot = plotColor(await game.snapshot());
   check('the current plot has an outline', Array.isArray(emptyPlot));
   await game.tap('KeyE');
   await game.run(100);
-  t = await s.tree();
-  check('E plants the carrot', /^Carrot growing · 0:(19|20)$/.test(text(t, 'prompt')), text(t, 'prompt'));
-  check('census counts it', text(t, 'census') === '1 plants · 0/0 ripe · 0 mutated', text(t, 'census'));
-  check('held seeds run out', text(t, 'held') === 'No seeds in hand', text(t, 'held'));
+  h = await hud(s);
+  let t = await s.tree();
+  check('E plants the carrot', h.plants === 1 && [19, 20].includes(seconds(h.prompt)), [h.plants, h.prompt]);
+  check('census counts it', h.plants === 1 && h.ripe === 0 && h.fruit === 0 && h.mutated === 0, [h.plants, h.ripe, h.fruit, h.mutated]);
+  check('held seeds run out', h.held === '' && !h.shop.some(row => row.held), h.held);
   check('planted seeds disappear from shop inventory immediately', !node(t, 'equip-carrot'));
   const planted = await game.snapshot();
   const growingPlot = plotColor(planted);
@@ -84,57 +109,60 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('the new seedling stands beside the player', stem?.[0] > 0.6 && stem?.[2] < 0);
   if (host !== 'linux') await s.screenshot(resolve(out, 'planted.png'));
   await game.run(10_000);
-  check('the countdown counts down', /^Carrot growing · 0:(09|10)$/.test(text(await s.tree(), 'prompt')), text(await s.tree(), 'prompt'));
+  h = await hud(s);
+  check('the countdown counts down', [9, 10].includes(seconds(h.prompt)), h.prompt);
   const stage = (await game.snapshot()).entities.find(e => e.components?.Plant)?.components.Plant.stage;
   check('half grown is stage 2', stage === 2, stage);
   await game.run(10_500);
-  t = await s.tree();
-  check('a ripe carrot can be harvested', text(t, 'prompt') === 'E: harvest 1 Carrot', text(t, 'prompt'));
+  h = await hud(s);
+  check('a ripe carrot can be harvested', h.plants === 1 && h.ripe === 1 && (h.prompt ?? '').includes(seed(h, 'carrot').name), [h.ripe, h.prompt]);
   const ripePlot = plotColor(await game.snapshot());
   check('ripe fruit changes the outline again', JSON.stringify(ripePlot) !== JSON.stringify(growingPlot) && JSON.stringify(ripePlot) !== JSON.stringify(emptyPlot));
   if (host !== 'linux') await s.screenshot(resolve(out, 'ripe.png'));
   await game.tap('KeyE');
   await game.run(100);
-  t = await s.tree();
+  h = await hud(s);
   ax = await axNames(s);
-  check('the backpack holds it', label(t, 'bag-tab') === 'Backpack 1' && (ax.unavailable || ax.name('bag-tab') === 'Backpack, 1 fruit'), [label(t, 'bag-tab'), ax.name('bag-tab')]);
-  check('a carrot plant is gone after one harvest', text(t, 'census') === '0 plants · 0/0 ripe · 0 mutated', text(t, 'census'));
+  check('the backpack holds it', h.bag_count === 1 && (ax.unavailable || ax.name('bag-tab')?.includes('1')), [h.bag_count, ax.name('bag-tab')]);
+  check('a carrot plant is gone after one harvest', h.plants === 0 && h.ripe === 0 && h.mutated === 0, [h.plants, h.ripe]);
   check('single harvest returns the empty outline', JSON.stringify(plotColor(await game.snapshot())) === JSON.stringify(emptyPlot));
   await s.tap('bag-tab');
   t = await s.tree();
   ax = await axNames(s);
-  check('the backpack lists the fruit', !!node(t, 'bag-0') && !!node(t, 'sell-0') && (ax.unavailable || /^Sell .*Carrot for \d+$/.test(ax.name('sell-0') ?? '')), ax.name('sell-0'));
+  const fruit = h.bag[0];
+  check('the backpack lists the fruit', !!node(t, `bag-${fruit?.id}`) && !!node(t, `sell-${fruit?.id}`)
+    && (ax.unavailable || [fruit.label, fruit.value].every(part => ax.name(`sell-${fruit.id}`)?.includes(part))), ax.name(`sell-${fruit?.id}`));
   await s.tap('sell-all');
   await game.run(100);
-  t = await s.tree();
-  const purse = purseOf(t);
-  check('selling pays', Number.isFinite(purse) && purse > 20 && label(t, 'bag-tab') === 'Backpack 0', [purse, label(t, 'bag-tab')]);
-  check('an empty backpack says how to fill it', !!node(t, 'bag-empty'));
+  h = await hud(s);
+  const purse = h.sheckles_n;
+  check('selling pays', purse > 20 && h.bag_count === 0, [purse, h.bag_count]);
+  check('an empty backpack says how to fill it', !!node(await s.tree(), 'bag-empty'));
 
   await s.tap('shop-tab');
   await s.tap('buy-carrot');
   await game.run(100);
+  h = await hud(s);
   t = await s.tree();
-  check('buying spends and fills the hand', purseOf(t) === purse - 10 && text(t, 'held') === 'Holding Carrot ×1', [purseOf(t), text(t, 'held')]);
+  check('buying spends and fills the hand', h.sheckles_n === purse - 10 && holding(h, 'carrot', 1), [h.sheckles_n, seed(h, 'carrot')]);
   ax = await axNames(s);
-  check('an owned seed offers to hold it', !!node(t, 'equip-carrot') && (ax.unavailable || ax.name('equip-carrot') === 'Hold Carrot, 1 owned'), ax.name('equip-carrot'));
-  check('an unaffordable seed is disabled', node(t, 'buy-grape')?.props?.disabled === true, node(t, 'buy-grape')?.props);
+  check('an owned seed offers to hold it', !!node(t, 'equip-carrot') && (ax.unavailable || ax.name('equip-carrot')?.includes(seed(h, 'carrot').name)), ax.name('equip-carrot'));
+  check('an unaffordable seed is disabled', node(t, 'buy-grape')?.props?.disabled === true && seed(h, 'grape')?.affordable === false, node(t, 'buy-grape')?.props);
   // Two presses with no tick between them are two messages.
   await s.tap('buy-carrot');
   await s.tap('buy-carrot');
   await game.run(100);
-  const held = text(await s.tree(), 'held');
-  check('two presses between ticks buy two', held === 'Holding Carrot ×3', held);
+  h = await hud(s);
+  check('two presses between ticks buy two', holding(h, 'carrot', 3), seed(h, 'carrot'));
 
   await s.tap('tools-tab');
   await s.tap('fill-1000');
   await game.run(100);
-  t = await s.tree();
-  check('fill plants a thousand', text(t, 'census')?.startsWith('1000 plants'), text(t, 'census'));
+  h = await hud(s);
+  check('fill plants a thousand', h.plants === 1000, h.plants);
   await game.run(150_000);
-  t = await s.tree();
-  const census = text(t, 'census');
-  check('two and a half minutes ripen fruit', /^\d+ plants · [1-9]\d*\/\d+ ripe/.test(census), census);
+  const grownHud = await hud(s);
+  check('two and a half minutes ripen fruit', grownHud.ripe > 0 && grownHud.ripe <= grownHud.fruit, [grownHud.ripe, grownHud.fruit]);
   const mid = await game.snapshot({all:true});
   check('every page of a thousand plants and their fruit reads at one tick', mid.entities.length > 2000, mid.entities.length);
   pin(mid.tick, mid);
@@ -160,15 +188,15 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await later.tap('play');
   const grown = later.world('world');
   await grown.run(100);
-  t = await later.tree();
-  check('an hour later the garden grew while away', /^While you were away \(\d+:\d\d\): \d+ events/.test(text(t, 'away') ?? ''), text(t, 'away'));
-  const ripe = Number(text(t, 'census')?.match(/· (\d+)\//)?.[1]);
-  check('and every fruit is ripe', ripe > Number(census.match(/· (\d+)\//)[1]), [census, text(t, 'census')]);
+  h = await hud(later);
+  check('an hour later the garden grew while away', h.away !== '' && h.events > grownHud.events && !!node(await later.tree(), 'away'), [h.away, h.events]);
+  const ripe = h.ripe;
+  check('and every fruit is ripe', ripe > grownHud.ripe && ripe === h.fruit, [grownHud.ripe, ripe, h.fruit]);
   await later.tap('tools-tab');
   await later.tap('harvest-all');
   await grown.run(100);
-  t = await later.tree();
-  check('harvest all fills the backpack', Number(label(t, 'bag-tab')?.split(' ')[1]) === ripe, [label(t, 'bag-tab'), ripe]);
+  h = await hud(later);
+  check('harvest all fills the backpack', h.bag_count === ripe, [h.bag_count, ripe]);
   await later.tap('bag-tab');
   const rows = (await later.tree('bag-list')).nodes.filter(n => n.props?.testId?.startsWith('bag-')).length;
   check('the virtualized backpack builds only the rows near the port', rows > 0 && rows < ripe, [rows, ripe]);
@@ -181,8 +209,9 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await market.tap('play');
   const mg = market.world('world');
   await mg.run(100);
-  check('the market names its first crop', text(await market.tree(), 'objective') === 'Market order 1 · 1 Carrot');
-  check('an unfilled order is disabled', node(await market.tree(), 'deliver')?.props?.disabled === true);
+  h = await hud(market);
+  check('the market names its first crop', h.orders === 0 && ordered(h, 'carrot') && !!node(await market.tree(), 'objective'), h.order);
+  check('an unfilled order is disabled', node(await market.tree(), 'deliver')?.props?.disabled === true && h.order_ready === false);
   await mg.tap('KeyE');
   await mg.run(20_100);
   await mg.tap('KeyE');
@@ -190,42 +219,44 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await mg.save(resolve(out, 'market.world'));
   const deliverAndGrow = async session => {
     const g = session.world('world');
-    const before = purseOf(await session.tree());
+    const before = (await hud(session)).sheckles_n;
     await session.tap('deliver');
     await g.run(100);
-    let tree = await session.tree();
-    check('delivery advances the order and pays fruit plus bonus', text(tree, 'objective') === 'Market order 2 · 4 Strawberry' && purseOf(tree) > before + 30);
+    let h = await hud(session), tree = await session.tree();
+    check('delivery advances the order and pays fruit plus bonus', h.orders === 1 && ordered(h, 'strawberry') && h.sheckles_n > before + 30, [h.orders, h.order, h.sheckles_n]);
     check('bonus immediately enables strawberry purchase', node(tree, 'buy-strawberry')?.props?.disabled === false);
     await session.tap('buy-strawberry');
     await g.run(100);
-    check('purchase feedback names the seed', text(await session.tree(), 'last') === 'Bought Strawberry seed');
+    check('purchase feedback names the seed', (await hud(session)).last.includes(seed(h, 'strawberry').name));
     await g.tap('KeyE');
     await g.run(70_100);
     await g.tap('KeyE');
     await g.run(100);
     await session.tap('deliver');
     await g.run(100);
-    tree = await session.tree();
-    check('the second delivery funds blueberry', text(tree, 'objective') === 'Market order 3 · 5 Blueberry' && purseOf(tree) >= 400 && node(tree,'buy-blueberry')?.props?.disabled === false);
-    check('delivered fruit leaves the backpack', label(tree, 'bag-tab') === 'Backpack 0');
+    h = await hud(session); tree = await session.tree();
+    check('the second delivery funds blueberry', h.orders === 2 && ordered(h, 'blueberry') && h.sheckles_n >= 400 && node(tree,'buy-blueberry')?.props?.disabled === false, [h.orders, h.sheckles_n]);
+    check('delivered fruit leaves the backpack', h.bag_count === 0);
     // A spare seed keeps the wrong crop equipped. The market offers the same
     // correction to a person and an agent, then explains why this tile is full.
     await session.tap('buy-carrot');
     await session.tap('buy-blueberry');
     await g.run(100);
-    tree = await session.tree();
-    check('the market offers to hold the requested owned seed', !!node(tree, 'equip-order') && text(tree, 'order-hint')?.startsWith('Hold your Blueberry'));
+    h = await hud(session); tree = await session.tree();
+    check('the market offers to hold the requested owned seed', !!node(tree, 'equip-order') && h.order_seed === 'blueberry' && !!node(tree, 'order-hint'), h.order_seed);
     await session.tap('equip-order');
     await g.run(100);
-    check('the occupied plot explains the next step', text(await session.tree(), 'order-hint')?.includes('Move to an empty tile'));
+    h = await hud(session);
+    let plot = await plotOf(session, h);
+    check('the occupied plot explains the next step', holding(h, 'blueberry') && plot.crop !== null && plot.crop !== 'blueberry' && h.order_hint !== '', [plot.crop, h.order_hint]);
     await g.hold('KeyW', 500);
     await g.run(100);
-    tree = await session.tree();
-    check('walking finds an empty plot for blueberry', text(tree, 'plot')?.startsWith('Plot 1, 2 · Empty') && text(tree, 'order-hint')?.startsWith('Press E to plant Blueberry'));
+    h = await hud(session); plot = await plotOf(session, h);
+    check('walking finds an empty plot for blueberry', at(plot, 0, 1) && plot.crop === null && holding(h, 'blueberry'), [plot.tile, plot.crop]);
     await g.tap('KeyE');
     await g.run(100);
-    tree = await session.tree();
-    check('the planted plot and market agree on blueberry', text(tree, 'plot')?.startsWith('Plot 1, 2 · Blueberry') && text(tree, 'order-hint')?.startsWith('Wait here for Blueberry'));
+    h = await hud(session); plot = await plotOf(session, h);
+    check('the planted plot and market agree on blueberry', at(plot, 0, 1) && plot.crop === 'blueberry' && ordered(h, 'blueberry') && h.order_seed === '', [plot.tile, plot.crop]);
     await g.run(100_100);
     if (host !== 'linux') await session.screenshot(resolve(out, 'blueberry.png'));
     await g.tap('KeyE');
@@ -233,8 +264,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     await session.tap('deliver');
     await g.run(100);
     for (const [crop, order, key, growth] of [['tomato',4,'KeyD',150_100], ['corn',5,'KeyW',200_100]]) {
-      tree = await session.tree();
-      check(`order ${order} stocks its seed immediately`, text(tree, 'objective')?.startsWith(`Market order ${order}`) && node(tree, `buy-${crop}`)?.props?.disabled === false);
+      h = await hud(session); tree = await session.tree();
+      check(`order ${order} stocks its seed immediately`, h.orders === order - 1 && ordered(h, crop) && node(tree, `buy-${crop}`)?.props?.disabled === false);
       await session.tap(`buy-${crop}`);
       await g.run(100);
       await session.tap('equip-order');
@@ -245,12 +276,12 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
       await g.run(growth);
       await g.tap('KeyE');
       await g.run(100);
-      check(`order ${order} can be delivered`, node(await session.tree(), 'deliver')?.props?.disabled === false);
+      check(`order ${order} can be delivered`, node(await session.tree(), 'deliver')?.props?.disabled === false && (await hud(session)).order_ready === true);
       await session.tap('deliver');
       await g.run(100);
     }
-    tree = await session.tree();
-    check('all five orders finish without a stock wait', text(tree, 'objective')?.startsWith('Market regular') && !node(tree, 'deliver'));
+    h = await hud(session); tree = await session.tree();
+    check('all five orders finish without a stock wait', h.orders === 5 && !node(tree, 'deliver'), h.orders);
   };
   await deliverAndGrow(market);
   const marketEnd = await mg.snapshot();
@@ -275,46 +306,45 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await lg.run(100);
   await lg.hold('KeyW', 4_000);
   await lg.run(100);
-  t = await lost.tree();
-  check('outside the north edge gives the direction back', text(t, 'plot')?.startsWith('Outside the garden') && text(t, 'prompt')?.startsWith('Return to garden: south (S)'), text(t, 'prompt'));
+  h = await hud(lost);
+  check('outside the north edge gives the direction back', (await plotOf(lost, h)).tile === null && keyOf(h.prompt) === 'S' && !!node(await lost.tree(), 'prompt'), h.prompt);
   if (host !== 'linux') await lost.screenshot(resolve(out, 'lost.png'));
   await lg.save(resolve(out, 'outside.world'));
   const returnAndPlant = async session => {
     const g = session.world('world');
     for (let step = 0; step < 20; step++) {
-      const prompt = text(await session.tree(), 'prompt') ?? '';
-      if (!prompt.startsWith('Return to garden:')) break;
-      const key = prompt.match(/\(([WASD])\)/)?.[1];
-      check('the return prompt names a movement key', !!key, prompt);
+      const h = await hud(session);
+      if ((await plotOf(session, h)).tile) break;
+      const key = keyOf(h.prompt);
+      check('the return prompt names a movement key', !!key, h.prompt);
       if (!key) break;
       await g.hold(`Key${key}`, 500);
       await g.run(100);
     }
-    const tree = await session.tree();
-    check('following the prompt reaches a usable plot', text(tree, 'plot')?.startsWith('Plot 2, 6 · Empty') && text(tree, 'prompt') === 'E: plant Carrot (1 left)', [text(tree, 'plot'), text(tree, 'prompt')]);
+    let h = await hud(session), plot = await plotOf(session, h);
+    check('following the prompt reaches a usable plot', at(plot, 1, 5) && plot.crop === null && holding(h, 'carrot', 1), [plot.tile, plot.crop, h.prompt]);
     await g.tap('KeyE');
     await g.run(100);
-    check('the recovered player can plant', text(await session.tree(), 'census')?.startsWith('1 plants'));
+    check('the recovered player can plant', (await hud(session)).plants === 1);
     await session.tap('buy-carrot');
     await g.run(100);
-    const occupied = await session.tree();
-    check('an occupied edge plot points to an empty plot', text(occupied, 'planting')?.startsWith('Empty plot') && text(occupied, 'prompt')?.startsWith('Carrot growing'), text(occupied, 'planting'));
+    h = await hud(session); plot = await plotOf(session, h);
+    check('an occupied edge plot points to an empty plot', !!keyOf(h.planting) && plot.crop === 'carrot' && plot.plant.stage < 4 && !!node(await session.tree(), 'planting'), [h.planting, plot.crop]);
     if (host !== 'linux') await session.screenshot(resolve(out, 'empty-direction.png'));
     for (let step = 0; step < 20; step++) {
-      const tree = await session.tree();
-      if (text(tree, 'prompt')?.startsWith('E: plant')) break;
-      const guidance = text(tree, 'planting') ?? '';
-      const key = guidance.match(/\(([WASD])\)/)?.[1];
-      check('the empty-plot hint names a movement key', !!key, guidance);
+      const h = await hud(session);
+      if ((await plotOf(session, h)).crop === null) break;
+      const key = keyOf(h.planting);
+      check('the empty-plot hint names a movement key', !!key, h.planting);
       if (!key) break;
       await g.hold(`Key${key}`, 500);
       await g.run(100);
     }
-    const empty = await session.tree();
-    check('following the empty-plot hint reaches a planting tile', text(empty, 'prompt') === 'E: plant Carrot (1 left)' && !node(empty, 'planting'));
+    h = await hud(session); plot = await plotOf(session, h);
+    check('following the empty-plot hint reaches a planting tile', plot.tile !== null && plot.crop === null && holding(h, 'carrot', 1) && h.planting === '' && !node(await session.tree(), 'planting'), [plot.tile, h.planting]);
     await g.tap('KeyE');
     await g.run(100);
-    check('the guided player plants a second crop', text(await session.tree(), 'census')?.startsWith('2 plants'));
+    check('the guided player plants a second crop', (await hud(session)).plants === 2);
     return g.snapshot();
   };
   const returned = await returnAndPlant(lost);
@@ -338,48 +368,49 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await cg.tap('KeyE'); await cg.run(100);
   await care.tap('buy-carrot'); await cg.run(100);
   check('the tall text HUD is present while watering', !!node(await care.tree(),'planting'));
-  check('a growing plot offers watering', node(await care.tree(), 'water')?.props?.disabled === false);
+  check('a growing plot offers watering', node(await care.tree(), 'water')?.props?.disabled === false && (await hud(care)).water_ready === true);
   await care.tap('water'); await cg.run(100);
-  let cared = await care.tree();
-  check('one dose accelerates growth and disables another', text(cared,'water-count') === 'Watering can · 2/3'
-    && text(cared,'care') === 'Watered · growing faster' && node(cared,'water')?.props?.disabled === true);
+  h = await hud(care);
+  const wateredPlant = (await plotOf(care, h)).plant;
+  check('one dose accelerates growth and disables another', h.water === 2 && wateredPlant?.watered === true
+    && h.water_ready === false && node(await care.tree(),'water')?.props?.disabled === true, [h.water, wateredPlant?.watered]);
   const wateringCue = (await cg.resources()).Feedback;
   check('watering shows its can and live droplets', (await cg.get('watering-can','Visible'))?.[0] === true
     && (await cg.get('feedback-water','Emitter'))?.state?.alive > 0);
   check('successful watering starts its sound', (await care.state()).world?.find(w=>w.name==='world')?.audio?.voices?.some(v=>v.sound==='water'));
   if (host !== 'linux') await care.screenshot(resolve(out,'watering.png'));
   await cg.tap('KeyQ'); await cg.run(100);
-  check('the keyboard cannot spend a second dose on the same growth', text(await care.tree(),'water-count') === 'Watering can · 2/3');
+  check('the keyboard cannot spend a second dose on the same growth', (await hud(care)).water === 2);
   check('refused watering does not restart its gesture', (await cg.resources()).Feedback?.began === wateringCue?.began);
   await cg.hold('KeyD',1000); await cg.run(100);
   check('finished care sounds leave no retained voices', (await care.state()).world?.find(w=>w.name==='world')?.audio?.voices?.length === 0);
-  check('refilling away from the barrel is disabled', node(await care.tree(),'refill')?.props?.disabled === true);
+  check('refilling away from the barrel is disabled', node(await care.tree(),'refill')?.props?.disabled === true && (await hud(care)).refill_ready === false);
   await cg.save(resolve(out,'watering.world'));
   const finishCare = async session => {
     const g = session.world('world');
     for (let step=0;step<20;step++) {
-      const tree = await session.tree();
-      if (node(tree,'refill')?.props?.disabled === false) break;
-      const hint = text(tree,'refill-hint') ?? '';
-      const key = hint.match(/\(([WASD])\)/)?.[1];
-      check('the barrel hint names a movement key', !!key, hint);
+      const h = await hud(session);
+      if (h.refill_ready) break;
+      const key = keyOf(h.refill);
+      check('the barrel hint names a movement key', !!key, h.refill);
       if (!key) break;
       await g.hold(`Key${key}`,200); await g.run(100);
     }
     await g.tap('KeyR'); await g.run(100);
-    check('R refills all three doses near the barrel', text(await session.tree(),'water-count') === 'Watering can · 3/3');
+    check('R refills all three doses near the barrel', (await hud(session)).water === 3);
     for (let step=0;step<10;step++) {
-      const prompt = text(await session.tree(),'prompt') ?? '';
-      if (!prompt.startsWith('Return to garden:')) break;
-      const key = prompt.match(/\(([WASD])\)/)?.[1];
+      const h = await hud(session);
+      if ((await plotOf(session, h)).tile) break;
+      const key = keyOf(h.prompt);
       if (!key) break;
       await g.hold(`Key${key}`,200); await g.run(100);
     }
     const left = 19_000 - (await g.snapshot()).tick * 1000 / 30;
     if (left > 0) await g.run(left);
-    check('the watered carrot ripens before twenty seconds', text(await session.tree(),'prompt') === 'E: harvest 1 Carrot' && (await g.snapshot()).tick < 600);
+    const h = await hud(session);
+    check('the watered carrot ripens before twenty seconds', h.ripe === 1 && (await plotOf(session, h)).crop === 'carrot' && (await g.snapshot()).tick < 600, [h.ripe, h.prompt]);
     await g.tap('KeyE'); await g.run(100);
-    check('the accelerated harvest fills the backpack once', label(await session.tree(),'bag-tab') === 'Backpack 1');
+    check('the accelerated harvest fills the backpack once', (await hud(session)).bag_count === 1);
     check('harvest carries the fruit while its reward sound plays', (await g.get('picked-fruit','Visible'))?.[0] === true
       && (await session.state()).world?.find(w=>w.name==='world')?.audio?.voices?.some(v=>v.sound==='harvest'));
     return g.snapshot();
@@ -405,22 +436,26 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await fg.tap('KeyE'); await fg.run(20_100);
   await fg.tap('KeyE'); await fg.run(100);
   await compost.tap('bag-tab');
-  check('a harvested fruit offers a named compost trade', node(await compost.tree(),'compost-0')?.props?.accessibilityLabel?.includes('one plant food'));
-  const cash = purseOf(await compost.tree());
-  await compost.tap('compost-0');
+  h = await hud(compost);
+  const harvested = h.bag[0];
+  check('a harvested fruit offers a named compost trade', node(await compost.tree(),`compost-${harvested?.id}`)?.props?.accessibilityLabel?.includes(harvested.label), harvested);
+  const cash = h.sheckles_n;
+  await compost.tap(`compost-${harvested.id}`);
   const pendingCompost = (await compost.state()).world?.find(w => w.name === 'world')?.input?.pending;
   check('state exposes the compost message waiting for a tick', pendingCompost?.message === 1, pendingCompost);
   await fg.run(100);
   check('normal ticks consume the pending compost input', (await compost.state()).world?.find(w => w.name === 'world')?.input?.pending?.total === 0);
-  check('compost trades that fruit for one dose without selling it', text(await compost.tree(),'food-count') === 'Plant food · 1/3'
-    && label(await compost.tree(),'bag-tab') === 'Backpack 0' && purseOf(await compost.tree()) === cash);
+  h = await hud(compost);
+  check('compost trades that fruit for one dose without selling it', h.plant_food === 1 && h.bag_count === 0 && h.sheckles_n === cash, [h.plant_food, h.bag_count, h.sheckles_n]);
   await fg.tap('KeyF'); await fg.run(100);
-  check('feeding an empty plot spends nothing', text(await compost.tree(),'food-count') === 'Plant food · 1/3');
+  check('feeding an empty plot spends nothing', (await hud(compost)).plant_food === 1);
   await fg.tap('KeyE'); await fg.run(100);
-  check('a new growing plot enables its Feed button', node(await compost.tree(),'feed')?.props?.disabled === false);
+  check('a new growing plot enables its Feed button', node(await compost.tree(),'feed')?.props?.disabled === false && (await hud(compost)).feed_ready === true);
   await compost.tap('feed'); await fg.run(100);
-  check('feeding spends one dose and names the larger harvest', text(await compost.tree(),'food-count') === 'Plant food · 0/3'
-    && text(await compost.tree(),'feeding') === 'Fed plot · next harvest has 25% more weight');
+  h = await hud(compost);
+  const fedPlant = (await plotOf(compost, h)).plant;
+  check('feeding spends one dose and names the larger harvest', h.plant_food === 0 && fedPlant?.fed === true
+    && h.feeding !== '' && !!node(await compost.tree(),'feeding'), [h.plant_food, fedPlant?.fed]);
   if (host !== 'linux') await compost.screenshot(resolve(out,'feeding.png'));
   // Both hosts checkpoint after the HUD's focus input has reached a tick.
   await fg.run(100);
@@ -433,9 +468,10 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     await g.tap('KeyF'); await g.run(100);
     await g.run(20_100);
     await g.tap('KeyE'); await g.run(100);
-    const tree = await session.tree();
-    check('the fed harvest is visibly named in the backpack', tree.nodes.some(n => n.props?.text?.startsWith('Fed '))
-      && label(tree,'bag-tab') === 'Backpack 1' && text(tree,'food-count') === 'Plant food · 0/3');
+    const h = await hud(session), tree = await session.tree();
+    const fed = (await g.resources()).Farm?.bag ?? [];
+    check('the fed harvest is visibly named in the backpack', fed.length === 1 && fed[0].fed === true && h.bag_count === 1 && h.plant_food === 0
+      && tree.nodes.some(n => n.props?.text === h.bag[0]?.label), [fed, h.bag[0]?.label]);
     return g.snapshot();
   };
   const fed = await finishFood(compost);
@@ -453,6 +489,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
 
 // Jev sees the player's text and enabled controls, and acts through those
 // controls. It does not inspect the farm, inject money or use the stress tools.
+// The harness keeps its own score (orders, harvests, outcome) from published
+// values, so the HUD's wording can change without changing when a run ends.
 async function playtest({open, out, log}) {
   if (process.argv.includes('--compost')) return compostPlaytest({open, out, log});
   const fullMarket = process.argv.includes('--full-market');
@@ -474,8 +512,14 @@ async function playtest({open, out, log}) {
   const walking = {north:'KeyW', east:'KeyD', south:'KeyS', west:'KeyA'};
   const recent = [];
   let strawberryHarvests = 0;
+  // Fruit of one crop in the backpack, from the farm the harness inspects (Jev does not).
+  const carried = async id => {
+    const kind = (await hud(s)).shop.findIndex(row => row.id === id);
+    return ((await game.resources()).Farm?.bag ?? []).filter(item => item.kind === kind).length;
+  };
   for (let turn = 0; turn < (fullMarket ? 96 : 48); turn++) {
     const tree = await s.tree();
+    const h = await hud(s);
     const state = Object.fromEntries(['sheckles','prompt','plot','planting','held','census','last','weather','restock','objective','order-detail','order-hint','water-count','care','refill-hint']
       .map(id => [id, text(tree, id) ?? '']));
     state.backpack = label(tree, 'bag-tab');
@@ -499,7 +543,7 @@ async function playtest({open, out, log}) {
     })) {
       const n = node(tree, id);
       if (!n || n.props?.disabled || (id === 'shop-tab' && node(tree, 'shop'))
-        || (id === 'bag-tab' && node(tree, 'bag')) || (id === 'sell-all' && state.backpack === 'Backpack 0')) continue;
+        || (id === 'bag-tab' && node(tree, 'bag')) || (id === 'sell-all' && h.bag_count === 0)) continue;
       const action = id.replaceAll('-', '_');
       choices[action] = description;
       buttons[action] = id;
@@ -516,21 +560,22 @@ async function playtest({open, out, log}) {
       await game.hold(walking[decision.choice.slice(5)], 500);
       await game.run(100);
     } else if (decision.choice === 'act') {
-      if (/^E: harvest \d+ Strawberry$/.test(state.prompt)) strawberryHarvests++;
+      const before = await carried('strawberry');
       await game.tap('KeyE');
       await game.run(100);
+      if (await carried('strawberry') > before) strawberryHarvests++;
     } else {
       await s.tap(buttons[decision.choice]);
       await game.run(100);
     }
-    const objective = text(await s.tree(), 'objective') ?? '';
-    if (fullMarket ? objective.startsWith('Market regular') : objective.startsWith('Market order 3')) break;
+    if ((await hud(s)).orders >= (fullMarket ? 5 : 2)) break;
   }
   const tree = await s.tree();
-  const outcome = {fullMarket, startOutside, strawberryHarvests, purse:purseOf(tree), census:text(tree,'census'),
+  const h = await hud(s);
+  const outcome = {fullMarket, startOutside, strawberryHarvests, purse:h.sheckles_n, orders:h.orders, census:text(tree,'census'),
     objective:text(tree,'objective'), prompt:text(tree,'prompt'), last:text(tree,'last'), water:text(tree,'water-count'), care:text(tree,'care'), world:await game.snapshot()};
   writeFileSync(resolve(out, 'jev-outcome.json'), JSON.stringify(outcome, null, 2));
-  log(`JEV outcome: ${strawberryHarvests} strawberry harvests · ${outcome.purse}¢ · ${outcome.census}`);
+  log(`JEV outcome: ${strawberryHarvests} strawberry harvests · ${outcome.purse}¢ · ${outcome.orders} orders`);
   await s.screenshot(resolve(out, 'jev-playtest.png'));
   await s.close();
 }
@@ -544,6 +589,8 @@ async function compostPlaytest({open, out, log}) {
   const transcript = resolve(out,'jev-compost-decisions.jsonl');
   writeFileSync(transcript,'');
   const recent = [];
+  // The goal is a fed fruit kept in the backpack; the harness reads the farm.
+  const fedKept = async () => ((await game.resources()).Farm?.bag ?? []).some(item => item.fed);
   let decisions = 0, achieved = false;
   for (; decisions < 64 && !achieved; decisions++) {
     const tree = await s.tree();
@@ -572,12 +619,13 @@ async function compostPlaytest({open, out, log}) {
     if (decision.choice === 'wait') await game.run(10_000);
     else if (decision.choice === 'act') { await game.tap('KeyE'); await game.run(100); }
     else { await s.tap(buttons[decision.choice]); await game.run(100); }
-    achieved = (text(await s.tree(),'last') ?? '').startsWith('Harvested Fed ');
+    achieved = await fedKept();
   }
   if (!node(await s.tree(),'bag')) await s.tap('bag-tab');
   const tree = await s.tree();
-  const outcome = {achieved,decisions,purse:purseOf(tree),last:text(tree,'last'),food:text(tree,'food-count'),
-    backpack:label(tree,'bag-tab'),world:await game.snapshot()};
+  const h = await hud(s);
+  const outcome = {achieved,decisions,purse:h.sheckles_n,last:text(tree,'last'),food:h.plant_food,
+    backpack:h.bag_count,world:await game.snapshot()};
   writeFileSync(resolve(out,'jev-compost-outcome.json'),JSON.stringify(outcome,null,2));
   log(`JEV compost outcome: achieved=${achieved} · ${decisions} decisions · ${outcome.last}`);
   await s.screenshot(resolve(out,'jev-compost.png'));
@@ -590,7 +638,9 @@ async function scale({open, check, out, log}) {
   await s.tap('play');
   const game = s.world('world');
   await s.tap('tools-tab');
-  const perf = async () => (await s.state('world')).world?.perf ?? (await s.state('world')).perf;
+  // `perf: true` arms the renderer's sample rings; an unarmed read is zeros.
+  const perf = async () => (await s.state('world', undefined, false, false, {world:true, perf:true})).world?.perf;
+  const census = h => `${h.plants} plants · ${h.ripe}/${h.fruit} ripe · ${h.mutated} mutated`;
   let last;
   for (const button of ['fill-100', 'fill-1000', 'fill-10000', 'fill-10000']) {
     let t0 = performance.now();
@@ -601,26 +651,25 @@ async function scale({open, check, out, log}) {
     await game.run(60_000);
     const minuteMs = ms(t0);
     t0 = performance.now();
-    const tree = await s.tree();
+    await s.tree();
     const treeMs = ms(t0);
-    const census = text(tree, 'census');
-    const plants = census.split(' ')[0];
-    last = resolve(out, `scale-${plants}.world`);
+    const h = await hud(s);
+    last = resolve(out, `scale-${h.plants}.world`);
     t0 = performance.now();
     await game.save(last);
     const saveMs = ms(t0);
     const bytes = statSync(last).size;
     const p = await perf();
-    log(`SCALE ${census} | fill ${fillMs} ms | +60 s seek ${minuteMs} ms | tree ${treeMs} ms | save ${bytes} B in ${saveMs} ms | perf ${JSON.stringify(p && {tickMs:p.tickMs, frameMs:p.frameMs, draws:p.draws, instances:p.instances, triangles:p.triangles})}`);
+    log(`SCALE ${census(h)} | fill ${fillMs} ms | +60 s seek ${minuteMs} ms | tree ${treeMs} ms | save ${bytes} B in ${saveMs} ms | perf ${JSON.stringify(p && {tickMs:p.tickMs, frameMs:p.frameMs, draws:p.draws, instances:p.instances, triangles:p.triangles})}`);
     if (button === 'fill-10000' && !process.argv.includes('--huge')) break;
   }
   let t0 = performance.now();
   await game.run(3_600_000);
-  log(`SCALE +1 h seek at ${text(await s.tree(), 'census')}: ${ms(t0)} ms`);
+  log(`SCALE +1 h seek at ${census(await hud(s))}: ${ms(t0)} ms`);
   t0 = performance.now();
   await s.tap('harvest-all');
   await game.run(34);
-  log(`SCALE harvest all: ${ms(t0)} ms → ${label(await s.tree(), 'bag-tab')}`);
+  log(`SCALE harvest all: ${ms(t0)} ms → ${(await hud(s)).bag_count} fruit`);
   await s.tap('bag-tab');
   t0 = performance.now();
   const bag = await s.tree('bag-list');
@@ -628,9 +677,9 @@ async function scale({open, check, out, log}) {
   t0 = performance.now();
   await s.tap('sell-all');
   await game.run(34);
-  const sold = await s.tree();
-  log(`SCALE sell all: ${ms(t0)} ms → ${purseOf(sold)} sheckles (${text(sold, 'sheckles')})`);
-  check('sell all pays an exact, finite purse', Number.isFinite(purseOf(sold)) && purseOf(sold) > 20, node(sold, 'sheckles'));
+  const sold = await hud(s);
+  log(`SCALE sell all: ${ms(t0)} ms → ${sold.sheckles_n} sheckles (${sold.sheckles})`);
+  check('sell all pays an exact, finite purse', Number.isFinite(sold.sheckles_n) && sold.sheckles_n > 20, sold.sheckles_n);
   await game.save(resolve(out, 'scale-final.world'));
   await s.close();
   const big = last;
@@ -638,13 +687,13 @@ async function scale({open, check, out, log}) {
   const back = await open({fresh:true, world:big, epoch:EPOCH});
   await back.tap('play');
   await back.world('world').run(34);
-  log(`SCALE fresh-process restore of ${statSync(big).size} B: ${ms(t0)} ms → ${text(await back.tree(), 'census')}`);
+  log(`SCALE fresh-process restore of ${statSync(big).size} B: ${ms(t0)} ms → ${census(await hud(back))}`);
   await back.close();
   t0 = performance.now();
   const away = await open({fresh:true, world:big, epoch:EPOCH + 8 * 3_600_000});
   await away.tap('play');
   await away.world('world').run(34);
-  log(`SCALE restore 8 h later: ${ms(t0)} ms → ${text(await away.tree(), 'away')}`);
+  log(`SCALE restore 8 h later: ${ms(t0)} ms → ${(await hud(away)).away}`);
   check('the ramp completed', true);
   await away.close();
 }
