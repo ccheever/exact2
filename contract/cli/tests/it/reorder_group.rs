@@ -657,8 +657,8 @@ fn keys_and_custom_actions_step_the_gap_across_lists_and_clamp() {
         .reorder_json()
         .contains("\"to\":\"col-b\",\"before\":\"b1\""));
     assert!(
-        hidden(&r, "grip-a2"),
-        "another list is the target: the row hides"
+        !hidden(&r, "grip-a2"),
+        "another list is the target, and the focused grip's row stays shown"
     );
     r.reorder_step(token, ReorderStep::Later).unwrap();
     r.reorder_step(token, ReorderStep::NextList).unwrap();

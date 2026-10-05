@@ -125,7 +125,7 @@ impl<D: DataSource> Runner<D> {
         let Some(s) = self.grouped(token) else {
             return Ok(ReorderProgress::Stale);
         };
-        let (group, item, current, ghost) = (s.group.clone(), s.item.clone(), s.target, s.ghost);
+        let (group, item, current) = (s.group.clone(), s.item.clone(), s.target);
         if s.phase != ReorderPhase::Active
             || !self.has_reorder(token)
             || self.reorder_geometry(target).as_ref() != Some(&geometry)
@@ -169,10 +169,6 @@ impl<D: DataSource> Runner<D> {
             if ok == Some(true) {
                 let (_, o) = self.edit_reorder(current, |c, u, _| c.close_incoming(u, false))?;
                 ops.extend(o);
-                if !ghost {
-                    let (_, o) = self.edit_reorder(source, |c, u, _| c.set_hidden(u, None))?;
-                    ops.extend(o);
-                }
             }
             ok == Some(true)
         } else {
@@ -190,7 +186,7 @@ impl<D: DataSource> Runner<D> {
             })?;
             ops.extend(o);
             if ok == Some(true) {
-                ops.extend(self.leave_target(current, source, &item, ghost)?);
+                ops.extend(self.leave_target(current, source)?);
             }
             ok == Some(true)
         };
@@ -213,25 +209,14 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The old target lets go as a new foreign one takes over: the source
-    /// closes the gap behind its row (`Outgoing`), hiding it when no ghost
-    /// does; a foreign one closes its gap.
-    fn leave_target(
-        &mut self,
-        current: NodeKey,
-        source: NodeKey,
-        item: &str,
-        ghost: bool,
-    ) -> Result<Vec<Op>, RunnerError> {
+    /// closes the gap behind its row (`Outgoing`); a foreign one closes its
+    /// gap. Without a ghost the row stays shown: it is the focused grip's,
+    /// and a hidden one would lose the keys (D9).
+    fn leave_target(&mut self, current: NodeKey, source: NodeKey) -> Result<Vec<Op>, RunnerError> {
         let mut ops = Vec::new();
         if current == source {
             let (_, o) = self.edit_reorder(source, |c, u, _| c.set_outgoing(u, true))?;
             ops.extend(o);
-            if !ghost {
-                let hide = item.to_owned();
-                let (_, o) =
-                    self.edit_reorder(source, |c, u, _| c.set_hidden(u, Some(hide.clone())))?;
-                ops.extend(o);
-            }
         } else {
             let (_, o) = self.edit_reorder(current, |c, u, _| c.close_incoming(u, false))?;
             ops.extend(o);
@@ -493,8 +478,7 @@ impl<D: DataSource> Runner<D> {
         let Some(s) = self.grouped(token) else {
             return Ok(Vec::new());
         };
-        let (group, item, current, ghost) =
-            (s.group.clone().unwrap(), s.item.clone(), s.target, s.ghost);
+        let (group, item, current) = (s.group.clone().unwrap(), s.item.clone(), s.target);
         if s.phase != ReorderPhase::Active || !self.has_reorder(token) {
             return Ok(Vec::new());
         }
@@ -534,10 +518,6 @@ impl<D: DataSource> Runner<D> {
                     let (_, o) =
                         self.edit_reorder(current, |c, u, _| c.close_incoming(u, false))?;
                     ops.extend(o);
-                    if !ghost {
-                        let (_, o) = self.edit_reorder(source, |c, u, _| c.set_hidden(u, None))?;
-                        ops.extend(o);
-                    }
                 } else {
                     let extent = self
                         .reorder_collection(source)
@@ -548,7 +528,7 @@ impl<D: DataSource> Runner<D> {
                         c.step_to(u, slot)
                     })?;
                     ops.extend(o);
-                    ops.extend(self.leave_target(current, source, &item, ghost)?);
+                    ops.extend(self.leave_target(current, source)?);
                 }
                 if let Some(s) = self.reorder_session.as_deref_mut() {
                     s.target = target;
