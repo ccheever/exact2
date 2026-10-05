@@ -4,14 +4,15 @@
     "90": "0x4d892b02503223cb"
   },
   "saves": {
-    "continuation": "c4589053ef56077a92ddf40305e34c83e43bd4e008793c86163249ffa9d3fbb1"
+    "continuation": "2dd2b8bc170a421c00b26ccacb50267a2bdefef415caf18e41704ccfca697ec8"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "4da9d338fb67b0e491566c8f65d83fbdcb68677fab22194e98f4e8ea4c811f9c",
+  "inputs": "759f18405fdd221ec40aecfd1fa0fde05b6022fb7dcb1b3f5b8c8122463aec86",
   "game": "greybox",
   "generated": "bun game/prove.mjs greybox --repin --hosts 'linux,web'",
-  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
+  "at": "71d1e0086d045ff2ba89b75334d702a4a2376163",
+  "reason": "EXSIM v7 save format from main: the continuation save pin; tick pins unchanged"
 }
