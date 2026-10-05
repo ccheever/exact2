@@ -106,15 +106,12 @@ Task files own mutable status. Links must be updated when a task closes or reope
   remote-scopes-and-update-commands → server-update-banner → auto-balance;
   reference-logic-tests-done-areas → reference-logic-test-ports; interface-font-size →
   interface-font-size-conversion (last, blocked by X3 if reproduced).
-- **Attended-session gates (decision U14).** Most feature tickets have
-  `(attended session)` acceptance rows (most: media-actions 6; diff-review-engine,
-  legacy-sidebar, thread-commands-and-keys 4 each). Under the recommended option, a ticket
-  reaches `verification: passed`, and so its PR, only after those rows pass. A PR merges only
-  after verification, so these sessions gate the next group: plan one attended session at the
-  end of each group (S2 after group 2, S3 after group 3, … S8), 60–90 minutes each, with the
-  real-input recipe in `AGENT-HANDOFF.md`. Dependents of a ticket wait for its group's
-  session, not only for its code. Option (b) (computer-use tools in the session) removes the
-  wait where the tools exist.
+- **Real-input rows (decision U14).** Rows marked `(attended session)` are run by the
+  implementing or verifying agent with `orca computer` (accessibility clicks, right-click,
+  drag, scroll, typing, key chords, screenshots) inside that ticket's own verification, so no
+  separate human session gates the groups. Drivers take the real-input lock one at a time and
+  target only their lane app copy. Limits to record when met: synthetic input may not exercise
+  IME composition, trackpad pinch/rotate, or OS permission prompts.
 - **Group 1.** hot-file-split moves code in `client.ts`, `app.contract` and the Swift
   registration points; main-fix-adoption and reference-logic-tests-done-areas wait for it.
   desktop-oracle-and-trace runs beside it because it changes only tools and docs (review
@@ -205,7 +202,7 @@ User decisions (product scope, approvals, environments). Plan-wide ones are also
 
 | # | Decision | Ticket(s) | Options (recommended first) |
 | --- | --- | --- | --- |
-| U1 | Framework knowledge basis (decide before the first `prepare`) | all native tickets | runtime evidence on the pin, ticket by ticket / `update-best-practices` first |
+| U1 | Framework knowledge basis | all tickets | **Decided 2026-10-05:** implementation uses the exact2 repo itself (docs, LLPs and source of the checkout being built) as its framework reference; the bundled library stays the planning snapshot |
 | U2 | Every item in "Apparatus requiring approval" | the tickets named there | approve per item |
 | U3 | Embedded server artifact, pin, keep or drop `client/`, unpack location | embedded-server-runtime | **Decided 2026-10-05:** the official CLI archive (Node SEA) at the release that matches the reference pin, verified against `SHA256SUMS` and a hash committed in the example; unpacked under `<T3 home>/runtime/versions` (the product's own layout); `client/` kept or dropped per the ticket's measurement |
 | U4 | After a Local environment, Network access or Tailscale change | local-primary-environment, this-machine-network-access | **Decided 2026-10-05: the same as T3 Code** — relaunch the whole app. If exact2 cannot relaunch an app (issue X45), the tickets ship a restart-in-place stopgap and keep the relaunch rows blocked until X45 is resolved and adopted |
@@ -218,7 +215,7 @@ User decisions (product scope, approvals, environments). Plan-wide ones are also
 | U11 | Signing, clean-test environment, archive format | portable-app-download | **Decided 2026-10-05:** ad-hoc signature, a clean macOS 14 VM, a zip archive. The recipient opens the app once through Gatekeeper ("Open Anyway"); Developer ID signing (issue X37) is not needed for this plan |
 | U12 | Sessions paired with 3 scopes before the scope fix | remote-scopes-and-update-commands | prompt a re-pair / leave them |
 | U13 | A smoke test on the real `~/.t3` | local-primary-environment | only with your explicit go and your own backup |
-| U14 | Real-input checks | most UI tickets | batched attended sessions per phase / per ticket with computer-use tools |
+| U14 | Real-input checks | most UI tickets | **Decided 2026-10-05:** agents run them with Orca's computer-use CLI (`orca computer …`), no person needed; one driver at a time (`target/t3-ui-parity/lanes/.realinput-lock`), only the lane app copy is targeted; a synthetic action counts only after its effect is read back |
 | U15 | Languages beyond Shiki's 16 grammars and the long-text limit | shiki-residuals | you choose the list and the limit |
 | U16 | Third-party marks: CC BY 4.0 notice for the Azure DevOps mark; terms for 20 editor brand icons | upstream-ui-sync, composer-fidelity | a licenses/notices row in Settings › Licenses / omit marks without clear terms |
 | U17 | Ultrathink and Cursor Fast mode states the fixture cannot produce | composer-fidelity | unit tests + attended real account / catalog-injecting proxy |

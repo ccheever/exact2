@@ -28,6 +28,8 @@ User request (2026-10-05): "t3code를 지금 examples에 macos 버전을 구현�
 | Settings that restart the local server (U4) | The same as T3 Code: relaunch the whole app after a Local environment, Network access or Tailscale change. If exact2 cannot relaunch an app (issue X45), a restart-in-place stopgap ships and the relaunch rows stay blocked until X45 is resolved and adopted. | User decision 2026-10-05 ("t3code 원본과 동일하게해") |
 | Download signing and test (U11) | Ad-hoc signature, zip archive; tested on a clean macOS 14 VM (the stated minimum). The recipient opens the app once through Gatekeeper ("Open Anyway"). | User decision 2026-10-05 ("권장대로해") |
 | Verification tools (U23) | Committed under `examples/macos/t3-code/tools/` with the lane tools' relative paths, so a fresh clone can run every acceptance command; no absolute user paths or credentials. | User decision 2026-10-05 ("tools/에 커밋") |
+| Framework knowledge (U1) | Implementation reads the exact2 repo itself (docs, LLPs, source of the checkout being built) as the framework reference. | User decision 2026-10-05 ("현재 repo가 exact2 이니 이거 참고해서 해") |
+| Real-input checks (U14) | Run by agents with Orca's computer-use CLI, no person needed. | User decision 2026-10-05 ("orca computer use 사용해서 인터렉션 테스트 해") |
 | Target repositories | Application: `https://github.com/ccheever/exact2`, integration branch `daehyeon/t3-code` (pushed to origin; one PR per ticket into it). Framework: no PRs from this plan; issues only, filed on the same repository. Reference (read-only): T3 Code checkout at `1e2ecbd975`. | User decisions 2026-10-05 (integration branch; issues only) |
 | Framework boundary | App work stays under `examples/macos/t3-code/` (plus root workspace registration). Kernel, runner, host, contract compiler, js and scripts do not change for the example; missing support is an issue. | Memory "examples leave the framework alone" (2026-10-01); 2026-10-05 "issue만 올려" |
 | Execution | One multi-agent workflow per phase, at most 9 agents (up to 8 lanes plus 1 integrator). Lanes never use port 3773, the real `~/.t3`, or the `t3code` URL scheme. Every T3 server the plan starts (lane, oracle, embedded) sets `T3CODE_TELEMETRY_ENABLED=false`, because telemetry is excluded (issue X39). | User decision 2026-10-05 #6; clone `AGENT-HANDOFF.md` "Safety notes" |
@@ -36,7 +38,7 @@ User request (2026-10-05): "t3code를 지금 examples에 macos 버전을 구현�
 
 | OS / version | Exact host / renderer | Phone / tablet / desktop | Window sizes / orientation | Input / accessibility | Required runtime and performance checks |
 | --- | --- | --- | --- | --- | --- |
-| macOS 26.6.2 (build 25G83) on this Mac, Xcode 27.0; app minimum macOS 14 | macOS AppKit host, bundled app (`bun host/apple/build.mjs macos-t3-code-apple --bundle --run` with `EXACT_APP_DIR`; agent `macos`) | Desktop | 1280×840 and 840×620 (minimum); live resize; full screen; light and dark | Trackpad and mouse (click, right-click, hover, drag, wheel), keyboard (US and Korean 2-Set IME, chords, ⌘Q hold), `aria-label` on icon buttons, keyboard focus in dialogs; VoiceOver spot checks only where a ticket names them | Agent drives (`tree`, `state`, `layout`, screenshots, `clock`); the clone's AppKit test binaries; pixel pairs against the desktop oracle at both sizes and both appearances; protocol trace comparison for RPC-using features; effect checks (server state, git, files, fake `gh` calls); attended real-input sessions for inputs the agent cannot send; `perf` only where a ticket names a workload |
+| macOS 26.6.2 (build 25G83) on this Mac, Xcode 27.0; app minimum macOS 14 | macOS AppKit host, bundled app (`bun host/apple/build.mjs macos-t3-code-apple --bundle --run` with `EXACT_APP_DIR`; agent `macos`) | Desktop | 1280×840 and 840×620 (minimum); live resize; full screen; light and dark | Trackpad and mouse (click, right-click, hover, drag, wheel), keyboard (US and Korean 2-Set IME, chords, ⌘Q hold), `aria-label` on icon buttons, keyboard focus in dialogs; VoiceOver spot checks only where a ticket names them | Agent drives (`tree`, `state`, `layout`, screenshots, `clock`); the clone's AppKit test binaries; pixel pairs against the desktop oracle at both sizes and both appearances; protocol trace comparison for RPC-using features; effect checks (server state, git, files, fake `gh` calls); real input through Orca's computer-use CLI (`orca computer`) for inputs the agent driver cannot send (decision U14); `perf` only where a ticket names a workload |
 
 The library documents macOS resize, keyboard/focus, pointer/menu, native controls,
 storage/relaunch and window lifecycle as macOS verification priorities (`platforms.md`).
@@ -107,14 +109,13 @@ decision — and the integrated acceptance in [plan](plan.md) passes on the targ
    issue closed (resolved and adopted, or closed by a decision).
 4. Failure states (lost connection, refused request, uncertain write, missing provider,
    server crash) show the reference's wording and recovery paths.
-5. Real-input checks that the agent cannot send pass in attended sessions, with recorded
-   steps and evidence.
+5. Real-input checks that the agent driver cannot send pass through `orca computer`, with
+   recorded steps, read-back state and screenshots.
 
 ## Open decisions
 
 | Question | Affected work | Options |
 | --- | --- | --- |
-| Framework knowledge for app-native code (decide before the first `prepare`). The bundled library does not cover app-local Swift modules, hooks, native views, data-module networking, bundle assets, URL schemes, menus, window chrome or notifications (all "unknown in this library"). | Every ticket that adds native code (most of them) | (a) Run `update-best-practices` for those topics before `prepare`; (b) accept the clone's own runtime evidence on the pinned `main` (from ticket `20261005-clone-on-exact2-main`) as the feasibility basis, ticket by ticket. |
 | Apparatus approval. CLAUDE.md: agents add no apparatus without a human saying so. | `20261005-desktop-oracle-and-trace`, `20261005-fake-github-fixture`, `20261005-embedded-server-runtime` (runtime staging), `20261005-terminal-surface` (vendor staging), `20261005-portable-app-download` (packaging script) | Approve the apparatus listed in [plan](plan.md) "Apparatus requiring approval", per item. |
 | Tailscale availability on the verification Mac. | `20261005-this-machine-network-access` verification | (a) A tailnet the user provides; (b) verify the Tailscale rows with a stub endpoint provider only and mark live Tailscale unverified. |
 | `t3code://` deep link (E4). Its handler in the reference belongs to the Clerk bridge (hosted-web Codex handoff), which the spec excludes. Codex sign-in on the desktop uses a loopback listener, not the scheme. | `20261005-app-activation` | (a) Exclude with T3 Connect / Clerk; (b) build it (needs issue X5). |
