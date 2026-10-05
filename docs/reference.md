@@ -438,13 +438,15 @@ a refusal lands. A Rust module's storage request in such a drive is answered
 with the same message, never refused outright (trivia F7).
 
 An answer's storage and `fetch` steps run whether or not it awaits them once
-they have begun. In the browser the answer is given at once and a save left
+they have begun. On the JS web target the answer is given at once and a save left
 running finishes behind it; on Hermes the answer is given once the steps it
 started have landed (kanban F22). A save started and not awaited that is still
 queued behind the module's own promise chain when the answer is given has been
 seen lost on iOS (two authoring-bench trials, 2026-10-05; QUEUE): await it before
-answering, or carry it in a request of its own. A storage or `fetch` call made when no answer is in
-flight is refused and logged, never silently dropped. An answer the runner
+answering, or carry it in a request of its own. A storage or `fetch` call that runs
+when no answer is in flight is refused and logged (on Hermes to the engine's
+console, which the agent's `logs` does not show yet); a write that never ran
+leaves no line. An answer the runner
 lets go between storage steps (a refresh it discards before a mutation lands, a
 read whose arguments changed or that a `refresh` replaced) still runs the steps it began, and the chain
 behind them, to their end before the next answer starts; only its answer is
