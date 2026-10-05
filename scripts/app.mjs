@@ -570,7 +570,11 @@ export function readManifest(dir, name) {
   try { parsed = game ?? JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`${path}: ${e.message}`); }
   // LLP 1069.008 D4: a device's usage text is derived from its grant, never hand-written.
   const problems = validate(parsed, schema(), '', schema()).map((p) => /^host\.(ios|macos)\.permissions: /.test(p)
-    ? `${p.split(':')[0]}: deleted (LLP 1069.008); declare the device in the source's grants as \`device.<name> <strings key>\` (e.g. \`device.microphone purpose.microphone\`) and put the text in strings/<locale>.json` : p);
+    ? `${p.split(':')[0]}: deleted (LLP 1069.008); declare the device in the source's grants as \`device.<name> <strings key>\` (e.g. \`device.microphone purpose.microphone\`) and put the text in strings/<locale>.json`
+    // LLP 1046.008 amendment (2026-10-04): the GPU hooks crate was renamed.
+    : /^game\.presentation: /.test(p)
+      ? 'game.presentation is now game.render: rename the key, move presentation/ to render/, name the crate <name>-render and rename its "type" to "hooks" (LLP 1046.008, amendment of 2026-10-04)'
+      : p);
   if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed), ...documentTypeProblems(parsed), ...appleIconProblems(parsed, dir));
   if (problems.length) throw new Error(`${path} does not conform to scripts/app.schema.json:\n  ${problems.join('\n  ')}`);
   return { host: {}, deploy: {}, ...parsed };
