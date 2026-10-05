@@ -1259,7 +1259,8 @@ fn check_with_sites(
     posts::check_targets(file, &mut sink);
     // A call naming both a host command and an action in its component's
     // scope, refused before anything expands (LLP 1089 D1).
-    for a in contract_syntax::inline::calls::ambiguous(file) {
+    let ambiguous = contract_syntax::inline::calls::ambiguous(file);
+    for a in &ambiguous {
         sink.push(TypeError {
             id: contract_syntax::inline::calls::Ambiguous::ID,
             message: a.message(),
@@ -1296,6 +1297,11 @@ fn check_with_sites(
     // What lowering lowers: each caller's names renamed apart from what its
     // callees read, after the checks spoke in the author's (LLP 1089 D7).
     contract_syntax::hygiene(&mut expanded, file);
+    // An ambiguous call's refusal stands alone: checked as the host command
+    // too, it would also be told to change its arguments.
+    let id = contract_syntax::inline::calls::Ambiguous::ID;
+    sink.errors
+        .retain(|e| e.id == id || !ambiguous.iter().any(|a| a.span == e.span));
     if sink.errors.is_empty() {
         Ok(Checked {
             file,

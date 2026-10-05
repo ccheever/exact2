@@ -241,7 +241,9 @@ pub fn symbols_json(path: &Path, name: Option<&str>) -> Result<String, CompileEr
     } else {
         let strings = crate::strings::load(&root, path).map_err(|mut all| all.swap_remove(0))?;
         let checked = contract_types::check_all(&file, false, contract_lower::tags::style, strings)
-            .map_err(|mut all| sources.resolve(all.swap_remove(0).into()))?;
+            .map_err(|mut all| {
+                sources.resolve(authored_action_hint(&file, all.swap_remove(0).into()))
+            })?;
         (checked.types, Some(checked.expanded))
     };
     let mut r = Resolver {

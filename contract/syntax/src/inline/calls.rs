@@ -26,7 +26,7 @@
 //! statements, as soon as it does.
 
 use super::subst::{subst_stmts, Subst};
-use crate::ast::{Action, Component, Expr, File, Stmt};
+use crate::ast::{Action, Component, Expr, File, ShapeDecl, Stmt};
 use crate::parser::SyntaxError;
 use crate::{Span, HOST_COMMANDS};
 use std::borrow::Cow;
@@ -100,12 +100,15 @@ impl Ambiguous {
 /// Every ambiguous call statement in `file`'s actions, each checked against
 /// the component it is written in, before any expansion or lifting.
 pub fn ambiguous(file: &File) -> Vec<Ambiguous> {
-    fn walk(body: &[Stmt], c: &Component, out: &mut Vec<Ambiguous>) {
+    fn walk(body: &[Stmt], c: &Component, shapes: &[ShapeDecl], out: &mut Vec<Ambiguous>) {
         for s in body {
             match s {
                 Stmt::Command { name, span, .. } if HOST_COMMANDS.contains(&name.as_str()) => {
+                    // The primitive `action`, not a shape the file names so.
                     let action = |p: &&crate::ast::Param| {
-                        p.name == *name && p.ty.as_ref().is_some_and(super::is_action)
+                        p.name == *name
+                            && p.ty.as_ref().is_some_and(super::is_action)
+                            && !shapes.iter().any(|s| s.name == "action")
                     };
                     let found = c
                         .actions
@@ -132,14 +135,14 @@ pub fn ambiguous(file: &File) -> Vec<Ambiguous> {
                 Stmt::If {
                     then, otherwise, ..
                 } => {
-                    walk(then, c, out);
-                    walk(otherwise, c, out);
+                    walk(then, c, shapes, out);
+                    walk(otherwise, c, shapes, out);
                 }
                 Stmt::Match { some, none, .. } => {
-                    walk(&some.1, c, out);
-                    walk(none, c, out);
+                    walk(&some.1, c, shapes, out);
+                    walk(none, c, shapes, out);
                 }
-                Stmt::Call { body, .. } => walk(body, c, out),
+                Stmt::Call { body, .. } => walk(body, c, shapes, out),
                 _ => {}
             }
         }
@@ -147,7 +150,7 @@ pub fn ambiguous(file: &File) -> Vec<Ambiguous> {
     let mut out = Vec::new();
     for c in &file.components {
         for a in &c.actions {
-            walk(&a.body, c, &mut out);
+            walk(&a.body, c, &file.shapes, &mut out);
         }
     }
     out

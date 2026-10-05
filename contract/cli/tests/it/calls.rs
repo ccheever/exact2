@@ -942,3 +942,53 @@ fn a_mutation_sent_twice_through_calls_names_the_calls() {
         "`after` cannot send `saved` (it calls `commit` at line 6, which sends it): it runs when that mutation answers",
     );
 }
+
+#[test]
+fn an_ambiguous_call_is_refused_once_and_a_shape_named_action_is_no_action() {
+    // Checked as the host command too, `close("swiped")` would also be told
+    // `close()` takes no arguments; the ambiguity alone is reported.
+    let src = r#"component App
+  state open = true
+  action dismiss(why: string)
+    open = false
+  view
+    Viewer(close=dismiss)
+
+component Viewer
+  props
+    close: action
+  action swiped
+    close("swiped")
+  view
+    button press=swiped testId="swipe"
+      text "x"
+"#;
+    let dir = std::env::temp_dir().join(format!("contract-ambiguous-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(&path, src).unwrap();
+    let all = contract::compile_path_all(&path, false)
+        .map(|_| ())
+        .expect_err("refused");
+    std::fs::remove_dir_all(&dir).unwrap();
+    let ids: Vec<&str> = all.iter().map(|e| e.id.as_str()).collect();
+    assert_eq!(ids, ["syntax-call-ambiguous"], "{all:?}");
+    // A prop whose type is a shape the file names `action` is a record.
+    let record = r#"shape action
+  value: number
+
+component App
+  view
+    Child(close=action(value=1))
+
+component Child
+  props
+    close: action
+  action leave
+    close()
+  view
+    button press=leave testId="leave"
+      text "quit"
+"#;
+    contract::compile(record).unwrap_or_else(|e| panic!("{e}"));
+}

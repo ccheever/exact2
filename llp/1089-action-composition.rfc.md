@@ -84,8 +84,8 @@ goes, in one commit:
 
 A statement `name(args)` in an action body is:
 
-- **a host command** when `name` is in `HOST_COMMANDS`. That is today's
-  rule, unchanged. The list moves from `types/src/checks.rs:744`
+- **a host command** when `name` is in `HOST_COMMANDS`, unless it is
+  refused as ambiguous (below, amended 2026-10-05). The list moves from `types/src/checks.rs:744`
   (`pub(super)`) into `contract-syntax`, which depends on nothing. The
   expander (`inline/calls.rs`) consults it before it looks for an action,
   a prop or an inject, and the type checker reads the same list. Without
@@ -562,7 +562,9 @@ a branch from origin/main. Each commit passes the five checks.
 - **No D3, or D3 as a warning**: silent stale reads, in the very
   refactoring calls invite.
 - **`type-call-ambiguous`** (r1): it refused Caltrain's `setScheme` and
-  files' `share`, which compile today.
+  files' `share`, which compiled then. *Superseded 2026-10-05:* D1 now
+  refuses a call naming both (`syntax-call-ambiguous`), after `close()`
+  silently rebound an app's prop; Caltrain's wrapper was renamed.
 - **Capture prepending for sibling calls** (r1): replaced by expansion
   before lift.
 - **A `fn` returning a record that an action spreads** (F21's

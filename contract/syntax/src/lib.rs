@@ -121,7 +121,7 @@ pub const HOST_COMMANDS: &[&str] = &[
     "stopPropagation",
     // `window.close()` (studio diary R17): the window closes without asking
     // its `beforeunload` again — what an app calls once its own "Save
-    // changes?" is answered. As every host command keeps its name (LLP 1089
-    // D1), an action prop named `close` is bound, never called.
+    // changes?" is answered. An action prop named `close` may be bound, but
+    // calling it is refused as ambiguous (LLP 1089 D1, `syntax-call-ambiguous`).
     "close",
 ];

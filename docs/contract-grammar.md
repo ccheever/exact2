@@ -189,7 +189,7 @@ is one. When `name` is also an action, an `action` prop or an injected
 action of the component the statement is written in, the call is refused
 (`syntax-call-ambiguous`, LLP 1089 D1), inside an action of that name too:
 rename the action (Caltrain's wrapper is `action chooseScheme`, which calls
-the command `setScheme(s)`). Otherwise it calls an action of the same component, an
+the command `setScheme(s)`). When `name` is not a host command, it calls an action of the same component, an
 `action` prop or an injected action (LLP 1089), never a function. A call is
 expanded in place: the callee's statements run where the call stands, in the
 caller's one commit, reading the state the action started with. Its arguments
