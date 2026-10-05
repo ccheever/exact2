@@ -83,6 +83,12 @@ enum NavigationRules {
     /// No motion yet is no evidence against: UIKit's pop recognizers ask
     /// before the finger has moved (a real swipe read zero velocity and zero
     /// travel there), having judged the direction themselves.
+    /// The direction a pop's `shouldBegin` judges: the pan's velocity, or
+    /// its travel so far when the velocity is still zero (LLP 1057.001 §7).
+    static func popDirection(velocity: CGPoint, travel: CGPoint) -> CGPoint {
+        velocity == .zero ? travel : velocity
+    }
+
     static func panMayBegin(startX: CGFloat, overSwipeRight: Bool, velocity: CGPoint) -> Bool {
         if startX >= 20 && overSwipeRight { return false }
         if velocity == .zero { return true }

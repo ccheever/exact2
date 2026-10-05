@@ -212,6 +212,12 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertTrue(NavigationRules.panMayBegin(startX: 12, overSwipeRight: true, velocity: .zero))
         XCTAssertTrue(NavigationRules.panMayBegin(startX: 40, overSwipeRight: false, velocity: .zero))
         XCTAssertFalse(NavigationRules.panMayBegin(startX: 40, overSwipeRight: true, velocity: .zero))
+        // Zero velocity reads the travel: horizontal pops, vertical is refused.
+        let horizontal = NavigationRules.popDirection(velocity: .zero, travel: CGPoint(x: 12, y: 2))
+        XCTAssertTrue(NavigationRules.panMayBegin(startX: 40, overSwipeRight: false, velocity: horizontal))
+        let vertical = NavigationRules.popDirection(velocity: .zero, travel: CGPoint(x: 1, y: 14))
+        XCTAssertFalse(NavigationRules.panMayBegin(startX: 10, overSwipeRight: false, velocity: vertical))
+        XCTAssertEqual(NavigationRules.popDirection(velocity: CGPoint(x: 0, y: 300), travel: CGPoint(x: 12, y: 0)), CGPoint(x: 0, y: 300), "a velocity wins")
     }
 
     /// D1: `closedby="none"` refuses the sheet gesture; anything else permits it.

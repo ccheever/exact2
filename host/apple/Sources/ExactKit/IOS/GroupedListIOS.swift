@@ -396,7 +396,11 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         if let scroll = owner.scroll {
             if !scroll.isHidden { scrollWasHidden = false; scroll.isHidden = true }
             assign(collection, \.contentInsetAdjustmentBehavior, scroll.contentInsetAdjustmentBehavior)
-            assign(collection, \.contentInset, scroll.contentInset)
+            // An authored space under a last section with a footer is under
+            // the footer: its section's bottom inset is the rows-to-footer gap.
+            var inset = scroll.contentInset
+            if model.sections.last?.footer != nil, let below = model.spaceBelow { inset.bottom += below }
+            assign(collection, \.contentInset, inset)
             assign(collection, \.verticalScrollIndicatorInsets, scroll.verticalScrollIndicatorInsets)
         }
         assign(collection, \.frame, owner.bounds)

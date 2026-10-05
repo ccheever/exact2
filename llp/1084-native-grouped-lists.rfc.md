@@ -265,11 +265,14 @@ margin-bottom=0`.
   footer or in a plain list, 17.33, or 35.33 above a first section, is the
   sheet's (§2), and iOS keeps UIKit's own gap there (its last footerless
   section has 20 below it, which the sheet's 17.33 stands for). Any other
-  number is the author's: a margin written as exactly one of those reads
-  as UIKit's.
+  number is the author's: a margin written as exactly one of those numbers,
+  where the sheet writes it, reads as UIKit's (a first section's authored
+  17.33 keeps UIKit's 35). The kernel cannot tell an authored value from the
+  sheet's once lowered; carrying that provenance is open (§7).
 - **Kernel.** At a boundary where either margin is the author's, the space
-  is the web's: the two margins collapse to the larger, as block margins do
-  (30 under one section and 40 over the next are 40, not 70).
+  is the web's: the two margins collapse as block margins do, the largest
+  positive plus the most negative (30 and 40 are 40, not 70; 30 and -10
+  are 20).
   `GroupedSection.space_above` carries it, `GroupedList.space_below` the
   last section's authored `margin-bottom`; `exact_grouped_list` writes
   `"spaceAbove"` and `"spaceBelow"`. Only points count; a percentage is 0.
@@ -278,17 +281,24 @@ margin-bottom=0`.
   between its rows and the footer). Above a header the space is the list
   configuration's `headerTopPadding`: a section's top inset under a header
   is the header-to-rows gap (measured, iOS 27). The space under the last
-  section is its bottom inset, unless it has a footer.
+  section is its bottom inset, or under a footer the collection's bottom
+  content inset (added to the authored scroll's).
 
 Proofs: `contract/cli/tests/it/grouped_list.rs`
 `an_authored_margin_is_the_webs_space_and_the_sheets_is_uikits` and
-`authored_margins_collapse_as_the_web_lays_them_out` (the web's own frames
-agree); the Signal clone's settings sheet on the iOS 27 simulator (20-point
+`authored_margins_collapse_as_the_web_lays_them_out` (the kernel's own
+layout agrees; no browser was run) and
+`a_negative_margin_collapses_as_css_has_it`;
+`GroupedListIOSTests.testAnAuthoredSpaceSitsAboveTheSectionAndItsHeader` and
+`testAnAuthoredSpaceUnderTheLastSectionIsUnderItsFooter`; the Signal clone's settings sheet on the iOS 27 simulator (20-point
 gaps, a titled section's header 20 under the card above).
 
 ## 7. Open
 
 - **A real touch's identity when a row's control is replaced.** §6.3's `projected: {row, part}` tells rows and parts apart, not the authored control behind one switch: a `when` that replaces a row's control between the aim and the touch passes as the old one (the switch the finger meets is the same one). Carrying the target id needs the host's model in the dispatch log's landing (astra, round 3 of `code-2026-10-04-grouped-platform-tap`, deferred).
+- **A section margin's provenance.** §6.4 reads the sheet's own numbers as
+  UIKit's; Contract could carry which margins the author wrote instead.
+
 - **`sidebar` and `sidebarPlain`.** These are UIKit's other two appearances. They wait for an iPad or Mac consumer.
 - **The large title.** The route's content scroll view (LLP 1075.003 §3.7) should be the collection view when a grouped list is the scroller after the header.
 - **Swipe actions on rows.** `UICollectionLayoutListConfiguration`'s own `trailingSwipeActionsConfigurationProvider` would replace the one-row table for a grouped list's rows.

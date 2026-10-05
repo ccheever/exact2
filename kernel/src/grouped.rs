@@ -267,18 +267,24 @@ impl Kernel {
 
 /// A margin Contract's sheet writes (LLP 1084 §2): 0 beside a header or a
 /// footer and in a plain list, else 17.33, or 35.33 above a first section.
-/// Any other number is the author's.
+/// Any other number is the author's. Compared as the f32 the sheet's
+/// numbers become, so only those exact numbers match.
 fn sheet_margin(value: f32, top: bool, labelled: bool, plain: bool) -> bool {
-    let near = |v: f32| (value - v).abs() < 0.01;
     if labelled || plain {
-        near(0.0)
+        value == 0.0
     } else {
-        near(17.33) || (top && near(35.33))
+        value == 17.33 || (top && value == 35.33)
     }
 }
 
-/// Each boundary the author changed takes the web's space: the larger of
-/// the margins that meet there, as block margins collapse (§6.3).
+/// Two adjoining vertical margins as CSS collapses them: the largest
+/// positive plus the most negative (CSS 2 §8.3.1).
+fn collapse(a: f32, b: f32) -> f32 {
+    a.max(b).max(0.0) + a.min(b).min(0.0)
+}
+
+/// Each boundary the author changed takes the web's space: the margins that
+/// meet there collapsed, as block margins do (§6.3).
 fn authored_space(list: &mut GroupedList, shown: &[NodeRef<'_>]) {
     use crate::style::Dimension;
     let plain = list.style == "plain";
@@ -291,7 +297,7 @@ fn authored_space(list: &mut GroupedList, shown: &[NodeRef<'_>]) {
         let top = points(node.style.margin_top);
         let authored = !sheet_margin(top, true, section.header.is_some(), plain);
         section.space_above = match below {
-            Some((bottom, mine)) if mine || authored => Some(top.max(bottom)),
+            Some((bottom, mine)) if mine || authored => Some(collapse(top, bottom)),
             None if authored => Some(top),
             _ => None,
         };

@@ -502,8 +502,8 @@ fn authored_margins_collapse_as_the_web_lays_them_out() {
         Some(40.0),
         "30 and 40 meet as 40, not 70, above the header"
     );
-    // The web's own layout agrees: the rows are 40 apart where the margins
-    // meet, less the separator's overlap.
+    // The kernel's own layout (which the web host follows) agrees: the
+    // rows are 40 apart where the margins meet, less the separator's overlap.
     let a = k.node(id(&r, "a")).unwrap().frame;
     let header_top = k.node(id(&r, "b")).unwrap().frame.y - 40.33;
     assert!(
@@ -519,5 +519,21 @@ fn authored_margins_collapse_as_the_web_lays_them_out() {
     assert_eq!(
         list.space_below, None,
         "the last section's bottom is the sheet's"
+    );
+}
+
+#[test]
+fn a_negative_margin_collapses_as_css_has_it() {
+    let r = boot("list appearance=\"auto\" listStyle=\"plain\" testId=\"list\" flex=1\n  section margin-bottom=30\n    button press=go testId=\"a\"\n      text \"Account\"\n  section margin-top=-10\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=17.33\n    button press=go testId=\"c\"\n      text \"Help\"");
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    assert_eq!(
+        list.sections[1].space_above,
+        Some(20.0),
+        "30 and -10 are 20 (CSS 2 §8.3.1), not 30"
+    );
+    assert_eq!(
+        list.sections[2].space_above,
+        Some(17.33),
+        "in a plain list the sheet writes 0, so 17.33 is the author's"
     );
 }
