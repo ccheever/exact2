@@ -280,6 +280,12 @@ impl<D: DataSource> Presenter<D> {
     pub fn hardware_key(&mut self, code: &str, key: &str, down: bool, repeat: bool) {
         self.restore_controls();
         self.hold_modifier(code, down);
+        // A hardware release returns before `type_key`, which is what forgets
+        // a shortcut's code. Left set, an agent key of that code after the
+        // button is gone delivers the down and swallows the up.
+        if !down {
+            self.shortcut_keys.remove(code);
+        }
         // A Control or Meta chord is a shortcut, as a browser's: the focus's
         // `key` handlers hear it, and no canvas or control starts with it.
         if down && self.held & 0b1100_1100 != 0 {

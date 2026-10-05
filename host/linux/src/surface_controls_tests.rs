@@ -437,6 +437,79 @@ fn a_shortcut_button_takes_a_world_key_before_its_handlers() {
     done(p, path);
 }
 
+/// A hardware keyup returns before `type_key`, which is what forgets a
+/// shortcut's code. The down inserts it; once that button is gone, an agent
+/// key of the same code delivers the down and swallows the up, so the world
+/// keeps the key down.
+#[test]
+fn a_hardware_shortcut_keyup_does_not_stick_the_key_in_the_world() {
+    let (mut p, path) = boot(
+        r#"component Keys
+  state gone = false
+  state heard = ""
+  action key(k: string)
+    heard = heard + k
+  action go
+    gone = true
+  view
+    column
+      when !gone
+        button aria-keyshortcuts="Escape" press=go testId="go" height=24
+          text "go"
+      canvas testId="world" key=key width=100 height=100
+        text heard testId="heard"
+"#,
+        &["world"],
+    );
+    let world = find(&p, "world");
+    let text = |p: &Presenter<NoData>, id: &str| {
+        p.host
+            .kernel()
+            .node(find(p, id))
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    let shown = |p: &Presenter<NoData>, name: &str| {
+        p.host.preorder().into_iter().any(|id| {
+            p.host
+                .kernel()
+                .node(id)
+                .unwrap()
+                .props
+                .str(exact_kernel::PropId::TestId)
+                == Some(name)
+        })
+    };
+    p.focus = Some(world);
+    p.hardware_key("Escape", "Escape", true, false);
+    assert!(!shown(&p, "go"), "the shortcut pressed its button away");
+    assert_eq!(text(&p, "heard"), "", "the world did not hear the shortcut");
+    assert!(
+        !p.surfaces.canvases[&world].held.contains("Escape"),
+        "a shortcut down does not reach the world"
+    );
+    p.hardware_key("Escape", "Escape", false, false);
+    assert!(
+        p.shortcut_keys.is_empty(),
+        "the hardware keyup forgets the shortcut code"
+    );
+    p.type_key(world, "Escape", "Escape", true, false).unwrap();
+    assert!(
+        p.surfaces.canvases[&world].held.contains("Escape"),
+        "with the button gone the key reaches the world"
+    );
+    p.type_key(world, "Escape", "Escape", false, false).unwrap();
+    assert!(
+        !p.surfaces.canvases[&world].held.contains("Escape"),
+        "its up reaches the world too"
+    );
+    assert_eq!(text(&p, "heard"), "Escape");
+    done(p, path);
+}
+
 #[test]
 fn e10_contract_button_consumes_all_activation_keys() {
     for key in ["Space", "Enter", "NumpadEnter"] {
