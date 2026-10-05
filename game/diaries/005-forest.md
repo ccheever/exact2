@@ -1417,3 +1417,10 @@ alone does not reliably repair it. A second run,
 at the final tick; it does not isolate the fault to screenshots or prove the
 live HUD unaffected. No host fix has been made. Investigate the canvas HUD
 capture and backing-layer redraw before calling native image parity complete.
+
+Periodic main integration: `51fa87a60` merges four new commits through
+`dfdbb1058` (documentation and an iOS grouped-list regression test), with
+no conflicts or runtime changes. All five root checks pass in 47.694 s:
+2,436 tests pass across 81 binaries, nine ignored, zero failures. Their
+reported execution totals 40.25 s; no game proof ran concurrently.
+Logs: `/tmp/exact2-supplies-main-checks.json` and matching check logs.
