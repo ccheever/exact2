@@ -15,12 +15,11 @@ fn quantile(mut v: Vec<f64>, q: f64) -> f64 {
     v[((v.len() - 1) as f64 * q) as usize]
 }
 fn ffa(bots: u32) -> Sim<Rivals> {
-    let mut sim = Sim::<Rivals>::new(Options {
+    let mut sim = Sim::<Rivals>::baked(Options {
         seed: 11,
         bots,
         ..Options::default()
-    })
-    .unwrap();
+    });
     sim.viewport(1280.0, 720.0);
     sim
 }
@@ -336,12 +335,11 @@ fn motion<G: Game>(sim: &mut Sim<G>, at_ms: f64, dx: f32) {
 /// visible change and to the whole turn, in ms; and for a steady 2,000 pt/s
 /// mouse, the coefficient of variation of the per-frame turn (judder).
 fn live_latency<G: Game<Args = Options>>(display_hz: f64, look: bool) -> (Vec<f64>, Vec<f64>, f64) {
-    let mut sim = Sim::<G>::new(Options {
+    let mut sim = Sim::<G>::baked(Options {
         seed: 3,
         bots: 3,
         ..Options::default()
-    })
-    .unwrap();
+    });
     // Measure an unlimited camera session, not the range's thirty-second drill.
     // Stationary bots keep combat from killing the observer during the sweep.
     for (_, brain) in sim

@@ -5,7 +5,7 @@ import { Gltf, Geom, roundedBox, box, cylinder, barrel, prism, sphere, mat, quat
 
 const T = (t, r, s) => mat(t, r, s);
 
-/** The arena from arena.json: one node, a few primitives merged per material. */
+/** The arena from the tables' layout: one node, a few primitives merged per material. */
 export function arena(layout) {
   const g = new Gltf();
   const m = {

@@ -8,6 +8,7 @@ pub mod bots;
 pub mod fighter;
 pub mod presentation;
 pub mod round;
+pub mod tables;
 pub mod training;
 pub mod weapons;
 
@@ -43,11 +44,11 @@ impl Options {
         self.bots.clamp(1, 24)
     }
     /// The maximum roster needs room for reloads and respawns before a win.
-    pub fn kills_to_win(&self) -> u32 {
+    pub fn kills_to_win(&self, t: &tables::Tables) -> u32 {
         if self.bot_count() == 24 {
-            25
+            t.round.mayhem_kills
         } else {
-            5
+            t.round.kills
         }
     }
     pub fn look(&self) -> Option<art::Look> {
@@ -62,6 +63,12 @@ const COLORS: [[f32; 3]; 8] = art::TEAMS;
 #[derive(Clone, Debug, Default, Data)]
 pub struct Hud {
     pub hp: u32,
+    /// The tables' scale, so the HUD restates none of it: a health bar is
+    /// `hp / max_hp` of its width, the reload meter's green `quick_from..quick_to`.
+    pub max_hp: f32,
+    pub quick_from: f32,
+    pub quick_to: f32,
+    pub bandage_heal: f32,
     pub weapon: String,
     pub slot: u32,
     pub ammo: u32,
@@ -126,6 +133,7 @@ impl Game for Rivals {
     const ID: &'static str = "rivals";
     const HZ: u32 = 120;
     const STREAMED: &'static [&'static str] = art::STREAMED;
+    const LEVEL: Option<asset::Level> = Some(tables::LEVEL);
     type Args = Options;
     fn actions() -> Actions {
         actions()
@@ -160,6 +168,7 @@ pub mod rates {
                 const ID: &'static str = "rivals";
                 const HZ: u32 = $hz;
                 const STREAMED: &'static [&'static str] = art::STREAMED;
+                const LEVEL: Option<asset::Level> = Some(tables::LEVEL);
                 type Args = Options;
                 fn actions() -> Actions {
                     actions()
@@ -243,7 +252,8 @@ pub fn setup(w: &mut World, args: &Options) {
     arena::build(w, look.is_some());
     let body = |color: [f32; 3]| look.is_none().then_some(color);
     let player = fighter::spawn(w, 1, "player", false, body([0.2, 0.5, 0.9]));
-    fighter::place(w, player, arena::SPAWNS[0]);
+    let spawns = tables::of(w).arena.spawns.clone();
+    fighter::place(w, player, spawns[0]);
     let count = args.bot_count();
     if args.range {
         w.insert_resource(training::Drill {
@@ -268,7 +278,7 @@ pub fn setup(w: &mut World, args: &Options) {
         let spawn = if args.range {
             training::lane(i + 2)
         } else {
-            arena::SPAWNS[i as usize + 1]
+            spawns[i as usize + 1]
         };
         fighter::place(w, e, spawn);
         if args.range {
@@ -363,6 +373,11 @@ pub fn player_intent(w: &World, input: &Input, args: &Options) -> Intent {
 }
 
 pub fn tick(w: &mut World, input: &Input, args: &Options) {
+    // A development reload replaced the tables: the arena is rebuilt from the
+    // new layout; every other value is read where it is used.
+    if w.take_replaced(tables::NAME) {
+        arena::rebuild(w, args.look().is_some());
+    }
     let now = w.seconds() as f32;
     if args.range && now >= training::DURATION {
         mouse_look(w, args, false);
@@ -395,7 +410,8 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
     let player = w.named("player").expect("player");
     intents.push((player, player_intent(w, input, args)));
     let seen = bots::snapshot(w);
-    let covers = arena::cover_points();
+    let t = tables::of(w);
+    let covers = arena::cover_points(&t.arena);
     let brains: Vec<Entity> = w.query::<&Brain>().iter().map(|(e, _)| e).collect();
     for e in brains {
         intents.push((e, bots::think(w, e, &seen, &covers)));
@@ -425,7 +441,7 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
     fighter::bandages(w);
     round::respawn(w);
     if !args.range {
-        round::check_win(w, args.kills_to_win());
+        round::check_win(w, args.kills_to_win(&t));
     }
     for s in bots::snapshot(w) {
         let f = w.require::<Fighter>(s.entity).clone();
@@ -545,6 +561,7 @@ pub fn contacts(w: &World, viewport: Vec2, target: Option<u32>) -> Vec<Contact> 
 
 pub fn publish(w: &World, args: &Options, viewport: Vec2) {
     let now = w.seconds() as f32;
+    let t = tables::of(w);
     let me = w.require::<Fighter>("player").clone();
     let rival = w
         .query::<&Fighter>()
@@ -555,8 +572,8 @@ pub fn publish(w: &World, args: &Options, viewport: Vec2) {
         .unwrap_or_default();
     let r = w.resource::<Round>();
     let (ammo, mag) = match me.weapon {
-        Weapon::Rifle => (me.rifle_ammo, weapons::RIFLE_MAG),
-        Weapon::Rocket => (me.rocket_ammo, weapons::ROCKET_MAG),
+        Weapon::Rifle => (me.rifle_ammo, t.rifle.mag),
+        Weapon::Rocket => (me.rocket_ammo, t.rocket.mag),
         Weapon::Knife => (0, 0),
     };
     let drill = args.range.then(|| w.resource::<training::Drill>().clone());
@@ -577,8 +594,8 @@ pub fn publish(w: &World, args: &Options, viewport: Vec2) {
         ammo,
         mag,
         reloading: me.reload_until > 0.0,
-        reload_progress: me.reload_progress(now),
-        reload_window: me.quick_reload_ready(now),
+        reload_progress: me.reload_progress(now, &t),
+        reload_window: me.quick_reload_ready(now, &t),
         reload_available: me.alive
             && me.weapon != Weapon::Knife
             && me.bandage_until == 0.0
@@ -588,14 +605,15 @@ pub fn publish(w: &World, args: &Options, viewport: Vec2) {
         reload_label: if !me.alive {
             "New magazine on respawn".into()
         } else if me.reload_until > 0.0 {
-            if me.quick_reload_ready(now) {
+            if me.quick_reload_ready(now, &t) {
                 "Press R now · quick reload".into()
             } else {
                 let left = exact_game::math::ceil((me.reload_until - now).max(0.0) * 10.0) / 10.0;
                 if me.reload_missed {
                     format!("Missed · wait {left:.1}s")
-                } else if me.reload_progress(now) < 0.45 {
-                    let until_green = (0.45 - me.reload_progress(now)) * me.weapon.reload_time();
+                } else if me.reload_progress(now, &t) < t.quick_reload[0] {
+                    let until_green = (t.quick_reload[0] - me.reload_progress(now, &t))
+                        * me.weapon.reload_time(&t);
                     let until_green = exact_game::math::ceil(until_green * 10.0) / 10.0;
                     format!("Wait for green · {until_green:.1}s")
                 } else {
@@ -611,10 +629,10 @@ pub fn publish(w: &World, args: &Options, viewport: Vec2) {
         } else {
             "R Reload · tap again in green".into()
         },
-        bandage_ready: me.can_bandage() && !me.sliding(now) && !r.over(now) && !drill_done,
+        bandage_ready: me.can_bandage(&t) && !me.sliding(now) && !r.over(now) && !drill_done,
         bandaging: me.bandage_until > 0.0 && !r.over(now) && !drill_done,
         bandage_progress: if me.bandage_until > 0.0 {
-            (1.0 - (me.bandage_until - now) / fighter::BANDAGE_TIME).clamp(0.0, 1.0)
+            (1.0 - (me.bandage_until - now) / t.fighter.bandage_time).clamp(0.0, 1.0)
         } else {
             0.0
         },
@@ -627,7 +645,7 @@ pub fn publish(w: &World, args: &Options, viewport: Vec2) {
                 "Keep holding · {:.1}s",
                 exact_game::math::ceil((me.bandage_until - now).max(0.0) * 10.0) / 10.0
             )
-        } else if me.hp >= fighter::MAX_HP {
+        } else if me.hp >= t.fighter.max_hp {
             "Full health".into()
         } else if me.reload_until > 0.0 {
             "Finish reloading first".into()
@@ -642,7 +660,11 @@ pub fn publish(w: &World, args: &Options, viewport: Vec2) {
         } else {
             format!("{} (leader)", rival.label)
         },
-        to_win: args.kills_to_win(),
+        to_win: args.kills_to_win(&t),
+        max_hp: t.fighter.max_hp,
+        quick_from: t.quick_reload[0],
+        quick_to: t.quick_reload[1],
+        bandage_heal: t.fighter.bandage_heal,
         round: r.number,
         you_rounds: me.rounds,
         rival_rounds: w

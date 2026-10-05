@@ -9,7 +9,6 @@
 //! something happened (a hit, a shot, a blast); how that looks is derived in
 //! `present` (`art_present.rs`), outside saves and hashes.
 use crate::{
-    arena,
     fighter::{self, Fighter},
     presentation::Feedback,
     weapons::{Effect, Rocket, Weapon},
@@ -301,7 +300,13 @@ fn lighting(w: &mut World, look: Look) {
     );
     // Four pylon floodlights aimed at the deck; the warm diagonal pair casts
     // shadows (two of the eight local shadow layers, about a millisecond each).
-    for (i, [x, z]) in arena::layout().lights.into_iter().enumerate() {
+    for (i, [x, z]) in crate::tables::of(w)
+        .arena
+        .lights
+        .clone()
+        .into_iter()
+        .enumerate()
+    {
         let e = w.spawn_named(
             format!("flood-{i}"),
             (

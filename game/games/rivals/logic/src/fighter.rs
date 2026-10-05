@@ -1,11 +1,14 @@
 //! Fighters: one capsule each, steered by the player's input or a bot's brain.
 //! Walk, sprint, jump, slide and knockback all feed one horizontal wish velocity
 //! into the physics capsule; gravity and jumps own its vertical velocity.
-use crate::weapons::{Weapon, RIFLE_MAG, ROCKET_MAG};
+use crate::tables::{self, Tables};
+use crate::weapons::Weapon;
 use exact_game::math::{cos, sin};
 use exact_game::*;
 use exact_game_physics::{self as physics, CapsuleController, Collider, Shape};
 
+// The capsule's shape is the collider's, set once at spawn; the numbers a
+// fight is tuned by are the tables' (`tables::Moves`), read each tick.
 pub const RADIUS: f32 = 0.35;
 pub const HEIGHT: f32 = 1.8;
 /// Eye above the capsule centre (feet are 0.9 below it).
@@ -13,21 +16,8 @@ pub const EYE: f32 = 0.7;
 pub const SLIDE_EYE: f32 = 0.1;
 /// A ray hitting the capsule above this height (from its centre) is a headshot.
 pub const HEAD_FROM: f32 = 0.5;
-pub const MAX_HP: f32 = 100.0;
-pub const BANDAGE_HEAL: f32 = 40.0;
-pub const BANDAGE_TIME: f32 = 1.5;
 /// The view never pitches past this, up or down.
 pub const PITCH_LIMIT: f32 = 1.45;
-pub const WALK: f32 = 7.0;
-pub const SPRINT: f32 = 10.0;
-pub const GRAVITY: f32 = 22.0;
-pub const JUMP_SPEED: f32 = 7.6;
-const GROUND_ACCEL: f32 = 70.0;
-const AIR_ACCEL: f32 = 16.0;
-const SLIDE_BOOST: f32 = 4.0;
-const SLIDE_TIME: f32 = 0.8;
-const SLIDE_COOLDOWN: f32 = 0.9;
-const KNOCK_DECAY: f32 = 3.5;
 
 /// What one fighter asks for in one tick. Player input and bot brains both
 /// produce this, so bots move with exactly the player's rules.
@@ -99,29 +89,32 @@ impl Fighter {
     pub fn sliding(&self, now: f32) -> bool {
         now < self.slide_until
     }
-    pub fn can_bandage(&self) -> bool {
-        self.alive && !self.bandage_used && self.hp < MAX_HP && self.reload_until == 0.0
+    pub fn can_bandage(&self, t: &Tables) -> bool {
+        self.alive && !self.bandage_used && self.hp < t.fighter.max_hp && self.reload_until == 0.0
     }
-    pub fn reload_progress(&self, now: f32) -> f32 {
-        let duration = self.weapon.reload_time();
+    /// How far through its reload the weapon is. The deadline was saved from
+    /// the reload time when it began; an edit to that time moves the fraction.
+    pub fn reload_progress(&self, now: f32, t: &Tables) -> f32 {
+        let duration = self.weapon.reload_time(t);
         if self.reload_until > 0.0 && duration > 0.0 {
             (1.0 - (self.reload_until - now) / duration).clamp(0.0, 1.0)
         } else {
             0.0
         }
     }
-    pub fn quick_reload_ready(&self, now: f32) -> bool {
+    pub fn quick_reload_ready(&self, now: f32, t: &Tables) -> bool {
+        let [from, to] = t.quick_reload;
         self.alive
             && !self.reload_missed
             && self.reload_until > now
-            && (0.45..=0.65).contains(&self.reload_progress(now))
+            && (from..=to).contains(&self.reload_progress(now, t))
     }
-    pub fn reset_loadout(&mut self) {
-        self.hp = MAX_HP;
+    pub fn reset_loadout(&mut self, t: &Tables) {
+        self.hp = t.fighter.max_hp;
         self.alive = true;
         self.weapon = Weapon::Rifle;
-        self.rifle_ammo = RIFLE_MAG;
-        self.rocket_ammo = ROCKET_MAG;
+        self.rifle_ammo = t.rifle.mag;
+        self.rocket_ammo = t.rocket.mag;
         self.reload_until = 0.0;
         self.reload_missed = false;
         self.quick_reload_until = 0.0;
@@ -159,7 +152,7 @@ pub fn spawn(w: &mut World, slot: u32, label: &str, bot: bool, color: Option<[f3
         bot,
         ..Fighter::default()
     };
-    f.reset_loadout();
+    f.reset_loadout(&tables::of(w));
     let root = w.spawn_named(
         label,
         (
@@ -234,10 +227,11 @@ pub fn place(w: &mut World, e: Entity, spawn: [f32; 2]) {
         c.velocity = Vec3::ZERO;
         c.grounded = false;
     }
+    let t = tables::of(w);
     let mut f = w.require_mut::<Fighter>(e);
     f.yaw = yaw;
     f.pitch = 0.0;
-    f.reset_loadout();
+    f.reset_loadout(&t);
     let bit = f.bit();
     drop(f);
     w.require_mut::<Collider>(e).layer = bit;
@@ -247,11 +241,13 @@ pub fn place(w: &mut World, e: Entity, spawn: [f32; 2]) {
 pub fn step(w: &mut World, e: Entity, intent: &Intent) -> physics::CapsuleStep {
     let now = w.seconds() as f32;
     let dt = w.dt();
+    let t = tables::of(w);
+    let m = &t.fighter;
     let (velocity, alive) = {
         let mut f = w.require_mut::<Fighter>(e);
         let mut c = w.require_mut::<CapsuleController>(e);
         if intent.bandage
-            && f.can_bandage()
+            && f.can_bandage(&t)
             && !f.sliding(now)
             && !intent.fire
             && !intent.reload
@@ -261,7 +257,7 @@ pub fn step(w: &mut World, e: Entity, intent: &Intent) -> physics::CapsuleStep {
             && !intent.slide
         {
             if f.bandage_until == 0.0 {
-                f.bandage_until = now + BANDAGE_TIME;
+                f.bandage_until = now + m.bandage_time;
             }
         } else {
             f.bandage_until = 0.0;
@@ -281,29 +277,38 @@ pub fn step(w: &mut World, e: Entity, intent: &Intent) -> physics::CapsuleStep {
         let wish = (right * stick.x - fwd * stick.z).clamp_length_max(1.0);
         let forwardish = -stick.z > 0.3;
         let speed = if intent.sprint && forwardish && !f.aiming {
-            SPRINT
+            m.sprint
         } else {
-            WALK
-        } * f.weapon.speed()
-            * if f.aiming { 0.65 } else { 1.0 }
-            * if f.bandage_until > 0.0 { 0.35 } else { 1.0 };
+            m.walk
+        } * f.weapon.speed(&t)
+            * if f.aiming { m.aim_speed } else { 1.0 }
+            * if f.bandage_until > 0.0 {
+                m.bandage_speed
+            } else {
+                1.0
+            };
         let mut planar = f.planar;
         if f.alive && c.grounded && intent.slide && now >= f.slide_ready && planar.length() > 5.0 {
             f.slide_dir = planar.normalize();
-            f.slide_until = now + SLIDE_TIME;
-            f.slide_ready = now + SLIDE_COOLDOWN;
-            planar = f.slide_dir * (planar.length().max(SPRINT) + SLIDE_BOOST);
+            f.slide_until = now + m.slide_time;
+            f.slide_ready = now + m.slide_cooldown;
+            planar = f.slide_dir * (planar.length().max(m.sprint) + m.slide_boost);
         }
         if f.sliding(now) {
             // A slide keeps its line and bleeds speed; the stick steers a little.
-            let left = (f.slide_until - now) / SLIDE_TIME;
-            let target = f.slide_dir * (WALK + (SPRINT + SLIDE_BOOST - WALK) * left) + wish * 2.0;
+            let left = (f.slide_until - now) / m.slide_time;
+            let target =
+                f.slide_dir * (m.walk + (m.sprint + m.slide_boost - m.walk) * left) + wish * 2.0;
             planar = planar + (target - planar) * (8.0 * dt).min(1.0);
             if intent.jump && c.grounded {
                 f.slide_until = now;
             }
         } else {
-            let accel = if c.grounded { GROUND_ACCEL } else { AIR_ACCEL };
+            let accel = if c.grounded {
+                m.ground_accel
+            } else {
+                m.air_accel
+            };
             let target = wish * speed;
             let delta = target - planar;
             let step = accel * dt;
@@ -314,12 +319,12 @@ pub fn step(w: &mut World, e: Entity, intent: &Intent) -> physics::CapsuleStep {
             };
         }
         if f.alive && intent.jump && c.grounded {
-            c.velocity.y = JUMP_SPEED;
+            c.velocity.y = m.jump_speed;
         }
-        c.velocity.y -= GRAVITY * dt;
+        c.velocity.y -= m.gravity * dt;
         let eye = if f.sliding(now) { SLIDE_EYE } else { EYE };
         f.eye += (eye - f.eye) * (14.0 * dt).min(1.0);
-        let decay = 1.0 - (KNOCK_DECAY * dt).min(1.0);
+        let decay = 1.0 - (m.knock_decay * dt).min(1.0);
         let knock = f.knock;
         f.knock = if c.grounded && c.velocity.y <= 0.0 {
             knock * (decay * decay)
@@ -355,9 +360,10 @@ pub fn step(w: &mut World, e: Entity, intent: &Intent) -> physics::CapsuleStep {
 /// Finish after every shot and explosion, so a hit on the final tick interrupts.
 pub fn bandages(w: &World) {
     let now = w.seconds() as f32;
+    let m = &tables::of(w).fighter;
     for (_, f) in w.query::<&mut Fighter>().iter() {
         if f.alive && f.bandage_until > 0.0 && now >= f.bandage_until {
-            f.hp = (f.hp + BANDAGE_HEAL).min(MAX_HP);
+            f.hp = (f.hp + m.bandage_heal).min(m.max_hp);
             f.bandage_until = 0.0;
             f.bandage_used = true;
         }

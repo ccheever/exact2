@@ -5,6 +5,9 @@ use rivals_logic::fighter::Fighter;
 use rivals_logic::round::Round;
 use rivals_logic::{Options, Rivals};
 
+fn tables(sim: &Sim<Rivals>) -> std::sync::Arc<rivals_logic::tables::Tables> {
+    rivals_logic::tables::of(sim.world())
+}
 fn game(options: Options) -> Sim<Rivals> {
     let mut sim = Sim::<Rivals>::baked(Options { seed: 7, ..options });
     sim.viewport(1280.0, 720.0);
@@ -41,9 +44,11 @@ fn a_second_reload_press_in_green_refills_either_weapon_early() {
         sim.tap("KeyR");
         sim.run(20.0);
         let until = fighter(&sim, "player").reload_until;
-        let duration = fighter(&sim, "player").weapon.reload_time();
+        let duration = fighter(&sim, "player").weapon.reload_time(&tables(&sim));
         sim.run(f64::from(duration) * 500.0);
-        assert!(fighter(&sim, "player").quick_reload_ready(sim.world().seconds() as f32));
+        assert!(
+            fighter(&sim, "player").quick_reload_ready(sim.world().seconds() as f32, &tables(&sim))
+        );
         sim.tap("KeyR");
         sim.run(20.0);
         let f = fighter(&sim, "player");
@@ -96,7 +101,9 @@ fn mistimed_attempts_and_a_held_key_keep_the_normal_reload_deadline() {
     let mut held = used_magazine("Digit1");
     held.key_down("KeyR");
     held.run(850.0);
-    assert!(fighter(&held, "player").quick_reload_ready(held.world().seconds() as f32));
+    assert!(
+        fighter(&held, "player").quick_reload_ready(held.world().seconds() as f32, &tables(&held))
+    );
     assert_eq!(
         fighter(&held, "player").rifle_ammo,
         29,
@@ -124,7 +131,7 @@ fn reload_window_and_a_missed_attempt_survive_restoration() {
             back.restore_bound(&saved).unwrap();
             for s in [&mut sim, &mut back] {
                 assert_eq!(
-                    fighter(s, "player").quick_reload_ready(s.world().seconds() as f32),
+                    fighter(s, "player").quick_reload_ready(s.world().seconds() as f32, &tables(s)),
                     !miss
                 );
                 s.tap("KeyR");
@@ -291,7 +298,9 @@ fn bandaging_slows_movement_and_a_hurt_bot_uses_the_same_action_in_cover() {
     sim.hold("KeyD", 700.0);
     let f = fighter(&sim, "player");
     assert!(
-        f.bandage_until > 0.0 && f.planar.length() <= rivals_logic::fighter::WALK * 0.35 + 0.001
+        f.bandage_until > 0.0
+            && f.planar.length()
+                <= tables(&sim).fighter.walk * tables(&sim).fighter.bandage_speed + 0.001
     );
     assert_eq!(f.shots, 0);
     let bot = sim.world().resolve("bot-1").unwrap();
@@ -808,7 +817,7 @@ fn a_full_arena_starts_and_restarts_without_overlapping_fighters() {
         bots: 24,
         ..Options::default()
     });
-    for &[x, z] in rivals_logic::arena::SPAWNS {
+    for &[x, z] in &tables(&sim).arena.spawns {
         let hits = exact_game_physics::overlap(
             sim.world(),
             &exact_game_physics::Shape::Capsule {

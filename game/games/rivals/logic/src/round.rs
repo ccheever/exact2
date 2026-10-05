@@ -1,13 +1,11 @@
 //! Round rules: first to the mode's kill target wins; the dead respawn after two
 //! seconds at the spawn farthest from living enemies; a round-win screen holds
 //! everyone for four seconds, then the next round starts clean.
-use crate::arena::SPAWNS;
 use crate::fighter::{self, Fighter};
+use crate::tables;
 use crate::weapons::{Damage, Rocket, Weapon};
 use exact_game::*;
 
-pub const RESPAWN: f32 = 2.0;
-pub const OVER: f32 = 4.0;
 const FEED_LIFE: f32 = 6.0;
 const MARK_LIFE: f32 = 0.7;
 const INCOMING_LIFE: f32 = 2.0;
@@ -100,6 +98,7 @@ fn label(w: &World, slot: u32) -> String {
 /// Score this tick's hits: kill feed, damage numbers, the player's hit marker.
 pub fn score(w: &mut World, hits: Vec<Damage>) {
     let now = w.seconds() as f32;
+    let respawn = tables::of(w).round.respawn;
     for hit in hits {
         let killer = label(w, hit.attacker);
         let victim = label(w, hit.victim);
@@ -107,7 +106,7 @@ pub fn score(w: &mut World, hits: Vec<Damage>) {
             if let Some(e) = crate::weapons::fighter_root(w, hit.victim) {
                 let mut f = w.require_mut::<Fighter>(e);
                 f.deaths += 1;
-                f.respawn_at = now + RESPAWN;
+                f.respawn_at = now + respawn;
             }
             if hit.attacker != hit.victim {
                 if let Some(e) = crate::weapons::fighter_root(w, hit.attacker) {
@@ -206,7 +205,9 @@ pub fn respawn(w: &mut World) {
             crate::training::place(w, e, slot);
             continue;
         }
-        let best = SPAWNS
+        let best = tables::of(w)
+            .arena
+            .spawns
             .iter()
             .max_by(|a, b| {
                 let far = |s: &[f32; 2]| {
@@ -245,7 +246,7 @@ pub fn check_win(w: &mut World, to_win: u32) {
     if let Some((e, label)) = winner {
         w.require_mut::<Fighter>(e).rounds += 1;
         let mut r = w.resource_mut::<Round>();
-        r.over_until = now + OVER;
+        r.over_until = now + tables::of(w).round.over;
         r.winner = label.clone();
         drop(r);
         w.log(format!("round won by {label}"));
@@ -260,13 +261,14 @@ pub fn next_round(w: &mut World) {
         w.despawn(e);
     }
     let fighters: Vec<Entity> = w.query::<&Fighter>().iter().map(|(e, _)| e).collect();
+    let spawns = tables::of(w).arena.spawns.clone();
     for (i, e) in fighters.into_iter().enumerate() {
         {
             let mut f = w.require_mut::<Fighter>(e);
             f.kills = 0;
             f.deaths = 0;
         }
-        fighter::place(w, e, SPAWNS[i]);
+        fighter::place(w, e, spawns[i]);
     }
     let mut r = w.resource_mut::<Round>();
     r.number += 1;

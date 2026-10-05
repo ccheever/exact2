@@ -5,9 +5,9 @@
 //! muzzle flashes are `Opacity`; a soldier's facing, flinch and fall are an
 //! `Offset`; its team colour and hit flash are `MaterialOverrides`.
 use crate::art::{BotFlash, Fx, Held, Joint, Limb, Part, Soldier, TEAMS};
-use crate::fighter::{self, Fighter, BANDAGE_TIME};
+use crate::fighter::{self, Fighter};
 use crate::presentation::Feedback;
-use crate::round::RESPAWN;
+use crate::tables;
 use crate::weapons::{Effect, Weapon};
 use exact_game::*;
 use std::f32::consts::PI;
@@ -49,6 +49,7 @@ fn ease(t: f32) -> f32 {
 /// camera-space motion `gun`, about the weapon's grip, so the magazine and
 /// the flash stay on the gun while it bobs, kicks, tilts or turns over.
 fn weapons(p: &mut Present<'_>) {
+    let t = tables::presented(p);
     let Some(player) = p.named("player") else {
         return;
     };
@@ -76,7 +77,7 @@ fn weapons(p: &mut Present<'_>) {
         .map_or(Vec3::ZERO, |(_, _, t)| t.position);
 
     let speed = if f.alive {
-        (f.planar.length() / fighter::SPRINT).min(1.0)
+        (f.planar.length() / t.fighter.sprint).min(1.0)
     } else {
         0.0
     };
@@ -94,11 +95,11 @@ fn weapons(p: &mut Present<'_>) {
         };
     }
     if f.bandage_until > 0.0 {
-        let begun = now - (f.bandage_until - BANDAGE_TIME);
+        let begun = now - (f.bandage_until - t.fighter.bandage_time);
         shift.y -= 0.25 * ease(begun / 0.15);
     }
     let reload = if f.reload_until > 0.0 {
-        f.reload_progress(now)
+        f.reload_progress(now, &t)
     } else {
         1.0
     };
@@ -202,6 +203,7 @@ fn limb(joint: Joint, phase: f32, run: f32, breath: f32) -> Transform {
 /// when killed and fade out before they respawn; armour takes the team colour
 /// and flashes on a hit.
 fn soldiers(p: &mut Present<'_>) {
+    let t = tables::presented(p);
     let (tick, hz, now) = (p.tick(), p.hz() as f32, p.seconds() as f32);
     let age = |t: Option<u64>| t.map_or(f32::MAX, |t| tick.saturating_sub(t) as f32 / hz);
     let mut fighters: Vec<Fighter> = Vec::new();
@@ -225,7 +227,7 @@ fn soldiers(p: &mut Present<'_>) {
                 tilt = 0.22 * math::sin(PI * hit / 0.3);
             }
         } else {
-            let fallen = ((now - (f.respawn_at - RESPAWN)) / 0.4).clamp(0.0, 1.0);
+            let fallen = ((now - (f.respawn_at - t.round.respawn)) / 0.4).clamp(0.0, 1.0);
             tilt = 1.45 * fallen * fallen;
             opacity = ((f.respawn_at - now) / 0.6).clamp(0.0, 1.0);
         }
@@ -248,7 +250,7 @@ fn soldiers(p: &mut Present<'_>) {
             .and_then(|(_, s)| s.hit_tick);
         // A stride every 0.6 s, offset per bot so a crowd does not march in step.
         let run = if f.alive {
-            (f.planar.length() / fighter::WALK).min(1.0)
+            (f.planar.length() / t.fighter.walk).min(1.0)
         } else {
             0.0
         };
