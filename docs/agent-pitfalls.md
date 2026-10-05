@@ -269,6 +269,13 @@ guide's rules don't make obvious.
   `send`), and seed that state from the saved record as a form does. (Authoring bench,
   LLP 1087, codex17 t7-wizard, 2026-10-05.)
 
+- **`autofocus` on a field an action shows does not focus it on the web.** The JS
+  target honours `autofocus` once, at boot; a field mounted later by an action keeps
+  the focus where it was (the pressed button). Fix: give the field an `id` and call
+  `focus("field")` (the `id`, not the `testId`) in the action that shows it. (LLP 1035.000 D9 says a node mounted later may autofocus, as
+  the wasm target does; the JS target's gap is in QUEUE.md.) (Authoring bench, LLP
+  1087, r27 t2-todo, 2026-10-05.)
+
 - **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
   is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats
   a touch as the finger leaving clears the hover the next assertion still wants.
