@@ -1,7 +1,10 @@
 //! The art pass's motion as a look (`../../motion.look`; LLP 1046.009 §3.2, an
-//! experiment): the declaration presents, and `look.rs` stays as the Rust it is
-//! compared with. `reload` replaces the declaration in the running game; the
-//! next present draws it, with no build and nothing in the world changed.
+//! experiment). The game ships `look.rs`: the interpreter costs about ten times
+//! the Rust (451 against 48 µs a present at 2k trees) and would compile the
+//! declaration in the shipped module. `use_rust(false)` presents from the
+//! declaration, which `tests/look.rs` holds equal to the Rust row for row;
+//! `reload` then replaces it in the running game, with no build and nothing in
+//! the world changed.
 use exact_game::Present;
 use exact_game_look::{Externs, Live, Stats, Stopwatch};
 use std::cell::{Cell, RefCell};
@@ -18,7 +21,7 @@ pub fn externs() -> Externs {
 
 thread_local! {
     static LIVE: RefCell<Live> = RefCell::new(Live::new(SOURCE, externs()));
-    static RUST: Cell<bool> = const { Cell::new(false) };
+    static RUST: Cell<bool> = const { Cell::new(true) };
     // Present times while a diagnostic measures them (`spent`).
     static SPENT: RefCell<Option<Vec<f64>>> = const { RefCell::new(None) };
 }
@@ -48,7 +51,7 @@ pub fn spent() -> Vec<f64> {
 pub fn reload(source: &str) {
     LIVE.with(|live| live.borrow_mut().replace(source));
 }
-/// Present with the Rust reference (`look.rs`) instead, on this thread.
+/// Present with the Rust (`look.rs`, the default) or the declaration, on this thread.
 pub fn use_rust(on: bool) {
     RUST.with(|r| r.set(on));
 }

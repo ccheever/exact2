@@ -125,7 +125,7 @@ fn script(rust: bool) -> Vec<Vec<String>> {
     }
     let errors = motion::errors();
     assert!(errors.is_empty(), "the look failed: {errors:?}");
-    motion::use_rust(false);
+    motion::use_rust(true);
     seen
 }
 
