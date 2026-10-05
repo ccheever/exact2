@@ -1151,6 +1151,13 @@ fn every_look_plays_the_same_garden() {
     }
     live.run(2.0 * 60_000.0);
     assert_eq!(live.world().hash(), hash, "the switches changed nothing");
+    // A look's models are made when it is drawn, outside the save: a garden
+    // that showed every look saves as one that showed only classic.
+    switch(&mut live, 3, "");
+    assert!(
+        live.save().unwrap() == saved,
+        "the looks shown are in the save"
+    );
     assert!(Sim::<Garden>::new(Options {
         art: "neon".into(),
         ..Options::default()
@@ -1267,9 +1274,9 @@ fn the_art_pass_draws_day_and_night_without_simulating_them() {
     assert!(game.world().get::<DirectionalLight>("moon").is_none());
 }
 
-/// Every look's generated models register at setup, and none takes a name
-/// the art pass streams: the classic and generated looks never draw one, nor
-/// download one; a switch to the art pass fetches its models then.
+/// No look's generated model takes a name the art pass streams: the classic
+/// and generated looks never draw one, nor download one; a switch to the art
+/// pass fetches its models then.
 #[test]
 fn no_look_generates_a_streamed_model_name() {
     use exact_game::{Game, Mesh};

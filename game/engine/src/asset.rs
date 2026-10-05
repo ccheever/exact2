@@ -505,6 +505,9 @@ pub(crate) struct Assets {
     pub sounds: map::AssetMap<Arc<SoundAsset>>,
     pub states: map::AssetMap<AssetState>,
     pub declared: BTreeSet<String>,
+    /// Generated models only `Game::present` draws (`Present::generated_model`):
+    /// made the first time a present names them, never saved, never retired.
+    pub drawn_generated: BTreeSet<String>,
     pub required: BTreeSet<String>,
     pub requested: BTreeSet<String>,
     pub prepared: BTreeSet<String>,
@@ -548,6 +551,7 @@ impl std::ops::Deref for AssetStore {
             sounds: map::AssetMap::EMPTY,
             states: map::AssetMap::EMPTY,
             declared: BTreeSet::new(),
+            drawn_generated: BTreeSet::new(),
             required: BTreeSet::new(),
             requested: BTreeSet::new(),
             prepared: BTreeSet::new(),
@@ -630,7 +634,8 @@ impl Assets {
     pub fn retire(&mut self, roots: &BTreeSet<String>) {
         let mut live = roots.clone();
         live.extend(self.identities.keys().cloned());
-        for name in roots {
+        live.extend(self.drawn_generated.iter().cloned());
+        for name in roots.iter().chain(&self.drawn_generated) {
             if let Some(deps) = self.dependencies.get(name) {
                 live.extend(deps.iter().cloned());
             }

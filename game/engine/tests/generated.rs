@@ -279,3 +279,94 @@ fn generated_names_refuse_every_declared_name_at_registration() {
     register_all(&mut World::new(60, 0));
     assert!(REFUSED.with(|r| r.take()).is_empty());
 }
+
+thread_local! {
+    static MADE: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+/// A model only presentation draws is made the first time a present names
+/// it, kept from then on, never fetched, and in no save: a world that showed
+/// the look saves the same bytes as one that never did.
+#[test]
+fn a_model_only_present_draws_is_made_when_first_shown_and_never_saved() {
+    use exact_game::{Args, DrawnMesh, Game, Input, Present, Sim};
+    #[derive(Default, Args)]
+    struct Shown {
+        #[live]
+        shiny: bool,
+        reset: u32,
+    }
+    struct Looks;
+    impl Game for Looks {
+        const ID: &'static str = "drawn-generated";
+        type Args = Shown;
+        fn setup(w: &mut World, args: &Shown) {
+            w.generated("rock.model", triangle()).unwrap();
+            w.spawn_named("rock", (Transform::default(), Mesh::asset("rock.model")));
+            if args.reset > 0 {
+                let taken = w.generated("sky.model", triangle()).unwrap_err();
+                assert!(taken.contains("Game::present made"), "{taken}");
+            }
+        }
+        fn tick(w: &mut World, _: &Input, _: &Shown) {
+            assert!(w.model("shiny.model").is_none(), "a tick never sees it");
+        }
+        fn present(p: &mut Present<'_>, args: &Shown) {
+            if !args.shiny {
+                return;
+            }
+            let shiny = p
+                .generated("sky.model", || {
+                    MADE.with(|m| m.set(m.get() + 1));
+                    triangle()
+                })
+                .unwrap();
+            let rock = p.named("rock").unwrap();
+            p.insert(rock, DrawnMesh::new(shiny));
+            let setups = p.generated("rock.model", triangle).unwrap_err();
+            assert!(setups.contains("Game::setup registered"), "{setups}");
+        }
+    }
+    let shown = |shiny, reset| Shown { shiny, reset }.values();
+    let made = || MADE.with(|m| m.get());
+    MADE.with(|m| m.set(0));
+    let mut plain = Sim::<Looks>::new(Shown::default()).unwrap();
+    let mut looked = Sim::<Looks>::new(Shown::default()).unwrap();
+    assert_eq!(made(), 0, "an unshown look makes nothing");
+    looked.bind(&shown(true, 0), None).unwrap();
+    assert_eq!(made(), 1);
+    assert_eq!(
+        *looked.world().require::<DrawnMesh>("rock"),
+        DrawnMesh::model("sky.model")
+    );
+    assert!(looked.presentation_models().any(|(n, _)| n == "sky.model"));
+    assert!(looked.take_assets().is_empty(), "generated, never fetched");
+    // Kept through ticks, a switch away (unshown, it stays) and back.
+    looked.run(500.);
+    looked.bind(&shown(false, 0), None).unwrap();
+    looked.take_assets();
+    looked.bind(&shown(true, 0), None).unwrap();
+    looked.run(500.);
+    assert_eq!(made(), 1, "made once");
+    plain.run(1000.);
+    assert_eq!(looked.world().hash(), plain.world().hash());
+    // The arguments save as bound; the look's model does not.
+    looked.bind(&shown(false, 0), None).unwrap();
+    let saved = looked.save().unwrap();
+    assert!(
+        saved == plain.save().unwrap(),
+        "which looks were shown is in no save"
+    );
+    // A fresh game restores it and makes the model when it draws it.
+    let mut back = Sim::<Looks>::new(Shown {
+        shiny: true,
+        reset: 0,
+    })
+    .unwrap();
+    assert_eq!(made(), 2);
+    back.restore(&saved).unwrap();
+    assert_eq!(made(), 2, "a restore keeps what was made");
+    // Setup reruns keep it too; setup cannot take present's name.
+    looked.bind(&shown(true, 1), None).unwrap();
+    assert_eq!(made(), 2);
+    assert!(looked.presentation_models().any(|(n, _)| n == "sky.model"));
+}

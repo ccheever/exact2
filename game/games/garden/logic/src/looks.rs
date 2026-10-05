@@ -200,6 +200,32 @@ fn model(style: Style, base: &str) -> String {
     format!("{}-{base}.model", tag(style))
 }
 
+/// This look's generated model `base` (`plant-3`, `orchard`), made the first
+/// time a present draws it: a look costs its models when it is shown. Only
+/// presentation names them, so which looks were shown is in no save.
+fn drawn(p: &mut Present, style: Style, base: &str) -> DrawnMesh {
+    let l = look(style);
+    let name = model(style, base);
+    let kind = |k: &str| k.parse::<usize>().expect("a crop kind");
+    let mesh = match base.strip_prefix("fruit-") {
+        Some(k) => p.generated_model(&name, || fruit(kind(k), l)),
+        None => p.generated(&name, || match base {
+            "gardener" => gardener(l),
+            "gardener-arm" => arm(l),
+            "gardener-leg" => leg(l),
+            "watering-can" => watering_can(l),
+            "orchard" => orchard(l),
+            "flowers" => flower_bank(l),
+            "meadow-grass" => meadow(l),
+            "backdrop" => backdrop(l),
+            "rail" => rail(l),
+            "rain-barrel" => barrel(l),
+            _ => plant(kind(base.strip_prefix("plant-").expect("a look model")), l),
+        }),
+    };
+    DrawnMesh::new(mesh.expect("look mesh"))
+}
+
 /// A light's linear colour and lux.
 type Lux = ([f32; 3], f32);
 
@@ -263,32 +289,12 @@ fn lighting(style: Style) -> (Environment, AmbientOcclusion, Lux, Lux) {
     }
 }
 
-/// Both looks' generated models, their ambience emitters, and their props as
-/// bare poses (they share a layout).
+/// A look's own models are made when it is first drawn (`drawn`); setup
+/// places both looks' ambience emitters and their props as bare poses (they
+/// share a layout).
 pub fn setup(w: &mut World) {
     for style in STYLES {
         let l = look(style);
-        let generated = [
-            ("gardener", gardener(l)),
-            ("gardener-arm", arm(l)),
-            ("gardener-leg", leg(l)),
-            ("watering-can", watering_can(l)),
-            ("orchard", orchard(l)),
-            ("flowers", flower_bank(l)),
-            ("meadow-grass", meadow(l)),
-            ("backdrop", backdrop(l)),
-            ("rail", rail(l)),
-            ("rain-barrel", barrel(l)),
-        ];
-        for (base, mesh) in generated {
-            w.generated(&model(style, base), mesh).expect("look mesh");
-        }
-        for kind in 0..CROPS.len() {
-            w.generated(&model(style, &format!("plant-{kind}")), plant(kind, l))
-                .expect("plant mesh");
-            w.generated_model(&model(style, &format!("fruit-{kind}")), fruit(kind, l))
-                .expect("fruit mesh");
-        }
         let (mote, additive, rise) = if l.toy {
             ([1.0, 1.0, 1.0, 0.85], false, 0.05)
         } else {
@@ -371,7 +377,6 @@ pub fn present(p: &mut Present, style: Style) {
         let soil = Material::grid(l.soil, crate::garden::TILE);
         p.insert(ground, DrawnMesh::new(plane).material(soil));
     }
-    let named = |base: &str| DrawnMesh::model(model(style, base));
     for (name, base) in [
         ("gardener", "gardener"),
         ("arm-left", "gardener-arm"),
@@ -389,7 +394,8 @@ pub fn present(p: &mut Present, style: Style) {
         ("bed-rail-west", "rail"),
         ("bed-rail-east", "rail"),
     ] {
-        dress(p, name, named(base));
+        let mesh = drawn(p, style, base);
+        dress(p, name, mesh);
     }
     dress(
         p,
@@ -399,11 +405,8 @@ pub fn present(p: &mut Present, style: Style) {
     if let Some(bed) = crate::art::bed(p) {
         dress(p, "bed-edge", bed.material(paint(scale(l.mound.0, 0.8))));
     }
-    dress(
-        p,
-        "water-barrel",
-        named("rain-barrel").material(Material::default()),
-    );
+    let barrel = drawn(p, style, "rain-barrel").material(Material::default());
+    dress(p, "water-barrel", barrel);
     if let Some(water) = p.named("barrel-water") {
         let still = Material {
             color: if l.toy {
@@ -421,19 +424,23 @@ pub fn present(p: &mut Present, style: Style) {
         let b = crate::farm::BARREL;
         place(p, water, Transform::at(b.x, 0.92, b.z));
     }
-    // The crops: this look's model of each, in the simulation's colours and poses.
-    let models: Vec<[DrawnMesh; 2]> = (0..CROPS.len())
-        .map(|kind| {
-            [
-                named(&format!("plant-{kind}")),
-                named(&format!("fruit-{kind}")),
-            ]
-        })
-        .collect();
-    // Kept per crop: a present redraws only the plants and fruit that appeared.
+    // The crops: this look's model of each, in the simulation's colours and
+    // poses, made for the kinds that grow. Kept per crop: a present redraws
+    // only the plants and fruit that appeared.
+    let mut crops: Vec<[Option<DrawnMesh>; 2]> = vec![[None, None]; CROPS.len()];
+    let mut crop = |p: &mut Present, kind: u8, part: usize| {
+        let kind = kind as usize;
+        crops[kind][part]
+            .get_or_insert_with(|| {
+                let base = ["plant", "fruit"][part];
+                drawn(p, style, &format!("{base}-{kind}"))
+            })
+            .clone()
+    };
     p.each::<crate::garden::Plant>(|p, e| {
-        let kind = p.require::<crate::garden::Plant>(e).kind as usize;
-        p.insert(e, models[kind][0].clone());
+        let kind = p.require::<crate::garden::Plant>(e).kind;
+        let model = crop(p, kind, 0);
+        p.insert(e, model);
         Derived::Kept
     });
     // The fruit's simulated colour tints it; a ripe Gold one is metal too.
@@ -441,9 +448,10 @@ pub fn present(p: &mut Present, style: Style) {
         let (kind, gold) = {
             let f = p.require::<crate::garden::Fruit>(e);
             let gold = f.ripe && f.muts & (crops::RAINBOW | crops::GOLD) == crops::GOLD;
-            (f.kind as usize, gold)
+            (f.kind, gold)
         };
-        p.insert(e, models[kind][1].clone());
+        let model = crop(p, kind, 1);
+        p.insert(e, model);
         if gold {
             p.insert(e, MaterialOverrides(vec![crate::pass::gilded()]));
         }
@@ -457,7 +465,8 @@ pub fn present(p: &mut Present, style: Style) {
             .resource::<crate::farm::Farm>()
             .and_then(|farm| farm.bag.last().map(|i| i.kind));
         if let Some(kind) = last {
-            dress(p, "picked-fruit", named(&format!("fruit-{kind}")));
+            let fruit = drawn(p, style, &format!("fruit-{kind}"));
+            dress(p, "picked-fruit", fruit);
         }
     }
     hide(p, "weather");

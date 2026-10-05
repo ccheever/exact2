@@ -276,6 +276,33 @@ impl<'w> Present<'w> {
     pub fn rng(&self, salt: u64) -> Rng {
         self.world.presentation_rng(salt)
     }
+    /// A generated model only presentation draws (a look's own art), for a
+    /// `DrawnMesh`: `make` runs the first time any present names it, and the
+    /// model is kept from then on, through restarts and restores, so a look
+    /// costs its models when it is first shown and nothing after. Nothing
+    /// simulated can name it (`World::model` and saves never see it), so
+    /// which looks were shown changes no save or hash; it is the game's code
+    /// that defines it, so `make` must return the same model every time.
+    /// Refused like [`World::generated_model`]: a name the game declares or
+    /// setup registered, or an invalid model.
+    pub fn generated_model(
+        &mut self,
+        name: &str,
+        make: impl FnOnce() -> crate::asset::Model,
+    ) -> Result<crate::Mesh, String> {
+        self.world.drawn_generated_model(name, make)
+    }
+    /// [`Present::generated_model`] for one mesh, matte and not metal, as
+    /// [`World::generated`] draws it.
+    pub fn generated(
+        &mut self,
+        name: &str,
+        make: impl FnOnce() -> crate::asset::MeshData,
+    ) -> Result<crate::Mesh, String> {
+        self.generated_model(name, || {
+            crate::asset::Model::parts([(make(), crate::asset::MaterialData::surface(0., 1.))])
+        })
+    }
     /// Write a presentation component on a living entity (false if it is gone).
     /// Writing the value the row already holds (bit for bit) changes nothing. Each row has one
     /// writer per present: the code outside `each`, or one derivation.

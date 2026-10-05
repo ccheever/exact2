@@ -24,9 +24,10 @@ particles and sounds use the saved game clock and preserve crop timing and price
 
 The Garden panel's **Look** row switches the look of the garden you have grown;
 play, saves and the world's hash are identical in each. A look is presentation
-only (`art` is a live argument): setup registers every look's generated models and
-places every look's props as bare poses, and `Game::present` draws the chosen look
-(`DrawnMesh`, `DrawnLight`, the camera's `DrawnEnvironment`). **Art pass** draws baked models from `art.mjs` (run
+only (`art` is a live argument): setup places every look's props as bare poses, and
+`Game::present` draws the chosen look (`DrawnMesh`, `DrawnLight`, the camera's
+`DrawnEnvironment`), making a look's generated models the first time it draws them
+(`Present::generated`), so a game pays for the looks it shows. **Art pass** draws baked models from `art.mjs` (run
 `bun game/games/garden/art.mjs` to regenerate `art/`; the bake turns it into
 `.model` assets): a model per crop and growth stage with far levels of detail,
 fruit shapes recoloured per mutation, a picket fence with lanterns, a seed

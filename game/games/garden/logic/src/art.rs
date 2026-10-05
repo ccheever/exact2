@@ -367,9 +367,9 @@ fn flower_bank() -> MeshData {
 
 /// Every look's world at once, so the look switches live (`art` is a live
 /// argument). What every look draws (the gardener, crops, ground, meadow,
-/// barrel) keeps the classic look's models in the simulation; a prop only
-/// some looks draw is a bare pose that each look's `present` dresses. Every
-/// look's generated models register here, each under its own names.
+/// barrel) keeps the classic look's models in the simulation, registered
+/// here; a prop only some looks draw is a bare pose that each look's
+/// `present` dresses, with models it makes the first time it is shown.
 pub fn setup(w: &mut World) {
     let body = w
         .generated("gardener.model", gardener())
@@ -423,10 +423,6 @@ pub fn setup(w: &mut World) {
         w.generated(&format!("fruit-{kind}.model"), fruit(kind))
             .expect("fruit mesh");
     }
-    w.generated("orchard.model", orchard())
-        .expect("orchard mesh");
-    w.generated("flowers.model", flower_bank())
-        .expect("flower mesh");
     w.spawn_named(
         "meadow",
         (
@@ -467,9 +463,13 @@ pub fn present(p: &mut Present, args: &crate::Options) {
 
 /// The classic look: the simulation's own models, and its props dressed.
 fn classic(p: &mut Present) {
-    dress(p, "orchard", DrawnMesh::model("orchard.model"));
-    dress(p, "flowers-west", DrawnMesh::model("flowers.model"));
-    dress(p, "flowers-east", DrawnMesh::model("flowers.model"));
+    let orchard = p.generated("orchard.model", orchard).expect("orchard mesh");
+    let flowers = p
+        .generated("flowers.model", flower_bank)
+        .expect("flower mesh");
+    dress(p, "orchard", DrawnMesh::new(orchard));
+    dress(p, "flowers-west", DrawnMesh::new(flowers.clone()));
+    dress(p, "flowers-east", DrawnMesh::new(flowers));
     if let Some(bed) = bed(p) {
         dress(p, "bed-edge", bed.material(paint([0.51, 0.34, 0.21])));
     }

@@ -301,6 +301,15 @@ level bytes or generated output refuse restore by name. Keep other generator inp
 in the level or saved setup arguments; identity checks cannot prove a generator is
 deterministic. See the [level example](../games/asset-fixture/logic/src/lib.rs).
 
+A model only presentation draws (a look's own art, for a `DrawnMesh`) is made in
+`Game::present` instead: `p.generated(name, || mesh_data)` or
+`p.generated_model(name, || model)` runs the closure the first time any present
+names it and keeps the model from then on (through restarts and restores), so a
+look costs its models when it is first shown. Nothing simulated can name it:
+`World::model` does not answer for it and saves hold no identity for it, so which
+looks were shown moves no save or hash. It takes the same refusals, and a name
+setup registered; setup cannot take a name present made.
+
 ## Settling and data formats
 
 `Sim::settle` advances world time and reports what remains busy. Components, RNG,
@@ -360,7 +369,8 @@ ambient_occlusion }` on the camera replaces the `Environment` and `AmbientOcclus
 resources for its frames. A model a `DrawnMesh` names is requested like a `Mesh`'s;
 saves, picking, physics and animation keep the simulated mesh. A look that is
 presentation only is a `#[live]` argument `present` reads: switching it keeps the
-world (Grow a Garden's `art`).
+world (Grow a Garden's `art`), and the look's own models are made when it first draws
+them (`p.generated_model`, [above](#saves-and-assets)).
 
 A look over every entity derives its rows per entity and keeps them:
 `p.each::<K>(|p, e| { ...; Derived::Kept })`, where `K` is a simulation component or a

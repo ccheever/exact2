@@ -73,6 +73,9 @@ pub struct WorldSurface<G: Game, P: Executor = (), const ASSETS: bool = false, H
     error: Option<SurfaceError>,
     dirty: bool,
     assets_dirty: bool,
+    /// The world's model revision when assets were last prepared: a binding,
+    /// a delivery or a model `Game::present` generated moves it.
+    models_prepared: u64,
     asset_check: Option<(exact_game::WorldId, u64, u64, u64)>,
     reported: bool,
     generation: u64,
@@ -108,6 +111,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Default
             error: None,
             dirty: true,
             assets_dirty: false,
+            models_prepared: 0,
             asset_check: None,
             reported: false,
             generation: 0,
@@ -391,9 +395,15 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
         }
         // A game's custom material on a merged draw needs its model's parts.
         let parts = (self.render.as_ref()).is_some_and(|(r, _)| r.wants_parts());
-        if !self.assets_dirty && !parts && self.format == Some(format) {
+        let models = self.sim.as_ref().map_or(0, |s| s.world().model_revision());
+        if !self.assets_dirty
+            && !parts
+            && self.format == Some(format)
+            && models == self.models_prepared
+        {
             return;
         }
+        self.models_prepared = models;
         let Some(sim) = &mut self.sim else { return };
         let textures = sim.take_textures();
         if self.render.is_none()
