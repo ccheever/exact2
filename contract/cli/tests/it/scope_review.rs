@@ -615,3 +615,57 @@ fn an_installs_own_path_is_watched_so_relinking_it_rebuilds() {
         graph.consulted
     );
 }
+
+// Round 7 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_component_argument_named_surface_is_a_call_like_any_other() {
+    let dir = Dir::new("surface-arg");
+    dir.write(
+        "ui.contract",
+        "fn val(): number = 2\ncomponent Card\n  view\n    Label(surface=val())\ncomponent Label\n  props\n    surface: number\n  view\n    text `${surface}`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nfn val(): number = 1\ncomponent App\n  view\n    column\n      Card()\n      text `${val()}`\n",
+    );
+    // The same program with the library's `fn` spelled apart: one plan.
+    let flat = dir.write(
+        "flat.contract",
+        "fn two(): number = 2\nfn val(): number = 1\ncomponent App\n  view\n    column\n      Label(surface=two())\n      text `${val()}`\ncomponent Label\n  props\n    surface: number\n  view\n    text `${surface}`\n",
+    );
+    assert_eq!(
+        contract::compile_path(&root).unwrap().encode(),
+        contract::compile_path(&flat).unwrap().encode()
+    );
+}
+
+#[test]
+fn a_nearer_install_and_the_offered_export_path_are_watched() {
+    let dir = Dir::new("nearer");
+    dir.write(
+        "repo/node_modules/ui/package.json",
+        r#"{"name":"ui","exports":"./index.contract"}"#,
+    );
+    dir.write(
+        "repo/node_modules/ui/index.contract",
+        "component Card\n  view\n    text \"v1\"\n",
+    );
+    let root = dir.write(
+        "repo/apps/demo/app.contract",
+        "use Card from \"ui\"\ncomponent App\n  view\n    Card()\n",
+    );
+    contract::compile_path(&root).unwrap();
+    let graph = contract::source_graph(&root);
+    for path in [
+        "repo/apps/demo/node_modules/ui/package.json",
+        "repo/apps/node_modules/ui/package.json",
+        "repo/node_modules/ui/index.contract",
+    ] {
+        assert!(
+            graph.consulted.contains(&dir.0.join(path)),
+            "{path}: {:?}",
+            graph.consulted
+        );
+    }
+}

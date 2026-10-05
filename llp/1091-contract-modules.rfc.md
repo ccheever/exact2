@@ -442,6 +442,7 @@ stage 1 lands, and stage 2 waits on them.
 - r6 (2026-10-05): the code review's fourth round (§13).
 - r7 (2026-10-05): the code review's fifth round (§14).
 - r8 (2026-10-05): round 6; the bake compiles in place (§15).
+- r9 (2026-10-05): round 7 (§16).
 
 ## 9. Review dispositions (round 1)
 
@@ -687,4 +688,20 @@ Every finding is taken; every plan stays byte-identical.
 | Astra 3: a watch root that is a link stopped the TypeScript producer | Package roots are watched at their real paths; one that cannot be watched is said, not a stop |
 | Astra 5: the producer missed an install where no `node_modules` was | It watches the directory where that `node_modules` would be made |
 | Astra 6: Completion Storm's build scripts did not track used files | They call `contract::rerun_if_changed` |
+
+## 16. Code review round 7 dispositions
+
+Round 7 (`llp/reviews/code-2026-10-05-1091-r7.{astra,grok}.md`): both UNSOUND, both confirming
+round 6's inputs fixed. Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1 / Grok 1: round 6's `surface` exception also kept a component argument's or another element's `surface=f()` head | Only on `canvas`, the one tag that owns `surface` |
+| Astra 2: the bake's recheck compared package names and roots, not their bytes | The bake reads every Contract source and consulted manifest the compile reads, before and after, and refuses on any difference |
+| Grok 2: the bake still refused two versions of one package, a rule of the links | Gone with them |
+| Astra 3: a link retargeted at a twin (same time and length) did not rebuild the wasm session | Its stamp has the file's inode and device |
+| Astra 4: retargeting an exported link inside a package went unseen | The export's offered path is watched; the TypeScript watcher reads a link as its target and the target's metadata |
+| Astra 5: a nearer install than the one resolved went unseen | Every nearer candidate is watched even when a farther one resolves |
+| Grok 3: the TypeScript producer's missing-`node_modules` watch assumed `/` | Either separator |
+| Found while verifying: the nearer candidates reached `build.rs` as `rerun-if-changed` paths that did not exist, so Cargo reran every build and the driver called it stale | `contract::rerun_if_changed` lists only paths that exist (a failed build reruns its script anyway); the dev loops still watch the candidates. Driven: a second macOS build is a no-op (1.8 s) |
 

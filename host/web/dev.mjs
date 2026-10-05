@@ -36,7 +36,7 @@ import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
 import { allowHostArgs, developmentGate, installBrowserOrigins, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, unwatchFile, watch, watchFile } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, unwatchFile, watch, watchFile } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { gpuModules, shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
@@ -414,7 +414,13 @@ function watchModuleSources(directory, ignore, changed) {
           if (ignore(name)) continue;
           if (++entries > 4096) throw new Error('module watcher source graph exceeds 4096 entries');
           const path = resolve(directory, name), stat = lstatSync(path, { bigint: true });
-          if (stat.isSymbolicLink()) { state.push([name,'symlink']); continue; }
+          // A link is what it leads to: retargeting it is an edit.
+          if (stat.isSymbolicLink()) {
+            let target = '';
+            try { const to = statSync(path, { bigint: true }); target = `${readlinkSync(path)}:${metadata(to)}:${to.dev}:${to.ino}`; } catch { target = 'dangling'; }
+            state.push([name, `symlink:${target}`]);
+            continue;
+          }
           if (stat.isDirectory()) { walk(path,name+'/',depth+1); continue; }
           if (!/\.(ts|contract|json)$/.test(name)) continue;
           if (!stat.isFile()) { state.push([name,'not-regular']); continue; }
@@ -477,10 +483,11 @@ function contractGraph() {
     const dirs = new Set([...graph.packages.map(p => p.root), ...graph.consulted.map(c => nearest(dirname(c))).filter(inside)].map(real));
     // Where a node_modules not made yet would be: its making is an install.
     const shallow = new Set(graph.consulted.flatMap(c => {
-      const at = c.lastIndexOf('/node_modules/');
-      if (at < 0) return [];
-      const parent = c.slice(0, at);
-      return !existsSync(`${parent}/node_modules`) && existsSync(parent) ? [parent] : [];
+      // Either separator: `contract sources` prints the platform's paths.
+      const match = [...c.matchAll(/[\\/]node_modules[\\/]/g)].pop();
+      if (!match) return [];
+      const parent = c.slice(0, match.index);
+      return !existsSync(resolve(parent, 'node_modules')) && existsSync(parent) ? [parent] : [];
     }));
     return { files, dirs, shallow };
   } catch { return { files: new Set(), dirs: new Set(), shallow: new Set() }; }

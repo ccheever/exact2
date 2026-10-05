@@ -373,13 +373,14 @@ impl Rewriter<'_> {
         for node in nodes {
             match node {
                 Node::Element {
+                    tag,
                     positional,
                     attrs,
                     children,
                     ..
                 } => {
                     self.exprs(positional)?;
-                    self.attrs(attrs)?;
+                    self.element_attrs(tag == "canvas", attrs)?;
                     self.nodes(children)?;
                 }
                 Node::Use {
@@ -435,6 +436,13 @@ impl Rewriter<'_> {
     }
 
     fn attrs(&mut self, attrs: &mut [Attr]) -> R {
+        self.element_attrs(false, attrs)
+    }
+
+    /// `canvas` owns `surface` (lower/src/lib.rs): only there is a
+    /// `surface=name(args)` head the drawing module's; on any other element
+    /// or component argument it is a call like any other.
+    fn element_attrs(&mut self, canvas: bool, attrs: &mut [Attr]) -> R {
         for a in attrs {
             match a.name.as_str() {
                 "class" => self.class(&mut a.value)?,
@@ -445,7 +453,7 @@ impl Rewriter<'_> {
                 "animation-timeline" | "animationTimeline" => self.timeline(&mut a.value)?,
                 // `surface=name(args)`: the name is the drawing module's, not
                 // a function (types/checks.rs); only its arguments are Contract.
-                "surface" => {
+                "surface" if canvas => {
                     if let Expr::Call(_, args, _) = &mut a.value {
                         self.exprs(args)?;
                         continue;

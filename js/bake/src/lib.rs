@@ -551,26 +551,20 @@ fn origin(root: &Path, mounts: &[(String, PathBuf)], name: &Path) -> PathBuf {
     }
 }
 
-/// The Contract packages the app's sources use (LLP 1091 D10), by each name
-/// they were reached by: part of the capture's identity, so a package that
-/// changes where it resolves during the bake refuses it.
-fn packages(app: &Path) -> Result<Vec<(String, PathBuf)>, String> {
-    let mut out: Vec<(String, PathBuf)> = Vec::new();
-    for package in contract::source_graph(&app.join("app.contract")).packages {
-        match out.iter().find(|(name, _)| *name == package.name) {
-            Some((_, root)) if *root != package.root => {
-                return Err(format!(
-                "two copies of the package `{}` ({} and {}) are used; the bake links one per name",
-                package.name,
-                root.display(),
-                package.root.display()
-            ))
-            }
-            Some(_) => {}
-            None => out.push((package.name, package.root)),
-        }
-    }
-    Ok(out)
+/// Every Contract source compiling the app reads, and every `package.json`
+/// its resolution read, by path, with their bytes (LLP 1091 D10): read
+/// before the compile and after, so a plan is built from one state of the
+/// app's packages as of the app's own files, or the bake is refused.
+fn contract_inputs(app: &Path) -> Result<BTreeMap<PathBuf, Option<Vec<u8>>>, String> {
+    let graph = contract::source_graph(&app.join("app.contract"));
+    Ok(graph
+        .sources
+        .iter()
+        .map(|source| &source.path)
+        .filter(|path| path.is_absolute())
+        .chain(&graph.consulted)
+        .map(|path| (path.clone(), std::fs::read(path).ok()))
+        .collect())
 }
 
 /// Capture the app-local source graph, and the directories the manifest
@@ -757,7 +751,7 @@ fn bake_in(
     tools.check_engine()?;
     let app = app.canonicalize().map_err(|e| e.to_string())?;
     let captured = sources(&app)?;
-    let package_roots = packages(&app)?;
+    let inputs = contract_inputs(&app)?;
     if !captured.contains_key(Path::new("app.ts"))
         || !captured.contains_key(Path::new("app.contract"))
     {
@@ -808,7 +802,7 @@ fn bake_in(
     let development = matches!(mode, BakeMode::Development { .. });
     let compiled = contract::compile_path_all(&app.join("app.contract"), development);
     // A changed graph (including a newly added import) is a refused capture.
-    if sources(&app)? != captured || packages(&app)? != package_roots {
+    if sources(&app)? != captured || contract_inputs(&app)? != inputs {
         return Err("app sources changed during capture; retry the build".into());
     }
     let (plan, source_map) = compiled.map_err(|errors| {

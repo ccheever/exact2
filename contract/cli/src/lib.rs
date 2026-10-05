@@ -368,8 +368,11 @@ pub fn rerun_if_changed(path: &Path) {
             println!("cargo:rerun-if-changed={}", source.path.display());
         }
     }
-    for manifest in graph.consulted {
-        println!("cargo:rerun-if-changed={}", manifest.display());
+    // Only what exists: Cargo reruns a script whose path is missing on every
+    // build, and a failed build reruns it anyway (a resolution that looked
+    // for a file not there failed, or found one farther up).
+    for consulted in graph.consulted.iter().filter(|path| path.exists()) {
+        println!("cargo:rerun-if-changed={}", consulted.display());
     }
 }
 
