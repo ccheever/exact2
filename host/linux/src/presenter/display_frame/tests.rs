@@ -61,7 +61,7 @@ const APP: &str = r##"component App
     every(250, tick)
   view
     column width=320 height=240
-      input value=draft change=edit testId="input" height=32
+      input value=draft input=edit testId="input" height=32
       when showing
         box press=press testId="target" width=100 height=32 background-color="#cc3300"
       box press=hide testId="hide" height=16
@@ -466,7 +466,7 @@ const VIEWPORT_APP: &str = r##"component App
     extent = 700
   view
     column testId="root" width="100%" height=extent background-color="#225599"
-      input testId="input" value=draft change=edit height=24
+      input testId="input" value=draft input=edit height=24
       box testId="shorten" press=shorten height=24
       box testId="lengthen" press=lengthen height=24
       box testId="target" press=press height=32 background-color="#cc3300"

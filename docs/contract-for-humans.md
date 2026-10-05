@@ -967,6 +967,11 @@ that from a person's dismissal and offer an import instead. A save there still
 works: what the app writes to its handle downloads under the suggested name. File content, durable storage, and permissions belong
 in the data module. See [file-picker syntax](../contract/corpus/file-pickers.contract).
 
+On tvOS, `focusGuide="auto"` on a container guides a remote move entering its
+box to the descendant that last held focus, or its first focusable descendant.
+Moving within the container keeps UIKit's geometry. Other hosts ignore the
+attribute and retain their normal focus order.
+
 ### Choosing a native button
 
 An ordinary `button` is an authored box with `appearance="none"`. Opt into the

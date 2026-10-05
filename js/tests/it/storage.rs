@@ -370,6 +370,8 @@ fn storage_an_answer_does_not_await_still_lands() {
         std::fs::read_to_string(root.0.join("data/deferred")).unwrap(),
         "fourth"
     );
+    assert_eq!(call(&mut m, &mut s, "queued-sync", "third"), "answered");
+    assert_eq!(call(&mut m, &mut s, "read-at", "queued/file"), "third");
 }
 
 /// An app that serializes its storage work through one promise chain starts the
@@ -983,6 +985,25 @@ component App
     settle(&mut runner, &mut held, &mut work);
     assert_eq!(read(&runner, "peeked"), "h:peeked");
     assert_eq!(read(&runner, "listing"), "h:2");
+    // Both mutations are sent while a listing owns a storage turn. Replacing
+    // the first reply must not cancel the insert before its first JS step.
+    runner.act("search", vec![Value::str("i")]).unwrap();
+    emit(&mut runner, &mut held, &mut work);
+    for value in ["first-queued", "second-queued"] {
+        runner
+            .act("save", vec![Value::str("serial"), Value::str(value)])
+            .unwrap();
+        emit(&mut runner, &mut held, &mut work);
+    }
+    settle(&mut runner, &mut held, &mut work);
+    assert_eq!(
+        read(&runner, "saved"),
+        "second-queued:4",
+        "{:?}",
+        runner.journal().collect::<Vec<_>>()
+    );
+    assert_eq!(read(&runner, "listing"), "i:4");
+
     assert!(!runner.has_pending(), "everything settled");
     let refusals: Vec<&str> = runner
         .journal()
@@ -1086,4 +1107,202 @@ fn a_document_the_person_chose_is_storage_without_app_directories() {
     );
     assert!(!folder.join("new.txt").exists());
     exact_data::documents::forget(9101);
+}
+
+/// No later UI request is needed to finish retired writes. The oldest turn
+/// and both superseded mutations are gone; external writes survive in order,
+/// their discarded Store writes do not, and an uncommitted send never runs.
+#[test]
+fn retired_deferred_writes_finish_without_another_answer() {
+    use exact_runner::Target;
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut store = Store::new(GRANTS, [("session".into(), "original".into())]);
+    assert!(matches!(
+        m.answer_for(
+            Target::Resource(0),
+            &mut store,
+            "work",
+            &args("count", "open")
+        )
+        .unwrap(),
+        Answer::Later(_)
+    ));
+    for value in ["first", "second"] {
+        assert!(matches!(
+            m.answer_for(
+                Target::Mutation(0),
+                &mut store,
+                "work",
+                &args("file-kept", value)
+            )
+            .unwrap(),
+            Answer::Later(_)
+        ));
+    }
+    let Answer::Later(discarded) = m
+        .answer_for(
+            Target::Mutation(1),
+            &mut store,
+            "work",
+            &args("file", "uncommitted"),
+        )
+        .unwrap()
+    else {
+        panic!("queued")
+    };
+    m.discard(discarded.continuation.unwrap());
+    m.forgotten(&store, &[]);
+    assert_eq!(m.in_flight(), 0);
+    assert_eq!(
+        std::fs::read_to_string(root.0.join("data/note")).unwrap(),
+        "second"
+    );
+    assert_eq!(store.get("session"), Some("original"));
+    assert!(m.take_logs().is_empty());
+    // A later live mutation still commits its Store write normally.
+    assert_eq!(call(&mut m, &mut store, "file-kept", "live"), "live");
+    assert_eq!(store.get("session"), Some("live"));
+}
+
+#[test]
+fn retired_writes_keep_submission_order_beside_live_targets_and_do_not_cross_unload() {
+    use exact_runner::{InFlight, Target};
+    fn complete(m: &mut Module, s: &mut Store, target: Target, a: &[Value], mut answer: Answer) {
+        for _ in 0..100 {
+            let Answer::Later(request) = answer else {
+                return;
+            };
+            let outcome = m.continuation(request.continuation.unwrap()).unwrap()();
+            answer = m.parse_for(target, s, "work", a, outcome).unwrap();
+        }
+        panic!("did not finish");
+    }
+    for unload in [false, true] {
+        let root = Root::new();
+        let mut m = root.module();
+        m.activate().unwrap();
+        let mut s = Store::new(GRANTS, [("session".into(), "original".into())]);
+        let aa = args("ordered", "A");
+        let bb = args("ordered", "B");
+        let cc = args("ordered", "C");
+        let owner_args = args("file", "owner");
+        let owner = m
+            .answer_for(Target::Resource(0), &mut s, "work", &owner_args)
+            .unwrap();
+        let older = m
+            .answer_for(Target::Mutation(0), &mut s, "work", &aa)
+            .unwrap();
+        let _ = m
+            .answer_for(Target::Mutation(1), &mut s, "work", &bb)
+            .unwrap();
+        let newer = m
+            .answer_for(Target::Mutation(1), &mut s, "work", &cc)
+            .unwrap();
+        let token = |a: &Answer| match a {
+            Answer::Later(r) => r.continuation,
+            _ => None,
+        };
+        m.forgotten(
+            &s,
+            &[
+                InFlight {
+                    target: Target::Resource(0),
+                    source: "work",
+                    args: &owner_args,
+                    continuation: token(&owner),
+                },
+                InFlight {
+                    target: Target::Mutation(0),
+                    source: "work",
+                    args: &aa,
+                    continuation: token(&older),
+                },
+                InFlight {
+                    target: Target::Mutation(1),
+                    source: "work",
+                    args: &cc,
+                    continuation: token(&newer),
+                },
+            ],
+        );
+        assert_eq!(m.in_flight(), 4, "three live calls and a retired write");
+        if unload {
+            m.unload();
+            assert_eq!(m.in_flight(), 0);
+            m.activate().unwrap();
+            call(&mut m, &mut s, "file", "after reload");
+            assert!(!root.0.join("data/ordered").exists());
+        } else {
+            complete(&mut m, &mut s, Target::Resource(0), &owner_args, owner);
+            complete(&mut m, &mut s, Target::Mutation(0), &aa, older);
+            assert_eq!(s.get("session"), Some("A"), "a live write commits normally");
+            complete(&mut m, &mut s, Target::Mutation(1), &cc, newer);
+            assert_eq!(
+                std::fs::read_to_string(root.0.join("data/ordered")).unwrap(),
+                "ABC"
+            );
+            assert_eq!(s.get("session"), Some("C"));
+        }
+    }
+}
+
+/// A forgotten answer waiting on another call does not own that call's
+/// storage turn. Its cleanup must leave the live answer's Store installed.
+#[test]
+fn forgetting_a_shared_waiter_keeps_the_live_answers_store_write() {
+    use exact_runner::{InFlight, Target};
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut store = Store::new(GRANTS, [("session".into(), "original".into())]);
+    let target = Target::Resource(0);
+    let a = args("shared-live", "live-value");
+    assert!(matches!(
+        m.answer_for(target, &mut store, "work", &a).unwrap(),
+        Answer::Later(_)
+    ));
+    assert!(matches!(
+        m.answer_for(
+            Target::Resource(1),
+            &mut store,
+            "work",
+            &args("shared-wait", "")
+        )
+        .unwrap(),
+        Answer::Later(_)
+    ));
+    let mut answer = m
+        .parse_for(target, &mut store, "work", &a, response(""))
+        .unwrap();
+    let Answer::Later(request) = &answer else {
+        panic!("the live answer owns a storage continuation")
+    };
+    m.forgotten(
+        &store,
+        &[InFlight {
+            target,
+            source: "work",
+            args: &a,
+            continuation: request.continuation,
+        }],
+    );
+    for _ in 0..100 {
+        match answer {
+            Answer::Now(value) => {
+                assert_eq!(text(value), "live-value");
+                assert_eq!(store.get("session"), Some("live-value"));
+                assert_eq!(std::fs::read(root.0.join("data/shared")).unwrap(), [1]);
+                return;
+            }
+            Answer::Later(request) => {
+                let outcome = m.continuation(request.continuation.unwrap()).unwrap()();
+                answer = m
+                    .parse_for(target, &mut store, "work", &a, outcome)
+                    .unwrap();
+            }
+        }
+    }
+    panic!("live answer did not finish");
 }

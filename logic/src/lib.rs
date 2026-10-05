@@ -264,9 +264,9 @@ impl<D: DataSource> DataSource for Swappable<D> {
         self.embedded.as_ref().and_then(DataSource::native)
     }
     /// A replaced Rust module parks nothing.
-    fn forgotten(&mut self, in_flight: &[exact_runner::InFlight<'_>]) {
+    fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[exact_runner::InFlight<'_>]) {
         if let Some(embedded) = &mut self.embedded {
-            embedded.forgotten(in_flight);
+            embedded.forgotten(store, in_flight);
         }
     }
     fn dispatch(&mut self, token: u64, store: &Store) -> exact_runner::Dispatch {

@@ -450,27 +450,37 @@ An answer's storage and `fetch` steps run whether or not it awaits them once
 they have begun: a save that has started lands on every host (kanban F22, drums
 R10). On the JS web target the answer is given at once and a save left running
 finishes behind it, including one that begins in the microtask checkpoint after
-a value given at once. On Hermes the answer waits only for steps already begun.
-A save still only queued behind an unsettled promise when the answer is given
-has been seen lost on iOS (two authoring-bench trials, 2026-10-05; QUEUE): await
-it before answering, or carry it in a request of its own. So a native answer that
-saves is a reply on real time, as a `fetch`'s is: under the driver it lands at
-the next `clock` step, not with the input (`tap` then `expect` reads the state
-before it; on the web build an answer given at once is there already), and on a
-device it lands a few milliseconds after the input. An answer the runner asks
-while another's storage steps are in flight waits for them, so an editor that
-saves on every edit can trail by one write (drums R11): answer edits from memory
-and save from a `task` (`every(500, autosave)` sending a `persist` mutation when
-the document changed), or put `clock settle` after the edit in a native test. A
+a value given at once. Hermes drains that checkpoint before replying, including
+when the answer is a synchronous value, and finishes storage the turn started;
+the answer waits only for steps already begun. A save still only queued behind
+an unsettled promise when the answer is given has been seen lost on iOS (two
+authoring-bench trials, 2026-10-05; QUEUE): await it before answering, or carry
+it in a request of its own. Await a save that depends on future external work so
+its lifetime and failure belong to the answer. So a native answer that saves is
+a reply on real time, as a `fetch`'s is: under the driver it lands at the next
+`clock` step, not with the input (`tap` then `expect` reads the state before it;
+on the web build an answer given at once is there already), and on a device it
+lands a few milliseconds after the input. An answer the runner asks while
+another's storage steps are in flight waits for them, so an editor that saves on
+every edit can trail by one write (drums R11): answer edits from memory and save
+from a `task` (`every(500, autosave)` sending a `persist` mutation when the
+document changed), or put `clock settle` after the edit in a native test. A
 storage or `fetch` call made when no answer is in flight is refused and logged,
 never silently dropped. Native console output reaches the agent's `logs` when
 the runner drains the module after an answer or reply; a write that never ran
-leaves no line. An answer the runner
-lets go between storage steps (a refresh it discards before a mutation lands, a
-read whose arguments changed or that a `refresh` replaced) still runs the steps it began, and the chain
-behind them, to their end before the next answer starts; only its answer is
-dropped, so serializing storage through one promise chain composes with
-`refreshes` and fast-changing arguments (ledger F12, minesweeper F10).
+leaves no line.
+
+A newer send may replace a mutation's reply, but a native mutation already
+queued behind a storage turn still runs its storage effects in submission order.
+Its reply and Store writes are discarded; uncommitted sends discarded by a
+refused pass do not run. Forgotten work that reaches a fetch retains the usual
+cancellation policy, and unloading drops work that has not begun. Reads remain
+replaceable. An answer the runner lets go between storage steps (a refresh it
+discards before a mutation lands, a read whose arguments changed or that a
+`refresh` replaced) still runs the steps it began, and the chain behind them, to
+their end before the next answer starts; only its answer is dropped, so
+serializing storage through one promise chain composes with `refreshes` and
+fast-changing arguments (ledger F12, minesweeper F10).
 
 An answer that keeps coming (LLP 1016.000) is a `fetch` with `exactStream`,
 returned as the answer: `return fetch(url, { exactStream: (event) => value })`.
@@ -632,12 +642,14 @@ archive from `ibex/linux-vanilla` and compiles with the matching
 compiler, run `cargo clean -p exact-js` before rebuilding native apps so a warm
 build cannot reuse captured archives or bytecode from the previous installation.
 
-iOS uses lean bytecode-only Hermes archives, not the compiler-containing
-framework. `bun host/apple/build.mjs --ios` (or `--device`) builds the one it
+iOS and tvOS use lean bytecode-only Hermes archives, not the compiler-containing
+framework. `bun host/apple/build.mjs --ios` (or `--device`, or `--tvos`) builds the one it
 needs from ibex's Hermes source, once per machine, into
 `~/.cache/exact/hermes/<pin>-lean-ios` (override with `EXACT_HERMES_IOS_DIR`,
 LLP 1036.001 D5); the recipe and archive layout are in
 [LLP 1027 D6](../llp/1027-typescript-data-sources.rfc.md#d6--the-web-the-browser-is-the-executor-one-wasm-import-the-same-module-under-two-loaders).
+The platform directories are `ios`, `ios-simulator` and `tvos-simulator`;
+`--tvos` builds for an Apple TV simulator and bakes the manifest's iOS plan.
 The normal Apple build captures the linked archives in its receipt.
 `smoke.mjs --app-only` runs the selected app and its tests without unrelated
 bare-plan host fixtures. The driver supports `ios --device [--phone <name|udid>]`:

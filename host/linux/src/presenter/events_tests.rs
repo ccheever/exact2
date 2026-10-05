@@ -23,6 +23,8 @@ impl DataSource for Keeps {
 
 const APP: &str = r#"component App
   state text = ""
+  state commits = 0
+  state saved = ""
   state focuses = 0
   state blurs = 0
   state submits = 0
@@ -32,6 +34,9 @@ const APP: &str = r#"component App
   mutation kept as shape bool
   action edit(value)
     text = value
+  action committed(value)
+    commits = commits + 1
+    saved = value
   action focused
     focuses = focuses + 1
   action blurred
@@ -52,8 +57,9 @@ const APP: &str = r#"component App
     focus("entry")
   view
     column width=400 height=400 key=outer
+      text `${commits}:${saved}` testId="commits" height=20
       text outerKeys testId="outer" height=20
-      input value=text input=edit submit=sent focus=focused blur=blurred key=keyed testId="field" id="entry" height=32
+      input value=text input=edit change=committed submit=sent focus=focused blur=blurred key=keyed testId="field" id="entry" height=32
       button "Focus" press=goField testId="go-field" height=32
       button "Other" press=pressed testId="other" height=32
       box opacity=0 width=200 height=40
@@ -568,4 +574,45 @@ fn tabindex_makes_tab_stops_and_tab_walks_them() {
     );
     p.focus = None;
     assert_eq!(tab(&mut p, true), "disabled", "and Shift-Tab the last");
+}
+
+#[test]
+fn agent_typing_commits_only_on_enter_or_blur() {
+    let mut p = boot();
+    let field = id(&p, "field");
+    let committed = |p: &Presenter<Keeps>| {
+        p.host()
+            .kernel()
+            .node(id(p, "commits"))
+            .unwrap()
+            .props
+            .str(PropId::Text)
+            .unwrap()
+            .to_owned()
+    };
+    p.type_text(field, "first").unwrap();
+    p.type_text(field, "second").unwrap();
+    assert_eq!(committed(&p), "0:");
+    assert_eq!(
+        p.host()
+            .kernel()
+            .node(field)
+            .unwrap()
+            .props
+            .str(PropId::Value),
+        Some("second")
+    );
+    p.type_key(field, "Enter", "Enter", true, false).unwrap();
+    assert_eq!(committed(&p), "1:second");
+    p.type_key(field, "Enter", "Enter", false, false).unwrap();
+    p.tap(id(&p, "other")).unwrap();
+    assert_eq!(
+        committed(&p),
+        "1:second",
+        "blur after Enter does not commit twice"
+    );
+    p.type_text(field, "third").unwrap();
+    assert_eq!(committed(&p), "1:second");
+    p.tap(id(&p, "other")).unwrap();
+    assert_eq!(committed(&p), "2:third");
 }

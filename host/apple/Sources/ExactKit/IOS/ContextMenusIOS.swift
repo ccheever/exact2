@@ -18,6 +18,9 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     private weak var presenter: Presenter?
     private weak var menus: MenuHost?
     private var interactions: [UInt32: UIContextMenuInteraction] = [:]
+    private var recognizers: [ObjectIdentifier: Set<ObjectIdentifier>] = [:]
+    /// Views parked with an interaction kept on them (`parked`).
+    private var parkedViews = NSHashTable<UIView>.weakObjects()
     /// The preview's controller: its view holds the lifted row.
     final class PreviewController: UIViewController {
         override func loadView() { view = UIView() }
@@ -83,19 +86,38 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         for (id, interaction) in interactions where wanted[id] == nil || interaction.view !== wanted[id] {
             // A commit in flight keeps its interaction until it completes.
             if let owner = open, owner.committed, owner.interaction === interaction { continue }
+            // A view destroyed with it has taken it along: its record goes too.
+            if interaction.view == nil { recognizers[ObjectIdentifier(interaction)] = nil }
             if let view = interaction.view {
-                view.removeInteraction(interaction)
+                detach(interaction, from: view)
                 (view as? NodeView)?.contextRecognizer?.isEnabled = true
             }
             interactions[id] = nil
         }
+        // A parked view lent to a new node keeps its interaction if the node
+        // names a popover too, else it comes off.
+        for case let v as NodeView in parkedViews.allObjects where presenter.views[v.id] === v {
+            // Taken (live again under its new node's id), or never parked.
+            parkedViews.remove(v)
+            guard !wanted.values.contains(where: { $0 === v }) else { continue }
+            ours(v).forEach { detach($0, from: v) }
+            v.contextRecognizer?.isEnabled = true
+        }
         for (id, v) in wanted {
+            if interactions[id] == nil, let kept = ours(v).first, recognizers[ObjectIdentifier(kept)] != nil {
+                // Lent from a parked row: the same interaction, now the new node's.
+                interactions[id] = kept
+            }
             if interactions[id] == nil {
-                // A recycled view may still hold one from its last id.
-                ours(v).forEach { v.removeInteraction($0) }
+                // Anything else of ours on the view goes first.
+                ours(v).forEach { detach($0, from: v) }
                 let interaction = UIContextMenuInteraction(delegate: self)
+                let before = companions(of: v)
                 v.addInteraction(interaction)
                 interactions[id] = interaction
+                // The recognizers and interactions UIKit adds with it, which
+                // the node pool lets park with it.
+                recognizers[ObjectIdentifier(interaction)] = companions(of: v).subtracting(before).subtracting([ObjectIdentifier(interaction)])
             }
             v.contextRecognizer?.isEnabled = false
         }
@@ -112,6 +134,45 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     private static func box(_ view: UIView) -> CGRect {
         CGRect(x: view.center.x - view.bounds.width / 2, y: view.center.y - view.bounds.height / 2,
                width: view.bounds.width, height: view.bounds.height)
+    }
+    /// Whether `interaction` is one this host installed.
+    func owns(_ interaction: UIInteraction, on view: UIView) -> Bool {
+        if (interaction as? UIContextMenuInteraction)?.delegate === self { return true }
+        return came(ObjectIdentifier(interaction), on: view)
+    }
+    /// Whether `recognizer` came with one of this host's interactions on `view`.
+    func owns(_ recognizer: UIGestureRecognizer, on view: UIView) -> Bool { came(ObjectIdentifier(recognizer), on: view) }
+    private func came(_ id: ObjectIdentifier, on view: UIView) -> Bool {
+        ours(view).contains { recognizers[ObjectIdentifier($0)]?.contains(id) == true }
+    }
+    /// One of ours off `view`, with the interactions UIKit added beside it:
+    /// it leaves one of them (a click-presentation feedback generator) on
+    /// the view when only the menu's is removed (measured), which would keep
+    /// the view out of the node pool for good.
+    private func detach(_ interaction: UIContextMenuInteraction, from view: UIView) {
+        let added = recognizers.removeValue(forKey: ObjectIdentifier(interaction)) ?? []
+        view.removeInteraction(interaction)
+        for other in view.interactions where added.contains(ObjectIdentifier(other)) { view.removeInteraction(other) }
+    }
+    private func companions(of view: UIView) -> Set<ObjectIdentifier> {
+        Set((view.gestureRecognizers ?? []).map(ObjectIdentifier.init) + view.interactions.map(ObjectIdentifier.init))
+    }
+    /// `view` parks in the node pool (NodePoolIOS): its interaction stays on
+    /// it, no longer any node's (the delegate reads the node from the view,
+    /// and a parked view is hidden, so no menu opens from it). The next sync
+    /// gives it to the node the view is lent to if that one names a popover,
+    /// else takes it off and turns the long press back on. Removing and
+    /// adding it would cost what pooling saves: UIKit adds eight recognizers
+    /// and two interactions with it.
+    func parked(_ view: NodeView) {
+        interactions = interactions.filter { $0.value.view !== view }
+        if !ours(view).isEmpty { parkedViews.add(view) }
+    }
+    /// A parked view leaves the pool for good (evicted, its list gone, memory
+    /// pressure): its interaction and what UIKit added with it go too.
+    func dropped(_ view: NodeView) {
+        parkedViews.remove(view)
+        ours(view).forEach { detach($0, from: view) }
     }
     /// The lifted row at the controller's origin.
     private func place(_ owner: Open) {
@@ -322,9 +383,14 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     func reset() {
         for interaction in interactions.values {
             interaction.dismissMenu()
-            if let view = interaction.view { view.removeInteraction(interaction); (view as? NodeView)?.contextRecognizer?.isEnabled = true }
+            if let view = interaction.view { detach(interaction, from: view); (view as? NodeView)?.contextRecognizer?.isEnabled = true }
         }
         interactions.removeAll()
+        // Parked views are no node's and out of the map: theirs come off too,
+        // with what UIKit added beside them, before the records go.
+        for case let view as NodeView in parkedViews.allObjects { ours(view).forEach { detach($0, from: view) } }
+        parkedViews.removeAllObjects()
+        recognizers.removeAll()
         if let owner = open { restore(owner); open = nil }
     }
 

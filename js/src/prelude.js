@@ -1052,8 +1052,9 @@
     // answer queued there is its own and lands first: a save chained behind
     // a resolved promise was never run on macOS, with nothing in the logs
     // (drums R10), because a reply given here left it queued with no answer
-    // in flight to run it. (The reply is serialized at `settle`, as a
-    // promised value is: the engine keeps one call's large strings.)
+    // in flight to run it. The owner stays installed while that turn drains.
+    // (The reply is serialized at `settle`, as a promised value is: the
+    // engine keeps one call's large strings.)
     calls.set(call.id, call);
     call.status = "done"; call.value = result;
     return JSON.stringify({ tag: 3, call: call.id });

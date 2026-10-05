@@ -81,6 +81,18 @@ final class ControlHost: NSObject {
     var appliedRange: [UInt32: String] = [:]
     /// A select's choice the bound value has not caught up with yet.
     var picked: [UInt32: String] = [:]
+    /// Each native button's face as the runner last gave it. A face is the
+    /// control's viewless contents, which change only in a batch that says
+    /// so (`Batch.controls`), and its own props, which change only in a
+    /// batch that touches it: every other batch keeps it, and asks the
+    /// runner nothing.
+    private var faces: [UInt32: ButtonFace] = [:]
+    func face(_ id: UInt32) -> ButtonFace {
+        if let face = faces[id] { return face }
+        let face = presenter.buttonFace?(id) ?? ButtonFace()
+        faces[id] = face
+        return face
+    }
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
@@ -116,7 +128,11 @@ final class ControlHost: NSObject {
         return made
     }
 
-    func sync() {
+    /// `contents`: a control's viewless contents may have changed (a batch
+    /// with `controls`, or a sync outside any batch); `touched`, the nodes
+    /// the batch changed.
+    func sync(contents: Bool = true, touched: [UInt32] = []) {
+        if contents { faces.removeAll() } else { for id in touched { faces.removeValue(forKey: id) } }
         let owners = ControlKinds.indexed.flatMap { presenter.carrying($0) }.filter { $0.kind == "control" }
         let live = Set(owners.map(\.id))
         // A leaving control keeps drawing until its exit ends (LLP 1069.011 D9).
@@ -124,6 +140,7 @@ final class ControlHost: NSObject {
         for id in Array(controls.keys) where !live.contains(id) && !leaving.contains(id) {
             controls.removeValue(forKey: id)?.removeFromSuperview()
             reported.removeValue(forKey: id)
+            faces.removeValue(forKey: id)
             kinds.removeValue(forKey: id)
             menus.removeValue(forKey: id)
             lastRange.removeValue(forKey: id)
@@ -265,6 +282,7 @@ final class ControlHost: NSObject {
         lastRange.removeAll()
         appliedRange.removeAll()
         picked.removeAll()
+        faces.removeAll()
     }
 }
 

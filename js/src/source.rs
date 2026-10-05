@@ -57,6 +57,7 @@ impl DataSource for Module {
 
     fn release(&mut self, store: &Store) -> Vec<(u64, Dispatch)> {
         let _ = store;
+        self.finish_retired();
         // Waiting answers whose wait may be over are asked again.
         let mut released = Vec::new();
         for token in std::mem::take(&mut self.waiters) {
@@ -190,34 +191,8 @@ impl DataSource for Module {
     /// call whose token is not the one in flight goes too (minesweeper F10:
     /// a read replaced by its own refresh kept its turn open forever, and the
     /// refresh, deferred behind it, never ran).
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
-        let keep: HashMap<Key, Option<u64>> = in_flight
-            .iter()
-            .map(|f| {
-                (
-                    Module::key(Some(f.target), f.source, f.args),
-                    f.continuation,
-                )
-            })
-            .collect();
-        let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.parked)
-            .into_iter()
-            .partition(|(key, parked)| {
-                key.0.is_some()
-                    && !matches!(keep.get(key), Some(None))
-                    && keep.get(key) != Some(&Some(parked.call))
-            });
-        self.parked = kept;
-        let (ended, open): (Vec<_>, Vec<_>) = std::mem::take(&mut self.streams)
-            .into_iter()
-            .partition(|(key, _)| key.0.is_some() && !keep.contains_key(key));
-        self.streams = open;
-        self.forget_calls(
-            gone.into_iter()
-                .chain(ended)
-                .map(|(_, parked)| parked.call)
-                .collect(),
-        );
+    fn forgotten(&mut self, store: &Store, in_flight: &[InFlight<'_>]) {
+        self.retire_calls(store, in_flight);
     }
 
     /// Stops the running call, or the next one to start, from any thread:

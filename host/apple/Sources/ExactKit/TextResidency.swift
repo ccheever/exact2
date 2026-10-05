@@ -126,6 +126,7 @@ final class TextIdentity: Hashable {
 /// pointer. Width and paint keys then share that owned identity and its Strings.
 struct TextPaint: Hashable {
     struct Inline: Hashable {
+        let hidden: Bool
         let color: [Double]?
         let decoration: String
         let href: String
@@ -139,7 +140,7 @@ struct TextPaint: Hashable {
     init(_ spec: Spec) {
         color = spec.color
         ellipsis = spec.ellipsis
-        runs = spec.runs.map { Inline(color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background,
+        runs = spec.runs.map { Inline(hidden: $0.hidden, color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background,
                                       shadow: $0.shadow, stroke: $0.stroke) }
     }
     func applying(to identity: TextIdentity) -> Spec {
@@ -147,6 +148,7 @@ struct TextPaint: Hashable {
         spec.color = color
         spec.ellipsis = ellipsis
         for i in spec.runs.indices {
+            spec.runs[i].hidden = runs[i].hidden
             spec.runs[i].color = runs[i].color
             spec.runs[i].decoration = runs[i].decoration
             spec.runs[i].href = runs[i].href

@@ -1144,6 +1144,10 @@ impl Em<'_> {
         self.editor(i, element, &e)?;
         for (k, b) in row.bindings.iter().enumerate() {
             let b = plan.binding(b);
+            // tvOS's focus guide has no DOM property, whether literal or bound.
+            if b.kind == BindingKind::Prop && b.id == PropId::FocusGuide as u16 {
+                continue;
+            }
             if let Some(v) = style::literal(plan, plan.code(b.expr)) {
                 // A literal source is built into pieces too, once: left as a
                 // constant it painted nothing (notes diary's link repro).

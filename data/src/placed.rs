@@ -43,7 +43,7 @@ enum Job {
     },
     /// What is still in flight, after a commit that let requests go: the
     /// instance drops the calls it parked for the rest, in turn order.
-    Forgotten(Vec<(Target, String, Vec<Vec<u8>>)>),
+    Forgotten(Vec<(Target, String, Vec<Vec<u8>>)>, Vec<(String, String)>),
 }
 
 fn encode_args(args: &[Value]) -> Vec<Vec<u8>> {
@@ -294,9 +294,9 @@ impl<D: DataSource + 'static> Placed<D> {
                 let mut source = obtain();
                 for job in rx {
                     let (target, name, args, outcome, snapshot, reply) = match job {
-                        Job::Forgotten(in_flight) => {
+                        Job::Forgotten(in_flight, snapshot) => {
                             if let Ok(source) = &mut source {
-                                forget(source, &in_flight);
+                                forget(source, &Store::new(&grants, snapshot), &in_flight);
                             }
                             continue;
                         }
@@ -338,7 +338,11 @@ impl<D: DataSource + 'static> Placed<D> {
 /// Tell the instance on its owner what is still in flight, without tokens:
 /// the proxy's mean nothing there. An argument that doesn't cross leaves its
 /// request out, which only lets its call go too.
-fn forget<D: DataSource>(source: &mut D, in_flight: &[(Target, String, Vec<Vec<u8>>)]) {
+fn forget<D: DataSource>(
+    source: &mut D,
+    store: &Store,
+    in_flight: &[(Target, String, Vec<Vec<u8>>)],
+) {
     let decoded: Vec<(Target, &str, Vec<Value>)> = in_flight
         .iter()
         .filter_map(|(target, name, args)| Some((*target, name.as_str(), decode_args(args).ok()?)))
@@ -352,7 +356,7 @@ fn forget<D: DataSource>(source: &mut D, in_flight: &[(Target, String, Vec<Vec<u
             continuation: None,
         })
         .collect();
-    source.forgotten(&view);
+    source.forgotten(store, &view);
 }
 
 /// One turn (LLP 1027.002 D3, change 3): begin or resume; stay on the owner
@@ -580,7 +584,7 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
     /// on the owner ends there; the runner drops its reply. The source hears
     /// the same, in turn order on its owner, where it has no call yet for a
     /// key whose recorded call hasn't been dispatched.
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
+    fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
         let tokens: HashSet<u64> = in_flight.iter().filter_map(|f| f.continuation).collect();
         self.recorded.retain(|token, _| tokens.contains(token));
         let live: HashMap<Key, Option<u64>> = in_flight
@@ -608,9 +612,12 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
                 })
                 .map(|f| (f.target, f.source.to_string(), encode_args(f.args)))
                 .collect();
-            let _ = owner.send(Job::Forgotten(view));
+            let _ = owner.send(Job::Forgotten(
+                view,
+                envelope::snapshot(store, &self.grants),
+            ));
         } else if let Some(inner) = self.inner.as_mut() {
-            inner.forgotten(in_flight);
+            inner.forgotten(store, in_flight);
         }
     }
 

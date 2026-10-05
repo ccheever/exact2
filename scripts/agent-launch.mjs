@@ -2,10 +2,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
+import { filesystemLock } from './filesystem.mjs';
 import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -556,4 +557,32 @@ export async function closePage(req, { cdp, sessionId, call, frame }) {
     await frame();
     return { closed: false, kept: 'a `beforeunload` called `preventDefault()`: the browser asked "Leave site?", answered "Stay"', delivery: 'browser-window', native: 'Page.close' };
   } finally { clearTimeout(timer); cdp.listeners.splice(cdp.listeners.indexOf(listener), 1); }
+}
+
+/** The simulator has one running process per bundle id, across every checkout.
+ * Hold an OS lock through launch and close; a crashed driver releases it through
+ * the helper's stdin. Permanent lock files avoid unlink/reacquire races. */
+export async function exclusiveIOS(udid, bundle, launch, { directory = resolve(tmpdir(), 'exact-ios-drives'), timeout = 60000 } = {}) {
+  const path = createHash('sha256').update(JSON.stringify([udid, bundle])).digest('hex') + '/.lock';
+  const started = Date.now();
+  let release, holding;
+  for (;;) {
+    let acquired;
+    const ready = new Promise(resolve => { acquired = resolve; });
+    const done = new Promise(resolve => { release = resolve; });
+    holding = filesystemLock(directory, path, async () => { acquired(); await done; });
+    try { await Promise.race([ready, holding]); break; }
+    catch (error) {
+      if (!error.message.includes('stream is locked by another publisher')) throw error;
+      if (Date.now() - started >= timeout) throw new Error(`iOS drive busy for ${bundle} on ${udid}: another drive still owns this simulator app after ${timeout / 1000}s`);
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+  const unlock = async () => { release(); await holding; };
+  try {
+    const carrier = await launch(), close = carrier.close.bind(carrier);
+    let closed;
+    carrier.close = () => closed ??= (async () => { try { await close(); } finally { await unlock(); } })();
+    return carrier;
+  } catch (error) { await unlock(); throw error; }
 }

@@ -1,7 +1,7 @@
 // @ref LLP 1043.000 §3 D7/D8 — flow settlement must not change LLP 1012's API.
 import { test, expect } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
@@ -1446,3 +1446,38 @@ test('innermost non-interactive text; none is null', () => {
   expect(nodeNamed(nodes, 'Hi').id).toBe(3);
   expect(nodeNamed(nodes, 'Nope')).toBe(null);
 });
+
+
+test('iOS drives serialize the same device and bundle and release on launch or close failure', async () => {
+  const { exclusiveIOS } = await import('../../scripts/agent-launch.mjs');
+  const directory = mkdtempSync(join(tmpdir(), 'exact-drive-lock-')), events = [];
+  const options = { directory, timeout: 1000 };
+  const launch = label => async () => { events.push(label); return { close: async () => events.push('close ' + label) }; };
+  let first, second, other;
+  try {
+    first = await exclusiveIOS('sim', 'app', launch('first'), options);
+    const waiting = exclusiveIOS('sim', 'app', launch('second'), options);
+    other = await exclusiveIOS('sim', 'other', launch('other'), options);
+    expect(events).toEqual(['first', 'other']);
+    await first.close(); second = await waiting;
+    expect(events).toEqual(['first', 'other', 'close first', 'second']);
+    await expect(exclusiveIOS('sim', 'app', launch('blocked'), {...options, timeout:0})).rejects.toThrow('iOS drive busy');
+    await second.close(); await other.close();
+    await expect(exclusiveIOS('sim', 'app', async () => { throw Error('launch failed'); }, options)).rejects.toThrow('launch failed');
+    first = await exclusiveIOS('sim', 'app', async () => ({ close: async () => { throw Error('close failed'); } }), options);
+    await expect(first.close()).rejects.toThrow('close failed'); first = null;
+    second = await exclusiveIOS('sim', 'app', launch('released'), options); await second.close();
+    // Kill the recorded driver PID while it holds the lock: EOF must release
+    // the helper's OS lock without a stale-file cleanup or a wall-clock lease.
+    const script = join(directory, 'holder.mjs');
+    writeFileSync(script, `import {exclusiveIOS} from ${JSON.stringify(new URL('../../scripts/agent-launch.mjs', import.meta.url).href)};
+await exclusiveIOS('sim','app',async()=>({close:async()=>{}}),${JSON.stringify(options)});console.log('held');`);
+    const child = spawn(process.execPath, [script], {stdio:['ignore','pipe','pipe']});
+    const exited = new Promise(resolve => child.once('exit', resolve));
+    try {
+      await new Promise((resolve,reject)=>{child.stdout.once('data',resolve);child.once('error',reject);child.once('exit',()=>reject(Error('holder exited before locking')));});
+      child.kill('SIGKILL'); await exited;
+      second = await exclusiveIOS('sim', 'app', launch('after death'), options); await second.close();
+    } finally { child.kill('SIGKILL'); await exited; }
+  } finally { await first?.close(); await second?.close(); await other?.close(); rmSync(directory,{recursive:true,force:true}); }
+}, 60000);

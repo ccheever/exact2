@@ -1341,7 +1341,9 @@ into the tvOS binary alone.
   `aarch64-apple-tvos-sim` (arm64 only; `rustup target add` it), the
   manifest's iOS section and deployment target, and device family 3. No
   device builds, icons or iframe arm (tvOS has no WebKit). An app with
-  `app.ts` needs `EXACT_JS_ENGINE=stub` until Hermes is built for tvOS.
+  `app.ts` links the pinned lean Hermes built once per machine for
+  `tvos-simulator`; tvOS bakes the iOS plan. Photo Editor and Recorder refuse
+  tvOS builds because they require a touchscreen or microphone.
 - **The Siri Remote.** Node views join UIKit's focus engine. A node takes
   focus when a keyboard could focus it or when it is an enabled press target.
   Each move dispatches `focus` and `blur` and shows the ring, drawn 10 pt
@@ -1352,6 +1354,11 @@ into the tvOS binary alone.
   removed, so Menu leaves the app, as tvOS requires at an app's root.
   A canvas's overlay stays at alpha 1 behind the Metal picture, because tvOS
   never focuses a view at alpha 0. Nothing fires `pointerdown`/`pointerup`.
+- **Focus guides.** `focusGuide="auto"` on a container installs a UIKit focus
+  guide over its box. A move entering from outside returns to the descendant
+  that last held focus, or its first focusable descendant; moves inside keep
+  UIKit's geometry. Other hosts ignore it. When a focused node is replaced,
+  the session prefers the shown, focusable replacement with the same `testId`.
 - **Interaction media.** Hosts send CSS's `pointer` (`fine`, `coarse`,
   `none`) and `hover` (`hover`, `none`) as preference bits 5–7, and
   `exactViewport` names them. Zero is a mouse, so a host that sends nothing

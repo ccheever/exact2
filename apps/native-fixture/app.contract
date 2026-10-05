@@ -487,8 +487,13 @@ component HookedRows
     column flex=1 min-height=0
       button press=toggleReuse testId="reuse" padding=6 margin=12 background-color="#e5e7eb"
         text (reuse ? "Rows reused" : "Rows not reused")
+      // Each row's context menu (LLP 1021 §5.1): a row that names one still
+      // parks in the node pool and is lent to the next (NodePoolIOS).
+      column id="row-menu" popover="auto" position="absolute" role="menu" width=200 padding=8 background-color="#ffffff"
+        button popovertarget="row-menu" popovertargetaction="hide" testId="row-menu-close" height=44
+          text "Close"
       list virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=40 testId="hooked-list"
         each r in items key=r.n
-          row height=40 align-items="center" gap=8 padding-left=12 testId=`row-${r.n}`
+          row contextPopover="row-menu" height=40 align-items="center" gap=8 padding-left=12 testId=`row-${r.n}`
             column hook="dot" data-reuse=(reuse ? "true" : "false") width=12 height=12 border-radius=6 background-color="#6366f1"
             text ("Row " + toString(r.n))

@@ -102,14 +102,16 @@ guide's rules don't make obvious.
   it has not built (84 pt with `estimated-item-height=52`). Fix:
   `scroll-start="end"` on the `list` (LLP 1010 §6.5), not a `scrollTop` write or a
   `scrollIntoView` after the first command. (Signal Clone, build 4.)
-- **The app works hard at rest.** Cause: it commits state on a timer (a clock
-  written every 250 ms), so every tick is a batch and the host runs its whole
-  post-apply pass (navigation, controls, menus, every scroller's position) four
-  times a second; before `32805146` this also cut the reader's scrolling. Fix:
-  write state only when it changes (a minute-resolution clock; poll fast only while
-  something is in flight: `task poll when inFlight every(200, tick)`), and remove
-  `scroll=` handlers left over from experiments: each commits per scroll frame.
-  (Signal Clone, build 2; QUEUE has the host side.)
+- **The app works hard at rest.** Cause: it commits state that shows on a timer
+  (a clock's text written every 250 ms), so every tick changes a view and the host
+  runs its whole post-apply pass (navigation, controls, menus, every scroller's
+  position) four times a second; before `32805146` this also cut the reader's
+  scrolling. A timer's or a scroll handler's commit whose writes show nowhere
+  skips that pass; any other still runs it. Fix: write state
+  only when it changes (a minute-resolution clock; poll fast only while something
+  is in flight: `task poll when inFlight every(200, tick)`), and remove
+  `scroll=` handlers left over from experiments: each runs an action per scroll
+  frame. (Signal Clone, build 2.)
 - **A gate reads state at commits.** A gated task (`task hide when toast != ""
   key=toastUntil`) is armed or dropped by the commit that changes its gate or
   key, never as the clock moves: so a gate cannot read `now()` (refused), and the
@@ -322,20 +324,6 @@ guide's rules don't make obvious.
   flight. Fix: await the write before answering, or carry it in a
   request of its own that the view sends (a `flush` source called with the change).
   (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
-
-- **Two quick sends to one mutation lost the first write on iOS.** Two adds in a
-  row (`send changed = addTask(…)` from consecutive inputs) kept only the second:
-  the log said `forget request 11 (changed)`, and the first insert, queued behind
-  a storage turn still open, never landed; the web finished it. Cause: a second `send` to a mutation
-  forgets the request in flight (its reply is dropped by design); the native
-  executor finishes a forgotten request already in a storage step, but drops one
-  that has not reached its first (QUEUE). Fix until then: give each write that can
-  be in flight at once a mutation of its own, or keep the edits in Contract state and
-  send the whole of it each time, from the value assigned (`let next = …`, then
-  `tasks = next` and `send saved = saveTasks(next)`: a statement reads the state the
-  action started with), so a later request that supersedes an earlier one already
-  carries every change. (Authoring
-  bench, LLP 1087, t2-todo on iOS, 2026-10-05.)
 
 ## Driving and testing
 

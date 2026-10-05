@@ -149,6 +149,13 @@ and drive. A stale
 artifact is a failed verification; rebuild what the driver names. A successful
 Cargo rlib build does not prove a native app launches or behaves correctly.
 
+tvOS uses the iOS presenter and plan: `bun host/apple/build.mjs --tvos
+caltrain-apple --run` builds and launches on an Apple TV simulator. TypeScript
+apps provision lean Hermes for `tvos-simulator` once per machine. On a container,
+`focusGuide="auto"` makes an entering remote move return to its last focused
+descendant, or its first focusable descendant. Other hosts ignore it, including
+when the value is bound. The agent driver has no tvOS target yet.
+
 A script drives the same session in JavaScript: `const s = await open({ host:
 'web', app, epoch, timeZone, storage, size: [390, 844] })` from `scripts/agent.mjs`
 (`size` is `[width, height]`, or the CLI's `'390x844'`), then
@@ -167,7 +174,8 @@ not select the app, and `webDist` alone does not select an app. `s.op(request)` 
 host's wire beneath them: it addresses views by numeric `id`, and it refuses a
 request it would answer by doing nothing (a `target`, an unknown op, a web
 `tap` with no browser input behind it). A reload or a raw browser step goes
-through `s.carrier` (`evaluate`, and on Chrome `call` for CDP).
+through `s.carrier` (`reset({keep: true})` reloads the current browser route with
+its store and agent launch facts; `evaluate`, and on Chrome `call`, drive raw browser steps).
 
 Use the existing five repository checks for repository changes. Do not add a
 new global check or fixture framework for an ordinary app edit. For documentation,
@@ -1082,11 +1090,11 @@ above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
 what is in flight lands, with each answer's `then`, the clock unmoved), `resize
 800x600` (the window, mid-test), `reload`
 (the app restarts on the store it had, including a `secret.keep`, its state and
-clock starting over, so a test shows what persists; it opens at the launch URL,
-not the route the test had reached, so a deep link after a reload is a
-`type <root> "/path"` after it), `close` (the window's close
-button, as ⌘W: a `beforeunload` that calls `preventDefault()` keeps it open and
-the test goes on to the app's "Save changes?"; macOS and the web),
+clock starting over, so a test shows what persists; the web reloads its current
+URL, including its agent launch facts; a native app reopens at its launch
+location), `close` (the window's close button, as ⌘W: a `beforeunload` that
+calls `preventDefault()` keeps it open and the test goes on to the app's "Save
+changes?"; macOS and the web),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text; a control's value, so a `select` reads its chosen value, not its
 options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and

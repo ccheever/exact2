@@ -139,6 +139,7 @@ struct Parked {
     progress: u64,
     /// Asked again with nothing outstanding in the module: its last settle.
     last: bool,
+    deferred_args: Option<Vec<Value>>,
 }
 
 /// The ticket of an answer that has not begun: it arrived while another
@@ -216,6 +217,8 @@ pub struct Module {
     streams: Vec<(Key, Parked)>,
     /// Deferred answers whose dispatch was held, oldest first.
     held: std::collections::VecDeque<u64>,
+    retired: std::collections::VecDeque<turns::Retired>,
+    draining_retired: bool,
     /// Answers waiting on another answer's work whose dispatch was held.
     waiters: Vec<u64>,
     /// Deliveries and new answers so far: what a waiting answer waits for.
@@ -442,6 +445,8 @@ impl Module {
             parked: Vec::new(),
             streams: Vec::new(),
             held: std::collections::VecDeque::new(),
+            retired: Default::default(),
+            draining_retired: false,
             waiters: Vec::new(),
             progress: 0,
             next_deferred: FIRST_DEFERRED_TOKEN,
@@ -689,6 +694,8 @@ impl Module {
         self.host.hosted_call = None;
         self.native_slot.set(None);
         self.parked.clear();
+        self.retired.clear();
+        self.draining_retired = false;
         self.host.requests.clear();
     }
 
@@ -729,7 +736,7 @@ impl Module {
 
     /// Answers awaiting a fetch the host has yet to fulfil.
     pub fn in_flight(&self) -> usize {
-        self.parked.len() + self.streams.len()
+        self.parked.len() + self.streams.len() + self.retired.len()
     }
 
     /// Decode once, retaining metadata for async dispatch and the typed answer
@@ -846,15 +853,10 @@ impl Module {
                 "exact-js: the engine is not loaded".into(),
             ));
         }
-        // One storage turn at a time, as the browser's worker runs them (its
-        // `tail`) and as a worker placement's owner does: an answer that
-        // arrives while another is between storage steps waits for that turn
-        // to end before its JavaScript starts. Otherwise work an app chains
-        // behind the open turn's promise (a serialized database, say) would
-        // run inside the wrong answer, and this one would be pending on
-        // nothing. Its continuation is held at dispatch and released by the
-        // commit that ends the turn.
-        if self.turn_open() && self.sigs.contains_key(source) {
+        // One storage turn at a time. Forgotten deferred mutations remain
+        // queued for their external effects, even after their reply is dropped.
+        self.finish_retired();
+        if self.defer_turn(source) {
             let token = self.next_deferred;
             self.next_deferred += 1;
             self.parked.push((
@@ -865,6 +867,8 @@ impl Module {
                     work_taken: false,
                     progress: self.progress,
                     last: false,
+                    deferred_args: matches!(target, Some(Target::Mutation(_)))
+                        .then(|| args.to_vec()),
                 },
             ));
             return Ok(Answer::Later(Request::continuation(token)));
@@ -973,6 +977,7 @@ impl Module {
                 "exact-js: the engine is not loaded".into(),
             ));
         }
+        self.finish_retired();
         let key = Module::key(target, source, args);
         if self.streams.iter().any(|(k, _)| *k == key) {
             return self.message(store, source, key, outcome);
@@ -996,7 +1001,7 @@ impl Module {
             if let Outcome::Failed { message, .. } = &outcome {
                 return Err(DataError::Unavailable(message.clone()));
             }
-            return self.begin(Some(store), target, source, args);
+            return self.begin_deferred(store, target, source, args);
         }
         let outcome_text = outcome_to_json(&outcome).to_string();
         self.host.store = Some(store as *mut Store);
@@ -1079,6 +1084,7 @@ impl Module {
             work_taken: false,
             progress: self.progress,
             last: false,
+            deferred_args: None,
         };
         if request.stream {
             self.streams.push((key, parked));

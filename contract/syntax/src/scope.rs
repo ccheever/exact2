@@ -82,6 +82,13 @@ pub struct Scope {
     /// Whether a call names a roster function, which no file declares and
     /// every file sees: never another file's name, so never refused.
     pub roster: Option<fn(&str) -> bool>,
+    /// The types the compiler declares (`PointerEvent`, `Geometry`, …):
+    /// every file sees them, so another file's `fn` of the name is never
+    /// what a type means.
+    pub builtin_types: std::collections::HashSet<String>,
+    /// The program-unique names that are shapes, not `fn`s: a call of a
+    /// shape named `path` is the router's `path()`, as the checker reads it.
+    pub shapes: std::collections::HashSet<String>,
 }
 
 impl Scope {
@@ -202,7 +209,14 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
     }
     if let Some(routes) = routes {
         for row in &mut routes.rows {
-            r.attrs(&mut row.fields)?;
+            for field in &mut row.fields {
+                // `pages=source(args)` names a data source, as a resource
+                // does; only its arguments are Contract.
+                match (&*field.name, &mut field.value) {
+                    ("pages", Expr::Call(_, args, _)) => r.exprs(args)?,
+                    _ => r.expr(&mut field.value)?,
+                }
+            }
         }
     }
     for test in tests {
@@ -351,7 +365,17 @@ impl Rewriter<'_> {
     fn ty(&mut self, ty: &mut TypeExpr) -> R {
         match ty {
             TypeExpr::Named(name, _) if PRIMITIVES.contains(&name.as_str()) => Ok(()),
-            TypeExpr::Named(name, span) => self.scope.rename(Kind::Call, name, *span),
+            // A type is a shape, never a `fn`: a shape this file sees, else
+            // one the compiler declares (`PointerEvent`) or bare `action`,
+            // else a name another file declares, refused.
+            TypeExpr::Named(name, span) => match self.scope.get(Kind::Call, name) {
+                Some(to) if self.scope.shapes.contains(to) => {
+                    self.scope.rename(Kind::Call, name, *span)
+                }
+                _ if self.scope.builtin_types.contains(name.as_str()) || name == "action" => Ok(()),
+                Some(_) => Ok(()),
+                None => self.scope.rename(Kind::Call, name, *span),
+            },
             TypeExpr::Option(inner, _) | TypeExpr::List(inner, _) => self.ty(inner),
         }
     }
@@ -422,7 +446,11 @@ impl Rewriter<'_> {
                     span,
                 } => {
                     self.scope.rename(Kind::Component, name, *span)?;
-                    self.attrs(args)?;
+                    // A component's argument is a value: `class`, `animation`
+                    // and the like are the child's props, not its style rows.
+                    for arg in args.iter_mut() {
+                        self.expr(&mut arg.value)?;
+                    }
                     self.nodes(children)?;
                 }
                 Node::Children { .. } => {}
@@ -571,6 +599,39 @@ impl Rewriter<'_> {
                 .into_iter()
                 .filter(|(_, t)| !t.is_empty())
                 .collect();
+            // With a computed part, a literal keyword's slot depends on what
+            // the part is when it runs (`${x} linear 1s`: `linear` is the
+            // easing if `x` is a time, the name if `x` is an easing). Read as
+            // `motion` does with the part filling nothing; where a keyword
+            // that may be the name is also renamed keyframes, no reading is
+            // safe, so the rename is refused.
+            // (A computed part whose text says its slot — `steps(${n}, …)`,
+            // `${d}ms` — leaves nothing to guess.)
+            let unknown = |t: &str| {
+                t.contains(HOLE)
+                    && !["cubic-bezier(", "steps(", "linear(", "spring("]
+                        .iter()
+                        .any(|f| t.starts_with(f))
+                    && !(t.ends_with("ms") || t.ends_with('s'))
+            };
+            if shorthand && tokens.iter().any(|(_, t)| unknown(t)) {
+                for &(_, t) in &tokens {
+                    if t.contains(HOLE) || !Shorthand::is_keyword(t) {
+                        continue;
+                    }
+                    if let Some(to) = self.scope.resolve(Kind::Keyframes, t, span)? {
+                        if to != t {
+                            return Err(SyntaxError {
+                                id: "contract-animation-ambiguous",
+                                message: format!(
+                                    "`{t}` beside a computed value is a keyword or this file's `keyframes {t}`, which another file's `{t}` renamed, depending on the value when it runs; quote the name (`'{t}'`) or name the keyframes otherwise (LLP 1091 D5)"
+                                ),
+                                span,
+                            });
+                        }
+                    }
+                }
+            }
             let name = if shorthand {
                 let mut slots = Shorthand::default();
                 let mut name = None;
@@ -714,7 +775,13 @@ impl Rewriter<'_> {
                 let roster = self.scope.roster.is_some_and(|f| f(name));
                 // `pending` and `failed` are read before any `fn`, and `t`
                 // before any but an action or prop of its name.
-                let intrinsic = matches!(name.as_str(), "pending" | "failed")
+                let routing = name == "path"
+                    && self
+                        .scope
+                        .get(Kind::Call, name)
+                        .is_none_or(|to| self.scope.shapes.contains(to));
+                let intrinsic = routing
+                    || matches!(name.as_str(), "pending" | "failed")
                     || (name == "t" && !self.callable_t());
                 if !intrinsic && (declared || !(self.local(name) || roster)) {
                     self.scope.rename(Kind::Call, name, *span)?;
@@ -785,6 +852,31 @@ struct Shorthand {
 }
 
 impl Shorthand {
+    /// A keyword the shorthand reads in a slot before the name's.
+    fn is_keyword(part: &str) -> bool {
+        matches!(
+            part,
+            "linear"
+                | "ease"
+                | "ease-in"
+                | "ease-out"
+                | "ease-in-out"
+                | "step-start"
+                | "step-end"
+                | "infinite"
+                | "normal"
+                | "reverse"
+                | "alternate"
+                | "alternate-reverse"
+                | "none"
+                | "forwards"
+                | "backwards"
+                | "both"
+                | "running"
+                | "paused"
+        )
+    }
+
     /// A part with a computed value in it fills what its literal text says
     /// it is — an easing function, or a time by its unit — and is never the
     /// name.

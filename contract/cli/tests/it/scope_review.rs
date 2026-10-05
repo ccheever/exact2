@@ -669,3 +669,164 @@ fn a_nearer_install_and_the_offered_export_path_are_watched() {
         );
     }
 }
+
+// Round 8 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_component_argument_is_a_value_not_a_style_row() {
+    let dir = Dir::new("arg-value");
+    let root = dir.write(
+        "app.contract",
+        "use Activity as Shared from \"exact:motion\"\ntimeline Activity\ncomponent App\n  view\n    Label(animationTimeline=\"clock(Shared)\")\ncomponent Label\n  props\n    animationTimeline: string\n  view\n    text animationTimeline\n",
+    );
+    let text = plan(&root);
+    assert!(text.contains("clock(Shared)"), "{text}");
+}
+
+#[test]
+fn a_generated_name_is_never_a_binding_of_its_own_file() {
+    let dir = Dir::new("generated-own");
+    dir.write(
+        "ui.contract",
+        "fn val(s: string): string = s\ncomponent Card\n  state n = 0\n  action val__ui(x: number)\n    n = x\n  view\n    button press=val__ui(1) testId=\"b\"\n      text `${val(\"x\")}`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nfn val(s: string): string = s\ncomponent App\n  view\n    column\n      Card()\n      text `${val(\"y\")}`\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(e.as_ref().is_none_or(|e| e.id != "type-argument"), "{e:?}");
+}
+
+#[test]
+fn a_relative_use_is_watched_by_the_path_written() {
+    let dir = Dir::new("relative-written");
+    dir.write(
+        "lib/v1.contract",
+        "component Card\n  view\n    text \"v1\"\n",
+    );
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(
+        dir.0.join("lib/v1.contract"),
+        dir.0.join("lib/entry.contract"),
+    )
+    .unwrap();
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./lib/entry.contract\"\ncomponent App\n  view\n    Card()\n",
+    );
+    #[cfg(unix)]
+    {
+        let graph = contract::source_graph(&root);
+        assert!(
+            graph.consulted.contains(&dir.0.join("lib/entry.contract")),
+            "{:?}",
+            graph.consulted
+        );
+    }
+}
+
+// Round 9 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_keyword_beside_a_computed_value_that_is_also_renamed_keyframes_is_refused() {
+    // `${easing} linear 1s`: `linear` is the easing if the value is a time,
+    // the name if it is an easing. No rename is right for both (round 10).
+    let dir = Dir::new("computed-easing");
+    dir.write(
+        "ui.contract",
+        "keyframes linear\n  to opacity=0\ncomponent Card\n  state easing = \"ease\"\n  view\n    view animation=`${easing} linear 1s`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes linear\n  to opacity=1\ncomponent App\n  view\n    Card()\n",
+    );
+    let e = contract::compile_path(&root).unwrap_err();
+    assert_eq!(e.id, "contract-animation-ambiguous", "{e}");
+}
+
+#[test]
+fn a_compiler_declared_type_is_no_files_name() {
+    let dir = Dir::new("builtin-type");
+    dir.write(
+        "ui.contract",
+        "fn PointerEvent(x: number): number = x\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\ncomponent App\n  state x = 0\n  action point(e: PointerEvent)\n    x = e.offsetX\n  view\n    column\n      Card()\n      view pointerdown=point width=10 height=10\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(
+        e.as_ref().is_none_or(|e| e.id != "contract-use-missing"),
+        "{e:?}"
+    );
+}
+
+#[test]
+fn a_shape_named_path_does_not_take_the_routers_call() {
+    let dir = Dir::new("shape-path");
+    dir.write(
+        "ui.contract",
+        "shape path\n  n: number\ncomponent Card\n  view\n    text path(\"home\")\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nroutes nav\n  home \"/\"\ncomponent App\n  view\n    column\n      Card()\n      text path(\"home\")\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(
+        e.as_ref().is_none_or(|e| e.id != "type-record-base"),
+        "{e:?}"
+    );
+}
+
+// Round 10 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_computed_part_fills_no_slot_and_the_name_motion_reads_is_renamed() {
+    let dir = Dir::new("computed-slot");
+    dir.write(
+        "ui.contract",
+        "keyframes spin\n  to opacity=0\ncomponent Card\n  state dur = \"1s\"\n  view\n    view animation=`${dur} ease spin`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes spin\n  to opacity=1\ncomponent App\n  view\n    Card()\n",
+    );
+    let text = plan(&root);
+    assert!(text.contains(" ease spin__ui"), "{text}");
+}
+
+#[test]
+fn a_type_is_a_shape_never_a_renamed_fn() {
+    let dir = Dir::new("type-not-fn");
+    dir.write(
+        "ui.contract",
+        "fn PointerEvent(x: number): number = x\ncomponent Card\n  state x = 0\n  action point(e: PointerEvent)\n    x = e.offsetX\n  view\n    view pointerdown=point width=10 height=10\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nfn PointerEvent(x: number): number = x\ncomponent App\n  view\n    Card()\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(e.as_ref().is_none_or(|e| e.id != "type-unknown"), "{e:?}");
+}
+
+#[test]
+fn a_route_pages_source_is_a_data_source_not_a_fn() {
+    let dir = Dir::new("route-pages");
+    dir.write(
+        "ui.contract",
+        "fn ids(x: number): number = x\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nroutes nav\n  home \"/\"\n  item \"/item/:id\" render=build pages=ids()\ncomponent App\n  view\n    Card()\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(
+        e.as_ref().is_none_or(|e| e.id != "contract-use-missing"),
+        "{e:?}"
+    );
+}

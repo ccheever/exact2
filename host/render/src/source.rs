@@ -121,8 +121,8 @@ impl<D: DataSource> DataSource for Anonymous<D> {
     fn native(&self) -> Option<exact_runner::Native> {
         self.inner.native()
     }
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
-        self.inner.forgotten(in_flight);
+    fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
+        self.inner.forgotten(store, in_flight);
     }
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
         self.inner.dispatch(token, store)

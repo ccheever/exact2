@@ -60,6 +60,19 @@ fn fixture_plan(root: &str, nodes: &str) -> Plan {
 }
 
 #[test]
+fn tvos_focus_guides_are_ignored_on_the_web_even_when_bound() {
+    for guide in ["", "focusGuide=\"auto\"", "focusGuide=guide"] {
+        let plan = contract::compile(&format!(
+            "component FocusGuide\n  state guide = \"auto\"\n  view\n    column {guide}\n      button \"Focusable\" testId=\"control\"\n"
+        ))
+        .unwrap();
+        let out = crate::emit::emit(&plan, false, false).unwrap();
+        assert!(out.js.contains("control"));
+        assert!(!out.js.contains("focusGuide"));
+    }
+}
+
+#[test]
 fn plain_plans_omit_the_mirror_but_keep_root_isolation() {
     for (style, needed) in [
         ("", false),
