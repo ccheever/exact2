@@ -119,8 +119,8 @@ another viewport, and a test's first step `size <w>x<h>` does the same for that 
 `resize <w>x<h>`, an operation and a test step, resizes it mid-drive as a person
 dragging the window's edge would: the browser's viewport, a macOS window, the
 Linux presenter. iOS refuses a mid-drive `resize`; a size given at launch (`--size`, a
-test's `size` line) is laid out at that viewport, scaled to fit the screen, with no
-safe-area insets.
+test's `size` line) is laid out at that viewport with no safe-area insets, scaled to fit
+the app's frame (the safe area, unless the root covers the whole screen).
 `close`, an operation and a test step, presses the window's close button as ⌘W
 or the red button would (the agent's window is never key, so a typed ⌘W reaches
 nothing): the window asks its `beforeunload` first, and the reply says
