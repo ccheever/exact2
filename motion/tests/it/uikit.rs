@@ -219,7 +219,16 @@ fn the_reconstruction_matches_uikit_outside_the_band() {
                     assert!(!root);
                     refused += 1
                 }
-                Ok(_) => assert!(root),
+                Ok(s) => {
+                    assert!(root);
+                    let omega = pinned / d;
+                    assert_eq!(s.config.stiffness, omega * omega, "ζ {z} u {u}");
+                    assert_eq!(s.config.damping, 2.0 * z.min(1.0) * omega, "ζ {z} u {u}");
+                    assert_eq!(
+                        (s.config.mass, s.velocity, s.end, s.branch),
+                        (1.0, v, Some(d), Branch::Textbook)
+                    );
+                }
                 Err(e) => panic!("ζ {z} u {u}: {e:?}"),
             }
             continue;
@@ -406,6 +415,19 @@ fn bounce_within_an_ulp_of_zero_keeps_its_branch() {
     let p = 1.0 + uikit::sample(&negative.config, negative.branch, -1.0, 0.0, t).displacement;
     let critical = 1.0 - 2.0 * (-1.0f64).exp();
     assert!(p > critical + 0.5, "{p}");
+}
+
+#[test]
+fn a_critical_spring_on_the_overdamped_branch_is_critical() {
+    // The discriminant of k 2, c 2√2 rounds to 4.4e-16, but ζ is exactly 1.
+    let config = SpringConfig {
+        stiffness: 2.0,
+        damping: 2.0 * 2f64.sqrt(),
+        mass: 1.0,
+    };
+    let t = 1.0 / 2f64.sqrt();
+    let p = 1.0 + uikit::sample(&config, Branch::Overdamped, -1.0, 0.0, t).displacement;
+    assert!((p - (1.0 - 2.0 * (-1.0f64).exp())).abs() < 1e-9, "{p}");
 }
 
 #[test]

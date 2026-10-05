@@ -351,9 +351,12 @@ pub fn sample(
     let omega_squared = config.stiffness / config.mass;
     let discriminant = alpha * alpha - omega_squared;
     // Every strictly overdamped spring on the overdamped branch takes Core
-    // Animation's pairing, however close to critical (fit.mjs `caPos`).
+    // Animation's pairing, however close to critical. Overdamped means
+    // ζ = c/(2√(km)) > 1, as `fit.mjs`'s `caPos` decides it, not a
+    // discriminant that rounds positive at ζ = 1.
+    let zeta = config.damping / (2.0 * math::sqrt(config.stiffness * config.mass));
     match branch {
-        Branch::Overdamped if discriminant > 0.0 => {
+        Branch::Overdamped if zeta > 1.0 && discriminant > 0.0 => {
             let root = math::sqrt(discriminant);
             let r1 = -alpha + root;
             let r2 = -alpha - root;
