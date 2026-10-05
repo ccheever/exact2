@@ -736,12 +736,10 @@ impl Parser {
                             // A TypeScript-style `as` on the initializer (authoring bench).
                             if self.at_ident("as") {
                                 let from = if w == "state" {
-                                    format!(
-                                        "its initializer and the writes to it (`{name} = some(…)` \
-                                         makes a `none` an option of that)"
-                                    )
+                                    "its initializer and the writes to it (a `none` becomes an \
+                                     option of what is written into it)"
                                 } else {
-                                    "its expression".to_string()
+                                    "its expression"
                                 };
                                 return self.err(
                                     "syntax-expected-newline",

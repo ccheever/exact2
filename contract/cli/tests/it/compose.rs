@@ -207,7 +207,7 @@ fn a_view_if_and_a_state_as_name_the_contract_form() {
     let error = contract::compile(state_as).unwrap_err();
     assert_eq!(
         (error.id.as_str(), error.message.as_str()),
-        ("syntax-expected-newline", "a state takes no `as`: its type is inferred from its initializer and the writes to it (`draft = some(…)` makes a `none` an option of that)")
+        ("syntax-expected-newline", "a state takes no `as`: its type is inferred from its initializer and the writes to it (a `none` becomes an option of what is written into it)")
     );
     let derive_as = "component App\n  derive n = 2 as number\n  view\n    text \"a\"\n";
     let error = contract::compile(derive_as).unwrap_err();
@@ -225,7 +225,7 @@ fn position_fixed_says_how_to_pin_a_box() {
     assert!(
         error
             .message
-            .ends_with("; `fixed` is not a row (LLP 1001): pin a box to the viewport with `absolute` in a root that does not scroll, or `sticky` in the scroller"),
+            .ends_with("; `fixed` is not a row (LLP 1001): pin a box to the viewport with `absolute` in a root that does not scroll, or `sticky` in the page's scroller"),
         "{error}"
     );
 }
