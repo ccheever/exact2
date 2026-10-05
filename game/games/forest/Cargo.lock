@@ -973,6 +973,13 @@ name = "exact-game-derive"
 version = "0.1.0"
 
 [[package]]
+name = "exact-game-look"
+version = "0.1.0"
+dependencies = [
+ "exact-game",
+]
+
+[[package]]
 name = "exact-game-physics"
 version = "0.1.0"
 dependencies = [
@@ -1368,6 +1375,7 @@ name = "forest-logic"
 version = "0.1.0"
 dependencies = [
  "exact-game",
+ "exact-game-look",
  "exact-game-physics",
 ]
 

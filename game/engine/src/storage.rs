@@ -201,6 +201,8 @@ pub(crate) trait Erased {
     );
     fn settle_tick(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> Option<u64>;
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool;
+    /// Visit each present row's index, in order.
+    fn visit_indices(&self, each: &mut dyn FnMut(usize));
     /// Identity for caches keyed by page generation or revision.
     fn instance(&self) -> u64;
     /// Write generation of the whole storage.
@@ -253,6 +255,9 @@ impl<C: Data> Erased for Storage<C> {
     }
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool {
         self.raw.write_one(index, w)
+    }
+    fn visit_indices(&self, each: &mut dyn FnMut(usize)) {
+        self.raw.indices(None).for_each(each);
     }
     fn instance(&self) -> u64 {
         self.raw.instance()

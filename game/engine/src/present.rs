@@ -263,6 +263,32 @@ impl<'w> Present<'w> {
     pub fn published(&self, key: &str) -> Option<Value> {
         self.world.published(key)
     }
+    /// Every registered type ([`World::registered`]): for a declaration that
+    /// names the game's types as data (LLP 1046.009 §3.2).
+    pub fn registered(&self) -> Vec<crate::Registered> {
+        self.world.registered()
+    }
+    /// Write `e`'s `name` simulation row through `w`, as saves do; false if it
+    /// has none (or `name` is a presentation component, which a present never reads).
+    pub fn write_component(&self, name: &str, e: Entity, w: &mut dyn crate::Writer) -> bool {
+        self.world.write_component(name, e, w)
+    }
+    /// Whether `e` has a `name` simulation row.
+    pub fn has_component(&self, name: &str, e: Entity) -> bool {
+        self.world.has_component(name, e)
+    }
+    /// Write the `name` resource through `w`; false if it is absent.
+    pub fn write_resource(&self, name: &str, w: &mut dyn crate::Writer) -> bool {
+        self.world.write_resource(name, w)
+    }
+    /// Visit every entity with a `name` simulation row, in entity order.
+    pub fn visit_component(&self, name: &str, each: &mut dyn FnMut(Entity)) {
+        self.world.visit_component(name, each);
+    }
+    /// A simulation storage's identity and write revision (see [`World::version_of`]).
+    pub fn version_of(&self, name: &str) -> Option<(u64, u64)> {
+        self.world.version_of(name)
+    }
     /// The completed tick this present shows.
     pub fn tick(&self) -> u64 {
         self.world.tick()

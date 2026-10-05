@@ -166,6 +166,11 @@ impl<C: Data> Erased for Singleton<C> {
         }
         false
     }
+    fn visit_indices(&self, each: &mut dyn FnMut(usize)) {
+        if self.value().is_some() {
+            each(0);
+        }
+    }
     // Written over the default, so a field added with a default moves no save
     // or hash. Hashes read this too, never the full value.
     fn write_save(&self, w: &mut dyn Writer) {
