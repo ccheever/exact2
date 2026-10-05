@@ -366,6 +366,41 @@ mutations, or tasks. Lift shared data requests to the root and pass values and
 actions. A child used under `each` owns row state keyed to that row's identity.
 Stable keys matter when content is inserted, removed, filtered, or reordered.
 
+A state cannot start from a resource, but a child's state can start from a prop.
+So a form that edits a saved record is a child made once the record is in: the
+source answers `loaded: true`, the placeholder says `false`, and the child's
+states take the record's fields when it is made.
+
+```contract
+shape Draft
+  name: string
+  loaded: bool
+
+component App
+  resource saved = loadDraft() as shape Draft else empty(name="", loaded=false)
+  mutation stored as shape Draft refreshes saved
+  action keep(name: string)
+    send stored = saveDraft(name)
+  view
+    main
+      when saved.loaded
+        Editor(draft=saved, keep=keep)
+
+component Editor
+  props
+    draft: Draft
+    keep: action
+  state name = draft.name
+  action edit(value: string)
+    name = value
+  action save
+    keep(name)
+  view
+    column
+      input value=name input=edit aria-label="Name" testId="name"
+      button "Save" press=save testId="save"
+```
+
 A component `provide` section lists `name = expr` or bare `name` entries. A
 descendant declares `inject` with typed fields. The nearest provider in the
 component-use chain wins and covers the providing component's whole view.
@@ -690,6 +725,8 @@ A root task has one `every(ms, action)`, `after(ms, action)`, or
  The action is parameterless. Millisecond intervals
 are whole-number literals of at least 1. The frame form has no delta-time argument and does not
 catch up missed display frames. For deterministic tests, use the driver's clock.
+One `clock +N` lands at most 4,096 timer commits (`TIMER_FIRE_LIMIT`) and is
+refused there: over a long jump, tick slower or move the clock in steps.
 
 `now()` is the runner's clock in milliseconds since boot (the driver's clock under
 the agent), not a date. For the date, read the reserved `exactTime` source and add
