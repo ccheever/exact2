@@ -858,8 +858,9 @@ async function main(args) {
     // (`exact release` passes EXACT_IDENTITY), hardened runtime, a secure
     // timestamp — because the bake names these bytes and the host refuses a
     // module whose digest differs: a re-signature after the bake is a refusal.
+    // `exact release --check` signs ad hoc (`-`), which takes no timestamp.
     const shipping = distribution && !ios;
-    const signing = shipping ? ['--options', 'runtime', '--timestamp'] : ['--timestamp=none'];
+    const signing = shipping ? ['--options', 'runtime', (sha1 ?? '-') === '-' ? '--timestamp=none' : '--timestamp'] : ['--timestamp=none'];
     const source = `${createHash('sha256').update(readFileSync(product)).digest('hex')} ${sha1 ?? '-'}${shipping ? ' runtime' : ''}\n`;
     // An ad-hoc signature (`-`: every simulator build) names no certificate
     // to require; asked for one, the verification failed, and the copy was

@@ -6,6 +6,7 @@
 //   exact install <app>          a real .app in ~/Applications, plus a shim
 //   exact uninstall <app>        take both away again
 //   exact release <app>          sign for distribution, notarise, staple, package
+//   exact release <app> --check  the same bundle signed ad hoc, launched and driven; nothing sent
 //   exact list                   the apps this repo has, and what is installed
 //   exact new <path> [--update]  an app outside this repo, ready to run
 //
@@ -33,7 +34,7 @@ import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, r
 import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { BINARYEN } from '../host/web/stages.mjs';
-import { basename, delimiter, resolve } from 'node:path';
+import { basename, delimiter, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { createApp } from '../game/new.mjs';
@@ -217,6 +218,93 @@ function notarise(path, what, profile) {
   }
 }
 
+/** A GPU module's file in a bundle: the primary's, or a declared module's (LLP 1009 D6). */
+const GPU_MODULE = /^libexact_gpu(_.+)?\.dylib$/;
+/** A GPU module the host would not load (GpuModule.swift's failures, as GpuMac.swift writes them). */
+const GPU_LOAD_FAILED = /exact gpu: (GPU module |dlopen |gpu_load: )|is not an exact GPU module/;
+
+/** The share of a region's pixels that are its commonest colour: near 1 for
+ *  a canvas nothing drew into (its background, under whatever HUD floats
+ *  over it), well below for a rendered world. */
+export function dominantShare({ width, data }, box) {
+  const counts = new Map();
+  const x0 = Math.max(0, Math.floor(box.x)), y0 = Math.max(0, Math.floor(box.y));
+  const x1 = Math.min(width, Math.ceil(box.x + box.w)), y1 = Math.min(data.length / 4 / width, Math.ceil(box.y + box.h));
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    const i = (y * width + x) * 4, key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const total = Math.max(1, (x1 - x0) * (y1 - y0));
+  return Math.max(0, ...counts.values()) / total;
+}
+
+/** The shipped bundle, launched and driven as a person would (Charlie,
+ *  2026-10-05: "test the shipped app, not just the dev build"). The dev
+ *  build cannot show what the release step does to a bundle after its bake:
+ *  a GPU module re-signed after the bake recorded its digest is refused at
+ *  load, and the app shows its HUD over an empty window. So: it boots; past
+ *  its title (`play`), its world exists, ticks and has entities; the canvas
+ *  holds a picture, not its background; and the host refused nothing. Every
+ *  check runs; each failure is a `FAIL <app> <what>: <why>` line. Returns
+ *  false when the bundle could not be driven (a production bake ignores the
+ *  agent, LLP 1069.007 D2); throws when a check failed. */
+export async function proveShipped(app, bundle, out = dirname(bundle)) {
+  const compat = JSON.parse(readFileSync(resolve(bundle, 'Contents/Resources/receipt.json'), 'utf8')).build?.compat;
+  if (compat?.inputs?.trust === 'production') {
+    console.log(`SKIP ${app.name} shipped: a production bake ignores the agent (LLP 1069.007 D2); build with development trust to drive it`);
+    return false;
+  }
+  const failed = [];
+  const check = (what, ok, why) => {
+    console.log(`${ok ? 'PASS' : 'FAIL'} ${app.name} ${what}${ok || why === undefined ? '' : `: ${why}`}`);
+    if (!ok) failed.push(what);
+    return ok;
+  };
+  const modules = readdirSync(resolve(bundle, 'Contents/MacOS')).filter((f) => GPU_MODULE.test(f));
+  const { open } = await import('./agent.mjs');
+  const { decodePng } = await import('./png.mjs');
+  const s = await open({ host: 'macos', app: app.name, bundle, size: [1280, 720] });
+  try {
+    check('boots', true);
+    const title = await s.tree();
+    const canvas = () => s.tree().then((t) => t.nodes.find((n) => n.type === 'Canvas'));
+    if (!(await canvas()) && title.nodes.some((n) => n.props?.testId === 'play')) await s.tap('play');
+    await s.clock('+0');
+    await s.clock('+2000');
+    const worlds = (await s.state()).world ?? [];
+    if (modules.length) {
+      const refusal = () => s.carrier.hostLines.find((l) => GPU_LOAD_FAILED.test(l));
+      check('GPU module loaded', !refusal() && worlds.length > 0, refusal() ?? `no world after Play (${modules.join(', ')} in the bundle)`);
+      const world = worlds[0];
+      if (world) {
+        const before = await s.world(world.name).snapshot();
+        await s.clock('+1000');
+        const after = await s.world(world.name).snapshot();
+        check('world ticks', after.tick > before.tick, `tick ${before.tick} then ${after.tick} over 1 s`);
+        check('world has entities', after.entities.length > 0, `${after.entities.length} entities`);
+      }
+    }
+    const shot = resolve(out, 'shipped.png');
+    await s.screenshot(shot);
+    const image = decodePng(readFileSync(shot));
+    const node = await canvas();
+    const box = node ? (await s.layout(node.id)).box ?? null : null;
+    const scale = image.width / 1280;
+    const region = box ? { x: box.x * scale, y: box.y * scale, w: box.w * scale, h: box.h * scale } : { x: 0, y: 0, w: image.width, h: image.height };
+    const share = dominantShare(image, region);
+    // A world fills its canvas with a picture; an empty one leaves its background with the HUD over it.
+    check(node ? 'the world is drawn' : 'the window is drawn', share < (node ? 0.5 : 0.98), `${(share * 100).toFixed(1)}% of ${node ? 'the canvas' : 'the window'} is one colour (${shot})`);
+    const said = s.carrier.hostLines.filter((l) => /refus/i.test(l) || GPU_LOAD_FAILED.test(l));
+    check('the host refused nothing', said.length === 0, said.slice(0, 3).join(' | '));
+  } catch (e) {
+    check('drive', false, e.message.split('\n')[0]);
+  } finally {
+    await s.close();
+  }
+  if (failed.length) throw new Error(`the shipped bundle failed ${failed.length} check(s): ${failed.join(', ')}; ${bundle}`);
+  return true;
+}
+
 /** `exact release` — the build a teammate can actually open.
  *
  * Three things separate this from `install`, and all three are required by
@@ -226,25 +314,33 @@ function notarise(path, what, profile) {
  * unsigned build's "cannot be opened because the developer cannot be
  * verified" is.
  *
+ * Before anything goes to Apple, the staged bundle — stripped and signed as
+ * it ships — is launched and driven (`proveShipped`): a bundle the release
+ * step broke is refused here, not on a teammate's Mac. `--check` is that much
+ * and no more: signed ad hoc with no timestamp and the app not hardened, so
+ * it needs no certificate and no network, and nothing is notarised or
+ * packaged. What only a team's signature shows (library validation) is the
+ * full release's drive to catch.
+ *
  * Credentials are never arguments here. `notarytool` keeps them in the
  * keychain (`xcrun notarytool store-credentials`), and this passes the
  * profile's name; an app-specific password on a command line ends up in the
  * shell history and the process table. */
-function release(app) {
-  const identity = developerID();
+async function release(app, { check = false } = {}) {
+  const identity = check ? '-' : developerID();
   if (!identity) {
     throw new Error(`no "Developer ID Application" certificate is on this Mac, and notarisation needs one.
   An "Apple Development" certificate is not it — Apple will not notarise a build signed with one.
   Get it from https://developer.apple.com/account/resources/certificates (a paid Apple Developer
   account), download it, and open it once so it lands in the login keychain. Then run this again.
-  EXACT_DEVELOPER_ID=<sha1> names one explicitly.`);
+  EXACT_DEVELOPER_ID=<sha1> names one explicitly. exact release ${app.name} --check needs none.`);
   }
   const profile = process.env.EXACT_NOTARY_PROFILE ?? 'exact-notary';
   // The whole-module Swift host and the receipt a shipped bundle carries (host/apple/build.mjs).
   // GPU modules are signed for shipping by the build itself, before the bake
   // records their digests (host/apple/build.mjs, prepareGpu).
   const bundle = build(app, { distribution: true, identity });
-  const out = resolve(app.target, 'dist', app.name);
+  const out = resolve(app.target, 'dist', check ? `${app.name}-check` : app.name);
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
   const staged = resolve(out, `${app.displayName}.app`);
@@ -266,17 +362,26 @@ function release(app) {
     // The host checks a GPU module's bytes against the digest baked into the
     // app, so re-signing one here would make the app refuse it (a HUD over
     // an empty world). The build signed them with this identity already.
-    if (/^libexact_gpu(_.+)?\.dylib$/.test(basename(path))) {
+    if (GPU_MODULE.test(basename(path))) {
       const shipped = spawnSync('codesign', ['-dvv', path], { encoding: 'utf8' }).stderr ?? '';
-      if (!/flags=.*runtime/.test(shipped) || !shipped.includes('Developer ID Application') || !/Timestamp=/.test(shipped)) {
-        throw new Error(`${path} is not signed for shipping (Developer ID, hardened runtime, timestamp); the build should have signed it`);
+      if (!/flags=.*runtime/.test(shipped) || (!check && (!shipped.includes('Developer ID Application') || !/Timestamp=/.test(shipped)))) {
+        throw new Error(`${path} is not signed for shipping (${check ? 'hardened runtime' : 'Developer ID, hardened runtime, timestamp'}); the build should have signed it`);
       }
       continue;
     }
-    sh('codesign', ['--force', '--sign', identity, '--options', 'runtime', '--timestamp',
+    // Ad hoc, the app is not hardened: the hardened runtime's library
+    // validation admits no ad hoc library (dyld calls it "different Team
+    // IDs"), so a hardened ad hoc app would refuse every module it loads.
+    sh('codesign', ['--force', '--sign', identity, ...(check ? ['--timestamp=none'] : ['--options', 'runtime', '--timestamp']),
       ...(path === staged ? ['--identifier', app.id, ...(entitled ? ['--entitlements', entitlements] : [])] : []), path]);
   }
   sh('codesign', ['--verify', '--deep', '--strict', '--verbose=1', staged]);
+
+  const proved = await proveShipped(app, staged, out);
+  if (check) {
+    console.log(`\n${app.displayName}: the release bundle ${proved ? 'runs' : 'was signed but not driven'} (signed ad hoc; nothing notarised)\n  ${staged}`);
+    return;
+  }
 
   // A zip is what notarytool takes for an app; ditto and not zip, which
   // mangles the bundle's symlinks and its signature.
@@ -501,6 +606,8 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact run <app> [file …]     build and launch it here; ^C ends it
   exact install <app>          put it in ~/Applications and its name on PATH
   exact release <app>          sign with a Developer ID, notarise, staple, package
+  exact release <app> --check  the release bundle signed ad hoc, launched and
+                               driven past its title; no certificate, no network
   exact uninstall <app>        take both away
   exact setup [--check]        install pinned Rust, wasm-bindgen and Binaryen
   exact list                   the apps in this repo
@@ -514,7 +621,8 @@ EXACT_BIN_DIR names where a shim goes; the default is the first of ~/.local/bin,
 /usr/local/bin, ~/bin that is already on PATH.
 
 release needs a "Developer ID Application" certificate and notarytool
-credentials in the keychain; it says how to get each if one is missing.
+credentials in the keychain; it says how to get each if one is missing. Both
+modes launch the signed bundle and drive it before anything leaves the Mac.
 EXACT_DEVELOPER_ID and EXACT_NOTARY_PROFILE name them explicitly.`;
 
 function main(argv) {
@@ -530,7 +638,7 @@ function main(argv) {
   const app = resolveApp(name);
   if (verb === 'run') return run(app, rest);
   // `--release` on `install` is the same path, since that is what it is for.
-  if (verb === 'release' || (verb === 'install' && rest.includes('--release'))) return release(app);
+  if (verb === 'release' || (verb === 'install' && rest.includes('--release'))) return release(app, { check: rest.includes('--check') });
   if (verb === 'install') return install(app);
   return uninstall(app);
 }

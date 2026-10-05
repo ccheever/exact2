@@ -160,6 +160,7 @@ export function parseFlags(argv) {
     else if (argv[i] === '--touch') flags.touch = argv[++i];
     else if (argv[i] === '--phone') flags.phone = argv[++i];
     else if (argv[i] === '--storage') flags.storage = argv[++i];
+    else if (argv[i] === '--bundle') flags.bundle = resolve(argv[++i]);
     else rest.push(argv[i]);
   }
   return { flags, rest };
@@ -193,7 +194,7 @@ export function launchEnvironment(facts) {
 // answers from its own record of its inputs: Cargo's dep-info, the Apple
 // receipt, and for the web's `dist/` (which names none) the sources its build
 // reads. These detect staleness; passing them is not proof of freshness. A
-// binary the caller names (EXACT_LINUX_BIN, EXACT_MAC_BIN) is the caller's
+// binary the caller names (EXACT_LINUX_BIN, EXACT_MAC_BIN, a macOS --bundle) is the caller's
 // own: the driver says it did not check. A served page (--url) is its server's.
 const shown = path => path.startsWith(ROOT + '/') ? relative(ROOT, path) : path;
 const listed = changed => changed.slice(0, 3).join(', ') + (changed.length > 3 ? ` and ${changed.length - 3} more` : '');
