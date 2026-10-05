@@ -239,6 +239,56 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertTrue(row.superview === after.contentView, "carried again")
     }
 
+    /// A card-less section (`section background-color="transparent"`): its
+    /// rows sit on the list's background, as Signal's profile header does,
+    /// and a section that gains its card back is configured again.
+    func testACardlessSectionsCellsAreClear() throws {
+        var card = false
+        let p = presenter {
+            var m = self.model()
+            m.sections[1].card = card
+            return m
+        }
+        XCTAssertEqual(try cell(p, 20).backgroundConfiguration?.backgroundColor, .clear, "a standard row: no card")
+        XCTAssertNotEqual(try cell(p, 10).backgroundConfiguration?.backgroundColor, .clear, "the other section keeps its card")
+        // Pressed, a pressable row still highlights.
+        let pressed = try cell(p, 20)
+        var state = pressed.configurationState
+        state.isHighlighted = true
+        pressed.configurationUpdateHandler?(pressed, state)
+        XCTAssertNotEqual(pressed.backgroundConfiguration?.backgroundColor, .clear, "highlighted while pressed")
+        state.isHighlighted = false
+        pressed.configurationUpdateHandler?(pressed, state)
+        XCTAssertEqual(pressed.backgroundConfiguration?.backgroundColor, .clear)
+        // An otherwise unchanged standard row is configured again when its
+        // section gains its card back, and loses it again.
+        card = true
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["testId": "s1"], "clear": [String]()]]))
+        XCTAssertNotEqual(try cell(p, 20).backgroundConfiguration?.backgroundColor, .clear, "the card is back")
+        card = false
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["testId": "s1b"], "clear": [String]()]]))
+        XCTAssertEqual(try cell(p, 20).backgroundConfiguration?.backgroundColor, .clear, "and gone again")
+    }
+
+    /// A row moved between a card-less section and a carded one, with
+    /// neither section's card changing, is configured for its new section.
+    func testARowMovedIntoACardlessSectionLosesItsCard() throws {
+        var moved = false
+        let p = presenter {
+            var m = self.model()
+            m.sections[1].card = false
+            if moved {
+                let row = m.sections[0].rows.removeFirst()
+                m.sections[1].rows.insert(row, at: 0)
+            }
+            return m
+        }
+        XCTAssertNotEqual(try cell(p, 10).backgroundConfiguration?.backgroundColor, .clear)
+        moved = true
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["testId": "s0"], "clear": [String]()]]))
+        XCTAssertEqual(try cell(p, 10).backgroundConfiguration?.backgroundColor, .clear, "in the card-less section now")
+    }
+
     func testCustomRowsGoBackInTheirOrder() throws {
         let p = presenter {
             var m = self.model(custom: true)

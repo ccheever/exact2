@@ -232,7 +232,7 @@ impl<D: DataSource> Bridge<D> {
 
     /// A grouped list's sections and rows (`exact_grouped_list`, LLP 1084
     /// D4), as JSON in the output buffer: `{"style","sections":[{"view",
-    /// "header","footer","rows":[{"view","custom","symbol","title",
+    /// "header","footer","card","rows":[{"view","custom","symbol","title",
     /// "secondary","subtitle","accessory","target","pressable",
     /// "destructive","disabled"}]}]}`, `null` for a node that is not one.
     /// `accessory` is `none`, `disclosure`, `checkmark`, `toggle` or
@@ -262,6 +262,7 @@ impl<D: DataSource> Bridge<D> {
                     opt(&s.header, &mut json);
                     json.push_str(",\"footer\":");
                     opt(&s.footer, &mut json);
+                    json.push_str(&format!(",\"card\":{}", s.card));
                     json.push_str(",\"rows\":[");
                     for (j, r) in s.rows.iter().enumerate() {
                         json.push_str(if j == 0 { "{" } else { ",{" });

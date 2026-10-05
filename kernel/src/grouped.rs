@@ -30,6 +30,9 @@ pub struct GroupedSection {
     pub footer: Option<String>,
     /// Its rows, in order.
     pub rows: Vec<GroupedRow>,
+    /// Whether its rows sit on a card: false when the section's group has a
+    /// transparent background (`section background-color="transparent"`).
+    pub card: bool,
 }
 
 /// What a row shows at its trailing edge (D4).
@@ -121,13 +124,19 @@ impl Kernel {
             .map(|section| {
                 let mut out = GroupedSection {
                     view: section.id,
+                    card: true,
                     ..GroupedSection::default()
                 };
                 for part in nodes(section) {
                     match part.props.str(PropId::SemanticTag) {
                         Some("header") => out.header = label(&part),
                         Some("footer") => out.footer = label(&part),
-                        _ => out.rows = nodes(&part).iter().map(|r| self.grouped_row(r)).collect(),
+                        _ => {
+                            out.card = part.style.background_color.is_none_or(|c| {
+                                c.resolve(false).a() != 0 || c.resolve(true).a() != 0
+                            });
+                            out.rows = nodes(&part).iter().map(|r| self.grouped_row(r)).collect()
+                        }
                     }
                 }
                 out
