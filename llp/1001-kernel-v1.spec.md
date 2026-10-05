@@ -440,8 +440,9 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   Markdown. This is a native coverage gap, not CSS's behavior.
 - **Projected iOS tab-bar height** ([LLP 1059 D2](1059-tab-bar-projection.rfc.md)):
   `UITabBar` reports its intrinsic height through the kernel measurement seam
-  and fills the resulting box. The former overflow deviation is removed
-  (`issues/closed/20260927-tab-bar-height-to-layout.md`).
+  and fills the resulting box; a `UISegmentedControl` reports its own the same
+  way and fills the content box (LLP 1059 D2a). The former overflow deviation
+  is removed (`issues/closed/20260927-tab-bar-height-to-layout.md`).
 
 **Clock timelines (2026-10-03, [LLP 1055.002](1055.002-synced-animations.rfc.md)
 D2; not reviewed).** `animation-timeline` takes a third value, `clock(<ident>)`,
