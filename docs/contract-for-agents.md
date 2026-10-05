@@ -880,10 +880,10 @@ the agent), not a date. For the date, read the reserved `exactTime` source and a
 `epochAtZero` (Unix milliseconds when `now()` read zero), `utcOffset` (minutes east
 of UTC), `locale` (BCP 47), `timeZone` (IANA), `resolvedLocale` (the language of
 the string table the app shows, `""` with no tables) and `seed` (a whole number
-drawn once per launch). A read does not itself schedule a future render: a derive
-that reads `now()` changes when an action runs or an answer lands, not as time
-passes. Use a timer if a displayed value must keep changing without other input;
-its ticks re-read it. Prefer `clock settle` to waiting for a transition in real time.
+drawn once per launch). A read does not itself schedule a future render: once the
+runner's clock has moved, an action that runs or an answer that lands re-reads a
+derive that reads `now()`; time passing alone does not. Use a timer if a displayed
+value must keep changing without other input. Prefer `clock settle` to waiting for a transition in real time.
 `time.utcOffset` is the zone's offset *now*: every host answers it again when the
 offset at the clock's instant changes (a DST change, a new zone), checked before a
 timer fires, so a midnight timer after the clocks change reads the new offset.
