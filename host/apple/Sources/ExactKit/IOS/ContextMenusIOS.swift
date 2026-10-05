@@ -200,8 +200,9 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         guard !owner.fired else { return }
         owner.fired = true
         guard let presenter, let source = owner.source, live(source), source.handlers.contains("contextmenu"), !source.disabled else { return }
-        let box = source.contentBox()
-        let sample = PointerSample(x: Double(owner.point.x - box.minX), y: Double(owner.point.y - box.minY), buttons: 1, pressure: 0.5, type: "touch", id: 2)
+        let box = source.contentBox(), client = presenter.client(source.convert(owner.point, to: nil))
+        let sample = PointerSample(x: Double(owner.point.x - box.minX), y: Double(owner.point.y - box.minY), buttons: 1, pressure: 0.5, type: "touch", id: 2,
+                                   clientX: Double(client.x), clientY: Double(client.y))
         presenter.contextmenu(source.id, line: sample.line)
     }
     /// The popover as it is now, if its source still names it.

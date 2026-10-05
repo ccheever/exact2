@@ -57,8 +57,10 @@ extension Agent {
         let name = kind == .down ? "pointerdown" : kind == .up ? "pointerup" : "pointermove"
         guard node.handlers.contains(name) else { return }
         let local = node.convert(contact.at, from: presenter.viewport), box = node.contentBox()
+        let client = presenter.client(presenter.viewport.convert(contact.at, to: nil))
         presenter.pointer(node.id, kind, PointerSample(x: Double(local.x - box.minX), y: Double(local.y - box.minY),
-            buttons: kind == .up ? 0 : 1, pressure: kind == .up ? 0 : 0.5, type: "touch", id: 2))
+            buttons: kind == .up ? 0 : 1, pressure: kind == .up ? 0 : 0.5, type: "touch", id: 2,
+            clientX: Double(client.x), clientY: Double(client.y)))
     }
 
     /// The phase's reply, or nil where no pan contact applies (`unsupported`).
