@@ -905,6 +905,11 @@ fn fetch_failure(e: ibex2::boundary::HostError, abort: &AbortController) -> Outc
             FailureKind::Refused,
             format!("outside the app's grants ({capability})"),
         ),
+        // The origin a redirect led to, which the grants lack (podcast F5).
+        ibex2::boundary::HostError::DeniedRedirect { capability, origin } => failed(
+            FailureKind::Refused,
+            format!("outside the app's grants ({capability}): redirected to {origin}"),
+        ),
         e => failed(
             FailureKind::Network,
             e.to_string().chars().take(2048).collect::<String>(),

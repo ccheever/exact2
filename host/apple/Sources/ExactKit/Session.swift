@@ -1081,6 +1081,10 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.scrollElementIntoView(args) }
                     continue
                 }
+                if name == "fastSeek" || name == "load" {
+                    app.deliver { [weak self] in self?.presenter.mediaCommand(name, args) }
+                    continue
+                }
                 if name == "showPicker" {
                     app.deliver { [weak self] in self?.picker.show(args) }
                     continue

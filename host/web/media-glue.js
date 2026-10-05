@@ -58,6 +58,26 @@ function update(el) {
   syncVisibility(el);
   syncPlayback(el);
   state.applied = { ...props };
+  for (const [name, seconds] of el.exactMedia.commands?.splice(0) ?? []) run(el, name, seconds);
+}
+// The commands by HTML's method names (podcast F8, F18), queued on the
+// element by the host until the glue has it. `fastSeek` seeks every time,
+// where the bound `currentTime` seeks only on a changed value; every host
+// seeks to the exact time, which HTML's approximate-for-speed allows.
+// `load` loads the source again as a changed `src` does: the bound
+// `currentTime` waits for metadata and a bound `paused` false plays.
+function run(el, name, seconds) {
+  const state = states.get(el), props = el.exactMedia.props;
+  if (name === 'fastSeek') {
+    if (!Number.isFinite(seconds) || seconds < 0) state.error('invalid-value', `Invalid fastSeek: ${seconds}`);
+    else if (!el.readyState) state.seek = seconds;
+    else el.currentTime = seconds;
+    return;
+  }
+  el.load();
+  state.seek = props.currentTime == null ? null : Number(props.currentTime);
+  state.paused = undefined;
+  syncPlayback(el);
 }
 globalThis.exact.installMedia = (el, send) => {
   if (states.has(el)) { update(el); return; }
@@ -68,13 +88,25 @@ globalThis.exact.installMedia = (el, send) => {
   };
   const state = { applied: {}, seek: null, threshold: null, visibilityBlocked: false, retired: false, error(code, message) { if (!state.retired) console.warn(`exact: ${el.localName} ${code}: ${message}`); emit('error', code); } };
   states.set(el, state);
+  // What the glue reported for itself on attaching (below): HTML sets
+  // `readyState` before its queued event fires, so the event may still come;
+  // it is not reported twice. A new load (`emptied`) forgets them.
+  const early = new Set();
+  el.addEventListener('emptied', () => early.clear());
   for (const name of mediaEvents) el.addEventListener(name, () => {
     if (name === 'loadedmetadata' && state.seek !== null) { el.currentTime = state.seek; state.seek = null; }
+    if (early.delete(name)) return;
     const payload = name === 'timeupdate' ? el.currentTime : name === 'durationchange' ? el.duration : name === 'error' ? errorCodes[el.error?.code] ?? 'src-not-supported' : '';
     if (typeof payload !== 'number' || Number.isFinite(payload)) emit(name, String(payload));
   });
   update(el);
-  if (el.readyState) { emit('loadedmetadata'); if (Number.isFinite(el.duration)) emit('durationchange', String(el.duration)); }
+  if (el.readyState) {
+    emit('loadedmetadata'); early.add('loadedmetadata');
+    if (Number.isFinite(el.duration)) { emit('durationchange', String(el.duration)); early.add('durationchange'); }
+  }
+  // A source refused before the glue had the element (an unknown scheme, a
+  // missing `app:/` file) failed while no one listened (podcast F19).
+  else if (el.error) emit('error', errorCodes[el.error.code] ?? 'src-not-supported');
 };
 
 globalThis.exact.removeMedia = el => {

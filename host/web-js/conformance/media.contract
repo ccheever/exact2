@@ -40,6 +40,12 @@ component Media
     seek = 1.5
   action back
     seek = 0.5
+  // The commands by HTML's method names (podcast F8, F18): a seek to the
+  // time `back` holds seeks again; a load starts the source over.
+  action again
+    fastSeek("video", 0.5)
+  action reload
+    load("video")
   action play
     held = false
     looped = true
@@ -79,7 +85,7 @@ component Media
     sounds = sounds + 1
   view
     column testId="root" gap=4 padding=8 height="100%" box-sizing="border-box" background-color="#ffffff" color="#000000"
-      video src testId="video" width=160 height=90 paused=held muted=muted loop=looped volume=volume playbackRate=rate preservesPitch=pitch currentTime=seek preload="auto" playsinline=true controls=false loadedmetadata=meta durationchange=length timeupdate=tick play=played playing=heard pause=stopped ended=heard waiting=heard seeking=seeking seeked=seeked ratechange=rated volumechange=vol canplay=can error=failed
+      video src id="video" testId="video" width=160 height=90 paused=held muted=muted loop=looped volume=volume playbackRate=rate preservesPitch=pitch currentTime=seek preload="auto" playsinline=true controls=false loadedmetadata=meta durationchange=length timeupdate=tick play=played playing=heard pause=stopped ended=heard waiting=heard seeking=seeking seeked=seeked ratechange=rated volumechange=vol canplay=can error=failed
       text `metas ${metas} dur ${dur} at ${at} vols ${vols} rates ${rates} seeks ${seeks} plays ${plays} pauses ${pauses} ready ${ready} error ${problem} sounds ${sounds}` testId="seen"
       button "quieter" press=quieter testId="quieter"
       button "mute" press=mute testId="mute"
@@ -91,4 +97,6 @@ component Media
       button "back" press=back testId="back"
       button "other" press=other testId="other"
       button "missing" press=missing testId="missing"
+      button "again" press=again testId="again"
+      button "reload" press=reload testId="reload"
       audio "assets/motion.mp4" testId="audio" preload="auto" paused=hush play=sounded

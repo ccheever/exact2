@@ -75,7 +75,8 @@ test('wasm and JS request executors refuse outside origins and redirects, and ad
       expect(new TextDecoder().decode(admitted.body)).toBe('ok');
       const redirected = await run({ method: 'GET', url: `${origin.url}redirect`, headers: [] });
       expect(redirected.failed ?? redirected.kind).toBe(2);
-      expect(redirected.message ?? text(redirected)).toBe("outside the app's grants (net.fetch)");
+      // It names where the redirect led (podcast F5), as the native executor does.
+      expect(redirected.message ?? text(redirected)).toBe(`outside the app's grants (net.fetch): redirected to ${destination.url.origin}`);
       const grantedRedirect = await run({ method: 'GET', url: `${origin.url}granted-redirect`, headers: [] });
       expect(grantedRedirect.failed ?? grantedRedirect.kind ?? 0).toBe(0);
       expect(new TextDecoder().decode(grantedRedirect.body)).toBe('granted');
@@ -117,7 +118,7 @@ test('the wasm early request is claimed and its ungranted final redirect is Refu
     const request = { method: 'GET', url: `${origin.url}redirect`, headers: [] };
     expect(fetchEarly(request, set)).toBeFunction();
     const response = await (await import('./http-body.js')).request(request, { grantSet: set, controllers: new Set(), moduleLoader: { claim } });
-    expect([response.kind, text(response)]).toEqual([2, "outside the app's grants (net.fetch)"]);
+    expect([response.kind, text(response)]).toEqual([2, `outside the app's grants (net.fetch): redirected to ${destination.url.origin}`]);
     expect(destinationHits).toBe(1);
     expect(fetchEarly({ ...request, url: `${destination.url}outside` }, set)).toBeNull();
   } finally { origin.stop(true); destination.stop(true); }

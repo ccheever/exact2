@@ -74,8 +74,9 @@ impl<D: DataSource> Presenter<D> {
                     self.document_picker(name, &c.args)
                 }
                 // No clipboard, browser, editor, dev menu or window to close
-                // here: known, and named so.
-                name @ ("copyText" | "openURL" | "format" | "reload" | "close") => {
+                // here, and no media player (LLP 1042 §8): known, and named so.
+                name @ ("copyText" | "openURL" | "format" | "reload" | "close" | "fastSeek"
+                | "load") => {
                     eprintln!("exact: {name} unsupported on the headless/DRM host")
                 }
                 other => eprintln!("exact: unknown command {other}"),

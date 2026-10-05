@@ -29,9 +29,11 @@ export async function fetchWith(set, input, init = {}) {
   if (!asset && !admitsNetwork(set, value, 'fetch')) throw new FetchError('Refused', refusal('net.fetch'));
   try {
     const response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...init, redirect: 'follow' });
+    // A redirect that left the grants names where it led (podcast F5), as
+    // the native executor does; the browser followed it to this last hop.
     if (response.url && (asset
       ? new URL(response.url).origin !== globalThis.location?.origin
-      : !admitsNetwork(set, response.url, 'fetch'))) throw new FetchError('Refused', refusal('net.fetch'));
+      : !admitsNetwork(set, response.url, 'fetch'))) throw new FetchError('Refused', `${refusal('net.fetch')}: redirected to ${new URL(response.url).origin}`);
     return response;
   }
   catch (error) {

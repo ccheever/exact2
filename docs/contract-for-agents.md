@@ -654,7 +654,10 @@ route's enabled control whose `id` is the root's `navigationBack`; without one
 both are refused, as is the swipe on a sheet with `closedby="none"`.
 
 An `image` source is the same string on every host: a path under the app's
-`assets/`, an `http(s)` URL, `symbol:<role>`, an `app:/data|cache|tmp/…` file
+`assets/`, an `http(s)` URL, `symbol:<role>` (the roles are
+[`schema.json`](../kernel/tables/schema.json)'s `symbols`; a player's are `play`,
+`pause`, their `-fill`s, `skip-back-15`, `skip-forward-15`, `skip-back-30`,
+`skip-forward-30`, `speaker`, `speaker-mute` and `moon`), an `app:/data|cache|tmp/…` file
 (a picked photo, or one the data module kept with `storage.fs`; it shows after a
 relaunch too), or a `data:` URL of at most 1 MiB, past which every host shows
 nothing (the web and Apple journal `image refused`). Keep a picked photo by copying it to
@@ -681,6 +684,16 @@ component Ding
       button "Ding" press=ding
       audio "assets/ding.wav" preload="auto" paused=hush pause=hushed
 ```
+
+A media source is the string an `image` takes, `app:/data` files included: an
+episode the data module downloaded with `storage.fs` plays on every host but
+headless Linux, which has no player. An empty `src` fails (`error`
+`src-not-supported`), as HTML's does, so render the element once it has a
+source. A bound `currentTime` seeks when its value changes; to seek to the same
+time again (a skip back, "start over", a scrubber let go where it was grabbed)
+call `fastSeek(id, seconds)`, which seeks each time it runs. `load(id)` loads the
+source again: a retry after an `error`, or a file written since. Both name the
+element by its `id`, as `focus` does.
 
 A Markdown editor is a `textarea` with `markup="markdown"`; a `text` with it is
 the reader (one node; the value stays the source string). Its toolbar is

@@ -1,8 +1,11 @@
 fn validate(schema: &Schema) {
     let mut roles = BTreeSet::new();
     for [role, apple, path] in &schema.symbols {
+        // Digits name a skip's seconds (`skip-back-15`, podcast F3), never first.
         assert!(
-            !role.is_empty() && role != "sf" && role.bytes().all(|c| c.is_ascii_lowercase() || c == b'-'),
+            role.starts_with(|c: char| c.is_ascii_lowercase())
+                && role != "sf"
+                && role.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-'),
             "schema: invalid symbol role"
         );
         assert!(roles.insert(role), "schema: duplicate symbol role {role}");

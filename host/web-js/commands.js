@@ -38,4 +38,13 @@ export const commands = say => ({
   // loaded the newest root, and nothing is ever staged.
   deliveryCheck: () => say("delivery: no update store on the web; the page loaded the newest root"),
   deliveryActivate: () => say("delivery: nothing is staged"),
+  // A media element's, by HTML's method names (podcast F8, F18): media.js
+  // queues them for the web host's media glue (media-glue.js `run`).
+  fastSeek: (id, seconds) => media(say, id, "fastSeek", seconds),
+  load: id => media(say, id, "load"),
 });
+function media(say, id, name, seconds) {
+  const e = document.getElementById(id);
+  if (!e?.$media) return say(`${name} "${id}" refused: ${e ? "not a video or audio" : "no live node with that id"}`);
+  e.$media.command(name, seconds);
+}

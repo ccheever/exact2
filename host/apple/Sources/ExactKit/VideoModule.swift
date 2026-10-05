@@ -92,6 +92,9 @@ final class VideoView {
     /// The last source resolved per name (`src`, `poster`): its authored text
     /// and what it resolved to. A resolution reads the file system.
     private var resolved: [String: (source: String, url: URL?)] = [:]
+    /// `fastSeek` and `load` (podcast F8, F18), each a numbered request the
+    /// arm runs once: a seek every time, even to the time it last sought.
+    private var commands: (seek: Int, seconds: Double, load: Int) = (0, 0, 0)
     /// The media events the arm reports (LLP 1042 §3); others are not sent.
     static let events: Set<String> = ["loadedmetadata", "canplay", "play", "playing", "pause", "ended", "waiting", "seeking", "seeked", "ratechange", "volumechange", "timeupdate", "durationchange", "error"]
     private var visibilityThreshold: CGFloat? {
@@ -186,13 +189,21 @@ final class VideoView {
             if let source = props[name], !source.isEmpty {
                 let url: URL?
                 if let hit = resolved[name], hit.source == source { url = hit.url } else {
-                    url = NodeView.resolveSource(source, app: owner.presenter?.session?.app)
+                    // The app's own file (LLP 1069.002 D7), as an `image`
+                    // shows one: a download its data module kept (podcast F19).
+                    url = source.hasPrefix("app:/") ? AppFiles.url(source) : NodeView.resolveSource(source, app: owner.presenter?.session?.app)
                     resolved[name] = (source, url)
                 }
                 props[name] = url?.absoluteString ?? ""
                 if name == "src" && url == nil { props["sourceError"] = "Unsupported media source" }
+            } else if name == "src", props[name] == "" {
+                // HTML fails an empty `src` (its resource selection's
+                // "failed with attribute"), as the web reports it.
+                props["sourceError"] = "Empty src attribute"
             }
         }
+        if commands.seek > 0 { props["exactSeek"] = "\(commands.seek) \(commands.seconds)" }
+        if commands.load > 0 { props["exactLoad"] = String(commands.load) }
         var listeners = owner.handlers.intersection(Self.events)
         if autoplayRule { listeners.formUnion(["pause", "play"]) }
         if !listeners.isEmpty { props["exactListeners"] = listeners.sorted().joined(separator: " ") }
@@ -200,6 +211,11 @@ final class VideoView {
         last = props
         guard let data = try? JSONSerialization.data(withJSONObject: props) else { return }
         data.withUnsafeBytes { module.update(handle, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
+    }
+    /// `fastSeek(id, seconds)` or `load(id)`, by HTML's method names.
+    func command(_ name: String, seconds: Double) {
+        if name == "fastSeek" { commands.seek += 1; commands.seconds = seconds } else { commands.load += 1 }
+        update()
     }
     func state() -> [String: Any] {
         if let handle { VideoModule.shared?.state(handle) }
@@ -237,6 +253,20 @@ final class VideoView {
     }
 }
 
+
+extension Presenter {
+    /// `fastSeek(id, seconds)` and `load(id)` on the video or audio with that
+    /// HTML `id`, as `focus(id)` names one.
+    func mediaCommand(_ name: String, _ args: [Any]) {
+        let id = args.first as? String ?? ""
+        let node = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == id })
+        guard let video = node?.video else {
+            session?.log("\(name) \"\(id)\" refused: \(node == nil ? "no live node with that id" : "not a video or audio")")
+            return
+        }
+        video.command(name, seconds: (args.count > 1 ? args[1] as? Double : nil) ?? .nan)
+    }
+}
 
 /// Optional media policy. Scroll/layout notifications coalesce without app actions
 /// or a frame clock; only a threshold crossing changes the player's paused request.

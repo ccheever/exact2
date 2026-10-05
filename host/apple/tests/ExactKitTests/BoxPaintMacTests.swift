@@ -86,13 +86,37 @@ final class BoxPaintMacTests: XCTestCase {
     /// paints the bitmap for the shot, and the sublayer is hidden for it,
     /// so half-transparent red over white stays pink (Grok's batch 2 review).
     func testATranslucentLayerImageIsCapturedOnce() throws {
+        let (page, image) = try imageOnPage(red: 0.5, style: ["object_fit": .string("fill")])
+        let sub = try XCTUnwrap(image.imageLayer, "the image took the layer path")
+        let rep = capture(page)
+        let c = rgba(rep, 20, 20)
+        XCTAssertEqual(c[0], 1, accuracy: 0.05); XCTAssertEqual(c[1], 0.5, accuracy: 0.1, "pink, not the red of a second coat: \(c)")
+        XCTAssertFalse(sub.isHidden, "the sublayer shows again after the shot")
+    }
+
+    /// An image's own background is captured behind its picture, as CSS
+    /// paints it and the window shows it: with a radius the fill is a
+    /// sublayer, which the shot drew over the picture (podcast F7).
+    func testARoundedImageBackgroundIsCapturedUnderThePicture() throws {
+        let (page, image) = try imageOnPage(red: 1, style: [
+            "object_fit": .string("cover"), "background_color": [0, 0, 255, 255], "border_radius": 8])
+        XCTAssertNotNil(image.imageLayer, "the image took the layer path")
+        let fill = try XCTUnwrap(image.boxFill, "the rounded fill is a sublayer")
+        let c = rgba(capture(page), 20, 20)
+        XCTAssert(c[0] > 0.9 && c[2] < 0.1, "the red picture, not its blue background: \(c)")
+        XCTAssertFalse(fill.isHidden, "the fill shows again after the shot")
+    }
+
+    /// A 40-point image of opaque or translucent red, on a white page, its
+    /// pixels loaded.
+    private func imageOnPage(red alpha: CGFloat, style: NodeStyle) throws -> (NodeView, NodeView) {
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-image-capture-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: root) }
         let context = try XCTUnwrap(CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16,
             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        context.setFillColor(red: 1, green: 0, blue: 0, alpha: 0.5); context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
-        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(root.appendingPathComponent("half.png") as CFURL, "public.png" as CFString, 1, nil))
+        context.setFillColor(red: 1, green: 0, blue: 0, alpha: alpha); context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(root.appendingPathComponent("red.png") as CFURL, "public.png" as CFString, 1, nil))
         CGImageDestinationAddImage(destination, try XCTUnwrap(context.makeImage()), nil)
         XCTAssertTrue(CGImageDestinationFinalize(destination))
 
@@ -105,17 +129,13 @@ final class BoxPaintMacTests: XCTestCase {
         let image = NodeView(id: 2, kind: "image", presenter: p)
         image.frame = NSRect(x: 0, y: 0, width: 40, height: 40)
         page.addSubview(image); p.views[2] = image
-        image.applyStyle(["object_fit": .string("fill")])
+        image.applyStyle(style)
         image.loadGeneration = 1
-        loader.load(image, source: "half.png", resolver: resolver)
+        loader.load(image, source: "red.png", resolver: resolver)
         let end = Date(timeIntervalSinceNow: 5)
         while image.raster == nil && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
         image.layer?.displayIfNeeded()
-        let sub = try XCTUnwrap(image.imageLayer, "the image took the layer path")
-        let rep = capture(page)
-        let c = rgba(rep, 20, 20)
-        XCTAssertEqual(c[0], 1, accuracy: 0.05); XCTAssertEqual(c[1], 0.5, accuracy: 0.1, "pink, not the red of a second coat: \(c)")
-        XCTAssertFalse(sub.isHidden, "the sublayer shows again after the shot")
+        return (page, image)
     }
 
     /// A capture shows what the window does: siblings in `z-index` order

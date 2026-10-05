@@ -121,9 +121,11 @@ extension NodeView {
     /// doubled (spreadsheet F18: a 12 % selection captured as 20 %). Its
     /// renderer ignores a corner mask, so a box rounded at some corners only
     /// is drawn, as are a gradient and a box an inset shadow paints over
-    /// (its fill sublayers hidden, `Capture.hideBoxFills`).
+    /// (its fill sublayers hidden, `Capture.hideBoxFills`), and so is an
+    /// image's rounded fill: a capture draws the picture in `draw(_:)`, under
+    /// every sublayer, so a fill sublayer left showing covered it (podcast F7).
     var captureShowsLayerPaint: Bool {
-        guard layerBoxEligible, hasBoxPaint, insetCaster == nil, style["background_image"] == nil else { return false }
+        guard layerBoxEligible, hasBoxPaint, insetCaster == nil, style["background_image"] == nil, !(capturesPixels && boxFill != nil) else { return false }
         let p = boxPlan
         let all: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
         return !p.drawn && (p.radius == 0 || (p.corners == all && p.curve == .circular))
@@ -285,6 +287,10 @@ extension NodeView {
         if !(layer?.contentsAreFlipped() ?? true) { unit.origin.y = 1 - unit.maxY }
         return (shown, unit, radius, cornerMask(radii))
     }
+
+    /// An image whose pixels are a sublayer the capture hides, so that
+    /// `draw(_:)` paints them into the shot (`Capture.hideBoxFills`).
+    var capturesPixels: Bool { kind == "image" && symbolView == nil && raster?.image != nil && imageLayer != nil }
 
     /// The image's pixels onto a sublayer, or none (`draw(_:)` paints them).
     func applyImageLayer() {
