@@ -124,9 +124,18 @@ final class GroupedListIOSTests: XCTestCase {
         let s = try XCTUnwrap(self.switches(toggle).first)
         XCTAssertTrue(s.isOn, "the control's `checked`")
         XCTAssertEqual(s.accessibilityIdentifier, "toggle")
-        // A finger at its middle reaches the switch the cell shows, not the
-        // hidden row's own control or anything over the cell.
+        // A finger at its middle reaches the switch the cell shows, though
+        // the hidden row's own switch is laid out under it.
         let middle = s.convert(CGPoint(x: s.bounds.midX, y: s.bounds.midY), to: window)
+        let scroll = try XCTUnwrap(p.views[1]?.scroll)
+        let at = scroll.convert(middle, from: window)
+        p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0],
+                           ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0],
+                           ["op": "frame", "id": 12, "x": 0.0, "y": Double(at.y - 26), "w": 402.0, "h": 52.0],
+                           ["op": "frame", "id": 13, "x": Double(at.x - 31.5), "y": 0.0, "w": 63.0, "h": 52.0]]))
+        let authored = try XCTUnwrap(p.controls.controls[13] as? UISwitch)
+        XCTAssertTrue(authored !== s && scroll.isHidden)
+        XCTAssertTrue(authored.convert(authored.bounds, to: window).contains(middle), "the hidden row's switch is under the accessory")
         let hit = try XCTUnwrap(window.hitTest(middle, with: nil))
         XCTAssertTrue(hit === s || hit.isDescendant(of: s), "hit \(hit)")
         s.setOn(false, animated: false)
