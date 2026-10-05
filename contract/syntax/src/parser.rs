@@ -390,6 +390,9 @@ impl Parser {
                 }
                 TokenKind::Ident(w) if w == "use" => file.uses.push(self.use_decl()?),
                 other => {
+                    if let Some(e) = self.continued_expression("syntax-expected-declaration") {
+                        return e;
+                    }
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
@@ -783,10 +786,13 @@ impl Parser {
                     );
                 }
                 other => {
+                    if let Some(e) = self.continued_expression("syntax-expected-section") {
+                        return e;
+                    }
                     return self.err(
                         "syntax-expected-section",
                         format!("expected a section, found {}", describe(&other)),
-                    )
+                    );
                 }
             }
         }

@@ -235,3 +235,18 @@ fn position_fixed_says_how_to_pin_a_box() {
         "{error}"
     );
 }
+
+#[test]
+fn an_expression_continued_on_an_indented_line_is_told_to_wrap_it() {
+    let wrap = "an expression goes on over lines only inside parentheses";
+    let derive = "component App\n  state done = false\n  derive label = done\n    ? \"Done\"\n    : \"Open\"\n  view\n    text label\n";
+    let error = contract::compile(derive).unwrap_err();
+    assert_eq!(error.id, "syntax-expected-section");
+    assert!(error.message.starts_with(wrap), "{error}");
+    let top = "fn label(done: bool): string = done\n  ? \"Done\"\n  : \"Open\"\ncomponent App\n  view\n    text label(true)\n";
+    let error = contract::compile(top).unwrap_err();
+    assert_eq!(error.id, "syntax-expected-declaration");
+    assert!(error.message.starts_with(wrap), "{error}");
+    // The form it names compiles.
+    contract::compile("component App\n  state done = false\n  derive label = (done\n    ? \"Done\"\n    : \"Open\")\n  view\n    text label\n").unwrap();
+}

@@ -35,6 +35,41 @@ pub(super) fn reserved_message(w: &str) -> String {
 }
 
 impl Parser {
+    /// An expression continued on an indented line (`? …`, `: …`, `+ …`, `and …`):
+    /// a declaration is one line unless parentheses hold it (authoring bench: a
+    /// multi-line ternary in a `fn` or a `derive`).
+    pub(super) fn continued_expression<T>(&self, id: &'static str) -> Option<R<T>> {
+        let continues = matches!(self.peek_kind(), TokenKind::Indent)
+            && match self.peek2() {
+                TokenKind::Punct(p) => matches!(
+                    *p,
+                    "?" | ":"
+                        | "+"
+                        | "-"
+                        | "*"
+                        | "/"
+                        | "%"
+                        | "&&"
+                        | "||"
+                        | "=="
+                        | "!="
+                        | "<"
+                        | "<="
+                        | ">"
+                        | ">="
+                ),
+                TokenKind::Ident(w) => matches!(w.as_str(), "and" | "or"),
+                _ => false,
+            };
+        continues.then(|| {
+            self.err(
+                id,
+                "an expression goes on over lines only inside parentheses: wrap the whole \
+                 expression in `(` … `)`, as in `derive label = (done\n    ? \"Done\"\n    : \"Open\")`",
+            )
+        })
+    }
+
     /// The end of an `else` line: there is no `else if` or `else when` (authoring
     /// bench), so the next choice goes on its own line under the `else`.
     pub(super) fn after_else(&mut self, choice: &str) -> R<()> {
