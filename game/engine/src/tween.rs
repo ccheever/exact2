@@ -72,6 +72,12 @@ impl Data for Tween {
             now.tick
         })
     }
+    fn same(&self, other: &Self) -> bool {
+        self.start_value.same(&other.start_value)
+            && self.target.same(&other.target)
+            && self.start_tick == other.start_tick
+            && self.duration.same(&other.duration)
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.begin_struct();
         w.field("start_value");

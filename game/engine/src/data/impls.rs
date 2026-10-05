@@ -4,6 +4,9 @@ use std::any::Any;
 use std::collections::BTreeMap;
 
 impl Data for bool {
+    fn same(&self, other: &Self) -> bool {
+        self == other
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.boolean(*self);
     }
@@ -20,6 +23,7 @@ fn integral(n: f64) -> Option<i128> {
 }
 macro_rules! integer {
     ($kind:ident, $($ty:ty),+) => {$(impl Data for $ty {
+        fn same(&self, other: &Self) -> bool { self == other }
         fn write(&self, w: &mut dyn Writer) { w.number(Number::$kind((*self).into())); }
         fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
             *self = match r.number()? {
@@ -35,6 +39,9 @@ macro_rules! integer {
 integer!(Unsigned, u8, u16, u32, u64);
 integer!(Signed, i8, i16, i32, i64);
 impl Data for f32 {
+    fn same(&self, other: &Self) -> bool {
+        super::f32_bits(*self) == super::f32_bits(*other)
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.number(Number::F32(*self));
     }
@@ -44,6 +51,9 @@ impl Data for f32 {
     }
 }
 impl Data for f64 {
+    fn same(&self, other: &Self) -> bool {
+        super::f64_bits(*self) == super::f64_bits(*other)
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.number(Number::F64(*self));
     }
@@ -53,6 +63,9 @@ impl Data for f64 {
     }
 }
 impl Data for String {
+    fn same(&self, other: &Self) -> bool {
+        self == other
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.string(self);
     }
@@ -62,6 +75,9 @@ impl Data for String {
     }
 }
 impl Data for std::borrow::Cow<'static, str> {
+    fn same(&self, other: &Self) -> bool {
+        self == other
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.string(self);
     }
@@ -71,6 +87,9 @@ impl Data for std::borrow::Cow<'static, str> {
     }
 }
 impl<T: Data> Data for Vec<T> {
+    fn same(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().zip(other).all(|(a, b)| a.same(b))
+    }
     fn moving(&self, now: crate::Now) -> bool {
         self.iter().any(|v| v.moving(now))
     }
@@ -151,6 +170,12 @@ impl<T: Data> Data for Vec<T> {
     }
 }
 impl<T: Data> Data for Option<T> {
+    fn same(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Some(a), Some(b)) => a.same(b),
+            (a, b) => a.is_none() && b.is_none(),
+        }
+    }
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
         self.as_ref().map_or(Some(now.tick), |v| v.settle_tick(now))
     }
@@ -179,6 +204,9 @@ impl<T: Data, const N: usize> Data for [T; N]
 where
     [T; N]: Default,
 {
+    fn same(&self, other: &Self) -> bool {
+        self.iter().zip(other).all(|(a, b)| a.same(b))
+    }
     fn moving(&self, now: crate::Now) -> bool {
         self.iter().any(|v| v.moving(now))
     }
@@ -220,6 +248,12 @@ fn read_slice<T: Data>(values: &mut [T], r: &mut dyn Reader) -> Result<(), DataE
     Ok(())
 }
 impl<T: Data> Data for Box<T> {
+    fn same(&self, other: &Self) -> bool {
+        (**self).same(&**other)
+    }
+    fn write_over(&self, base: &Self, w: &mut dyn Writer) {
+        (**self).write_over(&**base, w);
+    }
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
         (**self).settle_tick(now)
     }
@@ -235,6 +269,13 @@ impl<T: Data> Data for Box<T> {
     }
 }
 impl<T: Data> Data for BTreeMap<String, T> {
+    fn same(&self, other: &Self) -> bool {
+        self.len() == other.len()
+            && self
+                .iter()
+                .zip(other)
+                .all(|((ka, a), (kb, b))| ka == kb && a.same(b))
+    }
     fn moving(&self, now: crate::Now) -> bool {
         self.values().any(|v| v.moving(now))
     }
@@ -265,6 +306,7 @@ impl<T: Data> Data for BTreeMap<String, T> {
 macro_rules! tuple {
     ($n:expr; $($T:ident:$i:tt),*) => {
         impl<$($T: Data),*> Data for ($($T,)*) {
+            fn same(&self, other: &Self) -> bool { true $(&& self.$i.same(&other.$i))* }
             fn moving(&self, now: crate::Now) -> bool { false $(|| self.$i.moving(now))* }
             fn settle_tick(&self, now: crate::Now) -> Option<u64> { Some(now.tick $(.max(self.$i.settle_tick(now)?))*) }
             fn write(&self, w: &mut dyn Writer) {
@@ -281,6 +323,9 @@ macro_rules! tuple {
     };
 }
 impl Data for () {
+    fn same(&self, _: &Self) -> bool {
+        true
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.unit();
     }
@@ -299,6 +344,7 @@ tuple!(4; A:0, B:1, C:2, D:3);
 
 macro_rules! vector {
     ($($ty:ty),*) => {$(impl Data for $ty {
+        fn same(&self, other: &Self) -> bool { self.to_array().same(&other.to_array()) }
         fn write(&self, w: &mut dyn Writer) { self.to_array().write(w); }
         fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
             let mut a = self.to_array(); a.read(r)?; *self = Self::from_array(a); Ok(())
