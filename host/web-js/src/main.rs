@@ -103,18 +103,15 @@ fn main() -> ExitCode {
                     shallow.push((parent.display().to_string(), "node_modules".into()));
                 }
             }
-            if consulted.file_name().is_some_and(|n| n == "package.json") {
-                if let Some(install) = consulted.parent() {
-                    let link = std::fs::symlink_metadata(install)
-                        .is_ok_and(|m| m.file_type().is_symlink());
-                    if let (true, Some(parent), Some(name)) =
-                        (link, install.parent(), install.file_name())
-                    {
-                        shallow.push((
-                            parent.display().to_string(),
-                            name.to_string_lossy().into_owned(),
-                        ));
-                    }
+            // Every link on the way to it — the install, a linked
+            // node_modules, a linked scope — is one entry of its directory.
+            for dir in consulted.ancestors().skip(1) {
+                let link = std::fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_symlink());
+                if let (true, Some(parent), Some(name)) = (link, dir.parent(), dir.file_name()) {
+                    shallow.push((
+                        parent.display().to_string(),
+                        name.to_string_lossy().into_owned(),
+                    ));
                 }
             }
         }
@@ -131,10 +128,19 @@ fn main() -> ExitCode {
             .map(|(dir, name)| format!("[{dir:?},{name:?}]"))
             .collect::<Vec<_>>()
             .join(",");
+        // Every source by path: one in a dot directory the app's watcher
+        // would otherwise skip is still an input.
+        let sources: Vec<String> = graph
+            .sources
+            .iter()
+            .filter(|s| s.path.is_absolute())
+            .map(|s| s.path.display().to_string())
+            .collect();
         let json = format!(
-            "{{\"packages\":[{}],\"shallow\":[{}]}}\n",
+            "{{\"packages\":[{}],\"shallow\":[{}],\"sources\":[{}]}}\n",
             list(&roots),
-            pairs
+            pairs,
+            list(&sources)
         );
         let _ = std::fs::create_dir_all(out);
         let _ = std::fs::write(std::path::Path::new(out).join("dev-sources.json"), json);

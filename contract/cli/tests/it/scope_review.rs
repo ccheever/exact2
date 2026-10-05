@@ -725,3 +725,56 @@ fn a_relative_use_is_watched_by_the_path_written() {
         );
     }
 }
+
+// Round 9 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn a_literal_name_beside_a_computed_easing_is_the_name() {
+    let dir = Dir::new("computed-easing");
+    dir.write(
+        "ui.contract",
+        "keyframes linear\n  to opacity=0\ncomponent Card\n  state easing = \"ease\"\n  view\n    view animation=`${easing} linear 1s`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes linear\n  to opacity=1\ncomponent App\n  view\n    Card()\n",
+    );
+    let text = plan(&root);
+    assert!(text.contains("linear__ui 1s"), "{text}");
+}
+
+#[test]
+fn a_compiler_declared_type_is_no_files_name() {
+    let dir = Dir::new("builtin-type");
+    dir.write(
+        "ui.contract",
+        "fn PointerEvent(x: number): number = x\ncomponent Card\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\ncomponent App\n  state x = 0\n  action point(e: PointerEvent)\n    x = e.offsetX\n  view\n    column\n      Card()\n      view pointerdown=point width=10 height=10\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(
+        e.as_ref().is_none_or(|e| e.id != "contract-use-missing"),
+        "{e:?}"
+    );
+}
+
+#[test]
+fn a_shape_named_path_does_not_take_the_routers_call() {
+    let dir = Dir::new("shape-path");
+    dir.write(
+        "ui.contract",
+        "shape path\n  n: number\ncomponent Card\n  view\n    text path(\"home\")\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nroutes nav\n  home \"/\"\ncomponent App\n  view\n    column\n      Card()\n      text path(\"home\")\n",
+    );
+    let e = contract::compile_path(&root).err();
+    assert!(
+        e.as_ref().is_none_or(|e| e.id != "type-record-base"),
+        "{e:?}"
+    );
+}

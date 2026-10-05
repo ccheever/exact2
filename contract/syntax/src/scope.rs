@@ -51,6 +51,13 @@ pub struct Scope {
     /// Whether a call names a roster function, which no file declares and
     /// every file sees: never another file's name, so never refused.
     pub roster: Option<fn(&str) -> bool>,
+    /// The types the compiler declares (`PointerEvent`, `Geometry`, …):
+    /// every file sees them, so another file's `fn` of the name is never
+    /// what a type means.
+    pub builtin_types: std::collections::HashSet<String>,
+    /// The program-unique names that are shapes, not `fn`s: a call of a
+    /// shape named `path` is the router's `path()`, as the checker reads it.
+    pub shapes: std::collections::HashSet<String>,
 }
 
 impl Scope {
@@ -318,7 +325,13 @@ impl Rewriter<'_> {
 
     fn ty(&mut self, ty: &mut TypeExpr) -> R {
         match ty {
-            TypeExpr::Named(name, _) if PRIMITIVES.contains(&name.as_str()) => Ok(()),
+            TypeExpr::Named(name, _)
+                if PRIMITIVES.contains(&name.as_str())
+                    || (self.scope.builtin_types.contains(name.as_str())
+                        && self.scope.get(Kind::Call, name).is_none()) =>
+            {
+                Ok(())
+            }
             TypeExpr::Named(name, span) => self.scope.rename(Kind::Call, name, *span),
             TypeExpr::Option(inner, _) | TypeExpr::List(inner, _) => self.ty(inner),
         }
@@ -543,7 +556,21 @@ impl Rewriter<'_> {
                 .into_iter()
                 .filter(|(_, t)| !t.is_empty())
                 .collect();
-            let name = if shorthand {
+            // With a computed part, which slot a literal keyword fills is
+            // not known until it runs (`${easing} linear 1s`): a literal that
+            // names keyframes this file sees is read as the name.
+            let computed = tokens.iter().any(|(_, t)| t.contains(HOLE));
+            let declared = tokens.iter().copied().find(|(_, t)| {
+                !t.contains(HOLE)
+                    && is_name(t)
+                    && self
+                        .scope
+                        .get(Kind::Keyframes, t.trim_matches(|c| c == '"' || c == '\''))
+                        .is_some()
+            });
+            let name = if shorthand && computed && declared.is_some() {
+                declared
+            } else if shorthand {
                 let mut slots = Shorthand::default();
                 let mut name = None;
                 let mut valid = true;
@@ -688,7 +715,13 @@ impl Rewriter<'_> {
                 let roster = self.scope.roster.is_some_and(|f| f(name));
                 // `pending` and `failed` are read before any `fn`, and `t`
                 // before any but an action or prop of its name.
-                let intrinsic = matches!(name.as_str(), "pending" | "failed")
+                let routing = name == "path"
+                    && self
+                        .scope
+                        .get(Kind::Call, name)
+                        .is_none_or(|to| self.scope.shapes.contains(to));
+                let intrinsic = routing
+                    || matches!(name.as_str(), "pending" | "failed")
                     || (name == "t" && !self.callable_t());
                 if !intrinsic && (declared || !(self.local(name) || roster)) {
                     self.scope.rename(Kind::Call, name, *span)?;

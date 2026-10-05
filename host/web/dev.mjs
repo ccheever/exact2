@@ -493,13 +493,15 @@ function contractGraph() {
         const parent = c.slice(0, match.index);
         if (!existsSync(resolve(parent, 'node_modules')) && existsSync(parent)) shallow.set(`${parent}\0node_modules`, [parent, 'node_modules']);
       }
-      if (basename(c) === 'package.json') {
-        const install = dirname(c);
-        try { if (lstatSync(install).isSymbolicLink()) shallow.set(`${dirname(install)}\0${basename(install)}`, [dirname(install), basename(install)]); } catch {}
+      // Every link on the way to it — the install, a linked node_modules,
+      // a linked scope — is one entry of its directory.
+      for (let dir = dirname(c); dirname(dir) !== dir; dir = dirname(dir)) {
+        try { if (lstatSync(dir).isSymbolicLink()) shallow.set(`${dirname(dir)}\0${basename(dir)}`, [dirname(dir), basename(dir)]); } catch {}
       }
     }
-    return { files, dirs, shallow: [...shallow.values()] };
-  } catch { return { files: new Set(), dirs: new Set(), shallow: [] }; }
+    const sources = new Set(graph.sources.filter(s => isAbsolute(s.path)).map(s => s.path));
+    return { files, dirs, shallow: [...shallow.values()], sources };
+  } catch { return { files: new Set(), dirs: new Set(), shallow: [], sources: new Set() }; }
 }
 
 function startModuleCompiler() {
@@ -572,7 +574,10 @@ function startModuleCompiler() {
     if (rebuildOn.typescript === "save") moduleTimer = setImmediate(produce);
   };
   // The declarations the producer writes beside app.ts are its output, not a source.
-  const watches = [watchModuleSources(app.dir, name => name === 'app.contract.d.ts' || skipped.test(name) || /(^|\/)\./.test(name)
+  // A Contract source the compile read is an input even in a dot directory.
+  const contractSources = new Set(contractGraph().sources);
+  const watches = [watchModuleSources(app.dir, name => name === 'app.contract.d.ts' || skipped.test(name)
+    || (/(^|\/)\./.test(name) && !contractSources.has(resolve(app.dir, name)))
     || assetTrees.some(([tree]) => resolve(app.dir,name) === tree || resolve(app.dir,name).startsWith(tree+'/')), moduleChanged)];
   // Directories the manifest mounts beside app.ts (typescript.sources) are sources too.
   for (const path of Object.values(app.manifest.typescript?.sources ?? {})) {
@@ -583,6 +588,7 @@ function startModuleCompiler() {
   const packageDirs = new Set();
   const watchPackages = () => {
     const graph = contractGraph();
+    for (const source of graph.sources) contractSources.add(source);
     for (const dir of graph.dirs) {
       if (packageDirs.has(dir) || !existsSync(dir)) continue;
       packageDirs.add(dir);

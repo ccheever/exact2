@@ -444,6 +444,7 @@ stage 1 lands, and stage 2 waits on them.
 - r8 (2026-10-05): round 6; the bake compiles in place (§15).
 - r9 (2026-10-05): round 7 (§16).
 - r10 (2026-10-05): round 8 (§17).
+- r11 (2026-10-05): round 9 (§18).
 
 ## 9. Review dispositions (round 1)
 
@@ -723,4 +724,21 @@ taken; every plan stays byte-identical.
 | Astra 6 / Grok 2: a link retargeted at an older file, or an install link retargeted, went unseen by the JS loop and the TypeScript producer | A package's events are edits whatever their time; both loops watch an install that is a link as one entry of its directory |
 | Astra 7 / Grok 3: the TypeScript producer's graph filter assumed `/` | Path tests by `path.relative`, separators either way |
 | Astra 8 / Grok 4: off Unix, a stamp had no file identity | It carries the file's creation time |
+
+## 18. Code review round 9 dispositions
+
+Round 9 (`llp/reviews/code-2026-10-05-1091-r9.{astra,grok}.md`): Astra UNSOUND, Grok SOUND WITH
+CHANGES (round 8 fixed but for one Cargo case, no new bug from its fixes). Every plan stays
+byte-identical.
+
+| Finding | Disposition |
+|---|---|
+| Astra 1: with a computed part, a literal keyword that names keyframes was read as its keyword | Taken: with a computed part, a literal naming keyframes this file sees is the name |
+| Astra 2: a compiler-declared type (`PointerEvent`) was refused when another file had a `fn` of its name | Taken: the compiler's types (read from the checker's declarations of an empty file) are no file's name |
+| Astra 3: a library shape named `path` took its own file's router `path()` once renamed | Taken: a call of `path` whose name in scope is a shape, or nothing, is the router's, as the checker reads it |
+| Astra 5: a Windows copy that kept its times defeated the wasm session's stamp | Taken, for every platform: a used file's stamp is a fingerprint of its bytes |
+| Astra 6 / Grok 2: an app's own link retargeted at an older file was dropped by the JS loop | Taken: freshness is the entry's own time (`lstat`) |
+| Astra 7: a Contract source in a dot directory of the app was not watched | Taken: both loops watch every source the compile read |
+| Astra 8: a linked `node_modules` directory retargeted went unseen | Taken: every link on the way to a consulted path is one watched directory entry |
+| Astra 4 / Grok 1: a Rust build does not see a package installed nearer than the one it resolved | **Declined.** Cargo can only watch files, or directories by recursive scan; the directory a nearer install would make (`apps/node_modules`, `apps/markdown/node_modules`) does not exist and its parent is a tree of other apps or the app itself, so a recursive watch would rebuild on every unrelated edit. Installing a package is a dependency change, and `cargo build` after it rebuilds the plan once any input it watches changes; the dev loops, which can watch one directory entry, do see it. Recorded in QUEUE |
 
