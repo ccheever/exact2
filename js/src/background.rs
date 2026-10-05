@@ -97,6 +97,13 @@ impl Module {
             engine.drain()?;
             Ok::<_, String>(delivered)
         })();
+        // The delivery may have issued a let-go chain that was queued behind
+        // this write. Finish it before the round returns: quit's pump arms a
+        // round only while the head is background, so a chain left here is
+        // dropped when the process exits.
+        if matches!(delivered, Ok(true)) {
+            self.finish_let_go();
+        }
         self.host.between_answers = false;
         // What landed may settle an answer waiting on the background's work.
         self.progress += 1;

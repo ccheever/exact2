@@ -549,3 +549,51 @@ fn unloading_finishes_what_the_answers_left() {
     m.unload();
     assert_eq!(read_file(&root, "song"), "three");
 }
+
+/// A `serial` mutation queued behind an unawaited save, superseded before
+/// its own statement is head. The round that delivers the save issues the
+/// chain; that round has to finish the chain, or quit's pump never sees a
+/// background head again and drops it.
+#[test]
+fn a_let_go_chain_behind_a_background_write_finishes() {
+    let root = Root::new();
+    let mut host = Host::new(&root);
+    host.invoke("save", "bg");
+    host.invoke("serial", "a");
+    host.invoke("serial", "b");
+    // Quit pumps background rounds only. Resuming the waiting answer would
+    // finish the chain from `resume`'s `finish_let_go`, which quit never runs.
+    let mut later = Vec::new();
+    for _ in 0..10 {
+        let mut background = None;
+        for request in host.runner.take_requests() {
+            if request.target == "background" {
+                background = Some(request);
+            } else {
+                later.push(request);
+            }
+        }
+        let Some(request) = background else { break };
+        let token = request.request.continuation.expect("background continuation");
+        let Dispatch::Run(Work::Now(work)) = host.runner.dispatch_work(token) else {
+            panic!("a background round runs");
+        };
+        let outcome = std::thread::spawn(work).join().unwrap();
+        host.runner.fulfill(request.ticket, outcome).unwrap();
+    }
+    assert_eq!(
+        host.runner.background_operations(),
+        0,
+        "the let-go chain is still in flight after the background rounds"
+    );
+    for request in later {
+        let Some(token) = request.request.continuation else { continue };
+        if let Dispatch::Run(Work::Now(work)) = host.runner.dispatch_work(token) {
+            let outcome = std::thread::spawn(work).join().unwrap();
+            host.runner.fulfill(request.ticket, outcome).unwrap();
+        }
+    }
+    host.settle();
+    assert_eq!(host.result().as_deref(), Some("b:2"));
+    assert!(!host.runner.has_pending());
+}
