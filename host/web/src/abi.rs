@@ -470,7 +470,9 @@ impl<D: DataSource> Bridge<D> {
     /// Kind 14 is navigate: one UTF-8 location at the navigation root (LLP 1038 D8).
     /// Kind 20 is pan (`dx,dy`); 28 panrelease (`vx,vy`, px/s; LLP 1057 §10.6).
     /// Kind 23 is a text field's `input`; 24 and 25 a checkbox's `change`
-    /// and `input`, the payload `true` or `false` (LLP 1069.001 D4).
+    /// and `input`, the payload `true` or `false` (LLP 1069.001 D4); 40 to
+    /// 42 a text field's `input`, `change` and `select` with its selection
+    /// (x2apps codeedit #2).
     pub fn dispatch(&mut self, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
@@ -495,9 +497,10 @@ impl<D: DataSource> Bridge<D> {
             // A context menu (its point when it has one), scroll, media, pan,
             // selection and pan release (LLP 1057 §10.6), the pointer's down,
             // up and move with its record (LLP 1005 §3; LLP 1056 §3 stage 3),
-            // the clipboard's three, a text's selectionchange, and
-            // beforeunload, wheel and drop (`Event::of_host_kind`).
-            10 | 13 | 19 | 20 | 21 | 28..=39 => match Event::of_host_kind(kind, &payload) {
+            // the clipboard's three, a text's selectionchange, beforeunload,
+            // wheel, drop and resize, and a text field's input, change and
+            // select with its selection (`Event::of_host_kind`).
+            10 | 13 | 19 | 20 | 21 | 28..=42 => match Event::of_host_kind(kind, &payload) {
                 Ok(event) => event,
                 Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
             },

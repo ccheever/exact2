@@ -71,15 +71,17 @@ impl FieldSelection {
     }
 
     /// `setSelectionRange(start, end, direction)` on a value of `len` UTF-16
-    /// units, as HTML clamps it: each end to the length, and an end before
-    /// the start moves the start to it.
+    /// units, as HTML clamps it: each end an `unsigned long` (WebIDL's
+    /// ToUint32, so `-1` is past the end), then to the length, and an end
+    /// before the start moves the start to it.
     pub fn clamped(start: f64, end: f64, direction: SelectionDirection, len: u32) -> Self {
         let at = |n: f64| {
-            if n.is_nan() || n <= 0.0 {
-                0
+            let n = if n.is_finite() {
+                (n.trunc() % 4_294_967_296.0 + 4_294_967_296.0) % 4_294_967_296.0
             } else {
-                n.min(f64::from(len)) as u32
-            }
+                0.0
+            };
+            n.min(f64::from(len)) as u32
         };
         let end = at(end);
         Self {
@@ -216,11 +218,16 @@ mod tests {
             (c.start, c.end, c.direction),
             (4, 4, SelectionDirection::None)
         );
-        let c = FieldSelection::clamped(-1.0, 99.0, SelectionDirection::of("forward"), 6);
+        let c = FieldSelection::clamped(0.5, 99.0, SelectionDirection::of("forward"), 6);
         assert_eq!(
             (c.start, c.end, c.direction),
             (0, 6, SelectionDirection::Forward)
         );
+        // As the DOM converts it, `-1` is the largest offset: the end.
+        let c = FieldSelection::clamped(-1.0, -1.0, SelectionDirection::None, 6);
+        assert_eq!((c.start, c.end), (6, 6));
+        let c = FieldSelection::clamped(f64::NAN, f64::INFINITY, SelectionDirection::None, 6);
+        assert_eq!((c.start, c.end), (0, 0));
         assert_eq!(FieldSelection::at_end("a😀").end, 3);
     }
 }

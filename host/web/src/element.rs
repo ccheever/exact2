@@ -853,6 +853,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Sandbox => "sandbox",
             PropId::SemanticTag => continue,
             PropId::Checked => "checked",
+            // A radio's group (x2apps survey #2): the browser's own exclusivity and arrows.
+            PropId::Name => "name",
             PropId::Rows => "rows",
             PropId::Maxlength => "maxlength",
             // A file input's own attributes (LLP 1069.002 D1), so the
@@ -1010,6 +1012,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     let implicit = match (element(node), out.get("type").map(String::as_str)) {
         ("button", _) => Some("button"),
         ("input", Some("checkbox")) => Some("checkbox"),
+        ("input", Some("radio")) => Some("radio"),
         ("a", _) if out.contains_key("href") => Some("link"),
         _ => None,
     };
@@ -1040,7 +1043,9 @@ mod name_tests {
             .map(|(css, _)| css)
             .expect("page stylesheet");
         assert!(page.contains("select { display: block; }"));
-        assert!(page.contains("input[type=\"checkbox\"] { box-sizing: border-box; }"));
+        assert!(page.contains(
+            "input[type=\"checkbox\"], input[type=\"radio\"] { box-sizing: border-box; }"
+        ));
         let mut file_appearance_restored = false;
         for rule in stylesheet.split('}') {
             let Some((selectors, declarations)) = rule.rsplit_once('{') else {

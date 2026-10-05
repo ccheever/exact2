@@ -920,7 +920,11 @@ textarea value=body input=editBody
 
 `input` and `change` carry the control's new value as the final action argument:
 a string for a text field, textarea or `select`, a boolean for a checkbox or
-switch, a number for `type="range"`, and a `list<Picked>` for a file input.
+switch, the radio's `value` for `type="radio"`, a number for `type="range"`, and
+a `list<Picked>` for a file input. An action taking one more parameter also
+hears the target as the event leaves it, an `InputEvent`: its `value` (a
+checkbox's own), `checked`, and a text field's `selectionStart`, `selectionEnd`
+and `selectionDirection` ([form controls](contract-grammar.md#form-controls-radio-inputevent-setselectionrange)).
 `hover` carries a boolean; `key` carries a key name, and to an action that
 takes one more parameter its `KeyboardEvent` (the modifiers). Captured arguments precede
 the payload: `input=edit(item.id)` calls the bound action with the id followed
@@ -935,8 +939,9 @@ keeps it from its ancestors' `key` handlers with `stopPropagation()`
 The complete event inventory and payload groups are in the
 [event reference](contract-grammar.md#events). HTML controls include `select` and
 `option`; inspect [the control tests](../contract/cli/tests/it/controls.rs) for
-the checkbox/switch, range, select and date/time conventions instead of assuming
-a browser Event object. There is no radio input.
+the checkbox/switch, radio, range, select and date/time conventions instead of
+assuming a browser Event object. `input type="radio"` is HTML's: the radios of
+one `name` are a group, exclusive, and the arrow keys move the check among them.
 
 An action can issue host commands such as `focus("editor")`,
 `blur("editor")`, `copyText(text)`, and `openURL(url)`. Use an element's `id` for

@@ -850,7 +850,8 @@ ancestor that would take the press itself included.
 `type` on a control sets it as a person choosing would, with `input` then
 `change`: a `select` takes an option's value or its label, a date, time or
 `datetime-local` input its HTML value (`2026-10-09`, `14:00`,
-`2026-10-09T14:30`), a range a number, a checkbox `true` or `false`. A
+`2026-10-09T14:30`), a range a number, a checkbox `true` or `false`, a radio
+`true` (it is unchecked only by checking another of its group). A
 `select`, a range and a date, time or `datetime-local` input keep the person's
 choice until their bound `value` changes, as a text field does (LLP 1069.001 D4,
 amended): an action that writes nothing, or only sends a mutation, shows the
