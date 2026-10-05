@@ -672,8 +672,9 @@ pub fn camp_bearing(w: &World) -> String {
 }
 
 /// A public supply budget for the next dawn. Carried food counts as a reserve;
-/// carried fuel still needs feeding. This never changes the selected compass.
-pub fn preparation(w: &World, children_safe: bool) -> (String, String) {
+/// carried fuel still needs feeding. Rescue progress does not gate sheltering,
+/// and this never changes the selected compass.
+pub fn preparation(w: &World) -> (String, String) {
     let c = *w.resource::<Cycle>();
     let fire = *w.resource::<Fire>();
     let p = w.require::<Player>("player");
@@ -702,8 +703,6 @@ pub fn preparation(w: &World, children_safe: bool) -> (String, String) {
         "The next dawn will wait for another attempt".into()
     } else if p.hunger <= FOOD_HUNGER && food > 0 {
         "Q: eat a carried meal before sheltering".into()
-    } else if !children_safe {
-        "Bring the children home for rescue supplies".into()
     } else if fuel_short > 0.0 {
         if food < p.pack.len() {
             "Feed your carried fuel into the campfire".into()

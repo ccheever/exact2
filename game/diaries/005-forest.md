@@ -1248,3 +1248,45 @@ the shelter countdown. That explains why the two visible messages coexist;
 it does not establish that this caused Jev's earlier no-wait choices. The
 closed windbreak pair stays closed. Separating camp readiness from the
 rescue guidance remains a concrete next gameplay investigation.
+
+## Camp guidance without a rescue gate (2026-10-04)
+
+The preceding integration supplied a concrete contradiction: the windbreak
+capture says fire and food are ready, yet the camp plan asks for rescue
+supplies. `preparation` checked whether every child was safe before considering
+the actual camp budget. Remove that condition and its boolean parameter. The
+camp plan now names missing fuel or food, asks a prepared player to return,
+or counts down sheltering to dawn independently of rescue progress. Eating
+and death still take priority. The Children compass, rescue count, escort
+guidance and supply reward remain available; the plan never changes the
+chosen compass or the underlying survival rules.
+
+All 23 simulation tests pass, including the expanded saved-continuation test
+at four times in the cycle, with children lost or rescued and both collision
+implementations. The fuel and food cases now run with children still lost.
+A temporary borrow in the new objective assertion failed compilation on the
+first run; keeping its returned value alive fixes it. Log:
+`/tmp/exact2-camp-guidance-tests-after.log`.
+
+The existing windbreak proof now follows the visible shelter countdown to
+the first dawn and then selects the Children compass, proving that the rescue
+remains available. A fresh process repeats that continuation from the saved
+camp and compares its bytes. Real-host verification and pin acceptance are
+pending at this implementation checkpoint.
+
+Playtest hypothesis: giving the camp plan its own readiness message may help
+Jev finish building and sheltering. Run one new 96-decision build-camp trial
+per web/macOS host with the existing controller, observation fields, choices,
+goal and limit unchanged. This is a new game-guidance change, not a reopening
+of the previous closed pair; record failure or success and close this pair
+without tuning the policy to its result.
+
+All root checks pass in 99.859 s: build 0.305, tests 97.077, Clippy 0.293,
+formatting 2.085, caps 0.085 and boot 0.015 s; 2,436 tests pass with nine
+ignored across 81 binaries (40.64 s summed test execution). No game drive
+overlaps this run. The 60 s budget is still missed. Forest's determinism
+lint, ordinary all-target Clippy and formatting pass. The first all-target
+lint invocation also applied simulation-only bans to the unchanged scale
+benchmark's `Instant`; the corrected invocation leaves those bans to the
+separate logic-library determinism lint. Logs:
+`/tmp/exact2-camp-guidance-{checks.json,forest-clippy-after.log}`.

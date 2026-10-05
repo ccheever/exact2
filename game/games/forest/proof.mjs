@@ -440,7 +440,39 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('saved materials build the same camp in a fresh process', JSON.stringify(await buildCamp(craftBack)) === JSON.stringify(crafted));
   await craftBack.world('world').save(resolve(out,'windbreak-restored.world'));
   check('built camp continuation saves are byte-identical', readFileSync(resolve(out,'windbreak.world')).equals(readFileSync(resolve(out,'windbreak-restored.world'))));
+
+  // A ready camp can shelter before the rescue is finished. Follow its public
+  // countdown, then prove the same night from the saved built camp.
+  const shelterBuiltCamp = async session => {
+    const tree = await session.tree();
+    const plan = node(tree,'night-plan')?.props?.text ?? '';
+    check('a built camp reports readiness while both children remain lost',
+      /^Shelter by the fire until dawn · \d+ s$/.test(plan)
+      && node(tree,'night-supplies')?.props?.text === 'To dawn: fire ready · food ready'
+      && node(tree,'children')?.props?.text === 'Children 0 of 2 rescued', plan);
+    await session.world('world').run(Number(plan.match(/(\d+) s$/)?.[1]) * 1000 + 100);
+    const dawn = await session.tree();
+    check('the windbreak camp reaches dawn alive without requiring a rescue',
+      node(dawn,'survived')?.props?.text === 'Nights survived: 1'
+      && node(dawn,'health')?.props?.text === 'Health 100' && !node(dawn,'dead')
+      && node(dawn,'children')?.props?.text === 'Children 0 of 2 rescued');
+    await session.tap('track-rescue'); await session.world('world').run(100);
+    check('the children compass still offers the unfinished rescue after sheltering',
+      node(await session.tree(),'objective')?.props?.text.startsWith('Find a lost child · '));
+    return await session.world('world').snapshot();
+  };
+  const builtDawn = await shelterBuiltCamp(craftBack);
+  await craftBack.world('world').save(resolve(out,'windbreak-dawn.world'));
+  pinSave('windbreak-dawn',resolve(out,'windbreak-dawn.world'));
+  if (host !== 'linux') await craftBack.screenshot(resolve(out,'windbreak-dawn.png'));
   await craftBack.close();
+  const builtBack = await open({fresh:true,world:resolve(out,'windbreak.world')});
+  await builtBack.tap('trees-1k'); await builtBack.tap('play');
+  check('the saved built camp shelters identically in a fresh process',
+    JSON.stringify(await shelterBuiltCamp(builtBack)) === JSON.stringify(builtDawn));
+  await builtBack.world('world').save(resolve(out,'windbreak-dawn-restored.world'));
+  check('built-camp dawn saves are byte-identical', readFileSync(resolve(out,'windbreak-dawn.world')).equals(readFileSync(resolve(out,'windbreak-dawn-restored.world'))));
+  await builtBack.close();
 });
 
 async function followCompass(session, objective) {

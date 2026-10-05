@@ -588,38 +588,49 @@ fn wolves_hunt_a_player_outside_the_light_and_bite() {
 #[test]
 fn a_prepared_camp_shelters_through_dawn_in_both_collision_modes() {
     for lite in [false, true] {
-        for time in [8.0, DAY - 1.0, DAY + 1.0, PERIOD - 0.25] {
-            let mut sim = game(500, lite);
-            sim.world_mut().resource_mut::<Cycle>().t = time;
-            let cycle = *sim.world().resource::<Cycle>();
-            sim.world_mut().resource_mut::<Fire>().fuel = cycle.dawn_fuel(Fire::default()) + 0.25;
-            sim.world_mut().require_mut::<Player>("player").hunger =
-                cycle.until_dawn() * 0.45 + 11.0;
-            for child in ["child-1", "child-2"] {
-                sim.world_mut().require_mut::<Child>(child).fate = Fate::Rescued;
+        for rescued in [false, true] {
+            for time in [8.0, DAY - 1.0, DAY + 1.0, PERIOD - 0.25] {
+                let mut sim = game(500, lite);
+                sim.world_mut().resource_mut::<Cycle>().t = time;
+                let cycle = *sim.world().resource::<Cycle>();
+                sim.world_mut().resource_mut::<Fire>().fuel =
+                    cycle.dawn_fuel(Fire::default()) + 0.25;
+                sim.world_mut().require_mut::<Player>("player").hunger =
+                    cycle.until_dawn() * 0.45 + 11.0;
+                if rescued {
+                    for child in ["child-1", "child-2"] {
+                        sim.world_mut().require_mut::<Child>(child).fate = Fate::Rescued;
+                    }
+                }
+                sim.run(TICK);
+                let objective = sim.world().published("objective").unwrap();
+                assert!(if rescued {
+                    objective.text().starts_with("All children safe")
+                } else {
+                    objective.text().starts_with("Find a lost child")
+                });
+                assert!(sim
+                    .world()
+                    .published("night_plan")
+                    .unwrap()
+                    .text()
+                    .starts_with("Shelter by the fire until dawn"));
+                assert_eq!(
+                    sim.world().published("night_supplies").unwrap().text(),
+                    "To dawn: fire ready · food ready"
+                );
+                let saved = sim.save().unwrap();
+                let mut restored = game(500, lite);
+                restored.restore(&saved).unwrap();
+                for sim in [&mut sim, &mut restored] {
+                    sim.run(cycle.until_dawn() as f64 * 1000.0);
+                    assert_eq!(sim.world().resource::<Cycle>().survived, 1);
+                    assert!(player(sim).health == 100.0 && !player(sim).dead);
+                    assert!(sim.world().resource::<Fire>().fuel >= 10.0);
+                    assert!(player(sim).hunger >= 10.0);
+                }
+                assert!(sim.save().unwrap() == restored.save().unwrap());
             }
-            sim.run(TICK);
-            assert!(sim
-                .world()
-                .published("night_plan")
-                .unwrap()
-                .text()
-                .starts_with("Shelter by the fire until dawn"));
-            assert_eq!(
-                sim.world().published("night_supplies").unwrap().text(),
-                "To dawn: fire ready · food ready"
-            );
-            let saved = sim.save().unwrap();
-            let mut restored = game(500, lite);
-            restored.restore(&saved).unwrap();
-            for sim in [&mut sim, &mut restored] {
-                sim.run(cycle.until_dawn() as f64 * 1000.0);
-                assert_eq!(sim.world().resource::<Cycle>().survived, 1);
-                assert!(player(sim).health == 100.0 && !player(sim).dead);
-                assert!(sim.world().resource::<Fire>().fuel >= 10.0);
-                assert!(player(sim).hunger >= 10.0);
-            }
-            assert!(sim.save().unwrap() == restored.save().unwrap());
         }
     }
 }
@@ -627,40 +638,35 @@ fn a_prepared_camp_shelters_through_dawn_in_both_collision_modes() {
 #[test]
 fn preparation_requires_fuel_in_the_fire_and_keeps_the_chosen_compass() {
     let mut sim = game(500, true);
-    for child in ["child-1", "child-2"] {
-        sim.world_mut().require_mut::<Child>(child).fate = Fate::Rescued;
-    }
     sim.post("track fuel");
     sim.run(TICK);
     let target = sim.world().resource::<Trail>().target;
     assert_eq!(
-        player::preparation(sim.world(), true).0,
+        player::preparation(sim.world()).0,
         "Gather fuel for the next dawn"
     );
     let log = target.unwrap();
     assert_eq!(sim.world().require::<Item>(log).kind, Kind::Log);
     player::interact(sim.world_mut(), player::Action::Take(log, Kind::Log), false);
     assert_eq!(
-        player::preparation(sim.world(), true).0,
+        player::preparation(sim.world()).0,
         "Feed your carried fuel into the campfire"
     );
-    assert!(player::preparation(sim.world(), true)
-        .1
-        .contains("+9 fire fuel"));
+    assert!(player::preparation(sim.world()).1.contains("+9 fire fuel"));
     player::interact(sim.world_mut(), player::Action::Feed, false);
-    assert!(player::preparation(sim.world(), true)
+    assert!(player::preparation(sim.world())
         .0
         .starts_with("Shelter by the fire"));
     assert_eq!(sim.world().resource::<Trail>().target, target);
     place(&mut sim, "player", Vec3::new(5.0, 0.95, 0.0));
     assert_eq!(
-        player::preparation(sim.world(), true).0,
+        player::preparation(sim.world()).0,
         "Supplies ready · Return to camp to shelter"
     );
     // A new dawn brings a whole new night to budget for.
     sim.world_mut().resource_mut::<Cycle>().t = 0.0;
     assert_eq!(
-        player::preparation(sim.world(), true).0,
+        player::preparation(sim.world()).0,
         "Gather fuel for the next dawn"
     );
 }
@@ -671,7 +677,7 @@ fn food_readiness_counts_carried_meals_and_prompts_eating_before_starvation() {
     sim.world_mut().resource_mut::<Fire>().fuel = 100.0;
     sim.world_mut().require_mut::<Player>("player").hunger = 5.0;
     assert_eq!(
-        player::preparation(sim.world(), true).1,
+        player::preparation(sim.world()).1,
         "To dawn: fire ready · 2 food needed"
     );
     let foods: Vec<_> = sim
@@ -690,27 +696,27 @@ fn food_readiness_counts_carried_meals_and_prompts_eating_before_starvation() {
         );
     }
     assert_eq!(
-        player::preparation(sim.world(), true).1,
+        player::preparation(sim.world()).1,
         "To dawn: fire ready · food ready"
     );
     assert_eq!(
-        player::preparation(sim.world(), true).0,
+        player::preparation(sim.world()).0,
         "Q: eat a carried meal before sheltering"
     );
     sim.tap("KeyQ");
     sim.run(TICK);
-    assert!(player::preparation(sim.world(), true)
+    assert!(player::preparation(sim.world())
         .0
         .starts_with("Shelter by the fire"));
     sim.run(12_000.0);
     assert_eq!(
-        player::preparation(sim.world(), true).0,
+        player::preparation(sim.world()).0,
         "Q: eat a carried meal before sheltering"
     );
     sim.tap("KeyQ");
     sim.run(TICK);
     assert_eq!(
-        player::preparation(sim.world(), true).1,
+        player::preparation(sim.world()).1,
         "To dawn: fire ready · food ready"
     );
     assert!(player(&sim).pack.is_empty());
@@ -821,7 +827,7 @@ fn windbreak_halves_burn_but_preserves_the_dawn_reserve() {
             }
             sim.run(TICK);
             assert_eq!(
-                player::preparation(sim.world(), true).1,
+                player::preparation(sim.world()).1,
                 "To dawn: fire ready · food ready"
             );
             let saved = sim.save().unwrap();

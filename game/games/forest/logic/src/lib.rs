@@ -199,7 +199,7 @@ fn hud(w: &World, act: Action, rescued: u32, chasing: u32) {
     };
     let deer = w.require::<Deer>("deer").mind;
     let children = w.count::<Child>(|_| true);
-    let (night_plan, night_supplies) = player::preparation(w, rescued == children);
+    let (night_plan, night_supplies) = player::preparation(w);
     w.publish_record(&Hud {
         day: c.day,
         phase: c.phase().into(),

@@ -55,6 +55,9 @@ it. It names what is missing, reminds you to eat at 35 hunger or below, and tell
 prepared campers to shelter near the fire until the displayed dawn countdown
 ends. At dawn it budgets the next night. This guidance leaves your chosen
 compass target alone, so you can still gather extra supplies or explore.
+Camp readiness is independent of rescue progress: a prepared camp can shelter
+you while children remain lost. The Children compass still guides their rescue,
+and the HUD keeps their count and supply reward visible.
 
 Add `--survival` to the Jev playtest to attempt two nights after rescuing both
 children, with a 128-decision limit. It reads the same HUD, uses the compass
