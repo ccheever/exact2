@@ -17,7 +17,7 @@ component Resize
     calls = calls + 1
   view
     column testId="root" padding=10 gap=8
-      box testId="panel" width=(wide ? 300 : 200) height=50 padding-left=4 padding-top=2 resize=fit background-color="#eeeeff"
+      box testId="panel" width=(wide ? 300 : 200) height=50 padding-left=4 padding-top=2 border-width=3 border-style="solid" resize=fit background-color="#eeeeff"
       textarea testId="grab" resize="none" width=120 height=30
       button press=widen testId="widen"
         text "widen"
