@@ -47,13 +47,14 @@ the actual `displacement` and `grounded` state.
   movement: characters block, slide around and push out of each other in call
   order. A character on a layer outside the mover's mask passes through.
 
-EXPHYS v3 writes each static collider (no Body) whose rebuild from its entry, the
+EXPHYS writes each static collider (no Body) whose rebuild from its entry, the
 Collider and pose it was built from, is byte-identical to Rapier's copy as a hole,
 and rebuilds it on restore: a static collider costs its entry (about its components)
 plus its broad-phase leaf, about 280 bytes for an offset cylinder. The broad phase,
-whose shape orders pairs, stays saved. V2 persisted
-`BroadPhaseBvh::deferred_optimize_pending`, which V1 omitted. Both are refused by
-name before replacing the destination (including inside EXSIM). Start a new world.
+whose shape orders pairs, stays saved. V4 saves the entries as pages; v3 saved them
+as one list, V2 first persisted `BroadPhaseBvh::deferred_optimize_pending`, which V1
+omitted. Older snapshots are refused by name before replacing the destination
+(including inside EXSIM). Start a new world.
 Rapier is consumed by path from `vendor/rapier3d`; it stays outside the root
 workspace's dependency graph.
 
@@ -61,26 +62,36 @@ Saved state is opaque bincode/serde for bodies, colliders, islands, broad/narrow
 joints and integration parameters, plus entity/handle maps and last writes. Restore validates and decodes live state atomically; pipeline/CCD workspaces are scratch under Rapier's serialization contract.
 The hole format is `PhysicsWorld::with_holes`/`FillHoles` in the vendored Rapier
 (`pipeline/physics_world.rs`, marked Exact2), which keeps slots, generations and
-the free list. Whether a static collider has been verified lives in a derived
-table indexed by its Rapier arena slot, carrying the generation so a reused slot
-cannot inherit verification. Sync and removal invalidate it; restore fills it
-from the holes it rebuilt. Capture still verifies each uncached collider against
-its exact serialized rebuild, with no change to EXPHYS v3 bytes.
+the free list.
+
+Capture costs what changed since the last capture, apart from Rapier's own bytes:
+- Whether a static collider has been verified lives in a derived table indexed by
+  its Rapier arena slot, carrying the generation so a reused slot cannot inherit
+  verification, beside the set of colliders not verified. Capture compares only
+  that set against each collider's exact serialized rebuild; a collider that fails
+  (one with a Body, say) stays in it and is compared again next time, so whether a
+  collider is a hole depends on the live state alone.
+- Sync forgets a row's verification, digest and page only when the row differs from
+  its entry (bodies always do: they retarget, and writeback rewrites them). A row
+  equal to its entry is left bit for bit, so the full sync after a restore or clone
+  keeps a static world warm: restore fills the table from the holes it rebuilt.
+- Entries are paged by entity index (256 to a page). A hash (`Writer::digests`)
+  reads the snapshot bytes' digest, then each nonempty page's number and digest; a
+  page digest covers its row count and each entry's cached hash. A save writes each
+  page as a `bin` `Vec<Entry>`, encoded once until sync or writeback touches it.
+  Pages ascend, each holds only its own indices in order, and none is empty, so a
+  state has one saved form; a read refuses any other by name.
+- The snapshot bytes' digest runs four SplitMix64 lanes over interleaved
+  little-endian words, then the engine's hash over the lanes, length and tail.
+These digests are functions of the saved content, recomputed identically after a
+load. Rapier's bytes are still re-encoded and digested whole after every step: the
+broad-phase BVH (about 67 bytes a collider, three quarters of a static forest's
+snapshot) lives in Parry's private fields, which give no record of the nodes that
+changed, and a moving leaf's change flags shift its serialized length every step.
 `Data::write(&self)` refreshes dirty bytes for save, hash and JSON; `refresh_snapshot`
-measures the same operation. Stepping does not serialize. JSON summarizes the opaque bytes by length/hash.
-A hash (`Writer::digests`) reads a digest instead of the content: the snapshot
-bytes' hash and each entry's hash in entity order, an entry rehashed only after
-sync or writeback touches it. The cached digest lives beside its entry and is
-excluded from Data, so hashing needs no second map lookup per collider. Both are
-functions of the saved content, recomputed identically after a load. Six alternating
-release runs on arm64 measured a warmed 100k-tree hash after a step at a median
-3.85 ms of snapshot encoding plus 6.94 ms of hashing, down from 8.12 + 6.98 ms
-with a tree lookup for each collider's verification flag (2026-10-04).
-Reusing the uncached comparison's two byte buffers reduced first-capture
-encoding from 39.43 to 36.15 ms in a later six-run comparison; hashing was
-about 61.8 ms and warm capture was unchanged. These are
-isolated state-capture measurements, not live frame timings; diary 005 records
-the separate earlier digest-map improvement.
+measures the same operation. Stepping does not serialize. JSON summarizes the opaque
+bytes by length/hash. `tests/scale.rs`'s `capture_of_a_static_forest` measures warm
+and restored capture; diary 005 records the measurements.
 Malformed or obsolete Rapier payloads fail during `World::load`, before replacement.
 
 Continuation tests preserve the complete authoritative snapshot; `Executor::clone`
@@ -106,10 +117,14 @@ over 600 ticks of pile/stack/drop/bounce and 120 of minimal is byte-identical to
 previous build (native arm64). They moved again with EXPHYS v3's holes, trajectories
 again unchanged, and once more when the world hash became a stream of per-page
 digests and saves became columnar (EXGAME v4), and again when a hash began reading
-the executor's digest. The current values (in [tests/pins.json](tests/pins.json)) agree on native arm64, on x86-64
-(`--target x86_64-apple-darwin` under Rosetta) and in the web-profile `minimal`
-Wasm under Bun, Off/Save/FreshGame alike, and the living controller still rests at
-tick 547 with Off/Save/FreshGame agreement (2026-10-03).
+the executor's digest. They moved last when that digest became paged and the
+snapshot bytes' digest four-lane (EXPHYS v4, 2026-10-05): every Transform, Body and
+event over 600 ticks of pile/stack/drop/bounce, Off/Save/FreshGame, is identical to
+the previous build (native arm64). The current values (in
+[tests/pins.json](tests/pins.json)) agree on native arm64 and in the web-profile
+`minimal` Wasm under Bun, Off/Save/FreshGame alike; the previous values also agreed
+on x86-64 (`--target x86_64-apple-darwin` under Rosetta), which these were not run
+on. The living controller still rests at tick 547 with Off/Save/FreshGame agreement.
 
 Reproduce from `game/` with `EXACT_UPDATE_TRUST=development`:
 ```

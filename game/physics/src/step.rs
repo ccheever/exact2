@@ -1,6 +1,6 @@
 use crate::{
     math,
-    state::{raw, Entry, Live, Synced},
+    state::{key, raw, Entry, Live, Synced},
     Announce, Body, BodyKind, Collider, Physics, Shape, Touch,
 };
 use exact_game::{Entity, Parent, Transform, World};
@@ -102,7 +102,7 @@ pub(crate) fn pending(world: &World, live: &Live) -> Pending {
                 .iter()
                 .map(|(e, _)| e)
                 .collect(),
-            gone: live.entries.keys().copied().collect(),
+            gone: live.entries.values().map(|e| e.entity).collect(),
             full: true,
             synced,
         };
@@ -157,9 +157,6 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
         live.parented.clear();
     }
     for &e in &pending.rows {
-        if let Some(h) = live.entries.get(&e).and_then(|entry| entry.collider_handle) {
-            live.elidable.remove(&h);
-        }
         let b = world.get::<Body>(e);
         let c = world.get::<Collider>(e);
         let t = world.get::<Transform>(e);
@@ -177,14 +174,32 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
         } else {
             t.copied().unwrap_or_default()
         };
-        let entry = live.entries.entry(e).or_insert_with(|| Entry {
-            entity: e,
-            ..Entry::default()
+        let mut fresh = false;
+        let entry = live.entries.entry(key(e)).or_insert_with(|| {
+            fresh = true;
+            Entry {
+                entity: e,
+                ..Entry::default()
+            }
         });
-        entry.digest = None;
         let r = &mut live.rapier;
         let body_changed = entry.body.as_ref() != b;
         let pose_changed = entry.pose != t;
+        let mass_changed = entry.body.as_ref().map(|b| b.mass) != b.map(|b| b.mass);
+        let collider_changed =
+            entry.collider.as_ref() != c || entry.pose.scale != t.scale || mass_changed;
+        // A row equal to its entry changes neither the entry nor Rapier, so what
+        // capture derived from them (a verified hole, digests, saved pages) holds:
+        // a full sync after a restore keeps a static world warm. Bodies always
+        // change: they retarget, and writeback rewrites their entries.
+        let changed = fresh || b.is_some() || body_changed || pose_changed || collider_changed;
+        if changed {
+            if let Some(h) = entry.collider_handle {
+                live.elidable.forget(h);
+            }
+            entry.digest = None;
+            live.pages.touch(e);
+        }
         if let Some(b) = b {
             assert!(
                 b.velocity.is_finite()
@@ -265,9 +280,6 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
             entry.body_handle = None;
             wake = true;
         }
-        let mass_changed = entry.body.as_ref().map(|b| b.mass) != b.map(|b| b.mass);
-        let collider_changed =
-            entry.collider.as_ref() != c || entry.pose.scale != t.scale || mass_changed;
         if let Some(c) = c {
             assert!(
                 !matches!(c.shape, Shape::Mesh { .. } | Shape::Heightfield { .. })
@@ -283,6 +295,7 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
                 let h = r.insert_collider(cb, entry.bh());
                 entry.collider_handle = Some(raw(h));
                 live.reverse.insert(raw(h), e);
+                live.elidable.forget(raw(h));
             } else if collider_changed {
                 let built = collider(c, t, b).build();
                 let co = &mut r.colliders[entry.ch().unwrap()];
@@ -315,7 +328,11 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
         if collider_changed {
             entry.collider = c.cloned();
         }
-        entry.pose = t;
+        // An unchanged row keeps its entry bit for bit (a pose equal but for the
+        // sign of a zero is not rewritten, as Rapier's copy is not).
+        if changed {
+            entry.pose = t;
+        }
         if entry.body_handle.is_some() {
             live.bodies.insert(e);
         } else {
@@ -332,7 +349,8 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
         if world.has::<Body>(*e) || world.has::<Collider>(*e) {
             continue;
         }
-        let entry = live.entries.remove(e).unwrap();
+        let entry = live.entries.remove(&key(*e)).unwrap();
+        live.pages.touch(*e);
         if let Some(h) = entry.bh() {
             live.rapier.remove_body(h);
         } else if let Some(h) = entry.ch() {
@@ -359,7 +377,7 @@ fn unchanged_asleep(world: &World, live: &Live, pending: &Pending) -> bool {
         return false;
     }
     for &e in &pending.rows {
-        let Some(p) = live.entries.get(&e) else {
+        let Some(p) = live.entries.get(&key(e)) else {
             return false;
         };
         if world.has::<Parent>(e)
@@ -379,7 +397,7 @@ fn unchanged_asleep(world: &World, live: &Live, pending: &Pending) -> bool {
         return false;
     }
     live.bodies.iter().all(|e| {
-        let b = live.entries[e].body.as_ref().unwrap();
+        let b = live.entries[&key(*e)].body.as_ref().unwrap();
         !((b.kind == BodyKind::Dynamic && !b.asleep)
             || (b.kind == BodyKind::Kinematic
                 && (b.velocity != exact_game::Vec3::ZERO || b.spin != exact_game::Vec3::ZERO)))
@@ -441,11 +459,16 @@ pub fn step(world: &mut World) {
     // collisions at the resulting poses so same-tick sensor transitions survive.
     if moved_kinematic {
         let r = &mut live.rapier;
-        for entry in live.bodies.iter().map(|e| &live.entries[e]).filter(|e| {
-            e.body
-                .as_ref()
-                .is_some_and(|b| b.kind == BodyKind::Kinematic)
-        }) {
+        for entry in live
+            .bodies
+            .iter()
+            .map(|e| &live.entries[&key(*e)])
+            .filter(|e| {
+                e.body
+                    .as_ref()
+                    .is_some_and(|b| b.kind == BodyKind::Kinematic)
+            })
+        {
             if let Some(h) = entry.ch() {
                 let co = &mut r.colliders[h];
                 co.set_position(*co.position());
@@ -484,8 +507,9 @@ pub fn step(world: &mut World) {
         live.elidable.remove(&h);
     }
     for e in &live.bodies {
-        let entry = live.entries.get_mut(e).unwrap();
+        let entry = live.entries.get_mut(&key(*e)).unwrap();
         entry.digest = None;
+        live.pages.touch(*e);
         let handle = entry.bh().unwrap();
         let rb = &live.rapier.bodies[handle];
         let b = entry.body.as_mut().unwrap();
@@ -503,7 +527,7 @@ pub fn step(world: &mut World) {
     drop(saved);
     drop(physics);
     let mut awake = false;
-    for entry in bodies.iter().map(|e| &entries[e]) {
+    for entry in bodies.iter().map(|e| &entries[&key(*e)]) {
         let body = entry.body.as_ref().unwrap();
         awake |= body.kind == BodyKind::Dynamic && !body.asleep;
         if world.get::<Transform>(entry.entity).as_deref() != Some(&entry.pose) {
