@@ -15,6 +15,7 @@ import { resolveApp } from './app.mjs';
  * label — else a field's value. `nodes` is a `tree` reply's, in preorder. */
 export function textOf(nodes, node) {
   if (node.props.text != null) return node.props.text;
+  if (node.type === 'Control' && node.props.checked != null) return String(node.props.checked); // a checkbox or switch: `true` or `false`
   if (node.type === 'Control' && node.props.value != null) return node.props.value;
   const at = nodes.indexOf(node), runs = [];
   for (let i = at + 1; i < nodes.length && nodes[i].depth > node.depth; i++) if (nodes[i].props.text != null) runs.push(nodes[i].props.text);

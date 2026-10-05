@@ -772,6 +772,11 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 };
                 return match scope.lookup(target) {
                     Some((Ref::Resource(_), _)) => Ok(Ty::Bool),
+                    Some((Ref::Mutation(_), _)) => err(
+                        "type-failed-argument",
+                        format!("`{target}` is a mutation, and `failed` takes a resource: a mutation whose request fails keeps its previous value and its `then` does not run, so answer a domain result (`{{ ok: false, message }}`) to show the failure"),
+                        *tspan,
+                    ),
                     _ => err(
                         "type-failed-argument",
                         format!("`{target}` is not a resource"),
