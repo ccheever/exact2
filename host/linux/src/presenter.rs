@@ -115,6 +115,9 @@ pub struct Presenter<D: DataSource> {
     /// The modifier keys held, each side a bit (Shift, Control, Alt, Meta,
     /// left then right): a `key` event's flags (`KeyboardEvent.shiftKey`…).
     pub(crate) held: u8,
+    /// The keys whose down a shortcut took at a world's canvas: their up
+    /// belongs to no handler and no world (b6 review B1).
+    pub(crate) shortcut_keys: std::collections::BTreeSet<String>,
     /// Unbound checkboxes' own states, as a browser keeps an uncontrolled
     /// control's (LLP 1069.001 D4); a bound one draws its `checked`.
     pub(crate) controls: BTreeMap<ViewId, bool>,
@@ -423,6 +426,7 @@ impl<D: DataSource> Presenter<D> {
             edited: None,
             selected: None,
             held: 0,
+            shortcut_keys: Default::default(),
             controls: BTreeMap::new(),
             chosen: BTreeMap::new(),
             menu: None,

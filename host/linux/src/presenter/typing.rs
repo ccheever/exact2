@@ -224,10 +224,26 @@ impl<D: DataSource> Presenter<D> {
             && (!down || !activation)
             && self.input_surface(id).is_some()
         {
-            // A world's key goes the keyboard's way on the web first: the
-            // `key` handlers at the target and above it hear the down, and one
-            // that prevents it keeps it from the world (the platformer's
-            // diary, R8; macOS's `routeKey`).
+            // A world's key goes the keyboard's way on the web first: an
+            // `aria-keyshortcuts` button takes it (b6 review B1; the web's
+            // capture listener, macOS's `routeKey`), then the `key` handlers
+            // at the target and above it hear the down, and one that
+            // prevents it keeps it from the world (the platformer's diary,
+            // R8). A shortcut's key, down and up, reaches neither.
+            if !down && self.shortcut_keys.remove(code) {
+                return Ok(format!(
+                    "{{\"typed\":{id},\"delivery\":\"recognized\",\"shortcut\":true}}"
+                ));
+            }
+            if down {
+                let name = if key == "Space" { " " } else { key };
+                if self.shortcut(name, repeat, self.host.now()) {
+                    self.shortcut_keys.insert(code.to_string());
+                    return Ok(format!(
+                        "{{\"typed\":{id},\"delivery\":\"recognized\",\"shortcut\":true}}"
+                    ));
+                }
+            }
             let heard = if down { self.canvas_key(id, key) } else { None };
             if heard == Some(true)
                 || self.surface_input(id, serde_json::json!({"t":"key","code":code,"key":key,"down":down,"repeat":repeat,"at":self.host.now()}))

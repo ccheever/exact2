@@ -394,6 +394,49 @@ fn a_world_key_reaches_the_canvas_key_handler_first() {
     done(p, path);
 }
 
+/// b6 review B1: at a world's canvas an `aria-keyshortcuts` button takes
+/// its key before the `key` handlers and the world, down and up, as the
+/// web's capture listener and macOS's `routeKey` do.
+#[test]
+fn a_shortcut_button_takes_a_world_key_before_its_handlers() {
+    let (mut p, path) = boot(
+        r#"component Keys
+  state heard = ""
+  state paused = 0
+  action key(k: string)
+    heard = heard + k
+  action pause
+    paused = paused + 1
+  view
+    column
+      button aria-keyshortcuts="Escape" press=pause testId="pause"
+        text `${paused}` testId="paused"
+      canvas testId="world" key=key width=100 height=100
+        text heard testId="heard"
+"#,
+        &["world"],
+    );
+    let world = find(&p, "world");
+    let text = |p: &super::Presenter<_>, id: &str| {
+        p.host
+            .kernel()
+            .node(find(p, id))
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    p.type_key(world, "KeyO", "o", true, false).unwrap();
+    p.type_key(world, "Escape", "Escape", true, false).unwrap();
+    assert!(!p.surfaces.canvases[&world].held.contains("Escape"));
+    p.type_key(world, "Escape", "Escape", false, false).unwrap();
+    assert_eq!(text(&p, "paused"), "1", "the button pressed");
+    assert_eq!(text(&p, "heard"), "o", "no key handler heard Escape");
+    assert!(p.surfaces.canvases[&world].held.contains("KeyO"));
+    done(p, path);
+}
+
 #[test]
 fn e10_contract_button_consumes_all_activation_keys() {
     for key in ["Space", "Enter", "NumpadEnter"] {
