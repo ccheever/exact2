@@ -6,7 +6,10 @@
 // `aria-keyshortcuts="Escape"` (the key macOS presses it with). With neither,
 // its recognizer is removed, so Menu reaches tvOS and leaves the app, as
 // tvOS requires at an app's root. A keyboard's Space presses no node here:
-// UIKit turns an unhandled Space into the remote's Play/Pause.
+// UIKit turns an unhandled Space into the remote's Play/Pause. A scroll
+// container with nothing focusable inside is a remote stop itself, as the
+// web's keyboard-focusable scrollers are (Chrome 130): the remote's moves
+// scroll it until its edge, then go on to the next stop.
 #if os(tvOS)
 import UIKit
 
@@ -16,7 +19,20 @@ extension NodeView {
     override var canBecomeFocused: Bool {
         if let index = explicitTabIndex, index < 0 { return false }
         if cssVisibilityHidden { return false } // no remote stop, nor Select (e28279b3b)
-        return canBecomeFirstResponder || (!disabled && !inert && handlers.contains("press"))
+        return canBecomeFirstResponder || (!disabled && !inert && handlers.contains("press")) || focusableScroller
+    }
+
+    /// A scroll container that can scroll and holds no focusable node.
+    var focusableScroller: Bool {
+        guard let scroll, !inert, scroll.canScroll else { return false }
+        return !scroll.holdsFocusableNode
+    }
+
+    /// While a focusable scroller holds the focus, a move it can take
+    /// scrolls it a step instead of leaving it.
+    override func shouldUpdateFocus(in context: UIFocusUpdateContext) -> Bool {
+        if context.previouslyFocusedItem === self, focusableScroller, scroll?.remoteStep(context.focusHeading) == true { return false }
+        return super.shouldUpdateFocus(in: context)
     }
 
     override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
@@ -38,6 +54,39 @@ extension NodeView {
     func remoteSelect(_ presses: Set<UIPress>, down: Bool) -> Bool {
         guard presses.contains(where: { $0.type == .select }), !disabled, !cssVisibilityHidden, handlers.contains("press") else { return false }
         if down { presenter?.press(id) }
+        return true
+    }
+}
+
+extension ScrollView {
+    /// How far it can scroll on each axis it scrolls.
+    private var maxOffset: CGPoint {
+        let inset = adjustedContentInset
+        return CGPoint(x: scrollsX ? contentSize.width + inset.left + inset.right - bounds.width : 0,
+                       y: scrollsY ? contentSize.height + inset.top + inset.bottom - bounds.height : 0)
+    }
+    var canScroll: Bool { maxOffset.x > 1 || maxOffset.y > 1 }
+
+    var holdsFocusableNode: Bool {
+        var pending: [UIView] = subviews
+        while let view = pending.popLast() {
+            if let node = view as? NodeView, node.canBecomeFocused { return true }
+            pending.append(contentsOf: view.subviews)
+        }
+        return false
+    }
+
+    /// Scrolls most of a screenful toward `heading`, when there is more that
+    /// way; false at the edge, where the move leaves.
+    func remoteStep(_ heading: UIFocusHeading) -> Bool {
+        let inset = adjustedContentInset, end = maxOffset
+        var offset = contentOffset
+        if heading.contains(.down) { offset.y = min(offset.y + bounds.height * 0.8, end.y - inset.top) }
+        else if heading.contains(.up) { offset.y = max(offset.y - bounds.height * 0.8, -inset.top) }
+        else if heading.contains(.right) { offset.x = min(offset.x + bounds.width * 0.8, end.x - inset.left) }
+        else if heading.contains(.left) { offset.x = max(offset.x - bounds.width * 0.8, -inset.left) }
+        guard abs(offset.x - contentOffset.x) > 0.5 || abs(offset.y - contentOffset.y) > 0.5 else { return false }
+        setContentOffset(offset, animated: true)
         return true
     }
 }
