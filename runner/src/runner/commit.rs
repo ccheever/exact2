@@ -214,9 +214,15 @@ impl<D: DataSource> Runner<D> {
             return a;
         }
         let at = self.now_ms;
-        for i in 0..self.plan.timers.len() {
-            // An idle gated frame task is skipped (LLP 1092 D10).
-            if !self.plan.timers[i].frame || !self.timers[i].armed {
+        // The frame tasks armed as the frame starts fire, once each: one a
+        // task's commit arms keeps the virtual frame its gate step set, and
+        // one it drops is skipped (LLP 1092 D10), as the web's `paint`
+        // snapshots them (b6 review A3).
+        let armed: Vec<usize> = (0..self.plan.timers.len())
+            .filter(|&i| self.plan.timers[i].frame && self.timers[i].armed)
+            .collect();
+        for i in armed {
+            if !self.timers[i].armed {
                 continue;
             }
             self.timers[i].base = at;

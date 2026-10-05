@@ -390,6 +390,41 @@ fn frames_skip_an_idle_frame_task_a_seek_never_fires_one_and_wants_frames_follow
     assert_eq!(num(&r, "framed"), 62.0, "sixty virtual frames a second");
 }
 
+/// b6 review A3: a frame task armed by another frame task's commit in the
+/// same frame waits for the next frame, as the web's `paint`, which fires
+/// the tasks armed as the frame starts; one dropped there does not fire.
+#[test]
+fn a_frame_task_armed_mid_frame_waits_for_the_next_one() {
+    let src = "component App
+  state second = false
+  state a = 0
+  state b = 0
+  action stepA
+    a = a + 1
+    second = not second
+  action stepB
+    b = b + 1
+  task fa mount
+    every(frame, stepA)
+  task fb when second
+    every(frame, stepB)
+  view
+    text `${a} ${b}`
+";
+    let mut r = gated(src, Gated::default());
+    r.present_frames(true);
+    r.frame(16.0);
+    assert_eq!((num(&r, "a"), num(&r, "b")), (1.0, 0.0), "armed mid-frame");
+    r.frame(32.0);
+    assert_eq!(
+        (num(&r, "a"), num(&r, "b")),
+        (2.0, 0.0),
+        "dropped by fa before its turn"
+    );
+    r.frame(48.0);
+    assert_eq!((num(&r, "a"), num(&r, "b")), (3.0, 0.0));
+}
+
 #[test]
 fn a_gate_armed_inside_an_advance_fires_within_it() {
     let src = GATED
