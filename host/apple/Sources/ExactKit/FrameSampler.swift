@@ -181,7 +181,12 @@ extension ExactSession {
         do {
             let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("trace-\(stamp).json")
-            try JSONSerialization.data(withJSONObject: trace).write(to: url)
+            let data = try JSONSerialization.data(withJSONObject: trace)
+            try data.write(to: url)
+            // The last one under a name the driver knows, so a phone's is
+            // copied off by name (`agent.mjs trace --phone`), as its
+            // screenshots are: devicectl lists no app's files.
+            try data.write(to: FileManager.default.temporaryDirectory.appendingPathComponent(Self.latestTrace), options: .atomic)
             log("trace saved: \(url.path)")
             FileHandle.standardError.write(Data("exact: trace saved to \(url.path)\n".utf8))
             return .success(url)
@@ -192,4 +197,6 @@ extension ExactSession {
     }
 
     enum TraceError: Error { case production }
+    /// The last saved trace, beside the stamped one (`agent.mjs` reads the name).
+    static let latestTrace = "trace-latest.json"
 }

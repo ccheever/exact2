@@ -518,4 +518,32 @@ theorem case_stdlib (ih : AllOk fuel) {name args ca ts} (hfd : p.fns.find? (·.n
     | error e => rw [h2] at hst; cases hst
     | ok v => exact ⟨v, (hinv v).mpr ⟨vs, h1, h2⟩⟩
 
+/-- `[a, b]` (LLP 1088 §9.1): the items, left to right, then `List n`. -/
+theorem case_list (ih : AllOk fuel) {items} (hc : compile (fuel + 1) p depth sc n (.list items) = .ok (c, t))
+    (hx : Ctx env inFn ls venv L p sc n) : ExprSpec env inFn ls venv P L (.list items) c t := by
+  rw [compile.eq_def] at hc
+  simp only [Except.bind_ok_iff] at hc
+  obtain ⟨⟨ca, ts⟩, ha, h1⟩ := hc
+  simp only [Except.ok.injEq, Prod.mk.injEq] at h1; obtain ⟨rfl, rfl⟩ := h1
+  have hinv : ∀ v, EvalR env inFn ls (.list items) v ↔ ∃ vs, ListR env inFn ls items vs ∧ v = .list vs := by
+    intro v
+    constructor
+    · intro h; cases h with | list h => exact ⟨_, h, rfl⟩
+    · rintro ⟨vs, h, rfl⟩; exact .list h
+  intro pc S cbs fx hr
+  have iha := ih.2.1 _ _ _ _ _ _ _ ha _ _ _ _ _ P hx pc S cbs fx hr.left
+  have hlist : ∀ vs : List Value, vs.length = items.length →
+      Vm.exec P.length venv (.list items.length) (M (pc + ca.length) (vs.reverse ++ S) L cbs fx) =
+        .ok (.run (M (pc + ca.length + 1) (.list vs :: S) L cbs fx)) := by
+    intro vs hl
+    rw [← hl]
+    simp [Vm.exec, popN_ok]
+  refine ⟨fun v hv => ?_, fun hh => ?_⟩
+  · obtain ⟨vs, h1, rfl⟩ := (hinv v).mp hv
+    obtain ⟨hts, hs1⟩ := iha.1 vs h1
+    have := hr.right.step (venv := venv) (S := vs.reverse ++ S) (fx := fx) (hlist vs (ListR.length h1))
+    exact ⟨VTys.joinAll hts, hs1.trans (this.pc (by simp <;> omega))⟩
+  · obtain ⟨vs, h1⟩ := iha.2 hh
+    exact ⟨.list vs, (hinv _).mpr ⟨vs, h1, rfl⟩⟩
+
 end Contract.Lower

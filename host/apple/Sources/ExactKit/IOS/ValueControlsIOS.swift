@@ -2,8 +2,8 @@
 // UIKit as the checkbox is: `select` is iOS's pop-up button (a `UIButton`
 // whose menu chooses, `changesSelectionAsPrimaryAction`), its options read
 // from the kernel. Contract owns the value: the control moves at once,
-// reports HTML's `input` then `change`, and shows the committed value after
-// the action (D4).
+// reports HTML's `input` then `change`, and shows the bound value when it
+// changes, keeping the person's choice until then (D4, amended 2026-10-04).
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -34,9 +34,14 @@ extension ControlHost {
         let menu = presenter.selectOptions?(owner.id) ?? SelectMenu()
         guard menus[owner.id] != menu else { return }
         menus[owner.id] = menu
-        let id = owner.id
+        picked.removeValue(forKey: owner.id)
+        install(button, menu, id: owner.id, showing: menu.chosen)
+    }
+
+    /// The menu, with the option at `showing` the one shown.
+    private func install(_ button: UIButton, _ menu: SelectMenu, id: UInt32, showing: Int?) {
         button.menu = UIMenu(children: menu.options.enumerated().map { i, option in
-            UIAction(title: option.label, attributes: option.disabled ? .disabled : [], state: i == menu.chosen ? .on : .off) { [weak self] _ in
+            UIAction(title: option.label, attributes: option.disabled ? .disabled : [], state: i == showing ? .on : .off) { [weak self] _ in
                 self?.chose(id, option.value)
             }
         })
@@ -65,11 +70,20 @@ extension ControlHost {
         return size == .zero ? button.intrinsicContentSize : CGSize(width: ceil(size.width), height: ceil(size.height))
     }
 
-    /// A choice from the menu: `input` then `change`, then the committed
-    /// value shown again, which an action that refused leaves unchanged.
+    /// A choice from the menu: `input` then `change`. The bound value is
+    /// shown when it changes, as the web build's select: an action that
+    /// wrote none leaves the person's choice showing (LLP 1069.001 D4,
+    /// amended 2026-10-04).
     func chose(_ id: UInt32, _ value: String) {
         guard presenter.views[id] != nil else { return }
+        let before = presenter.selectOptions?(id)
         presenter.controlValue(id, value, input: true, change: true)
+        if let before, presenter.selectOptions?(id) == before, let button = controls[id] as? UIButton {
+            picked[id] = value
+            install(button, before, id: id, showing: before.options.firstIndex { $0.value == value })
+            return
+        }
+        picked.removeValue(forKey: id)
         menus.removeValue(forKey: id)
         if let owner = presenter.views[id], let control = controls[id] {
             configureValue(control, owner, accent: owner.channels("accent_color").map { TextEngine.color($0) })
@@ -120,7 +134,7 @@ extension ControlHost {
         let choice = (presenter.selectOptions?(node.id) ?? SelectMenu()).choose(value, id: node.id)
         guard let chosen = choice.value else { return ["error": choice.refusal ?? "select \(node.id) refused \"\(value)\""] }
         chose(node.id, chosen)
-        return ["typed": Int(node.id), "value": menus[node.id]?.chosenValue ?? "", "delivery": "host-activation", "native": "control"]
+        return ["typed": Int(node.id), "value": picked[node.id] ?? menus[node.id]?.chosenValue ?? "", "delivery": "host-activation", "native": "control"]
     }
 
     /// Whether a checkbox or a switch is on.
@@ -138,7 +152,7 @@ extension ControlHost {
             return ["view": "UISlider", "value": Double(slider.value), "min": Double(slider.minimumValue), "max": Double(slider.maximumValue)]
         }
         if let picker = control as? UIDatePicker {
-            return ["view": "UIDatePicker(compact)", "value": DateValue.format(kinds[UInt32(picker.tag)] ?? "date", picker.date)]
+            return ["view": "UIDatePicker(compact)", "value": DateValue.shown(kinds[UInt32(picker.tag)] ?? "date", picker)]
         }
         #endif
         guard let button = control as? UIButton, !(button is NativeButtonIOS) else { return nil }

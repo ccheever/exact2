@@ -106,3 +106,19 @@ fn select_rejects_a_wrong_payload_type_or_arity() {
         assert!(error.contains(message), "{error}");
     }
 }
+
+/// `markup` is `"markdown"` or `"none"`, on a `text` or a `textarea`;
+/// another word or another tag did nothing, silently (notes #1).
+#[test]
+fn markup_is_markdown_or_none_on_a_text_or_a_textarea() {
+    contract::compile(&SOURCE.replace("markup=\"markdown\"", "markup=\"none\"")).unwrap();
+    let error =
+        contract::compile(&SOURCE.replace("markup=\"markdown\"", "markup=\"html\"")).unwrap_err();
+    assert_eq!(error.id, "lower-attr-value", "{error}");
+    let error = contract::compile(
+        &SOURCE.replace("testId=\"bold\"", "testId=\"bold\" markup=\"markdown\""),
+    )
+    .unwrap_err();
+    assert_eq!(error.id, "lower-attr-tag", "{error}");
+    assert!(error.message.contains("not `button`"), "{error}");
+}

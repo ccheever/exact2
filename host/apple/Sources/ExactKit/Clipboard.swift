@@ -81,7 +81,38 @@ extension Agent {
         #else
         if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
         #endif
+        // A paste is ⌘V first. A `key` handler that preventDefault()s that
+        // chord keeps the clipboard event from landing (drums: the driver's
+        // paste skipped the key and hid that bug). Copy and cut stay the event.
+        // The page's shortcuts hear the chord before the handlers, as the
+        // web's capture listener does: a button declaring Meta+V takes it.
+        if edit == "paste", let presenter = v.presenter {
+            if pasteShortcut(v, presenter) {
+                return ["typed": Int(v.id), "clipboard": edit, "shortcut": true, "delivery": "recognized"]
+            }
+            if presenter.keyDown(at: v, "v", held: "Meta+") {
+                return ["typed": Int(v.id), "clipboard": edit, "delivery": "recognized"]
+            }
+        }
         v.clipboard(action, text: text ?? "")
         return ["typed": Int(v.id), "clipboard": edit, "delivery": "recognized"]
+    }
+
+    /// ⌘V at `v` through the shortcuts (`ShortcutsMac`, `ShortcutsIOS`):
+    /// whether a button declaring it was pressed.
+    private func pasteShortcut(_ v: NodeView, _ presenter: Presenter) -> Bool {
+        #if os(macOS)
+        // kVK_ANSI_V is 9.
+        guard let window = v.window, let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+            characters: "v", charactersIgnoringModifiers: "v", isARepeat: false, keyCode: 9) else { return false }
+        return presenter.shortcuts.perform(down)
+        #elseif os(iOS)
+        guard let node = presenter.shortcut(key: "v", held: "Meta+", focus: v) else { return false }
+        presenter.press(node.id)
+        return true
+        #else
+        return false
+        #endif
     }
 }

@@ -175,7 +175,7 @@ impl Painter {
             && walk.skip.is_none()
             && walk.replay.is_none()
             && self.placements.is_empty()
-            && self.arrange_lift.is_none()
+            && self.lift.arrange.is_none()
             && self.flatten.is_none();
         let world = (self.viewport.0.to_bits(), self.scale.to_bits(), self.dark);
         if self.rows.world != Some(world) {

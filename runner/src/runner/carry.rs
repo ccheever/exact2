@@ -23,6 +23,9 @@ pub struct Carried {
     pub now_ms: f64,
     /// The store's kept values (LLP 1018): what the host has persisted.
     pub store: Vec<(String, String)>,
+    /// Each queue's waiting sends, by mutation name: never carried, only
+    /// said once the new runner boots (LLP 1092 D4).
+    pub forgot_waiting: Vec<(String, usize)>,
 }
 
 #[cfg(test)]

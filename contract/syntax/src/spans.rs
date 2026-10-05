@@ -102,10 +102,10 @@ structs! {
     Binding { name, expr, span }
     ResourceDecl { name, source, args, identity, shape, placeholder, span }
     Placeholder { source, args, span }
-    MutationDecl { name, shape, refreshes, then, span }
+    MutationDecl { name, shape, queue, refreshes, then, span }
     Param { name, ty, span }
     Action { name, params, body, span }
-    Task { name, kind, timer, span }
+    Task { name, kind, gate, key, timer, span }
     Attr { name, value, span }
 }
 
@@ -122,11 +122,11 @@ macro_rules! record_variants {
 }
 record_variants! {
     Step {
-        Tap { target, form, modifiers, span }, Drag { target, dx, dy, from, mouse, press, over, hold, span },
+        Tap { target, form, modifiers, span }, Drag { target, dx, dy, to, from, mouse, press, over, hold, during, span },
         Size { width, height, span }, Epoch { value, span }, TimeZone { zone, span },
-        Locale { tag, span }, Seed { seed, span }, BeforeData { span }, Type { target, text, append, span }, Key { target, key, span },
+        Locale { tag, span }, Seed { seed, span }, BeforeData { span }, Type { target, text, append, span }, Key { target, key, phase, duration, span },
         Pick { target, paths, span }, Clipboard { target, edit, text, span },
-        Clock { arg, span }, Reload { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectTree { target, present, span },
+        Clock { arg, span }, Reload { span }, Close { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectTree { target, present, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
     }
 }
@@ -172,7 +172,6 @@ impl VisitSpans for Expr {
             | Self::Str(_, span)
             | Self::Bool(_, span)
             | Self::None(span)
-            | Self::EmptyList(span)
             | Self::Ident(_, span) => visit(span),
             Self::Template(parts, span) => {
                 parts.visit_spans(visit);
@@ -186,7 +185,7 @@ impl VisitSpans for Expr {
                 inner.visit_spans(visit);
                 visit(span);
             }
-            Self::Call(_, args, span) => {
+            Self::Call(_, args, span) | Self::List(args, span) => {
                 args.visit_spans(visit);
                 visit(span);
             }

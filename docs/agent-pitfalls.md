@@ -48,8 +48,12 @@ guide's rules don't make obvious.
   becomes a paint group (`isolation: isolate`). A child cannot rise above its
   parent's later siblings. Fix: raise the ancestor that is a sibling of the others
   (the card's column, while it holds the dragged card), or draw the dragged card in
-  an overlay at the board level. (Authoring bench, LLP 1087, t4-kanban: two builders,
-  5 and 10 minutes, 2026-10-04.)
+  an overlay at the board level. For cards between lists, a `reorderGroup` on the
+  lists has the host draw the card in its top layer instead ([LLP
+  1094](../llp/1094-dropping-across-lists.rfc.md)). (Authoring bench, LLP 1087,
+  t4-kanban: two builders, 5 and 10 minutes, 2026-10-04.) A chess board's drag ghost
+  is the same: a ghost inside the square it left stays under the squares after it;
+  draw it as a later sibling of the squares, positioned in the board (chess diary #5).
 
 - **The content of an overlay vanishes behind its own background.** Cause: a
   background box with `position="absolute"` (a dimmer, a gradient) paints
@@ -57,6 +61,24 @@ guide's rules don't make obvious.
   LLP 1083.000 the Apple hosts painted in tree order and hid this. Fix: give
   the content `position="relative"`, or give the background `z-index=-1`
   inside a parent that stacks. (Signal Clone's call screen, build 16.)
+
+- **`flex=0` collapses a column that has a `width`.** A side column written
+  `width=400 flex=0 min-width=0` in a 1,100 px row laid out 0 px wide, and the
+  pane beside it covered its search field. Cause: `flex: 0` is CSS's `0 1 0%`:
+  the basis is `0%`, not the width, and the item shrinks (`flex=<n>` is always
+  `<n> 1 0%`; `contract vocab flex`). Fix: `flex="none"` (`0 0 auto`: the width
+  is the size), or no `flex` and `flex-shrink=0`. (Stocks DIARY, about 15
+  minutes; reproduced on the web and macOS, 2026-10-04.)
+
+- **A `width="100%"` box with padding runs past its parent.** A full-width column
+  with `padding=16` measured 1,232 px in a 1,200 px window; an inbox row's time
+  painted off the right edge of a phone. Cause: a box is `box-sizing: content-box`,
+  as in CSS without a reset, so padding and border add to `width` (and to
+  `height="100%"`). Fix: `box-sizing="border-box"` on the padded box or its style;
+  or drop `width`, since a box in a block or a `column` already fills the width.
+  (Chat2 and Workout DIARY, Gallery's `height`; reproduced on the web, 2026-10-04.)
+  **Candidate diagnostic:** the compiler could name `box-sizing` when a
+  content-box node has `width="100%"` and horizontal padding.
 
 ## Lists and scrolling
 
@@ -87,8 +109,15 @@ guide's rules don't make obvious.
   scrolling. A timer's or a scroll handler's commit whose writes show nowhere
   skips that pass; any other still runs it. Fix: write state
   only when it changes (a minute-resolution clock; poll fast only while something
-  is in flight), and remove `scroll=` handlers left over from experiments: each
-  runs an action per scroll frame. (Signal Clone, build 2.)
+  is in flight: `task poll when inFlight every(200, tick)`), and remove
+  `scroll=` handlers left over from experiments: each runs an action per scroll
+  frame. (Signal Clone, build 2.)
+- **A gate reads state at commits.** A gated task (`task hide when toast != ""
+  key=toastUntil`) is armed or dropped by the commit that changes its gate or
+  key, never as the clock moves: so a gate cannot read `now()` (refused), and the
+  `after`'s action runs at its deadline exactly, `now()` equal to it. An action
+  that re-tests `now() > toastUntil` there does nothing and the toast stays up
+  forever; clear it unconditionally. (LLP 1092 D8; ledger2 #1, chat F7.)
 
 - **A custom row in a grouped list overflows its card on the right.** Cause:
   the sheet already gives each row its margin (16 pt, or 56 pt after an icon)
@@ -220,6 +249,14 @@ guide's rules don't make obvious.
   changes the bound value and redraws the field. (Authoring bench, LLP 1087, t2-todo:
   two builders, about 10 minutes each, 2026-10-04.)
 
+- **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
+  is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats
+  a touch as the finger leaving clears the hover the next assertion still wants.
+  Fix: on touch-up, end the drag and leave the hover, or write `mouse` for the
+  left button. iOS refuses `mouse`; macOS and Linux drag with the mouse anyway
+  ([authored tests](contract-grammar.md#authored-tests)). (Stocks diary: the chart
+  readout unmounted, about 10 minutes, 2026-10-04.)
+
 - **A `pan` hears nothing from a finger on the web.** A drag with
   `tap <id> drag dx dy` (or a real touch) moves nothing and logs nothing. Cause:
   without `touch-action="none"` on the pan's box the browser takes the touch for
@@ -238,17 +275,55 @@ guide's rules don't make obvious.
   `apps/messages/app.contract`'s inbox row (`thread-swipe-…`). (Ledger2 DIARY, "Needed:
   swipe gesture", about 15 minutes, 2026-10-04.)
 
-- **A mutation that answers at once leaves an async `refreshes` resource stale.** After
-  `send added = addItem()` with `refreshes items`, the list kept its old answer and
-  nothing was logged, on the web and on iOS. Cause: the refresh at the send only
-  re-reads, which drops a request, and the forced refresh comes when the mutation's
-  reply lands; a source that answers synchronously never lands a reply later (QUEUE).
-  A resource whose re-read answers synchronously is not affected. Fix until then:
-  have the refreshed resource answer its updated value synchronously once loaded
-  (works on every host). Making the mutation's source `async` is enough on the web,
-  but natively a promise already resolved when the call returns still answers at
-  once: there it must still wait on a storage or fetch step. (Authoring bench,
-  LLP 1087, t2-todo on web and iOS: about 40 minutes, 2026-10-05.)
+- **A `swiperight` hears nothing from a finger on iOS.** A mouse drag fires it on
+  the web and macOS, in a drive and in a test, while a real touch on an iPhone
+  does nothing. Cause: with `touch-action` at `auto` a horizontal pan is the
+  platform's, as in a browser, so the swipe never begins. Fix:
+  `touch-action="pan-y"` on the swiped node, which leaves vertical scrolling to the
+  page. Messages also gives the bubble `transition="translate spring(300, 30, 1)"`,
+  which moves it with the finger; that does not arm the gesture. (Chat2 DIARY,
+  which credited the transition, about 20 minutes; reproduced with `agent ios
+  --touch platform`, 2026-10-04.) **Candidate diagnostic:** the compiler could
+  warn on a `swiperight` without `touch-action`, as on a `pan`.
+
+- **A dragged piece snaps back, lands on the wrong square, or a tap moves it.** A
+  board has no drop target; build the drag from the pointer events (Chess DIARY,
+  about 30 minutes; this recipe driven on the web and macOS, 2026-10-04):
+  - Each square takes `pointerdown`, `pointermove`, `pointerup` and
+    `touch-action="none"` (a finger otherwise scrolls and the events are cancelled).
+  - The square that took the `pointerdown` holds the pointer: its `pointermove`s and
+    its `pointerup` come wherever the pointer goes, with `offsetX`/`offsetY` measured
+    from that square. The drop square is the held one's column plus
+    `floor(e.offsetX / cell)`, and its row plus `floor(e.offsetY / cell)`.
+  - Start a drag only past a threshold (`dx * dx + dy * dy > 64`), so a tap stays a tap.
+  - Draw the ghost as a later sibling of the squares inside a `position="relative"`
+    board (`position="absolute"`, `pointer-events="none"`): `z-index` orders siblings
+    only, so a ghost inside a square cannot float over the next one.
+  - Keep the piece in its square while it is dragged, dimmed with `opacity`.
+
+  ```text
+  action down(i: number, e: PointerEvent)
+    from = i
+    dragging = false
+  action move(i: number, e: PointerEvent)
+    if from >= 0
+      dx = e.offsetX - half
+      dy = e.offsetY - half
+      dragging = dragging or dx * dx + dy * dy > 64
+  action up(i: number, e: PointerEvent)
+    if dragging
+      drop(from, from + floor(e.offsetX / cell))
+    from = -1
+    dragging = false
+  ```
+- **A write left running after a source answers can be lost on iOS or macOS.** The
+  web kept it; the native host did not, and a list was empty after a relaunch. Cause:
+  the native data executor runs a source's promises while a request waits on them,
+  one request at a time, so a `promise` started and not awaited (a fire-and-forget
+  SQLite write) can stay unfinished, and an answer queues behind a request still in
+  flight. Fix: await the write before answering, or carry it in a
+  request of its own that the view sends (a `flush` source called with the change).
+  (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
 
 ## Driving and testing
 
@@ -340,6 +415,16 @@ guide's rules don't make obvious.
   ([the human guide](contract-for-humans.md#writing-the-data-module) shows one).
   (LLP 1086 reading-list example, 2026-10-04.)
 
+- **A native test reads an edit's state one input late, where the web's passes.**
+  `tap "tempo-up"` then `expect text "tempo" == "113"` passes on the web and reads
+  the old value under `test macos`. Cause: on Hermes an answer that saves (awaited
+  or not) is given once its storage steps land, a reply on real time like a
+  `fetch`'s, which lands at the next `clock` step; on the web build a value given
+  at once is there with the input. Fix: `clock settle` after the edit in the
+  test, or answer edits from memory and save from a `task` that sends a `persist`
+  mutation when the document changed ([the reference](reference.md#what-a-data-module-can-use)).
+  (x2apps drums R11, 2026-10-04.)
+
 ## Working on exact2 itself
 
 - **A platform feature looks missing, and you start building it.** Cause: the
@@ -370,17 +455,10 @@ guide's rules don't make obvious.
   Defer follows to the end of the drag or deceleration, and apply anchoring and
   estimate corrections as relative adjustments in the same layout pass (Signal
   Clone evening of 2026-10-02; `32805146`, `c03685dc`).
-- **A fixture's nonempty list literal does not compile.** Contract admits `[]`
-  only; a nonempty list comes from a source, a shape field, or `map`/`filter`.
-  `split` is not a standard function here either. (Paint-order mutation fixture, 2026-10-04.)
 - **A copied Core Animation tree renders blank.** Calling `CALayer(layer:)`
   directly gives an empty layer: a measured copy had zero bounds and no fill
   or sublayers. For a capture, copy values into fresh layers and recursively
   copy children and masks. Keep the live hierarchy intact. (LLP 1083.000, Apple A2.)
-- **A nonempty list literal does not compile.** Contract admits `[]` only; a
-  nonempty list comes from a source, a shape field, or `map`/`filter`, and
-  `split` is not a standard function. For a fixture or a static mount
-  measurement, generate the repeated markup. (LLP 1083.000, web W2 and Apple A2.)
 - **An sRGB capture test changes the pixel it reads.** AppKit's
   `NSBitmapImageRep.colorAt` returns calibrated RGB even when the bitmap is
   sRGB. Converting that `NSColor` to sRGB again turned measured bytes

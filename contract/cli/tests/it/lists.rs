@@ -267,10 +267,9 @@ fn an_arrow_is_only_a_callback_and_the_types_hold() {
     )
     .unwrap_err();
     assert_eq!(e.id, "type-arrow-position", "{e}");
-    let e =
-        contract::compile("fn map(n: number): number = n\ncomponent A\n  view\n    text \"a\"\n")
-            .unwrap_err();
-    assert_eq!(e.id, "contract-fn-shadows-roster", "{e}");
+    // An app's `fn map` shadows the roster's, callback and all.
+    contract::compile("fn map(n: number): number = n\ncomponent A\n  view\n    text `${map(2)}`\n")
+        .unwrap();
 }
 
 #[test]
@@ -406,6 +405,16 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
         "`join(xs, \", \")`",
     );
     refused(
+        "text join(\"a,b\".split(\",\"), \",\")",
+        "syntax-method-call",
+        "`split(s, sep)`",
+    );
+    refused(
+        "text toString(xs.indexOf(\"a\"))",
+        "syntax-method-call",
+        "`indexOf(xs, x)` for a list",
+    );
+    refused(
         "text toString(xs.length)",
         "type-not-a-record",
         "`length(xs)`",
@@ -427,7 +436,7 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
         "compute it in the data source",
     );
     for f in [
-        // `slice` and `concat` name LLP 1088 §9's follow-up (`diagnostics.rs`).
+        // `push` names `concat` (`diagnostics.rs`).
         "reduce", "find", "every", "sort", "flatMap",
     ] {
         refused(
@@ -561,7 +570,7 @@ fn an_empty_list_is_typed_from_its_context_and_runs() {
 
 /// An `[]` nothing types is refused where it is written, not as a cycle;
 /// a state only `[]` initializes is refused as a state nothing writes; a
-/// list literal with items is not Contract.
+/// list literal's items have one type (LLP 1088 §9.1).
 #[test]
 fn an_empty_list_nothing_types_is_refused_where_it_is_written() {
     let e = contract::compile("component A\n  derive xs = []\n  view\n    text join(xs, \",\")\n")
@@ -587,11 +596,14 @@ fn an_empty_list_nothing_types_is_refused_where_it_is_written() {
     .unwrap_err();
     assert_eq!(e.id, "type-branches", "{e}");
     assert_eq!(e.message, "branches disagree: `string` and `list<?>`");
-    let e = contract::compile("component A\n  derive xs = [1, 2]\n  view\n    text \"a\"\n")
+    let e = contract::compile("component A\n  derive xs = [1, \"2\"]\n  view\n    text \"a\"\n")
         .unwrap_err();
-    assert_eq!(e.id, "syntax-expected", "{e}");
-    assert!(e.message.contains("`[]` is the empty list"), "{e}");
-    assert_eq!((e.span.line, e.span.col), (2, 16), "{e}");
+    assert_eq!(e.id, "type-list-item", "{e}");
+    assert_eq!(
+        e.message,
+        "a list's items have one type: item 2 is `string`, the items before it `number`"
+    );
+    assert_eq!((e.span.line, e.span.col), (2, 19), "{e}");
     // A `fn` returning a declared `list<T>` and a `list<T>` prop type it.
     contract::compile(
         "fn nothing(): list<number> = []\ncomponent A\n  view\n    column\n      B(xs=[])\n      text `${length(nothing())}`\ncomponent B\n  props\n    xs: list<string>\n  view\n    text join(xs, \",\")\n",
@@ -642,5 +654,262 @@ fn an_empty_list_nothing_types_is_refused_where_it_is_written() {
         let e = contract::compile(src).unwrap_err();
         assert_eq!(e.id, "type-cannot-infer", "{src}: {e}");
         assert_eq!((e.span.line, e.span.col), (line, col), "{src}: {e}");
+    }
+}
+
+/// Two rows, as `list-construction.contract` shapes them.
+struct Rows;
+
+impl DataSource for Rows {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        match source {
+            "rows" => Ok(Value::list(
+                ["a", "b"]
+                    .iter()
+                    .map(|id| Value::record(vec![Value::str(id), Value::str(&id.to_uppercase())]))
+                    .collect(),
+            )),
+            _ => Err(DataError::UnknownSource(source.into())),
+        }
+    }
+}
+
+fn shown<D: DataSource>(r: &Runner<D>, id: &str) -> String {
+    let k = r.kernel();
+    k.node_by_key(k.find_by_test_id(id)[0])
+        .unwrap()
+        .props
+        .iter()
+        .find_map(|(p, v)| match v {
+            PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// LLP 1088 §9.1: `[a, b]` is a list of its items, written across lines
+/// with a trailing comma, its items' types met as a ternary's arms are; a
+/// selection and a set of collapsed ids are kept with `concat`, `slice`,
+/// `includes` and `indexOf`, the web's array methods, and recipients are
+/// `split`, text's.
+#[test]
+fn a_list_the_screen_keeps_is_built_in_contract() {
+    let plan = contract::bake(
+        contract::compile(&corpus("list-construction.contract")).unwrap(),
+        Rows,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        Plan::decode(&plan.encode()).unwrap(),
+        Rows,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(shown(&r, "tabs"), "inbox,sent");
+    assert_eq!(shown(&r, "scores"), "2");
+    assert_eq!(shown(&r, "lengths"), "2,0,2");
+    assert_eq!(shown(&r, "chips"), "ann@x.org|bo@y.org");
+    assert_eq!(shown(&r, "at"), "-1 11");
+    assert_eq!(
+        shown(&r, "shown"),
+        "a",
+        "`slice(rows, 0, -1)` drops the last"
+    );
+    r.act("pick", vec![Value::str("b")]).unwrap();
+    r.act("pick", vec![Value::str("a")]).unwrap();
+    assert_eq!(shown(&r, "picked"), "b,a");
+    assert_eq!(shown(&r, "at"), "1 11");
+    assert_eq!(shown(&r, "lengths"), "2,2,2");
+    for id in ["a", "b", "a"] {
+        r.act("toggle", vec![Value::str(id)]).unwrap();
+    }
+    assert_eq!(shown(&r, "collapsed"), "b");
+    r.act("clear", vec![]).unwrap();
+    assert_eq!(shown(&r, "picked"), "");
+}
+
+/// What each takes, refused where the web would answer something else:
+/// `concat` joins two lists of one type, `includes` finds a string, number
+/// or bool in a list (the web compares an object by identity), and `slice`
+/// takes text or a list.
+#[test]
+fn concat_slice_and_includes_are_typed() {
+    let refused = |expr: &str, id: &str, says: &str| {
+        let src = format!(
+            "shape R\n  id: string\ncomponent A\n  resource rs = rs() as shape list<R>\n  state xs = [1, 2]\n  state ws = [\"a\"]\n  view\n    text toString({expr})\n"
+        );
+        let e = contract::compile(&src).unwrap_err();
+        assert_eq!(e.id, id, "{expr}: {e}");
+        assert!(e.message.contains(says), "{expr}: {e}");
+    };
+    refused(
+        "length(concat(xs, ws))",
+        "type-argument",
+        "`concat` joins two lists of one item type, given `list<number>` and `list<string>`",
+    );
+    refused(
+        "length(concat(\"a\", \"b\"))",
+        "type-argument",
+        "text joins with `+` or a template",
+    );
+    refused(
+        "length(concat(xs, 1))",
+        "type-argument",
+        "expects `list<number>`",
+    );
+    refused(
+        "includes(rs, first(rs))",
+        "type-argument",
+        "argument 2 of `includes` expects `R`, given `option<R>`",
+    );
+    refused(
+        "includes(map(rs, r => r), at(rs, 0))",
+        "type-argument",
+        "expects `R`",
+    );
+    refused(
+        "includes(xs, \"1\")",
+        "type-argument",
+        "expects `number`, given `string`",
+    );
+    refused(
+        "includes(\"ab\", 1)",
+        "type-argument",
+        "expects `string`, given `number`",
+    );
+    refused(
+        "length(slice(1, 2))",
+        "type-argument",
+        "expects `string | list`",
+    );
+    refused(
+        "length(slice(xs, \"1\"))",
+        "type-argument",
+        "expects `number`",
+    );
+    refused("length(concat(xs))", "type-arity", "`concat(list, list)`");
+    let e = contract::compile(
+        "shape R\n  id: string\ncomponent A\n  resource rs = rs() as shape list<R>\n  view\n    text toString(includes(rs, R(id=\"a\")))\n",
+    )
+    .unwrap_err();
+    assert!(
+        e.message
+            .contains("`includes` finds a string, number or bool in a list, given `R`"),
+        "{e}"
+    );
+    contract::compile("component A\n  state xs = [1, 2]\n  view\n    text toString(includes(concat(xs, []), 0 / 0))\n").unwrap();
+    // `indexOf` takes what `includes` takes, and `split` text only.
+    refused(
+        "indexOf(xs, \"1\")",
+        "type-argument",
+        "argument 2 of `indexOf` expects `number`, given `string`",
+    );
+    refused(
+        "indexOf(\"ab\", 1)",
+        "type-argument",
+        "expects `string`, given `number`",
+    );
+    refused(
+        "indexOf(map(rs, r => r), at(rs, 0))",
+        "type-argument",
+        "expects `R`",
+    );
+    refused(
+        "length(split(ws, \",\"))",
+        "type-argument",
+        "expects `string`",
+    );
+    let e = contract::compile(
+        "shape R\n  id: string\ncomponent A\n  resource rs = rs() as shape list<R>\n  view\n    text toString(indexOf(rs, R(id=\"a\")))\n",
+    )
+    .unwrap_err();
+    assert!(
+        e.message
+            .contains("`indexOf` finds a string, number or bool in a list, given `R`"),
+        "{e}"
+    );
+    contract::compile("component A\n  state s = \"a,b\"\n  view\n    text toString(indexOf(split(s, \",\"), \"b\") + indexOf(s, \"b\"))\n").unwrap();
+}
+
+/// `n` rows from `rows(n)`, and a string of `n` bytes from `long(n)`.
+struct Many;
+
+impl DataSource for Many {
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        let n = args.first().and_then(Value::as_number).unwrap_or(0.0) as usize;
+        match source {
+            "rows" => Ok(Value::list(
+                (0..n)
+                    .map(|i| Value::record(vec![Value::str(&i.to_string()), Value::str("t")]))
+                    .collect(),
+            )),
+            "long" => Ok(Value::str(&"a".repeat(n))),
+            _ => Err(DataError::UnknownSource(source.into())),
+        }
+    }
+}
+
+/// LLP 1088 §9.1 in LLP 1090 D3's terms: `concat`, `slice` and `split` take
+/// a list step for each item they keep, before they build, and `includes`
+/// and `indexOf` one for each item they scan up to the match, on the
+/// evaluation's one budget; a
+/// list they build is bounded as `List` is (conformance runs the same on the
+/// JS target, `host/web-js/conformance/budget.contract`).
+#[test]
+fn concat_slice_and_includes_take_list_steps_and_build_bounded_lists() {
+    let src = "shape Row\n  id: string\n  title: string\ncomponent A\n  state n = 0\n  state c = 0\n  resource rs = rows(n) as shape list<Row>\n  resource s = long(c) as shape string\n  derive both = length(concat(rs, rs))\n  derive kept = length(slice(rs, 1))\n  derive found = includes(map(rs, r => r.id), \"none\")\n  derive big = c > 0 ? length(concat(map(rs, r => s), map(rs, r => s))) : 0\n  action go(k: number, b: number)\n    n = k\n    c = b\n  view\n    text `${both} ${kept} ${found} ${big}` testId=\"t\"\n";
+    let mut r = Runner::boot(
+        contract::compile(src).unwrap(),
+        Many,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    // 32,768 rows: `concat` keeps 65,536 items, at the bound; `includes`
+    // scans them after `map`'s 32,768 steps, 65,536 in all.
+    r.act("go", vec![Value::Number(32768.0), Value::Number(0.0)])
+        .unwrap();
+    assert_eq!(shown(&r, "t"), "65536 32767 false 0");
+    let trap = |e: &RunnerError| format!("{e:?}");
+    let e = r
+        .act("go", vec![Value::Number(32769.0), Value::Number(0.0)])
+        .unwrap_err();
+    assert!(trap(&e).contains("IterationLimit"), "{e:?}");
+    // 1,024 strings of 32 KiB twice: 64 MiB of bytes is the bound; one
+    // byte a string more is past it, a `ValueTooLarge` at the `concat`.
+    r.act("go", vec![Value::Number(1024.0), Value::Number(32768.0)])
+        .unwrap();
+    let e = r
+        .act("go", vec![Value::Number(1024.0), Value::Number(32769.0)])
+        .unwrap_err();
+    assert!(trap(&e).contains("ValueTooLarge"), "{e:?}");
+}
+
+/// `indexOf` steps as `includes` does, and `split` a step a piece, counted
+/// before the pieces are built: 65,536 pieces of `long(n)`'s text are the
+/// bound, one more past it.
+#[test]
+fn index_of_and_split_take_list_steps() {
+    let src = "shape Row\n  id: string\n  title: string\ncomponent A\n  state n = 0\n  state c = 0\n  resource rs = rows(n) as shape list<Row>\n  resource s = long(c) as shape string\n  derive at = indexOf(map(rs, r => r.id), \"none\")\n  derive pieces = length(split(s, \"\"))\n  derive words = length(split(s, \"a\"))\n  action go(k: number, b: number)\n    n = k\n    c = b\n  view\n    text `${at} ${pieces} ${words}` testId=\"t\"\n";
+    let mut r = Runner::boot(
+        contract::compile(src).unwrap(),
+        Many,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.act("go", vec![Value::Number(32768.0), Value::Number(65535.0)])
+        .unwrap();
+    assert_eq!(shown(&r, "t"), "-1 65535 65536");
+    let trap = |e: &RunnerError| format!("{e:?}");
+    for (k, b) in [(32769.0, 0.0), (0.0, 65536.0)] {
+        let e = r
+            .act("go", vec![Value::Number(k), Value::Number(b)])
+            .unwrap_err();
+        assert!(trap(&e).contains("IterationLimit"), "{k} {b}: {e:?}");
     }
 }

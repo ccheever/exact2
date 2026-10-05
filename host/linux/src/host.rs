@@ -215,12 +215,15 @@ impl<D: DataSource> Host<D> {
         // An `app:/data` image shows from the first frame, before storage
         // is configured and whether or not anything was picked (D7).
         crate::picker::know_roots(data.app_id());
+        // A named drive's secrets, read before the runner takes the source.
+        // A carried reload keeps its memory store and does not touch the files.
+        let store_snapshot = agent_store_snapshot(data.app_id(), carried.is_some());
         let mut runner = Runner::boot_with_delivery(
             plan,
             data,
             kernel,
             carried,
-            Vec::new(),
+            store_snapshot,
             delivery.unwrap_or_default(),
             exact_runner::Viewport::sized(width as f64, height as f64),
             launch,
@@ -649,21 +652,12 @@ impl<D: DataSource> Host<D> {
 
     fn configure_storage(&mut self) -> Result<(), exact_runner::DataError> {
         let app_id = self.runner.data().app_id().to_string();
-        let Some(([data, cache, temporary], fresh)) = crate::picker::app_dirs(&app_id)? else {
+        let Some(([data, cache, temporary], _)) = crate::picker::app_dirs(&app_id)? else {
             return Ok(());
         };
-        // An authored test's store starts empty every run (`agent --test`).
-        if let Some(tree) = fresh {
-            match std::fs::remove_dir_all(&tree) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(exact_runner::DataError::Unavailable(format!(
-                        "EXACT_AGENT_STORAGE_FRESH: could not empty {}: {e}",
-                        tree.display()
-                    )));
-                }
-                _ => {}
-            }
-        }
+        // An authored test's store starts empty every run (`agent --test`):
+        // emptied at the boot that read it, so this is a no-op unless that failed.
+        crate::picker::empty_fresh_tree(&app_id)?;
         // What `app:/` names for the picker and an image's source (LLP
         // 1069.002 D4, D7); the last launch's picks go.
         crate::picker::set_roots(data.clone(), cache.clone(), temporary.clone());
@@ -1225,10 +1219,14 @@ impl<D: DataSource> Host<D> {
             self.discover_height_handles();
             self.discover_transform_handles();
         }
-        // LLP 1018: a memory store here — the runner holds the values and
-        // nothing persists them until this host links a store, so the write
-        // log (secrets included) is dropped each commit, never accumulated.
-        drop(self.runner.take_store_writes());
+        // A nameless drive keeps secrets in the runner only (LLP 1018). A
+        // named `--storage` drive writes them into that scratch tree, so a
+        // reload reads them back (platformer R10). The log is taken either way.
+        let writes = self.runner.take_store_writes();
+        let app_id = self.runner.data().app_id().to_string();
+        for line in persist_agent_writes(&app_id, &writes) {
+            self.runner.log(line);
+        }
         paint |= self.project_navigation();
         self.reconcile_height_bindings();
         self.reconcile_transform_bindings();
@@ -1332,7 +1330,10 @@ impl<D: DataSource> Host<D> {
             let base = self.presented(view);
             let entry = self.presented.entry(view).or_insert(base);
             match p.property {
-                Property::Translate => entry.translate = (p.value.x as f32, p.value.y as f32),
+                Property::Translate => {
+                    entry.translate = (p.value.x as f32, p.value.y as f32);
+                    entry.translate_percent = (p.value.z as f32, p.value.w as f32);
+                }
                 Property::Layout => {
                     entry.layout = layout_presented(&self.engine, p.node, p.value).map(|v| v as f32)
                 }
@@ -1362,6 +1363,88 @@ impl<D: DataSource> Host<D> {
     }
 }
 
+/// The kv scope the runner's kept answers live in, beside secrets
+/// (LLP 1027 D4). The same scope Apple's store writes.
+const KEPT: &str = "exact.kept";
+
+/// What a named agent drive has kept, for the runner's boot snapshot.
+/// A carried launch and a nameless drive contribute nothing. A fresh drive's
+/// tree is emptied first, once a process and before anything is written there
+/// (`picker::empty_fresh_tree`); one that cannot be emptied gives nothing,
+/// said at boot and again by the activation.
+fn agent_store_snapshot(app_id: &str, carried: bool) -> Vec<(String, String)> {
+    if carried {
+        return Vec::new();
+    }
+    // A tree that could not be emptied is not read: a fresh drive starts
+    // with nothing, never with what the last one left (b6 review C1).
+    if let Err(e) = crate::picker::empty_fresh_tree(app_id) {
+        eprintln!("exact: {e:?}");
+        return Vec::new();
+    }
+    let Some(root) = crate::picker::agent_secret_root(app_id) else {
+        return Vec::new();
+    };
+    let secrets = ibex2::secrets::FileStore::new(root.join("secrets"));
+    let kv = ibex2::kv::FileStore::new(root.join("kv"));
+    // A leading dot is the store's temporary file, not a secret.
+    let mut names = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(root.join("secrets")) {
+        for entry in entries.flatten() {
+            let Ok(name) = entry.file_name().into_string() else {
+                continue;
+            };
+            if !name.starts_with('.') && ibex2::secrets::is_valid_name(&name) {
+                names.push(name);
+            }
+        }
+    }
+    names.sort();
+    let mut out = Vec::new();
+    for name in names {
+        if let Ok(Some(value)) = ibex2::secrets::SecretStore::get(&secrets, &name) {
+            out.push((name, value));
+        }
+    }
+    if let Ok(keys) = ibex2::kv::KvStore::keys(&kv, KEPT) {
+        for key in keys {
+            if let Ok(Some(bytes)) = ibex2::kv::KvStore::get(&kv, KEPT, &key) {
+                if let Ok(value) = String::from_utf8(bytes) {
+                    out.push((format!("{}{key}", exact_runner::Store::KEPT), value));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Write one commit's store log into the named drive's scratch tree.
+/// A nameless drive drops the log. A failed write is a journal line.
+fn persist_agent_writes(app_id: &str, writes: &[exact_runner::StoreWrite]) -> Vec<String> {
+    let Some(root) = crate::picker::agent_secret_root(app_id) else {
+        return Vec::new();
+    };
+    let secrets = ibex2::secrets::FileStore::new(root.join("secrets"));
+    let kv = ibex2::kv::FileStore::new(root.join("kv"));
+    let mut errors = Vec::new();
+    for write in writes {
+        let result = match write.name.strip_prefix(exact_runner::Store::KEPT) {
+            Some(key) => match &write.value {
+                Some(value) => ibex2::kv::KvStore::set(&kv, KEPT, key, value.as_bytes()),
+                None => ibex2::kv::KvStore::delete(&kv, KEPT, key),
+            },
+            None => match &write.value {
+                Some(value) => ibex2::secrets::SecretStore::set(&secrets, &write.name, value),
+                None => ibex2::secrets::SecretStore::forget(&secrets, &write.name),
+            },
+        };
+        if let Err(error) = result {
+            errors.push(format!("store {} failed: {error}", write.name));
+        }
+    }
+    errors
+}
+
 /// Physical memory in bytes, for the canvas budget (LLP 1056 D4): a quarter
 /// of it, as WebKit charged on iOS. Linux reports it in `/proc/meminfo`;
 /// elsewhere (the host run on a Mac) 8 GiB is assumed.
@@ -1375,3 +1458,7 @@ fn physical_memory() -> u64 {
         })
         .unwrap_or(8 << 30)
 }
+
+#[cfg(test)]
+#[path = "host_tests.rs"]
+mod tests;

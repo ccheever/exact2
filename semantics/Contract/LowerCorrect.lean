@@ -85,8 +85,8 @@ theorem compile_succ (ih : AllOk fuel) : CompileOk (fuel + 1) := by
   | num b => exact case_lit (s := "") (bb := false) hc hx (.inl rfl)
   | str s => exact case_lit (b := 0) (bb := false) hc hx (.inr (.inl rfl))
   | bool b => exact case_lit (b := 0) (s := "") (bb := b) hc hx (.inr (.inr (.inl rfl)))
-  | none => exact case_lit (b := 0) (s := "") (bb := false) hc hx (.inr (.inr (.inr (.inl rfl))))
-  | emptyList => exact case_lit (b := 0) (s := "") (bb := false) hc hx (.inr (.inr (.inr (.inr rfl))))
+  | none => exact case_lit (b := 0) (s := "") (bb := false) hc hx (.inr (.inr (.inr rfl)))
+  | list items => exact case_list ih hc hx
   | some e => exact case_some ih hc hx
   | template parts => exact case_template ih ih.2.2.2.1 hc hx
   | var x => exact case_var hc hx

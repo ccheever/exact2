@@ -154,7 +154,9 @@ final class BoxPaintMacTests: XCTestCase {
         let p = presenter()
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view", "style": ["display": "flex", "background_color": [255.0, 255.0, 255.0, 255.0]]],
-            ["op": "create", "id": 2, "kind": "view", "style": ["z_index": 3.0, "background_color": [255.0, 0.0, 0.0, 255.0]]],
+            ["op": "create", "id": 2, "kind": "view", "style": ["background_color": [255.0, 0.0, 0.0, 255.0]]],
+            // `z-index: 3`, as the kernel sends it: the rank, doubled (LLP 1083.000 D4).
+            ["op": "rank", "id": 2, "rank": 6],
             ["op": "create", "id": 3, "kind": "view", "style": ["background_color": [0.0, 0.0, 255.0, 255.0]]],
             ["op": "create", "id": 4, "kind": "view", "style": ["background_color": [0.0, 0.0, 0.0, 255.0]]],
             // LLP 1083: the kernel sends paint rank separately from style.

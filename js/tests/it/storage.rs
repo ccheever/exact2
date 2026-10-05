@@ -345,8 +345,9 @@ fn storage_then_fetch_then_storage_preserves_each_answer_context() {
 
 /// Storage an answer starts and does not await still lands (kanban F22): a
 /// write made before a value returned at once, and one queued behind the
-/// module's storage chain and begun after the answer's own promise resolved.
-/// The browser runs both to their end; so does Hermes, before the reply.
+/// module's storage chain and begun after the answer's own promise resolved,
+/// or after a value it gave at once (drums R10). The browser runs each to its
+/// end; so does Hermes, before the reply.
 #[test]
 fn storage_an_answer_does_not_await_still_lands() {
     let root = Root::new();
@@ -361,6 +362,14 @@ fn storage_an_answer_does_not_await_still_lands() {
         "second"
     );
     assert_eq!(call(&mut m, &mut s, "read-at", "queued/file"), "second");
+    // A save chained behind a resolved promise, the value given at once:
+    // the write begins in the checkpoint after the call (drums R10).
+    assert_eq!(call(&mut m, &mut s, "deferred", "third"), "answered");
+    assert_eq!(call(&mut m, &mut s, "deferred", "fourth"), "answered");
+    assert_eq!(
+        std::fs::read_to_string(root.0.join("data/deferred")).unwrap(),
+        "fourth"
+    );
     assert_eq!(call(&mut m, &mut s, "queued-sync", "third"), "answered");
     assert_eq!(call(&mut m, &mut s, "read-at", "queued/file"), "third");
 }

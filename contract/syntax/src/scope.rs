@@ -7,6 +7,7 @@
 use crate::ast::*;
 use crate::parser::SyntaxError;
 use crate::Span;
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 /// The namespaces a top-level name lives in. Shapes and `fn`s share one:
@@ -38,6 +39,32 @@ impl Kind {
     }
 }
 
+/// A name another loaded file declares, which a file does not see.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Elsewhere {
+    /// The declaring file, as a refusal shows it.
+    pub file: String,
+    /// The loader's index of that file.
+    pub unit: usize,
+    /// The declaration's own name, which a `use` names: a generated one
+    /// (`Card__ui`) is not.
+    pub declared: String,
+    /// Every file that declares a name `declared` in this namespace, by
+    /// the loader's index: more than one, and which is meant is the author's.
+    pub declaring: Vec<usize>,
+}
+
+/// A reference to a name only another file declares.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Missing {
+    /// Its namespace.
+    pub kind: Kind,
+    /// The name as written.
+    pub name: String,
+    /// Where.
+    pub span: Span,
+}
+
 /// One file's view of the program's names.
 #[derive(Debug, Default)]
 pub struct Scope {
@@ -47,7 +74,11 @@ pub struct Scope {
     /// Names other loaded files declare that this file does not see, to the
     /// file that declares them, so a reference to one is refused with the
     /// `use` that would bring it rather than resolved behind the author's back.
-    pub elsewhere: HashMap<(Kind, String), String>,
+    pub elsewhere: HashMap<(Kind, String), Elsewhere>,
+    /// Every reference [`rescope`] met to a name in `elsewhere`, in order:
+    /// the loader refuses them together, naming each `use` line the file
+    /// lacks, so one compile shows them all (rules: every failure in one run).
+    pub missing: RefCell<Vec<Missing>>,
     /// Whether a call names a roster function, which no file declares and
     /// every file sees: never another file's name, so never refused.
     pub roster: Option<fn(&str) -> bool>,
@@ -58,6 +89,10 @@ pub struct Scope {
     /// The program-unique names that are shapes, not `fn`s: a call of a
     /// shape named `path` is the router's `path()`, as the checker reads it.
     pub shapes: std::collections::HashSet<String>,
+    /// Shapes other files declare that this file does not see as shapes:
+    /// a written type of one of these names is refused even when this file
+    /// has a `fn` of the name, which is no type.
+    pub foreign_shapes: std::collections::HashMap<String, String>,
 }
 
 impl Scope {
@@ -67,22 +102,20 @@ impl Scope {
 
     /// The program-unique name `name` means here; `Ok(None)` for a name no
     /// loaded file declares (a roster function, a primitive, a binding), left
-    /// for later passes to resolve or refuse.
+    /// for later passes to resolve or refuse — and for one another file
+    /// declares, recorded in `missing` for the loader to refuse.
     fn resolve(&self, kind: Kind, name: &str, span: Span) -> Result<Option<&str>, SyntaxError> {
         if let Some(to) = self.get(kind, name) {
             return Ok(Some(to));
         }
-        match self.elsewhere.get(&(kind, name.to_owned())) {
-            Some(file) => Err(SyntaxError {
-                id: "contract-use-missing",
-                message: format!(
-                    "`{name}` is a {} declared in `{file}`, which this file does not name: add `use {name} from \"…\"` (LLP 1091 D1)",
-                    kind.what()
-                ),
+        if self.elsewhere.contains_key(&(kind, name.to_owned())) {
+            self.missing.borrow_mut().push(Missing {
+                kind,
+                name: name.to_owned(),
                 span,
-            }),
-            None => Ok(None),
+            });
         }
+        Ok(None)
     }
 
     fn rename(&self, kind: Kind, name: &mut String, span: Span) -> Result<(), SyntaxError> {
@@ -280,6 +313,9 @@ impl Rewriter<'_> {
         }
         for t in tasks {
             self.expr(&mut t.timer.0)?;
+            for e in t.gate.iter_mut().chain(t.key.iter_mut()) {
+                self.expr(e)?;
+            }
         }
         self.nodes(view)?;
         self.unbind(mark);
@@ -342,9 +378,19 @@ impl Rewriter<'_> {
                 Some(to) if self.scope.shapes.contains(to) => {
                     self.scope.rename(Kind::Call, name, *span)
                 }
-                _ if self.scope.builtin_types.contains(name.as_str()) || name == "action" => Ok(()),
-                Some(_) => Ok(()),
-                None => self.scope.rename(Kind::Call, name, *span),
+                _ if self.scope.builtin_types.contains(name.as_str()) || name == "action" => {
+                    Ok(())
+                }
+                _ => match self.scope.foreign_shapes.get(name.as_str()) {
+                    Some(file) => Err(SyntaxError {
+                        id: "contract-use-missing",
+                        message: format!(
+                            "`{name}` is a shape declared in `{file}`, which this file does not name: add `use {name} from \"…\"` (LLP 1091 D1)"
+                        ),
+                        span: *span,
+                    }),
+                    None => self.scope.rename(Kind::Call, name, *span),
+                },
             },
             TypeExpr::Option(inner, _) | TypeExpr::List(inner, _) => self.ty(inner),
         }
@@ -569,57 +615,43 @@ impl Rewriter<'_> {
                 .into_iter()
                 .filter(|(_, t)| !t.is_empty())
                 .collect();
-            // With a computed part, a literal keyword's slot depends on what
-            // the part is when it runs (`${x} linear 1s`: `linear` is the
-            // easing if `x` is a time, the name if `x` is an easing). Read as
-            // `motion` does with the part filling nothing; where a keyword
-            // that may be the name is also renamed keyframes, no reading is
-            // safe, so the rename is refused.
-            // (A computed part whose text says its slot — `steps(${n}, …)`,
-            // `${d}ms` — leaves nothing to guess.)
-            let unknown = |t: &str| {
-                t.contains(HOLE)
-                    && !["cubic-bezier(", "steps(", "linear(", "spring("]
-                        .iter()
-                        .any(|f| t.starts_with(f))
-                    && !(t.ends_with("ms") || t.ends_with('s'))
-            };
-            if shorthand && tokens.iter().any(|(_, t)| unknown(t)) {
-                for &(_, t) in &tokens {
-                    if t.contains(HOLE) || !Shorthand::is_keyword(t) {
+            // A computed part's slot is known when its text says it
+            // (`steps(${n}, …)`, `${d}ms`); otherwise it may be any. Every
+            // reading `motion` would accept is tried: a literal is renamed
+            // when it is the name in every one, left when it is the name in
+            // none, and where it is the name in some but not others and also
+            // renamed keyframes, no rename is right, so the compile is
+            // refused (LLP 1091 §20).
+            let name = if shorthand {
+                let readings = readings(&tokens, HOLE);
+                let mut name = None;
+                for (i, &(at, t)) in tokens.iter().enumerate() {
+                    if t.contains(HOLE) {
                         continue;
                     }
-                    if let Some(to) = self.scope.resolve(Kind::Keyframes, t, span)? {
-                        if to != t {
+                    let named = |r: &Vec<bool>| r[i];
+                    let all = !readings.is_empty() && readings.iter().all(named);
+                    let some = readings.iter().any(named);
+                    if all {
+                        name = Some((at, t));
+                    } else if some {
+                        let bare = t.trim_matches(|c| c == '"' || c == '\'');
+                        if self
+                            .scope
+                            .get(Kind::Keyframes, bare)
+                            .is_some_and(|to| to != bare)
+                        {
                             return Err(SyntaxError {
                                 id: "contract-animation-ambiguous",
                                 message: format!(
-                                    "`{t}` beside a computed value is a keyword or this file's `keyframes {t}`, which another file's `{t}` renamed, depending on the value when it runs; quote the name (`'{t}'`) or name the keyframes otherwise (LLP 1091 D5)"
+                                    "`{t}` beside a computed value is the animation's name or a keyword depending on the value when it runs, and `{t}` here is keyframes another file's `{t}` renamed; quote the name (`'{bare}'`) or name the keyframes otherwise (LLP 1091 D5)"
                                 ),
                                 span,
                             });
                         }
                     }
                 }
-            }
-            let name = if shorthand {
-                let mut slots = Shorthand::default();
-                let mut name = None;
-                let mut valid = true;
-                for (at, t) in tokens {
-                    if t.contains(HOLE) {
-                        slots.computed(t);
-                        continue;
-                    }
-                    match slots.take(t) {
-                        Some(true) => name = Some((at, t)),
-                        Some(false) => {}
-                        None => valid = false,
-                    }
-                }
-                // A shorthand `motion` refuses stays refused: no rename
-                // makes it play.
-                name.filter(|_| valid)
+                name
             } else {
                 tokens.into_iter().next().filter(|(_, t)| !t.contains(HOLE))
             };
@@ -719,12 +751,10 @@ impl Rewriter<'_> {
 
     fn expr(&mut self, e: &mut Expr) -> R {
         match e {
-            Expr::Number(..)
-            | Expr::Str(..)
-            | Expr::Bool(..)
-            | Expr::None(_)
-            | Expr::EmptyList(_)
-            | Expr::Ident(..) => Ok(()),
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {
+                Ok(())
+            }
+            Expr::List(items, _) => self.exprs(items),
             Expr::Template(parts, _) => {
                 for part in parts {
                     if let TemplatePart::Expr(e) = part {
@@ -824,47 +854,24 @@ struct Shorthand {
 }
 
 impl Shorthand {
-    /// A keyword the shorthand reads in a slot before the name's.
-    fn is_keyword(part: &str) -> bool {
-        matches!(
-            part,
-            "linear"
-                | "ease"
-                | "ease-in"
-                | "ease-out"
-                | "ease-in-out"
-                | "step-start"
-                | "step-end"
-                | "infinite"
-                | "normal"
-                | "reverse"
-                | "alternate"
-                | "alternate-reverse"
-                | "none"
-                | "forwards"
-                | "backwards"
-                | "both"
-                | "running"
-                | "paused"
-        )
-    }
-
-    /// A part with a computed value in it fills what its literal text says
-    /// it is — an easing function, or a time by its unit — and is never the
-    /// name.
-    fn computed(&mut self, part: &str) {
-        if ["cubic-bezier(", "steps(", "linear(", "spring("]
-            .iter()
-            .any(|f| part.starts_with(f))
-        {
-            self.eased = true;
-        } else if (part.ends_with("ms") || part.ends_with('s')) && self.times < 2 {
-            self.times = self.times.saturating_add(1);
+    /// Fill a computed part's slot, as `motion` would fill it with a
+    /// value of that kind; `None` where that value would be refused.
+    fn fill(&mut self, role: Role) -> Option<bool> {
+        let free = |slot: &mut bool| (!std::mem::replace(slot, true)).then_some(false);
+        match role {
+            Role::Time => {
+                self.times = self.times.saturating_add(1);
+                (self.times <= 2).then_some(false)
+            }
+            Role::Easing => free(&mut self.eased),
+            Role::Count => free(&mut self.counted),
+            Role::Direction => free(&mut self.directed),
+            Role::Fill => free(&mut self.filled),
+            Role::Play => free(&mut self.stated),
+            Role::Name => free(&mut self.named).map(|_| true),
         }
     }
 
-    /// Whether `part` is the animation's name: it fills no free slot before
-    /// the name's, as `motion`'s grammar takes it.
     /// Fill `part` in as `motion` does: `Some(true)` for the name,
     /// `Some(false)` for a slot, `None` where `motion` refuses the shorthand
     /// (a third time, a second name, a word that is nothing).
@@ -911,6 +918,101 @@ impl Shorthand {
             return Some(true);
         }
         None
+    }
+}
+
+/// What a computed part of a shorthand may be.
+#[derive(Clone, Copy)]
+enum Role {
+    Time,
+    Easing,
+    Count,
+    Direction,
+    Fill,
+    Play,
+    Name,
+}
+
+const ROLES: [Role; 7] = [
+    Role::Time,
+    Role::Easing,
+    Role::Count,
+    Role::Direction,
+    Role::Fill,
+    Role::Play,
+    Role::Name,
+];
+
+/// Every reading of one animation's parts `motion` would accept, each as
+/// which parts are the name. A computed part (holding `hole`) whose text
+/// says its slot fills it; any other may be any; past three such parts the
+/// readings are too many to try and none is returned, so nothing is renamed
+/// and an ambiguity cannot be ruled out — every literal reads as possibly
+/// the name.
+fn readings(tokens: &[(usize, &str)], hole: char) -> Vec<Vec<bool>> {
+    let known = |t: &str| {
+        if ["cubic-bezier(", "steps(", "linear(", "spring("]
+            .iter()
+            .any(|f| t.starts_with(f))
+        {
+            Some(Role::Easing)
+        } else if t.ends_with("ms") || t.ends_with('s') {
+            Some(Role::Time)
+        } else {
+            None
+        }
+    };
+    let unknown: Vec<usize> = (0..tokens.len())
+        .filter(|&i| tokens[i].1.contains(hole) && known(tokens[i].1).is_none())
+        .collect();
+    if unknown.len() > 3 {
+        // Any literal may be the name: one reading with every literal named
+        // and one with none makes each "some but not all".
+        return vec![
+            tokens.iter().map(|(_, t)| !t.contains(hole)).collect(),
+            vec![false; tokens.len()],
+        ];
+    }
+    let mut out = Vec::new();
+    let mut choice = vec![0usize; unknown.len()];
+    loop {
+        let mut slots = Shorthand::default();
+        let mut named = vec![false; tokens.len()];
+        let mut valid = true;
+        for (i, &(_, t)) in tokens.iter().enumerate() {
+            let outcome = if t.contains(hole) {
+                let role = match unknown.iter().position(|&u| u == i) {
+                    Some(k) => ROLES[choice[k]],
+                    None => known(t).unwrap_or(Role::Name),
+                };
+                slots.fill(role).map(|_| false)
+            } else {
+                slots.take(t)
+            };
+            match outcome {
+                Some(is_name) => named[i] = is_name,
+                None => {
+                    valid = false;
+                    break;
+                }
+            }
+        }
+        if valid {
+            out.push(named);
+        }
+        // The next combination of roles for the unknown parts.
+        let mut k = 0;
+        loop {
+            if k == choice.len() {
+                return out;
+            }
+            choice[k] += 1;
+            if choice[k] < ROLES.len() {
+                break;
+            }
+            choice[k] = 0;
+            k += 1;
+        }
     }
 }
 

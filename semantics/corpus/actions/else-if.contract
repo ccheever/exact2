@@ -1,0 +1,50 @@
+// `else if` and `else when`: `else` around one nested branch, so the same
+// tree as if-else.contract's and when-else.contract's nesting. Conditions
+// that read state the action wrote see the starting snapshot.
+component App
+  state n = 0
+  state msg = ""
+  action classify(v: number)
+    n = v
+    if v < 0
+      msg = "negative"
+    else if v == 0
+      msg = "zero"
+    else if n > v
+      msg = "fell"
+    else if v < 10
+      msg = "small"
+    else
+      msg = "large"
+  view
+    column
+      text `${n} ${msg}` testId="r"
+      when n < 0
+        text "below" testId="below"
+      else when n == 0
+        text "zero" testId="zero-row"
+      else when n < 10
+        text "few" testId="few"
+      else
+        text "many" testId="many"
+      button "neg" press=classify(-3) testId="neg"
+      button "zero" press=classify(0) testId="zero"
+      button "small" press=classify(4) testId="small"
+      button "large" press=classify(40) testId="large"
+
+test "chain"
+  expect tree has "zero-row"
+  tap "neg"
+  expect state msg == "negative"
+  expect tree has "below"
+  tap "zero"
+  expect state msg == "zero"
+  tap "large"
+  expect state msg == "large"
+  expect tree has "many"
+  tap "small"
+  expect state msg == "fell"
+  expect text "r" == "4 fell"
+  expect tree has "few"
+  tap "small"
+  expect state msg == "small"

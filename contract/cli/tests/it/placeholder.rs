@@ -81,6 +81,7 @@ impl DataSource for Blog {
             // A failure is data the source shapes (LLP 1016 D4).
             ("post", _) => post("7", "Unavailable"),
             ("comments", _) => Value::list(vec![Value::str("first")]),
+            ("savePost", _) => post("8", "Saved"),
             (other, _) => return Err(DataError::UnknownSource(other.into())),
         }))
     }
@@ -288,6 +289,87 @@ fn a_module_not_loaded_at_boot_shows_placeholders_until_data_ready() {
     r.fulfill(requests[0].ticket, ok()).unwrap();
     assert_eq!(text_of(&r, "title"), "Hello");
     assert_eq!(text_of(&r, "state"), "ready");
+}
+
+#[test]
+fn a_send_before_the_module_loads_waits_for_it() {
+    // Notes diary: a document opened at launch reached an action before the
+    // native host loaded the TypeScript module, and its send was refused —
+    // the document lost. The send waits, pending, and goes at data_ready.
+    let src = corpus()
+        .replace(
+            "  resource comments",
+            "  mutation saved as shape Post refreshes comments then afterSave\n  state note = \"\"\n  action save\n    send saved = savePost(\"7\")\n  action afterSave\n    note = \"then ran\"\n  resource comments",
+        )
+        .replace(
+            "      text `${length(comments)}",
+            "      text (pending(saved) ? \"sending\" : note) testId=\"sent\"\n      text `${length(comments)}",
+        );
+    let built = Blog {
+        later_at_build: true,
+        ..Blog::default()
+    };
+    let plan = contract::bake(contract::compile(&src).unwrap(), built).unwrap();
+    let data = Blog::default();
+    data.not_loaded.set(true);
+    let loaded = data.not_loaded.clone();
+    let mut r = boot(&plan, data, "/").unwrap();
+    r.act("save", vec![])
+        .expect("the action commits; its send waits");
+    assert_eq!(text_of(&r, "sent"), "sending");
+    assert!(
+        r.take_requests().is_empty(),
+        "nothing asks a module that isn't loaded"
+    );
+    assert!(
+        r.journal()
+            .any(|l| l.ends_with("send saved: waits until the data source is ready")),
+        "{:?}",
+        r.journal().collect::<Vec<_>>()
+    );
+    loaded.set(false);
+    r.data_ready().unwrap();
+    let requests = r.take_requests();
+    let saved = requests
+        .iter()
+        .find(|q| q.target == "saved")
+        .expect("sent at data_ready");
+    assert_eq!(text_of(&r, "sent"), "sending");
+    let before = r.journal().count();
+    r.fulfill(saved.ticket, ok()).unwrap();
+    r.land_then();
+    assert_eq!(text_of(&r, "sent"), "then ran");
+    // What the mutation refreshes is asked again when its reply lands.
+    let after: Vec<&str> = r.journal().skip(before).collect();
+    assert!(
+        after.iter().any(|l| l.contains("query comments")),
+        "{after:?}"
+    );
+
+    // An assignment to the mutation's slot drops a send still waiting, as it
+    // forgets a request in flight.
+    let src = src.replace(
+        "    note = \"then ran\"",
+        "    note = \"then ran\"\n  action clear\n    saved = none",
+    );
+    let plan = contract::bake(
+        contract::compile(&src).unwrap(),
+        Blog {
+            later_at_build: true,
+            ..Blog::default()
+        },
+    )
+    .unwrap();
+    let data = Blog::default();
+    data.not_loaded.set(true);
+    let loaded = data.not_loaded.clone();
+    let mut r = boot(&plan, data, "/").unwrap();
+    r.act("save", vec![]).unwrap();
+    r.act("clear", vec![]).unwrap();
+    assert_eq!(text_of(&r, "sent"), "");
+    loaded.set(false);
+    r.data_ready().unwrap();
+    assert!(!r.take_requests().iter().any(|q| q.target == "saved"));
 }
 
 #[test]

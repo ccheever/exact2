@@ -196,7 +196,9 @@ extension NodeView {
     func activateInline(_ id: UInt32) -> Bool {
         guard let presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id) else { return false }
         if run.handlers.contains("press") { presenter.press(id); return true }
-        if let url = run.props["href"], !url.isEmpty { return activateLink(url) }
+        // A route in the note navigates; anything else is the app's to open
+        // (session.follow). A button's own `href` uses `activateLink`.
+        if let url = run.props["href"], !url.isEmpty, let session = presenter.session { return session.follow(url) }
         return false
     }
 }

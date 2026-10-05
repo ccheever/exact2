@@ -36,6 +36,11 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
         }
         return out;
     }
+    // `saveFile(id, text=, suggestedName=)` lowers as `(id, none,
+    // suggestedName, text)`: four, where the copy of a file is three.
+    if name == "saveFile" && args.iter().any(|a| matches!(a, Expr::NamedArg(..))) {
+        return vec![args.first(), None, named("suggestedName"), named("text")];
+    }
     // The Web Share API's members, and the Notification API's title and
     // options, in a fixed order, `none` where the author gave none.
     let order: &[&str] = match name {
@@ -106,9 +111,15 @@ pub(crate) fn compile(
             asm.simple(Opcode::None);
             Ty::Option(Box::new(Ty::Unknown))
         }
-        Expr::EmptyList(_) => {
-            asm.list(0);
-            Ty::List(Box::new(Ty::Unknown))
+        // `[a, b]` (LLP 1088 §9.1): the items, then `List n`.
+        Expr::List(items, _) => {
+            let mut item = Ty::Unknown;
+            for x in items {
+                let t = compile(l, asm, x, scope, locals)?;
+                item = item.unify(&t).unwrap_or(Ty::Unknown);
+            }
+            asm.list(items.len() as u32);
+            Ty::List(Box::new(item))
         }
         Expr::Some(inner, _) => {
             let t = compile(l, asm, inner, scope, locals)?;
@@ -240,7 +251,9 @@ pub(crate) fn compile(
                 let template = l.path_expr(args, *span, scope)?;
                 return compile(l, asm, &template, scope, locals);
             }
-            if contract_types::strings::is_text_call(name, scope) {
+            if !l.fns.contains_key(name.as_str())
+                && contract_types::strings::is_text_call(name, scope)
+            {
                 return l.text_call(asm, args, *span, scope, locals);
             }
             if name == "failed" {
@@ -347,9 +360,13 @@ pub(crate) fn compile(
                 asm.number(d);
             }
             asm.call(f);
-            match (f, given.first()) {
+            match (f, given.first(), given.get(1)) {
                 // `first(list<T>)` is `option<T>` (LLP 1054.000 C4).
-                (Stdlib::First | Stdlib::At, Some(Ty::List(item))) => Ty::Option(item.clone()),
+                (Stdlib::First | Stdlib::At, Some(Ty::List(item)), _) => Ty::Option(item.clone()),
+                // A list's own type, or text's (LLP 1088 §9.1).
+                (Stdlib::Concat, Some(a), Some(b)) => a.unify(b).unwrap_or(Ty::Unknown),
+                (Stdlib::Slice, Some(t @ (Ty::String | Ty::List(_))), _) => t.clone(),
+                (Stdlib::Concat | Stdlib::Slice, ..) => Ty::Unknown,
                 _ => Ty::from_roster(f.returns()),
             }
         }

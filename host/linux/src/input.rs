@@ -375,6 +375,19 @@ pub(crate) fn key(code: u16, shift: bool) -> Option<(&'static str, &'static str)
         109 => ("PageDown", "PageDown", "PageDown"),
         110 => ("Insert", "Insert", "Insert"),
         111 => ("Delete", "Delete", "Delete"),
+        // KEY_F1 is 59; F11 and F12 are 87 and 88, not contiguous with F10.
+        59 => ("F1", "F1", "F1"),
+        60 => ("F2", "F2", "F2"),
+        61 => ("F3", "F3", "F3"),
+        62 => ("F4", "F4", "F4"),
+        63 => ("F5", "F5", "F5"),
+        64 => ("F6", "F6", "F6"),
+        65 => ("F7", "F7", "F7"),
+        66 => ("F8", "F8", "F8"),
+        67 => ("F9", "F9", "F9"),
+        68 => ("F10", "F10", "F10"),
+        87 => ("F11", "F11", "F11"),
+        88 => ("F12", "F12", "F12"),
         125 => ("MetaLeft", "Meta", "Meta"),
         126 => ("MetaRight", "Meta", "Meta"),
         _ => return None,
@@ -402,6 +415,9 @@ mod tests {
         }
         assert_eq!(keyboard.event(17, 3, None), None);
         assert_eq!(keyboard.event(0xffff, 1, None), None);
+        assert_eq!(key(59, false), Some(("F1", "F1")));
+        assert_eq!(key(87, false), Some(("F11", "F11")));
+        assert_eq!(key(88, false), Some(("F12", "F12")));
     }
     #[test]
     fn shift_sides_and_shortcut_chords_pass() {

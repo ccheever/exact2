@@ -131,7 +131,9 @@ Each file has its own names (LLP 1091): its own declarations, and the names its
 `use` lines list. Nothing comes along unnamed: if `parts.contract` uses `Icon`,
 `Card` still works, but this file writes `Icon()` only after naming it too,
 from `./icons.contract` or from `./parts.contract`, which passes on what it
-names. `as` renames one name in this file. Any component, shape, `fn`, style,
+names. The refusal names the lines a file lacks, and `contract fmt --uses
+app.contract` writes them in every file of the app. `as` renames one name in
+this file. Any component, shape, `fn`, style,
 keyframes or timeline can be named; there is no `export` keyword.
 
 Two files may declare the same name: each file's references mean its own
@@ -245,8 +247,10 @@ The `some` branch's binding exists only in that branch. Both arms are required.
 A state initialized to `none` needs enough information elsewhere, usually an
 action's assignment of `some(...)`, to infer the element type. Actions and the
 view see that type, but derives are typed first: match such a state in the view,
-not in a derive. Similarly, `[]` needs an inferable list element type. A nonempty list literal such as `[1, 2]` is not
-supported; obtain lists from sources, record fields, or list operations.
+not in a derive. Similarly, `[]` needs an inferable list element type. A list
+literal such as `[1, 2]` holds its items, which share one type; a list the screen
+keeps for the session (a selection, open ids) is built in Contract, and a list the
+app keeps across launches comes from the data module.
 
 ## State, derives, and actions
 
@@ -574,6 +578,15 @@ Requests use newest-request-wins behavior; stale answers do not overwrite newer
 requests. A failed resource keeps its retained value or placeholder and clears
 pending. A changed argument or explicit refresh allows another attempt.
 
+A write log wants every send, not the newest. Declare the mutation `queue`
+(`mutation saved as shape SaveResult queue then afterSave`): one request is in
+flight, and each later send waits, in order, with the arguments it was made
+with, until the reply before it has landed and its `then` has run. The source
+sees one request at a time, `then` runs once per reply, and `pending(saved)`
+stays true while anything waits. Assigning `saved = none` forgets nothing under
+`queue`: every reply still lands. Keep newest-wins for a sign-in or a draft whose
+late reply should be dropped (LLP 1092).
+
 A source sometimes needs current context to answer a question whose last answer
 is still suitable to show. For example, a stored car status may need the current
 minute to decide whether it must be fetched again:
@@ -811,7 +824,8 @@ bun exact.mjs agent web --storage demo "type title Dune" "tap add" "clock settle
 A scratch store is kept between drives on every host, so a second drive with the
 same `--storage demo` opens the list the first one saved: on the web, Chrome's
 profile for that name, served at one origin (Firefox and WebKit drives start
-fresh). A test's `reload` restarts the app on its store within one drive.
+fresh). A test's `reload` restarts the app on its store within one drive,
+including a data module's `secret.keep`.
 
 **Rust instead.** A data module can be a Rust crate rather than `app.ts`:
 `bun exact.mjs contract rust app.contract -o shapes.rs` generates the shapes as
@@ -1115,6 +1129,30 @@ fires once, `ms` after boot. Intervals are whole-number literals of at least 1.
 `every(frame, action)` runs once per presented frame without catching up missed
 frames. Each task body contains one schedule. Tasks are root-owned, not child
 lifecycle hooks.
+
+A task can wait for state instead of starting at mount:
+
+```contract
+component Undo
+  state toast = ""
+  state toastUntil = 0
+  action deleted
+    toast = "Deleted"
+    toastUntil = now() + 5000
+  action hideToast
+    toast = ""
+  task hide when toast != "" key=toastUntil
+    after(5000, hideToast)
+  view
+    text toast testId="toast"
+```
+
+The timer exists while `toast != ""` holds, as a `when` arm's nodes do, and a new
+`toastUntil` restarts it, as a new key makes a new `each` row: a replaced toast
+gets its whole five seconds. Nothing runs when the gate changes, and an idle task
+keeps no host awake. The action runs at the deadline exactly, so it clears the
+toast without testing the time again. Gates and keys read state, never `now()`
+(LLP 1092).
 
 `now()` reads milliseconds since boot on the runner's clock (the driver's clock
 under the agent); it is not a date. For the date, read the reserved `exactTime`

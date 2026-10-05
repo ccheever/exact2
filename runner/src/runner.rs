@@ -15,6 +15,9 @@ mod pointer;
 pub use pointer::{DropEvent, PointerEvent, WheelEvent};
 mod reorder;
 mod reorder_codec;
+mod reorder_group;
+mod resize;
+pub use resize::{ResizeRect, UNDELIVERED as RESIZE_UNDELIVERED};
 mod root_font;
 pub use event::{
     ActionBinding, ActionBindingError, ActionBindingRefusal, ControlValue, Event, KeyModifiers,
@@ -40,6 +43,7 @@ pub use device::{Hold, HoldAnswer};
 pub use device_links::{AuthLinks, DeviceLinks, PickerLinks};
 pub mod picker;
 pub use picker::{Picked, PickerRequest, PICKED};
+mod gates;
 mod into_view;
 mod kept;
 #[cfg(test)]
@@ -48,6 +52,8 @@ mod lines;
 mod lists;
 mod page;
 mod perf;
+mod queue;
+pub use queue::QUEUE_BOUND;
 pub mod router;
 pub use lists::ListTextPosition;
 mod settlement;
@@ -173,6 +179,14 @@ pub enum RunnerError {
     TimerFireLimit {
         limit: usize,
     },
+    /// A send would be the 65th waiting for a `queue` mutation (LLP 1092 D4).
+    QueueFull {
+        mutation: String,
+    },
+    /// A gated task's `key=` is no key (a non-finite number; LLP 1092 D8).
+    TaskKey {
+        task: String,
+    },
     /// A region sits at the plan root; v1 requires one root node.
     RootRegion,
     /// A slot initializer or write does not conform to the slot's declared type.
@@ -281,10 +295,16 @@ impl PendingReq {
     }
 }
 
+#[derive(Clone)]
 struct Timer {
-    /// The next due time; infinite once a one-shot timer has fired; a frame
-    /// task's next virtual frame (LLP 1073 D3), `virtual_frame(base, k)`.
+    /// The next due time; infinite once a one-shot timer has fired, and
+    /// while a gated task is idle (LLP 1092 D8); a frame task's next
+    /// virtual frame (LLP 1073 D3), `virtual_frame(base, k)`.
     next_ms: f64,
+    /// Whether the task's gate holds (always, for `mount`).
+    armed: bool,
+    /// The key it was armed with (`key=`), as `each` compares keys.
+    key: Option<String>,
     /// A frame task's last presented frame (or mount) …
     base: f64,
     /// … and which virtual frame after it is next.
@@ -308,6 +328,10 @@ pub struct Runner<D: DataSource> {
     tree: Option<Tree>,
     reorder_owner: Option<exact_kernel::NodeKey>,
     reorder_ops: Vec<exact_kernel::Op>,
+    /// The session the owner's token names (LLP 1094 D4).
+    reorder_session: Option<Box<reorder_group::Session>>,
+    /// A grouped drop's source while its `reorderdrop` runs (D2).
+    dropping_from: Option<exact_kernel::NodeKey>,
     ids: Ids,
     now_ms: f64,
     timers: Vec<Timer>,
@@ -319,6 +343,8 @@ pub struct Runner<D: DataSource> {
     into_view: Vec<crate::instance::collection::IntoView>,
     /// Where the host last showed each scroller (`frame`, LLP 1051.000 D1).
     scrolled: crate::geometry::Scrolled,
+    /// Each `resize` handler's node and the content box last delivered.
+    resized: resize::Resized,
     /// Refused requests, for `state` (LLP 1070.000 §2.2).
     into_view_refused: std::collections::VecDeque<String>,
     surfaces: Vec<SurfaceUpdate>,
@@ -344,9 +370,14 @@ pub struct Runner<D: DataSource> {
     /// Mutations whose answer landed in the commit being made; their `then`
     /// actions are armed once it stands (LLP 1016.001).
     landed: Vec<usize>,
+    /// Sends made before the data source was ready, by mutation, sent at
+    /// `data_ready` (LLP 1027 D4): pending meanwhile, one per mutation.
+    unsent: Vec<(usize, String, Vec<Value>)>,
     /// When each mutation's `then` action is due, as a one-shot timer:
     /// infinite until an answer lands.
     then_due: Vec<f64>,
+    /// `queue` mutations' waiting sends, `next`s and stalls (LLP 1092).
+    queues: queue::Queues,
     next_ticket: u64,
     /// Files picked this run, for `app:/tmp/picked/` names (LLP 1069.002 D3).
     picked_count: u64,
@@ -633,6 +664,7 @@ impl<D: DataSource> Runner<D> {
                 .collect(),
             now_ms: self.now_ms,
             store: self.store.snapshot(),
+            forgot_waiting: self.queued(),
         }
     }
 
@@ -774,6 +806,8 @@ impl<D: DataSource> Runner<D> {
             tree: None,
             reorder_owner: None,
             reorder_ops: Vec::new(),
+            reorder_session: None,
+            dropping_from: None,
             ids: Ids::default(),
             now_ms,
             timers: Vec::new(),
@@ -782,6 +816,7 @@ impl<D: DataSource> Runner<D> {
             commands: Vec::new(),
             into_view: Vec::new(),
             scrolled: Default::default(),
+            resized: Vec::new(),
             into_view_refused: Default::default(),
             surfaces: Vec::new(),
             renewed: Vec::new(),
@@ -794,7 +829,9 @@ impl<D: DataSource> Runner<D> {
             native: Native::default(),
             watching: Vec::new(),
             landed: Vec::new(),
+            unsent: Vec::new(),
             then_due: Vec::new(),
+            queues: Default::default(),
             next_ticket: 1,
             picked_count: 0,
             forgot: false,
@@ -933,25 +970,33 @@ impl<D: DataSource> Runner<D> {
         runner.watching = vec![Vec::new(); runner.plan.resources.len()];
         runner.failed_args = vec![None; runner.plan.resources.len()];
         runner.then_due = vec![f64::INFINITY; runner.plan.mutations.len()];
+        runner.queues = queue::Queues::new(runner.plan.mutations.len());
         // A carried boot never takes compiled data: it was baked for the
         // initial state, and the carried state is not that.
         runner.settle(carried.is_none())?;
         runner.init_late_slots(carried)?;
         let now = runner.now_ms;
+        // A gated task starts idle; the gate step arms the ones whose gate
+        // holds, over the settled state (LLP 1092 D8).
         runner.timers = runner
             .plan
             .timers
             .iter()
             .map(|t| Timer {
-                next_ms: if t.frame {
+                next_ms: if t.gated || t.keyed {
+                    f64::INFINITY
+                } else if t.frame {
                     virtual_frame(now, 1)
                 } else {
                     now + t.interval_ms as f64
                 },
+                armed: !(t.gated || t.keyed),
+                key: None,
                 base: now,
                 k: 1,
             })
             .collect();
+        runner.gate_step()?;
         // First frame.
         let mut ids = std::mem::take(&mut runner.ids);
         let (tree, ops, surfaces, notes) = {
@@ -967,6 +1012,12 @@ impl<D: DataSource> Runner<D> {
         runner.publish_surfaces(surfaces);
         let line = lines::boot(carried.is_some(), runner.kernel.live_count(), receipt.epoch);
         runner.log(line);
+        for (name, n) in carried
+            .map(|c| c.forgot_waiting.as_slice())
+            .unwrap_or_default()
+        {
+            runner.log(lines::forgot_waiting(*n, name));
+        }
         if !note.is_empty() {
             runner.log(note);
         }
@@ -1203,32 +1254,6 @@ impl<D: DataSource> Runner<D> {
         );
         self.lookup_rows.set(scanned);
         found
-    }
-
-    /// Whether the plan has timers (a host then drives `advance`).
-    pub fn has_timers(&self) -> bool {
-        !self.plan.timers.is_empty() || self.plan.mutations.iter().any(|m| m.then.is_some())
-    }
-
-    /// Whether the plan has a frame task (LLP 1073 D4): a host keeps its
-    /// frame source running and calls [`Runner::frame`] each frame.
-    pub fn wants_frames(&self) -> bool {
-        self.plan.timers.iter().any(|t| t.frame)
-    }
-
-    /// Soonest timer deadline in this runner's clock domain; no host polling.
-    /// A frame task's next virtual frame counts only while the host doesn't
-    /// present frames: then its frame source wakes it (LLP 1073 D4).
-    /// @ref LLP 1043.000 §3 D8 — hosts wake near the authored timer's due time.
-    pub fn timer_due_ms(&self) -> Option<f64> {
-        self.timers
-            .iter()
-            .zip(&self.plan.timers)
-            .filter(|(_, row)| !(row.frame && self.presenting))
-            .map(|(timer, _)| timer.next_ms)
-            .chain(self.then_due.iter().copied())
-            .filter(|ms| ms.is_finite())
-            .reduce(f64::min)
     }
 
     /// The kernel roots.

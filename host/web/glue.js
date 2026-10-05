@@ -20,7 +20,7 @@ const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, agent
   wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch), log); // exit-animation and layout-transition, after paint at first use (LLP 1063)
-let mediaModule, imageHold, geometry = null; // animated images held to the agent's clock (image-glue.js, LLP 1011.000); geometry reads (geometry-glue.js, LLP 1051.000 D4)
+let mediaModule, imageHold, geometry = null, resizes = null; // animated images held to the agent's clock (image-glue.js, LLP 1011.000); geometry reads (geometry-glue.js, LLP 1051.000 D4); the element resize event (resize-glue.js)
 function syncMedia(el, set = {}, clear = []) {
   if (!(el instanceof HTMLMediaElement)) return;
   el.exactMedia ??= { props: {}, handlers: [] };
@@ -160,7 +160,7 @@ function moduleCall(op, ptr, len) {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const t0 = performance.now();
-const agentMode = AGENT_ADMITTED && new URL(location.href).searchParams.has("agent");
+const agentMode = AGENT_ADMITTED && new URL(location.href).searchParams.has("agent"), agentKeepsStore = !agentMode || new URL(location.href).searchParams.has("storage"); // `--storage` on the page (platformer R10); a nameless drive stays in memory
 let agentClock = agentMode ? 0 : null, followOnSeek = true;
 // A seek moves drag timelines' sources too (LLP 1057.003 D2): their consumers follow in it.
 const clocks = animationClocks(root), { register, seek: seekAnimations, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => { if(followOnSeek)motion.followTimelines(); presence.live?.sync(); });
@@ -458,7 +458,7 @@ function applyProps(el, set, clear) {
     if (source === null) el.removeAttribute("src");
   }
   if (el instanceof HTMLIFrameElement) commitGuestOrigin(el);
-  settleValue(el); syncMarkup(el);
+  if ((set && "value" in set) || clear?.includes("value")) settleValue(el); syncMarkup(el); // a valued control shows its committed value when it changes, not another prop (LLP 1069.001 D4, amended)
   if ((set && ("viewportFit" in set || "interactiveWidget" in set)) || clear?.some((n) => n === "viewportFit" || n === "interactiveWidget")) syncViewportFit();
 }
 function ensureMessageListener() {
@@ -533,7 +533,7 @@ function attach(el, id, handlers) {
       motion.attachSwipe(el, id, on);
     } else if (kind === "heightrelease") {
       motion.attachHeightDrag(el, id, on);
-    } else if (kind === "transformrelease") { motion.attachTransformDrag(el,id,on);
+    } else if (kind === "transformrelease") { motion.attachTransformDrag(el,id,on); } else if (kind === "resize") { (resizes ??= loadAfterPaint('./resize-glue.js', 'observeResize')).then(observe => observe(el, r => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 39, writeIn(`${r.x},${r.y},${r.width},${r.height}`), now())); })); // ResizeObserver's contentRect, host kind 39
     } else if ((kind === "pointerdown" || kind === "pointerup" || kind === "pointermove") && !el.exactPointer) { let p; el.exactPointer = true; const own = () => p ??= inputHandlers?.pointer(el, on, (k, r) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, k, writeIn(r), now())); }); on("pointerdown", e => own()?.(e)); on("pointerover", () => own()); // @ref LLP 1005 §3, LLP 1056 §3: DOM's own pointer down/up/move (input-glue `pointer`)
     } else if (kind === "selectionchange") { // its part of the page's selection (navigation.js `onSelection`): kind 35, "start,end,text"
       onSelection(el, (text, a, b) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 35, writeIn(`${a},${b},${text}`), now())); });
@@ -554,7 +554,7 @@ function attach(el, id, handlers) {
       });
     } else if (kind === "change") {
       // HTML's `change`: a text field's value committed, on blur or Enter.
-      on("change", () => { const n = writeIn(el.value); send(wasm.exact_dispatch(id, 1, n, now())); settleValue(el); });
+      on("change", () => { const n = writeIn(el.value); send(wasm.exact_dispatch(id, 1, n, now())); settleValue(el, true); });
     } else if (kind === "input") {
       on("input", (e) => {
         const value = el.value;
@@ -565,7 +565,7 @@ function attach(el, id, handlers) {
           if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value)
             || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
         }
-        const n = writeIn(value); send(wasm.exact_dispatch(id, 23, n, now())); settleValue(el);
+        const n = writeIn(value); send(wasm.exact_dispatch(id, 23, n, now())); settleValue(el, true);
       });
     } else if (kind === "hover") {
       // pointerenter/pointerleave: the element's own, not a bubbling mouseover.
@@ -663,7 +663,7 @@ function apply(batch) {
       case "height-drag": { motion.heightBinding(op); break; }
       case "transform-drag": { motion.transformBinding(op); break; }
       case "reorder-drag": { arrange.binding(op); break; }
-      case "reorder-state": { arrange.state(op); break; }
+      case "reorder-state": { arrange.state(op); break; } case "reorder-group": { arrange.group(op); break; }
       case "canvas2d": { pieces.canvas2d(op); break; } // LLP 1056 D7
       case "surface": {
         // A canvas's inputs (LLP 1009 D2): to the GPU module when it is
@@ -681,9 +681,9 @@ function apply(batch) {
       case "grants": { grantSet = createGrantSet(op.set); grants = rawGrantText(grantSet).split('\n').filter(Boolean); unparsed = grantError(grantSet) ?? ""; if (unparsed) console.warn("exact:", unparsed); if (grants.some(l => /^\s*auth\.session /.test(l))) authHost ??= afterNativePaint().then(() => loadAfterPaint('./auth-glue.js', 'authHost')).then(h => authHost = h); break; } case "auth": { const inc = incarnation, env = { agent: agentMode, log, call: r => JSON.parse(readOut(wasm.exact_auth(writeIn(JSON.stringify(r))))), deliver: t => deferFulfill(inc, t, 9, 0, "", new Uint8Array()), active: t => holds(t, inc) }; if (authHost?.arm) authHost.arm(op, env); else if (agentMode && authHost) authHost.then(h => h.arm(op, env)); else { env.call({ op: "arm", ticket: op.ticket, origin: location.origin, popup: false }); env.deliver(op.ticket); } break; } // LLP 1069.006 D4: armed in the press's call stack; unloaded glue is 428
       case "store": {
         // A secret the app kept or forgot (LLP 1018 D6): `localStorage`,
-        // origin-scoped, is the web's secret store. Never in agent mode — a
-        // drive starts from nothing and leaves nothing.
-        if (agentMode) break;
+        // origin-scoped, is the web's secret store. A nameless agent drive
+        // starts from nothing; a named `--storage` keeps this origin's keys.
+        if (!agentKeepsStore) break;
         try {
           if (op.value == null) localStorage.removeItem("exact.secret." + op.name);
           else localStorage.setItem("exact.secret." + op.name, op.value);
@@ -803,7 +803,7 @@ function apply(batch) {
             pending.finally(() => inflight.delete(pending));
           }
         }
-        else if (op.name === "saveFile") { const [id, from, suggestedName] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: "saveFile", id, from, suggestedName, agent: agentMode }))))), chosen = r.present && typeof showSaveFilePicker === "function" ? showSaveFilePicker({ suggestedName: r.suggestedName }) : null; // LLP 1069.010 D3: the runner rules; the save picker starts inside the press's activation, else a download
+        else if (op.name === "saveFile") { const [id, from, suggestedName, text] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: "saveFile", id, from: from ?? undefined, suggestedName, text, agent: agentMode }))))), chosen = r.present && typeof showSaveFilePicker === "function" ? showSaveFilePicker({ suggestedName: r.suggestedName }) : null; // LLP 1069.010 D3: the runner rules; the save picker starts inside the press's activation, else a download
           if (r.present || r.view != null) { chosen?.catch(() => {}); const p = picker().then(m => m.save(r, chosen)); inflight.add(p); p.finally(() => inflight.delete(p)); } }
         else if (/^show(OpenFile|Directory|SaveFile)Picker$/.test(op.name)) { // LLP 1069.010 D2: the runner rules; a browser without the picker refuses
           const [id, second] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: op.name, id, multiple: second === true, suggestedName: typeof second === "string" ? second : undefined, agent: agentMode, available: op.name === "showSaveFilePicker" || typeof globalThis[op.name] === "function" }))))); if (r.present || r.view != null) { const p = documentsGlue().then(m => m.show(r, op.name)); inflight.add(p); p.finally(() => inflight.delete(p)); } }
@@ -1096,7 +1096,7 @@ function agentReply(request) {
       if (r.capability === "export" && r.node != null) return picker().then(m => m.answerSave(r, held.text)).then(out => tagged({ ...r, ...out })); // LLP 1069.010 D3: the bytes go back to the driver
       return r.capability === "pick" && r.node != null ? picker().then(m => m.answer(r.node, r.answered === "cancel" ? null : files ?? [])).then(() => tagged(r)) : tagged(r);
     }
-    if (request.op === "perf" && request.frames) return { virtual: true }; // the agent's clock presents no frame (LLP 1079 D4)
+    if (request.op === "perf" && request.frames) return request.live > 0 ? loadAfterPaint('./frames.js', 'liveFrames').then(live => live({ ms: request.live, late: request.late, origin: () => t0, log, clock: () => agentClock, advance: to => applyBatch(JSON.parse(readOut(wasm.exact_advance(to, 0)))), gpu: globalThis.exact.gpu })).then(tagged) : { virtual: true }; // the agent's clock presents no frame, but lends it to the wall for a live window (LLP 1079 D4)
     switch (request.op) {
       case "state": {
         const st = ask(request);
@@ -1432,7 +1432,7 @@ async function main() {
   // again: a task after Stop (`navigateerror`, fired mid-stop) or Back from the
   // bfcache (`pageshow`); a 204 or a download says nothing, so after a second.
   // The page names the build in its preload (`./app.wasm?v=…`, LLP 1047.000 §9), so this file is the same across builds.
-  const preload = () => [...document.querySelectorAll('link[rel="preload"]')].find(l => new URL(l.href).pathname.endsWith("/app.wasm")), url = new URL(preload()?.href ?? "./app.wasm", import.meta.url), imports = { exact_grants: grantOrigins(() => memory), exact_js: { call: moduleCall }, exact_rust: rustImports, exact_data: dataImports, exact_geometry: { read: (op, view, out) => geometry?.read(op, views.get(view), new Float64Array(memory.buffer, out, 4)) ?? 0 } }, aborted = e => e?.name === "AbortError";
+  const preload = () => [...document.querySelectorAll('link[rel="preload"]')].find(l => new URL(l.href).pathname.endsWith("/app.wasm")), url = new URL(preload()?.href ?? "./app.wasm", import.meta.url), imports = { exact_grants: grantOrigins(() => memory), exact_js: { call: moduleCall }, exact_rust: rustImports, exact_data: dataImports, exact_geometry: { read: (op, view, out) => geometry?.read(op, views.get(view), new Float64Array(memory.buffer, out, 4)) ?? 0, point: (x, y) => { const el = geometry?.point(x, y)?.closest("[data-view]"), id = el && root.contains(el) ? Number(el.dataset.view) : NaN; return views.get(id) === el ? id + 1 : 0; } } }, aborted = e => e?.name === "AbortError";
   const download = () => { const stop = new AbortController(); globalThis.navigation?.addEventListener("navigate", e => e.destination.sameDocument || e.downloadRequest != null || (stop.abort(), preload()?.remove()), { signal: stop.signal }); return fetch(url, { signal: stop.signal }); };
   const stayed = () => new Promise(done => { const later = () => setTimeout(done); globalThis.navigation?.addEventListener("navigateerror", later, { once: true }); addEventListener("pageshow", later, { once: true }); setTimeout(done, 1000); });
   let response = (globalThis.exact.runtime ??= download()).then(r => r.url === url.href ? r : download(), e => aborted(e) ? Promise.reject(e) : download()), instance;
@@ -1443,7 +1443,7 @@ async function main() {
   logicInfo = typeof wasm.exact_module_artifact === 'function' && wasm.exact_logic ? { ...JSON.parse(readOut(wasm.exact_logic())), native: pageNative } : null;
   setInputReady(false); // Every data executor activates after the baked first pixel.
   // Restore granted secrets before the baked frame (LLP 1018 D6).
-  if (!agentMode) {
+  if (agentKeepsStore) {
     const kept = [];
     try {
       for (let i = 0; i < localStorage.length; i++) {

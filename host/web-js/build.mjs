@@ -103,7 +103,7 @@ const compiler = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARG
 const [cmd, pre] = fresh(compiler, `${compiler}.d`) ? [compiler, []] : ['cargo', ['run', '-q', '-p', 'exact-web-js', '--']];
 const cargo = spawnSync(cmd, [...pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
-for (const f of ['rt.js', 'roster.js', 'router.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js']) cpSync(resolve(here, f), resolve(gen, f));
 // Canvas 2D surfaces (a loaded chunk: this runtime's engine over the web
 // host's own replayer) are drawn by the Rust data module, or by a
 // TypeScript source's `draw` in the page (ts-draw.js, in the same chunk).
@@ -139,8 +139,10 @@ if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build
 // and entry, against this plan's declarations, so an app.ts the web builds
 // is one every host builds, refused with the same diagnostics (calc F2,
 // calendar F9/F11). It runs while the page bundles; the build waits for it.
-// A synthetic plan over another app's sources (`--data`) is not app.ts's
-// plan: that app's own build checks it, and its declarations stay its own.
+// Not under `--data`: a synthetic plan over another app's sources (a
+// conformance fixture) is not app.ts's plan. That app's own build checked it
+// against its own plan; against the fixture's declarations every source it
+// answers is unknown, and its declarations stay its own.
 const typeChecked = ts && !opt('--data') ? typecheck().then(() => null, error => error) : null;
 async function typecheck() {
   const { configure, check } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
@@ -232,7 +234,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   ...(devReload ? ["import { prepareDev } from './checkpoint.js';", "const finishDev = prepareDev();"] : []),
   ...(files ? ["import './files.js';"] : []),
   ...(notifies ? ["import './notify.js';"] : []),
-  "import { data, journal, clock, advance, commit, inflight, Views, viewId, After, Clocked, R, resolvedLocale, Resources } from './rt.js';",
+  "import { data, journal, clock, advance, commit, inflight, Views, viewId, After, Clocked, R, resolvedLocale, Resources, Mutations } from './rt.js';",
   ...(production ? [] : ["import { develop } from './perf.js';"]),
   // A data module's answers, watched from before the app asks (seam.js).
   ...(production || !asks ? [] : ["import { seam } from './perf.js';", 'seam();']),
@@ -253,7 +255,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   "const start = () => {",
   "  const state = app();",
   ...(devReload ? ["  finishDev();"] : []),
-  "  globalThis.exact = Object.assign(globalThis.exact ?? {}, { ready: true, journal, clock, advance, commit, data, state, inflight, views: Views, viewId, After, resources: Resources });",
+  "  globalThis.exact = Object.assign(globalThis.exact ?? {}, { ready: true, journal, clock, advance, commit, data, state, inflight, views: Views, viewId, After, resources: Resources, mutations: Mutations });",
   // A development page counts its work and samples its frames (LLP 1079); the agent adapter, only when the agent drives it.
   // The served plan's digest, which a development page's `perf` names (LLP 1079 D2).
   ...(production ? [] : [`  globalThis.exact.plan = ${JSON.stringify(createHash('sha256').update(readFileSync(opt('--plan') ? resolve(opt('--plan')) : resolve(gen, 'app.plan'))).digest('hex'))};`, "  develop(globalThis.exact).catch(console.error);", "  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));"]),
@@ -270,7 +272,7 @@ writeFileSync(resolve(gen, 'main.js'), [
 ].join('\n'));
 for (const f of ['agent.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hooks.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The web host's own pieces, loaded after first paint (motion.js, a pan, `select`, text flow, rt.js `pr`, native.js, rt.js `geo`, media.js, notify.js).
-for (const f of ['frames.js', 'motion-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js', 'presence-glue.js', 'native-glue.js', 'geometry-glue.js', 'media-glue.js', 'notify-glue.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
+for (const f of ['frames.js', 'motion-glue.js', 'group-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js', 'presence-glue.js', 'native-glue.js', 'geometry-glue.js', 'resize-glue.js', 'media-glue.js', 'notify-glue.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
 // Virtualized lists' browser half, the web host's own, loaded after first paint.
 cpSync(resolve(root, 'host/web/collection-glue.js'), resolve(gen, 'collection-glue.js'));
 // Animated images on the agent's clock, the web host's own (agent.js only).

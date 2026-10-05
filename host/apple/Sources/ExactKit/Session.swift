@@ -989,7 +989,7 @@ public final class ExactSession {
         presenter.apply(batch)
         if !batch.canvasImages.isEmpty { presenter.canvas2d.load(batch.canvasImages) }
         AnimatedRasters.shared.poke()
-        for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)) }
+        for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)); presenter.reorderGroup?.observe(ReorderGroupState(op.payload)) }
         presenter.reorder?.raiseLifted()
         frames.motion = batch.motion
         frames.spatial = batch.spatial
@@ -1344,6 +1344,17 @@ public final class ExactSession {
         let location = runtime.location(of: url.absoluteString)
         if !booted { runtime.launch(location); return true }
         return navigate(location)
+    }
+    /// A link the reader followed — a `link href`, a text run's `href`, a
+    /// Markdown link. A path naming one of the app's routes is a location
+    /// for the navigation root, as the web's same-document link is (LLP 1038
+    /// §7); anything else — a page, a file beside a document — is the
+    /// containing app's to open (`openURL`).
+    @discardableResult public func follow(_ href: String) -> Bool {
+        guard state != .destroyed, !href.isEmpty else { return false }
+        if href.hasPrefix("/"), !href.hasPrefix("//"), booted, runtime.routeMatches(href) { return navigate(href) }
+        delegate?.exactSession(self, command: "openURL", args: [href])
+        return true
     }
     @discardableResult public func navigate(_ location: String) -> Bool {
         guard state != .destroyed, booted else { return false }

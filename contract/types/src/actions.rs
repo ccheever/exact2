@@ -308,7 +308,8 @@ fn names<'e>(e: &'e Expr, bound: &mut Vec<&'e str>, out: &mut Vec<(&'e str, Span
                 out.push((n, *span));
             }
         }
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::EmptyList(_) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+        Expr::List(items, _) => items.iter().for_each(|x| names(x, bound, out)),
         Expr::Template(parts, _) => {
             for p in parts {
                 if let TemplatePart::Expr(x) = p {

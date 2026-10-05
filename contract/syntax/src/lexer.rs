@@ -273,10 +273,21 @@ impl Lexer {
                 }
                 if c.is_ascii_digit() {
                     let start = pos;
-                    while pos < bytes.len()
-                        && ((bytes[pos] as char).is_ascii_digit() || bytes[pos] == b'.')
+                    while pos < bytes.len() && (bytes[pos] as char).is_ascii_digit() {
+                        pos += 1;
+                    }
+                    // A dot is the decimal point only when a digit follows, so
+                    // `rows.0.steps` is an index and then a field, not the
+                    // number `0.` (drums R7).
+                    if bytes.get(pos) == Some(&b'.')
+                        && bytes
+                            .get(pos + 1)
+                            .is_some_and(|n| (*n as char).is_ascii_digit())
                     {
                         pos += 1;
+                        while pos < bytes.len() && (bytes[pos] as char).is_ascii_digit() {
+                            pos += 1;
+                        }
                     }
                     let text = &trimmed[start..pos];
                     let n: f64 = text.parse().map_err(|_| LexError {

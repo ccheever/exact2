@@ -1,0 +1,74 @@
+// data: completion-storm
+// Synthetic conformance plan: sends that wait their turn (`mutation … queue`,
+// LLP 1092 D2–D4) on both executors, on Completion Storm's sources:
+// `settings` answers now; `fixtureStats` answers later, a loopback fetch whose
+// failure (no fixture on 127.0.0.1:4320) is the answer the source shapes;
+// `lost(n, _)` sends a request whose reply is never an answer for n > 0 and
+// answers now, with how many it has sent, for n = 0; a `completion` lane past
+// its wave refuses at its ask. Two sends in one action each land, in order,
+// each running the `then` (`Q3 Q5`): the second is asked in a `next` commit
+// after the first's `then`. A send while one is in flight waits with the
+// arguments it was made with (`k`); a failed reply frees the queue; a queued
+// send whose own ask refuses is dropped and its successor asked; an
+// assignment forgets nothing. A jump crosses a due `next`: the replies in
+// flight land, each running `onSlow` once, the waiting send asked between
+// them, before the timer at 1000 fires. The root paints the page white over
+// the data app's manifest background.
+shape Settings
+  count: number
+  errors: number
+
+shape Control
+  message: string
+  received: number
+  issued: number
+  held: number
+
+component Queue
+  state log = ""
+  state k = 0
+  mutation quick as shape Settings queue then onQuick
+  mutation slow as shape Control queue then onSlow
+  mutation bare as shape number queue
+  derive count = match quick { case some(s) => s.count, case none => 0 }
+  derive lostCount = match bare { case some(n) => n, case none => -1 }
+  action pair
+    log = `${log} P`
+    send quick = settings("3", "0")
+    send quick = settings("5", "0")
+  action onQuick
+    log = `${log} Q${count}`
+  action slowTwice
+    k = k + 1
+    send slow = fixtureStats()
+    k = k + 1
+    send slow = fixtureStats()
+  action onSlow
+    log = `${log} S${k}`
+  action mixed
+    send bare = lost(1, 0)
+    send bare = completion(1, 500, 1, true)
+    send bare = lost(0, 3)
+  action clearQuick
+    log = `${log} C`
+    send quick = settings("7", "0")
+    quick = none
+  action tock
+    log = `${log} K`
+  task beat mount
+    every(1000, tock)
+  view
+    column testId="root" height="100%" box-sizing="border-box" padding=10 gap=6 background-color="#ffffff"
+      text log testId="log"
+      text `quick ${count} ${pending(quick) ? "pending" : "settled"}` testId="quick"
+      text `slow ${pending(slow) ? "pending" : "settled"} k ${k}` testId="slow"
+      text `bare ${lostCount} ${pending(bare) ? "pending" : "settled"}` testId="bare"
+      row gap=4 flex-wrap="wrap"
+        button press=pair testId="pair"
+          text "pair"
+        button press=slowTwice testId="slow-twice"
+          text "slow twice"
+        button press=mixed testId="mixed"
+          text "mixed"
+        button press=clearQuick testId="clear"
+          text "clear"

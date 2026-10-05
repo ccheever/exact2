@@ -728,7 +728,7 @@ fn pieces_flatten_a_document_into_runs_one_engine_paints() {
     let text: String = out.iter().map(|p| p.text.as_str()).collect();
     assert_eq!(
         text,
-        "Title\n\nA bold link and code.\n\n•  one\n☑  two\n   wrapped\n\n▎ quoted\n\nlet a;\n\n──────────\n\nEnd[1].\n\n[1] Note."
+        "Title\n\nA bold link and code.\n\n• one\n☑ two\nwrapped\n\n▎ quoted\n\nlet a;\n\n──────────\n\nEnd[1].\n\n[1] Note."
     );
     let title = &out[0];
     assert!(
@@ -770,6 +770,47 @@ fn pieces_flatten_a_document_into_runs_one_engine_paints() {
     }
     assert_eq!(pieces(""), Vec::<Piece>::new());
     assert_eq!(pieces("plain")[0].text, "plain");
+}
+
+#[test]
+fn a_list_item_hangs_its_marker_in_its_indent_as_the_browser_does() {
+    // LLP 1045 D4: a list item's paragraph starts 40 px in per level (the
+    // UA sheet's `padding-inline-start`), its marker outside, its end at the
+    // indent; a continuation line starts at the indent with no marker.
+    let out =
+        pieces("Body\n\n- one\n  more\n  - two\n    - three\n\n9. nine\n10) ten\n\n> - [ ] quoted");
+    let hung: Vec<(&str, f32)> = out
+        .iter()
+        .filter(|p| p.hang)
+        .map(|p| (p.text.as_str(), p.indent))
+        .collect();
+    assert_eq!(
+        hung,
+        [
+            ("• ", 40.0),
+            ("◦ ", 80.0),
+            ("▪ ", 120.0),
+            ("9. ", 40.0),
+            ("10) ", 40.0),
+            ("▎ ☐ ", 40.0)
+        ]
+    );
+    // Every piece of an item carries its indent, its last newline too, and
+    // nothing outside a list has one.
+    let one = out.iter().position(|p| p.text == "• ").unwrap();
+    assert_eq!(out[one + 1].text, "one\nmore");
+    assert_eq!(out[one + 1].indent, 40.0);
+    assert_eq!(
+        (out[one + 2].text.as_str(), out[one + 2].indent),
+        ("\n", 40.0)
+    );
+    assert!(!out[one + 1].hang);
+    assert!(out[..one].iter().all(|p| p.indent == 0.0 && !p.hang));
+    assert!(out
+        .iter()
+        .any(|p| p.text.starts_with("nine") && p.indent == 40.0 && p.source.is_some()));
+    let text: String = out.iter().map(|p| p.text.as_str()).collect();
+    assert!(text.ends_with("9. nine\n10) ten\n\n▎ ☐ quoted"), "{text:?}");
 }
 
 #[test]

@@ -179,6 +179,8 @@ typedef struct ExactMarkupPiece {
     uint8_t italic, mono, strike;
     uint8_t role;                       /* 0 ink, 1 code, 2 link, 3 marker, 4 quote */
     const uint8_t *href; size_t href_len; /* a link's target; null when none */
+    float indent;                       /* CSS px: the head indent of the paragraph it is in (a list item's) */
+    uint8_t hang;                       /* 1: a list marker, hung before the indent, its end at it */
 } ExactMarkupPiece;
 /* Writes the pieces and their count, valid until exact_markup_free(handle). Zero on invalid UTF-8. */
 uint64_t exact_markup_pieces(const uint8_t *utf8, size_t len, const ExactMarkupPiece **out, size_t *count);
@@ -316,6 +318,9 @@ uint32_t exact_fulfill_surface(ExactRuntime rt, uint64_t ticket, uint32_t kind, 
 /* LLP 1038 D5/D8: input URL -> UTF-8 canonical location in exact_out.
  * The launch setter takes that location before any boot/prepare call. */
 uint32_t exact_location_of(ExactRuntime rt, size_t len);
+/* LLP 1038 §7: 1 when the input location names a declared route (a followed
+ * link to it navigates in the app), else 0. */
+uint32_t exact_route_matches(ExactRuntime rt, size_t len);
 uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
@@ -330,8 +335,9 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * 28 = panrelease (UTF-8 vx,vy; px/s, once when a pan that began ends; a
  *      cancelled contact releases at 0,0; LLP 1057 §10.6);
  * 29 = pointerdown, 30 = pointerup, 31 = pointermove (UTF-8
- *      offsetX,offsetY,buttons,pressure,pointerType,pointerId: content-box CSS
- *      px, DOM's buttons bits, 0 to 1, mouse|pen|touch; LLP 1056 §3 stage 3);
+ *      offsetX,offsetY,buttons,pressure,pointerType,pointerId,clientX,clientY:
+ *      content-box CSS px, DOM's buttons bits, 0 to 1, mouse|pen|touch, then
+ *      the viewport point; LLP 1056 §3 stage 3, LLP 1094 D11);
  * any other kind is refused with an error batch.
  * Format lists are space-separated command tokens. Link keeps the remaining bytes.
  * A change's text, key's name, or guest message is the payload in the input
@@ -367,6 +373,25 @@ uint32_t exact_transform_motion(uint32_t rt, uint32_t len);
 uint32_t exact_reorder_begin(ExactRuntime rt, uint32_t handle, double scroll_top, double now_ms);
 uint32_t exact_reorder_move(ExactRuntime rt, uint64_t token, double dy, double scroll_top, uint32_t inside, double now_ms);
 uint32_t exact_reorder_end(ExactRuntime rt, uint64_t token, uint32_t drop, double dy, double scroll_top, uint32_t inside, double velocity, double now_ms);
+/* Dropping across lists (reorderGroup, LLP 1094 D5-D9). A grouped grip lifts
+ * with group_begin: ghost nonzero when the host draws the row in its top
+ * layer (the runner then hides the row itself until group_finish); zero for
+ * a key's or custom action's session. move_into hands the ghost centre's y in
+ * target's (a grouped list view) content, at target_scroll_top as its
+ * collection feedback reports it; inside zero (the centre in no grouped
+ * port) keeps the certified gap. step: 1 earlier, 2 later, 3 the previous
+ * grouped list, 4 the next. group_end drops into the session's target
+ * (nonzero) or cancels; a holding drop ignores a cancel. Every reply, and
+ * every later batch that changes it, carries {"op":"reorder","group":true,
+ * "token","list","wrapper","phase":"active"|"holding"|"cancelling"|
+ * "settling"|"finished"|"refused","dispatched","ending":null|"landed"|"gone"|
+ * "timeout","target","row"}: row is the wrapper that holds the dragged row
+ * now, where a ghost lands. A new lift is refused until group_finish. */
+uint32_t exact_reorder_group_begin(ExactRuntime rt, uint32_t handle, double scroll_top, uint32_t ghost, double now_ms);
+uint32_t exact_reorder_move_into(ExactRuntime rt, uint64_t token, uint32_t target, double content_y, double target_scroll_top, uint32_t inside, double now_ms);
+uint32_t exact_reorder_step(ExactRuntime rt, uint64_t token, uint32_t step, double now_ms);
+uint32_t exact_reorder_group_end(ExactRuntime rt, uint64_t token, uint32_t drop, double now_ms);
+uint32_t exact_reorder_group_finish(ExactRuntime rt, uint64_t token, double now_ms);
 uint32_t exact_hold_begin(ExactRuntime rt, uint32_t view, uint32_t property, double now_ms);
 uint32_t exact_has_hold(ExactRuntime rt, uint64_t token);
 uint32_t exact_hold_update(ExactRuntime rt, uint64_t token, double x, double y, double now_ms);

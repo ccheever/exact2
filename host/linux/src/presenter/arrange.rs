@@ -37,6 +37,10 @@ impl<D: DataSource> Presenter<D> {
             if node.props.str(PropId::ReorderFor).is_some() {
                 let binding = self.host.runner().reorder_binding(key)?;
                 self.arrange_mapping(binding)?;
+                // A grouped list's row lifts as a ghost (LLP 1094 D6).
+                if self.group_of(&binding).is_some() {
+                    return Some(Candidate::Group(binding));
+                }
                 return Some(Candidate::Arrange(binding));
             }
             if node.node_type == NodeType::TextInput
@@ -72,7 +76,9 @@ impl<D: DataSource> Presenter<D> {
     }
     // Feedback must retain the common source-key lease even when its old grip died.
     pub(super) fn arrange_pin(&self) -> Option<(ViewId, ViewId)> {
-        let s = self.arrange.as_ref()?;
+        let Some(s) = self.arrange.as_ref() else {
+            return self.group_pin();
+        };
         if !s.pin_owned {
             return None;
         }
@@ -81,6 +87,7 @@ impl<D: DataSource> Presenter<D> {
         Some((s.pin, self.host.kernel().node_by_key(s.binding.list)?.id))
     }
     pub(super) fn arrange_pin_transfer(&mut self, view: Option<ViewId>) {
+        self.group_pin_transfer(view);
         if let Some(s) = self.arrange.as_mut() {
             if view != Some(s.pin) {
                 s.pin_owned = false;
@@ -153,7 +160,7 @@ impl<D: DataSource> Presenter<D> {
             point: (0., 0.),
             edge_clock: now,
         });
-        self.brush.arrange_lift = Some((binding.list, binding.wrapper));
+        self.brush.lift.arrange = Some((binding.list, binding.wrapper));
         let mut velocity = VelocityTracker::new();
         let base = self.arrange_base(binding.wrapper).unwrap();
         velocity.push(
@@ -352,7 +359,7 @@ impl<D: DataSource> Presenter<D> {
         let Some(s) = self.arrange.take() else {
             return Ok(());
         };
-        self.brush.arrange_lift = None;
+        self.brush.lift.arrange = None;
         let result = self.host.arrange_finish(s.token);
         if !keep && s.pin_owned && self.collection_interaction() == Some(s.pin) {
             self.set_collection_interaction(None);
@@ -362,6 +369,7 @@ impl<D: DataSource> Presenter<D> {
         result
     }
     pub(super) fn arrange_settled(&mut self) {
+        self.land_group(self.host.now());
         let finished = self.arrange.as_ref().is_some_and(|s| {
             s.phase == Phase::Settling
                 && (!self
@@ -384,6 +392,7 @@ impl<D: DataSource> Presenter<D> {
             || self.host.canvas_wants_frame()
             || self.host.wants_frames()
             || self.arrange_edge().is_some()
+            || self.group_needs_frame()
     }
     fn arrange_edge(&self) -> Option<(ViewId, f32)> {
         let s = self.arrange.as_ref()?;
@@ -410,6 +419,7 @@ impl<D: DataSource> Presenter<D> {
     pub(super) fn tick_arrange(&mut self, now: f64) {
         self.retire_pointer();
         self.arrange_settled();
+        self.tick_group(now);
         let Some((id, speed)) = self.arrange_edge() else {
             return;
         };

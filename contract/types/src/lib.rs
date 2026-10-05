@@ -30,6 +30,7 @@ mod posts;
 pub mod records;
 pub mod routes;
 mod selection;
+mod tasks;
 pub use bounds::MAX_TYPE_DEPTH;
 pub use selection::event_record;
 /// The strings call and the tables it is checked against (LLP 1060).
@@ -140,6 +141,7 @@ impl Ty {
             "Router" | "Entry" | "Geometry" => Ty::Record(spec.into()),
             "list<Entry>" => Ty::List(Box::new(Ty::Record("Entry".into()))),
             "list<string>" => Ty::List(Box::new(Ty::String)),
+            "option<string>" => Ty::Option(Box::new(Ty::String)),
             _ => Ty::Unknown,
         }
     }
@@ -640,7 +642,8 @@ pub(crate) fn source_argument(
 ) -> Result<Ty, TypeError> {
     fn untyped_literal(e: &Expr) -> bool {
         match e {
-            Expr::EmptyList(_) | Expr::None(_) => true,
+            Expr::None(_) => true,
+            Expr::List(items, _) => items.iter().all(untyped_literal),
             Expr::Some(inner, _) => untyped_literal(inner),
             _ => false,
         }
@@ -702,10 +705,30 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
             Ty::String
         }
         Expr::None(_) => Ty::Option(Box::new(Ty::Unknown)),
+        // `[a, b]`'s items unify as the arms of `?:` do (LLP 1088 §9.1).
         // `[]` is a `list<?>` as `none` is an `option<?>`: the other arm of a
         // `match` or `?:`, a declared `list<T>`, or a write into the state
         // it initializes fills the `?` through `unify`.
-        Expr::EmptyList(_) => Ty::List(Box::new(Ty::Unknown)),
+        Expr::List(items, _) => {
+            let mut item = Ty::Unknown;
+            for (i, x) in items.iter().enumerate() {
+                let t = infer(x, scope, shapes)?;
+                item = match item.unify(&t) {
+                    Some(u) => u,
+                    None => {
+                        return err(
+                            "type-list-item",
+                            format!(
+                                "a list's items have one type: item {} is `{t}`, the items before it `{item}`",
+                                i + 1
+                            ),
+                            x.span(),
+                        )
+                    }
+                };
+            }
+            Ty::List(Box::new(item))
+        }
         Expr::Some(inner, _) => Ty::Option(Box::new(infer(inner, scope, shapes)?)),
         Expr::NamedArg(_, _, span) => {
             return err(
@@ -743,7 +766,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                     // `xs.length`, `xs.map`: the web's properties and methods.
                     let fix = match field.as_str() {
                         "length" | "map" | "filter" | "join" | "includes" | "startsWith"
-                        | "endsWith" => {
+                        | "endsWith" | "concat" | "slice" | "indexOf" | "split" => {
                             format!(": {}", contract_syntax::idioms::method_fix(field))
                         }
                         _ => String::new(),
@@ -761,7 +784,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 routes::expand_path(args, *span, scope, shapes)?;
                 return Ok(Ty::String);
             }
-            if strings::is_text_call(name, scope) {
+            if !shapes.fns.contains_key(name) && strings::is_text_call(name, scope) {
                 return strings::check_call(args, *span, scope, shapes);
             }
             if name == "failed" {
@@ -1137,17 +1160,12 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
     // its parameters only — pure by construction — against the declared
     // result; a cycle through calls is refused, since a body is expanded
     // where it is called.
+    //
+    // A `fn` named like a roster entry shadows it, in every expression of
+    // the program, as a JavaScript function declared over a global does:
+    // a later roster that gains the name never breaks an app that had it
+    // first (x2apps files' `fn indexOf`, batch 6).
     for f in &file.fns {
-        if Stdlib::from_name(&f.name).is_some() {
-            return err(
-                "contract-fn-shadows-roster",
-                format!(
-                    "`fn {}` has the roster's name; a roster entry is the framework's — pick another",
-                    f.name
-                ),
-                f.span,
-            );
-        }
         // @ref LLP 1035.005.000 D3 — `Name(…)` builds a declared shape.
         if shapes.declared.contains(&f.name) {
             return err(
@@ -1335,13 +1353,12 @@ fn check_children(file: &File, types: &mut Types, sink: &mut Sink) {
                 .unwrap_or(c.span);
             sink.push(TypeError {
                 id: "type-child-resource",
+                // The rule and the root lead (chess #3): a root written
+                // below its helpers reads as the child.
                 message: format!(
-                    "component `{}` is a child (the root is the root file's first component, `{}`): a resource, mutation, or task lives in the root, and a child may own state, derives, and actions. Move this declaration into `{}` and pass what `{}` needs as props; or, if `{}` is the app, move it above the other components",
-                    c.name,
-                    file.components[0].name,
-                    file.components[0].name,
-                    c.name,
-                    c.name
+                    "only the root, the root file's first component (`{root}`), may declare a `resource`, `mutation`, or `task`; `{child}` is a child, which may own state, derives, and actions. Move this declaration into `{root}` and pass what `{child}` needs as props; or, if `{child}` is the app, move it above `{root}`",
+                    root = file.components[0].name,
+                    child = c.name,
                 ),
                 span,
             });

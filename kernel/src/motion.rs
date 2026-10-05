@@ -143,14 +143,20 @@ pub type TimelineRows = (
 );
 
 /// The animatable rows of one style, as engine values. CSS's own property
-/// vocabulary: `translate` (two lengths), `scale`, `rotate` (degrees),
+/// vocabulary: `translate` (two lengths, then two percentages of the box),
+/// `scale`, `rotate` (degrees),
 /// `opacity`. Height is intentionally absent: only an explicitly registered
 /// owner is adopted through [`Kernel::height_motion_sync`], including at boot.
 pub fn targets(style: &StyleProps) -> [(Property, Value); 4] {
     [
         (
             Property::Translate,
-            Value::new(style.translate.x as f64, style.translate.y as f64),
+            Value::four(
+                style.translate.x as f64,
+                style.translate.y as f64,
+                style.translate_percent.x as f64,
+                style.translate_percent.y as f64,
+            ),
         ),
         (Property::Scale, Value::scalar(style.scale as f64)),
         (Property::Rotate, Value::scalar(style.rotate as f64)),

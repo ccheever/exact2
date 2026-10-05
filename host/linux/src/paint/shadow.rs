@@ -84,6 +84,18 @@ impl ShadowPaint {
         base
     }
 
+    /// A lifted reorder ghost's shadow (LLP 1094 D6): `0 8px 24px` at 25%
+    /// black, `strength` of it.
+    pub fn lifted(strength: f32) -> ShadowPaint {
+        ShadowPaint {
+            color: [0, 0, 0, (64. * strength.clamp(0., 1.)).round() as u8],
+            offset: (0.0, 8.0),
+            blur: 24.0,
+            spread: 0.0,
+            inset: false,
+        }
+    }
+
     /// Whether it paints inside the padding box.
     pub fn inset(&self) -> bool {
         self.inset

@@ -133,9 +133,14 @@ fn relative(
         ));
     }
     let target = dir.join(spec);
-    // Watched by the path written: creating it, or retargeting a link
-    // there, builds again.
-    consulted.push(target.clone());
+    // Watched by the path written (without its `.` segments, as watchers
+    // name it): creating it, or retargeting a link there, builds again.
+    consulted.push(
+        target
+            .components()
+            .filter(|c| !matches!(c, std::path::Component::CurDir))
+            .collect(),
+    );
     let key = target.canonicalize().map_err(|e| {
         (
             "contract-use-unreadable",

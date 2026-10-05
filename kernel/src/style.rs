@@ -576,11 +576,17 @@ impl StyleValue {
     pub(crate) fn vec2(&self, style: StyleId) -> Result<Vec2, StyleValueError> {
         match self {
             StyleValue::Vec2(x, y) if x.is_finite() && y.is_finite() => Ok(Vec2 { x: *x, y: *y }),
-            StyleValue::Text(t) if style == StyleId::Translate => {
-                parse_translate(t).ok_or(StyleValueError::WrongKind {
-                    style,
-                    expected: "one or two pixel lengths (unitless zero allowed)",
-                })
+            // @ref LLP 1077 D8 — the one `translate` text sets its lengths,
+            // its percentages (chess diary #4) and its z, each row its part.
+            StyleValue::Text(t)
+                if style == StyleId::Translate || style == StyleId::TranslatePercent =>
+            {
+                space::translate(t)
+                    .map(|(px, pct)| if style == StyleId::Translate { px } else { pct })
+                    .ok_or(StyleValueError::WrongKind {
+                        style,
+                        expected: "one or two lengths in px or percentages of the box (unitless zero allowed)",
+                    })
             }
             _ => Err(StyleValueError::WrongKind {
                 style,
@@ -644,30 +650,6 @@ fn parse_pixel_length(token: &str) -> Option<f32> {
         return None;
     }
     Some(value as f32)
-}
-
-// Fixed 2D CSS subset for Contract text authoring. `none` is deliberately not
-// zero: CSS gives those different containing-block/stacking semantics. Percent,
-// calc and a third axis need a richer row, not a lossy conversion to this Vec2.
-fn parse_translate(text: &str) -> Option<Vec2> {
-    // CSS whitespace is TAB, LF, FF, CR and SPACE; ASCII VT is not included.
-    let mut parts = text
-        .split(['\t', '\n', '\u{c}', '\r', ' '])
-        .filter(|s| !s.is_empty());
-    let x = parse_pixel_length(parts.next()?)?;
-    let y = match parts.next() {
-        Some(s) => parse_pixel_length(s)?,
-        None => 0.0,
-    };
-    // A third length is `translate`'s z, its own row (LLP 1077 D8).
-    if parts
-        .next()
-        .is_some_and(|z| parse_pixel_length(z).is_none())
-        || parts.next().is_some()
-    {
-        return None;
-    }
-    Some(Vec2 { x, y })
 }
 
 /// A colour as authored, which may not be a single colour yet.

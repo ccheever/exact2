@@ -69,6 +69,9 @@ final class Presenter {
     /// The one Arrange contact, until its source settles; a test's calls.
     var reorder: ReorderHold?
     var reorderCalls: ReorderCalls?
+    /// A grouped session (LLP 1094), until its ghost lands; a test's calls.
+    var reorderGroup: ReorderGroupHold?
+    var reorderGroupCalls: ReorderGroupCalls?
     lazy var transformGeometry = TransformGeometryHost(self)
     /// Nodes showing a `background-attachment: fixed` gradient (LLP 1066
     /// D7): re-aimed at the viewport when anything scrolls or a batch lands.
@@ -347,6 +350,7 @@ final class Presenter {
         canvasKey = nil
         session?.transformInputHold?.cancel()
         reorder?.abandon()
+        reorderGroup?.abandon()
         session?.rasters.reset()
         collections.reset()
         autofocusProcessed.removeAll()
@@ -907,7 +911,7 @@ final class Presenter {
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let x = CGFloat(op.x)
                 switch op.property {
-                case "translate": v.translate = CGPoint(x: x, y: CGFloat(op.y)); v.applyTransform()
+                case "translate": v.translatePx = CGPoint(x: x, y: CGFloat(op.y)); v.translatePercent = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform()
                 case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutScale = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform(); v.applySurface()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()

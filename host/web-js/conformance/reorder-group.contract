@@ -1,0 +1,71 @@
+// data: interaction-gallery
+// Synthetic conformance plan: dropping across lists (LLP 1094 D12). Three
+// virtualized lists share a `reorderGroup` in a horizontal board, the last
+// empty. A card's grip lifts it; the host draws it as a ghost, and the list
+// under the ghost's centre opens a gap. The drop runs that list's
+// `reorderdrop` once, with the card's key, the key it lands before and the
+// `ReorderEvent` naming both lists. The answer comes at once, after the next
+// 200 ms tick (`late`), or never (`never`: the hold times out after a
+// second). The grips also take the keys.
+shape Card
+  id: string
+  title: string
+  col: string
+
+shape Move
+  item: string
+  col: string
+  at: string
+
+component ReorderGroup
+  resource columns = boardColumns() as shape list<string>
+  resource initial = boardCards() as shape list<Card>
+  mutation moved as shape list<Card>
+  derive cards = match moved { case some(v) => v, case none => initial }
+  state answer = "now"
+  state queued = none
+  state last = "none"
+  state drops = 0
+  action answerNow
+    answer = "now"
+  action answerLate
+    answer = "late"
+  action answerNever
+    answer = "never"
+  action dropCard(col: string, item: string, before: option<string>, e: ReorderEvent)
+    let at = match before { case some(k) => k, case none => "" }
+    last = `${item} → ${col} before ${at} (${e.from} → ${e.to})`
+    drops = drops + 1
+    if answer == "now"
+      send moved = boardMove(item, col, at)
+    if answer == "late"
+      queued = some(Move(item=item, col=col, at=at))
+  action tick
+    match queued
+      case some(m)
+        send moved = boardMove(m.item, m.col, m.at)
+        queued = none
+      case none
+        drops = drops
+
+  task late mount
+    every(200, tick)
+
+  view
+    column testId="root" height="100%" display="flex" flex-direction="column" background-color="#ffffff"
+      row gap=6 padding=8 flex-shrink=0 height=44 box-sizing="border-box"
+        box press=answerNow testId="now" width=60 height=28 background-color="#e2e8f0"
+        box press=answerLate testId="late" width=60 height=28 background-color="#e2e8f0"
+        box press=answerNever testId="never" width=60 height=28 background-color="#e2e8f0"
+      text `${answer}: ${last} · ${drops}` testId="last" flex-shrink=0 height=24 padding-left=8 overflow-x="hidden" white-space="nowrap"
+      scroll id="board" testId="board" overflow-x="auto" overflow-y="hidden" flex=1 min-height=0
+        row gap=12 padding=12 height="100%" box-sizing="border-box"
+          each col in columns key=col
+            column testId=`col-${col}` width=130 flex-shrink=0 height="100%" display="flex" flex-direction="column" background-color="#f1f5f9" border-radius=8
+              text col testId=`head-${col}` height=34 box-sizing="border-box" padding=8 font-weight=600 flex-shrink=0
+              list id=`list-${col}` testId=`list-${col}` virtualized=true reorderGroup="cards" reorderdrop=dropCard(col) estimated-item-height=56 flex=1 min-height=56 overflow-x="hidden"
+                each card in filter(cards, k => k.col == col) key=card.id
+                  row testId=`card-${card.id}` height=56 box-sizing="border-box" padding-left=8 align-items="center" gap=8 border-bottom-style="solid" border-bottom-width=1 border-color="#e2e8f0" background-color="#ffffff"
+                    box reorderFor=`list-${col}` testId=`grip-${card.id}` touch-action="none" aria-label=`Move ${card.title}` width=28 height=28 background-color="#cbd5e1" border-radius=6
+                    text card.title font-size=14
+              text "+ add a card" testId=`add-${col}` height=34 box-sizing="border-box" padding=8 color="#64748b" flex-shrink=0

@@ -45,12 +45,87 @@ extension TextEngine {
     }
 }
 
+/// Where each line of a paragraph starts, from its start edge (which `rtl`
+/// puts on the right): CSS `text-indent` on the first line, and a Markdown
+/// list item's head indent on each of its lines, the first one's less the
+/// marker hung before it — the `padding-left` and outside marker the web
+/// lays the same item out with (LLP 1045 D4). Measure, layout, paint, hits
+/// and raster workers all start lines here.
+struct LineInsets {
+    var textIndent: CGFloat = 0
+    var rtl = false
+    /// The indented paragraphs (each ends after its newline), UTF-16
+    /// [start, end), in order: the first line's inset and the others'.
+    var heads: [(start: Int, end: Int, first: CGFloat, rest: CGFloat)] = []
+
+    init() {}
+    /// `spec`'s; `marker` is the width of a hung run's UTF-16 range, as
+    /// the paragraph's own source shapes it.
+    init(_ spec: Spec, marker: (CFRange) -> CGFloat) {
+        textIndent = spec.textIndent; rtl = spec.direction == 1
+        guard spec.runs.contains(where: { $0.indent != 0 }) else { return }
+        var open: (start: Int, first: CGFloat, rest: CGFloat)?
+        var at = 0
+        func close(_ end: Int) {
+            if let p = open, p.first != 0 || p.rest != 0 { heads.append((p.start, end, p.first, p.rest)) }
+            open = nil
+        }
+        for run in spec.runs {
+            var offset = at
+            for unit in run.text.utf16 {
+                if open == nil {
+                    // A paragraph takes its indent from its first run.
+                    let hung = run.hang && offset == at ? marker(CFRange(location: at, length: run.text.utf16.count)) : 0
+                    open = (offset, run.indent - hung, run.indent)
+                }
+                offset += 1
+                if unit == 0x0A { close(offset) }
+            }
+            at = offset
+        }
+        close(at)
+    }
+
+    /// The inset of the line that starts at UTF-16 `location`: how far
+    /// right its start moves (`left`) and how much room it gives (`width`).
+    func at(_ location: Int) -> (left: CGFloat, width: CGFloat) {
+        var width: CGFloat = location == 0 ? textIndent : 0
+        var lo = 0, hi = heads.count
+        while lo < hi { let mid = (lo + hi) / 2; if heads[mid].start <= location { lo = mid + 1 } else { hi = mid } }
+        if lo > 0, location < heads[lo - 1].end {
+            width += location == heads[lo - 1].start ? heads[lo - 1].first : heads[lo - 1].rest
+        }
+        return (rtl ? 0 : width, width)
+    }
+}
+
+extension TextShape {
+    /// This source's `LineInsets`, its markers shaped by its own typesetter.
+    var lineInsets: LineInsets {
+        if let insets { return insets }
+        let made = LineInsets(spec) { CGFloat(CTLineGetTypographicBounds(CTTypesetterCreateLine(self.typesetter, $0), nil, nil, nil)) }
+        insets = made
+        return made
+    }
+}
+
+extension LineInsets {
+    /// `spec`'s, its markers shaped from `source` (a raster worker's copy).
+    init(_ spec: Spec, source: NSAttributedString) {
+        self.init(spec) { range in
+            let marker = source.attributedSubstring(from: NSRange(location: range.location, length: range.length))
+            return CGFloat(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(marker), nil, nil, nil))
+        }
+    }
+}
+
 extension Paragraph {
     func origin(_ index: Int, align: Int, width: CGFloat) -> CGFloat {
         if origins.indices.contains(index) { return origins[index] }
         let flush: CGFloat = align == 1 ? 0.5 : align == 2 ? 1 : 0
-        // CSS `text-indent`: the first line aligns in what the indent leaves.
-        let inset: (left: CGFloat, width: CGFloat) = index == 0 && lines.first.map({ CTLineGetStringRange($0).location == 0 }) == true ? firstLineInset : (0, 0)
+        // CSS `text-indent` and a list item's indent: the line aligns in
+        // what its inset leaves.
+        let inset = insets.at(CTLineGetStringRange(lines[index]).location)
         return inset.left + CGFloat(CTLineGetPenOffsetForFlush(lines[index], flush, Double(width - inset.width)))
     }
 

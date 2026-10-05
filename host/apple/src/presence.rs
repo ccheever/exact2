@@ -247,7 +247,7 @@ impl<D: DataSource> Host<D> {
             // `0 0 1 1`. The other three are one or two numbers.
             let values = match p.property {
                 Property::Layout => layout_presented(&self.engine, p.node, p.value),
-                Property::Translate => [p.value.x, p.value.y, 0.0, 0.0],
+                Property::Translate => [p.value.x, p.value.y, p.value.z, p.value.w],
                 _ => [p.value.x, 0.0, 0.0, 0.0],
             };
             let identity = match p.property.identity() {
@@ -265,6 +265,10 @@ impl<D: DataSource> Host<D> {
             }
             if p.property == Property::Layout {
                 batch.present4(view, "layout", values);
+            } else if p.property == Property::Translate && (values[2] != 0.0 || values[3] != 0.0) {
+                // Its percentages ride as `w` and `h`; the presenter
+                // resolves them against the box (chess diary #4).
+                batch.present4(view, "translate", values);
             } else {
                 batch.present(view, p.property.name(), values[0], values[1]);
             }

@@ -119,6 +119,35 @@ final class TextParityMacTests: XCTestCase {
         XCTAssertEqual(auto.source.collapsed(19), second)
     }
 
+    /// A Markdown list as Chrome 154 lays out `<ul>` (`padding-inline-start:
+    /// 40px`, an outside marker) at 16/24 px system-ui, each character's
+    /// client rect: every line of an item starts at its level's indent, the
+    /// first one's marker hung before it (LLP 1045 D4).
+    func testAMarkdownListItemsLinesStartAtItsIndentAsChromes() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: 24, letterSpacing: 0)
+        let source = "- First item, long enough that it wraps onto a second line under its text\n- b\n  - Nested item that also runs long enough to wrap"
+        let runs = MarkupRuns.expand(source, base: base, color: nil)
+        let p = engine.paragraph(Spec(runs: runs, align: 0, lineClamp: 0, color: [0, 0, 0, 255], strut: base), width: 340)
+        let text = runs.map(\.text).joined() as NSString
+        // Each line's text (after its marker): characters, first left, last right.
+        let chrome: [(String, Int, CGFloat, CGFloat)] = [("• ", 43, 40, 337.03125), ("", 28, 40, 234.59375),
+                                                        ("◦ ", 32, 80, 305.796875), ("", 14, 80, 193.28125)]
+        // The lines: the first item's two, "• b", the nested item's two.
+        XCTAssertEqual(p.lines.count, 5)
+        let lines = [0, 1, 3, 4].filter { $0 < p.lines.count }
+        XCTAssertEqual(lines.count, chrome.count)
+        for (i, (marker, count, left, right)) in zip(lines, chrome) {
+            let r = CTLineGetStringRange(p.lines[i]), x = p.origin(i, align: 0, width: 340)
+            XCTAssertEqual(text.substring(with: NSRange(location: r.location, length: marker.utf16.count)), marker, "line \(i)")
+            let start = r.location + marker.utf16.count
+            XCTAssertEqual(r.location + r.length - start - (text.substring(with: NSRange(location: r.location + r.length - 1, length: 1)) == "\n" ? 1 : 0), count, "line \(i)")
+            XCTAssertEqual(x + CTLineGetOffsetForStringIndex(p.lines[i], start, nil), left, accuracy: 1.0 / 64, "line \(i) starts")
+            let last = r.location + r.length - (i + 1 == p.lines.count ? 0 : 1)
+            XCTAssertEqual(x + CTLineGetOffsetForStringIndex(p.lines[i], last, nil), right, accuracy: 1.0 / 64 + 1e-6, "line \(i) ends")
+        }
+    }
+
     func testAnInstalledFamilysItalicAndBoldAreItsOwnFacesAsChromes() throws {
         let installed = CTFontDescriptorCreateMatchingFontDescriptors(
             CTFontDescriptorCreateWithAttributes([kCTFontFamilyNameAttribute: "Georgia"] as CFDictionary),

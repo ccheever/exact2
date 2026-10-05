@@ -13,7 +13,7 @@ tested against it, differentially and at random.
 | `Contract/Format.lean` | The roster's formats (`formatTime`, `formatDate`, `formatNumber`) and `t(...)`'s strings tables, as the runner computes them. |
 | `Contract/Route.lean` | The router (LLP 1038): canonical locations, the route table's matching, `path`, launch, the six verbs and the reads. |
 | `Contract/Eval.lean` | Operational semantics of expressions: the interpreter `eval`. |
-| `Contract/Runtime.lean` | Operational semantics of programs: statements, actions as transactions, settlement of derives and resources, rendering with keyed rows, timers, events. |
+| `Contract/Runtime.lean` | Operational semantics of programs: statements, actions as transactions, settlement of derives and resources, rendering with keyed rows, timers (gated by `when` and `key=`), queued sends, events. |
 | `Contract/Big.lean` | The same semantics as inductive big-step relations, with proofs that the interpreter is sound and complete for them and that they are deterministic. |
 | `Contract/Axiomatic.lean` | An axiomatic semantics: a Hoare logic for action bodies, proved sound against the operational semantics, plus the transaction laws (a refused action changes nothing, reads see the pre-state, the last write wins). |
 | `Contract/Invariant.lean` | Invariants of runs: the configurations a program reaches from boot by any events (`Reachable`), and the rules that prove a property of all of them (`Reachable.invariant`, `Reachable.slotIn`). |
@@ -555,14 +555,16 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
   well-typed program reaches is `ConfigOK` — root slots present and of
   their types, settled values of theirs, live rows' slots of theirs, every
   rendered handler `VNodeOK`, every timer running an action of no
-  parameters.
-- `runAction_sound`, `dispatch_sound`, `advance_sound`, `step_sound`: from
+  parameters, its gate and key well typed.
+- `runAction_sound`, `nextCommit_sound`, `dispatch_sound`, `advance_sound`,
+  `step_sound`: from
   a `ConfigOK` configuration every action that exists, every dispatch and
   every advance, whatever the oracle answers, lands in a `ConfigOK`
   configuration and commits, or refuses or poisons for a `Legitimate`
   reason (`refused`: the data seam, a non-finite number at a boundary, the
   host's input, the router, a row slot outside its row, a settlement
-  cycle, fuel or the timer fire limit, an earlier poison; `unsupported`) —
+  cycle, fuel or the timer fire limit, a full queue, a task's key that is
+  no key, an earlier poison; `unsupported`) —
   never `pending`: `ConfigOK` carries that every derive and resource has
   settled, so actions, handlers and rendering read settled values. `handler_args_good` and `curried_conform`: a handler's
   curried arguments evaluate to values of its action's leading parameter
@@ -628,8 +630,9 @@ the mutations' order. A frame task is the runner's virtual display while
 the host presents no frames (the harness never does): due at
 `virtualFrame 0 k = k·1000/60` for k = 1, 2, …; presented frames
 (`Runner::frame`) are not modelled. One advance makes at most 4096 fires,
-`then`s counted. The actions the clock runs are `clockActions`: the
-tasks' and the mutations' `then`s.
+`then`s and queues' `next`s counted. The actions the clock runs are
+`clockActions`: the tasks' and the mutations' `then`s (and, by
+`nextCommit`, queued sends).
 
 ## Formatting and localized text
 
@@ -650,6 +653,47 @@ locale slot, the key, then each name and its value through `toString`;
 `{$name}`/`{name}` and the `\{`, `\}`, `\\` escapes. The host's `place`
 event (a viewer locale other than the base) is not delivered by the
 harness, so only the base table is read there.
+
+## Queued sends and gated tasks (LLP 1092)
+
+`Contract/Runtime.lean` carries both. A `queue` mutation's send that may not
+be asked now (it is not free — its `then` or its `next` armed, or it is
+stalled — one of it already waits, or it was sent earlier in the commit)
+joins `Config.queued`; `dispatch` never drains it. After every commit
+concludes, a scan (`Config.armNexts`, the runner's `arm_next`) arms the
+`next` of each free queue mutation with a send waiting, due at the commit's
+time (`Config.nexts`, the runner's `next_due`), so a queue's drain waits
+while its `then` is armed and `then` runs once per reply, in send order.
+`advance` runs an armed `next` (`clockPick`) before a `then` due at or after
+its time and before a timer due after it, as the runner's `advance_within`
+orders them; `nextCommit` (D3's `next` commit) asks the oldest waiting send,
+arms the mutation's `then` when it lands, and scans: its own ask's refusal
+drops it and stops the advance; any other refusal keeps it, records the state
+it saw in `Config.stalled`, and stops the advance, and no `next` is armed
+for it until a commit that stood changed a slot, a derive or a resource from
+that state. A gated task's timer is idle (an infinite deadline) until the
+gate step (`gateStep`, D8), run inside every commit after its settlement and
+at boot after the late slots, finds its gate true; a changed key (`rowKey`'s
+reading) re-arms it from the commit's time — a frame task's virtual frames
+start again there, `virtualFrame now k` — and a key that is no key refuses
+the commit. The observation prints `queued <mutation> <count>` for each
+queue mutation, on both sides. The corpus has `mutations/queue-*` (`queue-then`: a
+queue with a `then` beside a timer) and `timers/gated-*` (`gated-frame`), and the generator writes queue mutations (sent more than
+once on a path) and gated tasks over the states alone.
+
+What it does not carry, as restrictions:
+
+- `pending(m)` is false for a queue mutation whose send waits (the oracle
+  answers at once, so nothing is ever in flight here; the runner's is true).
+  The generator never reads `pending` of a mutation.
+- A send behind one in flight (every answer here is synchronous) is the
+  runner's and the conformance plans' tests (`contract/cli/tests/it/queue.rs`,
+  `host/web-js/conformance/queue.contract`).
+- The one-slot invariants (`Reachable.slotIn`, `Event.step_slotIn`,
+  `Reachable.advance_untouched`) are proved of slots that are not a queue
+  mutation's, whose answers an advance lands (`QUEUE.md`).
+- The component-level semantics (`Contract.CompSem`) refuses both, so
+  `difftest expansion` writes and reads programs without them.
 
 ## What the semantics leaves out
 

@@ -891,6 +891,10 @@ fn fingerprint(spec: &Spec) -> u64 {
         run.line_height.map(f32::to_bits).hash(&mut h);
         run.letter_spacing.to_bits().hash(&mut h);
         run.font_variant_numeric.hash(&mut h);
+        run.indent.to_bits().hash(&mut h);
+        run.hang.hash(&mut h);
+        run.mark.hash(&mut h);
+        run.href.hash(&mut h);
     }
     h.finish()
 }

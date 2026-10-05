@@ -2,7 +2,9 @@
 //!
 //! The browser lays out, so the kernel's layout there is not the page's: both
 //! reads ask the page through one import, `exact_geometry.read`, which
-//! `host/web/geometry-glue.js` answers from the live DOM within the call.
+//! `host/web/geometry-glue.js` answers from the live DOM within the call;
+//! `elementFromPoint` (LLP 1094 D10) asks `exact_geometry.point` for the
+//! view hit, and the runner names it by its nearest `id`.
 //! Until that piece has loaded (after first paint), every read answers
 //! `unavailable`.
 
@@ -13,7 +15,7 @@ use exact_kernel::{Kernel, ViewId};
 use exact_runner::geometry::{GeometryAnswer, GeometryLinks, Scrolled};
 
 /// The page's answers, for [`exact_runner::RunnerLinks::geometry`].
-pub static PAGE: GeometryLinks = GeometryLinks::new(page_frame, page_measure);
+pub static PAGE: GeometryLinks = GeometryLinks::new(page_frame, page_measure, page_point);
 
 /// The import's `op`: a layout box (0) or its `height: auto` measure (1).
 const FRAME: u32 = 0;
@@ -29,6 +31,10 @@ fn page_frame(_: &Kernel, _: &Scrolled, view: ViewId) -> GeometryAnswer {
 
 fn page_measure(_: &mut Kernel, _: &Scrolled, view: ViewId) -> GeometryAnswer {
     read(MEASURE, view)
+}
+
+fn page_point(_: &Kernel, _: &Scrolled, x: f64, y: f64) -> Option<ViewId> {
+    point(x, y).checked_sub(1)
 }
 
 /// The page's reply as an answer: four numbers when answered.
@@ -58,6 +64,22 @@ fn read(op: u32, view: ViewId) -> GeometryAnswer {
     // buffer and calls nothing back into the module.
     let flags = unsafe { read(op, view, out.as_mut_ptr()) };
     answer(flags, out)
+}
+
+/// The view hit at `(x, y)`, plus one; 0 for none.
+#[cfg(target_arch = "wasm32")]
+fn point(x: f64, y: f64) -> u32 {
+    #[link(wasm_import_module = "exact_geometry")]
+    extern "C" {
+        fn point(x: f64, y: f64) -> u32;
+    }
+    // SAFETY: two numbers in, one out; the page calls nothing back.
+    unsafe { point(x, y) }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn point(_: f64, _: f64) -> u32 {
+    0
 }
 
 /// Off the web there is no page to ask: a reply without the answered bit.

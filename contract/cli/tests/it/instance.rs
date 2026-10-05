@@ -197,6 +197,8 @@ fn a_child_may_not_own_a_resource() {
     let src = "shape S\n  id: string\ncomponent A\n  view\n    Row()\ncomponent Row\n  resource s = s() as shape S\n  view\n    text s.id\n";
     let e = contract::compile(src).unwrap_err();
     assert_eq!(e.id, "type-child-resource");
+    // It states the rule and names the root (chess #3).
+    assert_eq!(e.message, "only the root, the root file's first component (`A`), may declare a `resource`, `mutation`, or `task`; `Row` is a child, which may own state, derives, and actions. Move this declaration into `A` and pass what `Row` needs as props; or, if `Row` is the app, move it above `A`");
 }
 
 #[test]

@@ -42,5 +42,16 @@ final class FrameSamplerTests: XCTestCase {
         for key in ["identity", "proxies", "plan", "journal", "frames", "perf"] { XCTAssertNotNil(trace[key], key) }
         XCTAssertEqual((trace["frames"] as? [String: Any])?["records"].map { ($0 as? [Any])?.count }, 2)
         XCTAssertNotNil((trace["perf"] as? [String: Any])?["sites"], "the runner measures in a development build")
+        // The last one also under the name a phone's is copied off by
+        // (`agent.mjs trace --phone` reads this literal name), replaced by
+        // the next.
+        let latest = FileManager.default.temporaryDirectory.appendingPathComponent("trace-latest.json")
+        let first = try Data(contentsOf: url)
+        XCTAssertEqual(try Data(contentsOf: latest), first)
+        session.log("between the traces")
+        let next = try session.saveTrace().get()
+        defer { try? FileManager.default.removeItem(at: next) }
+        XCTAssertEqual(try Data(contentsOf: latest), try Data(contentsOf: next))
+        XCTAssertNotEqual(try Data(contentsOf: latest), first)
     }
 }

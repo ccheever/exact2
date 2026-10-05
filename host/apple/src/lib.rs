@@ -23,7 +23,8 @@
 //! - [`host`] — the runner wrapped for a presenter: receipts → batches, layout,
 //!   motion, events, timers.
 //! - [`store`] — the app's kept secrets (LLP 1018): `ibex2::host::Secrets`
-//!   read into a snapshot before boot, written after each commit.
+//!   read into a snapshot before boot, written after each commit (kept
+//!   answers by their own thread, `store::flush_kept`).
 //! - [`delivery`] — optional delivery callbacks supplied by a higher adapter;
 //!   the host itself links no update store (LLP 1030 D4).
 //! - [`pan_velocity`] — the pan contact's release velocity (AppKit, the iOS agent).

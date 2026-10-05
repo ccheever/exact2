@@ -452,7 +452,10 @@ impl<D: DataSource> Presenter<D> {
             if target != current || ((changed_top || changed_left) && target != *offset) {
                 let before = *offset;
                 cursor.model_offset(node.key, target, self.display.attached(), offset);
-                if *offset != before {
+                // The boot's own offsets are no reader's scroll: a browser
+                // page hears none, its input opening after them (rt.js
+                // `Booting`; Messages' rows opened at scrollLeft 70).
+                if *offset != before && !self.booting {
                     self.collection.scroll_event(view, node.key);
                     self.executor.notify();
                 }
@@ -558,7 +561,7 @@ impl<D: DataSource> Presenter<D> {
             if let Some(left) = accepted.left {
                 offset.0 = left;
             }
-            if *offset != before && self.collection.cursors[&view].ordinary {
+            if *offset != before {
                 self.collection.scroll_event(view, accepted.key);
                 self.executor.notify();
             }
@@ -785,6 +788,9 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         let mut error = None;
+        // Lists whose port this pass moved: a browser's `scroll` follows a
+        // write to scrollTop (list.js's), a correction's or a request's.
+        let mut moved = Vec::new();
         // A sliced pass reports each list once: its pending rest waits for
         // the host's next pass, in the next frame's idle time.
         let mut sliced = BTreeSet::new();
@@ -848,6 +854,7 @@ impl<D: DataSource> Presenter<D> {
                         .and_then(exact_kernel::PropValue::as_float)
                 })
                 .filter(|main| main.is_finite());
+            let before = self.scroll.get(&view).copied();
             if requested != *requested_was {
                 *requested_was = requested;
                 if let Some(main) = requested {
@@ -873,6 +880,9 @@ impl<D: DataSource> Presenter<D> {
                     self.scroll.entry(view).or_default(),
                 );
                 self.dirty = true;
+            }
+            if self.scroll.get(&view).copied() != before {
+                moved.push((view, key));
             }
             let feedback_main = if let Some(pending) = cursor.model_scroll.as_mut() {
                 let slot = match axis {
@@ -957,7 +967,10 @@ impl<D: DataSource> Presenter<D> {
                 }
             }
         }
-        if self.collection.pending() {
+        for &(view, key) in &moved {
+            self.collection.scroll_event(view, key);
+        }
+        if self.collection.pending() || !moved.is_empty() {
             self.executor.notify();
             self.dirty = true;
         }
@@ -1033,6 +1046,10 @@ mod tests {
         cursor.geometry((200., 300., 180., 10.));
         cursor.geometry((200., 348., 180., 10.));
         assert_eq!(cursor.correction(&s, Some(2)), Some(200.));
+        let mut cursor = Cursor {
+            sequence: u64::MAX,
+            ..Cursor::default()
+        };
         let mut overflow = s;
         overflow.correction.as_mut().unwrap().scroll_sequence = u64::MAX;
         assert_eq!(cursor.correction(&overflow, None), None);

@@ -6,6 +6,7 @@ const grants = "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write d
 // Work queued behind whatever the module started last, the way an app serializes its
 // database operations. The second answer's storage calls run in a later microtask.
 let tail: Promise<unknown> = Promise.resolve();
+let saves: Promise<unknown> = Promise.resolve(), saveError = "";
 let shared: Promise<{text:string}>;
 
 // Writes an answer starts and does not await (kanban F22): the answer is
@@ -24,6 +25,13 @@ function answer(source:string, args:unknown[], store:Store, storage:Storage, nat
   if (op === "unawaited") {
     storage.fs.atomicWriteFile(storage.fs.directories.data + "/unawaited", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
     return {text:"answered"};
+  }
+  // drums R10: a value given at once, its save chained behind a promise
+  // already resolved, so the write begins in the checkpoint after the call.
+  if (op === "deferred") {
+    saves = saves.then(() => storage.fs.atomicWriteFile(storage.fs.directories.data + "/deferred", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0)))))
+      .catch((e) => { saveError = String(e); });
+    return {text:"answered" + saveError};
   }
   if (op === "queued" || op === "queued-sync") {
     tail = tail.then(async () => {

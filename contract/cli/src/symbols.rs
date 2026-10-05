@@ -594,6 +594,9 @@ impl<'a> Resolver<'a> {
             }
             for t in &c.tasks {
                 self.expr(&t.timer.0);
+                for e in t.gate.iter().chain(&t.key) {
+                    self.expr(e);
+                }
                 self.name(&t.timer.1, self.file.names.name(t.timer.2));
             }
             // A provided name is a declaration; its value reads the
@@ -810,11 +813,12 @@ impl<'a> Resolver<'a> {
     }
     fn expr(&mut self, expr: &Expr) {
         match expr {
-            Expr::Number(..)
-            | Expr::Str(..)
-            | Expr::Bool(..)
-            | Expr::None(_)
-            | Expr::EmptyList(_) => {}
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+            Expr::List(items, _) => {
+                for item in items {
+                    self.expr(item);
+                }
+            }
             Expr::Template(parts, _) => {
                 for part in parts {
                     if let TemplatePart::Expr(e) = part {

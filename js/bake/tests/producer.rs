@@ -461,6 +461,21 @@ fn storage_types_are_checked_by_the_actual_bake_without_granting_bake_io() {
         .err()
         .expect("wrong storage parameters must fail tsc");
     assert!(error.contains("error TS"), "{error}");
+    // A source that lets the bake's refusal (`code: 'bake'`) through is the
+    // device's to answer, as on the web build: no compiled value, the
+    // placeholder until a launch asks it (kanban2 #5: the native build
+    // stopped here).
+    f.write(
+        "app.ts",
+        &SOURCE.replace(
+            "message: ([count]) => { console.log('message called'); return prefix + count; }",
+            "message: async ([count], store, storage) => { await storage.fs.readFile(storage.fs.directories.data + '/note'); return prefix + count; }",
+        ),
+    );
+    let baked = f.bake();
+    let plan = paired(&baked).plan;
+    let row = &plan.resources[0];
+    assert!(row.initial.len == 0 && row.reader);
 }
 
 #[test]

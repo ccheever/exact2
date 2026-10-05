@@ -178,20 +178,36 @@ impl Parser {
                 self.expect_punct(")")?;
                 Ok(e)
             }
-            // `[]` is the empty list; `[a, b]` is not a Contract expression
-            // (LLP 1017.003 D4): a list with items comes from a source, a
-            // shape field, or `map`/`filter`.
+            // `[a, b]`, `[]` (LLP 1088 §9.1). Items may span lines (the
+            // lexer counts bracket depth), and a trailing comma is kept, as
+            // in JavaScript.
             TokenKind::Punct("[") => {
+                let (mut items, mut deepest) = (Vec::new(), 0);
+                while !self.at_punct("]") {
+                    // `[...xs, x]`: the web's spread.
+                    if self.at_punct(".") {
+                        return self.err(
+                            "syntax-refused-idiom",
+                            "Contract has no spread: write `concat(xs, [x])` for `[...xs, x]`, the web's `xs.concat([x])`",
+                        );
+                    }
+                    items.push(self.expr()?);
+                    deepest = deepest.max(self.last);
+                    if !self.eat_punct(",") {
+                        break;
+                    }
+                }
                 if !self.eat_punct("]") {
                     return self.err(
                         "syntax-expected",
                         format!(
-                            "expected `]`, found {}; `[]` is the empty list, and Contract has no list literal with items yet (LLP 1088 §9's follow-up): a list comes from the data module, a shape field, or `map`/`filter`",
+                            "expected `,` or `]` in a list, found {}",
                             describe(self.peek_kind())
                         ),
                     );
                 }
-                Ok(Expr::EmptyList(span))
+                self.built(deepest, span)?;
+                Ok(Expr::List(items, span))
             }
             // `none(value=1)`: a reserved word names no shape (LLP 1088 D5).
             TokenKind::Ident(w)

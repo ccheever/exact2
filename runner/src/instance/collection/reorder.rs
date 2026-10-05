@@ -7,12 +7,23 @@ pub(super) struct Preview {
     pub(super) binding: ReorderBinding,
     pub(super) token: ReorderToken,
     pub(super) source: String,
-    before: Option<String>,
-    height: f64,
+    pub(super) before: Option<String>,
+    pub(super) height: f64,
     pub(super) terminal: bool,
     pub(super) pin_owned: bool,
     pub(super) handle: ViewId,
-    certified: Option<ReorderGeometry>,
+    pub(super) certified: Option<ReorderGeometry>,
+    /// The session's target is another list (LLP 1094 D4, `Outgoing`): the
+    /// source row keeps its slot and the rows after it close the gap.
+    pub(super) outgoing: bool,
+    /// Dropped, and the move has not shown yet (LLP 1094 D8): the offsets
+    /// stay and the pin is kept, but the action is spent.
+    pub(super) holding: bool,
+    /// A key or a custom action placed the gap (LLP 1094 D9): the drop
+    /// needs no measured sample.
+    pub(super) stepped: bool,
+    /// Its list shares a `reorderGroup` (LLP 1094 D1).
+    pub(super) grouped: bool,
 }
 impl Collection {
     pub(crate) fn reorder_geometry(&self, list: NodeKey) -> Option<ReorderGeometry> {
@@ -63,8 +74,9 @@ impl Collection {
     pub(crate) fn preview_active(&self, token: ReorderToken) -> bool {
         self.preview
             .as_ref()
-            .is_some_and(|p| p.token == token && !p.terminal && p.pin_owned)
+            .is_some_and(|p| p.token == token && !p.terminal && !p.holding && p.pin_owned)
     }
+
     pub(crate) fn begin_preview(
         &mut self,
         u: &mut Update<'_>,
@@ -98,6 +110,10 @@ impl Collection {
             pin_owned: true,
             handle,
             certified,
+            outgoing: false,
+            holding: false,
+            stepped: false,
+            grouped: false,
         });
         self.emit_preview(u)?;
         Ok(true)
@@ -112,6 +128,7 @@ impl Collection {
         // A live unproved final sample preserves presentation, but cannot leave
         // an older destination eligible for terminal action.
         p.certified = None;
+        p.stepped = false;
         let source = self.index.position(&p.source).unwrap();
         let Some(gap) = self
             .index
@@ -142,7 +159,7 @@ impl Collection {
         let Some(p) = &self.preview else {
             return Ok(None);
         };
-        if p.terminal || p.certified.as_ref() != Some(g) {
+        if p.terminal || p.holding || !(p.stepped || p.certified.as_ref() == Some(g)) {
             return Ok(None);
         }
         let Some(source) = self.index.position(&p.source) else {
@@ -163,8 +180,12 @@ impl Collection {
     }
     // Terminal does not release the pin. Own dispatch may rebuild the row index;
     // source-key pin resolution still occurs before old mounted rows are taken.
+    // A hold is ended only by its own endings (LLP 1094 D8, `end_hold`).
     pub(crate) fn end_preview(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
         if let Some(p) = &mut self.preview {
+            if p.holding {
+                return self.emit_preview(u);
+            }
             p.terminal = true;
             p.certified = None;
         }
@@ -201,6 +222,7 @@ impl Collection {
         const HEIGHT_NOISE: f64 = 0.01;
         if self.preview.as_ref().is_some_and(|p| {
             !p.terminal
+                && !p.holding
                 && !self
                     .index
                     .position(&p.source)
@@ -220,64 +242,98 @@ impl Collection {
         if p.token != token {
             return None;
         }
-        let offsets = self.preview_offsets();
         Some(ReorderFrame {
             terminal: p.terminal,
-            wrappers: self
-                .mounted
-                .iter()
-                .filter_map(|r| {
-                    Some(ReorderWrapper {
-                        wrapper: kernel.node(r.wrapper)?.key,
-                        root: kernel.node(roots_of(&r.row.roots)[0])?.key,
-                        top: self.index.prefix(r.position)?,
-                        offset: offsets.as_ref().map_or(0.0, |o| o.at(r.position)),
-                    })
-                })
-                .collect(),
+            wrappers: self.reorder_wrappers(kernel),
+            ..ReorderFrame::default()
         })
     }
-    fn preview_offsets(&self) -> Option<Offsets> {
-        let p = self.preview.as_ref().filter(|p| !p.terminal)?;
-        let source = self.index.position(&p.source)?;
-        let before = match &p.before {
-            Some(key) => self.index.position(key)?,
-            None => self.index.len(),
-        };
-        Some(Offsets {
-            source,
-            before,
-            height: p.height,
-            source_offset: self.index.prefix(before)?
-                - if before > source { p.height } else { 0.0 }
-                - self.index.prefix(source)?,
-        })
+    /// The mounted wrappers and the offsets the preview gives them.
+    pub(crate) fn reorder_wrappers(&self, kernel: &Kernel) -> Vec<ReorderWrapper> {
+        let offsets = self.offsets();
+        self.mounted
+            .iter()
+            .filter_map(|r| {
+                Some(ReorderWrapper {
+                    wrapper: kernel.node(r.wrapper)?.key,
+                    root: kernel.node(roots_of(&r.row.roots)[0])?.key,
+                    top: self.index.prefix(r.position)?,
+                    offset: offsets.as_ref().map_or(0.0, |o| o.at(r.position)),
+                })
+            })
+            .collect()
+    }
+    /// The source's own preview: today's within one list, or `Outgoing`
+    /// when the target is another (LLP 1094 D4); else a target's `Incoming`.
+    fn offsets(&self) -> Option<Offsets> {
+        if let Some(p) = self.preview.as_ref().filter(|p| !p.terminal) {
+            let source = self.index.position(&p.source)?;
+            if p.outgoing {
+                // The row keeps its slot (hidden); the rows after it close
+                // the gap: as if it went before the end, its own offset 0.
+                return Some(Offsets {
+                    source,
+                    before: self.index.len(),
+                    height: p.height,
+                    source_offset: 0.0,
+                });
+            }
+            let before = match &p.before {
+                Some(key) => self.index.position(key)?,
+                None => self.index.len(),
+            };
+            return Some(Offsets {
+                source,
+                before,
+                height: p.height,
+                source_offset: self.index.prefix(before)?
+                    - if before > source { p.height } else { 0.0 }
+                    - self.index.prefix(source)?,
+            });
+        }
+        self.incoming_offsets()
     }
     pub(super) fn emit_preview(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
-        if self.preview.is_none() {
+        if self.preview.is_none()
+            && self.incoming.is_none()
+            && self.hidden.is_none()
+            && !self.mounted.iter().any(|r| r.preview_hidden)
+        {
             return Ok(());
         }
-        let offsets = self.preview_offsets();
+        let offsets = self.offsets();
+        let hidden = self.hidden.as_deref().and_then(|k| self.index.position(k));
+        // Offsets that change with the rows' own move in one commit apply at
+        // once: the layout moved by what the offset gave (LLP 1094 D8).
+        let transition = if self.instant {
+            "none"
+        } else {
+            "translate spring(300,30,1)"
+        };
         for i in 0..self.mounted.len() {
-            let offset = offsets
-                .as_ref()
-                .map_or(0.0, |o| o.at(self.mounted[i].position));
+            let position = self.mounted[i].position;
+            let offset = offsets.as_ref().map_or(0.0, |o| o.at(position));
             let row = &mut self.mounted[i];
-            if row.preview_target == Some(offset) {
-                continue;
+            if row.preview_target != Some(offset) {
+                views::style(
+                    u,
+                    row.wrapper,
+                    &[
+                        (
+                            "translate",
+                            Value::str(&format!("0px {}px", exact_num::Shortest(offset))),
+                        ),
+                        ("transition", Value::str(transition)),
+                    ],
+                )?;
+                row.preview_target = Some(offset);
             }
-            views::style(
-                u,
-                row.wrapper,
-                &[
-                    (
-                        "translate",
-                        Value::str(&format!("0px {}px", exact_num::Shortest(offset))),
-                    ),
-                    ("transition", Value::str("translate spring(300,30,1)")),
-                ],
-            )?;
-            row.preview_target = Some(offset);
+            let hide = hidden == Some(position);
+            if row.preview_hidden != hide {
+                let shown = if hide { "hidden" } else { "visible" };
+                views::style(u, row.wrapper, &[("visibility", Value::str(shown))])?;
+                row.preview_hidden = hide;
+            }
         }
         Ok(())
     }
@@ -290,14 +346,14 @@ impl Collection {
 }
 
 // Resolve keyed boundaries/prefixes once, then emit O(W) arithmetic targets.
-struct Offsets {
-    source: usize,
-    before: usize,
-    height: f64,
-    source_offset: f64,
+pub(super) struct Offsets {
+    pub(super) source: usize,
+    pub(super) before: usize,
+    pub(super) height: f64,
+    pub(super) source_offset: f64,
 }
 impl Offsets {
-    fn at(&self, row: usize) -> f64 {
+    pub(super) fn at(&self, row: usize) -> f64 {
         if row == self.source {
             self.source_offset
         } else if self.before <= row && row < self.source {

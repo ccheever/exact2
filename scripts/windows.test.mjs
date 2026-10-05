@@ -11,8 +11,9 @@ import {parse, relative, resolve, toNamespacedPath} from 'node:path';
 import {PassThrough} from 'node:stream';
 import {closeFilesystemReader, filesystem, filesystemErrorCode} from './filesystem.mjs';
 import {Cdp, captureCdpRequest, cdpFailureContext, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, packagedBuildChanges, removeBrowserProfile} from './agent-launch.mjs';
-import {browserKey, open} from './agent.mjs';
-import {cdpKey, withHeldModifiers} from './agent-keys.mjs';
+import {browserKey, open, typeCommand} from './agent.mjs';
+import {cdpKey, deliverClipboard, pasteChord, withHeldModifiers} from './agent-keys.mjs';
+import {focusForKey, playwrightPointer, withHeldKeys} from './agent-playwright.mjs';
 import {runCaps} from './caps.mjs';
 import {binaryenArchive, binaryenVersion} from './exact.mjs';
 import {buildTreeFile, serveBuildTree, listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
@@ -553,6 +554,117 @@ test('modifier codes preserve side identity and accepted holds survive later fra
   expect(withHeldModifiers('Input.dispatchMouseEvent',{type:'mouseMoved'},held).modifiers).toBe(0);
 });
 
+test('paste sends the platform chord and a prevented keydown skips the clipboard', async () => {
+  const chord = pasteChord();
+  expect(chord).toBe(process.platform === 'darwin' ? 'Meta+v' : 'Control+v');
+  const mapped = cdpKey(chord);
+  expect(mapped).toMatchObject({key:'v', code:'KeyV', text:undefined, modifiers:process.platform === 'darwin' ? 4 : 2, vk:86});
+
+  const drive = ({clipboard, text, prevented, editable = true, failAt}) => {
+    const trace = [];
+    let listening = false, flag = null;
+    const evaluate = async (expression) => {
+      if (expression.includes('removeEventListener')) { listening = false; flag = null; trace.push('unlisten'); return; }
+      if (expression.includes('addEventListener')) { listening = true; flag = null; trace.push('listen'); return; }
+      if (expression === 'window.__exactPasteKey?.defaultPrevented !== true') { trace.push('flag'); return flag !== true; }
+      if (expression.includes('ClipboardEvent')) {
+        trace.push('event');
+        if (failAt === 'event') throw new Error('send failed');
+        return {editable, prevented:false};
+      }
+      throw new Error(`unexpected evaluate: ${expression}`);
+    };
+    const ask = async (req) => { trace.push('focus'); expect(req).toEqual({op:'focus', id:7, select:false}); return {}; };
+    const call = async (method, args) => {
+      if (method === 'Input.insertText') { trace.push(['insert', args.text]); return; }
+      trace.push([args.type, args.key, args.code, args.modifiers, args.text]);
+      if (args.type === 'keyDown' && listening) flag = prevented;
+      if (failAt === 'down' && args.type === 'keyDown') throw new Error('down failed');
+    };
+    return deliverClipboard({id:7, opts:{clipboard, ...(text == null ? {} : {text})}, evaluate, ask, call}).then(() => trace);
+  };
+
+  expect(await drive({clipboard:'paste', text:'secret', prevented:true})).toEqual([
+    'focus', 'listen', ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], 'unlisten',
+  ]);
+  expect(await drive({clipboard:'paste', text:'secret', prevented:false})).toEqual([
+    'focus', 'listen', ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', 'event', ['insert', 'secret'], ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], 'unlisten',
+  ]);
+  expect(await drive({clipboard:'paste', text:'secret', prevented:false, editable:false})).toEqual([
+    'focus', 'listen', ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', 'event', ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], 'unlisten',
+  ]);
+  expect(await drive({clipboard:'copy'})).toEqual(['focus', 'event']);
+  await assert.rejects(drive({clipboard:'paste', text:'secret', prevented:false, failAt:'event'}), /send failed/);
+  await assert.rejects(drive({clipboard:'paste', text:'secret', prevented:false, failAt:'down'}), /down failed/);
+  // The chord is released when the paste event throws, and not pressed again when the keydown throws.
+  const released = [];
+  let listening = false;
+  await assert.rejects(deliverClipboard({
+    id:7, opts:{clipboard:'paste', text:'secret'},
+    ask:async () => ({}),
+    evaluate:async (expression) => {
+      if (expression.includes('removeEventListener')) return;
+      if (expression.includes('addEventListener')) { listening = true; return; }
+      if (expression === 'window.__exactPasteKey?.defaultPrevented !== true') return true;
+      if (expression.includes('ClipboardEvent')) throw new Error('send failed');
+    },
+    call:async (_method, args) => { released.push(args.type); if (args.type === 'keyDown' && !listening) throw new Error('keydown before the listener'); },
+  }), /send failed/);
+  expect(released).toEqual(['keyDown', 'keyUp']);
+  released.length = 0;
+  await assert.rejects(deliverClipboard({
+    id:7, opts:{clipboard:'paste', text:'x'},
+    ask:async () => ({}),
+    evaluate:async (expression) => {
+      if (expression.includes('removeEventListener') || expression.includes('addEventListener')) return;
+      throw new Error(`unexpected ${expression}`);
+    },
+    call:async (_method, args) => { released.push(args.type); if (args.type === 'keyDown') throw new Error('down failed'); },
+  }), /down failed/);
+  expect(released).toEqual(['keyDown']);
+});
+
+test('a firefox or webkit drag is the mouse, a click keeps its modifiers, and an unfocusable key still presses', async () => {
+  const moves = [], waits = [];
+  let down = 0, up = 0;
+  const pointer = playwrightPointer({
+    name: 'firefox',
+    move: async (x, y) => { moves.push([x, y]); },
+    down: async () => { down++; },
+    up: async () => { up++; },
+    wait: async (ms) => { waits.push(ms); },
+  });
+  await assert.rejects(pointer('down', {}, { x: 1, y: 2 }), /firefox down unsupported: Playwright cannot produce trusted phased touches/);
+  expect(down).toBe(0);
+  expect(await pointer('down', { id: 4, mouse: true, x: 10, y: 20 }, { x: 0, y: 0 })).toMatchObject({ phase: 'down', at: [10, 20], delivery: 'platform', pointer: 'mouse', contact: 4 });
+  expect(await pointer('move', { dx: 32, dy: 0, ms: 32 }, {})).toMatchObject({ phase: 'move', at: [42, 20] });
+  expect(moves).toEqual([[10, 20], [26, 20], [42, 20]]);
+  expect(waits).toEqual([16, 16]);
+  waits.length = 0;
+  expect(await pointer('hold', { ms: 50, virtual: true }, {})).toMatchObject({ phase: 'hold', at: [42, 20] });
+  expect(waits).toEqual([]);
+  expect(await pointer('hold', { ms: 40 }, {})).toMatchObject({ phase: 'hold' });
+  expect(waits).toEqual([40]);
+  expect(await pointer('cancel', {}, {})).toMatchObject({ phase: 'cancel', at: [42, 20], delivery: 'platform' });
+  expect(up).toBe(1);
+  await assert.rejects(pointer('up', {}, {}), /firefox up unsupported/);
+
+  const keys = [];
+  const keyboard = { down: async (k) => { keys.push(['down', k]); }, up: async (k) => { keys.push(['up', k]); } };
+  await withHeldKeys(keyboard, 'Shift+Meta', async () => { keys.push('act'); });
+  expect(keys).toEqual([['down', 'Shift'], ['down', 'Meta'], 'act', ['up', 'Meta'], ['up', 'Shift']]);
+  keys.length = 0;
+  await assert.rejects(withHeldKeys(keyboard, 'Shift', async () => { throw new Error('click failed'); }), /click failed/);
+  expect(keys).toEqual([['down', 'Shift'], ['up', 'Shift']]);
+  keys.length = 0;
+  await withHeldKeys(keyboard, '', async () => { keys.push('plain'); });
+  expect(keys).toEqual(['plain']);
+
+  await focusForKey(1, false, async () => ({ ok: false }));
+  await assert.rejects(focusForKey(1, true, async () => ({ ok: false })), /view 1 could not take focus/);
+  await focusForKey(1, true, async () => ({ ok: true }));
+});
+
 test('trusted browser modifier events retain both sides and reach following keys and pointers', async () => {
   const server=Bun.serve({port:0,fetch(){return new Response(`<div id="exact-root" data-boot-ms="1"><canvas id="world" tabindex="0" style="position:absolute;left:20px;top:30px;width:100px;height:100px"></canvas></div><script>
     const world=document.getElementById('world'),events=[];let focuses=0;
@@ -669,4 +781,20 @@ test('packaged native freshness verifies executable-relative shader bytes', () =
     writeFileSync(shader,'edited'); expect(packagedBuildChanges(receipt,root)).toEqual([shader]);
     rmSync(shader); expect(packagedBuildChanges(receipt,root)).toEqual([shader]);
   } finally { rmSync(root,{recursive:true,force:true}); }
+});
+
+test('a type step keeps its newlines, quotes and clipboard words', () => {
+  expect(typeCommand('type editor hello for 100')).toEqual(['editor','hello for 100']);
+  expect(typeCommand('type editor key End for 40')).toEqual(['editor',{key:'End',for:40}]);
+  expect(typeCommand('type editor hello\\n\\nbody')).toEqual(['editor','hello\n\nbody']);
+  expect(typeCommand('type editor # A\n\nbody')).toEqual(['editor','# A\n\nbody']);
+  expect(typeCommand('type editor "a\\nb"')).toEqual(['editor','a\nb']);
+  expect(typeCommand('type "the note" hello')).toEqual(['the note','hello']);
+  expect([typeCommand('type editor paste a\\nb c'),typeCommand('type editor copy')]).toEqual([['editor',{clipboard:'paste',text:'a\nb c'}],['editor',{clipboard:'copy'}]]);
+});
+
+test('shifted punctuation is the physical key under it, as on Linux and Apple (b6 review C2)', () => {
+  for (const [key, code] of [['!', 'Digit1'], ['@', 'Digit2'], ['+', 'Equal'], ['?', 'Slash'], ['~', 'Backquote'], [')', 'Digit0'], ['-', 'Minus']])
+    expect(cdpKey(key)).toMatchObject({ key, code });
+  expect(cdpKey('Shift++')).toMatchObject({ key: '+', code: 'Equal', modifiers: 8 });
 });

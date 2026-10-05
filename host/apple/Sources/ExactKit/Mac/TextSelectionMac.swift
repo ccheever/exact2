@@ -200,15 +200,18 @@ final class TextSelection {
         if !dragged, anchor === node, let reader = node.readerParagraph {
             let current = gesture
             reader.resolveOffset(at: node.local(event.locationInWindow), node: node) { [weak self] _, url in
+                // A route of this app navigates in it, as a short paragraph's
+                // link does (b6 review B5); the rest is the containing app's.
                 guard let self, self.gesture == current, let url, let session = self.presenter?.session else { return }
-                session.delegate?.exactSession(session, command: "openURL", args: [url])
+                session.follow(url)
             }
             return
         }
         guard !dragged, anchor === node, let url = link(node, at: node.local(event.locationInWindow)) else { return }
-        // The containing app owns navigation (local Markdown, anchors,
-        // browser URLs); no arbitrary URL scheme is launched by the presenter.
-        if let session = presenter?.session { session.delegate?.exactSession(session, command: "openURL", args: [url]) }
+        // A route of this app navigates in it; the containing app owns the
+        // rest (local Markdown, anchors, browser URLs); no arbitrary URL
+        // scheme is launched by the presenter.
+        presenter?.session?.follow(url)
     }
 
     func selectAll() {

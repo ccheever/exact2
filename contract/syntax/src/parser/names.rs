@@ -107,18 +107,11 @@ impl Parser {
         })
     }
 
-    /// The end of an `else` line: there is no `else if` or `else when` (authoring
-    /// bench), so the next choice goes on its own line under the `else`.
-    pub(super) fn after_else(&mut self, choice: &str) -> R<()> {
-        if self.at_ident("if") || self.at_ident("when") {
-            return self.err(
-                "syntax-expected-newline",
-                format!(
-                    "there is no `else {choice}`: end the line at `else` and write the `{choice}` \
-                     indented under it"
-                ),
-            );
-        }
+    /// A plain `else` ends its line. `else if` and `else when` are parsed by
+    /// the caller first: an `else` around one nested branch (the chess,
+    /// kanban2 and spreadsheet diaries). The indented form under `else` is
+    /// the same tree.
+    pub(super) fn after_else(&mut self, _choice: &str) -> R<()> {
         self.newline()
     }
 

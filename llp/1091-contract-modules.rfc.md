@@ -446,6 +446,7 @@ stage 1 lands, and stage 2 waits on them.
 - r10 (2026-10-05): round 8 (§17).
 - r11 (2026-10-05): round 9 (§18).
 - r12 (2026-10-05): round 10 (§19).
+- r13 (2026-10-05): round 11 (§20).
 
 ## 9. Review dispositions (round 1)
 
@@ -758,3 +759,47 @@ wrong. Every finding is taken; every plan stays byte-identical.
 | Astra 5 / Grok 3: the TypeScript producer did not descend into a dot directory holding a source | Its watch descends into any directory on the way to a source |
 | Astra 6: the JS loop dropped a link in a dot directory | It watches every path resolution looked at, as written, and the directories on the way to them |
 
+## 20. Code review round 11 dispositions
+
+Round 11 (`llp/reviews/code-2026-10-05-1091-r11.{astra,grok}.md`): both UNSOUND, both finding the
+edges of round 10's fixes. Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Astra 1 / Grok 1: round 10's ambiguity guard refused keywords whose slot was settled (`linear ${d}`), and resolved them through `use` | **Rounds 9–10's computed-part rules are replaced by an exact reading.** Every reading `motion` would accept is tried, each computed part as each kind of value it could be (a part whose text says its kind is that kind). A literal is renamed when it is the name in every reading, left when in none, and refused (`contract-animation-ambiguous`) only when it is the name in some but not all *and* is keyframes another file renamed. No keyword is resolved through `use` |
+| Astra 2: a written type beside a same-named `fn` could reach another file's shape | A written type naming another file's shape this file does not see is refused, even with a `fn` of the name |
+| Grok 2: another file's `shape action` took every bare `action` type | A declaration named `action` is always renamed |
+| Astra 3 / Grok 3: the JS loop missed a hidden link (the consulted path kept its `/./`; Windows separators) | Consulted paths drop `.` segments; the directory test takes either separator |
+| Astra 4: the TypeScript producer missed a hidden import created later | It scans every path resolution looked at |
+| Astra 5: a root file retargeted at a twin went unseen by the wasm session | The root is a used file by the path it is opened at |
+| Astra 6: off Unix, a stamp had no file identity | Every stamp hashes the file's canonical path, on every platform |
+
+## 21. The lines a file lacks (2026-10-04, branch `fix/polish7`)
+
+D1 refused the first name a file reached without a `use`, with `use X
+from "…"`: the 19 multi-file apps in the x2apps set each took a compile
+per name to migrate. As built, with no change to D1's rule:
+
+- **Every file at once.** `rescope` records each reference to a name only
+  another file declares (`Scope::missing`) and goes on; the loader refuses
+  them together, one `contract-use-missing` a file, at its first such
+  reference, every other one a related location.
+- **The exact lines.** Each refusal names the lines the file lacks: the
+  `use` it already has for the declaring file, extended with the names
+  (`change line 4 to use Snapshot, noEdit from "./shapes.contract"`), or a
+  new line whose specifier is the one another file uses for a package or
+  `exact:` module, else the relative path inside the same root (D9).
+- **What is not mechanical is said, not written.** A name two other files
+  declare (which one is meant), a generated name (`Card__ui`: write `Card`
+  and name it), a file no specifier reaches from here.
+- **`contract fmt --uses <root.contract>`** writes those lines in every file
+  of the program (an existing line keeps its indentation and trailing
+  comment; a new one follows the last `use`, else the opening comments),
+  and prints what it wrote and what is left. `bun exact.mjs update` runs it
+  for an app outside the repository.
+
+Measured on scratch copies of the x2apps apps that stopped compiling: 17
+of 20 compile after it; the other three stop at refusals that are not
+scope (a `fn indexOf` that now shadows the roster's, LLP 1088 §9.1's note;
+an `alertdialog` and a surface attribute LLP 1021 and its siblings
+refuse). Mail, recipes, flashcards and feed pass their web tests after it.

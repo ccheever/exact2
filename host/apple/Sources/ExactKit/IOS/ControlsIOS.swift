@@ -76,6 +76,11 @@ final class ControlHost: NSObject {
     var menus: [UInt32: SelectMenu] = [:]
     /// A range's last reported value while it moves, so each is sent once.
     var lastRange: [UInt32: String] = [:]
+    /// A range's bound value last written into it: written again only when
+    /// it changes (LLP 1069.001 D4, amended 2026-10-04).
+    var appliedRange: [UInt32: String] = [:]
+    /// A select's choice the bound value has not caught up with yet.
+    var picked: [UInt32: String] = [:]
     /// Each native button's face as the runner last gave it. A face is the
     /// control's viewless contents, which change only in a batch that says
     /// so (`Batch.controls`), and its own props, which change only in a
@@ -97,6 +102,7 @@ final class ControlHost: NSObject {
         if let existing = controls[node.id], kinds[node.id] == kind { return existing }
         controls.removeValue(forKey: node.id)?.removeFromSuperview()
         menus.removeValue(forKey: node.id)
+        appliedRange.removeValue(forKey: node.id)
         let made: UIControl
         switch kind {
         #if os(tvOS)
@@ -138,6 +144,8 @@ final class ControlHost: NSObject {
             kinds.removeValue(forKey: id)
             menus.removeValue(forKey: id)
             lastRange.removeValue(forKey: id)
+            appliedRange.removeValue(forKey: id)
+            picked.removeValue(forKey: id)
         }
         var sizes: [(UInt32, CGSize?)] = []
         for owner in owners {
@@ -272,6 +280,8 @@ final class ControlHost: NSObject {
         kinds.removeAll()
         menus.removeAll()
         lastRange.removeAll()
+        appliedRange.removeAll()
+        picked.removeAll()
         faces.removeAll()
     }
 }

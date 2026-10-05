@@ -35,8 +35,10 @@ pub(crate) mod control;
 pub(crate) mod damage;
 pub mod gradient;
 pub use gradient::GradientPaint;
-mod inline;
+pub(crate) use lift::{Ghost, Lift};
+pub(crate) mod inline;
 mod layer;
+mod lift;
 mod native;
 pub use native::NativeKind;
 mod placed;
@@ -446,6 +448,9 @@ pub struct Scene<'a> {
     pub focus: Option<ViewId>,
     /// Unbound checkboxes' own states, which the host keeps (LLP 1069.001 D4).
     pub controls: &'a BTreeMap<ViewId, bool>,
+    /// Values chosen in a date, range or select since its bound value last
+    /// changed: (choice, bound).
+    pub chosen: &'a BTreeMap<ViewId, (String, String)>,
     /// A select's open menu, painted over everything (LLP 1069.001 D7).
     pub menu: Option<control::MenuPaint>,
     /// The pointer, in viewport points, when the host draws one.
@@ -483,8 +488,8 @@ pub struct Painter {
     pub(crate) canvases: BTreeMap<ViewId, crate::canvas2d::CanvasPaint>,
     viewport: (f32, f32),
     cpu_ms: Option<f64>,
-    // One generational source, lifted only inside its existing List clip.
-    pub(crate) arrange_lift: Option<(exact_kernel::NodeKey, exact_kernel::NodeKey)>,
+    /// What a reorder lifts: a row in its list, or a ghost over everything.
+    pub(crate) lift: Lift,
     // One lease per actually accepted owner, not one global width per string.
     // Retained while a subsequent backend frame fails.
     accepted_text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
@@ -521,6 +526,10 @@ struct Walk<'a, 'b> {
     /// Each node's rank among its siblings (LLP 1083.000 §2.4), twice its
     /// value, from the kernel's one definition.
     ranks: Rc<BTreeMap<ViewId, i64>>,
+    /// Painting a ghost, whose root this is: the `visibility: hidden` the
+    /// row inherits from its wrapper shows, one its own nodes set does not
+    /// (`lift.rs`; b6 review B4).
+    reveal: Option<ViewId>,
 }
 
 impl Painter {
@@ -574,7 +583,7 @@ impl Painter {
             paint_epoch: None,
             ranks: Rc::default(),
             accepted_text: BTreeMap::new(),
-            arrange_lift: None,
+            lift: Lift::default(),
             region_picture: None,
             region_frame: None,
             damage: Default::default(),
@@ -763,11 +772,13 @@ impl Painter {
             skip,
             replay,
             ranks: self.ranks.clone(),
+            reveal: None,
         };
         self.rows_begin(&walk);
         for root in scene.roots {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
         }
+        self.paint_ghost(&mut walk);
         self.rows_end();
         if let Some(menu) = &scene.menu {
             self.menu(menu);
@@ -884,10 +895,18 @@ impl Painter {
             let (ox, oy) = effective_overflow(&node);
             ox != Overflow::Visible || oy != Overflow::Visible
         };
+        // CSS `visibility` (inherited) hides a box from paint and from hits;
+        // its subtree paints through `Unpainted`, so a descendant's own
+        // `visible` is not honoured under a hidden one (LLP 1001's declared
+        // deviation, as Apple's `isHidden`).
+        let inherited = node.computed_style(StyleMask::INHERITED);
+        let visible = match walk.reveal {
+            Some(root) => revealed(walk.scene.kernel, id, root),
+            None => inherited.visibility == exact_kernel::Visibility::Visible,
+        };
         walk.boxes.push(PaintedBox {
             id,
-            pointer_hit: node.computed_style(StyleMask::INHERITED).pointer_events
-                != exact_kernel::PointerEvents::None,
+            pointer_hit: inherited.pointer_events != exact_kernel::PointerEvents::None && visible,
             projective: None,
             affine: Some((ts, (x, y, w, h))),
             press: p.press,
@@ -902,7 +921,7 @@ impl Painter {
         };
         // CSS opacity is paint only: a transparent subtree is still hit (the
         // walk records its boxes) and draws through a backend that draws nothing.
-        let drawn = (opacity <= 0.0)
+        let drawn = (opacity <= 0.0 || !visible)
             .then(|| std::mem::replace(&mut self.backend, Box::new(layer::Unpainted)));
         if drawn.is_none() && opacity < 1.0 {
             self.backend.push_opacity(opacity);
@@ -1001,7 +1020,7 @@ impl Painter {
                         .iter()
                         .map(|run| Run::from_style(&run.text, run.style))
                         .collect();
-                    spec.collapse_white_space()
+                    spec.shown(node.props.str(PropId::Markup) == Some("markdown"))
                 };
                 let paragraph = if let Some(stamp) = node.paragraph_stamp() {
                     // @ref LLP 1043.000 §3 D7 — ordinary text takes the same
@@ -1025,7 +1044,7 @@ impl Painter {
                 if let Some(paragraph) = paragraph {
                     let mut palette = Vec::new();
                     text_palette(walk.scene.kernel, node, self.dark, &mut palette);
-                    presented_text_colors(walk, node, &mut palette);
+                    presented_text_colors(walk, node, &paragraph, &mut palette);
                     walk.text.insert(node.key, paragraph.clone());
                     self.row_text(node.key, &paragraph);
                     // CSS `text-overflow: ellipsis` in a clipping box: an
@@ -1134,7 +1153,8 @@ impl Painter {
                 self.native(node, content, &outer, ts)
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("select") => {
-                let label = walk.scene.kernel.select_chosen(node.id).map(|c| c.label);
+                let label =
+                    control::select_label(walk.scene.kernel, node, walk.scene.chosen.get(&node.id));
                 self.field_control(node, content, ts, label.as_deref().unwrap_or(""), true);
             }
             // @ref LLP 1069.001 D7 — a date control is a field showing its
@@ -1145,17 +1165,11 @@ impl Painter {
                     Some("date" | "time" | "datetime-local")
                 ) =>
             {
-                let value = node.props.str(PropId::Value).unwrap_or("");
-                let shown = match (value, node.props.str(PropId::Type)) {
-                    ("", Some("date")) => "yyyy-mm-dd",
-                    ("", Some("time")) => "--:--",
-                    ("", _) => "yyyy-mm-ddT--:--",
-                    (v, _) => v,
-                };
+                let shown = control::date_text(node, walk.scene.chosen.get(&node.id));
                 self.field_control(node, content, ts, shown, false);
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("range") => {
-                self.range_control(node, content, ts)
+                self.range_control(node, content, ts, walk.scene.chosen.get(&node.id))
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
                 let title = walk.scene.kernel.press_face(node.id).and_then(|f| f.title);
@@ -1196,61 +1210,7 @@ impl Painter {
         } else {
             offset
         };
-        let lift = self
-            .arrange_lift
-            .filter(|(list, _)| *list == node.key)
-            .and_then(|(_, key)| walk.scene.kernel.node_by_key(key))
-            .filter(|source| source.parent == Some(node.id))
-            .map(|source| source.id);
-        // A native button's children are its face, painted above (LLP 1069.011 D5).
-        let native =
-            node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button");
-        let children: Vec<_> = node
-            .children()
-            .into_iter()
-            .filter(|id| Some(*id) != lift && !native)
-            .collect();
-        // @ref LLP 1083.000 D5 — a canvas's placed children first, by
-        // projective depth, as the web gives them negative indices by
-        // depth; then every other child by its rank, then tree order.
-        let order: Vec<(ViewId, usize)> = children.iter().copied().zip(0..).collect();
-        let mut order = order;
-        order.sort_by(
-            |(a, i), (b, j)| match (self.placements.get(a), self.placements.get(b)) {
-                (Some(a), Some(b)) => a.depth().total_cmp(&b.depth()).then(i.cmp(j)),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                _ => {
-                    let rank = |id: &ViewId| walk.ranks.get(id).copied().unwrap_or(0);
-                    rank(a).cmp(&rank(b)).then(i.cmp(j))
-                }
-            },
-        );
-        let children: Vec<ViewId> = order.into_iter().map(|(id, _)| id).collect();
-        let rows = self.has_rows(node);
-        // A scroller's rows are its children; a scroller holding one
-        // container (a column of settings) keeps that container's children
-        // apart instead, so one of them changing records only itself.
-        let group = rows && !self.rows_wrapper(node.key);
-        let wrap = group && self.wraps_rows(walk, &children);
-        if group {
-            self.group_begin(walk, node.id);
-        }
-        for child in children {
-            if wrap {
-                self.wrapped(walk, child, ts, child_offset, child_rect);
-            } else if rows {
-                self.row(walk, child, ts, child_offset, child_rect);
-            } else {
-                self.node(walk, child, ts, child_offset, child_rect);
-            }
-        }
-        if group {
-            self.group_end(walk);
-        }
-        if let Some(child) = lift {
-            self.node(walk, child, ts, child_offset, child_rect);
-        }
+        self.children(walk, node, ts, child_offset, child_rect);
         if clips {
             self.backend.pop_clip();
         }
@@ -1436,3 +1396,22 @@ pub const POINTER: [(f32, f32); 7] = [
 
 #[cfg(test)]
 mod paragraph_tests;
+
+/// Whether `id` shows in the ghost of `root`: the nearest `visibility` set
+/// on it or an ancestor below the ghost's root decides, as in the web's
+/// clone whose root alone is made visible (`group-glue.js`); none set shows.
+pub(crate) fn revealed(kernel: &Kernel, id: ViewId, root: ViewId) -> bool {
+    let arena = kernel.arena();
+    let mut at = arena.key_of(id).map(|k| k.index);
+    while let Some(slot) = at {
+        if arena.local_id(slot) == root {
+            return true;
+        }
+        let style = arena.style(slot);
+        if style.mask.has(exact_kernel::StyleId::Visibility) {
+            return style.visibility == exact_kernel::Visibility::Visible;
+        }
+        at = arena.parent(slot);
+    }
+    true
+}

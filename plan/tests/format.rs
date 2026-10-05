@@ -666,7 +666,11 @@ fn router_format_round_trips_and_checks_semantic_links() {
         ("params", vec!["Router", "string"], "list<string>"),
         ("searchParam", vec!["Entry", "string"], "string"),
         ("encodeURIComponent", vec!["string"], "string"),
-        ("includes", vec!["string", "string"], "bool"),
+        ("includes", vec!["any", "any"], "bool"),
+        ("slice", vec!["any", "number", "number"], "any"),
+        ("concat", vec!["any", "any"], "any"),
+        ("indexOf", vec!["any", "any"], "number"),
+        ("split", vec!["string", "string"], "list<string>"),
         ("startsWith", vec!["string", "string"], "bool"),
         ("endsWith", vec!["string", "string"], "bool"),
     ] {

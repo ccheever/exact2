@@ -229,7 +229,7 @@ fn fresh_preparation_reads_platform_secrets_and_defers_effects_until_commit() {
     let _restore = Restore;
     let name = "exact.prepare.returning";
     let grants = "secret.keep exact.prepare.returning\n";
-    let bindings = endow(grants).unwrap();
+    let bindings = crate::store::endow(grants).unwrap();
     assert_eq!(bindings.secrets.get(name).unwrap(), None);
     bindings.secrets.set(name, "returning").unwrap();
     let seen = Arc::new(Mutex::new(Vec::new()));

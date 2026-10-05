@@ -1,7 +1,7 @@
 // @ref LLP 1069.001 D5 — `input type="range"` is a `UISlider`: HTML's
 // `input` as the thumb moves, `change` as the finger lifts, each value
-// clamped and snapped to `step` as HTML sanitizes it; the committed value
-// is what the slider shows after the action (D4).
+// clamped and snapped to `step` as HTML sanitizes it; the thumb stays
+// where the person put it until the bound value changes (D4, amended).
 #if os(iOS)
 import UIKit
 
@@ -19,9 +19,15 @@ extension ControlHost {
         assign(slider, \.minimumValue, Float(range.min))
         assign(slider, \.maximumValue, Float(range.max))
         assign(slider, \.minimumTrackTintColor, accent)
-        let shown = Float(range.shown(owner.props))
-        if !slider.isTracking, slider.value != shown { slider.setValue(shown, animated: false) }
-        assign(slider, \.accessibilityValue, RangeSpec.format(Double(shown)))
+        // The bound value is written when it changes, as the web build writes
+        // an input's `value` (LLP 1069.001 D4, amended 2026-10-04).
+        let bound = owner.props["value"] ?? ""
+        if !slider.isTracking, appliedRange[owner.id] != bound {
+            appliedRange[owner.id] = bound
+            let shown = Float(range.shown(owner.props))
+            if slider.value != shown { slider.setValue(shown, animated: false) }
+        }
+        assign(slider, \.accessibilityValue, RangeSpec.format(range.sanitize(Double(slider.value))))
     }
 
     /// The value the slider reports: its position, snapped as HTML would.
@@ -54,7 +60,7 @@ extension ControlHost {
         slider.setValue(Float(value) ?? slider.value, animated: false)
         presenter.controlValue(node.id, value, input: true, change: true)
         if let owner = presenter.views[node.id] { configureRange(slider, owner, accent: slider.minimumTrackTintColor) }
-        return ["typed": Int(node.id), "value": presenter.views[node.id]?.props["value"] ?? value, "delivery": "host-activation", "native": "control"]
+        return ["typed": Int(node.id), "value": RangeSpec.format(RangeSpec(node.props).sanitize(Double(slider.value))), "delivery": "host-activation", "native": "control"]
     }
 }
 #endif

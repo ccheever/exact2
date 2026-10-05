@@ -9,7 +9,8 @@ impl Event {
     /// (scroll), 19 (media), 20 (pan), 21 (select), 28 (panrelease, LLP
     /// 1057 §10.6), 29 to 31 (the pointer's down, up and move), 32 to 34
     /// (the clipboard's copy, cut and paste), 35 (`selectionchange`), 36
-    /// (beforeunload), 37 (wheel) or 38 (drop) from its UTF-8 payload.
+    /// (beforeunload), 37 (wheel), 38 (drop) or 39 (resize, its
+    /// `contentRect` as `x,y,width,height`) from its UTF-8 payload.
     pub fn of_host_kind(kind: u32, payload: &str) -> Result<Event, &'static str> {
         match kind {
             13 => Event::scroll_payload(payload).ok_or("invalid scroll coordinates"),
@@ -33,6 +34,9 @@ impl Event {
             38 => super::DropEvent::parse(payload)
                 .map(Event::Drop)
                 .ok_or("invalid drop event"),
+            39 => super::ResizeRect::parse(payload)
+                .map(Event::Resize)
+                .ok_or("invalid resize rect"),
             _ => Err("unknown event kind"),
         }
     }

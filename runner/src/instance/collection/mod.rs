@@ -7,6 +7,7 @@ mod nest;
 mod rekey;
 mod reorder;
 mod reorder_api;
+mod reorder_group;
 mod reuse;
 mod start;
 #[cfg(test)]
@@ -121,6 +122,8 @@ struct Mounted {
     epoch: u64,
     token: MeasurementToken,
     preview_target: Option<f64>,
+    /// Hidden while a ghost stands for it (LLP 1094 D6).
+    preview_hidden: bool,
     /// The position and count the wrapper last published (`aria-posinset`,
     /// `aria-setsize`), for hosts that select and copy across rows.
     published: (usize, usize),
@@ -129,6 +132,12 @@ struct Mounted {
 #[derive(Debug)]
 pub(crate) struct Collection {
     preview: Option<reorder::Preview>,
+    /// The gap a grouped session opens here as its target (LLP 1094 D4).
+    incoming: Option<reorder_group::Incoming>,
+    /// The dragged row's identity while a ghost stands for it (D6).
+    hidden: Option<String>,
+    /// Emit preview offsets at once: the rows moved with them (D8).
+    instant: bool,
     view: ViewId,
     /// Fixed at creation from the list's style (LLP 1070 H1).
     axis: ListAxis,
@@ -391,6 +400,9 @@ impl Collection {
         }
         let mut this = Box::new(Self {
             preview: None,
+            incoming: None,
+            hidden: None,
+            instant: false,
             view,
             axis,
             region,
@@ -477,9 +489,15 @@ impl Collection {
         let rows_changed =
             u.changed_outside(&deps.keys[index], 1) || u.changed_outside(&deps.bodies[index], 1);
         let changed = fresh || rows_changed || u.changed_outside(&deps.subjects[index], 0);
+        // A grouped session's offsets move with its rows, at once (LLP 1094
+        // D8): the layout moved by what they gave.
+        let instant = changed
+            && (self.incoming.is_some() || self.preview.as_ref().is_some_and(|p| p.grouped));
         if changed {
             self.end_preview(u)?;
+            self.unsettle_incoming();
         }
+        self.instant = instant;
         let anchor = if changed { self.anchor()? } else { None };
         // Items that changed in place: the same keys in the same order, and
         // no input of the rows' bodies or keys changed (a live tick's prices).
@@ -552,7 +570,9 @@ impl Collection {
             self.restore(anchor)?;
         }
         self.start_at_end();
-        self.realize_window(u, frames, true, CollectionFill::default())?;
+        let realized = self.realize_window(u, frames, true, CollectionFill::default());
+        self.instant = false;
+        realized?;
         if changed {
             let unchanged = previous.is_some_and(|mut before| {
                 let now = self.snapshot();
@@ -1050,6 +1070,7 @@ impl Collection {
             epoch: advance(&mut self.next_epoch)?,
             token,
             preview_target: None,
+            preview_hidden: false,
             published: (usize::MAX, usize::MAX),
             row,
         })
@@ -1369,6 +1390,8 @@ impl Collection {
             || self.target.is_some()
             || self.pending
             || self.preview.is_some()
+            || self.incoming.is_some()
+            || self.hidden.is_some()
             || self.correction.is_some()
             || (
                 g.port_cross,
@@ -1455,38 +1478,5 @@ impl Collection {
         // even when its old pinned row happens to remain inside the window.
         advance(&mut self.revision)?;
         Ok(true)
-    }
-    fn snapshot(&self) -> CollectionSnapshot {
-        self.snapshot_rows(usize::MAX)
-    }
-    /// [`Collection::snapshot`] with at most `rows` mounted rows (the first).
-    fn snapshot_rows(&self, rows: usize) -> CollectionSnapshot {
-        CollectionSnapshot {
-            view: self.view,
-            axis: self.axis,
-            parent: self.parent,
-            restored: self.restored,
-            seeking: self.target.is_some(),
-            revision: self.revision,
-            scroll_sequence: self.geometry.as_ref().map_or(0, |g| g.scroll_sequence),
-            count: self.index.len(),
-            total_extent: self.index.total_height(),
-            rows: self
-                .mounted
-                .iter()
-                .take(rows)
-                .map(|row| CollectionRow {
-                    view: row.wrapper,
-                    root: roots_of(&row.row.roots)[0],
-                    index: row.position,
-                    start: self.index.prefix(row.position).unwrap(),
-                    size: self.index.height(row.position).unwrap(),
-                    epoch: row.epoch,
-                    measured: self.index.is_measured_at(row.position),
-                })
-                .collect(),
-            correction: self.correction,
-            pending: self.pending || self.target.is_some(), // an into-view request wants its next report
-        }
     }
 }

@@ -81,14 +81,15 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             // Writing back "hidden" that only CSS's `display: none` made is not
             // the host's word (a save of `isHidden` restored; review B1): a
             // projection that means it hides again on its next pass.
-            let css = style["display"]?.string == "none"
+            let css = style["display"]?.string == "none" || style["visibility"]?.string == "hidden" // CSS visibility too (LLP 1094 D6)
             if !(newValue && css && !hostHidden && super.isHidden) { hostHidden = newValue }
             super.isHidden = hostHidden || css
         }
     }
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
     var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() }; if handlers.contains("drop") != oldValue.contains("drop") { syncDropTypes() } } } // the media events the player reports; a hover handler's tracking area; a drop handler's dragged types
-    var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
+    var translatePx = CGPoint.zero, translatePercent = CGPoint.zero // `translate`: its lengths, and its percentages of the box (chess diary #4)
+    var layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
     var surface: SurfaceLayer? { didSet { layerPaintCache = nil } } // its surface at a layout transition's size (`Surface.swift`)
     /// How far its frame stands from layout's: a lifted Arrange row's
     /// translation plus `stickyOffset` (`applyTransform`).
@@ -214,6 +215,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var tabbable: Bool {
         if let index = explicitTabIndex { return index >= 0 }
         return kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: Self.focusEvents)
+            || reorderKeys // a grouped grip takes the keys (LLP 1094 D9)
     }
     /// Sequential focus follows the web: a button is in the loop even when
     /// macOS "Keyboard navigation" is off (that setting would otherwise
@@ -262,6 +264,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             if event.modifierFlags.contains(.shift) { window.selectPreviousKeyView(self) } else { window.selectNextKeyView(self) }
             return
         }
+        if reorderKey(name) { return }
         if pressable, name == "Enter" || (name == " " && props["href"] == nil) {
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)
@@ -448,6 +451,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         video?.invalidate(); video = nil
         destroyEmbedded()
         web = nil
+        keepHold()
         presenter = nil
     }
 
@@ -1029,7 +1033,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let origin = style["transform_origin"]
         let old = style
         style = s
-        if old["display"] != s["display"] { isHidden = hostHidden }
+        if old["display"] != s["display"] || old["visibility"] != s["visibility"] { isHidden = hostHidden }
         if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
@@ -1443,7 +1447,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard !inert else { return }
         if isSurfaceControl || ownsSurfaceControl { _ = control("up", point: local(event.locationInWindow), timestamp: event.timestamp); finishPointerPress(); return }
         if canvasInput?.pointer(event, phase: "up") == true { return }
-        defer { presenter?.interacting = 0 }
+        defer { holdPresenter?.interacting = 0 }
         if presenter?.mouseChain.up(event) == true { return }
         presenter?.collections.releaseInteractionLater()
         let double = dblclickTarget(event)

@@ -570,10 +570,19 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
     await expect(session.pointer('up')).rejects.toThrow('firefox up unsupported:');
     await expect(session.tap('touch', {pinch:1.2})).rejects.toThrow('firefox pinch unsupported:');
     expect(JSON.stringify((await session.state()).slots)).toBe(beforeRefusals);
+    // A mouse drag is a real button, twice, so the first lift cleared the contact (drums R13).
+    const dragged = await session.tap('touch', { drag: { dx: 20, dy: 0, mouse: true, over: 16 } });
+    expect(dragged.delivery).toBe('platform');
+    expect(dragged.drag.mouse).toBe(true);
+    await session.tap('touch', { drag: { dx: -20, dy: 0, mouse: true, over: 16 } });
+    await session.carrier.evaluate(`(() => { window.__exactShift = null; addEventListener('pointerdown', (e) => { window.__exactShift = e.shiftKey; }, { capture: true, once: true }); })()`);
+    await session.tap('press', { modifiers: 'Shift' });
+    expect(await session.carrier.evaluate('window.__exactShift')).toBe(true);
     await session.tap('scroll', {wheel:[0,120]});
     const state = (await session.state()).slots;
     expect(state.presses).toBeGreaterThan(0);
     expect(state.words).toBe('hia');
+    await session.type('root', { key: ' ' }); // the column takes no focus; the key is still pressed (drums R13)
     expect((await session.layout()).nodes.find(node => node.testId === 'scroll').sy).toBeGreaterThan(0);
     expect((await session.clock('+25')).clock).toBe(25);
     expect((await session.prefer({'prefers-color-scheme':'dark'})).media['prefers-color-scheme']).toBe('dark');
@@ -1366,6 +1375,41 @@ test('a native mouse contact holds the button until it lifts or its down fails',
   expect(c.held).toBe(false);
 });
 
+test('perf frames live lends the clock to the wall for its window and measures what it presented (LLP 1079 D4; platformer R11)', async () => {
+  const saved = Object.fromEntries(['document', 'addEventListener', 'requestAnimationFrame', 'cancelAnimationFrame', 'performance'].map(k => [k, Object.getOwnPropertyDescriptor(globalThis, k)]));
+  let wall = 1000, next = 0; const queued = new Map();
+  const set = (k, value) => Object.defineProperty(globalThis, k, { value, configurable: true, writable: true });
+  set('document', { visibilityState: 'visible', addEventListener() {}, getAnimations: () => [] });
+  set('addEventListener', () => {});
+  set('requestAnimationFrame', fn => (queued.set(++next, fn), next));
+  set('cancelAnimationFrame', id => queued.delete(id));
+  set('performance', { now: () => wall });
+  try {
+    await import('./frames.js');
+    let clock = 500;
+    const advanced = [], gpu = [];
+    const window = globalThis.exact.liveFrames({ ms: 200, origin: () => 0, log() {}, clock: () => clock,
+      advance: to => { advanced.push(to); clock = to; },
+      gpu: { live: on => (gpu.push(on), on ? [] : [{ canvas: 7, perf: { frameMs: { p50: 16.7 } } }]) } });
+    let done = false; window.then(() => { done = true; });
+    for (let i = 0; i < 40 && !done; i++) {
+      wall += 1000 / 60;
+      const due = [...queued.values()]; queued.clear();
+      for (const fn of due) fn(wall);
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    const reply = await window;
+    expect(gpu).toEqual([true, false]); // the world left the seek for its own frames, and came back
+    expect(reply.live).toEqual({ ms: 200, from: 500, to: 700 });
+    expect(advanced.at(-1)).toBe(700); // the runner followed the wall to the window's end, and no further
+    expect(reply.window.samples).toBeGreaterThan(8);
+    expect(reply.window.p50).toBeCloseTo(16.67, 1);
+    expect(reply.world).toEqual([{ canvas: 7, perf: { frameMs: { p50: 16.7 } } }]);
+    expect(globalThis.exact.frames).toBeUndefined(); // the window's sampler does not outlive it
+  } finally {
+    for (const [k, d] of Object.entries(saved)) d ? Object.defineProperty(globalThis, k, d) : delete globalThis[k];
+  }
+});
 // A target no testId carries, by the label or text a person reads (Exact-new iOS feedback, 2026-10-04).
 const N = (id, depth, type, props = {}, handlers = [], inactive = false) => ({ id, depth, type, props, handlers, inactive });
 test('a scroller with a scroll handler does not steal a button name', () => {

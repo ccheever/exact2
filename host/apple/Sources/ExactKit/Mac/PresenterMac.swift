@@ -72,6 +72,9 @@ final class Presenter {
     /// The one Arrange contact, until its source settles; a test's calls.
     var reorder: ReorderHold?
     var reorderCalls: ReorderCalls?
+    /// A grouped session (LLP 1094), until its ghost lands; a test's calls.
+    var reorderGroup: ReorderGroupHold?
+    var reorderGroupCalls: ReorderGroupCalls?
     private var scrollObserver: NSObjectProtocol?
     private var visibleText: [UInt32: NSRect] = [:]
     private var textViewportIndex: TextViewportIndex?
@@ -553,6 +556,7 @@ final class Presenter {
     /// A restart: every view goes.
     func reset() {
         pointerHeld = nil
+        pointerSource = nil
         elements.reset()
         resetFlights()
         viewport.invalidateDocumentFit()
@@ -564,6 +568,7 @@ final class Presenter {
         mouseTransformDrag.cancel()
         mouseReorder.cancel()
         reorder?.abandon()
+        reorderGroup?.abandon()
         collections.reset()
         leaves.reset()
         autofocusProcessed.removeAll()
@@ -684,6 +689,10 @@ final class Presenter {
     var onPointer: ((UInt32, PointerKind, PointerSample) -> Void)?
     /// The node the primary button went down on, until it comes up.
     var pointerHeld: UInt32?
+    /// The view AppKit sends the held button's drags and up to: the one it
+    /// went down on, perhaps a child of the held node, kept in the window
+    /// until the button comes up even if a batch removes it (`MouseChainMac`).
+    var pointerSource: NodeView?
     /// The drag last delivered as a `pointermove` (LLP 1056 §3 stage 3).
     weak var pointerDrag: NSEvent?
     /// Each node's latest free move, in the order the pointer reached them,
@@ -977,6 +986,7 @@ final class Presenter {
                 for (i, child) in mounted.enumerated() {
                     if child.superview !== container {
                         reparented.insert(child.id)
+                        child.rejoinUnderHold()
                         child.prepareToMount()
                         // Appending then moving the first child above nil puts
                         // it last and needlessly remounts every retained sibling.
@@ -988,6 +998,7 @@ final class Presenter {
                     let siblings = container.subviews
                     if !collections.owns(id), i >= siblings.count || siblings[i] !== child {
                         child.removeFromSuperview()
+                        child.rejoinUnderHold()
                         container.addSubview(child, positioned: .above, relativeTo: i > 0 ? mounted[i - 1] : nil)
                     }
                 }
@@ -1048,7 +1059,7 @@ final class Presenter {
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let x = CGFloat(op.x)
                 switch op.property {
-                case "translate": v.translate = CGPoint(x: x, y: CGFloat(op.y)); v.applyTransform()
+                case "translate": v.translatePx = CGPoint(x: x, y: CGFloat(op.y)); v.translatePercent = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform()
                 case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutScale = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform(); v.applySurface()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()

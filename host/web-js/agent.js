@@ -3,7 +3,7 @@
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
-import { pieces, pageHistory, Head, navigateRoot } from './rt.js';
+import { pieces, pageHistory, Head, navigateRoot, Tasks } from './rt.js';
 import * as perf from './perf.js';
 import { environment, navigation, unselected, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold, typedControl, typeControl, reveal, animationClocks } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
@@ -334,7 +334,8 @@ export function install(exact) {
         // journal line), as the runner's is. What was in flight before the
         // jump lands before a timer fires too, as the wasm and native hosts'
         // jumps wait for it (calendar F10: a store's reply is on real time).
-        const due = () => exact.clock.timers.some(t => t.due <= req.to);
+        // An armed `then` or a queue's `next` is due as a timer is (LLP 1092 D6).
+        const due = () => exact.clock.timers.some(t => t.due <= req.to) || exact.mutations?.some(m => m.due <= req.to || m.next <= req.to);
         // A view transition on its way is ready first, so its animations
         // start at this clock, not the one the jump reaches (LLP 1013.000 D9).
         await exact.viewTransition?.();
@@ -379,7 +380,11 @@ export function install(exact) {
         // The drive's app storage (trivia F7): none unless it names a scratch store, as storage-environment.js's `storageKey`.
         const store = new URL(performance.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams.get('storage');
         const storage = store == null ? { available: false, code: 'agent', message: 'storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)' } : { available: true, store };
-        return { slots, derives, resources, pending, streams, notifications: exact.notices ?? [], head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hookStats ? { hooks: exact.hookStats } : {}), ...tags() };
+        // Each queue's waiting sends (LLP 1092 D10), as the runner's `state.queued`.
+        const queued = Object.fromEntries((exact.mutations ?? []).filter(m => m.wait?.length).map(m => [m.name, m.wait.length]));
+        // Each task's next due time, `null` while idle or spent (LLP 1092 D10), as the runner's `state.tasks`.
+        const tasks = Object.fromEntries(Tasks.map(t => [t.name, exact.clock.timers.includes(t) ? t.due : null]));
+        return { slots, derives, resources, pending, streams, tasks, queued, notifications: exact.notices ?? [], head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hookStats ? { hooks: exact.hookStats } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js).
       // The fold group (LLP 1078 D7) likewise: through facts.js where the plan reads the fold's fields (it re-answers them), else the

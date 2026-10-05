@@ -13,8 +13,9 @@
 //! option directly inside an option, LLP 1090 D2); unit is `null`.
 //!
 //! The runner's evaluation bounds (LLP 1090 D1, D3) are checked where the VM
-//! checks them, in its order: a body with a list step (a `Map`, `Filter` or
-//! `join`) is *metered*, its function counting steps in a local `$s` from 0,
+//! checks them, in its order: a body with a list step (a `Map`, `Filter`,
+//! `join`, or a list builder, LLP 1088 §9.1) is *metered*, its function
+//! counting steps in a local `$s` from 0,
 //! so each call is one evaluation; a `Map`/`Filter` is a loop that steps and
 //! sums its result's extent; a `Record`/`List` is `K`, a `Concat` `cc`, and
 //! the roster's string builders take their pc (budget.js).
@@ -78,11 +79,26 @@ fn checked(f: Stdlib) -> bool {
     )
 }
 
+/// The roster entries that take list steps on the caller's budget: `join`,
+/// and the list builders (LLP 1088 §9.1), which take its `$s` and leave
+/// their own steps in budget.js's `ST`.
+fn stepped(f: u64) -> bool {
+    [
+        Stdlib::Join,
+        Stdlib::Concat,
+        Stdlib::Slice,
+        Stdlib::Includes,
+        Stdlib::IndexOf,
+        Stdlib::Split,
+    ]
+    .iter()
+    .any(|&g| f == g as u64)
+}
+
 /// Whether `ins` takes list steps, so its function counts them (D1).
 fn metered(ins: &[Instruction]) -> bool {
     ins.iter().any(|i| {
-        matches!(i.op, Opcode::Map | Opcode::Filter)
-            || i.op == Opcode::Call && i.args[0] == Stdlib::Join as u64
+        matches!(i.op, Opcode::Map | Opcode::Filter) || i.op == Opcode::Call && stepped(i.args[0])
     })
 }
 
@@ -434,6 +450,30 @@ impl Translator<'_> {
                             pc = x.pc
                         ));
                         self.push(list);
+                    } else if stepped(f as u64) {
+                        // `concat`, `slice`, `includes` (LLP 1088 §9.1): this
+                        // evaluation's `$s` in, their steps out, at the VM's
+                        // point in its order.
+                        self.flush();
+                        let d = self.stack.len();
+                        let regs: Vec<String> = (0..args.len()).map(|k| reg(d + k)).collect();
+                        self.max_depth = self.max_depth.max(d + args.len());
+                        for (r, e) in regs.iter().zip(&args) {
+                            if r != e {
+                                self.out.push_str(&format!("{r}={e};"));
+                            }
+                        }
+                        let (st, name) = (
+                            self.uses.budget("ST"),
+                            self.uses.budget(&format!("x_{}", f.name())),
+                        );
+                        self.out.push_str(&format!(
+                            "{r}={name}({},$s,{pc});$s+={st};",
+                            regs.join(","),
+                            r = regs[0],
+                            pc = x.pc
+                        ));
+                        self.push(regs[0].clone());
                     } else if checked(f) {
                         args.push(x.pc.to_string());
                         let name = self.uses.budget(&format!("x_{}", f.name()));

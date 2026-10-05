@@ -179,7 +179,7 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 errors.extend(dataset::refused(a));
                                 continue;
                             }
-                            let checked = match tags::attr(&a.name) {
+                            let checked = match tags::attr_valued(&a.name, &a.value) {
                                 None => Err(unknown_attr(tag, a)),
                                 // A family is resolved against declared fonts.
                                 Some(tags::AttrTarget::Styles(rows))

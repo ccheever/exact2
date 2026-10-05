@@ -352,6 +352,17 @@ pub fn style(name: &str) -> bool {
         Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand)
     )
 }
+/// Look up an attribute as written, routed by its value where one name is
+/// two things: `resize` is CSS's property for a string, and given an action
+/// (an `Ident` or a `Call`, never valid CSS there) the element resize event,
+/// ResizeObserver's (x2apps backlog: decided, route by value).
+pub fn attr_valued(name: &str, value: &contract_syntax::Expr) -> Option<AttrTarget> {
+    use contract_syntax::Expr;
+    if name == "resize" && matches!(value, Expr::Ident(..) | Expr::Call(..)) {
+        return Some(AttrTarget::Handler("resize"));
+    }
+    attr(name)
+}
 /// Look up an attribute.
 pub fn attr(name: &str) -> Option<AttrTarget> {
     let styles = |rows: &'static [StyleId]| AttrTarget::Styles(rows);
@@ -424,6 +435,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "transformrelease" => AttrTarget::Handler("transformrelease"),
         "reorderdrop" => AttrTarget::Handler("reorderdrop"),
         "reorderFor" => AttrTarget::Prop(p("reorderFor")),
+        "reorderGroup" => AttrTarget::Prop(p("reorderGroup")),
         "transformDragFor" => AttrTarget::Prop(p("transformDragFor")),
         "heightDragFor" => AttrTarget::Prop(p("heightDragFor")),
         "surface" => AttrTarget::Surface, // the canvas's surface (LLP 1009 D3)
@@ -929,9 +941,14 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1063 — how the laid-out box moves when layout moves it.
         "layout-transition" => styles(&[StyleId::LayoutTransition]),
         "interpolate-size" => styles(&[StyleId::InterpolateSize]),
-        // @ref LLP 1077 D8 — one value to two rows: x and y, and z; the
+        // @ref LLP 1077 D8 — one value to two rows: x and y (their lengths,
+        // and their percentages of the box, chess diary #4), and z; the
         // angle, and its axis.
-        "translate" => styles(&[StyleId::Translate, StyleId::TranslateZ]),
+        "translate" => styles(&[
+            StyleId::Translate,
+            StyleId::TranslatePercent,
+            StyleId::TranslateZ,
+        ]),
         "scale" => styles(&[StyleId::Scale]),
         "rotate" => styles(&[StyleId::Rotate, StyleId::RotateAxis]),
         "perspective" => styles(&[StyleId::Perspective]),

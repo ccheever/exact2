@@ -1,9 +1,11 @@
 //! File loading and source identity shared by Contract compilation and navigation.
 //! @ref LLP 1017.000 P8; LLP 1035.005 D2/D3; LLP 1091 (module scope).
 
+mod uses;
+
 use crate::resolve::{resolve, Origin};
 use crate::CompileError;
-use contract_syntax::scope::{rescope, Kind, Scope};
+use contract_syntax::scope::{rescope, Elsewhere, Kind, Scope};
 use contract_syntax::{File, NameSpans, Span, UseDecl, UseName};
 use std::{
     collections::{HashMap, HashSet},
@@ -109,6 +111,7 @@ pub(crate) fn load(
         active: vec![root_key.clone()],
         units: Vec::new(),
         cache: HashMap::new(),
+        fixes: Vec::new(),
     };
     let resolve = |sources: &Sources, all: Vec<CompileError>| {
         all.into_iter()
@@ -120,9 +123,55 @@ pub(crate) fn load(
     }
     match loader.scope() {
         Ok(file) => Ok((file, loader.sources)),
-        Err(e) => Err(resolve(&loader.sources, vec![e])),
+        Err(all) => Err(resolve(&loader.sources, all)),
     }
 }
+
+/// The `use` lines each file of the program rooted at `path` lacks (LLP
+/// 1091 D1), for `contract fmt --uses`; the loader's other refusals as
+/// they are.
+pub(crate) fn use_fixes(
+    path: &Path,
+    src: &str,
+    app_root: &Path,
+) -> Result<Vec<uses::UseFix>, Vec<CompileError>> {
+    let root_key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let mut loader = Loader {
+        app_root,
+        sources: Sources {
+            paths: vec![root_key.clone()],
+            origins: vec![Origin::App],
+            imports: Vec::new(),
+            packages: Vec::new(),
+            consulted: Vec::new(),
+        },
+        active: vec![root_key.clone()],
+        units: Vec::new(),
+        cache: HashMap::new(),
+        fixes: Vec::new(),
+    };
+    let resolve = |sources: &Sources, all: Vec<CompileError>| {
+        all.into_iter()
+            .map(|e| sources.resolve(e))
+            .collect::<Vec<_>>()
+    };
+    if let Err(all) = loader.load_source(&root_key, src, 0) {
+        return Err(resolve(&loader.sources, all));
+    }
+    match loader.scope() {
+        Ok(_) => Ok(Vec::new()),
+        Err(_) if !loader.fixes.is_empty() => Ok(std::mem::take(&mut loader.fixes)
+            .into_iter()
+            .map(|mut fix| {
+                fix.error = loader.sources.resolve(fix.error);
+                fix
+            })
+            .collect()),
+        Err(all) => Err(resolve(&loader.sources, all)),
+    }
+}
+
+pub(crate) use uses::apply as apply_uses;
 
 /// One source a compilation reads (LLP 1091 D10).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -175,10 +224,11 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         active: vec![root_key.clone()],
         units: Vec::new(),
         cache: HashMap::new(),
+        fixes: Vec::new(),
     };
     let errors = match loader.load_source(&root_key, src, 0) {
         Err(all) => all,
-        Ok(()) => loader.scope().err().into_iter().collect(),
+        Ok(()) => loader.scope().err().unwrap_or_default(),
     };
     let errors = errors
         .into_iter()
@@ -216,6 +266,8 @@ struct Loader<'a> {
     active: Vec<PathBuf>,
     units: Vec<Unit>,
     cache: HashMap<PathBuf, usize>,
+    /// What `scope` found each file lacks, when it refused for that.
+    fixes: Vec<uses::UseFix>,
 }
 impl Loader<'_> {
     /// Parse `src` as unit `source_id`, then every file its uses name, depth
@@ -306,34 +358,91 @@ impl Loader<'_> {
     /// Give every declaration its program-unique name (D4), rewrite each
     /// file through its own scope (D1, D5), and merge the files into the one
     /// `File` every later pass reads.
-    fn scope(&mut self) -> Result<File, CompileError> {
+    fn scope(&mut self) -> Result<File, Vec<CompileError>> {
         if self.units.len() == 1 {
             let mut file = self.units.pop().unwrap().file;
-            contract_syntax::resolve_clock_timelines(&mut file)?;
+            contract_syntax::resolve_clock_timelines(&mut file).map_err(|e| vec![e.into()])?;
             file.uses.clear();
             return Ok(file);
         }
         let unique = self.unique_names();
         let mut scopes: Vec<Option<Scope>> = (0..self.units.len()).map(|_| None).collect();
         for index in 0..self.units.len() {
-            self.scope_of(index, &unique, &mut scopes)?;
+            self.scope_of(index, &unique, &mut scopes)
+                .map_err(|e| vec![e])?;
         }
         let elsewhere = self.declared_elsewhere(&unique);
+        // Every file's references to names it does not see, refused together.
+        let mut missing = Vec::new();
+        let shape_owners: Vec<(usize, Vec<String>, String)> = self
+            .units
+            .iter()
+            .enumerate()
+            .flat_map(|(index, unit)| {
+                let path = &self.sources.paths[index];
+                let shown = path
+                    .strip_prefix(self.app_root)
+                    .unwrap_or(path)
+                    .display()
+                    .to_string();
+                let unique = &unique;
+                unit.file.shapes.iter().map(move |s| {
+                    let generated = unique[index]
+                        .get(&(Kind::Call, s.name.clone()))
+                        .cloned()
+                        .unwrap_or_else(|| s.name.clone());
+                    (index, vec![s.name.clone(), generated], shown.clone())
+                })
+            })
+            .collect();
         for (index, unit) in self.units.iter_mut().enumerate() {
             let mut scope = scopes[index].take().expect("every unit is scoped");
             scope.elsewhere = elsewhere
                 .iter()
-                .filter(|(key, (owner, _))| *owner != index && !scope.names.contains_key(*key))
-                .map(|(key, (_, file))| (key.clone(), file.clone()))
+                .filter(|(key, e)| e.unit != index && !scope.names.contains_key(*key))
+                .map(|(key, e)| (key.clone(), e.clone()))
                 .collect();
-            rescope(&mut unit.file, &scope)?;
+            // Every other file's shape this file does not see as a shape, by
+            // its declared and its generated name.
+            scope.foreign_shapes = shape_owners
+                .iter()
+                .filter(|(owner, _, _)| *owner != index)
+                .flat_map(|(_, names, file)| names.iter().map(move |n| (n.clone(), file.clone())))
+                .filter(|(n, _)| {
+                    !scope
+                        .names
+                        .get(&(Kind::Call, n.clone()))
+                        .is_some_and(|to| scope.shapes.contains(to))
+                })
+                .collect();
+            rescope(&mut unit.file, &scope).map_err(|e| vec![e.into()])?;
+            let misses = scope.missing.take();
+            if !misses.is_empty() {
+                let found: Vec<_> = misses
+                    .into_iter()
+                    .map(|m| {
+                        let e = scope.elsewhere[&(m.kind, m.name.clone())].clone();
+                        (m, e)
+                    })
+                    .collect();
+                missing.push((index, found));
+                continue;
+            }
             let timelines = scope
                 .names
                 .iter()
                 .filter(|((kind, _), _)| *kind == Kind::Timeline)
                 .map(|((_, local), to)| (local.clone(), to.clone()))
                 .collect();
-            contract_syntax::resolve_clock_timelines_in(&mut unit.file, &timelines)?;
+            contract_syntax::resolve_clock_timelines_in(&mut unit.file, &timelines)
+                .map_err(|e| vec![e.into()])?;
+        }
+        if !missing.is_empty() {
+            self.fixes = missing
+                .into_iter()
+                .map(|(index, found)| self.use_fix(index, found))
+                .collect();
+            return Err(self.fixes.iter().map(|f| f.error.clone()).collect());
         }
         Ok(self.merge())
     }
@@ -402,9 +511,12 @@ impl Loader<'_> {
                                     && !unit.file.shapes.iter().any(|s| s.name == name)
                             })
                     };
+                    // A shape named `action` would be what every other file's bare
+                    // `action` type reads (the checker prefers a shape).
                     let roster = |name: &str| {
                         kind == Kind::Call
-                            && ((index > 0 && exact_plan::Stdlib::from_name(name).is_some())
+                            && (name == "action"
+                                || (index > 0 && exact_plan::Stdlib::from_name(name).is_some())
                                 || captures(name)
                                 || bound
                                     .iter()
@@ -510,8 +622,10 @@ impl Loader<'_> {
         scopes[index] = Some(Scope {
             names,
             elsewhere: HashMap::new(),
+            // The roster plus the intrinsics (`pending`, `failed`, `path`, `t`).
             roster: Some(compiler_call),
             builtin_types: builtin_types(),
+            foreign_shapes: HashMap::new(),
             shapes: self
                 .units
                 .iter()
@@ -524,6 +638,7 @@ impl Loader<'_> {
                 })
                 .cloned()
                 .collect(),
+            ..Scope::default()
         });
         Ok(())
     }
@@ -534,22 +649,32 @@ impl Loader<'_> {
     fn declared_elsewhere(
         &self,
         unique: &[HashMap<(Kind, String), String>],
-    ) -> HashMap<(Kind, String), (usize, String)> {
+    ) -> HashMap<(Kind, String), Elsewhere> {
+        let mut declaring: HashMap<(Kind, &str), Vec<usize>> = HashMap::new();
+        for (index, own) in unique.iter().enumerate() {
+            for (kind, declared) in own.keys() {
+                declaring.entry((*kind, declared)).or_default().push(index);
+            }
+        }
         let mut out = HashMap::new();
         for (index, unit) in self.units.iter().enumerate() {
-            let path = &self.sources.paths[index];
-            let shown = path
-                .strip_prefix(self.app_root)
-                .unwrap_or(path)
-                .display()
-                .to_string();
+            let file = self.shown(index);
+            let at = |kind: Kind, declared: &str| Elsewhere {
+                file: file.clone(),
+                unit: index,
+                declared: declared.to_owned(),
+                declaring: declaring
+                    .get(&(kind, declared))
+                    .cloned()
+                    .unwrap_or_default(),
+            };
             for (kind, name) in declarations(&unit.file) {
                 out.entry((kind, name.to_owned()))
-                    .or_insert_with(|| (index, shown.clone()));
+                    .or_insert_with(|| at(kind, name));
             }
-            for ((kind, _), generated) in &unique[index] {
+            for ((kind, declared), generated) in &unique[index] {
                 out.entry((*kind, generated.clone()))
-                    .or_insert_with(|| (index, shown.clone()));
+                    .or_insert_with(|| at(*kind, declared));
             }
         }
         out
