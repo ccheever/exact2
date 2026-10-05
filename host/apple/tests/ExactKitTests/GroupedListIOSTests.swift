@@ -124,6 +124,11 @@ final class GroupedListIOSTests: XCTestCase {
         let s = try XCTUnwrap(self.switches(toggle).first)
         XCTAssertTrue(s.isOn, "the control's `checked`")
         XCTAssertEqual(s.accessibilityIdentifier, "toggle")
+        // A finger at its middle reaches the switch the cell shows, not the
+        // hidden row's own control or anything over the cell.
+        let middle = s.convert(CGPoint(x: s.bounds.midX, y: s.bounds.midY), to: window)
+        let hit = try XCTUnwrap(window.hitTest(middle, with: nil))
+        XCTAssertTrue(hit === s || hit.isDescendant(of: s), "hit \(hit)")
         s.setOn(false, animated: false)
         s.sendActions(for: .valueChanged)
         XCTAssertEqual(flips.map(\.0), [13])
