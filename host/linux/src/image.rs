@@ -63,6 +63,10 @@ pub struct Images {
     /// The image nodes in preorder, as of a kernel epoch: the walk
     /// [`Images::sync_visible`] needs, redone only after a commit.
     pub(crate) order: Option<(u64, Vec<ViewId>)>,
+    /// Where each of those nodes' and each row group's first painted box is,
+    /// for the painted boxes of a serial and the order of an epoch: one walk
+    /// of the boxes a paint, not one a pass.
+    pub(crate) box_index: Option<(u64, u64, std::collections::HashMap<ViewId, usize>)>,
 }
 
 /// Accepted pixels and natural size, or explicit empty-source removal.
@@ -87,6 +91,7 @@ impl Images {
             decode_enabled: true,
             deferred: 0,
             order: None,
+            box_index: None,
         }
     }
     pub(crate) fn candidate(&self, assets: Assets) -> Self {

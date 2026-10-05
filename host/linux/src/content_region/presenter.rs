@@ -190,6 +190,7 @@ impl<D: DataSource> Presenter<D> {
             self.host.log(note);
         }
         self.boxes = boxes;
+        self.boxes_serial += 1;
         if self.last_frame_succeeded {
             self.host.flow_damage.clear();
         }
