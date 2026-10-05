@@ -618,8 +618,10 @@ nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
 (each row's handle names it with `reorderFor`); the compiler refuses it on any
 other element, where no host could drag. Lists that share a `reorderGroup`
 (each with a `reorderdrop`, an `id` and string keys) exchange rows: the drop
-fires once, on the list the row lands in, with the key it lands before and,
-for an action taking one more parameter, `ReorderEvent { from, to }`. A board
+fires once, on the list the row lands in, with the key it lands before (`none`
+at the end) and, for an action taking one more parameter, `ReorderEvent { from,
+to }`. The action decides where the row goes: a board whose cards join the bottom
+of the column they are dropped on ignores that key when `from != to`. A board
 is columns in a plain horizontal `scroll`, each a header, a grouped list
 (`flex=1 min-height=…`) and its quick-add; give each grip `touch-action="none"`
 and no `press`, `pan`, `pointerdown` or `key` of its own, so the host's keys
