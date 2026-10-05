@@ -1030,6 +1030,10 @@ impl<G: Game> Sim<G> {
         self.advance_with(now_ms, clock, |_, _| {})
     }
     /// Call back after each completed tick and propagation, with ticks still to run.
+    /// Presentation rows are current only where `left < 2` (the boundaries the
+    /// renderer interpolates between), or every tick under a paranoid mode; an
+    /// observer reading presentation at `left >= 2` sees the last presented
+    /// boundary's rows. Simulation state is current at every call.
     pub fn advance_with(
         &mut self,
         now_ms: f64,
