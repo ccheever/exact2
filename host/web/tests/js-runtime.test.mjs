@@ -322,3 +322,26 @@ test('an async source failure remains named when its retained value breaks a der
   await new Promise(resolve => setTimeout(resolve, 0));
   expect(journal.some(line => /derive "inverse".*resource "count".*source "loadCount".*database refused/.test(line))).toBe(true);
 });
+
+// r27 t2: a submit runs in a task after Enter's default, so text typed at once (a driver, a scanner) reached the
+// draft first and the action submitted it. The field's next key or input now runs the pending submit first.
+test('a submit runs before the field\'s next key or input, so it reads the text Enter submitted', async () => {
+  const { on } = await import(resolve(dir, 'rt.js'));
+  const win = [], field = [], saved = globalThis.addEventListener;
+  globalThis.addEventListener = (type, f) => win.push([type, f]);
+  try {
+    const el = { addEventListener: (type, f, capture) => field.push([type, f, capture]),
+      removeEventListener: (type, f) => { const i = field.findIndex(([t, g]) => t === type && g === f); if (i >= 0) field.splice(i, 1); } };
+    let text = 'Buy milk';
+    const seen = [];
+    on(el, 'submit', () => seen.push(text));
+    const enter = { key: 'Enter', isComposing: false, defaultPrevented: false };
+    for (const [type, f] of field.slice()) if (type === 'keydown') f(enter); // the field's own listener
+    for (const [type, f] of win.splice(0)) if (type === 'keydown') f(enter); // the window's, last on the path
+    for (const [type, f, capture] of field.slice()) if (type === 'input' && capture) f({}); // the next text, before the timer
+    text = 'Bread';
+    await new Promise(r => setTimeout(r, 5));
+    expect(seen).toEqual(['Buy milk']); // once, with the submitted text
+    expect(field.filter(([, , capture]) => capture)).toEqual([]);
+  } finally { globalThis.addEventListener = saved; }
+});
