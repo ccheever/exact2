@@ -7,7 +7,7 @@ mod test_device;
 use exact_game::animation;
 use exact_game::rig::{self, Gait, Rig};
 use exact_game::*;
-use exact_game_render::{ModelPresentation, WorldSurface};
+use exact_game_render::{ModelExecutor, WorldSurface};
 use exact_gpu::{fixture, Frame, Surface};
 
 struct Walkers;
@@ -71,7 +71,7 @@ fn procedural_rigs_render_skinned_and_their_limbs_move() {
     let Some(gpu) = test_device::device_or_skip(fixture::device()) else {
         return;
     };
-    let mut surface = WorldSurface::<Walkers, ModelPresentation, true>::default();
+    let mut surface = WorldSurface::<Walkers, ModelExecutor, true>::default();
     surface.bind(&[], None).unwrap();
     surface.device_ready(exact_gpu::wgpu::Features::empty());
     assert!(
