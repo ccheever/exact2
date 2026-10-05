@@ -77,7 +77,7 @@
   /* Gesture feedback is decorative, including when its opacity is zero. */
   [swipeIndicator="true"] { pointer-events: none; }
   /* Modal dimming belongs to the host; UIKit supplies its own backdrop. It dims the route the
-     sheet covers (navigation.js marks it), so the sheet's own background paints undimmed (recipes F6). */
+     sheet covers (the navigation glue marks it), so the sheet's own background paints undimmed (recipes F6). */
   [navigationPresentation="modal"] { isolation: isolate; position: relative; }
   [data-exact-covered]::after { content: ""; position: absolute; inset: 0; background: #00000033; pointer-events: none; }
   /* `all: unset` would inherit the field's color onto the placeholder. */

@@ -148,8 +148,10 @@ pub enum Ids {
 /// state; what could differ is only state fixed where a slot is first made:
 /// an initializer that read a resource (or a derive, or a pending or failed
 /// flag) would see the placeholder in the runner that settled and the answer
-/// in a boot from the checkpoint. The compiler lets an initializer read only
-/// earlier slots today; this holds the render to that if it ever changes.
+/// in a boot from the checkpoint. An initializer reads props, injects and
+/// earlier slots, and a prop may carry a parent's resource (a row's state
+/// seeded from it, `host/web-js/conformance/budget.contract`); such a plan
+/// renders with a kernel.
 pub fn projects_as_booted(plan: &Plan) -> bool {
     use exact_plan::Opcode::*;
     plan.slots.iter().all(|slot| {
@@ -444,13 +446,12 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
     if let Some(on_boot) = on_boot {
         on_boot(&runner);
     }
-    let settled = match (!booted_late)
-        .then(|| {
-            activate(&mut runner, until)
-                .and_then(|()| settle(&mut runner, &executor, until).map_err(|e| format!("{e:?}")))
-        })
-        .unwrap_or(Ok(Settled::Deadline))
-    {
+    let settled = match if booted_late {
+        Ok(Settled::Deadline)
+    } else {
+        activate(&mut runner, until)
+            .and_then(|()| settle(&mut runner, &executor, until).map_err(|e| format!("{e:?}")))
+    } {
         Ok(settled) => settled,
         // The call running at the deadline was stopped and refused, so what
         // it answers shows its placeholder: the render ends at the deadline.
