@@ -19,6 +19,8 @@ pub fn method_fix(name: &str) -> String {
         "toLowerCase" => "write `toLowerCase(s)`".into(),
         "slice" => "write `slice(s, start, end)` for text or a list (`end` may be left out)".into(),
         "concat" => "write `concat(xs, ys)`: Contract spells the web's array methods as roster functions".into(),
+        "indexOf" => "write `indexOf(s, t)` for text, `indexOf(xs, x)` for a list (LLP 1088 §9.1)".into(),
+        "split" => "write `split(s, sep)`: the web's `split` with a string separator; Contract has no regular expressions".into(),
         "replace" | "replaceAll" => "write `replaceAll(s, find, with)`: the web's `replaceAll` with a string `find`; Contract has no regular expressions".into(),
         "at" => "write `at(xs, i)`: Contract spells the web's `xs.at(i)` as a roster function, `some` of the item or `none`".into(),
         _ => match refusal(name) {
@@ -36,15 +38,13 @@ pub fn refusal(name: &str) -> Option<String> {
     Some(match name {
         "reduce" | "reduceRight" | "find" | "findIndex" | "findLast" | "some" | "every"
         | "sort" | "toSorted" | "flatMap" | "flat" | "forEach" | "reverse" | "toReversed" => format!(
-            "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice` and `includes`); compute it in the data source and hand the view the result, as the crypto port keeps `lo` and `hi` beside its series"
+            "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`); compute it in the data source and hand the view the result, as the crypto port keeps `lo` and `hi` beside its series"
         ),
         // @ref LLP 1088 D7.4 — the web's string and list spellings an agent
         // reaches for first, each with what to write today.
         "push" | "append" | "unshift" => format!(
             "a list is a value in Contract, not changed in place: `{name}` is `concat`, as in `xs = concat(xs, [x])` (LLP 1088 §9.1)"
         ),
-        "split" => "`split` is not in Contract: a view takes its lists from the data module, so split the text there and hand the view the list".into(),
-        "indexOf" => "`indexOf` is not in Contract: test membership with `includes(xs, x)` or `includes(s, t)` (or `startsWith`, `endsWith`); a position in a list is the data module's to compute".into(),
         "substring" | "substr" => format!(
             "`{name}` is not in Contract: write `slice(s, start, end)`, the web's `String.prototype.slice` (LLP 1088 D2)"
         ),

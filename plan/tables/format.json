@@ -1180,6 +1180,18 @@
       "params": ["any", "any"],
       "returns": "any",
       "_comment": "@ref LLP 1088 §9.1: JavaScript's `Array.prototype.concat(other)` of two lists of one item type, `list<T>, list<T> -> list<T>` (the type checker's): one list step per item of the result, taken before it is built, then its extent checked as a `List` is (LLP 1090 D3)."
+    },
+    {
+      "name": "indexOf",
+      "params": ["any", "any"],
+      "returns": "number",
+      "_comment": "@ref LLP 1088 §9.1 (2026-10-04 note): JavaScript's `String.prototype.indexOf(needle)` — the first match's position in UTF-16 code units, `-1` for none, 0 for the empty needle — or, over a list of strings, numbers or bools, `Array.prototype.indexOf(item)` by IsStrictlyEqual (NaN is never found, -0 is 0), one list step per item scanned up to the match. `any` is the type checker's. The web's optional position argument is not taken."
+    },
+    {
+      "name": "split",
+      "params": ["string", "string"],
+      "returns": "list<string>",
+      "_comment": "@ref LLP 1088 §9.1 (2026-10-04 note): JavaScript's `String.prototype.split(separator)` with a string separator: the pieces between its matches, left to right; an empty separator splits into UTF-16 code units (each piece made well formed: a lone half is U+FFFD), and `\"\"` into no pieces. One list step per piece, taken before the list is built, then its extent checked as a `List` is (LLP 1090 D3). The web's limit argument and regular expressions are not taken."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

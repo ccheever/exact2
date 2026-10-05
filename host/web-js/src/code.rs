@@ -88,6 +88,8 @@ fn stepped(f: u64) -> bool {
         Stdlib::Concat,
         Stdlib::Slice,
         Stdlib::Includes,
+        Stdlib::IndexOf,
+        Stdlib::Split,
     ]
     .iter()
     .any(|&g| f == g as u64)

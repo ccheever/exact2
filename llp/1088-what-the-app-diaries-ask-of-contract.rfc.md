@@ -198,7 +198,8 @@ needs two numbers or two strings, given …").
   the byte bound.
 - **`replace` (first match), `split`, `indexOf`, `substring`, `padEnd`,
   regular expressions.** `contract_syntax::idioms` names the alternative for
-  each.
+  each. (2026-10-04: `split` and `indexOf` landed with §9.1's list builders;
+  see its note.)
 
 ### D4 — A state initializer reads props, injects and earlier states
 
@@ -706,6 +707,48 @@ D3 had it, on every evaluator, in two stages.
   `rejects.txt` (`type-list-item`). Driven with a scratch app (`exact new`)
   on the web (JS target) and macOS: a mail selection toggled, selected all
   and cleared, threads folded, `app.test.contract` green on both.
+
+#### Note, 2026-10-04: `indexOf` and `split` (branch `fix/polish7`)
+
+D2 deferred both with an idiom; mail F17 is their consumer (the open row's
+position, written as `first(filter(map(rows, (r, i) => r.id == id ? i : -1),
+i => i >= 0))`, and recipient chips split by a data source). With the list
+builders on LLP 1090's budget they cost nothing new, so they land beside
+them, on every evaluator.
+
+- **`indexOf(v, x)`** takes what `includes` takes (`lists.rs`) and answers a
+  number, `-1` for none. Over text it is `String.prototype.indexOf`: the
+  first match's position in UTF-16 code units, 0 for the empty needle, no
+  step. A non-empty needle is well formed, so its first match in UTF-8 is
+  its first in UTF-16, and the runner counts the code units before it. Over
+  a list it is `Array.prototype.indexOf`, by IsStrictlyEqual: unlike
+  `includes`, NaN is never found (`-0` is still `0`), one list step for each
+  item scanned up to the match. Neither takes the web's start position.
+- **`split(s, sep)`** is `String.prototype.split` with a string separator,
+  `string, string -> list<string>` in the roster: the pieces between the
+  separator's matches, left to right. An empty separator splits into code
+  units, each piece made well formed on its own (D2's rule: an astral
+  character is two U+FFFD), and `split("", "")` is `[]`. One list step per
+  piece, taken before the pieces are built (the runner counts them first;
+  the JS target steps before an empty separator's split and after any
+  other's, the same trap either way), then the list's extent measured as
+  `Opcode::List`'s. No limit argument, no regular expression.
+- **Each evaluator.** Runner: `strings::{index_of, pieces, split}`,
+  `lists::index_of`, `vm.rs` `list_call`. JS target: `x_indexOf` and
+  `x_split` in budget.js, `stepped` in `code.rs`. Lean: `Str.indexOf`,
+  `Str.split` (over code units, `splitFrom` with fuel as `replaceFrom`
+  has), `Value.strictEq`, `indexOfOf`; `rosterTy` on both sides,
+  `stdlib_ty`, `stdlib_good` and `stdlib_notPending` extended, `lake build`
+  green within the raised heartbeat budget. The idioms that refused them
+  now name the call (`s.split(",")` is `split(s, ",")`).
+- **Verified.** `contract/cli/tests/it/lists.rs` (the fixture driven, the
+  refusals, the step bound for both), the runner's `strings.rs` and
+  `lists.rs` (values from `bun -e`), `budget_tests.rs`,
+  `js-runtime.test.mjs`; conformance `construct` (10 steps) and `budget`
+  cases 43–46 (57 steps) equal on wasm, the JS target and Linux; difftest
+  corpus (new `lists/positions`), random (seeds 1088 and 91, 300 each; seed
+  9, 300, `--js`), `types`, `lowering`, `lowering-corpus`, `expansion` and
+  `apps` agree.
 
 ### 9.2 Inference order and `?` in messages (r3's D6)
 

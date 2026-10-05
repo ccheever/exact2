@@ -75,6 +75,19 @@ def sliceOf : Value → F64 → F64 → Result Value
     .ok (.list ((xs.drop f).take (Str.clampIndex b xs.length - f)))
   | _, _, _ => .error (.type "`slice` of arguments it does not take")
 
+/-- A position as `indexOf` answers it: `-1` for none. -/
+def positionOf : Option Nat → F64
+  | .some i => F64.ofNat i
+  | .none => -(F64.ofNat 1)
+
+/-- `indexOf`: text in text, in UTF-16 code units, or by IsStrictlyEqual a
+string, number or bool in a list (LLP 1088 §9.1), as JavaScript's
+`indexOf` of each. -/
+def indexOfOf : Value → Value → Result Value
+  | .str a, .str b => .ok (.num (positionOf (Str.indexOf a b)))
+  | .list xs, x => .ok (.num (positionOf (xs.findIdx? (Value.strictEq · x))))
+  | _, _ => .error (.type "`indexOf` of arguments it does not take")
+
 /-- A roster entry applied to evaluated arguments. `map` and `filter` are
 not here: their callback is evaluated by `eval`. -/
 def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
@@ -138,9 +151,13 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   | "replaceAll", [.str s, .str find, .str w] => .ok (.str (Str.replaceAll s find w))
   -- LLP 1088 §9.1: JavaScript's `Array.prototype.concat`.
   | "concat", [.list xs, .list ys] => .ok (.list (xs ++ ys))
+  -- LLP 1088 §9.1 (2026-10-04 note): `indexOf` and `split` as JavaScript's.
+  | "indexOf", [a, b] => indexOfOf a b
+  | "split", [.str s, .str sep] => .ok (.list ((Str.split s sep).map .str))
   | "length", _ | "isEmpty", _ | "floor", _ | "max", _ | "min", _ | "first", _ | "at", _
   | "includes", _ | "startsWith", _ | "endsWith", _ | "trim", _ | "join", _
-  | "encodeURIComponent", _ | "slice", _ | "replaceAll", _ | "concat", _ =>
+  | "encodeURIComponent", _ | "slice", _ | "replaceAll", _ | "concat", _ | "indexOf", _
+  | "split", _ =>
     .error (.type s!"`{f}` of arguments it does not take")
   | f, _ => .error (.unsupported s!"roster entry `{f}`")
 

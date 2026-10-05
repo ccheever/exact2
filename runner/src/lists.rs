@@ -1,5 +1,6 @@
-//! The roster's list builders (LLP 1088 §9.1): `concat`, and `slice` and
-//! `includes` over a list, as JavaScript's `Array.prototype` has them. What
+//! The roster's list builders (LLP 1088 §9.1): `concat`, and `slice`,
+//! `includes` and `indexOf` over a list, as JavaScript's `Array.prototype`
+//! has them. What
 //! each costs — its list steps and the extent of a list it builds — is the
 //! VM's to charge (`vm.rs`, the `Call` arm), as it charges `join`'s.
 
@@ -28,6 +29,16 @@ pub fn slice(xs: &[Value], start: f64, end: f64) -> &[Value] {
 pub fn position(xs: &[Value], x: &Value) -> Option<usize> {
     xs.iter().position(|item| match (item, x) {
         (Value::Number(a), Value::Number(b)) => a == b || (a.is_nan() && b.is_nan()),
+        (Value::Bool(a), Value::Bool(b)) => a == b,
+        _ => item.as_str().is_some_and(|a| x.as_str() == Some(a)),
+    })
+}
+
+/// Where `xs.indexOf(x)` finds `x`: the first item IsStrictlyEqual to it —
+/// as [`position`], but NaN is never found (`-0` is still `0`).
+pub fn index_of(xs: &[Value], x: &Value) -> Option<usize> {
+    xs.iter().position(|item| match (item, x) {
+        (Value::Number(a), Value::Number(b)) => a == b,
         (Value::Bool(a), Value::Bool(b)) => a == b,
         _ => item.as_str().is_some_and(|a| x.as_str() == Some(a)),
     })
@@ -78,5 +89,17 @@ mod tests {
             Some(0)
         );
         assert_eq!(concat(&words, &xs).len(), 5);
+    }
+
+    /// `[1, NaN, -0].indexOf(…)` in `bun -e`: NaN is not found.
+    #[test]
+    fn index_of_is_strict_equality() {
+        let xs = numbers(&[1.0, f64::NAN, -0.0]);
+        assert_eq!(index_of(&xs, &Value::Number(f64::NAN)), None);
+        assert_eq!(index_of(&xs, &Value::Number(0.0)), Some(2));
+        assert_eq!(index_of(&xs, &Value::Number(1.0)), Some(0));
+        let words = vec![Value::str("a"), Value::str("b"), Value::str("b")];
+        assert_eq!(index_of(&words, &Value::str("b")), Some(1));
+        assert_eq!(index_of(&words, &Value::Number(1.0)), None);
     }
 }

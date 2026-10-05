@@ -114,6 +114,22 @@ test('concat, slice and includes over a list are the web methods, on the caller\
   expect(() => B.x_concat([big], [big, 'a'], 0, 9)).toThrow('Trap(ValueTooLarge { pc: 9 })');
 });
 
+// `indexOf` over a list is the web's IsStrictlyEqual (NaN is never found), a step an item scanned; over text, UTF-16
+// positions and no step. `split` takes a step a piece; an empty separator splits into code units, each well formed.
+test('indexOf and split are the web methods, on the caller\'s list steps', async () => {
+  const B = await import(resolve(dir, 'budget.js'));
+  const xs = [1, NaN, -0, 'a', true];
+  expect([B.x_indexOf(xs, NaN, 0, 1), B.ST, B.x_indexOf(xs, 0, 0, 1), B.ST, B.x_indexOf(xs, 'a', 0, 1), B.ST]).toEqual([-1, 5, 2, 3, 3, 4]);
+  expect([B.x_indexOf('a😀b', 'b', 9, 1), B.ST, B.x_indexOf('abc', '', 9, 1), B.x_indexOf('abc', 'z', 9, 1)]).toEqual([3, 0, 0, -1]);
+  expect([B.x_split('a,b,,c', ',', 0, 1), B.ST]).toEqual([['a', 'b', '', 'c'], 4]);
+  expect([B.x_split('a😀', '', 0, 1), B.ST, B.x_split('', '', 0, 1), B.x_split('', ',', 0, 1)]).toEqual([['a', '\uFFFD', '\uFFFD'], 3, [], ['']]);
+  expect(() => B.x_indexOf([1, 2, 3], 3, 65534, 8)).toThrow('Trap(IterationLimit { pc: 8 })');
+  expect(B.x_indexOf([1, 2, 3], 2, 65534, 8)).toBe(1);
+  expect(() => B.x_split('a,b,c', ',', 65534, 6)).toThrow('Trap(IterationLimit { pc: 6 })');
+  expect(() => B.x_split('abc', '', 65534, 6)).toThrow('Trap(IterationLimit { pc: 6 })');
+  expect(B.x_split('a,b', ',', 65534, 6)).toEqual(['a', 'b']);
+});
+
 // Local notifications on the JS target (notify.js, linked by use, over the
 // web host's notify-glue.js): the runner's rule (runner/src/notify.rs)
 // refuses without `device.notifications`, lists under the agent (a tag

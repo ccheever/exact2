@@ -44,7 +44,10 @@
 //     succeeds (c 38); `includes` scanning 40,000 labels after their `map`
 //     traps (c 39), and finding the first takes one step (c 40); `concat` of
 //     two 10,000-string lists passes 2^26 bytes, a `ValueTooLarge` at its
-//     call (c 41), and of 3,000-byte strings does not (c 42).
+//     call (c 41), and of 3,000-byte strings does not (c 42); `split` into
+//     65,537 code units traps at its call (c 43), into 65,536 pieces between
+//     its separators does not (c 44); `indexOf` scanning 40,000 labels after
+//     their `map` traps (c 45), and finding the first takes one step (c 46).
 routes nav
   tab home "/"
 
@@ -96,8 +99,8 @@ component Budget
   state armed = false
   state edge = false
   state poison = false
-  derive size = c == 1 or c == 38 ? 65536 : c == 2 or c == 37 ? 65537 : c == 3 ? 300 : c == 8 ? 32768 : c == 24 ? 32769 : c == 11 ? 2000 : c == 15 ? 20000 : c == 18 or c == 30 or c == 41 or c == 42 ? 10000 : c == 25 or c == 29 or c == 36 ? 30000 : c == 4 or c == 5 or c == 6 or c == 12 or c == 16 or c == 35 or c == 39 or c == 40 ? 40000 : 0
-  derive slen = c == 12 or c == 25 or c == 15 ? 2048 : c == 18 or c == 30 ? 1000 : c == 41 ? 4096 : c == 42 ? 3000 : 0
+  derive size = c == 1 or c == 38 ? 65536 : c == 2 or c == 37 ? 65537 : c == 3 ? 300 : c == 8 ? 32768 : c == 24 ? 32769 : c == 11 ? 2000 : c == 15 ? 20000 : c == 18 or c == 30 or c == 41 or c == 42 ? 10000 : c == 25 or c == 29 or c == 36 ? 30000 : c == 4 or c == 5 or c == 6 or c == 12 or c == 16 or c == 35 or c == 39 or c == 40 or c == 45 or c == 46 ? 40000 : 0
+  derive slen = c == 12 or c == 25 or c == 15 ? 2048 : c == 18 or c == 30 ? 1000 : c == 41 ? 4096 : c == 42 ? 3000 : c == 43 ? 65537 : c == 44 ? 65535 : 0
   resource k = cards(size, 0) as shape list<Card>
   resource j = cards(c == 6 ? 30000 : 0, 0) as shape list<Card>
   resource three = cards(c == 5 ? 3 : 0, 0) as shape list<Card>
@@ -121,6 +124,8 @@ component Budget
   derive d37 = c == 37 or c == 38 ? length(slice(k, 0)) : 0
   derive d39 = c == 39 ? includes(map(k, x => x.label), "none") : c == 40 ? includes(map(k, x => x.label), "Card 0") : false
   derive d41 = c == 41 or c == 42 ? length(concat(map(k, x => str), map(k, x => str))) : 0
+  derive d43 = c == 43 ? length(split(str, "")) : c == 44 ? length(split(str, "a")) : 0
+  derive d45 = c == 45 ? indexOf(map(k, x => x.label), "none") : c == 46 ? indexOf(map(k, x => x.label), "Card 0") : -2
   derive same = filter(three, x => true)
   action go(n: number)
     c = n
@@ -201,6 +206,14 @@ component Budget
           text "41"
         button press=go(42) testId="case-42"
           text "42"
+        button press=go(43) testId="case-43"
+          text "43"
+        button press=go(44) testId="case-44"
+          text "44"
+        button press=go(45) testId="case-45"
+          text "45"
+        button press=go(46) testId="case-46"
+          text "46"
       row gap=4 flex-wrap="wrap"
         button press=arm testId="arm"
           text "arm"
@@ -212,7 +225,7 @@ component Budget
           text "poison"
       text `c ${c} size ${size} k ${length(k)} two ${length(two)} str ${length(str)} t ${t}` testId="facts"
       text `${d1} ${d3} ${a6} ${b6} ${d8} ${d9} ${d11} ${d12} ${d13} ${d14} ${d15} ${d18} ${length(same)}` testId="results"
-      text `${d35} ${d37} ${d39} ${d41}` testId="lists"
+      text `${d35} ${d37} ${d39} ${d41} ${d43} ${d45}` testId="lists"
       when c == 5
         column testId="rows"
           each x in three key=length(map(k, y => y)) * 10 + x.n

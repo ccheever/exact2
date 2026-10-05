@@ -202,9 +202,13 @@ at CSS.
 - `[a, b, c]` is a list of its items, which may span lines and keep a trailing
   comma; the items have one type, met as a ternary's arms are (`[none,
   some(1)]` is a `list<option<number>>`; `[1, "a"]` is `type-list-item`).
-  `concat(xs, ys)`, `slice(xs, start, end?)` and `includes(xs, x)` are the web's
-  array methods: `[...xs, x]` is `concat(xs, [x])`, and `includes` finds a
-  string, number or bool (by SameValueZero, as the web does). A list the
+  `concat(xs, ys)`, `slice(xs, start, end?)`, `includes(xs, x)` and
+  `indexOf(xs, x)` are the web's array methods: `[...xs, x]` is
+  `concat(xs, [x])`, `includes` finds a string, number or bool (by
+  SameValueZero, as the web does) and `indexOf` says where (by `===`: `NaN` is
+  never found, `-1` for none). Over text, `indexOf(s, t)` is a position in
+  UTF-16 code units, and `split(s, ", ")` cuts text into a `list<string>`
+  (recipient chips). A list the
   screen keeps for the session — a selection, open or collapsed ids, per-row
   offsets — is `state` built this way; a list the app keeps across launches, or
   a server owns, belongs to the data module, and so do sorting, grouping and
@@ -226,7 +230,8 @@ at CSS.
   (`type-too-deep`).
 - One evaluation (an action body, a derive, a binding, a key, an argument)
   takes at most 65,536 list steps (each `map`/`filter` body run, each item
-  `join` prints or `concat`/`slice` keep, each item `includes` scans), builds strings of at most 64 MiB of UTF-8, and values of at
+  `join` prints or `concat`/`slice`/`split` keep, each item `includes` or
+  `indexOf` scans), builds strings of at most 64 MiB of UTF-8, and values of at
   most 2²⁴ values and 64 MiB of string bytes. Every target refuses the same
   step with the same reason: an action is refused with nothing changed, a view
   binding stops the runner (LLP 1090).
@@ -841,7 +846,7 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `items.map(...)` / `items[0]` | `map(items, …)` / `first(items)` or `at(items, 0)` |
 | `map(items, x => Row(...))` | Keyed `each` with `Row(...)` in its body |
 | `{ title: value }` | Declared record constructor |
-| `[...xs, x]` / `xs.push(x)` / `xs.indexOf(x) >= 0` | `concat(xs, [x])` / the same, assigned: `xs = concat(xs, [x])` / `includes(xs, x)` |
+| `[...xs, x]` / `xs.push(x)` / `xs.indexOf(x)` / `s.split(",")` | `concat(xs, [x])` / the same, assigned: `xs = concat(xs, [x])` / `indexOf(xs, x)` (or `includes(xs, x)` to test) / `split(s, ",")` |
 | `{...old, title: value}` | `Shape(old, title=value)`, with the record's declared shape |
 | `if name` for a string | `if name != ""` |
 | `selected.title` when optional | Exhaustive `match selected` |

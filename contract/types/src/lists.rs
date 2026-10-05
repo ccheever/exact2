@@ -1,8 +1,8 @@
 //! `map`, `filter` and `join` (LLP 1017.003 D4): the roster's list
 //! operations, typed here because a callback is not a value the roster
-//! table can describe; and `concat`, `slice` and `includes` (LLP 1088
-//! §9.1), whose types follow their first argument's: a list's item type,
-//! or text for `slice` and `includes`, the web's same-named methods.
+//! table can describe; and `concat`, `slice`, `includes` and `indexOf`
+//! (LLP 1088 §9.1), whose types follow their first argument's: a list's
+//! item type, or text for all but `concat`, the web's same-named methods.
 
 use crate::{checks, err, infer, Ref, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span};
@@ -18,13 +18,14 @@ pub(crate) fn is_list_op(f: Stdlib) -> bool {
             | Stdlib::Concat
             | Stdlib::Slice
             | Stdlib::Includes
+            | Stdlib::IndexOf
     )
 }
 
 /// `concat(list<T>, list<T>)`, `slice(string | list<T>, number, number?)`
 /// and `includes(string, string)` or `includes(list<T>, T)` with `T` a
-/// string, number or bool: the web compares an object by identity, so
-/// `includes` takes what `==` and `join` take of a list's items.
+/// string, number or bool, `indexOf` likewise: the web compares an object
+/// by identity, so they take what `==` and `join` take of a list's items.
 fn infer_built(
     f: Stdlib,
     args: &[Expr],
@@ -92,15 +93,20 @@ fn infer_built(
         }
         _ => {
             let second = infer(&args[1], scope, shapes)?;
+            let found = if f == Stdlib::IndexOf {
+                Ty::Number
+            } else {
+                Ty::Bool
+            };
             match &first {
-                Ty::String if second == Ty::String => Ok(Ty::Bool),
+                Ty::String if second == Ty::String => Ok(found),
                 Ty::String => argument(1, "string", &second),
                 Ty::List(item) => match item.unify(&second) {
-                    Some(Ty::String | Ty::Number | Ty::Bool) => Ok(Ty::Bool),
+                    Some(Ty::String | Ty::Number | Ty::Bool) => Ok(found),
                     Some(other) => err(
                         "type-argument",
                         format!(
-                            "`includes` finds a string, number or bool in a list, given `{other}`: test a field, `length(filter(xs, x => x.id == id)) > 0`"
+                            "`{name}` finds a string, number or bool in a list, given `{other}`: test a field, `length(filter(xs, x => x.id == id)) > 0`"
                         ),
                         args[1].span(),
                     ),
@@ -120,7 +126,10 @@ pub(crate) fn infer_call(
     scope: &Scope,
     shapes: &Shapes,
 ) -> Result<Ty, TypeError> {
-    if matches!(f, Stdlib::Concat | Stdlib::Slice | Stdlib::Includes) {
+    if matches!(
+        f,
+        Stdlib::Concat | Stdlib::Slice | Stdlib::Includes | Stdlib::IndexOf
+    ) {
         return infer_built(f, args, span, scope, shapes);
     }
     let name = f.name();

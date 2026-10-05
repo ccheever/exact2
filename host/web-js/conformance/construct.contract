@@ -3,7 +3,9 @@
 // `concat`, `slice` and `includes` are the web's array methods — `slice`
 // clamped as text's is (negative from the end, NaN is 0, fractions
 // truncate, an omitted end the end), `includes` by SameValueZero (NaN is
-// found, -0 is 0). HN's collapsed comments and mail's selection.
+// found, -0 is 0), `indexOf` by strict equality (NaN is not found) or over
+// text in UTF-16 units, `split` text's (an empty separator into code units,
+// each well formed). HN's collapsed comments, mail's selection and chips.
 component Construct
   state collapsed = []
   state picked = ["a"]
@@ -11,6 +13,9 @@ component Construct
   derive both = concat(picked, ["b", "c",])
   derive cuts = [join(slice(both, 1), ""), join(slice(both, 0, -1), ""), join(slice(both, 0.9, 2.7), ""), join(slice(both, 0 / 0, 1), ""), join(slice(both, 5), ""), join(slice(both, 2, 1), "")]
   derive finds = [includes(concat(nums, [0 / 0]), 0 / 0), includes(nums, 0), includes(nums, 2), includes(both, "b"), includes([true, false], false), includes("abc", "b")]
+  state to = "ann, bo,, 😀"
+  derive at = [indexOf(concat(nums, [0 / 0]), 0 / 0), indexOf(nums, 0), indexOf(both, "c"), indexOf(both, "z"), indexOf(to, "bo"), indexOf(to, "😀"), indexOf(to, "")]
+  derive chips = [join(split(to, ", "), "|"), join(split(to, ""), "."), toString(length(split("", ""))), toString(length(split("", ",")))]
   action toggle(id: string)
     collapsed = includes(collapsed, id) ? filter(collapsed, c => c != id) : concat(collapsed, [id])
   action add(id: string)
@@ -21,6 +26,8 @@ component Construct
       text join(picked, ",") testId="picked"
       text join(cuts, "|") testId="cuts"
       text join(map(finds, f => toString(f)), ",") testId="finds"
+      text join(at, ",") testId="at"
+      text join(chips, "/") testId="chips"
       button "x" press=toggle("x") testId="x"
       button "y" press=toggle("y") testId="y"
       button "add" press=add("z") testId="add"

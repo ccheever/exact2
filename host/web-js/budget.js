@@ -84,9 +84,10 @@ export function K(a, pc) {
 }
 
 // ---------------------------------------------------------------- lists (LLP 1088 §9.1)
-// `concat`, and `slice` and `includes` over a list, on the caller's budget as `join` is: each takes the caller's `$s`
-// and traps where the sum passes the bound, before it builds (`vm.rs`, `list_call`), leaving its own steps in `ST`,
-// which the caller adds to its `$s` (code.rs); a list it builds is `K`'s. Over text, `slice` and `includes` take no step.
+// `concat`, `split`, and `slice`, `includes` and `indexOf` over a list, on the caller's budget as `join` is: each takes
+// the caller's `$s` and traps where the sum passes the bound, before it builds (`vm.rs`, `list_call`), leaving its own
+// steps in `ST`, which the caller adds to its `$s` (code.rs); a list it builds is `K`'s. Over text, `slice`, `includes`
+// and `indexOf` take no step.
 /** The list steps the last of them took. */
 export let ST = 0;
 const step = (s, n, pc) => { ST = n; if (s + n > 65536) throw new Trap("IterationLimit", pc); };
@@ -107,6 +108,22 @@ export function x_includes(v, x, s, pc) {
   while (i < v.length && v[i] !== x && (x === x || v[i] === v[i])) i++;
   step(s, i < v.length ? i + 1 : v.length, pc);
   return i < v.length;
+}
+/** `indexOf(v, x)`: text's first match in UTF-16 code units, or a list's item by IsStrictlyEqual (NaN is never found),
+ * a step an item scanned; -1 for none. */
+export function x_indexOf(v, x, s, pc) {
+  if (typeof v === "string") { ST = 0; return v.indexOf(x); }
+  const i = v.indexOf(x);
+  step(s, i < 0 ? v.length : i + 1, pc);
+  return i;
+}
+/** `split(t, sep)`: a step a piece; an empty `sep` splits into code units, each made well formed (LLP 1088 D2), and
+ * steps before it splits, as the runner counts first. */
+export function x_split(t, sep, s, pc) {
+  if (sep === "") { step(s, t.length, pc); return K(t.split("").map(u => u.toWellFormed()), pc); }
+  const r = t.split(sep);
+  step(s, r.length, pc);
+  return K(r, pc);
 }
 
 // ---------------------------------------------------------------- strings (`Opcode::Concat`, the roster's builders)

@@ -265,10 +265,15 @@ impl Gen<'_> {
                     }
                 }
             }
-            Ty::List(elem) => match self
-                .rng
-                .weighted(&[5, 3, if pinned { 1 } else { 0 }, 3, 2, 2])
-            {
+            Ty::List(elem) => match self.rng.weighted(&[
+                5,
+                3,
+                if pinned { 1 } else { 0 },
+                3,
+                2,
+                2,
+                if **elem == Ty::Str { 2 } else { 0 },
+            ]) {
                 0 => {
                     let src_ty = self.held(env, false);
                     let src = self.expr(env, &Ty::list(src_ty.clone()), d, false);
@@ -293,7 +298,7 @@ impl Gen<'_> {
                     let b = self.expr(env, t, d, true);
                     format!("concat({a}, {b})")
                 }
-                _ => {
+                5 => {
                     let l = self.expr(env, t, d, pinned);
                     let a = self.expr(env, &Ty::Num, d, false);
                     if self.rng.chance(1, 3) {
@@ -301,6 +306,13 @@ impl Gen<'_> {
                     } else {
                         format!("slice({l}, {a}, {})", self.expr(env, &Ty::Num, d, false))
                     }
+                }
+                // `split` over code units: an empty separator cuts an astral
+                // character into two U+FFFD (LLP 1088 §9.1).
+                _ => {
+                    let s = self.expr(env, &Ty::Str, d, false);
+                    let sep = self.expr(env, &Ty::Str, d, false);
+                    format!("split({s}, {sep})")
                 }
             },
             Ty::Rec(i) => {
@@ -328,7 +340,7 @@ impl Gen<'_> {
     }
 
     fn num_expr(&mut self, env: &Env, d: usize) -> String {
-        match self.rng.weighted(&[8, 1, 3, 1, 2]) {
+        match self.rng.weighted(&[8, 1, 3, 1, 2, 1]) {
             0 => {
                 let op = *self.rng.pick(&["+", "-", "*", "/", "%", "+", "-", "*"]);
                 let a = self.expr(env, &Ty::Num, d, false);
@@ -338,6 +350,19 @@ impl Gen<'_> {
             1 => format!("(-{})", self.expr(env, &Ty::Num, d, false)),
             2 => format!("length({})", self.sized(env, d)),
             3 => format!("floor({})", self.expr(env, &Ty::Num, d, false)),
+            // `indexOf` over a list of strings, numbers or bools by strict
+            // equality, or over text in code units (LLP 1088 §9.1).
+            5 if self.rng.chance(1, 2) => {
+                let t = self.scalar_ty();
+                let l = self.expr(env, &Ty::list(t.clone()), d, false);
+                let x = self.expr(env, &t, d, false);
+                format!("indexOf({l}, {x})")
+            }
+            5 => {
+                let a = self.expr(env, &Ty::Str, d, false);
+                let b = self.expr(env, &Ty::Str, d, false);
+                format!("indexOf({a}, {b})")
+            }
             _ => {
                 let f = *self.rng.pick(&["max", "min"]);
                 let a = self.expr(env, &Ty::Num, d, false);

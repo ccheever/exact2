@@ -406,6 +406,16 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
         "`join(xs, \", \")`",
     );
     refused(
+        "text join(\"a,b\".split(\",\"), \",\")",
+        "syntax-method-call",
+        "`split(s, sep)`",
+    );
+    refused(
+        "text toString(xs.indexOf(\"a\"))",
+        "syntax-method-call",
+        "`indexOf(xs, x)` for a list",
+    );
+    refused(
         "text toString(xs.length)",
         "type-not-a-record",
         "`length(xs)`",
@@ -680,8 +690,9 @@ fn shown<D: DataSource>(r: &Runner<D>, id: &str) -> String {
 
 /// LLP 1088 §9.1: `[a, b]` is a list of its items, written across lines
 /// with a trailing comma, its items' types met as a ternary's arms are; a
-/// selection and a set of collapsed ids are kept with `concat`, `slice` and
-/// `includes`, the web's array methods.
+/// selection and a set of collapsed ids are kept with `concat`, `slice`,
+/// `includes` and `indexOf`, the web's array methods, and recipients are
+/// `split`, text's.
 #[test]
 fn a_list_the_screen_keeps_is_built_in_contract() {
     let plan = contract::bake(
@@ -700,6 +711,8 @@ fn a_list_the_screen_keeps_is_built_in_contract() {
     assert_eq!(shown(&r, "tabs"), "inbox,sent");
     assert_eq!(shown(&r, "scores"), "2");
     assert_eq!(shown(&r, "lengths"), "2,0,2");
+    assert_eq!(shown(&r, "chips"), "ann@x.org|bo@y.org");
+    assert_eq!(shown(&r, "at"), "-1 11");
     assert_eq!(
         shown(&r, "shown"),
         "a",
@@ -708,6 +721,7 @@ fn a_list_the_screen_keeps_is_built_in_contract() {
     r.act("pick", vec![Value::str("b")]).unwrap();
     r.act("pick", vec![Value::str("a")]).unwrap();
     assert_eq!(shown(&r, "picked"), "b,a");
+    assert_eq!(shown(&r, "at"), "1 11");
     assert_eq!(shown(&r, "lengths"), "2,2,2");
     for id in ["a", "b", "a"] {
         r.act("toggle", vec![Value::str(id)]).unwrap();
@@ -787,6 +801,37 @@ fn concat_slice_and_includes_are_typed() {
         "{e}"
     );
     contract::compile("component A\n  state xs = [1, 2]\n  view\n    text toString(includes(concat(xs, []), 0 / 0))\n").unwrap();
+    // `indexOf` takes what `includes` takes, and `split` text only.
+    refused(
+        "indexOf(xs, \"1\")",
+        "type-argument",
+        "argument 2 of `indexOf` expects `number`, given `string`",
+    );
+    refused(
+        "indexOf(\"ab\", 1)",
+        "type-argument",
+        "expects `string`, given `number`",
+    );
+    refused(
+        "indexOf(map(rs, r => r), at(rs, 0))",
+        "type-argument",
+        "expects `R`",
+    );
+    refused(
+        "length(split(ws, \",\"))",
+        "type-argument",
+        "expects `string`",
+    );
+    let e = contract::compile(
+        "shape R\n  id: string\ncomponent A\n  resource rs = rs() as shape list<R>\n  view\n    text toString(indexOf(rs, R(id=\"a\")))\n",
+    )
+    .unwrap_err();
+    assert!(
+        e.message
+            .contains("`indexOf` finds a string, number or bool in a list, given `R`"),
+        "{e}"
+    );
+    contract::compile("component A\n  state s = \"a,b\"\n  view\n    text toString(indexOf(split(s, \",\"), \"b\") + indexOf(s, \"b\"))\n").unwrap();
 }
 
 /// `n` rows from `rows(n)`, and a string of `n` bytes from `long(n)`.
@@ -807,9 +852,10 @@ impl DataSource for Many {
     }
 }
 
-/// LLP 1088 §9.1 in LLP 1090 D3's terms: `concat` and `slice` take a list
-/// step for each item they keep, before they build, and `includes` one for
-/// each item it scans up to the match, on the evaluation's one budget; a
+/// LLP 1088 §9.1 in LLP 1090 D3's terms: `concat`, `slice` and `split` take
+/// a list step for each item they keep, before they build, and `includes`
+/// and `indexOf` one for each item they scan up to the match, on the
+/// evaluation's one budget; a
 /// list they build is bounded as `List` is (conformance runs the same on the
 /// JS target, `host/web-js/conformance/budget.contract`).
 #[test]
@@ -841,4 +887,30 @@ fn concat_slice_and_includes_take_list_steps_and_build_bounded_lists() {
         .act("go", vec![Value::Number(1024.0), Value::Number(32769.0)])
         .unwrap_err();
     assert!(trap(&e).contains("ValueTooLarge"), "{e:?}");
+}
+
+/// `indexOf` steps as `includes` does, and `split` a step a piece, counted
+/// before the pieces are built: 65,536 pieces of `long(n)`'s text are the
+/// bound, one more past it.
+#[test]
+fn index_of_and_split_take_list_steps() {
+    let src = "shape Row\n  id: string\n  title: string\ncomponent A\n  state n = 0\n  state c = 0\n  resource rs = rows(n) as shape list<Row>\n  resource s = long(c) as shape string\n  derive at = indexOf(map(rs, r => r.id), \"none\")\n  derive pieces = length(split(s, \"\"))\n  derive words = length(split(s, \"a\"))\n  action go(k: number, b: number)\n    n = k\n    c = b\n  view\n    text `${at} ${pieces} ${words}` testId=\"t\"\n";
+    let mut r = Runner::boot(
+        contract::compile(src).unwrap(),
+        Many,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.act("go", vec![Value::Number(32768.0), Value::Number(65535.0)])
+        .unwrap();
+    assert_eq!(shown(&r, "t"), "-1 65535 65536");
+    let trap = |e: &RunnerError| format!("{e:?}");
+    for (k, b) in [(32769.0, 0.0), (0.0, 65536.0)] {
+        let e = r
+            .act("go", vec![Value::Number(k), Value::Number(b)])
+            .unwrap_err();
+        assert!(trap(&e).contains("IterationLimit"), "{k} {b}: {e:?}");
+    }
 }

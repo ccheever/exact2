@@ -137,13 +137,14 @@ fn every_check_names_its_instructions_pc() {
     }
 }
 
-/// LLP 1088 §9.1: `concat`, and `slice` and `includes` over a list, take
-/// their steps on the caller's budget, as `join` does: each gets the body's
+/// LLP 1088 §9.1: `concat`, `split`, and `slice`, `includes` and `indexOf`
+/// over a list, take their steps on the caller's budget, as `join` does:
+/// each gets the body's
 /// `$s` at its call and its pc, and the body adds the steps it took (`ST`);
 /// a body that calls one is metered, text's included.
 #[test]
 fn the_list_builders_step_on_the_callers_counter_at_their_call() {
-    let (plan, js) = js(&format!("{CARD}component App\n  resource cards = cards(3) as shape list<Card>\n  state s = \"ab\"\n  derive both = length(concat(cards, cards))\n  derive kept = length(slice(cards, 1))\n  derive found = includes(map(cards, c => c.label), s)\n  derive text = includes(s, \"a\")\n  view\n    text `${{both}} ${{kept}} ${{found}} ${{text}}`\n"));
+    let (plan, js) = js(&format!("{CARD}component App\n  resource cards = cards(3) as shape list<Card>\n  state s = \"ab\"\n  derive both = length(concat(cards, cards))\n  derive kept = length(slice(cards, 1))\n  derive found = includes(map(cards, c => c.label), s)\n  derive text = includes(s, \"a\")\n  derive at = indexOf(map(cards, c => c.label), s)\n  derive pieces = length(split(s, \"\"))\n  derive textAt = indexOf(s, \"b\")\n  view\n    text `${{both}} ${{kept}} ${{found}} ${{text}} ${{at}} ${{pieces}} ${{textAt}}`\n"));
     for (i, d) in plan.derives.iter().enumerate() {
         let body = decl(&js, &format!("d_{i}"));
         assert_eq!(body.matches("let $s=0").count(), 1, "{body}");
@@ -151,9 +152,15 @@ fn the_list_builders_step_on_the_callers_counter_at_their_call() {
             .flatten()
             .filter(|x| x.op == Opcode::Call)
             .filter(|x| {
-                [Stdlib::Concat, Stdlib::Slice, Stdlib::Includes]
-                    .iter()
-                    .any(|&f| x.args[0] == f as u64)
+                [
+                    Stdlib::Concat,
+                    Stdlib::Slice,
+                    Stdlib::Includes,
+                    Stdlib::IndexOf,
+                    Stdlib::Split,
+                ]
+                .iter()
+                .any(|&f| x.args[0] == f as u64)
             })
             .collect();
         assert_eq!(calls.len(), 1, "{body}");

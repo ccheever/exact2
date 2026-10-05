@@ -151,6 +151,15 @@ def rosterTy (name : String) (ts : List Ty) : Option Ty :=
     | _ => .none
   else if name = "concat" then
     match ts with | [.list a, .list b] => (Ty.unify a b).map .list | _ => .none
+  /- LLP 1088 §9.1 (2026-10-04 note): `indexOf` takes what `includes` takes
+  and answers a position; `split` cuts text into a list of text. -/
+  else if name = "indexOf" then
+    match ts with
+    | [.string, .string] => .some .number
+    | [.list a, x] => match Ty.unify a x with | .some u => if u.displayable then .some .number else .none | .none => .none
+    | _ => .none
+  else if name = "split" then
+    match ts with | [.string, .string] => .some (.list .string) | _ => .none
   else routerTy name ts
 
 /-- A binary operator's result on operands of these types (`infer`'s

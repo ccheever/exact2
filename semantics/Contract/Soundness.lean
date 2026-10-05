@@ -564,6 +564,34 @@ theorem stdlib_good {env : Env} {p : Program} {name : String} {vs : List Value} 
         · exact (hys.mem x hx).mono hle.2
     · simp at h
   rw [ite_neg hn] at h
+  by_cases hn : name = "indexOf"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h
+    · simp at h; subst h
+      obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
+      obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv; rw [hws'.nil_inv]
+      obtain ⟨_, rfl⟩ := hw.str_inv; obtain ⟨_, rfl⟩ := hw'.str_inv
+      simp [stdlib, indexOfOf, GoodR, ValTy]
+    · split at h
+      · split at h <;> simp at h; subst h
+        obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
+        obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv; rw [hws'.nil_inv]
+        obtain ⟨xs, rfl, _⟩ := hw.list_inv
+        simp [stdlib, indexOfOf, GoodR, ValTy]
+      · simp at h
+    · simp at h
+  rw [ite_neg hn] at h
+  by_cases hn : name = "split"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h; subst h
+    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
+    obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv; rw [hws'.nil_inv]
+    obtain ⟨_, rfl⟩ := hw.str_inv; obtain ⟨_, rfl⟩ := hw'.str_inv
+    simp only [stdlib, GoodR, ValTy]
+    exact ValTys.of_mem fun x hx => by
+      obtain ⟨s, _, rfl⟩ := List.mem_map.mp hx
+      simp [ValTy]
+  rw [ite_neg hn] at h
   exact stdlib_router hp hrs hv h
 
 /-! ## Scopes and environments -/
@@ -876,6 +904,7 @@ theorem stdlib_notPending (env : Env) (f : String) (args : List Value) : NotPend
        all_goals (simp at he; done))
     | (unfold includesOf; split <;> first | exact NotPending.ok _ | exact NotPending.err (by simp))
     | (unfold sliceOf; split <;> first | exact NotPending.ok _ | exact NotPending.err (by simp))
+    | (unfold indexOfOf; split <;> first | exact NotPending.ok _ | exact NotPending.err (by simp))
     | (split <;> first | exact NotPending.ok _ | exact NotPending.err (by simp))
     | (split
        · exact NotPending.ok _

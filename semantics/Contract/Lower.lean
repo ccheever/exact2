@@ -127,11 +127,11 @@ def roster : List String :=
    "replace", "back", "select", "go", "stack", "top", "depth", "params", "searchParam",
    "encodeURIComponent", "encodeRouteSegment", "includes", "trim", "first", "t", "map",
    "filter", "join", "formatDate", "formatNumber", "frame", "measure", "at", "startsWith",
-   "endsWith", "slice", "replaceAll", "toLowerCase", "concat"]
+   "endsWith", "slice", "replaceAll", "toLowerCase", "concat", "indexOf", "split"]
 
 /-- A roster entry's result type. -/
 def rosterTy (f : String) (args : List STy) : STy :=
-  if f = "now" ∨ f = "length" ∨ f = "floor" ∨ f = "max" ∨ f = "min" then .number
+  if f = "now" ∨ f = "length" ∨ f = "floor" ∨ f = "max" ∨ f = "min" ∨ f = "indexOf" then .number
   else if f = "isEmpty" ∨ f = "includes" ∨ f = "startsWith" ∨ f = "endsWith" then .bool
   else if f = "toString" ∨ f = "trim" ∨ f = "encodeURIComponent" ∨ f = "join"
     ∨ f = "replaceAll" ∨ f = "toLowerCase" then .string
@@ -141,6 +141,7 @@ def rosterTy (f : String) (args : List STy) : STy :=
     | .string :: _ => .string
     | .list t :: _ => .list t
     | _ => .top
+  else if f = "split" then .list .string
   else if f = "concat" then
     match args with
     | .list a :: .list b :: _ => .list (STy.join a b)

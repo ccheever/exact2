@@ -253,6 +253,13 @@ theorem stdlib_ty {env : Env} {sh f vs ts v} (h : stdlib env f vs = .ok v) (hts 
         cases t0 <;> simp [VTy] at hts ⊢
         exact VTyAll.of_mem fun x hx =>
           hts.1.mem x (List.mem_of_mem_drop (List.mem_of_mem_take hx))
+  case h_34 =>
+    unfold indexOfOf at h
+    split at h <;> simp at h <;> subst h <;> simp [VTy]
+  case h_35 =>
+    exact VTyAll.of_mem fun x hx => by
+      obtain ⟨s, _, rfl⟩ := List.mem_map.mp hx
+      simp [VTy]
   case h_33 _ _ xs ys =>
     rcases ts with _ | ⟨t0, _ | ⟨t1, ts⟩⟩
     · simp [VTys] at hts
