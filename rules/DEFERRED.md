@@ -402,6 +402,34 @@ reading. Nothing that isn't HTML is added by it.
   one voice, a stop at a future time, compressed formats, sound produced by a
   data module, microphone input, and output on Linux and Windows (LLP 1096
   §7). No tag is added.
+- **Expanded (LLP 1098; admitted by the orchestrator under Charlie's
+  2026-10-04 delegation, "make decisions without me"):** the media session,
+  by the Media Session API's names, on HTML's media element:
+  `metadata=MediaMetadata(title=, artist=, album=, artwork=)` on an `audio`
+  or `video` claims it; `seekbackward`, `seekforward`, `seekto`,
+  `previoustrack`, `nexttrack` and `stop` are that element's events, with
+  `MediaSessionActionDetails`; the platform's play and pause act on the
+  element; position and playback state are the player's. The web publishes
+  through `navigator.mediaSession`, Apple through `MPNowPlayingInfoCenter`
+  and `MPRemoteCommandCenter` in the video arm; Linux and Windows keep the
+  record. On iOS it needs `audio_session: "playback"` and the `audio`
+  background mode. Consumers: podcast (F13, Top 5 #1), jukebox (media keys).
+  Unblocks media keys, Now Playing, the lock screen and Control Center, a
+  headset's buttons and the browser's media hub. Take (offered in LLP 1098
+  §9 Q1, accepted): LLP 1042 §5's "Complete-player extension design
+  (unimplemented)", a spec with no implementer or date, is deleted, and
+  `QUEUE.md`'s "Video (LLP 1042)" lines lose "complete the designed
+  track/controller and app audio-session ownership APIs"; to the extent that
+  is not doing-list work, the admission stands on the orchestrator's waiver
+  under the same delegation. Still out, each until a consumer asks: the
+  other actions (`skipad`, slides, calls, picture in picture), Apple's
+  scanning, rate, rating and like commands, an app-set `playbackState` or
+  position, more than one artwork size, `app:/` artwork, resuming the
+  player after an interruption and route policy, MPRIS on Linux and
+  Windows's transport controls; and from LLP 1042 §5's deleted design,
+  `source` and `track` children, a media controller (play, load, seek,
+  fullscreen and PiP requests with results), DRM, and downloads and caches
+  (LLP 1098 §7). No tag is added.
 - No camera anything.
 - ~~No gradient style rows. A gradient with anything on it is a canvas surface with
   children (LLP 1014 §5 — the take for widening `canvas`; the three rows return when a
