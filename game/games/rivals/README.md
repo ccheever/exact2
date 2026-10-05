@@ -44,6 +44,13 @@ than tracking an attacker behind cover.
 | Weapons | 1 assault rifle · 2 rocket launcher · 3 knife (or the wheel) |
 | Bandage | hold Q, or hold the health panel's button |
 
+Reloading shows a moving meter. Press R again, or tap its HUD button, while the
+meter is green to fill the magazine immediately. The green window spans 45–65%
+of the normal reload: 1.6 seconds for the rifle, 2.2 for rockets. You get one
+timing attempt per reload; an early or late press keeps the normal deadline.
+Holding R does not trigger the second press. Switching weapons cancels the
+reload. The window and a missed attempt survive saving and restoring.
+
 Each life gives you one bandage. Hold for 1.5 seconds to recover up to 40 HP;
 walking slows while you dress the wound. Releasing early, taking damage,
 firing, reloading, switching weapons, jumping, sprinting or sliding interrupts
@@ -108,6 +115,10 @@ first leaves the player wounded, then Jev chooses whether to bandage and
 continues the target drill using the visible health panel and nameplates.
 The deterministic proof also holds the actual HUD button, cancels early and
 restores a half-finished keyboard hold in a fresh process.
+Add `--reload-drill` for a separate 96-choice target drill with timed reloads:
+Jev reads the visible reload label and can wait 0.1 seconds or press R again.
+The outcome counts quick reloads and missed attempts. The clock stays still
+while the model decides, so this tests the control's clarity, not human reflexes.
 Without a gateway key, `bun game/games/rivals/proof.mjs web --playtest --motor-check`
 (or `macos`) checks three pointer corrections against the training target.
 

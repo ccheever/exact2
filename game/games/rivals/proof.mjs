@@ -310,6 +310,42 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await careBack.world('world').save(resolve(out,'bandaged-restored.world'));
   check('bandage continuation saves are byte-identical', readFileSync(resolve(out,'bandaged.world')).equals(readFileSync(resolve(out,'bandaged-restored.world'))));
   await careBack.close();
+
+  const reload = await open({fresh:true});
+  await reload.tap('range');
+  const loading = reload.world('world');
+  await loading.run(100); await loading.tap('KeyF'); await loading.run(150);
+  await loading.tap('KeyR'); await loading.run(800);
+  check('reload meter exposes the early-finish window', text(await reload.tree(),'reload-status') === 'Press R now · quick reload'
+    && !!node(await reload.tree(),'reload-meter') && text(await reload.tree(),'ammo') === 'Reloading…');
+  await loading.save(resolve(out,'reload-window.world'));
+  if (host !== 'linux') await reload.screenshot(resolve(out,'reload-window.png'));
+  const finishReload = async session => {
+    const g = session.world('world');
+    await session.tap('reload'); await g.run(100);
+    check('the HUD timing press refills before the normal deadline', text(await session.tree(),'ammo') === '30 / 30'
+      && text(await session.tree(),'reload-status') === 'Quick reload!');
+    await g.run(900); await g.tap('KeyF'); await g.run(200);
+    check('the reloaded rifle fires normally', text(await session.tree(),'ammo') === '29 / 30');
+    await session.tap('reload'); await g.run(200);
+    await g.tap('KeyR'); await g.run(100);
+    check('an early keyboard press reports the spent attempt', text(await session.tree(),'reload-status')?.startsWith('Missed'));
+    await g.run(500); await g.tap('KeyR'); await g.run(100);
+    check('pressing again cannot recover a missed window', text(await session.tree(),'ammo') === 'Reloading…'
+      && text(await session.tree(),'reload-status')?.startsWith('Missed'));
+    await g.run(900);
+    check('a missed attempt still finishes the normal reload', text(await session.tree(),'ammo') === '30 / 30');
+  };
+  await finishReload(reload);
+  await loading.save(resolve(out,'reloaded.world'));
+  pinSave('quick-reload',resolve(out,'reloaded.world'));
+  await reload.close();
+  const reloadBack = await open({fresh:true,world:resolve(out,'reload-window.world')});
+  await reloadBack.tap('range');
+  await finishReload(reloadBack);
+  await reloadBack.world('world').save(resolve(out,'reloaded-restored.world'));
+  check('fresh process preserves the reload window and continuation bytes', readFileSync(resolve(out,'reloaded.world')).equals(readFileSync(resolve(out,'reloaded-restored.world'))));
+  await reloadBack.close();
 });
 
 async function rocketPractice(session) {
@@ -382,10 +418,11 @@ async function motorCheck({open, out, check}) {
 // neither reads enemy world positions or writes the simulation. This measures
 // decisions, not visual perception or human aim.
 async function playtest({open, out, say}) {
+  const timedReload = process.argv.includes('--reload-drill');
   const recovery = process.argv.includes('--recovery');
   const mayhem = process.argv.includes('--mayhem');
-  const duel = !recovery && (process.argv.includes('--duel') || mayhem);
-  const mode = recovery ? 'recovery' : mayhem ? 'mayhem' : duel ? 'duel' : 'drill';
+  const duel = !recovery && !timedReload && (process.argv.includes('--duel') || mayhem);
+  const mode = timedReload ? 'reload' : recovery ? 'recovery' : mayhem ? 'mayhem' : duel ? 'duel' : 'drill';
   const s = await open();
   await s.tap(duel ? mayhem ? 'mayhem' : 'play' : 'range');
   const game = s.world('world');
@@ -397,6 +434,7 @@ async function playtest({open, out, say}) {
   const blocked = new Map();
   const moves = ['forward','back','left','right','jump_forward'];
   const actions = [];
+  let quickReloads = 0, missedReloads = 0;
   let blindTurn = 0;
   for (let turn = 0; turn < (duel ? 128 : 96); turn++) {
     const {tree, contacts} = await visible(s);
@@ -404,11 +442,19 @@ async function playtest({open, out, say}) {
     const state = Object.fromEntries(['hp','ammo','weapon-name','you-kills','rival-kills','score-target','drill-clock','drill-score','drill-target','heading','incoming-direction']
       .map(id => [id, text(tree,id) ?? '']));
     if (recovery) Object.assign(state, {'bandage-hint':text(tree,'bandage-hint'), 'bandage-status':text(tree,'bandage-status')});
+    if (timedReload) state['reload-status'] = text(tree,'reload-status');
+    const reloading = state.ammo === 'Reloading…';
     const choices = {wait:'Wait half a second for a respawn, reload, or target to appear'};
     if (!node(tree, 'dead')) {
       if (recovery && node(tree,'bandage')?.props?.disabled === false) choices.bandage = 'Hold Q for 1.7 seconds to use the one bandage: recover up to 40 HP; damage or combat interrupts it';
-      for (const c of contacts) choices[`shoot_${c.id}`] = `Aim at ${c.label} (${c.hp}) and fire up to three shots with the selected weapon`;
-      if (/^\d+ \/ \d+$/.test(state.ammo) && Number(state.ammo.split(' / ')[0]) < Number(state.ammo.split(' / ')[1])) choices.reload = 'Reload the selected weapon, waiting two seconds';
+      if (!timedReload || !reloading) for (const c of contacts) choices[`shoot_${c.id}`] = `Aim at ${c.label} (${c.hp}) and fire up to three shots with the selected weapon`;
+      if (/^\d+ \/ \d+$/.test(state.ammo) && Number(state.ammo.split(' / ')[0]) < Number(state.ammo.split(' / ')[1])) choices.reload = timedReload
+        ? 'Begin reloading, then follow the meter for a second press in green'
+        : 'Reload the selected weapon, waiting two seconds';
+      if (timedReload && reloading) Object.assign(choices, {
+        wait_short:'Wait 0.1 seconds while watching the reload meter',
+        quick_reload:'Press R again; green finishes early, a mistimed press spends the one timing attempt',
+      });
       if (duel) Object.assign(choices, {
         forward:'Advance for half a second', left:'Strafe left for half a second',
         right:'Strafe right for half a second', back:'Retreat for half a second',
@@ -428,6 +474,7 @@ async function playtest({open, out, say}) {
     }
     const decision = await decide({state:{...state, contacts, recent, ...(duel ? {blockedActions:[...blocked].filter(([,n])=>n>=2).map(([name])=>name), blindTurnDegrees:Math.round(blindTurn)} : {})}, choices, transcript,
       goal:duel ? `Win the ${mayhem ? 'free-for-all against 24 bots' : 'duel'} while staying alive. Shoot visible opponents, reload when ammunition is low, and use the incoming-hit direction to turn toward attacks. The compass shows where you face. Recent movedMeters is your actual movement: a movement command under 0.3 metres hit an obstacle. Jump or strafe around it; do not repeat blocked steps. If repeated scanning finds nobody, move to a new position instead of spinning in place. The motor aims only at visible nameplates; it cannot see through cover. Avoid unnecessary weapon switching.`
+        : timedReload ? 'Score as highly as possible in the thirty-second target drill, using timed reloads to spend less time without ammunition. Shoot the green TARGET and reload when needed. During a reload, the visible reload-status says when the meter is green: press R again then to refill immediately. You get one timing attempt per reload; a miss still finishes at the normal time. Wait in short steps to watch the meter. The motor aims at your chosen nameplate.'
         : recovery ? 'Recover to full health using your bandage after the rocket practice, then score as highly as possible in the remaining drill time. Shoot the green TARGET named in the HUD, avoiding other dummies to preserve the combo. Reload when needed; the motor aims at your chosen nameplate.'
         : 'Score as highly as possible in the thirty-second drill. Shoot the green TARGET named in the HUD, avoiding other dummies to preserve your combo. Reload when needed and wait if the requested dummy is respawning. The motor aims at your chosen nameplate.'});
     say(`JEV ${mode} ${turn+1}: ${decision.choice} · ${state['drill-score'] || `${state['you-kills']}–${state['rival-kills']} · ${state.hp} HP`}`);
@@ -441,12 +488,19 @@ async function playtest({open, out, say}) {
         await game.run(180);
       }
     } else if (decision.choice === 'bandage') await game.hold('KeyQ',1700);
-    else if (decision.choice === 'reload') { await game.tap('KeyR'); await game.run(2300); }
+    else if (decision.choice === 'reload') { await game.tap('KeyR'); await game.run(timedReload ? 100 : 2300); }
+    else if (decision.choice === 'quick_reload') { await game.tap('KeyR'); await game.run(100); }
+    else if (decision.choice === 'wait_short') await game.run(100);
     else if (decision.choice === 'wait') await game.run(500);
     else if (decision.choice === 'jump_forward') { await game.tap('Space'); await game.hold('KeyW', 500); }
     else if (['rifle','rocket'].includes(decision.choice)) { await game.tap(decision.choice === 'rifle' ? 'Digit1' : 'Digit2'); await game.run(300); }
     else await game.hold({forward:'KeyW',left:'KeyA',right:'KeyD',back:'KeyS',scan:'ArrowRight',scan_left:'ArrowLeft',turn_back:'ArrowRight'}[decision.choice], decision.choice === 'turn_back' ? Math.PI / 2.4 * 1000 : decision.choice.startsWith('scan') ? 250 : 500);
     const after = duel ? await game.local_position('player') : null;
+    if (timedReload) {
+      const label = text(await s.tree(),'reload-status') ?? '';
+      if (label === 'Quick reload!' && state['reload-status'] !== label) quickReloads++;
+      if (label.startsWith('Missed') && !state['reload-status']?.startsWith('Missed')) missedReloads++;
+    }
     actions.push({action:decision.choice, milliseconds:s.now-started, triggerMilliseconds:triggers});
     const moved = duel ? Math.round(Math.hypot(after[0]-before[0],after[2]-before[2])*100)/100 : 0;
     if (duel) {
@@ -457,12 +511,14 @@ async function playtest({open, out, say}) {
       else if (turning) blindTurn += decision.choice === 'turn_back' ? 180 : 2.4 * 0.25 * 180 / Math.PI;
     }
     recent.push({action:decision.choice, ammo:state.ammo, score:state['drill-score'], hp:state.hp, heading:state.heading, visible:contacts.length,
+      ...(timedReload ? {reload:state['reload-status']} : {}),
       ...(duel ? {movedMeters:moved} : {})});
     if (recent.length > 4) recent.shift();
     if (turn === 9) await s.screenshot(resolve(out, `jev-${mode}-playing.png`));
   }
   const tree = await s.tree();
   const result = {mode, motor:'pointer', actions, score:text(tree,'drill-score'), done:!!node(tree,'drill-done') || !!node(tree,'round-over'), hp:text(tree,'hp'),
+    ...(timedReload ? {quickReloads, missedReloads} : {}),
     playerKills:text(tree,'you-kills'), rivalKills:text(tree,'rival-kills'), target:text(tree,'score-target'), ...(recovery ? {bandage:text(tree,'bandage-status')} : {}), world:await game.snapshot()};
   say(`JEV outcome: ${JSON.stringify({...result,world:undefined,actions:undefined})}`);
   writeFileSync(resolve(out, `jev-${mode}-outcome.json`), JSON.stringify(result,null,2));

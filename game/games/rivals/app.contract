@@ -27,6 +27,10 @@ shape Hud
   ammo: number
   mag: number
   reloading: bool
+  reload_progress: number
+  reload_window: bool
+  reload_available: bool
+  reload_label: string
   bandage_ready: bool
   bandaging: bool
   bandage_progress: number
@@ -156,9 +160,15 @@ component Rivals
             when hud.bandaging
               column width=200 height=4 border-radius=2 background-color="#2d333b" pointer-events="none"
                 column width=(hud.bandage_progress * 200) height=4 border-radius=2 background-color="#67e8a5"
-          column testId="weapon" position="absolute" right=16 bottom=16 gap=6 align-items="flex-end" padding=12 border-radius=12 background-color="#10141bcc" pointer-events="none"
+          column testId="weapon" position="absolute" right=16 bottom=16 gap=6 align-items="flex-end" padding=12 border-radius=12 background-color="#10141bcc"
             text (hud.reloading ? "Reloading…" : hud.slot == 3 ? "—" : `${hud.ammo} / ${hud.mag}`) testId="ammo" font-size=28 font-weight=800
             text hud.weapon testId="weapon-name" color="#c9d1d9"
+            when hud.reloading
+              column testId="reload-meter" position="relative" width=240 height=10 border-radius=3 background-color="#475569" pointer-events="none"
+                column position="absolute" left=108 width=48 height=10 background-color=(hud.reload_window ? "#bef264" : "#3f6212")
+                column position="absolute" left=(hud.reload_progress * 236) width=4 height=10 background-color="#ffffff"
+            button action="reload" testId="reload" aria-label="Reload; press again in green to finish early" disabled=(not hud.reload_available) width=250 height=32 box-sizing="border-box" padding=6 border-radius=6 background-color=(hud.reload_window ? "#3f6212" : "#2d333b")
+              text hud.reload_label testId="reload-status" font-size=14 font-weight=700 color=(hud.reload_window ? "#bef264" : "#f5f7fa")
             row gap=6
               text "1 Rifle" padding=4 border-radius=6 font-size=12 background-color=(hud.slot == 1 ? "#e8ad61" : "#2d333b") color=(hud.slot == 1 ? "#10141b" : "#c9d1d9")
               text "2 Rockets" padding=4 border-radius=6 font-size=12 background-color=(hud.slot == 2 ? "#e8ad61" : "#2d333b") color=(hud.slot == 2 ? "#10141b" : "#c9d1d9")
@@ -188,7 +198,7 @@ component Rivals
             text (paused ? "Resume" : "Pause")
           button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=180 width=96 height=96 border-radius=48 background-color="#35475188"
             text "Move" color="#ffffff"
-          row position="absolute" right=24 bottom=120 gap=12
+          row position="absolute" right=24 bottom=200 gap=12
             button action="jump" testId="jump" aria-label="Jump" padding=16 border-radius=12 background-color="#35475188"
               text "Jump"
             button action="fire" testId="fire" aria-label="Fire" padding=16 border-radius=12 background-color="#e8ad61"
@@ -201,6 +211,7 @@ component Rivals
             text "Mouse or arrow keys look · WASD move" width="100%" text-align="center"
             text "Shift sprint · Space jump · C slide" width="100%" text-align="center"
             text "Click or F fire · R reload · 1 2 3 weapons" width="100%" text-align="center"
+            text "Reload: tap R again in green to finish early" width="100%" text-align="center" color="#bef264"
             text "Hold Q: bandage +40 HP · damage or combat interrupts" width="100%" text-align="center" color="#a7d8c0"
             text "Range: 30 seconds · follow the green target · build a combo" width="100%" text-align="center" color="#bef264"
           row gap=12

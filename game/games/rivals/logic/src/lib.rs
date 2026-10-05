@@ -66,6 +66,10 @@ pub struct Hud {
     pub ammo: u32,
     pub mag: u32,
     pub reloading: bool,
+    pub reload_progress: f32,
+    pub reload_window: bool,
+    pub reload_available: bool,
+    pub reload_label: String,
     pub bandage_ready: bool,
     pub bandaging: bool,
     pub bandage_progress: f32,
@@ -614,6 +618,39 @@ pub fn publish(w: &World, args: &Options, viewport: Vec2) {
         ammo,
         mag,
         reloading: me.reload_until > 0.0,
+        reload_progress: me.reload_progress(now),
+        reload_window: me.quick_reload_ready(now),
+        reload_available: me.alive
+            && me.weapon != Weapon::Knife
+            && me.bandage_until == 0.0
+            && !r.over(now)
+            && !drill_done
+            && (ammo < mag || me.reload_until > 0.0),
+        reload_label: if !me.alive {
+            "New magazine on respawn".into()
+        } else if me.reload_until > 0.0 {
+            if me.quick_reload_ready(now) {
+                "Press R now · quick reload".into()
+            } else {
+                let left = exact_game::math::ceil((me.reload_until - now).max(0.0) * 10.0) / 10.0;
+                format!(
+                    "{} · {left:.1}s",
+                    if me.reload_missed {
+                        "Missed"
+                    } else {
+                        "R again in green"
+                    }
+                )
+            }
+        } else if now < me.quick_reload_until {
+            "Quick reload!".into()
+        } else if me.weapon == Weapon::Knife {
+            "No magazine".into()
+        } else if ammo == mag {
+            "Magazine full".into()
+        } else {
+            "R Reload · tap again in green".into()
+        },
         bandage_ready: me.can_bandage() && !me.sliding(now) && !r.over(now) && !drill_done,
         bandaging: me.bandage_until > 0.0 && !r.over(now) && !drill_done,
         bandage_progress: if me.bandage_until > 0.0 {

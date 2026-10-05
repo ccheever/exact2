@@ -24,6 +24,165 @@ fn round(sim: &Sim<Rivals>) -> Round {
     sim.world().resource::<Round>().clone()
 }
 
+fn used_magazine(key: &str) -> Sim<Rivals> {
+    let mut sim = range();
+    sim.run(100.0);
+    sim.tap(key);
+    sim.run(300.0);
+    sim.tap("KeyF");
+    sim.run(300.0);
+    sim
+}
+
+#[test]
+fn a_second_reload_press_in_green_refills_either_weapon_early() {
+    for key in ["Digit1", "Digit2"] {
+        let mut sim = used_magazine(key);
+        sim.tap("KeyR");
+        sim.run(20.0);
+        let until = fighter(&sim, "player").reload_until;
+        let duration = fighter(&sim, "player").weapon.reload_time();
+        sim.run(f64::from(duration) * 500.0);
+        assert!(fighter(&sim, "player").quick_reload_ready(sim.world().seconds() as f32));
+        sim.tap("KeyR");
+        sim.run(20.0);
+        let f = fighter(&sim, "player");
+        assert_eq!(f.reload_until, 0.0);
+        assert!(sim.world().seconds() < f64::from(until), "refill is early");
+        assert!(f.quick_reload_until > sim.world().seconds() as f32);
+        assert_eq!(f.rifle_ammo, 30);
+        assert_eq!(f.rocket_ammo, 2);
+        sim.run(1000.0);
+        sim.tap("KeyF");
+        sim.run(20.0);
+        let f = fighter(&sim, "player");
+        assert_eq!(
+            if key == "Digit1" {
+                f.rifle_ammo
+            } else {
+                f.rocket_ammo
+            },
+            if key == "Digit1" { 29 } else { 1 }
+        );
+    }
+}
+
+#[test]
+fn mistimed_attempts_and_a_held_key_keep_the_normal_reload_deadline() {
+    for fraction in [0.2, 0.8] {
+        let mut sim = used_magazine("Digit1");
+        sim.tap("KeyR");
+        sim.run(20.0);
+        let until = fighter(&sim, "player").reload_until;
+        sim.run(1600.0 * fraction);
+        sim.tap("KeyR");
+        sim.run(20.0);
+        assert!(fighter(&sim, "player").reload_missed);
+        if fraction < 0.5 {
+            sim.run(1600.0 * (0.5 - fraction));
+        }
+        sim.tap("KeyR");
+        sim.run(20.0);
+        let f = fighter(&sim, "player");
+        assert_eq!(
+            f.reload_until, until,
+            "a second try cannot recover a missed window"
+        );
+        assert_eq!(f.rifle_ammo, 29);
+        sim.run(1700.0);
+        assert_eq!(fighter(&sim, "player").rifle_ammo, 30);
+        assert_eq!(fighter(&sim, "player").quick_reload_until, 0.0);
+    }
+    let mut held = used_magazine("Digit1");
+    held.key_down("KeyR");
+    held.run(850.0);
+    assert!(fighter(&held, "player").quick_reload_ready(held.world().seconds() as f32));
+    assert_eq!(
+        fighter(&held, "player").rifle_ammo,
+        29,
+        "holding is not a second press"
+    );
+    held.run(900.0);
+    assert_eq!(fighter(&held, "player").rifle_ammo, 30);
+    assert_eq!(fighter(&held, "player").quick_reload_until, 0.0);
+}
+
+#[test]
+fn reload_window_and_a_missed_attempt_survive_restoration() {
+    use exact_game::Paranoid;
+    for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
+        for miss in [false, true] {
+            let mut sim = used_magazine("Digit1").paranoid(mode);
+            sim.tap("KeyR");
+            sim.run(200.0);
+            if miss {
+                sim.tap("KeyR");
+            }
+            sim.run(600.0);
+            let saved = sim.save().unwrap();
+            let mut back = range().paranoid(mode);
+            back.restore_bound(&saved).unwrap();
+            for s in [&mut sim, &mut back] {
+                assert_eq!(
+                    fighter(s, "player").quick_reload_ready(s.world().seconds() as f32),
+                    !miss
+                );
+                s.tap("KeyR");
+                s.run(100.0);
+                assert_eq!(fighter(s, "player").rifle_ammo, if miss { 29 } else { 30 });
+                s.run(1200.0);
+            }
+            assert_eq!(sim.save().unwrap(), back.save().unwrap());
+        }
+    }
+}
+
+#[test]
+fn switching_and_respawn_clear_the_reload_attempt() {
+    let mut sim = used_magazine("Digit1");
+    sim.tap("KeyR");
+    sim.run(200.0);
+    sim.tap("KeyR");
+    sim.run(20.0);
+    assert!(fighter(&sim, "player").reload_missed);
+    sim.tap("Digit3");
+    sim.run(20.0);
+    let f = fighter(&sim, "player");
+    assert_eq!(f.reload_until, 0.0);
+    assert!(!f.reload_missed);
+    sim.tap("KeyR");
+    sim.run(2000.0);
+    assert_eq!(
+        fighter(&sim, "player").reload_until,
+        0.0,
+        "a knife has no magazine"
+    );
+    sim.tap("Digit1");
+    sim.run(20.0);
+    assert_eq!(
+        fighter(&sim, "player").rifle_ammo,
+        29,
+        "switching did not refill it"
+    );
+    sim.tap("KeyR");
+    sim.run(200.0);
+    sim.tap("KeyR");
+    sim.run(20.0);
+    let player = sim.world().resolve("player").unwrap();
+    rivals_logic::fighter::place(sim.world_mut(), player, [0.0, 18.0]);
+    let f = fighter(&sim, "player");
+    assert!(!f.reload_missed);
+    assert_eq!(f.reload_until, 0.0);
+    assert_eq!(f.quick_reload_until, 0.0);
+    sim.tap("KeyR");
+    sim.run(100.0);
+    assert_eq!(
+        fighter(&sim, "player").reload_until,
+        0.0,
+        "a full magazine cannot start one"
+    );
+}
+
 #[test]
 fn a_bandage_requires_a_full_hold_saves_midway_and_is_spent_once() {
     use exact_game::Paranoid;

@@ -50,6 +50,13 @@ impl Weapon {
             Weapon::Knife => 1.15,
         }
     }
+    pub fn reload_time(self) -> f32 {
+        match self {
+            Self::Rifle => RIFLE_RELOAD,
+            Self::Rocket => ROCKET_RELOAD,
+            Self::Knife => 0.0,
+        }
+    }
 }
 
 /// A rocket in flight. Each tick it sweeps a ray over its whole step, so no
@@ -170,11 +177,22 @@ pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> 
         if let Some(next) = intent.switch.filter(|n| *n != f.weapon) {
             f.weapon = next;
             f.reload_until = 0.0;
+            f.reload_missed = false;
+            f.quick_reload_until = 0.0;
             f.next_shot = f.next_shot.max(now + 0.25);
         }
         let reloading = f.reload_until > 0.0;
-        if reloading && now >= f.reload_until {
+        let quick = reloading && intent.reload && f.quick_reload_ready(now);
+        if reloading && now < f.reload_until && intent.reload && !quick {
+            // One attempt per reload. Holding R produces only the initial
+            // pressed edge; repeated taps cannot fish for the green window.
+            f.reload_missed = true;
+        }
+        if reloading && (now >= f.reload_until || quick) {
             f.reload_until = 0.0;
+            if quick {
+                f.quick_reload_until = now + 0.8;
+            }
             match f.weapon {
                 Weapon::Rifle => f.rifle_ammo = RIFLE_MAG,
                 Weapon::Rocket => f.rocket_ammo = ROCKET_MAG,
@@ -188,6 +206,8 @@ pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> 
         };
         if f.reload_until == 0.0 && ((intent.reload && ammo < full) || (ammo == 0 && intent.fire)) {
             f.reload_until = now + time;
+            f.reload_missed = false;
+            f.quick_reload_until = 0.0;
         }
         if !intent.fire || f.reload_until > 0.0 || now < f.next_shot || ammo == 0 {
             return out;

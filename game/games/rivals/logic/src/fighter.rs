@@ -65,6 +65,9 @@ pub struct Fighter {
     pub rifle_ammo: u32,
     pub rocket_ammo: u32,
     pub reload_until: f32,
+    /// A mistimed second press spends this reload's early-finish attempt.
+    pub reload_missed: bool,
+    pub quick_reload_until: f32,
     pub next_shot: f32,
     pub bloom: f32,
     pub kick: f32,
@@ -99,6 +102,20 @@ impl Fighter {
     pub fn can_bandage(&self) -> bool {
         self.alive && !self.bandage_used && self.hp < MAX_HP && self.reload_until == 0.0
     }
+    pub fn reload_progress(&self, now: f32) -> f32 {
+        let duration = self.weapon.reload_time();
+        if self.reload_until > 0.0 && duration > 0.0 {
+            (1.0 - (self.reload_until - now) / duration).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
+    pub fn quick_reload_ready(&self, now: f32) -> bool {
+        self.alive
+            && !self.reload_missed
+            && self.reload_until > now
+            && (0.45..=0.65).contains(&self.reload_progress(now))
+    }
     pub fn reset_loadout(&mut self) {
         self.hp = MAX_HP;
         self.alive = true;
@@ -106,6 +123,8 @@ impl Fighter {
         self.rifle_ammo = RIFLE_MAG;
         self.rocket_ammo = ROCKET_MAG;
         self.reload_until = 0.0;
+        self.reload_missed = false;
+        self.quick_reload_until = 0.0;
         self.bloom = 0.0;
         self.kick = 0.0;
         self.climb = 0.0;

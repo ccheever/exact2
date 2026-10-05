@@ -1524,3 +1524,34 @@ pins, worlds and fifty distinct saved files. Every process audit is available
 and reports zero remaining recorded children. The six feature captures were
 inspected. Comparison: `/tmp/exact2-main-input-game-comparison.json`.
 No gameplay or closed Jev-policy changes are included in this integration.
+
+## Timed reloads (2026-10-04)
+
+The old reload offered a fixed 1.6 s rifle or 2.2 s rocket wait and only
+“Reloading…” as feedback. Pressing R again, or tapping the reload HUD
+button, at 45–65% now finishes early. The moving white marker and green band
+show the window. One mistimed press spends the attempt but keeps the normal
+deadline; holding R is only one press. Switching weapons cancels the attempt,
+and respawning clears it. The saved Fighter owns both the missed attempt and
+the brief success caption. Bots continue their ordinary reload policy.
+This uses existing input, clock, state publication and save seams; no engine
+API or new script was needed.
+
+The four new simulation tests cover both weapons, early/late presses, holding
+R, cancellation, respawn and restoration before/after a miss. The game shell
+suite passes 36 tests with four timing cases ignored, and strict Clippy passes
+(`/tmp/exact2-rivals-quick-reload-tests.log`). Complete candidate web/macOS
+proofs report zero failures in 100.876/67.084 s including builds. Source
+inputs, candidate pins, fourteen final world observations and twenty saved
+files agree between hosts. Both process audits are available with no recorded
+children remaining. Both reload-window PNGs were inspected: the green timing
+button and meter are visible, with Fire/Jump clear of the taller weapon card.
+Artifacts: `artifacts/quick-reload-{web,macos}/`; comparison:
+`/tmp/exact2-rivals-quick-reload-comparison.json`. These are candidate runs,
+not yet an accepted baseline: the saved fields intentionally change the pins.
+
+A separate Jev `--reload-drill` policy is fixed before its first trial. It
+reads the visible reload caption, can wait 100 ms or press R again, and records
+successful/missed reloads beside score. The earlier duel, recovery and Mayhem
+batches remain closed. The seekable clock pauses during the model decision;
+this can test understanding of feedback, not human reflex difficulty.

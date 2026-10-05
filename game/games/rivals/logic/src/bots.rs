@@ -243,6 +243,9 @@ pub fn think(w: &World, e: Entity, all: &[Seen], covers: &[Vec3]) -> Intent {
             intent.switch = Some(Weapon::Rifle);
         }
     }
+    // The planner asks to start a normal reload once; it does not repeatedly
+    // press the timing control while that reload is in progress.
+    intent.reload &= !reloading;
     // Movement: a world-space wish, converted to the stick's yaw-local frame.
     let mut wish = Vec3::ZERO;
     match (b.plan, target) {
