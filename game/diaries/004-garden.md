@@ -1425,3 +1425,16 @@ A periodic read-only fetch during the sweep finds main at `d2cb661eb`, another
 changes are outside this verified checkpoint; integrate at the next clean
 boundary. Its DEFERRED change admits local notifications, unrelated to this
 queue inspection; RULES is unchanged.
+
+## Main's input/focus batch (2026-10-04)
+
+Merge `b32b0eec6` integrates main through `d2cb661eb`; Rivals diary 006
+records the tooling, root and macOS-host checks and the stale clipping-fixture
+repair. Garden passes complete web/macOS proofs in 134.433/66.167 s including
+builds. Source inputs, pins, eleven final world observations, published values
+and fifteen saves agree across hosts; worlds, pins and saves retain the prior
+`pending-checked` results. The Compost boundary still reports one message on
+web and that message plus six Blurs on macOS, then zero on both after the next
+normal tick. Both feeding captures were inspected. Artifacts:
+`artifacts/main-input-{web,macos}/`. Gameplay and the closed Jev policies are
+unchanged.

@@ -1472,3 +1472,55 @@ seventeen saves agree across hosts; worlds and saves retain the prior `owner`
 results. Both bandaging captures were inspected, and both process audits leave
 no recorded children. Artifacts: `artifacts/pending-{web,macos}/`. No pin,
 gameplay or Jev-policy changes.
+
+## Main's input and focus integration (2026-10-04)
+
+Merge `b32b0eec6` integrates the next 72 main commits through `d2cb661eb`.
+The two textual conflicts were in the browser launcher and a context-menu
+ordering assertion. The launcher keeps the pinned installed browser lookup
+beside main's named web-store support. The assertion keeps its cross-browser
+ordering bound: the menu must arrive after pointer-down and before the held
+modifier releases; pointer-up may fall on either side. The real browser input
+suite passes 16 cases (seven Windows-only cases skip). App/proof/web-host tooling
+passes 239 cases with two optional bake fixtures skipped, including the native
+Beacons/skinned-fixture debug-versus-release hash comparison. Logs:
+`/tmp/exact2-main-input-tooling{,-more}.log`.
+
+All root checks pass in 252.426 s with no game proof running concurrently:
+build 39.370, tests 180.080, Clippy 30.734, formatting 2.133, caps 0.092 and
+boot 0.015 s. The 81 binaries pass 2,436 tests with nine ignored and report
+41.27 s of execution. The local 60 s target remains missed; this larger merge
+includes recompilation but does not establish the cause of the test-launch
+variance. Logs: `/tmp/exact2-main-input-root-*.log`.
+
+The first macOS host suite runs 683 tests (two skipped) and finds one failure
+in `ClipMacTests.testVisibleOverflowIsHitWhereItPaints`; the same failure
+reproduces among the twelve focused clipping tests. Its hand-written wire
+fixture supplied a flex item's z-index but omitted the kernel's separate rank
+commands. The presenter consumes those ranks, as the existing paint-order
+fixtures do. Supplying ranks 10/1 for the raised bar/positioned popup restores
+the intended fixture; additional assertions lower and re-raise the bar and
+verify that its overflowing popup follows that order. All twelve focused tests
+then pass. No host behavior is changed by this test repair. Logs:
+`/tmp/exact2-main-input-{macos-tests,clip-before,clip-after}.log`.
+
+The full macOS host suite then passes all 683 cases with two skipped and no
+failures, reporting 41.084 s for execution. This includes the input/focus,
+paint-order and surface-control tests. Log:
+`/tmp/exact2-main-input-macos-tests-after.log`.
+
+The shared script-helper suite additionally passes 54 tests, including the
+named web-store profile/port and per-drive environment cases beside the resolved
+launcher conflict. Log: `/tmp/exact2-main-input-script-tests.log`.
+
+Rivals passes complete web/macOS proofs in 125.916/81.371 s including builds.
+Inputs, pins, twelve final world observations, published values and seventeen
+saves agree across hosts and retain the preceding `pending` checkpoint.
+Both bandaging captures were inspected. Artifacts:
+`artifacts/main-input-{web,macos}/`.
+
+Across Garden, Forest and Rivals, all six host proofs pass with unchanged
+pins, worlds and fifty distinct saved files. Every process audit is available
+and reports zero remaining recorded children. The six feature captures were
+inspected. Comparison: `/tmp/exact2-main-input-game-comparison.json`.
+No gameplay or closed Jev-policy changes are included in this integration.

@@ -1229,3 +1229,22 @@ the prior `owner` results.
 Both windbreak captures were inspected; both process audits leave no recorded
 children. Artifacts: `artifacts/pending-{web,macos}/`. Gameplay, pins and
 Jev's closed playtest policy are unchanged.
+
+## Main's input/focus batch (2026-10-04)
+
+Merge `b32b0eec6` brings main through `d2cb661eb`; Rivals diary 006 records
+the passing tooling/root/Apple checks and the stale clipping-test fixture.
+Forest passes complete web/macOS proofs in 151.199/201.281 s including builds.
+Inputs, pins, eleven final world observations, published values and eighteen
+saves agree across hosts; worlds and saves match the preceding `pending`
+checkpoint. Both windbreak screenshots were inspected. Artifacts:
+`artifacts/main-input-{web,macos}/`. The short shared-script test run overlaps
+part of the native drive; these are verification wall times, not latency claims.
+
+The screenshots still show “To dawn: fire ready · food ready” beside “Bring the
+children home for rescue supplies.” `player::preparation` selects the rescue
+hint whenever any child remains unsafe, before considering ready supplies or
+the shelter countdown. That explains why the two visible messages coexist;
+it does not establish that this caused Jev's earlier no-wait choices. The
+closed windbreak pair stays closed. Separating camp readiness from the
+rescue guidance remains a concrete next gameplay investigation.

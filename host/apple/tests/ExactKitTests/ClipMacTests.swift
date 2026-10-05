@@ -77,6 +77,10 @@ final class ClipMacTests: XCTestCase {
             ["op": "children", "id": 2, "ids": [3]],
             ["op": "children", "id": 1, "ids": [2, 4]],
             ["op": "roots", "ids": [1]],
+            // The kernel emits ranks separately from style (LLP 1083.000):
+            // a flex item's z-index 5 has rank 10; its positioned popup has 1.
+            ["op": "rank", "id": 2, "rank": 10],
+            ["op": "rank", "id": 3, "rank": 1],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 50.0],
             ["op": "frame", "id": 3, "x": 10.0, "y": 40.0, "w": 200.0, "h": 120.0],
@@ -87,6 +91,10 @@ final class ClipMacTests: XCTestCase {
         XCTAssertTrue(at(100, 140) === popup, "below the bar, over the content after it")
         XCTAssertTrue(at(100, 45) === popup)
         XCTAssertTrue(at(300, 140) === p.views[4], "beside the popup, the content")
+        p.apply(wireBatch([["op": "rank", "id": 2, "rank": 0]]))
+        XCTAssertTrue(at(100, 140) === p.views[4], "equal-rank overflow stays behind the later sibling")
+        p.apply(wireBatch([["op": "rank", "id": 2, "rank": 10]]))
+        XCTAssertTrue(at(100, 140) === popup, "raising the bar restores its overflow hit")
         bar.applyStyle(["z_index": 5.0, "overflow_x": "hidden", "overflow_y": "hidden"])
         XCTAssertTrue(at(100, 140) === p.views[4], "a clipped popup is not hit beyond the clip")
     }
