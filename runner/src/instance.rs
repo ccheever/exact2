@@ -327,6 +327,9 @@ pub struct InstanceWork {
     pub derives_evaluated: usize,
     /// Store bytes copied so a refusal could put the store back.
     pub store_bytes_copied: usize,
+    /// Retiring list rows rebound to another item instead of building one
+    /// (LLP 1078).
+    pub rows_rebound: usize,
 }
 
 /// Per-commit evaluation context and deterministic work counters.
@@ -369,6 +372,13 @@ pub struct Update<'a> {
     /// kept update would have written as a style op: what tells a list its
     /// rows' typography changed ([`Tree::update`]).
     text_styled: bool,
+    /// The views of list rows rebound to another item (LLP 1078), every one
+    /// a fresh mount to motion and to the host: the commit's receipt names
+    /// them `renewed`.
+    pub renewed: Vec<ViewId>,
+    /// Rebind retiring list rows to new items (LLP 1078), as the runner was
+    /// told ([`crate::Runner::set_row_reuse`]).
+    pub reuse: bool,
 }
 
 impl<'a> Update<'a> {
@@ -390,6 +400,8 @@ impl<'a> Update<'a> {
             notes: Vec::new(),
             discard: false,
             text_styled: false,
+            renewed: Vec::new(),
+            reuse: false,
         }
     }
 
