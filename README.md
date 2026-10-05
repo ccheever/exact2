@@ -15,9 +15,11 @@ agent can build it, run it, see it, and test it on every one of them.**
 > `scripts/agent.mjs`, then open the app for me on all three.
 > ```
 >
-> A fresh Claude Code session given this prompt finished in about 23 minutes, most of it
-> spent on the first native builds, and its tests passed on all three platforms. On a
-> machine that has never built Hermes, that build comes first and adds time.
+> A fresh agent given this prompt on a clean clone (2026-10-04, Hermes already in the
+> machine cache, Cargo's cache warm) finished in about 57 minutes, and its tests passed
+> on all three platforms. About 25 of those minutes were the first macOS and iOS builds,
+> roughly 13 minutes each; later builds take a minute or two. On a machine that has
+> never built Hermes, that build comes first and adds time.
 
 <table>
   <tr>
@@ -73,9 +75,9 @@ in the UI, and no app JavaScript runs before the first pixel.
 Exact assumes much of the code will be written by AI agents. An agent can make an app,
 run it, look at it, operate it, and prove it works without a person in the loop.
 
-- **Nine operations, the same on every host.** `tree · screenshot · tap · type · state
-  · layout · logs · clock · prefer` drive the web, macOS, iOS (Simulator or a real
-  iPhone), and Linux through one script, `scripts/agent.mjs`. There are nine on purpose:
+- **Ten operations, the same on every host.** `tree · screenshot · tap · type · state
+  · layout · logs · clock · prefer · perf` drive the web, macOS, iOS (Simulator or a real
+  iPhone), and Linux through one script, `scripts/agent.mjs`. There are ten on purpose:
   the predecessor's agent API grew to eighty wire names, one reasonable addition at a
   time.
 - **The clock belongs to the agent.** Between two operations nothing moves. Instead of
@@ -200,11 +202,16 @@ Linux host.
 - **Google Chrome.** The agent drives the web through headless Chrome. Set `CHROME` to
   use another Chromium.
 - **Xcode**, for the macOS and iOS hosts.
-- **Hermes**, only for TypeScript apps on native hosts. Clone
-  [expo/ibex](https://github.com/expo/ibex) beside this repository and build it once:
-  `git clone https://github.com/expo/ibex ../ibex && (cd ../ibex && ./scripts/build-hermes.sh --vanilla)`.
+- **Hermes**, only for TypeScript apps on native hosts. Builds find it in the machine
+  cache (`~/.cache/exact/hermes-macos`) or in an [expo/ibex](https://github.com/expo/ibex)
+  checkout beside this repository; `setup --check` says which, or that neither is there.
+  To build it: `git clone https://github.com/expo/ibex ../ibex && (cd ../ibex && ./scripts/build-hermes.sh --vanilla)`.
   iOS also needs **CMake** (`brew install cmake`): the first iOS build fetches the
   pinned Hermes source and builds its lean VM once for the machine.
+  On Windows x64, use an x64 Visual Studio developer shell with PowerShell 7,
+  CMake and Ninja, then run `pwsh -File js/build-windows.ps1 -Jobs 2`. This builds
+  Exact's pinned lean VM and static ICU into a separate, verified local cache;
+  existing installs are preserved. See the [Windows TypeScript setup and limits](docs/reference.md#windows-typescript).
 
 To install the pinned Bun beside any existing installation:
 `curl -fsSL https://bun.sh/install | BUN_INSTALL=~/.bun-1.4.2 bash -s bun-v1.4.2`.
@@ -243,7 +250,8 @@ bun host/apple/build.mjs --ios --run        # an iOS Simulator (--device --run f
 cargo build --profile host-dev -p caltrain-linux   # Linux: a DRM/KMS console, or headless anywhere (--release to ship)
 ```
 
-A first native build takes a few minutes; later builds reuse it. iOS commands use an
+A first native build takes ten to fifteen minutes on a laptop; later builds reuse it
+and take a minute or two. Watch its output rather than waiting blind. iOS commands use an
 iPhone simulator that's already booted, or boot the newest iPhone Pro. To choose one,
 set `EXACT_SIM` to its name or UDID (or pass `--sim` to `build.mjs`), and keep the same
 setting for `agent.mjs ios`.
@@ -257,7 +265,9 @@ bun scripts/agent.mjs web --test apps/caltrain/app.test.contract
 ```
 
 Swap `web` for `macos`, `ios`, or `linux` once that host is built. Caltrain's three
-tests take about two seconds on the web host. `"screenshot film.png over 600 every 50"`
+tests take about two seconds on the web host. Each operation is one shell argument, so
+quote it: `"type new-todo Buy milk"` types `Buy milk` (everything after the target is
+the text). `"screenshot film.png over 600 every 50"`
 films motion as a contact sheet; use an `.apng` name to get an animation.
 
 ### 5. Make your own app
@@ -265,6 +275,7 @@ films motion as a contact sheet; use an `.apng` name to get an animation.
 ```sh
 bun scripts/exact.mjs new ../hello          # or run `bun link` once, then `exact new ../hello`
 cd ../hello
+bun exact.mjs contract types app.contract -o app.contract.d.ts   # first run builds the compiler
 bun exact.mjs web                           # the dev loop, at http://127.0.0.1:8765/
 bun exact.mjs test web tests/*.test.contract # app.test.contract, or the test files named
 bun exact.mjs mac --run                     # this Mac
@@ -283,6 +294,11 @@ by path. To drive it from exact2, point `EXACT_APP_DIR` at it:
 EXACT_APP_DIR=../hello bun host/web/build.mjs hello-web
 EXACT_APP_DIR=../hello bun scripts/agent.mjs web --app hello tree "screenshot hello.png"
 ```
+
+Look at every screenshot, not just the test result: a test passes on a layout that
+spills off the screen. `bun exact.mjs agent <host> "screenshot out.png"` shows the app
+on each host in its own session; for a copy you launched yourself, use
+`xcrun simctl io <device> screenshot out.png` on iOS.
 
 `bun scripts/exact.mjs` also runs apps from this repository as real Mac apps:
 `exact run markdown README.md`, or `exact install markdown` to put `mdview` on your

@@ -5,7 +5,7 @@ import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { open as openSession, render } from '../scripts/agent.mjs';
-import { gameNonInput } from '../scripts/agent-launch.mjs';
+import { cdpFailureContext, gameNonInput } from '../scripts/agent-launch.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, resolveApp } from '../scripts/app.mjs';
 import { closeFilesystemReader } from '../scripts/filesystem.mjs';
@@ -13,9 +13,17 @@ import { closeFilesystemReader } from '../scripts/filesystem.mjs';
 /** Some runtime-created stacks omit the informative Error message. */
 export function formatProofError(error) {
   const message = String(error), stack = error?.stack;
-  return typeof stack === 'string' && stack.length
+  const rendered = typeof stack === 'string' && stack.length
     ? stack.includes(message) ? stack : `${message}\n${stack}`
     : message;
+  const context = cdpFailureContext(error);
+  return context ? `${rendered}\nCDP ${JSON.stringify(context)}` : rendered;
+}
+
+/** The failed operation's report row; never serialize the Error or its handles. */
+export function proofFailureRow(session, method, args, clock, error) {
+  const context = cdpFailureContext(error);
+  return {session, method, args, clock, error:error.message, steps:error.steps, ...(context ? {cdp:context} : {})};
 }
 
 // Offline diagnostics over existing state reads (LLP 1012; LLP 1046.001 D2/D5).
@@ -328,7 +336,7 @@ export function facilityReport(replies) {
 /// other games, the bench and its probes, the twins, diaries, LLPs, apps, build
 /// outputs. Source extensions, app assets, and Apple module inputs are admitted.
 /// A game's own scripts (bench.mjs, a proxy, a probe) are tools, not bake inputs:
-/// no bake reads a .mjs/.js outside its logic, data, gpu, presentation and asset folders.
+/// no bake reads a .mjs/.js outside its logic, data, gpu, render and asset folders.
 export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`) {
   return /^(issues|\.claude)\//.test(file)
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs|.*\.md)$/.test(file)
@@ -391,7 +399,7 @@ export function proofInputs(root, app, cachePath) {
     // Host bake depends on the declaration, not the game's implementation.
     // Shared compiler crates remain conservative inputs of both graphs.
     const own=file.startsWith(prefix) ? file.slice(prefix.length) : null;
-    const gpuOnly=own!==null ? /^(logic|gpu|presentation|art|assets|deck)\//.test(own) : /^game\/(engine|render|physics|audio|bake)\//.test(file);
+    const gpuOnly=own!==null ? /^(logic|gpu|render|art|assets|deck)\//.test(own) : /^game\/(engine|render|physics|audio|bake)\//.test(file);
     const hostOnly=own!==null ? /\.contract$/.test(own) : /^host\//.test(file);
     if(!hostOnly) groups.gpu.push(row);
     if(!gpuOnly) groups.host.push(row);
@@ -472,7 +480,7 @@ export async function proof(meta, script) {
     }, host);
     process.exit(failed ? 1 : 0);
   }
-  const finalWorlds = [], observations = new Map();
+  const finalWorlds = [], paranoidSamples = [], observations = new Map();
   const previousPins = JSON.parse(readFileSync(resolve(app, 'pins.json'), 'utf8'));
   const collecting = process.env.EXACT_PROOF_REPIN === '1';
   const compareParanoid = process.env.EXACT_GAME_PARANOID_COMPARE === '1';
@@ -546,6 +554,7 @@ export async function proof(meta, script) {
               .map(({from, next, lines, tick}) => Object.fromEntries(
                 Object.entries({from, next, lines, tick}).filter(([,value]) => value !== undefined)))});
           if (!world?.hash) throw new Error('paranoid comparison: final world hash missing');
+          if (world.paranoid) paranoidSamples.push({session:id, ...world.paranoid});
         }
         sample();
       } finally {
@@ -567,7 +576,7 @@ export async function proof(meta, script) {
           replies.push({session:id, method, args, reply, clock:target.now});
           return reply;
         } catch (error) {
-          replies.push({session:id, method, args, clock:target.now, error:error.message, steps:error.steps}); if (error.steps) say(render('type', {steps:error.steps})); throw error;
+          replies.push(proofFailureRow(id, method, args, target.now, error)); if (error.steps) say(render('type', {steps:error.steps})); throw error;
         }
       };
     }});
@@ -641,6 +650,10 @@ export async function proof(meta, script) {
     if (auditUnavailable) say('SKIP descendant process audit: ps stalled; carrier close still awaited every recorded host process.');
     check('all recorded children exited', remaining.length === 0, remaining);
     if (compareParanoid) {
+      // A sample owed at the end is an asset that never landed: its save was never checked.
+      const skipped = paranoidSamples.reduce((n, p) => n + p.skipped, 0);
+      if (skipped) say(`PARANOID ${skipped} samples deferred while shown assets were in flight`);
+      check('no paranoid sample is still owed to an undelivered asset', paranoidSamples.every(p => !p.owed), paranoidSamples);
       finalWorlds.sort((a,b) => a.session - b.session);
       const baseline = resolve(out, `paranoid-${host}-normal.json`);
       writeFileSync(resolve(out, `paranoid-${host}-${process.env.EXACT_GAME_PARANOID}.json`), JSON.stringify(finalWorlds));

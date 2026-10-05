@@ -210,7 +210,7 @@ fn untyped_leaf(e: &Expr) -> bool {
 }
 
 /// `action`: a prop that names an action, never a value.
-fn is_action(ty: &TypeExpr) -> bool {
+pub(crate) fn is_action(ty: &TypeExpr) -> bool {
     matches!(ty, TypeExpr::Named(name, _) if name == "action")
 }
 

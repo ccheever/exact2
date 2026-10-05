@@ -353,11 +353,16 @@ impl<D: DataSource> Runner<D> {
         let name = |plan: &Plan| plan.str(plan.mutations[m].name).to_string();
         let answer = self
             .data
-            .answer_for(Target::Mutation(m), &mut self.store, source, args)
-            .map_err(|error| RunnerError::Data {
-                resource: name(&self.plan),
-                error,
-            })?;
+            .answer_for(Target::Mutation(m), &mut self.store, source, args);
+        // A mutation's console lines, including a refusal, reach the agent's
+        // logs whether the answer comes now or the send waited its turn.
+        for line in self.data.take_logs() {
+            self.log(line);
+        }
+        let answer = answer.map_err(|error| RunnerError::Data {
+            resource: name(&self.plan),
+            error,
+        })?;
         match answer {
             Answer::Now(v) => {
                 if !self.conforms(&v, ty) {

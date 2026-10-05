@@ -106,7 +106,7 @@ component Caltrain
     searchFocused = false
   action setQuery(value)
     query = value
-  action setScheme(scheme: string)
+  action chooseScheme(scheme: string)
     setScheme(scheme)
   action setMaterial(m: string)
     material = m
@@ -165,7 +165,7 @@ component Caltrain
         // The sky or the plain page around the same content, written once:
         // `Sky` declares a slot and the content is what is indented under it.
         Sky(on=skyOn, material=material, selectedId=selectedId, dim=tv)
-          Content(tv=tv, station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, delivery=delivery, openStations=openStations, openDeck=openDeck, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey, activateUpdate=activateUpdate, reloadApp=reloadApp)
+          Content(tv=tv, station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, delivery=delivery, openStations=openStations, openDeck=openDeck, setScheme=chooseScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey, activateUpdate=activateUpdate, reloadApp=reloadApp)
       // @ref LLP 1048.003 D1 — a link preview's summary; the title stays the app's.
       head description="The next Caltrain departures, north and south, from the station nearest you."
 

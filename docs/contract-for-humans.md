@@ -311,7 +311,8 @@ of its component, an `action` prop or an injected action as a statement:
 they too read the state the action started with. So a helper does not see what
 its caller assigned before the call; the compiler refuses such a read and asks
 for the value to be passed (`arrive(next)`). A name that is a host command, such
-as `focus`, stays the command. A call returns nothing: share calculations through
+as `focus`, stays the command, and calling an action, prop or inject that
+shares a host command's name is refused: rename it. A call returns nothing: share calculations through
 `fn`. The compiler infers the state an action writes, through its calls. Do not
 write a `writes` clause.
 
@@ -645,7 +646,7 @@ grants nothing. The next section writes one end to end;
 The view asks; `app.ts` answers. The README's todo list keeps its data in memory.
 This app keeps a reading list in SQLite, so it survives a restart, and shows a
 quote fetched from the network. It was made with `exact new`, and its test passes
-on the web host.
+on the web host, macOS and the iOS Simulator.
 
 ```contract
 shape Book
@@ -723,12 +724,16 @@ function withBooks<T>(storage: Storage, work: (db: Database) => Promise<T>): Pro
 
 const sources: Sources = {
   // A read: SQLite rows to the declared `list<Book>`. Integers arrive as
-  // bigint, so convert them. At build (bake) time there is no storage, and
-  // the throw leaves the resource to be asked when the app runs.
+  // bigint, so convert them. At build (bake) time there is no storage: the
+  // refusal's code is 'bake', and an empty list is the first frame's value.
+  // The app asks again when it runs.
   books: (_args, _store, storage): Promise<Result<'books'>> =>
     withBooks(storage, async (db) => {
       const { rows } = await db.query('SELECT id, title FROM books ORDER BY id');
       return rows.map(([id, title]) => ({ id: String(id), title: String(title) }));
+    }).catch((error) => {
+      if ((error as { code?: string }).code === 'bake') return [];
+      throw error;
     }),
   // A write, sent by the `saved` mutation; `refreshes books` reads the list again.
   addBook: ([title], _store, storage): Promise<Result<'addBook'>> =>
@@ -780,10 +785,13 @@ call outside them fails. The capabilities are:
   and seeds are arguments: pass `now()` from the Contract (the
   [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
 - *There is no storage or network at build time.* The build bakes each
-  resource's first value into the plan. A source that throws then (as `books`
-  does, with storage unavailable) is simply asked again when the app runs. To
-  show something better than the type's zero meanwhile, give the resource an
-  `else` placeholder, as `quote` does.
+  resource's first value into the plan, and a storage call then is refused
+  with `code: 'bake'`. An uncaught storage refusal leaves the resource unbaked;
+  its placeholder (or the type's zero) shows until the app asks again at launch.
+  Catching that code can also supply a first-frame value, as `books` does.
+  Other source errors still fail the build. A source used as an `else` placeholder
+  must answer at bake without storage. A `fetch` also stays unbaked; an `else`
+  placeholder supplies something better than the type's zero, as `quote` does.
 - *An open database locks its file.* A mutation and the refresh it triggers
   overlap, and the second `open` fails as busy. Queue every open, as
   `withBooks` does.
@@ -892,8 +900,9 @@ label an image; `aria-labelledby` (the ids of the elements whose text names this
 one, as a radiogroup names itself by its visible heading) wins over `aria-label`;
 `aria-describedby` (the ids of the elements whose text describes
 this one) and `aria-description` are its description. `aria-invalid`,
-`aria-required` and `aria-haspopup` take their ARIA words or a bool; UIKit has
-no property for those three, so iOS exposes none of them.
+`aria-required`, `aria-haspopup` and `aria-current` (a navigation link's
+`"page"`, a wizard's `"step"`) take their ARIA words or a bool; UIKit has no
+property for those four, so iOS exposes none of them.
 Font sizes, touch targets, focus behavior, and contrast remain author decisions.
 
 Declare bundled fonts at file scope:
@@ -1024,7 +1033,9 @@ list appearance="auto" listStyle="inset-grouped" flex=1
 `listStyle` is `inset-grouped` (the default), `grouped` or `plain`, a literal.
 iOS draws UIKit's own list (`UICollectionView` with a list configuration); the
 other hosts draw a sheet measured from it, and your own attributes replace any
-of its rows. See [the grouped-list fixture](../scripts/fixtures/grouped-list.contract)
+of its rows. A section's own `margin-top` or `margin-bottom` is the space iOS
+leaves there too, collapsed with its neighbour's as on the web (LLP 1084 §6.4).
+See [the grouped-list fixture](../scripts/fixtures/grouped-list.contract)
 and LLP 1084.
 
 ## Navigation and documents

@@ -14,12 +14,13 @@
 //! in the box, which cosmic-text does itself. Glyphs are rasterized by swash
 //! once per (glyph, color) into small premultiplied pixmaps.
 
-mod cache;
+pub(crate) mod cache;
 mod catalog;
 mod catalog_recipe;
 mod flow;
 #[cfg(test)]
 mod flow_tests;
+mod font_cache;
 mod shaping;
 #[allow(dead_code)] // Private transfer proof; controller integration is a separate increment.
 pub(crate) mod transfer;
@@ -458,6 +459,12 @@ impl FamilyChoice {
 pub struct GlyphRun {
     /// The font's data and collection index.
     pub font: PenikoFont,
+    /// Normalized variation coordinates (a variable face's `wght`).
+    pub coords: std::sync::Arc<[i16]>,
+    /// The face's file and collection index, when it was loaded from one.
+    pub file: Option<(std::sync::Arc<str>, u32)>,
+    /// The weight shaped with (the `wght` a variable face is set to).
+    pub weight: u16,
     /// Points.
     pub size: f32,
     /// Canonical run index, retained across font fallback and wrapping.
@@ -987,9 +994,12 @@ impl TextEngine {
         runs.into_iter()
             .filter_map(
                 |((id, weight, size, run_index, synthetic_italic), glyphs)| {
-                    let font = catalog.font_data(id, Weight(weight))?;
+                    let face = catalog.font_data(id, Weight(weight))?;
                     Some(GlyphRun {
-                        font,
+                        font: face.font,
+                        coords: face.coords,
+                        file: face.file,
+                        weight,
                         size: f32::from_bits(size),
                         run_index,
                         paint: palette[run_index],
@@ -1044,6 +1054,20 @@ impl TextMeasurer for Measurer {
         request: &TextMeasureRequest<'_>,
     ) -> TextMetrics {
         self.0.borrow_mut().measure_identified(stamp, request)
+    }
+    fn height_free(&self) -> bool {
+        true
+    }
+    fn measure_known(
+        &mut self,
+        stamp: &ParagraphStamp,
+        width: AxisOffer,
+        _height: AxisOffer,
+    ) -> Option<TextMetrics> {
+        // Offers here are width-only: height never changes a paragraph.
+        let mut engine = self.0.borrow_mut();
+        let (key, spec) = engine.paragraphs.identified(stamp)?;
+        Some(engine.measure_for(&spec, width, key))
     }
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         let spec = Spec::from_request(request);

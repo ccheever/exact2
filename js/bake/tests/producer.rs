@@ -139,7 +139,10 @@ fn producer_bakes_the_bytecode_keeps_sources_untouched_and_refuses_bad_candidate
         Some(&Value::str("new: 1")),
         "same arguments must not reuse old logic's answer"
     );
-    assert_eq!(changed.data().take_logs(), ["message called"]);
+    assert!(changed
+        .journal()
+        .any(|line| line.ends_with("message called")));
+    assert!(changed.data().take_logs().is_empty());
     let mut same = paired(&second);
     same.module.load().unwrap();
     let mut reloaded = Runner::boot_carrying(
@@ -197,7 +200,7 @@ fn producer_bakes_the_bytecode_keeps_sources_untouched_and_refuses_bad_candidate
         "app.ts",
         &SOURCE.replace(
             "'./logic'",
-            &format!("'{}'", outside.0.join("logic").display()),
+            &serde_json::to_string(&outside.0.join("logic").to_string_lossy()).unwrap(),
         ),
     );
     let error = bake(&f.0, &Tools::default())
@@ -324,6 +327,29 @@ fn native_host_sessions_prepare_together_and_keep_the_live_app_when_one_refuses(
     if !exact_js::ENGINE_LINKED {
         return;
     }
+    // This is a Bridge protocol test, not qualification of Apple's HOME/Library
+    // defaults on another platform. A child owns its explicit storage-free drive.
+    const CHILD: &str = "EXACT_PRODUCER_BRIDGE_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "native_host_sessions_prepare_together_and_keep_the_live_app_when_one_refuses",
+            ])
+            .env(CHILD, "1")
+            .env("EXACT_AGENT", "1")
+            .env_remove("EXACT_AGENT_STORAGE")
+            .env_remove("EXACT_AGENT_STORAGE_FRESH")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     let f = Fixture::new();
     let first = f.bake();
     let mut a = Bridge::<Module>::new();
@@ -331,9 +357,11 @@ fn native_host_sessions_prepare_together_and_keep_the_live_app_when_one_refuses(
     for bridge in [&mut a, &mut b] {
         prepare(bridge, &first).unwrap();
         let count = bridge.commit_plan();
-        assert!(output(bridge, count)["error"].is_null());
+        let committed = output(bridge, count);
+        assert!(committed["error"].is_null(), "{committed}");
         let count = bridge.data_ready();
-        assert!(output(bridge, count)["error"].is_null());
+        let activated = output(bridge, count);
+        assert!(activated["error"].is_null(), "{activated}");
     }
     let tree = ask(&mut b, "tree");
     let button = tree["nodes"]
@@ -448,6 +476,90 @@ fn storage_types_are_checked_by_the_actual_bake_without_granting_bake_io() {
     let plan = paired(&baked).plan;
     let row = &plan.resources[0];
     assert!(row.initial.len == 0 && row.reader);
+}
+
+#[test]
+fn bake_defers_uncaught_storage_but_keeps_source_errors_fatal() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    let original =
+        "message: ([count]) => { console.log('message called'); return prefix + count; }";
+    let storage = "await storage.sqlite.open('app:/data/notes.db')";
+    let source = SOURCE.replace(
+        original,
+        &format!(
+            "message: async ([count], store, storage) => {{ {storage}; return prefix + count; }}"
+        ),
+    );
+    f.write("app.ts", &source);
+    let baked = f.bake();
+    let candidate = paired(&baked);
+    assert_eq!(candidate.plan.resources[0].initial.len, 0);
+    let mut live = Runner::boot(
+        candidate.plan,
+        candidate.module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("")));
+    assert!(
+        live.take_requests().is_empty(),
+        "bake deferral creates no fabricated request"
+    );
+    live.data().load().unwrap();
+    let error = live.data_ready().unwrap_err();
+    assert!(
+        format!("{error:?}").contains("Unavailable"),
+        "runtime storage refusal remains a failure: {error:?}"
+    );
+    f.write(
+        "app.contract",
+        &CONTRACT.replace("as shape string", "as shape string else fallback()"),
+    );
+    f.write(
+        "app.ts",
+        &source.replace(
+            "const sources: Sources = {",
+            "const sources: Sources = { fallback: () => 'loading',",
+        ),
+    );
+    let fallback = f.bake();
+    let candidate = paired(&fallback);
+    let live = Runner::boot(
+        candidate.plan,
+        candidate.module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("loading")));
+    f.write("app.ts", &source.replace("const sources: Sources = {", &format!("const sources: Sources = {{ fallback: async (_, store, storage) => {{ {storage}; return 'loading'; }},")));
+    let error = bake(&f.0, &Tools::default())
+        .err()
+        .expect("a storage-dependent placeholder cannot answer at bake");
+    assert!(error.contains("placeholder answers later"), "{error}");
+    f.write("app.contract", CONTRACT);
+    for body in [
+        "throw new Error('ordinary bug');".to_string(),
+        format!("try {{ {storage}; }} catch (_) {{}} throw new Error('ordinary bug');"),
+    ] {
+        f.write(
+            "app.ts",
+            &SOURCE.replace(
+                original,
+                &format!("message: async ([count], store, storage) => {{ {body} }}"),
+            ),
+        );
+        let error = bake(&f.0, &Tools::default())
+            .err()
+            .expect("ordinary source bugs must refuse baking");
+        assert!(error.contains("ordinary bug"), "{error}");
+    }
 }
 
 #[test]
@@ -600,8 +712,11 @@ fn resident_producer_honors_compiler_overrides() {
         return;
     }
     let f = Fixture::new();
+    // The native test harness rejects tsc's --noEmit argument on every host.
+    // This proves a real override ran and refused, without a Unix-only helper.
+    let refusing = std::env::current_exe().unwrap();
     let tools = Tools {
-        tsc: PathBuf::from("/usr/bin/false"),
+        tsc: refusing.clone(),
         ..Tools::default()
     };
     let mut producer = exact_js_bake::Producer::new(tools).unwrap();
@@ -609,7 +724,7 @@ fn resident_producer_honors_compiler_overrides() {
         .bake(&f.0, None)
         .err()
         .unwrap()
-        .contains("/usr/bin/false refused"));
+        .contains(&format!("{} refused", refusing.display())));
 }
 
 #[test]

@@ -428,8 +428,8 @@ function applyProps(el, set, clear) {
       if (Number.isFinite(offset)) pendingScrolls.set(el, { ...pendingScrolls.get(el), [name]: offset });
     } else if (name === "text") { if (el.childElementCount === 0 && el.textContent !== value) el.textContent = value;
     } else if (name === "markupPieces") { renderMarkup(el, value);
-    } else if (name === "data-action") {
-      el.setAttribute(name, value); el.style.touchAction = "none";
+    } else if (name === "contextpopover") { el.setAttribute(name, value); if (!el.exactContext) { el.exactContext = true; el.addEventListener("contextmenu", e => { if (e.$cp || !el.getAttribute(name) || e.target.closest("input,textarea,[contenteditable]") || el.matches(":disabled") || el.closest("[inert]")) return; e.$cp = 1; e.preventDefault(); e.stopPropagation(); setTimeout(() => { if (!el.isConnected || el.matches(":disabled") || el.closest("[inert]")) return; const p = document.getElementById(el.getAttribute(name) ?? ""); try { if (p && !p.matches(":popover-open")) p.showPopover({ source: el }); } catch {} }); }); } // LLP 1021 §5.1: after the node's own `contextmenu`, the popover it names then opens anchored to it (rt.js `cp`)
+    } else if (name === "data-action") { el.setAttribute(name, value); el.style.touchAction = "none";
     } else if (name === "value") {
       writeValue(el, value); if (valuedControl(el)) el.exactValue = value;
     } else if (name === "checked") {
@@ -1014,8 +1014,7 @@ function nodeDetail(id, plan = false) {
   if (!el || !el.isConnected) return { error: `stale node #${id}` };
   const node = ask({ op: "node", id, ...(plan ? { plan: true } : {}) });
   if (node.error) return node;
-  // The kernel's layout never runs on the web (LLP 1007 §9): its frames are
-  // not observations here, so they are absent rather than zeros.
+  if (node.type === "TextInput" && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) node.props = { ...node.props, value: el.value };
   delete node.frame;
   delete node.absolute;
   delete node.content;
@@ -1063,6 +1062,7 @@ function tree(request) {
   const reply = ask(request);
   for (const node of reply.nodes ?? []) {
     const el = views.get(node.id);
+    if (node.type === "TextInput" && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) node.props = { ...node.props, value: el.value };
     node.focused = el === document.activeElement;
     if (el?.exactNative) node.module = el.exactNative.status();
     if (!(el instanceof HTMLIFrameElement)) continue;

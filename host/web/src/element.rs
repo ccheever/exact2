@@ -866,6 +866,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Popover => "popover",
             PropId::Popovertarget => "popovertarget",
             PropId::Popovertargetaction => "popovertargetaction",
+            // LLP 1021 §5.1: the context menu's popover and its preview row,
+            // which the glue opens on `contextmenu` (glue.js).
+            PropId::ContextPopover => "contextpopover",
+            PropId::ContextPreview => "data-context-preview",
             PropId::Commandfor => "commandfor",
             PropId::Command => "command",
             PropId::AccessibilityChecked => "aria-checked",
@@ -882,6 +886,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::TabIndex => "tabindex",
             PropId::AccessibilityRequired => "aria-required",
             PropId::AccessibilityHasPopup => "aria-haspopup",
+            PropId::AccessibilityCurrent => "aria-current",
             // HTML's global `title`: the browser's own tooltip (studio diary R24).
             PropId::Title => "title",
             // SVG 2 attributes by their exact (case-sensitive) names (LLP 1055 D1).

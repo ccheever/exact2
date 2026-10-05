@@ -5,6 +5,7 @@ import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, s
 import { homedir } from 'node:os';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { types as utilTypes } from 'node:util';
 import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -184,7 +185,9 @@ const listed = changed => changed.slice(0, 3).join(', ') + (changed.length > 3 ?
 
 /** Throws when `changed` names anything: what, since which build, and the command that rebuilds it. */
 export function refuseStale(what, built, changed, command) {
-  if (changed.length) throw staleError(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}`);
+  // A file no build reads belongs in the app's `.exact/` (Depot: evidence JSON beside the app refused every drive).
+  const hint = changed.some(p => /\.json$/.test(p) && !/(^|\/)(app|package|tsconfig)\.json$/.test(p)) ? '; a file no build reads (evidence, logs, runtime state) belongs in the app\'s `.exact/`, which no build, watcher or freshness check reads' : '';
+  if (changed.length) throw staleError(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}${hint}`);
 }
 
 /** A refusal that a rebuild answers: the driver exits 3 for it, so an app's
@@ -309,8 +312,8 @@ export function gitIgnored(dir, keep = []) {
 // assets and deck, a game's art and logic, a native module's scripts, the host
 // crates, fonts and strings). A build reads more than the bake captures, so the
 // rule names the outputs and leaves everything else an input.
-const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world|csv|tsv)$/i;
-const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|ios|macos|linux)(\/|$)/;
+export const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world|csv|tsv)$/i;
+export const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|ios|macos|linux)(\/|$)/;
 // An agent's own tree (notes: shots/, tools/; platformer: drive.sh, tools/*.ops)
 // and a test file are never inputs, even when the name looks like a source.
 const AGENT_TREE = /^(shots|tools|repros)(\/|$)/;
@@ -319,7 +322,7 @@ const TEST_FILE = /(^|\/)[^/]*\.test\.(?:m?js|ts|rs|contract)$/;
 // or `.mjs` file counts: `app.ts` may import one (a game's own scripts are
 // `gameNonInput`'s), and a stale build run as fresh is worse than a rebuild.
 const HELPER = /\.(?:sh|ops)$/;
-const SCRIPT_TREE = /^(logic|data|gpu|presentation|art|assets|deck|modules)(\/|$)/;
+const SCRIPT_TREE = /^(logic|data|gpu|render|art|assets|deck|modules)(\/|$)/;
 /** A skip for an app's own files that no build reads. A file a build can
  * read always counts, ignored by Git or not: what the bake captures, anything
  * in an input tree, under `keep` (declared shader roots) or in one of the
@@ -379,18 +382,102 @@ export function gameNonInput(path) {
   path = path.replaceAll('\\', '/');
   return /^(shots|tools|repros)\//.test(path)
     || /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.(?:mjs|js|ts|rs|contract)|[^/]*\.md)$/.test(path)
-    || (/\.(?:m?js|sh|ops)$/.test(path) && !/^(logic|data|gpu|presentation|art|assets|deck)\//.test(path));
+    || (/\.(?:m?js|sh|ops)$/.test(path) && !/^(logic|data|gpu|render|art|assets|deck)\//.test(path));
 }
-export function webChanges(dist, app) {
-  const marker = resolve(dist, '.exact-build.json');
-  if (!existsSync(marker)) return { app: [], shared: [], all: [] };
-  const since = statSync(marker).mtimeMs, js = JSON.parse(readFileSync(marker, 'utf8')).target === 'js';
+/** What a web build of `app` reads, modified after `since` (every file by default):
+ * the app's own files and the shared host/runtime roots, as shown paths. */
+export function webInputs(app, js, since = -Infinity) {
   const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'svg-filter', 'plan', 'motion', 'num', 'contract'];
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
-  const appChanges = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
+  const appFiles = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
   const shared = newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) }));
+  return { app: appFiles, shared };
+}
+const contentDigest = path => { try { return createHash('sha1').update(readFileSync(resolve(ROOT, path))).digest('hex'); } catch { return null; } };
+/** Content digests of every input of a web build, recorded in its marker. */
+export function webInputDigests(app, js) {
+  const { app: own, shared } = webInputs(app, js);
+  return Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)]));
+}
+/** Inputs whose content changed since the build in `dist`. Modification times only
+ * nominate candidates; a checkout that rewrote a file with its own bytes is not a
+ * change. A marker without digests (an older build) trusts the times. */
+export function webChanges(dist, app) {
+  const marker = resolve(dist, '.exact-build.json');
+  if (!existsSync(marker)) return { app: [], shared: [], all: [] };
+  const built = JSON.parse(readFileSync(marker, 'utf8'));
+  const changed = path => !built.inputs || built.inputs[path] !== contentDigest(path);
+  const { app: own, shared: roots } = webInputs(app, built.target === 'js', statSync(marker).mtimeMs);
+  const appChanges = own.filter(changed), shared = roots.filter(changed);
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
+}
+
+// LLP 1015.000: capture bounded primitive params, never claim they are wire bytes.
+const cdpFailures = new WeakMap(), CDP_STRING_LIMIT = 256 * 1024;
+const cdpIdentity = value => typeof value === 'string' && value.length <= 256 ? value : null;
+export const cdpFailureContext = error => cdpFailures.get(error);
+function associateCdpFailure(error, context) {
+  try {
+    const prior = cdpFailures.get(error);
+    cdpFailures.set(error, prior && prior !== context
+      ? Object.freeze({schema:1, omitted:'shared-error', ambiguous:true}) : context);
+  } catch { /* A primitive throw remains a primitive throw. */ }
+  return error;
+}
+export function copyCdpFailureContext(from, to) {
+  const context = cdpFailureContext(from);
+  return context ? associateCdpFailure(to, context) : to;
+}
+
+/** Also the offline test seam: no getter, Proxy trap, coercion or hashing. */
+export function captureCdpRequest(method, params, sessionId, requestId, timeoutMs) {
+  const snapshot = {method:cdpIdentity(method), requestId, cdpSessionId:cdpIdentity(sessionId),
+    timeoutMs:typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) ? timeoutMs : null};
+  const field = method === 'Runtime.evaluate' ? 'expression' : method === 'Page.navigate' ? 'url' : null;
+  if (!field) return snapshot;
+  const unavailable = omitted => { snapshot.parameter = {field, omitted}; return snapshot; };
+  try {
+    if (typeof utilTypes.isProxy !== 'function') return unavailable('proxy-check-unavailable');
+    if (!params || typeof params !== 'object' || utilTypes.isProxy(params)) return unavailable('not-plain-data');
+    const prototype = Object.getPrototypeOf(params);
+    if (prototype !== null && (utilTypes.isProxy(prototype) || prototype !== Object.prototype)) return unavailable('not-plain-data');
+    if (Object.getOwnPropertyDescriptor(params, 'toJSON') || prototype && Object.getOwnPropertyDescriptor(prototype, 'toJSON'))
+      return unavailable('serialization-hook');
+    const property = Object.getOwnPropertyDescriptor(params, field);
+    if (!property || !Object.hasOwn(property, 'value') || typeof property.value !== 'string') return unavailable('not-string-data');
+    const characters = property.value.length;
+    snapshot.parameter = characters > CDP_STRING_LIMIT ? {field, characters, omitted:'length-limit'}
+      : {field, characters, value:property.value};
+  } catch { return unavailable('capture-unavailable'); }
+  return snapshot;
+}
+function releaseCdpRequest(snapshot) { if (snapshot.parameter) delete snapshot.parameter.value; }
+function finishCdpFailure(error, snapshot, category, input) {
+  try {
+    const {parameter, ...identity} = snapshot;
+    const context = {schema:1, ...identity, category, source:'captured-primitive-params'};
+    if (parameter) {
+      const {value, ...metadata} = parameter;
+      if (typeof value === 'string') {
+        metadata.utf8Bytes = Buffer.byteLength(value, 'utf8');
+        metadata.sha256 = createHash('sha256').update(value, 'utf8').digest('hex');
+      }
+      context.parameter = Object.freeze(metadata);
+    }
+    const pipe = {};
+    try {
+      for (const key of ['writableLength','writableNeedDrain','destroyed']) {
+        const value = input?.[key];
+        if (typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value)) pipe[key] = value;
+      }
+    } catch { pipe.omitted = 'unavailable'; }
+    context.input = Object.freeze(pipe);
+    associateCdpFailure(error, Object.freeze(Buffer.byteLength(JSON.stringify(context), 'utf8') <= 8192
+      ? context : {schema:1, omitted:'context-limit'}));
+  } catch { associateCdpFailure(error, Object.freeze({schema:1, omitted:'metadata-unavailable'})); }
+  finally { releaseCdpRequest(snapshot); }
+  return error;
 }
 
 /** The DevTools protocol over Chrome's --remote-debugging-pipe (fd 3 in, fd 4 out; NUL-delimited JSON). A closed pipe or a dead Chrome fails every pending call; every call has a deadline. */
@@ -412,7 +499,7 @@ export class Cdp {
         if (msg.id) {
           const p = this.pending.get(msg.id);
           this.pending.delete(msg.id);
-          if (msg.error) p?.reject(new Error(`${msg.error.message} (${p.method})`));
+          if (msg.error) p?.reject(new Error(`${msg.error.message} (${p.method})`), 'protocol');
           else p?.resolve(msg.result);
         } else for (const l of this.listeners) l(msg);
       }
@@ -423,15 +510,24 @@ export class Cdp {
   }
   fail(why) {
     this.closed ??= why;
-    for (const [id, p] of this.pending) { this.pending.delete(id); p.reject(new Error(`${why} (${p.method})`)); }
+    for (const [id, p] of this.pending) { this.pending.delete(id); p.reject(new Error(`${why} (${p.method})`), 'transport'); }
   }
   send(method, params = {}, sessionId, timeoutMs = 15000) {
-    if (this.closed) return Promise.reject(new Error(`${this.closed} (${method})`));
+    if (this.closed) return Promise.reject(finishCdpFailure(new Error(`${this.closed} (${method})`),
+      captureCdpRequest(method, params, sessionId, null, timeoutMs), 'closed', this.input));
     const id = this.next++;
+    const snapshot = captureCdpRequest(method, params, sessionId, id, timeoutMs);
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`${method} did not answer within ${timeoutMs} ms`)); }, timeoutMs);
-      this.pending.set(id, { resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); }, method });
-      this.input.write(JSON.stringify({ id, method, params, sessionId }) + '\0');
+      const fail = (error, category) => reject(finishCdpFailure(error, snapshot, category, this.input));
+      const timer = setTimeout(() => { this.pending.delete(id); fail(new Error(`${method} did not answer within ${timeoutMs} ms`), 'timeout'); }, timeoutMs);
+      this.pending.set(id, { resolve: (v) => { clearTimeout(timer); releaseCdpRequest(snapshot); resolve(v); },
+        reject: (e, category = 'transport') => { clearTimeout(timer); fail(e, category); }, method });
+      try { this.input.write(JSON.stringify({ id, method, params, sessionId }) + '\0'); }
+      catch (error) {
+        // Keep the existing executor rejection and pending timer; only metadata is retired.
+        finishCdpFailure(error, snapshot, 'send-refusal', this.input);
+        throw error;
+      }
     });
   }
 }

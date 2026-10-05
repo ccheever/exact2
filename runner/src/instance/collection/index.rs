@@ -15,7 +15,7 @@
 
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 mod gaps;
@@ -85,7 +85,7 @@ pub(crate) struct Window {
 #[derive(Debug)]
 pub(crate) struct SizeIndex {
     order: Rc<[Rc<str>]>,
-    positions: BTreeMap<Rc<str>, usize>,
+    positions: HashMap<Rc<str>, usize>,
     rows: Vec<RowHeight>,
     tree: SumTree,
     estimate: f64,
@@ -102,7 +102,7 @@ impl SizeIndex {
         let estimate = valid_height(estimated_height)?;
         Ok(Self {
             order: Rc::from([]),
-            positions: BTreeMap::new(),
+            positions: HashMap::new(),
             rows: Vec::new(),
             tree: SumTree::new(&[])?,
             estimate,
@@ -113,21 +113,40 @@ impl SizeIndex {
         })
     }
 
-    /// Transactional membership rebuild. Surviving keys retain heights and tokens;
-    /// same-key content changes must separately call `invalidate_row`/`invalidate_all`.
-    /// Deleted and later reinserted keys always receive new measurement generations.
+    /// [`Self::replace_keys_indexed`] of keys checked unique here.
+    #[cfg(test)]
     pub(crate) fn replace_keys(&mut self, keys: Vec<Rc<str>>) -> Result<(), IndexError> {
         if self.order.as_ref() == keys.as_slice() {
             return Ok(());
         }
-        let mut positions = BTreeMap::new();
-        let mut rows = Vec::with_capacity(keys.len());
-        let mut generation = self.next_generation;
+        let mut positions = HashMap::with_capacity(keys.len());
         for (i, key) in keys.iter().enumerate() {
             if positions.insert(key.clone(), i).is_some() {
                 return Err(IndexError::DuplicateKey(key.to_string()));
             }
-            let row = if let Some(&old) = self.positions.get(key) {
+        }
+        self.replace_keys_indexed(keys, positions)
+    }
+
+    /// Transactional membership rebuild from keys the caller already holds
+    /// unique, with each one's position (`positions[keys[i]] == i`).
+    /// Surviving keys retain heights and tokens; same-key content changes
+    /// must separately call `invalidate_row`/`invalidate_all`. Deleted and
+    /// later reinserted keys always receive new measurement generations.
+    pub(crate) fn replace_keys_indexed(
+        &mut self,
+        keys: Vec<Rc<str>>,
+        positions: HashMap<Rc<str>, usize>,
+    ) -> Result<(), IndexError> {
+        debug_assert_eq!(positions.len(), keys.len());
+        if self.order.as_ref() == keys.as_slice() {
+            return Ok(());
+        }
+        let mut rows = Vec::with_capacity(keys.len());
+        let mut generation = self.next_generation;
+        let fresh = self.positions.is_empty();
+        for key in keys.iter() {
+            let row = if let Some(&old) = self.positions.get(key).filter(|_| !fresh) {
                 self.rows[old]
             } else {
                 generation = next_generation(generation)?;
@@ -248,7 +267,9 @@ impl SizeIndex {
         format!(
             "{:?} {:?} {:?} {} {} {:?} {:?}",
             self.order,
-            self.positions,
+            self.positions
+                .iter()
+                .collect::<std::collections::BTreeMap<_, _>>(),
             self.rows,
             self.next_generation,
             self.epoch,
@@ -301,9 +322,25 @@ impl SizeIndex {
         })
     }
 
+    /// [`SizeIndex::measurement_token`] by position.
+    pub(crate) fn measurement_token_at(&self, index: usize) -> Option<MeasurementToken> {
+        self.rows.get(index).map(|row| MeasurementToken {
+            epoch: self.epoch,
+            generation: row.generation,
+        })
+    }
+
     pub(crate) fn is_measured(&self, key: &str) -> bool {
         self.position(key)
             .is_some_and(|i| self.rows[i].measured_epoch == Some(self.epoch))
+    }
+
+    /// [`SizeIndex::is_measured`] by position (keys are unique), without a
+    /// key lookup.
+    pub(crate) fn is_measured_at(&self, index: usize) -> bool {
+        self.rows
+            .get(index)
+            .is_some_and(|row| row.measured_epoch == Some(self.epoch))
     }
 
     /// Current measurements for a nonempty geometric band, in O(log N).
@@ -369,11 +406,29 @@ impl SizeIndex {
         token: MeasurementToken,
         height: f64,
     ) -> Result<bool, IndexError> {
+        match self.position(key) {
+            Some(i) => self.set_measured_height_at(i, token, height),
+            None => valid_height(height).map(|_| false),
+        }
+    }
+
+    /// [`SizeIndex::set_measured_height`] by position (keys are unique).
+    pub(crate) fn set_measured_height_at(
+        &mut self,
+        i: usize,
+        token: MeasurementToken,
+        height: f64,
+    ) -> Result<bool, IndexError> {
         let height = valid_height(height)?;
-        if self.measurement_token(key) != Some(token) {
+        if self.measurement_token_at(i) != Some(token) {
             return Ok(false);
         }
-        let i = self.positions[key];
+        // The same height measured again this epoch: nothing to write.
+        if self.rows[i].height.to_bits() == height.to_bits()
+            && self.rows[i].measured_epoch == Some(self.epoch)
+        {
+            return Ok(true);
+        }
         self.tree.set(i, height)?;
         self.rows[i].height = height;
         self.rows[i].measured_epoch = Some(self.epoch);

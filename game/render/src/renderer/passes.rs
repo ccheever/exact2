@@ -71,6 +71,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            if frame.timestamps.is_some() {
+                self.mark(i as u32);
+            }
             pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
             pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
             let view = 1 + i as u32;
@@ -128,6 +131,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         view: &crate::FrameView<'_>,
     ) -> Result<(), RenderError> {
         let time = view.time;
+        // Soft particles: translucency follows in its own pass over this depth.
+        let split = self.quads.soft_active();
         let sky = frame
             .environment
             .background
@@ -136,12 +141,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             label: Some("game forward"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &self.targets.color,
-                resolve_target: Some(
+                resolve_target: (!split).then(|| {
                     self.hook_targets
                         .as_ref()
                         .and_then(|t| t.scene())
-                        .map_or(&self.targets.resolved, |scene| scene.color),
-                ),
+                        .map_or(&self.targets.resolved, |scene| scene.color)
+                }),
                 depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -150,7 +155,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                         b: sky[2] as f64,
                         a: 1.0,
                     }),
-                    store: if state.scene_copy {
+                    store: if state.scene_copy || split {
                         wgpu::StoreOp::Store
                     } else {
                         wgpu::StoreOp::Discard
@@ -169,7 +174,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 }),
                 stencil_ops: None,
             }),
-            timestamp_writes: timing::writes(frame.timestamps, 3),
+            timestamp_writes: {
+                if frame.timestamps.is_some() {
+                    self.mark(3);
+                }
+                timing::writes(frame.timestamps, 3)
+            },
             occlusion_query_set: None,
             multiview_mask: None,
         });
@@ -229,11 +239,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             hooks
                 .opaque(&mut pass, view)
                 .map_err(|e| hook_error("opaque", e))?;
-            timing::pass_stamp(&self.device, &mut pass, frame.timestamps, 18, true);
+            if timing::pass_stamp(&self.device, &mut pass, frame.timestamps, 18, true) {
+                self.mark(18);
+            }
             state.times[2] = start.map(|s| s.elapsed());
             self.scene_viewport(&mut pass, state.size, false);
         }
-        if frame::has_sky(frame) {
+        if frame::has_sky(frame, self.sky_ready) {
             pass.set_pipeline(&self.pipelines.sky);
             pass.set_bind_group(0, &self.scene_binds[self.current], &[0]);
             pass.draw(0..3, 0..1);
@@ -245,13 +257,68 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             hooks
                 .background(&mut pass, view)
                 .map_err(|e| hook_error("background", e))?;
-            timing::pass_stamp(&self.device, &mut pass, frame.timestamps, 19, true);
+            if timing::pass_stamp(&self.device, &mut pass, frame.timestamps, 19, true) {
+                self.mark(19);
+            }
             state.times[3] = start.map(|s| s.elapsed());
         }
-        if !state.scene_copy {
+        if !state.scene_copy && !split {
+            timing::pass_stamp(
+                &self.device,
+                &mut pass,
+                frame.timestamps,
+                timing::TRANSLUCENT,
+                false,
+            );
             state.draws += self.translucent(&mut pass, frame, variant, state.size);
+            if timing::pass_stamp(
+                &self.device,
+                &mut pass,
+                frame.timestamps,
+                timing::TRANSLUCENT,
+                true,
+            ) {
+                self.mark(timing::TRANSLUCENT);
+            }
         }
         Ok(())
+    }
+
+    /// Translucency over the opaque pass's stored colour, its depth read-only and
+    /// sampled by soft particles.
+    pub(super) fn encode_translucent(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        state: &mut Resolved,
+        frame: &FrameInput<'_>,
+    ) {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("game translucent"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &self.targets.color,
+                resolve_target: Some(&self.targets.resolved),
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Discard,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.targets.depth,
+                depth_ops: None,
+                stencil_ops: None,
+            }),
+            timestamp_writes: {
+                if frame.timestamps.is_some() {
+                    self.mark(timing::TRANSLUCENT);
+                }
+                timing::writes(frame.timestamps, timing::TRANSLUCENT)
+            },
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        self.scene_viewport(&mut pass, state.size, false);
+        state.draws += self.translucent(&mut pass, frame, state.variant, state.size);
     }
 
     /// Scene-copy continuation: depth snapshot, the refracting surface, translucency.
@@ -265,14 +332,17 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     ) -> Result<(), RenderError> {
         let time = view.time;
         let targets = self.hook_targets.as_ref().unwrap();
-        targets.resolve_depth(
+        if targets.resolve_depth(
             encoder,
             &self.queue,
             frame,
             state.size,
             true,
             self.depth_split(),
-        );
+        ) && frame.timestamps.is_some()
+        {
+            self.mark(22);
+        }
         state.draws += 1;
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("game surface + translucent"),
@@ -297,7 +367,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 }),
                 stencil_ops: None,
             }),
-            timestamp_writes: timing::writes(frame.timestamps, 20),
+            timestamp_writes: {
+                if frame.timestamps.is_some() {
+                    self.mark(20);
+                }
+                timing::writes(frame.timestamps, 20)
+            },
             occlusion_query_set: None,
             multiview_mask: None,
         });
@@ -323,14 +398,17 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     ) -> Result<(), RenderError> {
         let time = view.time;
         if let Some(targets) = &self.hook_targets {
-            targets.resolve_depth(
+            if targets.resolve_depth(
                 encoder,
                 &self.queue,
                 frame,
                 state.size,
                 false,
                 self.depth_split(),
-            );
+            ) && frame.timestamps.is_some()
+            {
+                self.mark(23);
+            }
             if state.needs.contains(crate::Needs::FINAL_DEPTH) {
                 state.draws += 1;
             }
@@ -340,18 +418,31 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 hooks
                     .post(encoder, &inputs, view)
                     .map_err(|e| hook_error("post", e))?;
-                timing::encoder_stamp(&self.device, encoder, frame.timestamps, 21, true);
+                if timing::encoder_stamp(&self.device, encoder, frame.timestamps, 21, true) {
+                    self.mark(21);
+                }
                 state.times[5] = start.map(|s| s.elapsed());
             }
         }
         if let Some(bloom) = &self.bloom {
-            state.draws += bloom.encode(
+            let draws = bloom.encode(
                 &self.queue,
                 encoder,
                 &self.pipelines,
                 frame.timestamps,
                 state.size,
             );
+            if frame.timestamps.is_some() {
+                // Levels down from pair 4, then back up from pair 10.
+                let levels = draws.div_ceil(2);
+                for level in 0..levels {
+                    self.mark(4 + level);
+                    if level + 1 < levels {
+                        self.mark(10 + level);
+                    }
+                }
+            }
+            state.draws += draws;
         }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("game ACES"),
@@ -365,7 +456,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 },
             })],
             depth_stencil_attachment: None,
-            timestamp_writes: timing::writes(frame.timestamps, 15),
+            timestamp_writes: {
+                if frame.timestamps.is_some() {
+                    self.mark(15);
+                }
+                timing::writes(frame.timestamps, 15)
+            },
             occlusion_query_set: None,
             multiview_mask: None,
         });

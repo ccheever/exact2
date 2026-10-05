@@ -500,6 +500,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "closedby" => AttrTarget::Prop(p("closedby")),
         "contextTarget" => AttrTarget::Prop(p("contextTarget")),
         "contextMagnify" => AttrTarget::Prop(p("contextMagnify")),
+        // @ref LLP 1021 §5.1 — the popover a node's context menu shows, and its preview row.
+        "contextPopover" | "contextPreview" => AttrTarget::Prop(p(name)),
         "emojiPicker" => AttrTarget::Prop(p("emojiPicker")),
         "backgroundMaterial" => AttrTarget::Prop(p("backgroundMaterial")),
         "glassGroup" => AttrTarget::Prop(p("glassGroup")),
@@ -604,6 +606,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "tabindex" => AttrTarget::Prop(p("tabIndex")),
         "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
         "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
+        "aria-current" => AttrTarget::Prop(p("accessibilityCurrent")), // Depot: a nav link's page
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),
@@ -1140,8 +1143,13 @@ pub(crate) fn similar_tag(name: &str) -> Option<String> {
 pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
     Some(match name {
         "div" => "a flex container is `column` or `row`, and a plain box `view`",
-        "span" | "p" | "label" | "strong" | "em" | "b" | "i" | "h1" | "h2" | "h3" | "h4" | "h5"
-        | "h6" => "text is `text`",
+        "span" | "p" | "strong" | "em" | "b" | "i" => "text is `text`",
+        "label" => {
+            "a label is `text` beside its field, and the field is named by `aria-label` (or `aria-labelledby` with the text's `id`)"
+        }
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+            "a heading is `text role=\"heading\" aria-level=1` (2 and on for the level)"
+        }
         "img" => "an image is `image`",
         "a" => "a link is `link`",
         "title" | "meta" => "a page's title and description are `head title=… description=…`",

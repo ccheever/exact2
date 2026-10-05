@@ -21,7 +21,12 @@ export function preferGroups(facts) {
     else if (name === 'posture' && FOLD_FACTS.posture.includes(value)) fold.posture = value;
     else if (name === 'segments' && /^\d+x\d+$/.test(String(value))) { const [c, r] = String(value).split('x').map(Number); fold.cols = c; fold.rows = r; }
     else if (name === 'gap' && Number(value) >= 0 && Number.isFinite(Number(value))) fold.gap = Number(value);
-    else throw new Error(`prefer: ${name} ${value}: expected ${expected()}`);
+    else {
+      // A near spelling of a fact (`colorScheme`, `color-scheme`): name the one meant (authoring bench).
+      const norm = n => String(n).toLowerCase().replace(/[^a-z]/g, '').replace(/^prefers?/, '');
+      const near = Object.keys({ ...PREFERENCES, ...PAGE_FACTS, ...FOLD_FACTS }).find(k => k !== name && norm(k) === norm(name));
+      throw new Error(`prefer: ${name} ${value}: ${near ? `did you mean \`${near} ${value}\`? ` : ''}expected ${expected()}`);
+    }
   }
   if (fold.gap != null && fold.cols == null) throw new Error('prefer: gap needs segments <cols>x<rows>');
   return { media, page, fold };

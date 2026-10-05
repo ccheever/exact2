@@ -2,17 +2,18 @@
 //! declare a canvas with `surface=target(...)`, or the post is refused here
 //! rather than dropped by a host at run time.
 use super::{Sink, TypeError};
-use contract_syntax::{Expr, File, Node, Stmt};
+use contract_syntax::{Expr, File, Node, Span, Stmt};
 use std::collections::BTreeSet;
 
-pub(super) fn check_targets(file: &File, sink: &mut Sink) {
+/// A call refused as ambiguous (`ambiguous`, LLP 1089 D1) is not checked.
+pub(super) fn check_targets(file: &File, ambiguous: &BTreeSet<Span>, sink: &mut Sink) {
     let mut surfaces = BTreeSet::new();
     for c in &file.components {
         view(&c.view, &mut surfaces);
     }
     for c in &file.components {
         for a in &c.actions {
-            stmts(&a.body, &surfaces, sink);
+            stmts(&a.body, &surfaces, ambiguous, sink);
         }
     }
 }
@@ -51,10 +52,12 @@ fn view<'a>(nodes: &'a [Node], out: &mut BTreeSet<&'a str>) {
         }
     }
 }
-fn stmts(body: &[Stmt], surfaces: &BTreeSet<&str>, sink: &mut Sink) {
+fn stmts(body: &[Stmt], surfaces: &BTreeSet<&str>, ambiguous: &BTreeSet<Span>, sink: &mut Sink) {
     for s in body {
         match s {
-            Stmt::Command { name, args, .. } if name == "postMessage" => {
+            Stmt::Command { name, args, span }
+                if name == "postMessage" && !ambiguous.contains(span) =>
+            {
                 let Some(Expr::Str(target, span)) = args.get(1) else {
                     continue;
                 };
@@ -77,12 +80,12 @@ fn stmts(body: &[Stmt], surfaces: &BTreeSet<&str>, sink: &mut Sink) {
             Stmt::If {
                 then, otherwise, ..
             } => {
-                stmts(then, surfaces, sink);
-                stmts(otherwise, surfaces, sink);
+                stmts(then, surfaces, ambiguous, sink);
+                stmts(otherwise, surfaces, ambiguous, sink);
             }
             Stmt::Match { some, none, .. } => {
-                stmts(&some.1, surfaces, sink);
-                stmts(none, surfaces, sink);
+                stmts(&some.1, surfaces, ambiguous, sink);
+                stmts(none, surfaces, ambiguous, sink);
             }
             _ => {}
         }

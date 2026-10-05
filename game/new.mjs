@@ -19,7 +19,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
   const local = destination === '.' || /[\\/]/.test(destination ?? '');
   const name = local ? basename(resolve(destination)) : destination;
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name ?? '') || /-(web|apple|linux|windows|gpu)$/.test(name)) {
-    throw new Error('Usage: bun game/new.mjs <name|path> [--assets] (lowercase-hyphenated name, no host suffix)');
+    throw new Error('Usage: bun game/new.mjs <name|path> [--assets] [--render] (lowercase-hyphenated name, no host suffix)');
   }
   // The type is `use exact_game::*;`'s neighbour: it may not shadow an engine export
   // (World, Camera…) or another of the template's items (Beacon, Options).
@@ -49,7 +49,24 @@ export function createGame(destination, directory = import.meta.dir, options = {
   if (existsSync(proofPath)) writeFileSync(proofPath,readFileSync(proofPath,'utf8').replace("'../../proof.mjs'",JSON.stringify(relative(destination,resolve(directory,'proof.mjs')))));
   // Identity derives from the directory and Game::ID; app.json holds authored keys only.
   if (!gameDefaults(destination)) throw new Error(`${destination}/logic/src/lib.rs: the template's Game declaration was not found`);
-  if (options.assets === true) writeFileSync(resolve(destination, 'app.json'), JSON.stringify({game:{assets:true}}, null, 2) + "\n");
+  const manifest = {game:{...(options.assets === true ? {assets:true} : {})}};
+  if (options.render === true) {
+    // The GPU-only hooks crate (LLP 1046.008, game.render): an empty pass set and
+    // an explicitly declared shader root, reflected at build.
+    const files = {
+      'render/Cargo.toml': `# Render hooks (app.json game.render): what the GPU module draws beyond the\n# engine's frame. Only the GPU shell links this crate; the simulation never does.\n[package]\nname = "${name}-render"\nversion = "0.1.0"\nedition = "2021"\nlicense = "MIT"\nworkspace = "../.shells"\n\n[dependencies]\nexact-game-render.workspace = true\nexact-gpu.workspace = true\n\n[build-dependencies]\nexact-gpu-reflect.workspace = true\n`,
+      'render/build.rs': `//! Reflect the shader inventory the game bake assembles (gpu.shaderRoots, each\n//! after its gpu.shaderPreludes) in EXACT_GAME_SHADERS: \`shaders::SHADERS\`\n//! names the interfaces the hosts register.\nfn main() {\n    println!("cargo:rerun-if-env-changed=EXACT_GAME_SHADERS");\n    let dir = std::path::PathBuf::from(std::env::var_os("EXACT_GAME_SHADERS").expect("build through the game bake"));\n    println!("cargo:rerun-if-changed={}", dir.display());\n    let generated = exact_gpu_reflect::generate(&dir).unwrap_or_else(|e| panic!("{e}"));\n    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("shaders.rs");\n    std::fs::write(out, generated.rust).unwrap();\n}\n`,
+      'render/src/lib.rs': `//! ${title}'s render hooks: implement exact_game_render::Hooks stages here.\n\n/// The reflected shader registry of render/shaders.\npub mod shaders {\n    include!(concat!(env!("OUT_DIR"), "/shaders.rs"));\n}\n\n/// The game's passes; every stage defaults to drawing nothing.\n#[derive(Default)]\npub struct Passes;\nimpl exact_game_render::Hooks for Passes {}\n`,
+    };
+    for (const [file, text] of Object.entries(files)) {
+      mkdirSync(dirname(resolve(destination, file)), {recursive:true});
+      writeFileSync(resolve(destination, file), text);
+    }
+    mkdirSync(resolve(destination, 'render/shaders'), {recursive:true});
+    manifest.game.render = {crate:`${name}-render`, hooks:'Passes', shaders:'shaders::SHADERS'};
+    manifest.gpu = {shaderRoots:['render/shaders']};
+  }
+  if (Object.keys(manifest.game).length) writeFileSync(resolve(destination, 'app.json'), JSON.stringify(manifest, null, 2) + "\n");
 
   const argument = local ? quote(destination === process.cwd() ? '.' : destination) : name;
   const proof = quote(relative(process.cwd(), resolve(destination, 'proof.mjs')));
@@ -145,7 +162,12 @@ shape Greeting
 component ${title.replaceAll(' ', '')}
   resource greeting = greeting("${title}") as shape Greeting
   view
-    main testId="root" width="100%" height="100%" padding=24 background-color="light-dark(#ffffff, #111111)"
+    main testId="root"
+      width="100%"
+      height="100%"
+      box-sizing="border-box"
+      padding=24
+      background-color="light-dark(#ffffff, #111111)"
       text greeting.text font-size=28 color="light-dark(#111111, #eeeeee)" testId="greeting"
 `,
     'app.test.contract': `test "the greeting loads"
@@ -307,13 +329,38 @@ Commands, from this directory:
 | \`bun exact.mjs web\` | the web dev loop, at the URL it prints (8765 unless another loop holds it) |
 | \`bun exact.mjs test web\` | build the web app if needed, then run \`app.test.contract\` (also \`macos\`, \`ios\`) |
 | \`bun exact.mjs agent web tree "tap <id>" "screenshot out.png"\` | drive the app as a person would |
+| \`bun exact.mjs agent ios tree "tap <testId>" "screenshot s.png"\` | the same on an iOS simulator; drive by \`testId\`, never by coordinates |
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
 | \`bun exact.mjs update\` | after exact2 moves or changes its patches; it rewrites \`exact.mjs\` |
 | app.json \`"commands": {"verify": ["bun", "verify.mjs"]}\` | the app's own verbs: \`bun exact.mjs verify web\` runs \`bun verify.mjs web\` here; \`update\` keeps them |
 
+Keep drive scripts, evidence, logs and runtime files in \`.exact/\` (git-ignored):
+no build, watcher or freshness check reads it. Anything else in this folder is a
+source: changing it makes the driver refuse to drive until the app is rebuilt.
+
 The loop: generate the types, edit, \`contract build --json\` until it prints \`[]\`,
 \`test web\`, look at it with \`agent web … screenshot\`, then the native hosts.
 \`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup --check\` names anything this machine is missing.
+
+Build it native. A hand-built lookalike of a system control is a bug; write the
+Contract form and each host draws its own (the agent guide's "Prefer native
+controls"): \`button appearance="auto"\`, \`list appearance="auto"\` with
+\`section\`s for a settings screen, \`input type="checkbox" switch\`, \`type="range"\`,
+date and time inputs, \`select\`, a \`popover="auto" role="menu"\`, a \`role="tablist"\`,
+and a route whose first child is a \`header\` holding one heading (the nav bar).
+A screen scrolls only inside a \`scroll\`, a \`list\` or an \`overflow-y="auto"\` box; right after the
+header and named by the route's \`navigationScroll\`, it also collapses a large
+title. A sheet swipes down, and a pushed screen swipes back, only when the route
+has an enabled control whose \`id\` is the root's \`navigationBack\`.
+
+Drive it by \`testId\`, never by screen coordinates: give every control a \`testId\`,
+find targets with \`tree\` (\`tree --ax\` for the platform's accessibility tree), and
+\`tap\`/\`type\` them with \`agent ios\` as with \`agent web\`. Under the agent the
+authored header and tablist stand in for the native bars and take the same taps.
+
+Match a reference's structure, controls and hierarchy, not its pixels: native
+controls set their own metrics. Don't measure sub-point positions; stop when it
+reads as the same app.
 
 Contract libraries: \`use Card from "@scope/ui"\` reads an installed package's
 \`.contract\` files (\`bun add @scope/ui\`, or \`"@me/ui": "file:../ui"\` in
@@ -526,6 +573,10 @@ function updateApp(dir, name) {
     return `Updated ${dir}: exact.mjs${notes.length ? `, ${notes.join(', ')}` : ''}`;
   }
   if (!existsSync(resolve(dir, 'app.contract')) || !existsSync(resolve(dir, 'Cargo.toml'))) throw new Error(`${dir}: no app workspace here to update (no app.contract or Cargo.toml)`);
+  // The app's crates name it, not its folder: a renamed folder keeps `<name>-web`, `<name>-apple`
+  // (authoring bench: `exact.mjs ios` asked Cargo for `todo-apple` in a `todo/` holding `todo-list-*`).
+  name = ['web', 'apple', 'linux'].map(kind => resolve(dir, kind, 'Cargo.toml')).filter(existsSync)
+    .map(path => String(Bun.TOML.parse(readFileSync(path, 'utf8')).package?.name ?? '').match(/^(.+)-(?:web|apple|linux)$/)?.[1]).find(Boolean) ?? name;
   const manifest = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
   const block = `[patch.crates-io]\n${patchLines(dir).join('\n')}\n`;
   // The table runs from its header to the next header; its trailing blank line stays.
@@ -567,5 +618,5 @@ test "the app opens"
 if (import.meta.main) {
   const args = process.argv.slice(2);
   if (args[0] === '--app') console.log(createApp(args.find((a, i) => i > 0 && !a.startsWith('--')), { update: args.includes('--update') }));
-  else console.log(createGame(args[0], undefined, {assets:args.includes("--assets")}));
+  else console.log(createGame(args[0], undefined, {assets:args.includes("--assets"), render:args.includes("--render")}));
 }

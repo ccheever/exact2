@@ -139,9 +139,10 @@ if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build
 // and entry, against this plan's declarations, so an app.ts the web builds
 // is one every host builds, refused with the same diagnostics (calc F2,
 // calendar F9/F11). It runs while the page bundles; the build waits for it.
-// Not under `--data`: the plan is another one (a conformance fixture) that
-// borrows this app's module, whose own build checked it against its own plan;
-// against the fixture's declarations every source it answers is unknown.
+// Not under `--data`: a synthetic plan over another app's sources (a
+// conformance fixture) is not app.ts's plan. That app's own build checked it
+// against its own plan; against the fixture's declarations every source it
+// answers is unknown, and its declarations stay its own.
 const typeChecked = ts && !opt('--data') ? typecheck().then(() => null, error => error) : null;
 async function typecheck() {
   const { configure, check } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
@@ -164,6 +165,8 @@ async function typecheck() {
     for (const entry of readdirSync(from, { withFileTypes: true })) {
       const name = entry.name, path = resolve(from, name);
       if (['.git', 'node_modules', 'target', 'dist'].includes(name) || name.startsWith('.exact-js-bake-') || (top && name === 'app.contract.d.ts')) continue;
+      // The app's dot directories (`.exact/`: an agent's evidence, logs, runtime files) are no source, as in js/bake's capture.
+      if (top && name.startsWith('.') && entry.isDirectory()) continue;
       if (top && mounts.some(([mount]) => mount === name)) continue;
       // Links are refused, except a document link outside the static trees
       // (CLAUDE.md → AGENTS.md), as js/bake's capture: no build reads one.

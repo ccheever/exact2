@@ -806,7 +806,7 @@ impl<'a> Lowerer<'a> {
                     );
                 }
                 controls::check_zero_size(tag, expanded, children, *span)?;
-                let nav_place = self.nav_place.enter(tag, expanded, *span)?;
+                let nav_place = self.nav_place.enter(tag, expanded, children, *span)?;
                 // @ref LLP 1038 D8 — only the first root selects navigation.
                 if has(&["navigate"])
                     && (parent_tag.is_some()
@@ -1337,7 +1337,7 @@ impl<'a> Lowerer<'a> {
                     let (code, ty) = self.typed_code(&component.value, scope, locals)?;
                     values::check_style_value(&component, &[row], &ty, font)?;
                     if index < 2 && matches!(ty, Ty::String) {
-                        return err("lower-attr-type", "a computed `flex` must be a number; write a literal CSS shorthand or a choice of literal shorthands", a.span);
+                        return err("lower-attr-type", "a computed `flex` must be a number, a literal CSS shorthand or a choice of literal shorthands; for a computed basis write the longhands, as in `flex-grow=1 flex-shrink=1 flex-basis=w`", a.span);
                     }
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,

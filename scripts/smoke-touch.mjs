@@ -7,11 +7,17 @@
 // (`tap … drag`, §11) scrolls the stations, with a read while the finger is
 // down, and a still press opens them as a tap does. Prints the runner's
 // start and per-tap times (G2) as observations, never a gate. A runner that
-// does not start fails: this simulator is the supported destination.
+// does not start fails: this simulator is the supported destination. Then a
+// grouped list (LLP 1084, `contract/corpus/grouped-touch.contract`, in
+// Caltrain's bundle): a real tap on a row's switch, detail button or row
+// lands on the cell or accessory UIKit draws, not the hidden authored node.
 //   bun scripts/smoke-touch.mjs [--build] [--sim <udid|name>]
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { open } from './agent.mjs';
+import { HOST_DEV } from './app.mjs';
 
 const argv = process.argv.slice(2);
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -40,8 +46,8 @@ for (const timing of ['agent', 'platform']) {
       check(r.delivery === 'platform' && r.landed?.session === 'main' && r.touch?.type === 'direct', `${timing}: tap ${target} was not a real touch: ${JSON.stringify(r)}`);
       return r;
     };
-    // A still press (§11): the finger down 300 ms, then up, presses as a tap does.
-    const still = await s.tap('change-station', { drag: { dx: 0, dy: 0, press: 300, during: [async () => (await s.tree()).nodes.length] } });
+    // A still press (§11): the finger down 300 ms, a read inside that hold, then up, presses as a tap does.
+    const still = await s.tap('change-station', { drag: { dx: 0, dy: 0, hold: 300, during: [async () => (await s.tree()).nodes.length] } });
     check(still.delivery === 'platform' && still.touch?.moved === 0 && still.during?.[0] > 0, `${timing}: a still press was not one real touch with a read while down: ${JSON.stringify(still)}`);
     if (timing === 'platform') await s.clock('settle');
     let tree = await s.tree();
@@ -66,6 +72,30 @@ for (const timing of ['agent', 'platform']) {
   } catch (error) {
     check(false, `${timing}: ${error.message}`);
   } finally { await s.close(); }
+}
+
+// A grouped list's rows under real touches: each tap aims at what UIKit
+// draws (the switch, the detail button, the cell) and does what a finger does.
+{
+  const plan = resolve(mkdtempSync(resolve(tmpdir(), 'exact-touch-')), 'grouped-touch.plan');
+  const c = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/grouped-touch.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  let s;
+  if (check(c.status === 0, `grouped: the fixture did not compile: ${c.stderr}`)) {
+    try {
+      s = await open({ host: 'ios', app: 'caltrain', plan, touch: 'platform' });
+      const facts = async () => byTestId(await s.tree(), 'facts')?.props.text;
+      for (const [target, want] of [['toggle', 'true 0 0'], ['toggle', 'false 0 0'], ['info', 'false 1 0'], ['open', 'false 1 1']]) {
+        const r = await s.tap(target);
+        check(r.delivery === 'platform' && r.touch?.type === 'direct', `grouped: tap ${target} was not a real touch: ${JSON.stringify(r)}`);
+        await s.clock('settle');
+        const seen = await facts();
+        check(seen === want, `grouped: after a real tap on ${target} the facts read ${seen}, not ${want} (landed ${JSON.stringify(r.landed)})`);
+      }
+      console.log('grouped: a real switch, detail button and row tap each landed on UIKit\'s cell');
+    } catch (error) {
+      check(false, `grouped: ${error.message}`);
+    } finally { await s?.close(); }
+  }
 }
 
 console.log(`touch smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);

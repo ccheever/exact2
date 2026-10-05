@@ -13,6 +13,7 @@ import { focusController, placeReporter, timeReporter, pageReporter, viewBox, gr
 import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
+import { nodeNamed } from '../../scripts/agent-test.mjs';
 
 const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.contract', line, col: 3, end_col: 9, component: 'Bubble',
   chain: [{file: '/app/app.contract', line: 45, col: 5, end_col: 11, component: 'App'}],
@@ -1033,6 +1034,26 @@ test('tree forwards its target and preserves host annotations and runner errors'
   expect(f.exact.agent({op:'tree',target:'missing'})).toEqual({error:'no view matches missing'});
 });
 
+// Uncontrolled fields live in the presenter; inspection must read what the
+// person typed without writing it into Contract state.
+test('wasm tree and node detail report live text field values without mutating runner props', () => {
+  const f = fixture();
+  vm.runInContext(declaration('tree'), f);
+  for (const C of [f.HTMLInputElement, f.HTMLTextAreaElement]) {
+    const field = Object.assign(new C(), f.views.get(1), { localName: C === f.HTMLInputElement ? 'input' : 'textarea', value: 'typed text' });
+    f.views.set(1, field);
+    const props = { testId: 'field', value: 'initial' };
+    f.ask = req => req.op === 'tree'
+      ? { nodes: [{ id: 1, type: 'TextInput', props: { ...props } }] }
+      : { id: 1, type: 'TextInput', props: { ...props } };
+    expect(f.exact.agent({ op: 'tree' }).nodes[0].props.value).toBe('typed text');
+    expect(f.exact.agent({ op: 'layout', id: 1 }).node.props.value).toBe('typed text');
+    expect(props.value).toBe('initial');
+    field.value = '';
+    expect(f.exact.agent({ op: 'tree' }).nodes[0].props.value).toBe('');
+  }
+});
+
 function listFixture() {
   const frames = [], listeners = new Map();
   const document = { activeElement: null,
@@ -1388,4 +1409,40 @@ test('perf frames live lends the clock to the wall for its window and measures w
   } finally {
     for (const [k, d] of Object.entries(saved)) d ? Object.defineProperty(globalThis, k, d) : delete globalThis[k];
   }
+});
+// A target no testId carries, by the label or text a person reads (Exact-new iOS feedback, 2026-10-04).
+const N = (id, depth, type, props = {}, handlers = [], inactive = false) => ({ id, depth, type, props, handlers, inactive });
+test('a scroller with a scroll handler does not steal a button name', () => {
+  const nodes = [N(1, 0, 'View', {}, ['scroll']), N(2, 1, 'Pressable', { accessibilityLabel: 'Save' }, ['press']), N(3, 2, 'Text', { text: 'Save' })];
+  expect(nodeNamed(nodes, 'Save').id).toBe(2);
+  const t = [N(1, 0, 'View', {}, ['scroll']), N(2, 1, 'Pressable', {}, ['press']), N(3, 2, 'Text', { text: 'Save' })];
+  expect(nodeNamed(t, 'Save').id).toBe(2);
+});
+test('an active screen heading beats a covered button', () => {
+  const nodes = [N(1, 0, 'View'), N(2, 1, 'Pressable', {}, ['press'], true), N(3, 2, 'Text', { text: 'Settings' }, [], true), N(4, 1, 'Text', { text: 'Settings' })];
+  expect(nodeNamed(nodes, 'Settings').id).toBe(4);
+});
+test('ambiguity refuses, fast on a flat list', () => {
+  const nodes = [N(0, 0, 'View')];
+  for (let i = 1; i <= 5000; i++) nodes.push(N(i, 1, 'Pressable', { accessibilityLabel: 'Delete' }, ['press']));
+  const t0 = performance.now();
+  expect(() => nodeNamed(nodes, 'Delete')).toThrow(/names 5000 views/);
+  expect(performance.now() - t0).toBeLessThan(200);
+});
+test('a press beats an ancestor taking only focus, a pan or a context menu', () => {
+  for (const h of ['focus', 'pan', 'contextmenu']) {
+    const nodes = [N(1, 0, 'View', {}, [h]), N(2, 1, 'Pressable', {}, ['press']), N(3, 2, 'Text', { text: 'Save' })];
+    expect(nodeNamed(nodes, 'Save').id).toBe(2);
+  }
+});
+test('active text beats a covered label, and a covered descendant names no active ancestor', () => {
+  const covered = [N(1, 0, 'View'), N(2, 1, 'Pressable', { accessibilityLabel: 'Settings' }, ['press'], true), N(4, 1, 'Text', { text: 'Settings' })];
+  expect(nodeNamed(covered, 'Settings').id).toBe(4);
+  const only = [N(1, 0, 'View'), N(2, 1, 'Pressable', {}, ['press'], true), N(3, 2, 'Text', { text: 'Save' }, [], true)];
+  expect(nodeNamed(only, 'Save').id).toBe(2);
+});
+test('innermost non-interactive text; none is null', () => {
+  const nodes = [N(1, 0, 'View'), N(2, 1, 'View'), N(3, 2, 'Text', { text: 'Hi' })];
+  expect(nodeNamed(nodes, 'Hi').id).toBe(3);
+  expect(nodeNamed(nodes, 'Nope')).toBe(null);
 });

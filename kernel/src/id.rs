@@ -76,6 +76,10 @@ impl NodeFlags {
     /// geometry read answers the layout last shown (LLP 1051.000 D1), not a
     /// visibility a batch has changed since.
     pub const HIDDEN: NodeFlags = NodeFlags(1 << 7);
+    /// The node took a new parent since the last layout publication: its
+    /// whole subtree is published again (a moved subtree's descendants keep
+    /// the frames and hidden bits of where they were).
+    pub const ATTACHED: NodeFlags = NodeFlags(1 << 8);
 
     /// Whether every bit of `flag` is set.
     pub const fn has(self, flag: NodeFlags) -> bool {

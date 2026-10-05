@@ -81,6 +81,17 @@ pub enum BakeError {
 impl std::fmt::Display for BakeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            // A TypeScript source that read storage at build (the prelude's refusal;
+            // authoring bench: an iOS bake panicked where the web build had not).
+            BakeError::Runner(RunnerError::Data {
+                resource,
+                error: exact_runner::DataError::Unavailable(m),
+            }) if m == "storage is unavailable during bake" => write!(
+                f,
+                "`{resource}` read storage while baking, where there is none ({m}): catch \
+                 the refusal in the source (`e.code === 'bake'` in TypeScript) and answer a \
+                 placeholder; every host asks the source again at launch"
+            ),
             BakeError::Runner(e) => write!(f, "{e:?}"),
             BakeError::Lint { id, message, .. } => write!(f, "[{id}] {message}"),
         }
@@ -411,8 +422,11 @@ pub fn rerun_if_changed(path: &Path) {
             println!("cargo:rerun-if-changed={}", source.path.display());
         }
     }
-    for manifest in graph.consulted {
-        println!("cargo:rerun-if-changed={}", manifest.display());
+    // Only what exists: Cargo reruns a script whose path is missing on every
+    // build, and a failed build reruns it anyway (a resolution that looked
+    // for a file not there failed, or found one farther up).
+    for consulted in graph.consulted.iter().filter(|path| path.exists()) {
+        println!("cargo:rerun-if-changed={}", consulted.display());
     }
 }
 

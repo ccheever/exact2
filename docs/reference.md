@@ -33,6 +33,52 @@ build without it says so in one message (`EXACT_HERMES_IOS_DIR` names archives
 built elsewhere). An app with a Rust data crate and no `app.ts` needs none of
 this.
 
+### Windows TypeScript
+
+Windows x64 uses Exact's pinned bytecode-only Hermes and static ICU 76.1, built
+with the dynamic MSVC CRT. From an x64 Visual Studio developer shell with
+PowerShell 7, Git, tar, CMake and Ninja available, run
+`pwsh -File js/build-windows.ps1 -Jobs 2`. The helper fetches pinned private build
+dependencies, retains its short work directory and verifies the actual compiler,
+archives, headers, locale data and VM probes before publishing an absent cache.
+It prints the resolved installation path and receipt digest. No ICU DLL or source
+compiler is needed by the packaged application. The x64 Microsoft Visual C++
+runtime is required by the dynamic CRT; this helper does not install its
+redistributable on a destination machine.
+
+The default cache is
+`%LOCALAPPDATA%/Exact/hermes/<pin>-lean-windows-x64-icu76-intl1`.
+`EXACT_HERMES_DIR` selects a complete matching install; an `EXACT_HERMESC` override
+must have the same identity as its compiler. The producer and linker validate one
+receipt and reject missing, extra or altered payloads. `EXACT_JS_ENGINE=stub` is
+an explicit opt-out whose executor refuses to load; it cannot bake a working
+TypeScript app. Rust-only apps do not link this VM.
+
+An ordinary TypeScript app needs an explicit Windows shell using `exact-windows`
+and the native `exact-js` data constructor; `exact new` does not generate that
+shell yet. Declare `host.windows: {}` and `deploy.store.windows: "0"` in its
+manifest. The Windows packager is `bun host/windows/build.mjs <app>` with the
+ordinary external-app `EXACT_APP_DIR` selection. Signed module delivery and
+generic cross-process persistence are not added by this support.
+
+Windows Intl uses a deliberately bounded, receipt-bound adapter. Date formatting
+supports Gregorian dates, styles, best-fit component formatting, actual parts,
+hour cycles and positional decimal numbering. A locale whose effective calendar
+is not Gregorian is refused unless explicitly overridden to Gregorian. Number
+formatting supports standard decimal, percent and currency with symbol/code
+display, boolean grouping, fraction/significant precision and half-expand
+rounding. Nonstandard notation, unit/accounting/name display, non-default rounding
+policies and algorithmic numbering are refused by name. Locale casing uses real
+ICU strings. This is not a claim of complete Intl or timezone-alias conformance;
+the supported behavior and actual probes are recorded in
+[LLP 1027.006](../llp/1027.006-windows-native-typescript.plan.md).
+
+Windows application storage uses the current user's LocalAppData known folder,
+under `exact/<app-id>/{data,cache,temporary}` (`app:/tmp` uses `temporary`). It does
+not require `HOME`. App and scratch
+identities and `app:/` path components must be safe Windows leaves; drive, UNC,
+backslash traversal, alternate-stream and reserved-device forms are refused.
+
 Snapback4 consumers use release **0.2.30**: the CLI and browser device are pinned
 in `bun.lock`; Cargo pins native devices and schema compilers to the matching
 release source commit `a397218e2332964ebe29aa1d30918c436713cc8a`.
@@ -335,7 +381,7 @@ on the web and these on Hermes (macOS, iOS, Linux):
 | `AbortController`, `AbortSignal` | `AbortSignal.timeout()` refuses: no timers |
 | `queueMicrotask`, `Promise` | |
 | `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter`, `DisplayNames` or `Locale` (Apple's engine; Linux's is built `--intl`). Apple's engine has no `notation: "compact"`: the prelude formats its short display as Chrome does for a decimal in en, en-GB, en-IN, de, fr, fr-CA, es, es-MX, it, pt, pt-PT, nl, sv, da, nb, fi, pl, ru, uk, cs, tr, ja, zh, zh-TW, ko, hi, he, id, th and vi (and their regions); `compactDisplay: "long"`, another locale or a compact currency is printed in full and said once in the logs. It rounds a tie to even where Chrome rounds it away (`¥1,234` for 1234.5 yen), and has no `formatToParts` |
-| `console` | To the runner's logs |
+| `console` | To the runner's logs after each answer and reply, including refused calls; available through the agent's `logs` on native hosts |
 
 Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
 `setInterval`), `performance.now()`, `Date.now()`, `new Date()` without a value
@@ -344,7 +390,9 @@ refuses them by name, with the same message, on first use: Hermes, the web's
 module realm, and the web build, whose bundler gives the app's own modules
 guarded `Date`, `Math`, `Intl`, timers and `performance` in place of the
 page's (LLP 1027.000 D3), so an app that reads the clock fails in the web loop
-as it would on a device. The type check cannot see the difference.
+as it would on a device. The type check cannot see the difference. Development JS builds name a derive
+whose value fails its type check and report failed resource/source dependencies
+that it read.
 ES2024's resizable `ArrayBuffer`, shared memory and the RegExp `v` flag are not
 in Hermes, so they are not in the library.
 
@@ -354,7 +402,11 @@ interface. Native `storage.fs` provides byte-oriented files under `app:/data`,
 `app:/cache`, and `app:/tmp`; `storage.sqlite` provides databases, prepared
 statements, and batch transactions. Declare grants such as `fs.read app:/data`,
 `fs.write app:/data`, and `sqlite.open app:/data/notes.db` in `app.ts`’s exported
-`grants` string.
+`grants` string. The TypeScript module always receives `storage`, including
+when no storage grants are declared. Once storage is available, ungranted
+operations reject with `Unavailable` and code `denied`, without loading the
+browser storage adapters. A drive without a scratch store still gets `agent`
+for app-storage operations; `doc:/` handles do not need that store.
 Generated declarations export Ibex2's `Storage` and related types; Rust sources
 can use the same implementations through `ibex2::host`.
 
@@ -386,29 +438,34 @@ kept between drives (on the web, Chrome's profile for the name and its page's
 origin; a Firefox or WebKit drive's is its own); an authored test gets a fresh
 one of its own, removed after it. A data module's `secret.keep` rides that same
 store: files under the named tree on Apple and Linux, `localStorage` in the named
-web profile. A drive with no `--storage` keeps those secrets in memory and leaves
-nothing behind. The driver's `state.storage` says
+web profile. A drive with no `--storage` refuses app storage (`storage is unavailable
+in agent mode unless the drive names a scratch store (--storage <name>)`) and keeps
+no secrets. The driver's `state.storage` says
 which (`{available: false, code: 'agent', message}` or `{available: true,
 store}`), and the web's journal says `storage refused (agent): …` the first time
 a refusal lands. A Rust module's storage request in such a drive is answered
 with the same message, never refused outright (trivia F7).
 
-An answer's storage and `fetch` steps run whether or not it awaits them: a save
-started and not awaited, or queued behind the module's own promise chain so
-that it begins in the microtask checkpoint after a value given at once, lands
-on every host (kanban F22, drums R10). In the browser the answer is given at
-once and the save finishes behind it; on Hermes the answer is given once the
-steps it started have landed. So a native answer that saves is a reply on real
-time, as a `fetch`'s is: under the driver it lands at the next `clock` step,
-not with the input (`tap` then `expect` reads the state before it; on the web
-build an answer given at once is there already), and on a device it lands a few
-milliseconds after the input. An answer the runner asks while another's
-storage steps are in flight waits for them, so an editor that saves on every
-edit can trail by one write (drums R11): answer edits from memory and save
-from a `task` (`every(500, autosave)` sending a `persist` mutation when the
-document changed), or put `clock settle` after the edit in a native test. A
-storage or `fetch` call made when no answer is in flight is refused and
-logged, never silently dropped. An answer the runner
+An answer's storage and `fetch` steps run whether or not it awaits them once
+they have begun: a save that has started lands on every host (kanban F22, drums
+R10). On the JS web target the answer is given at once and a save left running
+finishes behind it, including one that begins in the microtask checkpoint after
+a value given at once. On Hermes the answer waits only for steps already begun.
+A save still only queued behind an unsettled promise when the answer is given
+has been seen lost on iOS (two authoring-bench trials, 2026-10-05; QUEUE): await
+it before answering, or carry it in a request of its own. So a native answer that
+saves is a reply on real time, as a `fetch`'s is: under the driver it lands at
+the next `clock` step, not with the input (`tap` then `expect` reads the state
+before it; on the web build an answer given at once is there already), and on a
+device it lands a few milliseconds after the input. An answer the runner asks
+while another's storage steps are in flight waits for them, so an editor that
+saves on every edit can trail by one write (drums R11): answer edits from memory
+and save from a `task` (`every(500, autosave)` sending a `persist` mutation when
+the document changed), or put `clock settle` after the edit in a native test. A
+storage or `fetch` call made when no answer is in flight is refused and logged,
+never silently dropped. Native console output reaches the agent's `logs` when
+the runner drains the module after an answer or reply; a write that never ran
+leaves no line. An answer the runner
 lets go between storage steps (a refresh it discards before a mutation lands, a
 read whose arguments changed or that a `refresh` replaced) still runs the steps it began, and the chain
 behind them, to their end before the next answer starts; only its answer is

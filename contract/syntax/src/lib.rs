@@ -76,8 +76,10 @@ impl std::fmt::Display for Span {
 /// presenter's `run_commands` match these by name; any other name would reach
 /// them and be refused there, silently to the author, so the type pass
 /// refuses it. It lives here, not in the type pass, because expansion reads
-/// it too: a statement naming one is the command, even inside an action of
-/// the same name, never a call of that action (LLP 1089 D1).
+/// it too: a statement naming one is the command, never a call; one whose
+/// component also has an action, `action` prop or inject of that name, its
+/// own action included, is refused as ambiguous (LLP 1089 D1,
+/// `syntax-call-ambiguous`).
 pub const HOST_COMMANDS: &[&str] = &[
     "blur",
     "copyText",
@@ -121,7 +123,7 @@ pub const HOST_COMMANDS: &[&str] = &[
     "stopPropagation",
     // `window.close()` (studio diary R17): the window closes without asking
     // its `beforeunload` again — what an app calls once its own "Save
-    // changes?" is answered. As every host command keeps its name (LLP 1089
-    // D1), an action prop named `close` is bound, never called.
+    // changes?" is answered. An action prop named `close` may be bound, but
+    // calling it is refused as ambiguous (LLP 1089 D1, `syntax-call-ambiguous`).
     "close",
 ];

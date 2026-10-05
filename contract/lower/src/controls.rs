@@ -75,6 +75,13 @@ pub(crate) fn control(
     }
     // @ref LLP 1069.011 D1, D2 — a native button, and its style nowhere else.
     if tag == "button" && native_button(attrs)? {
+        if let Some(a) = attrs.iter().find(|a| a.name == "checked") {
+            return err(
+                "lower-attr-tag",
+                "`checked` belongs to `input type=\"checkbox\"`, not `button`",
+                a.span,
+            );
+        }
         return Ok(Some("button"));
     }
     if let Some(a) = attrs.iter().find(|a| a.name == "buttonStyle") {

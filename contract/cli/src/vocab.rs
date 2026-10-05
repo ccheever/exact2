@@ -250,7 +250,17 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             lines
         }
-        AttrTarget::Prop(p) => vec![format!("prop {}, {}", p.name(), prop_type(*p))],
+        AttrTarget::Prop(p) => {
+            let mut line = format!("prop {}, {}", p.name(), prop_type(*p));
+            // A prop with a fixed set of names lists them (authoring bench: `vocab buttonStyle`).
+            if p.name() == "buttonStyle" {
+                line += &format!(
+                    ", one of {}",
+                    exact_kernel::generated::BUTTON_STYLES.join("|")
+                );
+            }
+            vec![line]
+        }
         AttrTarget::InvertedBoolProp(p) => {
             vec![format!("prop {}, bool, set to the inverse", p.name())]
         }

@@ -420,6 +420,18 @@ impl Loader<'_> {
     /// declarations of a name keep it, so the passes that refuse that refuse it.
     fn unique_names(&self) -> Vec<HashMap<(Kind, String), String>> {
         let mut taken: HashSet<(Kind, String)> = HashSet::new();
+        // Each file's local bindings: another file's `fn` or shape of one of
+        // these names is renamed, or the binding's calls would reach it.
+        let bound: Vec<HashSet<String>> = self
+            .units
+            .iter()
+            .map(|unit| contract_syntax::scope::bindings(&mut unit.file.clone()))
+            .collect();
+        let called: Vec<HashSet<String>> = self
+            .units
+            .iter()
+            .map(|unit| contract_syntax::scope::calls(&mut unit.file.clone()))
+            .collect();
         self.units
             .iter()
             .enumerate()
@@ -442,10 +454,37 @@ impl Loader<'_> {
                     // A used file's shape named like a roster function is
                     // renamed, or every file's call of the roster function
                     // would construct it.
+                    // A name the compiler answers (`length`, `path`, …) that
+                    // another file calls without declaring or naming it: this
+                    // file's declaration would capture that call.
+                    let captures = |name: &str| {
+                        compiler_call(name)
+                            && self.units.iter().enumerate().any(|(other, unit)| {
+                                other != index
+                                    && called[other].contains(name)
+                                    // Named by a use of a callable: a shape or `fn`
+                                    // the used file declares (a style of the name
+                                    // is not one).
+                                    && !unit.file.uses.iter().zip(&unit.targets).any(|(u, &t)| {
+                                        u.names.iter().any(|n| {
+                                            n.local() == name
+                                                && declarations(&self.units[t].file).any(
+                                                    |(kind, d)| kind == Kind::Call && d == n.name,
+                                                )
+                                        })
+                                    })
+                                    && !unit.file.fns.iter().any(|f| f.name == name)
+                                    && !unit.file.shapes.iter().any(|s| s.name == name)
+                            })
+                    };
                     let roster = |name: &str| {
-                        index > 0
-                            && kind == Kind::Call
-                            && exact_plan::Stdlib::from_name(name).is_some()
+                        kind == Kind::Call
+                            && ((index > 0 && exact_plan::Stdlib::from_name(name).is_some())
+                                || captures(name)
+                                || bound
+                                    .iter()
+                                    .enumerate()
+                                    .any(|(other, names)| other != index && names.contains(name)))
                     };
                     while taken.contains(&(kind, unique.clone())) || roster(&unique) {
                         n += 1;
@@ -537,7 +576,9 @@ impl Loader<'_> {
         }
         scopes[index] = Some(Scope {
             names,
-            roster: Some(|name| exact_plan::Stdlib::from_name(name).is_some()),
+            elsewhere: HashMap::new(),
+            // The roster plus the intrinsics (`pending`, `failed`, `path`, `t`).
+            roster: Some(compiler_call),
             ..Scope::default()
         });
         Ok(())
@@ -589,6 +630,15 @@ impl Loader<'_> {
                 .sources
                 .extend(std::mem::take(&mut file.names.sources));
         }
+        let faces = |font: &contract_syntax::FontDecl| {
+            let mut faces: Vec<_> = font
+                .faces
+                .iter()
+                .map(|f| (f.weight, f.italic, f.source.clone()))
+                .collect();
+            faces.sort();
+            faces
+        };
         // Fonts stay app-global, as `@font-face` is (D6): one family declared
         // alike in two files is one; declared differently, lowering refuses it.
         let mut fonts: Vec<contract_syntax::FontDecl> = Vec::new();
@@ -597,11 +647,7 @@ impl Loader<'_> {
             .flat_map(|file| std::mem::take(&mut file.fonts))
         {
             let alike = |prior: &contract_syntax::FontDecl| {
-                prior.name == font.name
-                    && prior.faces.len() == font.faces.len()
-                    && prior.faces.iter().zip(&font.faces).all(|(a, b)| {
-                        (a.weight, a.italic, &a.source) == (b.weight, b.italic, &b.source)
-                    })
+                prior.name == font.name && faces(prior) == faces(&font)
             };
             if !fonts.iter().any(alike) {
                 fonts.push(font);
@@ -630,6 +676,13 @@ impl Loader<'_> {
             components: all!(components),
         }
     }
+}
+
+/// A call the compiler answers itself: the roster, and the intrinsics the
+/// type checker reads before any `fn` (`pending`, `failed`, `path`, `t`).
+fn compiler_call(name: &str) -> bool {
+    exact_plan::Stdlib::from_name(name).is_some()
+        || matches!(name, "pending" | "failed" | "path" | "t")
 }
 
 /// A file's own top-level names, by namespace, in source order.

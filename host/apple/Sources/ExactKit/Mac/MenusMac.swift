@@ -181,6 +181,30 @@ final class MenuHost: NSObject {
             }) { window.makeFirstResponder(presenter.keyView(of: target)) }
         }
     }
+    /// LLP 1021 §5.1: a context menu, its popover's menu rows as an NSMenu
+    /// popped up at the click, after the node's own `contextmenu` has run
+    /// (both fire), on the next turn as a button menu's. Its preview row is
+    /// not an item: a Mac's context menu has no preview. Under the agent the
+    /// popover opens painted, anchored to the node (D4).
+    func context(_ source: NodeView, at point: NSPoint) {
+        guard let name = source.props["contextPopover"] else { return }
+        DispatchQueue.main.async { [weak self, weak source] in
+            guard let self, let presenter = self.presenter, let source, self.live(source), source.props["contextPopover"] == name,
+                  !source.disabled, !source.inert, !self.hidden(source), source.window === presenter.viewport.window else { return }
+            guard let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name && !self.isConfirmation($0) }) else {
+                presenter.session?.log("context menu \(name) refused: no popover has that id")
+                return
+            }
+            while let last = self.entries.last { self.close(last.popover, restoreFocus: false) }
+            if ExactEnv.agentMode { self.show(pop, from: source); return }
+            // A new presentation only if it has an item: it retires picks of the last.
+            guard pop.container.subviews.contains(where: { ($0 as? NodeView).map { $0.isButton && $0.props["contextPreview"] != "true" } ?? false }) else { return }
+            self.presentations[pop.id, default: 0] += 1
+            self.revalidate()
+            let menu = self.menu(of: pop)
+            menu.popUp(positioning: nil, at: point, in: source)
+        }
+    }
     /// Where a menu presenting `pop` pops up in `source`: its top-left, by
     /// the popover's `position-area` and margins as its painted box would
     /// sit, the menu's own size the box, clamped to the viewport (§5).
@@ -324,7 +348,7 @@ final class MenuHost: NSObject {
     }
 
     func isMenuShaped(_ pop: NodeView) -> Bool {
-        let rows = pop.container.subviews.compactMap { $0 as? NodeView }
+        let rows = pop.container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["contextPreview"] != "true" }
         func textOnly(_ node: NodeView) -> Bool {
             node.kind == "text" && node.container.subviews.compactMap { $0 as? NodeView }.allSatisfy(textOnly)
         }
@@ -348,6 +372,7 @@ final class MenuHost: NSObject {
         // The popover's `aria-label` titles the menu ("Open location in").
         if let heading = pop.props["accessibilityLabel"], !heading.isEmpty { menu.addItem(.sectionHeader(title: heading)) }
         for case let row as NodeView in pop.container.subviews {
+            if row.props["contextPreview"] == "true" { continue } // a context menu's preview (§5.1)
             if row.props["semanticTag"] == "hr" { menu.addItem(.separator()); continue }
             guard row.isButton else { continue }
             let item = NSMenuItem(title: title(of: row), action: #selector(pick(_:)), keyEquivalent: "")

@@ -347,7 +347,10 @@ impl Parser {
                 TokenKind::Ident(w) if w == "font" => file.fonts.push(self.font_decl()?),
                 TokenKind::Ident(w) if w == "routes" => {
                     if file.routes.is_some() {
-                        return self.err("route-duplicate", "an app declares exactly one `routes` table");
+                        return self.err(
+                            "route-duplicate",
+                            "an app declares exactly one `routes` table",
+                        );
                     }
                     file.routes = Some(self.routes_decl()?);
                 }
@@ -374,7 +377,12 @@ impl Parser {
                 TokenKind::Ident(w) if LAUNCH.contains(&w.as_str()) => {
                     let line = self.step()?;
                     if let Some(first) = file.launch.iter().find(|s| same_launch(s, &line)) {
-                        return duplicate("launch line", launch_word(&line), line.span(), first.span());
+                        return duplicate(
+                            "launch line",
+                            launch_word(&line),
+                            line.span(),
+                            first.span(),
+                        );
                     }
                     file.launch.push(line);
                 }
@@ -391,13 +399,16 @@ impl Parser {
                 }
                 TokenKind::Ident(w) if w == "use" => file.uses.push(self.use_decl()?),
                 other => {
+                    if let Some(e) = self.continued_expression("syntax-expected-declaration") {
+                        return e;
+                    }
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
                         "expected `routes`, `font`, `shape`, `style`, `keyframes`, `timeline`, `fn`, `use`, or `component`, found {}",
                         describe(other)
                     ),
-                    )
+                    );
                 }
             }
         }
@@ -488,6 +499,7 @@ impl Parser {
         self.expect_punct(":")?;
         let ret = self.type_expr()?;
         self.expect_punct("=")?;
+        self.on_its_line("fn")?;
         let body = self.expr()?;
         self.newline()?;
         Ok(FnDecl {
@@ -717,8 +729,12 @@ impl Parser {
                         "state" | "derive" => {
                             let t = self.next();
                             let name = self.named_ident(t.span)?;
+                            self.type_annotation(&w, &name, ":")?;
                             self.expect_punct("=")?;
+                            self.on_its_line(&w)?;
                             let expr = self.expr()?;
+                            let none = matches!(expr, Expr::None(_));
+                            self.type_annotation(&w, &name, if none { "as none" } else { "as" })?;
                             self.newline()?;
                             let b = Binding {
                                 name,
@@ -753,16 +769,41 @@ impl Parser {
                         other => {
                             return self.err(
                                 "syntax-unknown-section",
-                                format!("unknown section `{other}`"),
+                                format!("unknown section `{other}`{}", names::section_hint(other)),
                             )
                         }
                     }
                 }
+                // A one-line declaration continued on an indented line (a
+                // resource's `else` under it; authoring bench).
+                TokenKind::Indent
+                    if matches!(self.peek2(), TokenKind::Ident(w)
+                        if matches!(w.as_str(), "else" | "then" | "refreshes" | "as")) =>
+                {
+                    let TokenKind::Ident(w) = self.peek2().clone() else {
+                        unreachable!()
+                    };
+                    let example = if w == "else" {
+                        " (like `resource tasks = loadTasks() as shape list<Task> else empty()`)"
+                    } else {
+                        ""
+                    };
+                    return self.err(
+                        "syntax-expected-section",
+                        format!(
+                            "`{w} …` is indented under the line above, and a declaration is one \
+                             line: join them{example}"
+                        ),
+                    );
+                }
                 other => {
+                    if let Some(e) = self.continued_expression("syntax-expected-section") {
+                        return e;
+                    }
                     return self.err(
                         "syntax-expected-section",
                         format!("expected a section, found {}", describe(&other)),
-                    )
+                    );
                 }
             }
         }
@@ -885,7 +926,7 @@ impl Parser {
                         "an action branches with `if`; `when` is a view's: write `else if`",
                     );
                 } else {
-                    self.newline()?;
+                    self.after_else("if")?;
                     otherwise = self.required_block(span, "else", |p| p.stmt())?;
                 }
             }
@@ -1053,6 +1094,12 @@ impl Parser {
                 self.newline()?;
                 Ok(Node::Children { span })
             }
+            // An action's `if` written in a view (authoring bench).
+            "if" => self.err(
+                "syntax-stray-keyword",
+                "`if` is an action's statement: a view chooses with `when <condition>`, \
+                 and an `else` after its block at the same indent",
+            ),
             "when" => {
                 self.next();
                 let cond = self.expr()?;
@@ -1071,7 +1118,7 @@ impl Parser {
                             "a view branches with `when`; `if` is an action's: write `else when`",
                         );
                     } else {
-                        self.newline()?;
+                        self.after_else("when")?;
                         otherwise = self.required_block(span, "else", |p| p.node())?;
                     }
                 }
@@ -1157,7 +1204,7 @@ impl Parser {
             }
             "else" | "case" => self.err(
                 "syntax-stray-keyword",
-                format!("`{word}` without a matching construct"),
+                names::stray(&word),
             ),
             "map" | "filter" if matches!(self.peek2(), TokenKind::Punct("(")) => self.err(
                 "syntax-map-view",

@@ -1212,6 +1212,9 @@ impl<D: DataSource> Runner<D> {
         let parsed = self
             .data
             .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);
+        for line in self.data.take_logs() {
+            self.log(line);
+        }
         // What this reply's turn watched joins the resource's topics whatever
         // the reply says: a turn that yields another request (a long native
         // call) watched them as much as the one that answers.

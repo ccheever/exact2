@@ -22,6 +22,9 @@ struct Frame {
     logical_size: vec4<f32>,
     // SH9 diffuse irradiance / π, premultiplied (ibl.rs, ibl.wgsl).
     irradiance: array<vec4<f32>, 9>,
+    // An environment map drawn as the sky: intensity (0: the procedural sky),
+    // yaw about +Y, RGBM range.
+    sky: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> frame: Frame;
 fn environment(y: f32) -> vec3<f32> {

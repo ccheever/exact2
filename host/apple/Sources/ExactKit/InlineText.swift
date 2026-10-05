@@ -183,9 +183,20 @@ extension NodeView {
         }
         return nil
     }
+    var defaultLink: String? {
+        guard kind == "button", !handlers.contains("press"), let url = props["href"], !url.isEmpty else { return nil }
+        return url
+    }
+    func activateLink(_ url: String) -> Bool {
+        guard let session = presenter?.session, !disabled, !inert else { return false }
+        if url.hasPrefix("/") && !url.hasPrefix("//") { return session.navigate(url) }
+        session.delegate?.exactSession(session, command: "openURL", args: [url]); return true
+    }
     func activateInline(_ id: UInt32) -> Bool {
         guard let presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id) else { return false }
         if run.handlers.contains("press") { presenter.press(id); return true }
+        // A route in the note navigates; anything else is the app's to open
+        // (session.follow). A button's own `href` uses `activateLink`.
         if let url = run.props["href"], !url.isEmpty, let session = presenter.session { return session.follow(url) }
         return false
     }

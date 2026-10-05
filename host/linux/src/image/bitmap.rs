@@ -35,6 +35,16 @@ impl Bitmap {
             _source: Some(source),
         }
     }
+    /// The GIF or WebP file this is the first frame of, which a reader with an
+    /// animated drawable of its own may play in its place.
+    pub fn animation_file(&self) -> Option<std::path::PathBuf> {
+        let source = self._source.as_ref()?;
+        let name = source.name().to_ascii_lowercase();
+        if !(name.ends_with(".gif") || name.ends_with(".webp")) {
+            return None;
+        }
+        source.file()
+    }
     /// Original source dimensions, independent of the chosen decode resolution.
     pub fn natural(&self) -> (u32, u32) {
         self.natural

@@ -173,6 +173,10 @@ fn a_colour_parses_as_css_writes_it() {
     // CSS's named colours, in any ASCII case (CSS Color 4 §6.1).
     assert_eq!(Color::parse("red"), red);
     assert_eq!(
+        Color::parse("hsl(120 100% 25% / 50%)"),
+        Some(Color::rgba(0, 128, 0, 128))
+    );
+    assert_eq!(
         Color::parse(" Gray "),
         Some(Color::rgba(128, 128, 128, 255))
     );

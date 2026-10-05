@@ -39,7 +39,7 @@ fn permitted_extensions_are_baked_per_texture() {
     let m = bake(v).unwrap();
     assert_eq!(m.materials[0].emissive, [0.8, 1.2, 1.6]);
     assert_eq!(m.materials[0].uv_transforms[0], [2., 0., 0., 3., 0.25, 0.5]);
-    assert!(m.textures[0].ends_with("-srgb-straight.tex"));
+    assert!(m.textures[0].starts_with("textures/") && m.textures[0].ends_with(".tex"));
 }
 
 #[test]

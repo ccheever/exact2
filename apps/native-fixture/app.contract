@@ -157,6 +157,11 @@ component NativeFixture
     opened = id
   action refreshProviders
     send providers = providers()
+  // A context menu with a preview (LLP 1021 §5.1): its source's own
+  // `contextmenu` counts the openings; tapping the preview pushes Detail.
+  state peeks = 0
+  action peeked
+    peeks = peeks + 1
   derive rowItems = match rows { case some(r) => r.items, case none => [] }
   action showRows
     nav = push(nav, "/rows")
@@ -325,6 +330,22 @@ component NativeFixture
                           text p.name
                       button popovertarget="open-in-sheet" popovertargetaction="hide" testId="open-in-sheet-cancel" height=44
                         text "Cancel"
+                    // A context menu (LLP 1021 §5.1): a long press on iOS lifts
+                    // the row into UIKit's menu with the preview above it; the
+                    // preview's press is the commit, popping into Detail.
+                    button press=detail contextmenu=peeked contextPopover="peek" testId="peek" aria-label="Detail, long press to peek" display="flex" flex-direction="row" align-items="center" gap=8 padding=10 border-radius=12 background-color="#eef2ff"
+                      text "Peek at Detail" flex=1
+                      text ("peeks " + toString(peeks)) testId="peeks" font-size=12 color="#6b7280"
+                    column id="peek" popover="auto" position="absolute" role="menu" width=300 padding=8 gap=4 background-color="#ffffff"
+                      button contextPreview=true press=detail popovertarget="peek" popovertargetaction="hide" testId="peek-preview" aria-label="Open Detail" display="flex" flex-direction="column" gap=6 width="100%" height=180 padding=16 box-sizing="border-box" border-radius=12 background-color="#e0e7ff"
+                        text "Detail" font-weight=700 font-size=20
+                        text "A preview of the Detail screen, laid out by the kernel and shown by UIKit." font-size=14 color="#374151"
+                      button press=bump popovertarget="peek" popovertargetaction="hide" testId="peek-bump" height=44
+                        image "symbol:sf/plus.circle" width=20 height=20 object-fit="contain"
+                        text "Bump"
+                      hr margin-left=0 margin-right=0
+                      button press=unbump destructive=true popovertarget="peek" popovertargetaction="hide" testId="peek-clear" height=44
+                        text "Clear"
                     row gap=6
                       button press=grow testId="grow" padding=6
                         text "Grow content"

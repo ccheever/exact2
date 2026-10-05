@@ -26,7 +26,7 @@
 //! statements, as soon as it does.
 
 use super::subst::{subst_stmts, Subst};
-use crate::ast::{Action, Component, Expr, File, Stmt};
+use crate::ast::{Action, Component, Expr, File, ShapeDecl, Stmt};
 use crate::parser::SyntaxError;
 use crate::{Span, HOST_COMMANDS};
 use std::borrow::Cow;
@@ -57,6 +57,103 @@ pub fn size(body: &[Stmt]) -> usize {
             }
         })
         .sum()
+}
+
+/// A statement `name(…)` whose name is both a host command and an action,
+/// an `action` prop or an injected action of the component it is written
+/// in (LLP 1089 D1, as amended 2026-10-05). It is refused at every
+/// statement position, whatever its arguments, in a same-named action too:
+/// a host command added later must never silently take a call over.
+/// Declaring or binding such a name stays legal.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ambiguous {
+    /// The call statement.
+    pub span: Span,
+    /// The name it calls.
+    pub name: String,
+    /// `action`, `action prop` or `injected action`.
+    pub what: &'static str,
+    /// The component it is written in.
+    pub owner: String,
+    /// Where that component declares the name.
+    pub declared: Span,
+}
+
+impl Ambiguous {
+    /// The refusal's id.
+    pub const ID: &'static str = "syntax-call-ambiguous";
+
+    /// What the refusal says.
+    pub fn message(&self) -> String {
+        let (name, owner, what) = (&self.name, &self.owner, self.what);
+        let rename = match what {
+            "action" => "Rename the action and update its bindings",
+            "action prop" => "Rename the prop and update its bindings",
+            _ => "Rename the inject and the `provide` that fills it",
+        };
+        format!(
+            "`{name}()` names both a host command and {what} `{owner}.{name}`. {rename}. Call the renamed {what} to invoke it; keep `{name}()` to invoke the host command"
+        )
+    }
+}
+
+/// Every ambiguous call statement in `file`'s actions, each checked against
+/// the component it is written in, before any expansion or lifting.
+pub fn ambiguous(file: &File) -> Vec<Ambiguous> {
+    fn walk(body: &[Stmt], c: &Component, shapes: &[ShapeDecl], out: &mut Vec<Ambiguous>) {
+        for s in body {
+            match s {
+                Stmt::Command { name, span, .. } if HOST_COMMANDS.contains(&name.as_str()) => {
+                    // The primitive `action`, not a shape the file names so.
+                    let action = |p: &&crate::ast::Param| {
+                        p.name == *name
+                            && p.ty.as_ref().is_some_and(super::is_action)
+                            && !shapes.iter().any(|s| s.name == "action")
+                    };
+                    let found = c
+                        .actions
+                        .iter()
+                        .find(|a| a.name == *name)
+                        .map(|a| ("action", a.span))
+                        .or_else(|| c.props.iter().find(action).map(|p| ("action prop", p.span)))
+                        .or_else(|| {
+                            c.injects
+                                .iter()
+                                .find(action)
+                                .map(|p| ("injected action", p.span))
+                        });
+                    if let Some((what, declared)) = found {
+                        out.push(Ambiguous {
+                            span: *span,
+                            name: name.clone(),
+                            what,
+                            owner: c.name.clone(),
+                            declared,
+                        });
+                    }
+                }
+                Stmt::If {
+                    then, otherwise, ..
+                } => {
+                    walk(then, c, shapes, out);
+                    walk(otherwise, c, shapes, out);
+                }
+                Stmt::Match { some, none, .. } => {
+                    walk(&some.1, c, shapes, out);
+                    walk(none, c, shapes, out);
+                }
+                Stmt::Call { body, .. } => walk(body, c, shapes, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for c in &file.components {
+        for a in &c.actions {
+            walk(&a.body, c, &file.shapes, &mut out);
+        }
+    }
+    out
 }
 
 /// Whether a statement `name(…)` in `c`'s actions calls one of them.

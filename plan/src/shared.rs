@@ -249,6 +249,14 @@ impl From<Vec<Value>> for Items {
     }
 }
 
+impl<'a> From<std::vec::Drain<'a, Value>> for Items {
+    /// The drained values, moved in: no vector of their own.
+    #[inline]
+    fn from(items: std::vec::Drain<'a, Value>) -> Items {
+        Items(triomphe::ThinArc::from_header_and_iter((), items))
+    }
+}
+
 impl From<&[Value]> for Items {
     fn from(items: &[Value]) -> Items {
         Items(triomphe::ThinArc::from_header_and_iter(

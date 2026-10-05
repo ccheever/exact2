@@ -364,6 +364,15 @@ impl RawStorage {
         self.clear_slot(index);
         true
     }
+    /// Erase every present row, visiting only the mask's set bits.
+    pub(super) fn erase_all(&mut self) {
+        for word in 0..self.mask.len() {
+            while self.mask[word] != 0 {
+                let index = word * 64 + self.mask[word].trailing_zeros() as usize;
+                self.erase(index);
+            }
+        }
+    }
     pub(super) fn erase(&mut self, index: usize) {
         if self.has(index) {
             self.removed(index);

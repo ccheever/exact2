@@ -768,6 +768,7 @@ final class Presenter {
               fromNativeMenu || (segments.shown(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
         let command = dialogs.command(node, fromNativeMenu: fromNativeMenu)
         let popover = menus.command(node, fromNativeMenu: fromNativeMenu)
+        if command == nil && popover == nil, node.id == id, let url = node.defaultLink, node.activateLink(url) { return }
         if (command == nil && popover == nil) || node.handlers.contains("press") { onPress?(id) }
         command?()
         popover?()

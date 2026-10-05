@@ -1,5 +1,5 @@
 import {test, expect} from 'bun:test';
-import {mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, realpathSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {gameDefaults, gameShells} from './shells.mjs';
@@ -72,37 +72,37 @@ test('a declared app data crate is linked into generated game hosts', () => {
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
-test('presentation declarations fail before creating or changing generated files', () => {
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-presentation-declaration-'));
-  const valid = {crate:'island-presentation', type:'view::Hooks', shaders:'shaders::REGISTRY'};
-  const write = value => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({game:{presentation:value}}));
+test('render declarations fail before creating or changing generated files', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-render-declaration-'));
+  const valid = {crate:'island-render', hooks:'view::Hooks', shaders:'shaders::REGISTRY'};
+  const write = value => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({game:{render:value}}));
   const shells = () => gameShells(dir, gameDefaults(dir).game, resolve(import.meta.dir, '..'));
   try {
     mkdirSync(resolve(dir, 'logic/src'), {recursive:true});
     writeFileSync(resolve(dir, 'logic/src/lib.rs'), 'impl Game for Island { const ID: &\'static str = "island"; }');
-    for (const invalid of [null, [], {}, {...valid, crate:'island'}, {...valid, type:'x()'}, {...valid, shaders:'&[]'}, {...valid, shaders:null}, {...valid, extra:true}]) {
-      write(invalid); expect(shells).toThrow('game.presentation'); expect(existsSync(resolve(dir, '.shells'))).toBe(false);
+    for (const invalid of [null, [], {}, {...valid, crate:'island'}, {...valid, hooks:'x()'}, {...valid, shaders:'&[]'}, {...valid, shaders:null}, {...valid, extra:true}]) {
+      write(invalid); expect(shells).toThrow('game.render'); expect(existsSync(resolve(dir, '.shells'))).toBe(false);
     }
     write(valid); expect(shells).toThrow('requires'); expect(existsSync(resolve(dir, '.shells'))).toBe(false);
-    mkdirSync(resolve(dir, 'presentation/src'), {recursive:true});
-    const manifest = resolve(dir, 'presentation/Cargo.toml');
-    writeFileSync(manifest, '[package]\nname = "wrong-presentation"\nworkspace = "../.shells"\n');
+    mkdirSync(resolve(dir, 'render/src'), {recursive:true});
+    const manifest = resolve(dir, 'render/Cargo.toml');
+    writeFileSync(manifest, '[package]\nname = "wrong-render"\nworkspace = "../.shells"\n');
     expect(shells).toThrow('must name the package'); expect(existsSync(resolve(dir, '.shells'))).toBe(false);
-    writeFileSync(manifest, '[package]\nname = "island-presentation"\nworkspace = ".."\n');
+    writeFileSync(manifest, '[package]\nname = "island-render"\nworkspace = ".."\n');
     expect(shells).toThrow('package.workspace'); expect(existsSync(resolve(dir, '.shells'))).toBe(false);
-    writeFileSync(manifest, '[package]\nname = "island-presentation"\nworkspace = "../.shells"\n');
+    writeFileSync(manifest, '[package]\nname = "island-render"\nworkspace = "../.shells"\n');
     shells(); const before = readFileSync(resolve(dir, '.shells/Cargo.toml'), 'utf8');
-    write({...valid, shaders:'call()'}); expect(shells).toThrow('game.presentation');
+    write({...valid, shaders:'call()'}); expect(shells).toThrow('game.render');
     expect(readFileSync(resolve(dir, '.shells/Cargo.toml'), 'utf8')).toBe(before);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
-test('presentation hooks compose with audio/assets and never enter generated host or build dependencies', () => {
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-presentation-shell-'));
+test('render hooks compose with audio/assets and never enter generated host or build dependencies', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-render-shell-'));
   try {
-    mkdirSync(resolve(dir, 'logic/src'), {recursive:true}); mkdirSync(resolve(dir, 'presentation/src'), {recursive:true});
+    mkdirSync(resolve(dir, 'logic/src'), {recursive:true}); mkdirSync(resolve(dir, 'render/src'), {recursive:true});
     writeFileSync(resolve(dir, 'logic/src/lib.rs'), 'impl Game for Island { const ID: &\'static str = "island"; }');
-    writeFileSync(resolve(dir, 'presentation/Cargo.toml'), '[package]\nname = "island-presentation"\nworkspace = "../.shells"\n');
+    writeFileSync(resolve(dir, 'render/Cargo.toml'), '[package]\nname = "island-render"\nworkspace = "../.shells"\n');
     const generate = game => {
       writeFileSync(resolve(dir, 'app.json'), JSON.stringify({game}));
       gameShells(dir, gameDefaults(dir).game, resolve(import.meta.dir, '..'));
@@ -112,13 +112,13 @@ test('presentation hooks compose with audio/assets and never enter generated hos
       const plain = generate({audio,assets});
       const manifests = Object.fromEntries(['gpu','web','apple','linux','windows'].map(kind => [kind, readFileSync(resolve(dir, `.shells/${kind}/Cargo.toml`), 'utf8')]));
       for (const shaders of [undefined,'shaders::REGISTRY']) {
-        const hooked = generate({audio,assets,presentation:{crate:'island-presentation',type:'view::Hooks',...(shaders ? {shaders} : {})}});
-        expect(hooked).toBe(plain.replace(');', `, hooks = game_presentation::view::Hooks${shaders ? ', shaders = game_presentation::shaders::REGISTRY' : ''});`));
+        const hooked = generate({audio,assets,render:{crate:'island-render',hooks:'view::Hooks',...(shaders ? {shaders} : {})}});
+        expect(hooked).toBe(plain.replace(');', `, hooks = game_render::view::Hooks${shaders ? ', shaders = game_render::shaders::REGISTRY' : ''});`));
         const gpu = readFileSync(resolve(dir, '.shells/gpu/Cargo.toml'), 'utf8');
-        expect(gpu.split('[build-dependencies]')[1]).not.toContain('presentation');
-        expect(gpu.match(/game-presentation = /g)).toHaveLength(1);
+        expect(gpu.split('[build-dependencies]')[1]).not.toContain('game-render');
+        expect(gpu.match(/game-render = /g)).toHaveLength(1);
         for (const kind of ['web','apple','linux','windows']) expect(readFileSync(resolve(dir, `.shells/${kind}/Cargo.toml`), 'utf8')).toBe(manifests[kind]);
-        expect(readFileSync(resolve(dir, '.shells/Cargo.toml'), 'utf8')).toContain('../presentation');
+        expect(readFileSync(resolve(dir, '.shells/Cargo.toml'), 'utf8')).toContain('../render');
       }
       expect(generate({audio,assets})).toBe(plain);
       expect(readFileSync(resolve(dir, '.shells/gpu/Cargo.toml'), 'utf8')).toBe(manifests.gpu);
@@ -126,19 +126,53 @@ test('presentation hooks compose with audio/assets and never enter generated hos
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
-test('presentation source and shader changes invalidate GPU proof inputs without invalidating the host', async () => {
+test('render crate source and shader changes invalidate GPU proof inputs without invalidating the host', async () => {
   const {proofInputs, proofInputExcluded} = await import('../proof.mjs');
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-presentation-inputs-')), app = resolve(dir, 'game/games/island');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-render-inputs-')), app = resolve(dir, 'game/games/island');
   const write = (file, value) => { const path = resolve(app,file); mkdirSync(resolve(path,'..'),{recursive:true}); writeFileSync(path,value); };
   try {
     write('app.contract','component Island\n  view\n'); write('logic/src/lib.rs','logic');
-    write('presentation/Cargo.toml','[package]\nname="island-presentation"\n');
-    write('presentation/src/lib.rs','hooks'); write('presentation/shaders/fog.wgsl','shader');
+    write('render/Cargo.toml','[package]\nname="island-render"\n');
+    write('render/src/lib.rs','hooks'); write('render/shaders/fog.wgsl','shader');
     const read = () => proofInputs(dir, app, resolve(dir, 'cache'));
-    for (const file of ['presentation/Cargo.toml','presentation/src/lib.rs','presentation/shaders/fog.wgsl','presentation/build.mjs']) {
+    for (const file of ['render/Cargo.toml','render/src/lib.rs','render/shaders/fog.wgsl','render/build.mjs']) {
       expect(proofInputExcluded(`game/games/island/${file}`,'island')).toBe(false);
       const before=read(); write(file,'changed'); const after=read();
       expect(after.gpu).not.toBe(before.gpu); expect(after.host).toBe(before.host);
     }
   } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+test('the old game.presentation key fails with its rename', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-render-rename-'));
+  try {
+    mkdirSync(resolve(dir, 'logic/src'), {recursive:true});
+    writeFileSync(resolve(dir, 'logic/src/lib.rs'), 'impl Game for Island { const ID: &\'static str = "island"; }');
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({game:{presentation:{crate:'island-presentation', type:'Hooks'}}}));
+    expect(() => gameShells(dir, gameDefaults(dir).game, resolve(import.meta.dir, '..')))
+      .toThrow('game.presentation is now game.render');
+    expect(existsSync(resolve(dir, '.shells'))).toBe(false);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+test('the bake writes the render crate its assembled shader inventory, engine preludes included', async () => {
+  const {ENGINE_PRELUDES} = await import('../../scripts/app.mjs');
+  // The sets are the renderer's own constants, file for file.
+  const materials = readFileSync(resolve(import.meta.dir, '../render/src/hooks/materials.rs'), 'utf8');
+  const constant = name => [...materials.slice(materials.indexOf(`pub const ${name}`)).split(');')[0].matchAll(/shaders\/(\w+\.wgsl)/g)].map(m => m[1]);
+  expect(ENGINE_PRELUDES['exact-game-render:material']).toEqual(constant('MATERIAL_WGSL'));
+  expect(ENGINE_PRELUDES['exact-game-render:material_shadows']).toEqual(constant('MATERIAL_SHADOWS_WGSL'));
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-render-inventory-'));
+  try {
+    mkdirSync(resolve(dir, 'logic/src'), {recursive:true}); mkdirSync(resolve(dir, 'render/shaders'), {recursive:true});
+    writeFileSync(resolve(dir, 'logic/src/lib.rs'), 'impl Game for Island { const ID: &\'static str = "island"; }');
+    writeFileSync(resolve(dir, 'render/Cargo.toml'), '[package]\nname = "island-render"\nworkspace = "../.shells"\n');
+    writeFileSync(resolve(dir, 'render/shaders/sky.wgsl'), '// sky body\n');
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({game:{render:{crate:'island-render', hooks:'Hooks'}},
+      gpu:{shaderRoots:['render/shaders'], shaderPreludes:{sky:['exact-game-render:frame']}}}));
+    gameShells(dir, gameDefaults(dir).game, resolve(import.meta.dir, '..'));
+    const frame = readFileSync(resolve(import.meta.dir, '../render/src/shaders/frame.wgsl'), 'utf8');
+    expect(readFileSync(resolve(dir, '.shells/shaders/sky.wgsl'), 'utf8')).toBe(`${frame}\n// sky body\n`);
+    expect(readFileSync(resolve(dir, '.shells/.cargo/config.toml'), 'utf8')).toContain(`EXACT_GAME_SHADERS = ${JSON.stringify(resolve(realpathSync(dir), '.shells/shaders'))}`);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
 });

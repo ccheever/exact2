@@ -348,6 +348,10 @@ pub struct Runner<D: DataSource> {
     /// Refused requests, for `state` (LLP 1070.000 §2.2).
     into_view_refused: std::collections::VecDeque<String>,
     surfaces: Vec<SurfaceUpdate>,
+    /// Views the next applied batch renews (LLP 1078): rebound list rows.
+    renewed: Vec<ViewId>,
+    /// Retiring list rows are rebound to new items ([`Runner::set_row_reuse`]).
+    reuse: bool,
     /// The 2D canvases (LLP 1056 D4), when Canvas 2D is linked.
     canvases: Option<Box<dyn canvas2d::CanvasEngine>>,
     /// Requests in flight (LLP 1016): at most one per resource or mutation.
@@ -815,6 +819,8 @@ impl<D: DataSource> Runner<D> {
             resized: Vec::new(),
             into_view_refused: Default::default(),
             surfaces: Vec::new(),
+            renewed: Vec::new(),
+            reuse: false,
             canvases: links.canvas.map(|engine| engine()),
             pending: Vec::new(),
             pending_res: Vec::new(),
@@ -1322,6 +1328,15 @@ impl<D: DataSource> Runner<D> {
         self.full = full;
     }
 
+    /// Rebind a list row that leaves the window to the item the window
+    /// needs next, instead of destroying it and building one (LLP 1078; off
+    /// by default). The receipts name every view of a rebound row
+    /// `renewed`: a host that turns this on resets what it keeps by view
+    /// for each of them, as for a new one.
+    pub fn set_row_reuse(&mut self, on: bool) {
+        self.reuse = on;
+    }
+
     /// Whether an update failed after the tree began to change (see
     /// [`RunnerError::Poisoned`]).
     pub fn is_poisoned(&self) -> bool {
@@ -1357,6 +1372,11 @@ impl<D: DataSource> Runner<D> {
         for note in std::mem::take(&mut self.notes) {
             self.log(note);
         }
+        let arena = self.kernel.arena();
+        receipt.renewed = std::mem::take(&mut self.renewed)
+            .into_iter()
+            .filter_map(|view| arena.key_of(view))
+            .collect();
         // Forget destroyed views once they outnumber the live ones (a
         // detached kernel holds none, and its runner asks for none).
         if !self.kernel.is_detached() && self.ids.remembered() > 2 * self.kernel.live_count() + 256
@@ -1452,9 +1472,13 @@ impl<D: DataSource> Runner<D> {
         }
         // @ref LLP 1038 D5 / §8 — distinguish asked sources from compiled boot values.
         self.log(lines::query(&resource, &source));
-        self.data
-            .answer_for(Target::Resource(i), &mut self.store, &source, args)
-            .map_err(|error| RunnerError::Data { resource, error })
+        let answer = self
+            .data
+            .answer_for(Target::Resource(i), &mut self.store, &source, args);
+        for line in self.data.take_logs() {
+            self.log(line);
+        }
+        answer.map_err(|error| RunnerError::Data { resource, error })
     }
 }
 #[cfg(test)]

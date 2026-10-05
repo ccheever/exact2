@@ -44,9 +44,18 @@ pub struct Session {
     source_map: bool,
 }
 
+/// A used file's identity as the filesystem reports it: its time and length,
+/// and on Unix its inode, so a link retargeted at a twin is a change.
 fn stamp_of(path: &Path) -> Option<(SystemTime, u64)> {
     let meta = std::fs::metadata(path).ok()?;
-    Some((meta.modified().ok()?, meta.len()))
+    #[cfg(unix)]
+    let len = {
+        use std::os::unix::fs::MetadataExt;
+        meta.len() ^ meta.ino().rotate_left(32) ^ meta.dev()
+    };
+    #[cfg(not(unix))]
+    let len = meta.len();
+    Some((meta.modified().ok()?, len))
 }
 
 /// The files compiling `root` reads besides itself: used files, packages'

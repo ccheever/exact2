@@ -94,8 +94,7 @@ fn carry_adds_animation_components_and_replaces_controller_kinds() {
         }
         let bytes = old.save().unwrap();
         for mode in [Restore::Open, Restore::Carry] {
-            let mut s =
-                WorldSurface::<Animated, exact_game_render::ModelPresentation, true>::default();
+            let mut s = WorldSurface::<Animated, exact_game_render::ModelExecutor, true>::default();
             s.bind(&[], None).unwrap();
             s.restore(&bytes, mode).unwrap();
             if mode == Restore::Open {
@@ -126,7 +125,7 @@ fn primitive_pose_refusal_names_the_same_author_knob() {
     let mut sim = Sim::<Animated>::new(()).unwrap();
     let request = r#"{"op":"state","entity":"clip","pose":true}"#;
     let reply = sim.agent(request);
-    let error = <() as exact_game_render::Presentation>::inspect(
+    let error = <() as exact_game_render::Executor>::inspect(
         sim.world(),
         sim.world().named("clip").unwrap(),
         true,

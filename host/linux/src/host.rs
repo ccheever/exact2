@@ -29,6 +29,8 @@ mod height;
 mod height_binding;
 #[path = "holds.rs"]
 mod holds;
+#[path = "lower.rs"]
+pub mod lower;
 #[path = "paint_motion.rs"]
 mod paint_motion;
 #[path = "presence.rs"]
@@ -56,6 +58,24 @@ impl std::fmt::Display for HostError {
     }
 }
 
+/// Plan bytes to boot: a copy of the caller's, or bytes that live as long as
+/// the program (a plan linked into it), whose data pool the decoded plan
+/// then keeps in place.
+#[derive(Clone, Copy)]
+pub(crate) enum PlanBytes<'a> {
+    Copied(&'a [u8]),
+    Static(&'static [u8]),
+}
+
+impl PlanBytes<'_> {
+    pub(crate) fn decode(self) -> Result<Plan, exact_plan::PlanError> {
+        match self {
+            PlanBytes::Copied(bytes) => Plan::decode(bytes),
+            PlanBytes::Static(bytes) => Plan::decode_static(bytes),
+        }
+    }
+}
+
 /// One runner, one painter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
@@ -68,6 +88,8 @@ pub struct Host<D: DataSource> {
     now_ms: f64,
     height_owner: Option<NodeKey>,
     pub(crate) flow_damage: crate::paint::damage::Changes,
+    /// What changed for the painter's kept rows since its last frame.
+    pub(crate) row_dirty: crate::paint::rows::Dirty,
     height_bindings: height_binding::Bindings,
     transform_bindings: transform_binding::Bindings,
     height_projection: Option<exact_kernel::PresentedHeight>,
@@ -76,12 +98,25 @@ pub struct Host<D: DataSource> {
     #[cfg(test)]
     layout_calls: usize,
     data_activated: bool,
+    /// The reader plays [`lower::LOWERED`] animations (the Canvas host);
+    /// those nodes and what it plays, and a count of changes to them.
+    lowering: bool,
+    lowered: std::collections::HashMap<u64, u8>,
+    lowered_epoch: u64,
+    /// The epoch each lowered node's plays last changed at.
+    lowered_changed: std::collections::HashMap<u64, u64>,
+    played: std::collections::HashMap<
+        u64,
+        Vec<(exact_motion::Property, exact_motion::PlayedTransition)>,
+    >,
     router_op: Option<exact_runner::RouterChange>,
     navigation: crate::navigation::Navigation,
     presence: presence::Presence,
     presses: BTreeMap<NodeKey, press::Feedback>,
     /// The 2D canvases' bitmaps (LLP 1056 D7).
     canvas2d: crate::canvas2d::Canvases,
+    /// Views commits renewed (LLP 1078) the presenter has yet to reset.
+    renewed: Vec<ViewId>,
 }
 
 impl<D: DataSource> Host<D> {
@@ -144,6 +179,25 @@ impl<D: DataSource> Host<D> {
         region: Option<crate::content_region::ContentRegionRegistration>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
+        Self::boot_decoded(
+            plan, data, measurer, width, height, carried, delivery, launch, region,
+        )
+    }
+
+    /// [`Host::boot_at_with_region`] of a plan already decoded (the
+    /// presenter decodes once, for its fonts and then for this).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn boot_decoded(
+        plan: Plan,
+        data: D,
+        measurer: Box<dyn TextMeasurer>,
+        width: f32,
+        height: f32,
+        carried: Option<&Carried>,
+        delivery: Option<exact_runner::Delivery>,
+        launch: &str,
+        region: Option<crate::content_region::ContentRegionRegistration>,
+    ) -> Result<(Host<D>, Option<String>), HostError> {
         // @ref LLP 1075.003.000 §3.3 — this host has no native objects for a
         // hook to reach: a plan that marks nodes is told so once, at boot.
         let hooked = plan.bindings.iter().any(|b| {
@@ -186,6 +240,7 @@ impl<D: DataSource> Host<D> {
             now_ms: 0.0,
             height_owner: None,
             flow_damage: Default::default(),
+            row_dirty: Default::default(),
             height_bindings: Default::default(),
             transform_bindings: Default::default(),
             height_projection: None,
@@ -194,16 +249,24 @@ impl<D: DataSource> Host<D> {
             #[cfg(test)]
             layout_calls: 0,
             data_activated: false,
+            lowering: false,
+            lowered: Default::default(),
+            lowered_epoch: 0,
+            lowered_changed: Default::default(),
+            played: Default::default(),
             router_op: None,
             navigation: Default::default(),
             presence: Default::default(),
             presses: Default::default(),
             canvas2d: Default::default(),
+            renewed: Vec::new(),
         };
         host.runner
             .set_canvas_limits(exact_runner::Limits::native(physical_memory(), false));
+        host.runner.set_row_reuse(crate::app::row_reuse());
         // The engine hears the whole tree once: values, no transitions; an
         // `animation` starts now, as a browser starts one on a new element.
+        host.lowering_from_env();
         let mut sync = MotionSync::default();
         host.discover_height_handles();
         host.discover_transform_handles();
@@ -216,6 +279,7 @@ impl<D: DataSource> Host<D> {
         }
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+        host.lower_eligibility(&sync);
         host.boot_paint();
         host.presence
             .layout
@@ -417,13 +481,34 @@ impl<D: DataSource> Host<D> {
         self.runner.collections()
     }
 
+    /// One list's entry of [`Host::collections`].
+    pub fn collection(&self, view: ViewId) -> Option<exact_runner::CollectionSnapshot> {
+        self.runner.collection(view)
+    }
+
+    /// [`Host::collections`] with only each list's first mounted row: views,
+    /// sequences and port geometry, not every row's record.
+    pub fn collections_shallow(&self) -> Vec<exact_runner::CollectionSnapshot> {
+        self.runner.collections_shallow()
+    }
+
     /// Commit viewport geometry and any edge action, retaining commits on refusal.
     /// `false` means stale or unchanged feedback, requiring no layout.
     pub fn collection_feedback(
         &mut self,
         feedback: exact_runner::CollectionFeedback,
     ) -> Result<bool, String> {
-        match self.runner.collection_feedback(feedback) {
+        self.collection_feedback_filled(feedback, exact_runner::CollectionFill::default())
+    }
+
+    /// [`Host::collection_feedback`] with a fill: the list's velocity and a
+    /// slice's limit (LLP 1050.000 §6).
+    pub fn collection_feedback_filled(
+        &mut self,
+        feedback: exact_runner::CollectionFeedback,
+        fill: exact_runner::CollectionFill,
+    ) -> Result<bool, String> {
+        match self.runner.collection_feedback_filled(feedback, fill) {
             Ok(mut result) => {
                 let changed = !result.receipts.is_empty();
                 if !changed && result.error.is_none() {
@@ -514,11 +599,28 @@ impl<D: DataSource> Host<D> {
             .copied()
             .unwrap_or_else(|| Presented::from_style(node.style));
         shown.dark = Some(self.paint.dark(node.key));
+        shown.lowered = self.lowered_mask(node.key);
         shown.press = self
             .presses
             .get(&node.key)
             .map_or(1., |f| f.factor(self.now_ms));
         shown
+    }
+
+    /// Whether any node shows press feedback now.
+    #[cfg(target_os = "android")]
+    pub(crate) fn pressing(&self) -> bool {
+        !self.presses.is_empty()
+    }
+
+    /// What changed for kept rows since the last take: commits, layouts,
+    /// presentation, and every node with press feedback now.
+    pub(crate) fn take_row_dirty(&mut self) -> crate::paint::rows::Dirty {
+        let mut dirty = std::mem::take(&mut self.row_dirty);
+        for key in self.presses.keys() {
+            dirty.node(*key);
+        }
+        dirty
     }
 
     /// The agent API's read operations (LLP 1012): `tree`, `state`, `logs`
@@ -741,7 +843,7 @@ impl<D: DataSource> Host<D> {
             self.log(refusal);
             return Some(refusal.into());
         }
-        match self.runner.dispatch(view, event) {
+        match crate::traced(c"exact dispatch", || self.runner.dispatch(view, event)) {
             Ok(receipt) => self.commit(
                 &[Timed {
                     at_ms: self.now_ms,
@@ -870,10 +972,37 @@ impl<D: DataSource> Host<D> {
     /// An image loaded: its intrinsic size in points (`None` when it failed
     /// or was cleared). Lays out again.
     pub fn set_intrinsic(&mut self, view: ViewId, size: Option<(f32, f32)>) -> Option<String> {
-        match self.runner.kernel_mut().set_intrinsic_size(view, size) {
-            Ok(()) => self.layout().err(),
-            Err(e) => Some(format!("intrinsic: {e:?}")),
+        self.set_intrinsics([(view, size)])
+    }
+
+    /// Views commits renewed since the last call (LLP 1078).
+    pub(crate) fn take_renewed(&mut self) -> Vec<ViewId> {
+        std::mem::take(&mut self.renewed)
+    }
+
+    /// Several nodes' natural sizes (pictures a sync decoded), then one
+    /// layout, when any of them changed: not a layout per picture.
+    pub fn set_intrinsics(
+        &mut self,
+        sizes: impl IntoIterator<Item = (ViewId, Option<(f32, f32)>)>,
+    ) -> Option<String> {
+        let mut error = None;
+        let mut changed = false;
+        for (view, size) in sizes {
+            let kernel = self.runner.kernel_mut();
+            let before = kernel
+                .arena()
+                .slot_of(view)
+                .map(|slot| kernel.arena().intrinsic(slot));
+            match kernel.set_intrinsic_size(view, size) {
+                Ok(()) => changed |= before != Some(size),
+                Err(e) => error = error.or(Some(format!("intrinsic: {e:?}"))),
+            }
         }
+        if changed {
+            error = error.or(self.layout().err());
+        }
+        error
     }
 
     /// The viewport changed: lay out again.
@@ -1043,7 +1172,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> Option<String> {
-        self.commit_effects(receipts, error).0
+        crate::traced(c"exact commit", || self.commit_effects(receipts, error).0)
     }
 
     fn commit_effects(
@@ -1056,6 +1185,7 @@ impl<D: DataSource> Host<D> {
         for t in receipts {
             let r = &t.receipt;
             self.flow_damage.commit(self.runner.kernel(), r);
+            self.row_dirty.commit(r);
             paint |= r.layout_invalidated
                 || !r.created.is_empty()
                 || !r.destroyed.is_empty()
@@ -1070,6 +1200,15 @@ impl<D: DataSource> Host<D> {
             for key in &r.created {
                 if let Some(node) = self.runner.kernel().node_by_key(*key) {
                     self.keys.insert(*key, node.id);
+                }
+            }
+            // A renewed node is a new mount (LLP 1078): nothing presented
+            // or pressed carries over; the presenter resets the rest.
+            for key in &r.renewed {
+                self.presses.remove(key);
+                if let Some(id) = self.keys.get(key).copied() {
+                    self.presented.remove(&id);
+                    self.renewed.push(id);
                 }
             }
         }
@@ -1100,12 +1239,10 @@ impl<D: DataSource> Host<D> {
                 .engine
                 .advance((t.at_ms / 1000.0).max(self.engine.now()));
             debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-            let applied = self
-                .runner
-                .kernel()
-                .motion_sync(&t.receipt)
-                .apply(&mut self.engine);
+            let sync = self.runner.kernel().motion_sync(&t.receipt);
+            let applied = sync.apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+            self.lower_eligibility(&sync);
             self.sync_paint(&t.receipt);
             if let Err(error) = self.sync_height_owner() {
                 self.log(error);
@@ -1116,13 +1253,17 @@ impl<D: DataSource> Host<D> {
         self.retire_transform_binding();
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-        let layout = if receipts.is_empty() {
-            self.layout_motion()
-        } else {
-            self.layout()
-        };
+        let layout = crate::traced(c"exact layout", || {
+            if receipts.is_empty() {
+                self.layout_motion()
+            } else {
+                self.layout()
+            }
+        });
         self.observe_layout();
         paint |= layout.as_ref().copied().unwrap_or(true);
+        // Transitions the reader plays leave the engine before it presents.
+        self.play_transitions();
         // Consume the final sample even when the seek has made motion quiescent.
         paint |= self.present();
         (error.or(layout.err()), paint)
@@ -1136,7 +1277,21 @@ impl<D: DataSource> Host<D> {
             self.router_op = Some(change);
             changed = true;
         }
-        for line in self.navigation.sync(self.runner.kernel(), &self.preorder()) {
+        // Only stacks and popovers matter to it: the walk keeps those, in
+        // preorder, not every node of every mounted row.
+        // None at all (most apps, most commits): no walk.
+        let kernel = self.runner.kernel();
+        let navigation = if kernel.has_prop(exact_kernel::PropId::NavigationBack)
+            || kernel.has_prop(exact_kernel::PropId::Popover)
+        {
+            kernel.preorder_where(&self.runner.roots(), |_, props| {
+                props.str(exact_kernel::PropId::NavigationBack).is_some()
+                    || props.str(exact_kernel::PropId::Popover).is_some()
+            })
+        } else {
+            Vec::new()
+        };
+        for line in self.navigation.sync(self.runner.kernel(), &navigation) {
             self.runner.log(line);
         }
         changed
@@ -1165,6 +1320,7 @@ impl<D: DataSource> Host<D> {
                 continue;
             }
             changed = true;
+            self.row_dirty.node(key);
             if Property::PAINT.contains(&p.property) {
                 self.present_paint(p);
                 continue;
@@ -1199,18 +1355,9 @@ impl<D: DataSource> Host<D> {
 
     /// Every live node in preorder.
     pub fn preorder(&self) -> Vec<ViewId> {
-        let kernel = self.runner.kernel();
-        let mut stack: Vec<ViewId> = self.runner.roots().into_iter().rev().collect();
-        let mut order = Vec::new();
-        while let Some(id) = stack.pop() {
-            order.push(id);
-            if let Some(node) = kernel.node(id) {
-                let mut children = node.children();
-                children.reverse();
-                stack.extend(children);
-            }
-        }
-        order
+        self.runner
+            .kernel()
+            .preorder_where(&self.runner.roots(), |_, _| true)
     }
 }
 
@@ -1311,143 +1458,5 @@ fn physical_memory() -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A named agent drive keeps `secret.keep` in its scratch tree, and a
-    /// fresh launch reads nothing back (platformer R10). A child, so the
-    /// environment stays off this process.
-    #[test]
-    fn named_agent_storage_keeps_a_secret_across_a_relaunch() {
-        const CHILD: &str = "EXACT_LINUX_SECRET_KEEP_TEST";
-        if std::env::var_os(CHILD).is_none() {
-            let home =
-                std::env::temp_dir().join(format!("exact-linux-secrets-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&home);
-            std::fs::create_dir_all(&home).unwrap();
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
-                .args([
-                    "--exact",
-                    "host::tests::named_agent_storage_keeps_a_secret_across_a_relaunch",
-                ])
-                .env(CHILD, "1")
-                .env("HOME", &home)
-                .env("XDG_CACHE_HOME", &home)
-                .env("EXACT_AGENT", "1")
-                .env("EXACT_AGENT_STORAGE", "s1")
-                .env_remove("EXACT_AGENT_STORAGE_FRESH")
-                .env_remove("EXACT_STORE")
-                .output()
-                .unwrap();
-            let _ = std::fs::remove_dir_all(&home);
-            assert!(
-                output.status.success(),
-                "{}{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-            return;
-        }
-        let app = "test.exact.keep";
-        let write = |name: &str, value: Option<&str>| exact_runner::StoreWrite {
-            name: name.into(),
-            value: value.map(str::to_string),
-        };
-        assert!(persist_agent_writes(app, &[write("platformer.best", Some("22050"))]).is_empty());
-        assert!(persist_agent_writes(app, &[write("exact.kept.score", Some("9"))]).is_empty());
-        let again = agent_store_snapshot(app, false);
-        assert!(
-            again.contains(&("platformer.best".into(), "22050".into())),
-            "{again:?}"
-        );
-        assert!(
-            again.contains(&("exact.kept.score".into(), "9".into())),
-            "{again:?}"
-        );
-        let file = crate::picker::agent_secret_root(app)
-            .unwrap()
-            .join("secrets")
-            .join("platformer.best");
-        assert!(file.is_file(), "{}", file.display());
-        // A carried reload does not wipe, even while a fresh flag is set.
-        std::env::set_var("EXACT_AGENT_STORAGE_FRESH", "1");
-        assert!(agent_store_snapshot(app, true).is_empty());
-        assert!(file.is_file(), "a carried reload leaves the scratch files");
-        assert!(
-            agent_store_snapshot(app, false).is_empty(),
-            "a fresh launch reads nothing"
-        );
-        assert!(!file.exists());
-        // A commit after that boot outlives the activation's storage
-        // configuration and a second boot here: the tree is emptied once.
-        assert!(persist_agent_writes(app, &[write("platformer.best", Some("7"))]).is_empty());
-        crate::picker::empty_fresh_tree(app).unwrap();
-        assert!(agent_store_snapshot(app, false).contains(&("platformer.best".into(), "7".into())));
-        std::env::remove_var("EXACT_AGENT_STORAGE_FRESH");
-        assert!(persist_agent_writes(app, &[write("platformer.best", Some("22050"))]).is_empty());
-        std::env::remove_var("EXACT_AGENT_STORAGE");
-        assert!(persist_agent_writes(app, &[write("platformer.best", Some("x"))]).is_empty());
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "22050");
-    }
-
-    /// b6 review C1: a fresh drive whose scratch tree cannot be emptied boots
-    /// with nothing, not with the secret the last drive left. A child, as
-    /// above.
-    #[test]
-    fn a_fresh_tree_that_cannot_be_emptied_is_not_read() {
-        const CHILD: &str = "EXACT_LINUX_FRESH_WIPE_TEST";
-        if std::env::var_os(CHILD).is_none() {
-            let home =
-                std::env::temp_dir().join(format!("exact-linux-wipe-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&home);
-            std::fs::create_dir_all(&home).unwrap();
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
-                .args([
-                    "--exact",
-                    "host::tests::a_fresh_tree_that_cannot_be_emptied_is_not_read",
-                ])
-                .env(CHILD, "1")
-                .env("HOME", &home)
-                .env("XDG_CACHE_HOME", &home)
-                .env("EXACT_AGENT", "1")
-                .env("EXACT_AGENT_STORAGE", "s2")
-                .env_remove("EXACT_AGENT_STORAGE_FRESH")
-                .env_remove("EXACT_STORE")
-                .output()
-                .unwrap();
-            let _ = std::process::Command::new("chmod")
-                .args(["-R", "u+w"])
-                .arg(&home)
-                .status();
-            let _ = std::fs::remove_dir_all(&home);
-            assert!(
-                output.status.success(),
-                "{}{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-            return;
-        }
-        use std::os::unix::fs::PermissionsExt;
-        let app = "test.exact.wipe";
-        let write = exact_runner::StoreWrite {
-            name: "platformer.best".into(),
-            value: Some("22050".into()),
-        };
-        assert!(persist_agent_writes(app, &[write]).is_empty());
-        let secrets = crate::picker::agent_secret_root(app)
-            .unwrap()
-            .join("secrets");
-        std::fs::set_permissions(&secrets, std::fs::Permissions::from_mode(0o555)).unwrap();
-        std::env::set_var("EXACT_AGENT_STORAGE_FRESH", "1");
-        assert!(
-            crate::picker::empty_fresh_tree(app).is_err(),
-            "the wipe fails"
-        );
-        assert!(
-            agent_store_snapshot(app, false).is_empty(),
-            "nothing the last drive left"
-        );
-        std::fs::set_permissions(&secrets, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-}
+#[path = "host_tests.rs"]
+mod tests;

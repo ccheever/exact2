@@ -6,6 +6,7 @@ use exact_gpu::wgpu;
 
 pub(crate) struct Ssao {
     size: (u32, u32),
+    scale: u32,
     uniform: wgpu::Buffer,
     occlusion: wgpu::TextureView,
     ao_bind: wgpu::BindGroup,
@@ -15,8 +16,8 @@ pub(crate) struct Ssao {
 }
 
 impl Ssao {
-    /// Over these targets, which must retain their depth.
-    pub fn new(device: &wgpu::Device, targets: &Targets) -> Self {
+    /// Over these targets, which must retain their depth; occlusion at 1/`scale`.
+    pub fn new(device: &wgpu::Device, targets: &Targets, scale: u32) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("game SSAO"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/ssao.wgsl").into()),
@@ -31,8 +32,8 @@ impl Ssao {
             .create_texture(&wgpu::TextureDescriptor {
                 label: Some("game SSAO occlusion"),
                 size: wgpu::Extent3d {
-                    width: targets.size.0,
-                    height: targets.size.1,
+                    width: targets.size.0.div_ceil(scale),
+                    height: targets.size.1.div_ceil(scale),
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -64,42 +65,53 @@ impl Ssao {
             },
             count: None,
         };
-        let layout = |label, entry| {
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some(label),
-                entries: &[uniform_entry, entry],
-            })
-        };
-        let ao_layout = layout(
-            "game SSAO depth",
-            texture(1, wgpu::TextureSampleType::Depth, true),
+        let depth = texture(1, wgpu::TextureSampleType::Depth, true);
+        let occlusion_entry = texture(
+            2,
+            wgpu::TextureSampleType::Float { filterable: false },
+            false,
         );
-        let apply_layout = layout(
-            "game SSAO apply",
-            texture(
-                2,
-                wgpu::TextureSampleType::Float { filterable: false },
-                false,
-            ),
-        );
-        let bind = |label, layout: &wgpu::BindGroupLayout, binding, view| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some(label),
-                layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: uniform.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding,
-                        resource: wgpu::BindingResource::TextureView(view),
-                    },
-                ],
-            })
-        };
-        let ao_bind = bind("game SSAO depth", &ao_layout, 1, &targets.depth);
-        let apply_bind = bind("game SSAO apply", &apply_layout, 2, &occlusion);
+        let ao_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("game SSAO depth"),
+            entries: &[uniform_entry, depth],
+        });
+        // The upsample reads depth too, for its edge weights.
+        let apply_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("game SSAO apply"),
+            entries: &[uniform_entry, depth, occlusion_entry],
+        });
+        let ao_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("game SSAO depth"),
+            layout: &ao_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&targets.depth),
+                },
+            ],
+        });
+        let apply_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("game SSAO apply"),
+            layout: &apply_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&targets.depth),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&occlusion),
+                },
+            ],
+        });
         let pipeline = |layout, entry, format, blend| {
             crate::pipeline::make_pipeline(
                 device,
@@ -125,6 +137,7 @@ impl Ssao {
         };
         Self {
             size: targets.size,
+            scale,
             ao: pipeline(&ao_layout, "ao", wgpu::TextureFormat::R8Unorm, None),
             apply: pipeline(
                 &apply_layout,
@@ -142,8 +155,8 @@ impl Ssao {
         }
     }
 
-    pub fn fits(&self, targets: &Targets) -> bool {
-        self.size == targets.size
+    pub fn fits(&self, targets: &Targets, scale: u32) -> bool {
+        self.size == targets.size && self.scale == scale
     }
 
     /// Estimate occlusion from depth, then multiply it into `color`.
@@ -157,6 +170,7 @@ impl Ssao {
         color: &wgpu::TextureView,
         size: (u32, u32),
         split: f32,
+        timestamps: Option<&wgpu::QuerySet>,
     ) {
         let mut words = [0f32; 40];
         words[..16].copy_from_slice(&frame.proj.inverse().to_cols_array());
@@ -167,9 +181,10 @@ impl Ssao {
             settings.radius.max(1e-3),
             settings.intensity.max(0.),
         ]);
-        words[36] = split;
+        let (_, samples) = settings.quality.plan();
+        words[36..39].copy_from_slice(&[split, self.scale as f32, samples as f32]);
         queue.write_buffer(&self.uniform, 0, bytes(&words));
-        for (view, pipeline, bind, load) in [
+        for (i, (view, pipeline, bind, load)) in [
             (
                 &self.occlusion,
                 &self.ao,
@@ -177,7 +192,10 @@ impl Ssao {
                 wgpu::LoadOp::Clear(wgpu::Color::WHITE),
             ),
             (color, &self.apply, &self.apply_bind, wgpu::LoadOp::Load),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("game SSAO"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -190,11 +208,20 @@ impl Ssao {
                     },
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
+                timestamp_writes: crate::timing::writes(
+                    timestamps,
+                    [crate::timing::SSAO, crate::timing::SSAO_APPLY][i],
+                ),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            crate::renderer::viewport(&mut pass, size);
+            // The occlusion pass runs at the texture's downscaled size.
+            let at = if i == 0 {
+                (size.0.div_ceil(self.scale), size.1.div_ceil(self.scale))
+            } else {
+                size
+            };
+            crate::renderer::viewport(&mut pass, at);
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, bind, &[]);
             pass.draw(0..3, 0..1);

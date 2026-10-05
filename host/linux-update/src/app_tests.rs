@@ -90,7 +90,7 @@ fn selected_config(dir: &Path, baked: &[u8], client: Client) -> Config {
     let mut config = Config {
         content_region: None,
         launch: "/".into(),
-        plan: baked.to_vec(),
+        plan: baked.to_vec().into(),
         fallback_plan: None,
         assets: dir.to_path_buf(),
         scale: 1.0,
@@ -151,7 +151,7 @@ fn a_fetched_plan_refused_at_boot_falls_back_to_baked() {
     let mut config = Config {
         content_region: None,
         launch: "/".into(),
-        plan: foreign.encode(),
+        plan: foreign.encode().into(),
         fallback_plan: Some(baked),
         assets: std::env::current_dir().unwrap(),
         scale: 1.0,
@@ -220,7 +220,7 @@ fn a_partial_initial_dev_plan_falls_back_without_counting_the_store() {
     let mut config = Config {
         content_region: None,
         launch: "/".into(),
-        plan: b"EXPL".to_vec(), // the compiler was interrupted mid-write
+        plan: b"EXPL".to_vec().into(), // the compiler was interrupted mid-write
         fallback_plan: Some(baked.clone()),
         assets: PathBuf::from("."),
         scale: 1.0,
@@ -241,7 +241,7 @@ fn a_partial_initial_dev_plan_falls_back_without_counting_the_store() {
         updates: None,
     };
     config.use_updates(Box::new(updates), &baked);
-    assert_eq!(config.plan, b"EXPL");
+    assert_eq!(&*config.plan, b"EXPL");
     assert!(config.entry.is_none(), "the selected entry did not win");
     let (presenter, _) = boot_presenter::<Named>(&mut config, (390.0, 844.0)).unwrap();
     assert_eq!(presenter.node_count(), 1, "the baked plan booted");

@@ -1373,6 +1373,24 @@
     },
     {
       "id": 238,
+      "name": "contextPopover",
+      "kind": "str",
+      "_comment": "LLP 1021 §5.1: the HTML `id` of the popover a node's context menu shows (a long press, a secondary click). iOS presents it as `UIContextMenuInteraction` (its menu rows the `UIMenu`, its `contextPreview` row the preview); macOS as an `NSMenu` at the click; the web opens the popover anchored to the node; Linux shows nothing. A declared deviation: HTML retired its `contextmenu` attribute."
+    },
+    {
+      "id": 239,
+      "name": "contextPreview",
+      "kind": "bool",
+      "_comment": "LLP 1021 §5.1: this row of a context popover is the menu's preview (on iOS the preview controller's view, sized by its layout), not a menu item; its `press` is what tapping the preview does (UIKit's commit). Elsewhere it is an ordinary row."
+    },
+    {
+      "id": 240,
+      "name": "accessibilityCurrent",
+      "kind": "str",
+      "_comment": "ARIA `aria-current` (Depot feedback, 2026-10-05): `page`, `step`, `location`, `date`, `time`, `true` or `false`, the current item of a set (a navigation link, a wizard's step); a bool expression is written as `true`/`false`. AppKit serves WebKit's `AXARIACurrent`; UIKit has no such property, so iOS exposes none."
+    },
+    {
+      "id": 241,
       "name": "reorderGroup",
       "kind": "str",
       "_comment": "@ref LLP 1094 D1: SortableJS's `group` name on a vertical `list virtualized=true` with a `reorderdrop` and an `id`: the mounted lists of one session sharing a non-empty value exchange rows, the drop firing once on the target list's `reorderdrop`."

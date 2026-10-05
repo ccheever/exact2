@@ -171,12 +171,17 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         custom: &[crate::hooks::CustomMaterial],
+        timestamps: Option<&wgpu::QuerySet>,
     ) -> u32 {
         let Some(maps) = &self.local else {
             return 0;
         };
         let mut draws = 0;
-        for layer in 0..self.local_plan.views.len() {
+        let layers = self.local_plan.views.len();
+        if timestamps.is_some() && layers > 0 {
+            self.mark(crate::timing::LOCAL_SHADOWS);
+        }
+        for layer in 0..layers {
             let local = &self.local_culls[layer / 4];
             let view = (layer % 4) as u32;
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -190,7 +195,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: crate::timing::span(
+                    timestamps,
+                    crate::timing::LOCAL_SHADOWS,
+                    layer == 0,
+                    layer + 1 == layers,
+                ),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });

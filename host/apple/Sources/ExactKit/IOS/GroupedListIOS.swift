@@ -31,9 +31,14 @@ struct GroupedListModel: Equatable {
         /// Whether the rows sit on a card; false for a transparent group
         /// (`section background-color="transparent"`): clear cells, no separators.
         var card = true
+        /// The space above it when the author changed a margin there (the
+        /// web's, collapsed); nil keeps UIKit's gap (`Kernel::grouped_list`).
+        var spaceAbove: CGFloat?
     }
     var style = "inset-grouped"
     var sections: [Section] = []
+    /// The space under the last section when its author set it.
+    var spaceBelow: CGFloat?
 
     init(style: String = "inset-grouped", sections: [Section] = []) { self.style = style; self.sections = sections }
     init?(json: Data) {
@@ -51,8 +56,10 @@ struct GroupedListModel: Equatable {
                            destructive: r["destructive"] as? Bool ?? false, disabled: r["disabled"] as? Bool ?? false)
             }
             return Section(view: view, header: s["header"] as? String, footer: s["footer"] as? String, rows: rows,
-                           card: s["card"] as? Bool ?? true)
+                           card: s["card"] as? Bool ?? true,
+                           spaceAbove: (s["spaceAbove"] as? NSNumber).map { CGFloat($0.doubleValue) })
         }
+        spaceBelow = (o["spaceBelow"] as? NSNumber).map { CGFloat($0.doubleValue) }
     }
     var appearance: UICollectionLayoutListConfiguration.Appearance {
         // tvOS has no inset grouped list.
@@ -131,6 +138,43 @@ final class GroupedListHost {
     /// Whether a list draws `id` (a row, or a row's toggle or detail
     /// button): the agent finds it in UIKit's cell, not the hidden row.
     func draws(_ id: UInt32) -> Bool { list(drawing: id) != nil }
+
+    /// Where a real finger aimed at `node` lands, for a row this host draws
+    /// (LLP 1080.000 D4): the row's cell; on its toggle's control, the cell's
+    /// switch; on its detail button's, that accessory, with the collection
+    /// view whose port the point must be in. A refusal when the cell is off
+    /// that port or the accessory is not shown; nil for any node this host
+    /// does not draw, which the ordinary aim takes.
+    enum Aim { case view(UIView, port: UIScrollView), refused(String) }
+    func shown(_ node: NodeView) -> Aim? {
+        guard let (list, row) = list(drawing: node.id) else { return nil }
+        guard let cell = list.cell(row.view), list.collection.bounds.intersects(cell.frame) else {
+            return .refused("its cell is outside the list's port; scroll it into view first")
+        }
+        guard row.view != node.id else { return .view(cell, port: list.collection) }
+        // Never the row in its place: its press is not the control's.
+        guard let control = list.accessory(row.view) else {
+            return .refused("its \(row.accessory == "toggle" ? "switch" : "detail button") is not shown")
+        }
+        return .view(control, port: list.collection)
+    }
+
+    /// The row and part of a grouped list's cell that `view` is in: the
+    /// cell, its switch, or its detail button; nil outside every list cell.
+    static func part(_ view: UIView?) -> [String: Any]? {
+        var at = view, control: UIView?
+        while let v = at, !(v is GroupedCell) {
+            if v is UIControl { control = v }
+            at = v.superview
+        }
+        guard let cell = at as? GroupedCell, let row = cell.row else { return nil }
+        #if os(tvOS)
+        let part = control == nil ? "cell" : "detail"
+        #else
+        let part = control == nil ? "cell" : control is UISwitch ? "switch" : "detail"
+        #endif
+        return ["row": Int(row), "part": part]
+    }
 
     /// The agent's `tap` on a row UIKit draws: the cell's own selection, as a
     /// finger's; on a toggle's control, its switch's flip; on a detail
@@ -260,10 +304,24 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             #if !os(tvOS)
             c.showsSeparators = s?.card ?? true
             #endif
+            // An authored space above a header is above it: UIKit's top inset
+            // there is the header-to-rows gap (§6.4).
+            let space = s?.spaceAbove
+            if let space, s?.header != nil { c.headerTopPadding = space }
             // The list's own background stays behind a card-less section's
             // clear cells: the inset card is the cells' background, not the
             // section's (a clear section background showed the route's white).
             let section = NSCollectionLayoutSection.list(using: c, layoutEnvironment: environment)
+            // A boundary the author changed (Signal's 20-point sections) is
+            // the web's space, all of it above the later section; a footer's
+            // bottom inset is its own gap under the rows, and stays.
+            var insets = section.contentInsets
+            if let space, s?.header == nil { insets.top = space }
+            if s?.footer == nil {
+                if index + 1 < model.sections.count { if self.section(at: index + 1)?.spaceAbove != nil { insets.bottom = 0 } }
+                else if let below = model.spaceBelow { insets.bottom = below }
+            }
+            section.contentInsets = insets
             // A plain list's footer stays under its rows, as its header
             // stays at their top: UIKit pins both by default.
             for item in section.boundarySupplementaryItems where item.elementKind == UICollectionView.elementKindSectionFooter {
@@ -314,6 +372,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // went or changed lays the list out again.
         let texts = previous.sections.map { [$0.header, $0.footer] } != next.sections.map { [$0.header, $0.footer] }
             || !recarded.isEmpty // separators are the section layout's
+        let regapped = previous.sections.map(\.spaceAbove) != next.sections.map(\.spaceAbove) || previous.spaceBelow != next.spaceBelow
         if restyled { collection.setCollectionViewLayout(layout(), animated: false) }
         source.apply(snapshot, animatingDifferences: false)
         if texts {
@@ -326,7 +385,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
                 }
             }
             collection.collectionViewLayout.invalidateLayout()
-        }
+        } else if regapped { collection.collectionViewLayout.invalidateLayout() }
         mount()
     }
 
@@ -337,8 +396,16 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         if let scroll = owner.scroll {
             if !scroll.isHidden { scrollWasHidden = false; scroll.isHidden = true }
             assign(collection, \.contentInsetAdjustmentBehavior, scroll.contentInsetAdjustmentBehavior)
-            assign(collection, \.contentInset, scroll.contentInset)
+            // An authored space under a last section with a footer is under
+            // the footer: its section's bottom inset is the rows-to-footer gap.
+            var inset = scroll.contentInset
+            if model.sections.last?.footer != nil, let below = model.spaceBelow { inset.bottom += below }
+            assign(collection, \.contentInset, inset)
             assign(collection, \.verticalScrollIndicatorInsets, scroll.verticalScrollIndicatorInsets)
+            // A short list bounces, as Settings does; UICollectionView's own
+            // default would not.
+            assign(collection, \.alwaysBounceVertical, scroll.scrollsY)
+            assign(collection, \.bounces, owner.style["overscroll_behavior_y"]?.string != "none")
         }
         assign(collection, \.frame, owner.bounds)
         for cell in collection.visibleCells {
@@ -356,6 +423,24 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     func cell(_ id: UInt32) -> UICollectionViewCell? {
         source.indexPath(for: id).flatMap { collection.cellForItem(at: $0) }
+    }
+
+    /// The control a row's accessory shows: its switch, or UIKit's detail
+    /// button (a control in the cell outside its content). Nil for any other.
+    func accessory(_ id: UInt32) -> UIView? {
+        switch rows[id]?.accessory {
+        #if !os(tvOS)
+        case "toggle": return switches[id].flatMap { $0.window != nil ? $0 : nil }
+        #endif
+        case "detail":
+            guard let cell = cell(id) as? UICollectionViewListCell else { return nil }
+            func control(_ v: UIView) -> UIControl? {
+                if v === cell.contentView { return nil }
+                return (v as? UIControl) ?? v.subviews.lazy.compactMap(control).first
+            }
+            return control(cell)
+        default: return nil
+        }
     }
 
     /// Whether the section holding `id` draws its card.

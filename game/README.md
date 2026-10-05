@@ -96,7 +96,7 @@ generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.
 | `proof.mjs`, `logic/tests/*.rs` | Real-host assertions and hostless simulation tests |
 | `app.test.contract` | Menus and HUD driven on a host (`bun scripts/agent.mjs <host> --test`) |
 | `pins.json` | Verified tick/save baselines, written by `prove.mjs` |
-| `app.json` (optional) | Authored keys only: a title, bundle id, `game.audio`, `game.assets`, data and presentation crates |
+| `app.json` (optional) | Authored keys only: a title, bundle id, `game.audio`, `game.assets`, data and render crates |
 | `logic/Cargo.toml`, `Cargo.lock` (optional) | Only when the game adds dependencies ([below](#exact2-integration)) |
 
 The crate is `<Game::ID>-logic` and the bundle id `com.exact.<Game::ID>`; the title
@@ -112,34 +112,44 @@ when Cargo starts elsewhere. Regenerate the shells after updating the SDK.
 
 ### Authored render hooks
 
-Use `game.presentation` to add game-owned passes through the existing
-`exact_game_render::Hooks` API. Keep GPU resources in an authored `presentation/`
-crate; its Cargo package must match the declaration and set
-`workspace = "../.shells"` under `[package]`:
+Use `game.render` to add game-owned passes through the existing
+`exact_game_render::Hooks` API. Keep GPU resources in an authored `render/`
+crate; its Cargo package must match the declaration, end in `-render`, and set
+`workspace = "../.shells"` under `[package]`. `bun game/new.mjs my-game --render`
+scaffolds one:
 
 ```json
-{"game":{"presentation":{"crate":"my-game-presentation","type":"Fog","shaders":"SHADERS"}},
- "gpu":{"shaderRoots":["presentation/shaders"]}}
+{"game":{"render":{"crate":"my-game-render","hooks":"Fog","shaders":"shaders::SHADERS"}},
+ "gpu":{"shaderRoots":["render/shaders"]}}
 ```
 
-`type` and optional `shaders` are Rust paths exported by that crate. Omit `shaders`
-for the empty registry. Shader files and preludes use the existing `gpu.shaderRoots`
-and `gpu.shaderPreludes` declarations; the registry has type
-`&'static [(&'static str, u64)]`, holding shader names and reflected interface hashes.
-The generated GPU shell combines these hooks with `game.audio` and `game.assets`.
-Never edit `.shells/` to install hooks.
-Presentation games also expose `exact-gpu.workspace = true` and
-`exact-gpu-reflect.workspace = true` (the latter as a build dependency). A
-`presentation/build.rs` can call `exact_gpu_reflect::generate` on its shader
-directory, write the generated Rust to `OUT_DIR`, and export its `SHADERS` table.
+`hooks` and optional `shaders` are Rust paths exported by that crate: `hooks` its
+`Hooks` type, `shaders` its reflected registry symbol (not shader files). Omit
+`shaders` for the empty registry. Shader files and preludes use the explicit
+`gpu.shaderRoots` and `gpu.shaderPreludes` declarations; nothing is discovered
+implicitly. The registry has type `&'static [(&'static str, u64)]`, holding shader
+names and reflected interface hashes. The generated GPU shell combines these hooks
+with `game.audio` and `game.assets`. Never edit `.shells/` to install hooks. The
+older `game.presentation`/`presentation/`/`type` spelling is refused with this
+rename (LLP 1046.008 amendment); "presentation" now names only derived appearance
+state (`#[derive(Presentation)]`, `Game::present`).
+Render games also expose `exact-gpu.workspace = true` and
+`exact-gpu-reflect.workspace = true` (the latter as a build dependency). The bake
+writes the shader inventory, each shader after its `gpu.shaderPreludes` exactly as
+it ships, to the directory `EXACT_GAME_SHADERS` names; `render/build.rs` calls
+`exact_gpu_reflect::generate` on it, writes the generated Rust to `OUT_DIR`, and
+exports its `SHADERS` table, so the registry matches what hosts register. A prelude
+may name the renderer's own WGSL by set (`exact-game-render:frame`,
+`exact-game-render:material`, `exact-game-render:material_shadows`, the files of
+`FRAME_WGSL`, `MATERIAL_WGSL` and `MATERIAL_SHADOWS_WGSL`) rather than SDK paths.
 Generated registry keys are file stems such as `fog`, without `.wgsl`.
 
-Presentation may depend on logic to read component/resource types through
+The render crate may depend on logic to read component/resource types through
 `RenderWorld`. Logic, data, native/web host adapters and build-time metadata must
-not depend on presentation, including indirectly or behind target-specific/build
+not depend on it, including indirectly or behind target-specific/build
 dependencies. The bake checks Cargo's unfiltered dependency graph. Hooks cannot
 mutate the saved world through `RenderWorld`; gameplay state stays in logic.
-Presentation receives normal strict Clippy and package tests, while the simulation
+The render crate receives normal strict Clippy and package tests, while the simulation
 determinism lints remain scoped to logic. Run the ordinary bake after declaring the
 crate, or `bun game/app/shells.mjs ./my-game --update-lock` when adding dependencies.
 Source/manifest edits invalidate GPU builds and proof inputs; declared shaders keep
@@ -169,7 +179,8 @@ assert!(sim.local_position("player").unwrap().x > 0.0);
 ```
 
 - A tick calls ordinary functions in the order you write them. Physics is an
-  explicit `physics::step(w)`; animation is `animation::step(w)`.
+  explicit `physics::step(w)`; animation is `animation::step(w)`. Emitters step after the tick unless it
+  called `emitter::step(w)` to choose their order; they never step twice a tick.
 - `#[derive(Component)]` declares per-entity data; `#[derive(Resource)]` declares
   singleton data. Their `Data` representation supplies saves, hashes and agent JSON.
 - Names and entity handles address the same world: `w.require_mut::<Transform>("fox")`
@@ -249,9 +260,15 @@ The dev compiler retains its last good plan on an error.
 | A flashlight | `SpotLight { inner, outer, range, intensity, .. }` along the entity's −Z; intensity in candela, as `PointLight`'s |
 | Shadows from a lamp | Add `LightShadows` to a `SpotLight` or `PointLight`; the renderer shadows the nearest few |
 | A moon | A second `DirectionalLight` (in entity order) is an unshadowed fill |
+| Team colours, mutation looks | A `Material` on a model entity tints every node and adds emission; `NodeMaterials` per named node or `MaterialOverrides` per material (one model in every team's colours), written from `Game::present` |
+| Cheaper far trees and crowds | `ModelLod { levels: vec![LodLevel { distance: 30., model: "tree_low.model".into() }], hide: Some(120.) }` on the entity |
+| Fade a tree between camera and player | `Opacity(0.3)` on the entity from `Game::present`: a dithered fade, no sorting, never in a save or pin |
 | A first-person weapon | Add `ViewModel` to each part; it draws in front of the world and casts no shadow |
 | Contact shadows in creases | `w.insert_resource(AmbientOcclusion::default())` turns on SSAO (off by default) |
 | Lighting from a photographed sky | `w.insert_resource(EnvironmentMap::new("sky.tex"))` with the equirect in `Game::ASSETS` |
+| Texture generated terrain | UVs in the `MeshData`, a material sampling a `.tex` from `art/textures/`, through `w.generated_model` |
+| Fire, smoke and sparks | `ParticleLook { texture, atlas, fps, stretch, soft }` beside an `Emitter`; `soft: 0.5` fades smoke into the ground |
+| A painted, visible sky | The same `EnvironmentMap` with `visible: true` (and `rotation` to turn it) |
 | Mouse look | `input.pointer()`'s `delta` is the device's motion this tick, not a difference of positions. Mark the canvas `data-pointer-lock="true"` (declared in `app.json`'s `data`) and a mouse press captures the mouse on the web, macOS and iPadOS (`GCMouse`) until Escape or blur, so the delta never stops at an edge; the Linux host always sends evdev's relative motion. |
 | Turn the drawn camera between ticks | Put `MouseLook { yaw_per_point, pitch_per_point, pitch_limit }` on the camera at the rates the tick turns it by: the drawn camera and its children turn by `Sim::unshown_motion()`, so a turn shows at the next frame whatever the tick and display rates (`engine/tests/look.rs`). Presentation only; insert it in `setup` or register it. |
 | Right or middle mouse button | Bind it as a key: `.button("aim", &["MouseRight"])`; `MouseLeft` and `MouseMiddle` too (`MOUSE_BUTTONS`). Touch contacts press none. |
@@ -316,6 +333,14 @@ arguments for settings, messages for things that happen once.
 `pins.json` owns the game's expected tick hashes and continuation-save digests.
 The generated proof uses `pin(tick, snapshot)` and `pinSave(name, path)`;
 Rust tests use `sim.assert_pin(include_str!("../../pins.json"))`.
+
+Pins cover the simulation only. Presentation state (`#[derive(Presentation)]`,
+`Game::present`) is outside hashes and saves, so prove looks separately: assert
+presentation values (`sim.world().get::<Offset>(e)`) at an explicit tick, and compare
+pixels at an explicit tick and alpha; never by moving a pin. "Settled" means the
+simulation settled; a bobbing world rests. Agent state reports simulated poses
+(`Transform`, `global`); the displayed pose is `World::drawn`, and presentation rows
+appear beside the components they decorate, read-only.
 
 ```sh
 bun game/prove.mjs ./my-game
@@ -487,6 +512,7 @@ Keep saves, scores and settings in app storage (SQLite or files under `app:/data
 with `exact-data.workspace = true`), not under `secret.keep`, which is for secrets;
 `docs/reference.md`, "Rust data sources", has the requests and a best-times example.
 Games without `game.data` add no data-source dependency.
+
 [Tennis](games/tennis/README.md) uses one for HTTP: the world publishes a numbered
 question, `resource plan = jev(hud.ask)` posts it, and the answer returns as a
 `#[live]` string argument that the tick applies only when its id matches.
@@ -543,6 +569,12 @@ Put models, sprite PNGs and WAV or Ogg Vorbis sounds under `art/`;
 each texture as RGBA8, BC and ASTC files of which a device fetches one
 ([texture payloads](bake/README.md#texture-payloads)). Name the authored `x.tex`
 everywhere. Declare simulation dependencies in `Game::ASSETS`; setup waits for them.
+Put everything else the game shows in `Game::STREAMED`: those are fetched from the
+start, after `ASSETS`, but Play does not wait for them; each draws as it lands and
+stays resident. Simulation cannot read a streamed asset (`w.model` is None), so
+load order never reaches the hash; a save refuses only while a shown one is in
+flight. A model a tick animates or reads belongs in `ASSETS`. Streamed names are
+models and textures (sounds are not streamed yet), and never also in `ASSETS`.
 Models and sprites need the asset-capable module; sounds and untextured emitters do
 not. See [the audio executor](audio/README.md) and
 [the audio fixture](games/audio-fixture/logic/src/lib.rs) for sampled sounds.

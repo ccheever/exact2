@@ -82,7 +82,7 @@ pub(crate) fn resolve(
             });
     }
     if spec.starts_with("./") || spec.starts_with("../") {
-        return relative(spec, dir, from, app_root);
+        return relative(spec, dir, from, app_root, consulted);
     }
     if spec.starts_with('/') || spec.contains('\\') || spec.is_empty() {
         return Err((
@@ -109,7 +109,13 @@ pub(crate) fn resolve(
     package(spec, dir, consulted)
 }
 
-fn relative(spec: &str, dir: &Path, from: &Origin, app_root: &Path) -> Result<Resolved, Refusal> {
+fn relative(
+    spec: &str,
+    dir: &Path,
+    from: &Origin,
+    app_root: &Path,
+    consulted: &mut Vec<PathBuf>,
+) -> Result<Resolved, Refusal> {
     let Some(root) = from.root(app_root) else {
         return Err((
             "contract-use-path",
@@ -128,6 +134,8 @@ fn relative(spec: &str, dir: &Path, from: &Origin, app_root: &Path) -> Result<Re
     }
     let target = dir.join(spec);
     let key = target.canonicalize().map_err(|e| {
+        // Watched, so creating it builds again.
+        consulted.push(target.clone());
         (
             "contract-use-unreadable",
             format!("{}: {e}", target.display()),
@@ -177,11 +185,27 @@ fn package(spec: &str, dir: &Path, consulted: &mut Vec<PathBuf>) -> Result<Resol
     }
     let name = parts[..take].join("/");
     let sub = parts[take..].join("/");
+    // Every nearer place an install would win from, watched even when one
+    // farther up resolves: installing there changes what the name means.
+    let mut nearer = Vec::new();
     let found = dir
         .ancestors()
         .map(|a| a.join("node_modules").join(&name))
-        .find(|candidate| candidate.join("package.json").is_file())
+        .find(|candidate| {
+            let manifest = candidate.join("package.json");
+            let here = manifest.is_file();
+            if !here {
+                nearer.push(manifest);
+            }
+            here
+        })
         .ok_or_else(|| {
+            // Where an install would put it, nearest first, watched so that
+            // installing it builds again.
+            consulted.extend(
+                dir.ancestors()
+                    .map(|a| a.join("node_modules").join(&name).join("package.json")),
+            );
             (
                 "contract-use-package",
                 format!(
@@ -193,6 +217,10 @@ fn package(spec: &str, dir: &Path, consulted: &mut Vec<PathBuf>) -> Result<Resol
     // The manifest is the package's, where it really is: a linked directory,
     // or Bun's `file:` install of per-file links, leads to the library's
     // own `package.json`, and the package is the directory that holds it.
+    consulted.extend(nearer);
+    // The install's own path too: relinking it to another directory changes
+    // what it resolves to without touching either directory's files.
+    consulted.push(found.join("package.json"));
     let manifest = found.join("package.json").canonicalize().map_err(|e| {
         (
             "contract-use-unreadable",
@@ -240,6 +268,9 @@ fn package(spec: &str, dir: &Path, consulted: &mut Vec<PathBuf>) -> Result<Resol
         ));
     };
     let target = found.join(relative);
+    // The export by the path the package offers it at: retargeting a link
+    // there changes the file without touching the old one.
+    consulted.push(target.clone());
     let key = target.canonicalize().map_err(|e| {
         (
             "contract-use-unreadable",

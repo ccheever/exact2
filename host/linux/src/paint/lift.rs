@@ -75,8 +75,26 @@ impl Painter {
             },
         );
         let children: Vec<ViewId> = order.into_iter().map(|(id, _)| id).collect();
+        // A scroller's rows are its children; a scroller holding one
+        // container (a column of settings) keeps that container's children
+        // apart instead, so one of them changing records only itself.
+        let rows = self.has_rows(node);
+        let group = rows && !self.rows_wrapper(node.key);
+        let wrap = group && self.wraps_rows(walk, &children);
+        if group {
+            self.group_begin(walk, node.id);
+        }
         for child in children {
-            self.node(walk, child, ts, child_offset, child_rect);
+            if wrap {
+                self.wrapped(walk, child, ts, child_offset, child_rect);
+            } else if rows {
+                self.row(walk, child, ts, child_offset, child_rect);
+            } else {
+                self.node(walk, child, ts, child_offset, child_rect);
+            }
+        }
+        if group {
+            self.group_end(walk);
         }
         if let Some(child) = lift {
             self.node(walk, child, ts, child_offset, child_rect);

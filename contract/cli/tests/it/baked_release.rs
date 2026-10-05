@@ -182,3 +182,25 @@ fn a_value_still_on_screen_is_never_released() {
     }
     assert!(alive(&first));
 }
+
+/// Authoring bench: an iOS bake panicked on a source that read storage at build; the
+/// refusal says what to do.
+#[test]
+fn a_source_that_reads_storage_at_bake_is_told_to_catch_it() {
+    struct NoStorage;
+    impl DataSource for NoStorage {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::Unavailable(
+                "storage is unavailable during bake".into(),
+            ))
+        }
+    }
+    let src = "shape Task\n  id: string\ncomponent App\n  resource tasks = loadTasks() as shape list<Task>\n  view\n    text \"a\"\n";
+    let error = contract::bake(contract::compile(src).unwrap(), NoStorage).unwrap_err();
+    let message = error.to_string();
+    assert!(
+        message.starts_with("`tasks` read storage while baking"),
+        "{message}"
+    );
+    assert!(message.contains("`e.code === 'bake'`"), "{message}");
+}

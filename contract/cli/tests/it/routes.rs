@@ -705,3 +705,70 @@ component App
     )
     .unwrap();
 }
+
+#[test]
+fn a_route_scroll_names_an_element_of_the_route_that_scrolls_on_y() {
+    // @ref LLP 1075.003 §3.5 — `navigationScroll` names the route's content
+    // scroller by HTML id; refused only where that provably fails.
+    let source = r#"routes nav
+  home "/"
+component App
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` NAMED position="absolute" inset=0 display="flex" flex-direction="column"
+          header
+            text "Title"
+          BODY
+
+component Pane
+  props
+    name: string
+  view
+    scroll id=name flex=1 min-height=0
+      text "row"
+"#;
+    let compile = |named: &str, body: &str| {
+        contract::compile(&source.replace("NAMED", named).replace("BODY", body))
+    };
+    let named = "navigationScroll=\"list\"";
+    let accepted = [
+        "scroll id=\"list\" flex=1 min-height=0\n            text \"row\"",
+        "column id=\"list\" flex=1 min-height=0 overflow-y=\"auto\"",
+        // CSS: a visible y beside a scrolling x computes to auto.
+        "column id=\"list\" flex=1 min-height=0 overflow-x=\"hidden\"",
+        // What the compiler cannot see through is given the benefit.
+        "column id=e.url",
+        "column id=\"list\" overflow-y=(e.url == \"/\" ? \"auto\" : \"hidden\")",
+        "when e.url == \"/\"\n            scroll id=\"list\" flex=1 min-height=0",
+        "Pane(name=\"list\")",
+        // A computed id may name the scroller beside a static still box.
+        "column id=\"list\"\n          scroll id=e.url flex=1 min-height=0",
+        "scroll id=\"list\" flex=1 min-height=0 overflow-x=\"hidden\"",
+    ];
+    for body in accepted {
+        compile(named, body).unwrap_or_else(|e| panic!("{body}: {e}"));
+    }
+    // Not literal, or empty: nothing to check.
+    compile("navigationScroll=e.url", "column").unwrap();
+    compile("navigationScroll=\"\"", "column").unwrap();
+    // No element carries the id.
+    let error = compile(named, "scroll id=\"lst\" flex=1 min-height=0").unwrap_err();
+    assert_eq!(error.id, "lower-route-scroll", "{error}");
+    assert!(error.message.contains("names no element"), "{error}");
+    // The element that does never scrolls on y.
+    for body in [
+        "column id=\"list\" flex=1",
+        "column id=\"list\" flex=1 overflow-y=\"hidden\" overflow-x=\"auto\"",
+        "column id=\"list\" overflow=\"hidden\"",
+        // A `scroll` or `list` whose y a literal row stills.
+        "scroll id=\"list\" flex=1 min-height=0 overflow=\"hidden\"",
+        "list id=\"list\" flex=1 min-height=0 overflow-y=\"hidden\"",
+    ] {
+        let error = compile(named, body).unwrap_err();
+        assert_eq!(error.id, "lower-route-scroll", "{body}: {error}");
+        assert!(error.message.contains("never scrolls on y"), "{error}");
+    }
+}

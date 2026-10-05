@@ -35,6 +35,9 @@ pub struct Presented {
     /// A layout transition's offset from the laid-out origin and scale of
     /// the laid-out size, `[dx, dy, sx, sy]` (LLP 1063).
     pub layout: [f32; 4],
+    /// What the reader plays instead of the engine (`crate::host::lower`'s
+    /// bits): painted at the underlying values, in a layer it moves.
+    pub lowered: u8,
 }
 
 impl Presented {
@@ -50,6 +53,7 @@ impl Presented {
         svg: [None; 8],
         colors: PaintValues::NONE,
         layout: [0.0, 0.0, 1.0, 1.0],
+        lowered: 0,
     };
 
     /// The committed style's values (what the engine starts from).
@@ -65,6 +69,7 @@ impl Presented {
             svg: [None; 8],
             colors: PaintValues::NONE,
             layout: Presented::IDENTITY.layout,
+            lowered: 0,
         }
     }
 

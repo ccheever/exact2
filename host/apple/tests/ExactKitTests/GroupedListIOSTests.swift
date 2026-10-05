@@ -148,6 +148,54 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(flips.map(\.1), [false, false])
     }
 
+    /// LLP 1080.000 D4: a real finger aimed at what a list draws lands on
+    /// UIKit's view, not the hidden authored node: a row's cell, its
+    /// toggle's switch, its detail button; never the row for a control
+    /// that is not shown.
+    func testARealTouchAimsAtTheCellOrAccessoryUIKitDraws() throws {
+        var detail = false
+        let p = presenter {
+            var m = self.model()
+            if detail { m.sections[0].rows[2].accessory = "detail" }
+            return m
+        }
+        let l = try list(p)
+        func aimed(_ id: UInt32) throws -> UIView? {
+            guard case .view(let view, let port)? = p.groupedLists.shown(try XCTUnwrap(p.views[id])) else { return nil }
+            XCTAssertTrue(port === l.collection)
+            return view
+        }
+        func refusal(_ id: UInt32) throws -> String? {
+            guard case .refused(let why)? = p.groupedLists.shown(try XCTUnwrap(p.views[id])) else { return nil }
+            return why
+        }
+        let toggle = try cell(p, 12)
+        let s = try XCTUnwrap(switches(toggle).first)
+        XCTAssertTrue(try aimed(13) === s, "the toggle's control: its switch")
+        XCTAssertTrue(try aimed(10) === (try cell(p, 10)), "a row: its cell")
+        XCTAssertNil(p.groupedLists.shown(try XCTUnwrap(p.views[4])), "a node no list draws: the ordinary aim")
+        // The dispatch log tells one row's switch from another's, and from
+        // its cell: the node alone is the list's for all of them.
+        XCTAssertEqual(GroupedListHost.part(s.subviews.first ?? s) as? [String: AnyHashable], ["row": 12, "part": "switch"])
+        XCTAssertEqual(GroupedListHost.part(toggle.contentView) as? [String: AnyHashable], ["row": 12, "part": "cell"])
+        XCTAssertNil(GroupedListHost.part(l.collection))
+        // A switch not shown is refused, never the row in its place.
+        s.removeFromSuperview()
+        XCTAssertEqual(try refusal(13), "its switch is not shown")
+        // A detail button's control: UIKit's accessory, a control in the
+        // cell outside its content.
+        detail = true
+        p.apply(wireBatch([["op": "props", "id": 12, "set": ["testId": "row12"], "clear": [String]()]]))
+        let info = try XCTUnwrap(try aimed(13) as? UIControl)
+        let row = try cell(p, 12)
+        XCTAssertTrue(info.isDescendant(of: row) && !info.isDescendant(of: row.contentView))
+        // Scrolled off the list's port, a row has no cell to aim at.
+        l.collection.contentInset.bottom = 2000
+        l.collection.setContentOffset(CGPoint(x: 0, y: 1500), animated: false)
+        l.collection.layoutIfNeeded()
+        XCTAssertEqual(try refusal(10), "its cell is outside the list's port; scroll it into view first")
+    }
+
     func testASwitchFollowsItsControlsStateAndTarget() throws {
         var target: UInt32 = 13
         let p = presenter {
@@ -282,6 +330,55 @@ final class GroupedListIOSTests: XCTestCase {
         card = false
         p.apply(wireBatch([["op": "props", "id": 3, "set": ["testId": "s1b"], "clear": [String]()]]))
         XCTAssertEqual(try cell(p, 20).backgroundConfiguration?.backgroundColor, .clear, "and gone again")
+    }
+
+    /// LLP 1084 §6.4: an authored space is above the later section, above
+    /// its header when it has one; nil keeps UIKit's gaps.
+    func testAnAuthoredSpaceSitsAboveTheSectionAndItsHeader() throws {
+        var space: (CGFloat?, CGFloat?) = (nil, nil)
+        let p = presenter {
+            var m = self.model()
+            m.sections[0].spaceAbove = space.0
+            m.sections[1].spaceAbove = space.1
+            return m
+        }
+        let l = try list(p)
+        func layout() -> (header: CGRect, footer: CGRect, first: CGRect, later: CGRect) {
+            l.collection.layoutIfNeeded()
+            let attributes = l.collection.collectionViewLayout
+            let header = attributes.layoutAttributesForSupplementaryView(ofKind: UICollectionView.elementKindSectionHeader, at: IndexPath(item: 0, section: 0))?.frame ?? .null
+            let footer = attributes.layoutAttributesForSupplementaryView(ofKind: UICollectionView.elementKindSectionFooter, at: IndexPath(item: 0, section: 0))?.frame ?? .null
+            let first = attributes.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))?.frame ?? .null
+            let later = attributes.layoutAttributesForItem(at: IndexPath(item: 0, section: 1))?.frame ?? .null
+            return (header, footer, first, later)
+        }
+        let before = layout()
+        space = (12, 20)
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["testId": "spaced"], "clear": [String]()]]))
+        let after = layout()
+        XCTAssertEqual(after.header.minY, 12, accuracy: 0.5, "above the header, not between it and its rows")
+        XCTAssertEqual(after.first.minY - after.header.maxY, before.first.minY - before.header.maxY, accuracy: 0.5, "the header keeps its rows' gap")
+        XCTAssertEqual(after.later.minY - after.footer.maxY, 20, accuracy: 0.5, "20 between the footer and the next section")
+    }
+
+    /// The space under a last section is under its footer, and follows an update.
+    func testAnAuthoredSpaceUnderTheLastSectionIsUnderItsFooter() throws {
+        var below: CGFloat? = nil
+        let p = presenter {
+            var m = self.model()
+            m.sections[1].footer = "The end."
+            m.spaceBelow = below
+            return m
+        }
+        let l = try list(p)
+        func extent() -> CGFloat { l.collection.layoutIfNeeded(); return l.collection.contentSize.height + l.collection.contentInset.bottom }
+        let before = extent()
+        below = 60
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["testId": "below60"], "clear": [String]()]]))
+        XCTAssertEqual(extent() - before, 60, accuracy: 0.5, "60 under the footer")
+        below = 20
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["testId": "below20"], "clear": [String]()]]))
+        XCTAssertEqual(extent() - before, 20, accuracy: 0.5, "and 20 after an update")
     }
 
     /// A row moved between a card-less section and a carded one, with

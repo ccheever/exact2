@@ -12,7 +12,7 @@
 //! takes in a browser. A wheel goes to the innermost scroll container under
 //! the point that can take its dominant axis, else to the page.
 use crate::gpu::Gpu;
-use crate::host::{Host, HostError};
+use crate::host::{Host, HostError, PlanBytes};
 use crate::image::AssetResolver;
 use crate::image::{Assets, Images};
 use crate::paint::{
@@ -42,6 +42,7 @@ mod delivery;
 mod display_frame;
 mod events;
 mod group;
+mod painter;
 mod pan_release;
 mod picker;
 mod pointer;
@@ -55,6 +56,8 @@ mod content_region;
 #[cfg(test)]
 #[path = "content_region/presenter_tests.rs"]
 mod content_region_tests;
+#[cfg(target_os = "android")]
+mod feed;
 mod height;
 mod height_drag;
 #[cfg(test)]
@@ -65,6 +68,8 @@ mod preferences;
 mod retained_action;
 mod reveal;
 mod shortcuts;
+#[cfg(target_os = "android")]
+pub(crate) mod still;
 mod swipe;
 mod transform;
 mod transform_geometry;
@@ -82,9 +87,14 @@ mod swipe_tests;
 #[path = "presenter/events_tests.rs"]
 mod events_tests;
 
+use painter::{cpu_info, open_backend};
+pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
+
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
     pub(crate) host: Host<D>,
+    /// The scroller the last wheel moved.
+    last_wheel: Option<ViewId>,
     pub(crate) surfaces: crate::surfaces::Surfaces,
     module: Option<crate::delivery::Module>,
     painted: bool,
@@ -188,77 +198,6 @@ pub struct Presenter<D: DataSource> {
 fn r2(x: f32) -> f64 {
     (x as f64 * 100.0).round() / 100.0
 }
-/// Which backend paints.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PainterChoice {
-    /// The GPU when there is an adapter, else the CPU with a note on stderr.
-    Auto,
-    /// vello over wgpu; a boot error when there is no adapter.
-    Gpu,
-    /// tiny-skia.
-    Cpu,
-}
-impl PainterChoice {
-    /// `EXACT_PAINTER`: `gpu`, `cpu`, or unset (auto).
-    pub fn from_env() -> PainterChoice {
-        match std::env::var("EXACT_PAINTER").as_deref() {
-            Ok("gpu") => PainterChoice::Gpu,
-            Ok("cpu") => PainterChoice::Cpu,
-            _ => PainterChoice::Auto,
-        }
-    }
-}
-
-/// What the painter is, for the smoke's report.
-#[derive(Debug, Clone)]
-pub struct PainterInfo {
-    /// `"gpu"` or `"cpu"`.
-    pub name: &'static str,
-    /// The adapter and API, on the GPU.
-    pub adapter: Option<String>,
-    /// Device creation, milliseconds, on the GPU.
-    pub device_ms: f64,
-    /// Shader compilation, milliseconds, on the GPU.
-    pub shaders_ms: f64,
-    /// Whether the shaders came from the pipeline cache on disk.
-    pub cached: bool,
-}
-
-fn cpu_info() -> PainterInfo {
-    PainterInfo {
-        name: "cpu",
-        adapter: None,
-        device_ms: 0.0,
-        shaders_ms: 0.0,
-        cached: false,
-    }
-}
-
-fn open_backend(choice: PainterChoice) -> Result<(Box<dyn Backend>, PainterInfo), String> {
-    let cpu = || (Box::new(Raster::new()) as Box<dyn Backend>, cpu_info());
-    match choice {
-        PainterChoice::Cpu => Ok(cpu()),
-        PainterChoice::Gpu | PainterChoice::Auto => match Gpu::new() {
-            Ok(g) => {
-                let info = PainterInfo {
-                    name: "gpu",
-                    adapter: Some(format!("{} ({})", g.adapter, g.api)),
-                    device_ms: g.device_ms,
-                    shaders_ms: g.shaders_ms,
-                    cached: g.cached,
-                };
-                Ok((Box::new(g), info))
-            }
-            Err(e) if choice == PainterChoice::Auto => {
-                // A note, not an error (the smoke reads stderr for errors).
-                eprintln!("painting on the CPU: no GPU ({e})");
-                Ok(cpu())
-            }
-            Err(e) => Err(format!("no GPU: {e}")),
-        },
-    }
-}
-
 impl<D: DataSource> Presenter<D> {
     /// Boot the app under a viewport (points) at a device scale, with its
     /// asset root. The boot error, if any, is reported beside the presenter
@@ -290,7 +229,7 @@ impl<D: DataSource> Presenter<D> {
         choice: PainterChoice,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
         let (mut presenter, error) = Self::boot_with_assets(
-            plan,
+            PlanBytes::Copied(plan),
             data,
             viewport,
             scale,
@@ -308,7 +247,7 @@ impl<D: DataSource> Presenter<D> {
     /// roster is complete: absent names cannot fall through to `root`.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn boot_selected(
-        plan: &[u8],
+        plan: PlanBytes<'_>,
         data: D,
         viewport: (f32, f32),
         scale: f32,
@@ -340,7 +279,7 @@ impl<D: DataSource> Presenter<D> {
 
     #[allow(clippy::too_many_arguments)]
     fn boot_with_assets(
-        plan: &[u8],
+        plan: PlanBytes<'_>,
         data: D,
         viewport: (f32, f32),
         scale: f32,
@@ -360,15 +299,15 @@ impl<D: DataSource> Presenter<D> {
                 .map_err(|e| HostError::Painter(format!("content raster context: {e:?}")))?;
         }
         let t = std::time::Instant::now();
-        let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
+        let decoded = plan.decode().map_err(HostError::Plan)?;
         let text = TextEngine::shared_for_assets(&decoded, &assets);
         if let Some(reason) = assets.take_refusal() {
             return Err(HostError::Asset(reason));
         }
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
         let (backend, painter) = open_backend(choice).map_err(HostError::Painter)?;
-        let (mut host, error) = Host::boot_at_with_region(
-            plan,
+        let (mut host, error) = Host::boot_decoded(
+            decoded,
             data,
             Box::new(Measurer(text.clone())),
             viewport.0,
@@ -379,6 +318,7 @@ impl<D: DataSource> Presenter<D> {
             region,
         )?;
         let mut images = Images::with_assets(assets.clone());
+        images.fit(viewport, scale);
         if assets.is_selected() {
             if let Some(error) = error {
                 return Err(HostError::Layout(error));
@@ -403,6 +343,7 @@ impl<D: DataSource> Presenter<D> {
             host.log(note.to_string());
         }
         let mut p = Presenter {
+            last_wheel: None,
             host,
             executor,
             parked: BTreeMap::new(),
@@ -675,6 +616,7 @@ impl<D: DataSource> Presenter<D> {
         }
         let geometry_changed = self.viewport != (width, height);
         self.viewport = (width, height);
+        self.images.fit(self.viewport, self.brush.scale);
         if geometry_changed {
             self.collection.advance_all();
         }
@@ -693,7 +635,7 @@ impl<D: DataSource> Presenter<D> {
         let error = self.service_commit();
         self.size_controls();
         self.queue_collections();
-        let refined = self.refine_collections();
+        let refined = crate::traced(c"exact refine collections", || self.refine_collections());
         let geometry = self.refresh_transform_geometry();
         let resized = self.deliver_resizes();
         error.or(refined).or(geometry).or(resized)
@@ -752,7 +694,8 @@ impl<D: DataSource> Presenter<D> {
             self.commands.extend(commands);
             self.executor.notify();
         }
-        let mut error = self.sync_images();
+        let renewed = self.renew();
+        let mut error = renewed.or(self.sync_images());
         if !self.booting {
             error = error.or_else(|| {
                 self.assets
@@ -771,20 +714,22 @@ impl<D: DataSource> Presenter<D> {
         self.retire_pointer();
         self.arrange_settled();
         self.dirty |= error.is_some();
-        let live: std::collections::BTreeSet<_> = self
-            .host
-            .kernel()
-            .rows(None)
-            .unwrap_or_default()
-            .iter()
-            .map(|r| r.id)
-            .collect();
-        self.autofocus_processed.retain(|id| live.contains(id));
+        // Only autofocus nodes matter: a walk that keeps those, in
+        // preorder, not an export row per node of every mounted row.
+        let kernel = self.host.kernel();
+        if !self.autofocus_processed.is_empty() {
+            self.autofocus_processed.retain(|id| attached(kernel, *id));
+        }
+        let candidates = if kernel.has_prop(PropId::Autofocus) {
+            kernel.preorder_where(&kernel.roots(), |_, props| {
+                props.bool(PropId::Autofocus) == Some(true)
+            })
+        } else {
+            Vec::new()
+        };
         {
-            for id in live {
-                let node = self.host.kernel().node(id).unwrap();
+            for id in candidates {
                 if self.autofocus_processed.contains(&id)
-                    || node.props.bool(PropId::Autofocus) != Some(true)
                     || !self.focusable(id)
                     || self.host.route_visibility(id).1
                 {
@@ -846,6 +791,24 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         size
+    }
+
+    /// Views commits renewed (LLP 1078) start as new ones: a scroller at its
+    /// start, a picture only of the source its node names.
+    fn renew(&mut self) -> Option<String> {
+        let renewed = self.host.take_renewed();
+        if renewed.is_empty() {
+            return None;
+        }
+        for id in &renewed {
+            self.dirty |= self.scroll.remove(id).is_some();
+        }
+        let reports = self.images.renew(self.host.kernel(), &renewed);
+        if reports.is_empty() {
+            return None;
+        }
+        self.dirty = true;
+        self.host.set_intrinsics(reports)
     }
 
     fn clamp_scroll(&mut self) -> bool {
@@ -1164,16 +1127,19 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         let mut at = self.hit(x, y);
-        let collection_limits = self.collection_scroll_limits();
+        // Only a node the display has no bounds for needs the collections'.
+        let mut collection_limits = None;
         let kernel = self.host.kernel();
         while let Some(id) = at {
             let Some(node) = kernel.node(id) else { break };
             let bounds = self.display.bounds(kernel, id).unwrap_or_else(|| {
+                let limits =
+                    collection_limits.get_or_insert_with(|| self.collection_scroll_limits());
                 self.brush.scroll_bounds(
                     kernel,
                     self.host.content_region(),
                     &node,
-                    collection_limits.get(&id).copied(),
+                    limits.get(&id).copied(),
                 )
             });
             let (ox, oy) = bounds.axes;
@@ -1212,6 +1178,7 @@ impl<D: DataSource> Presenter<D> {
                         off.1
                     };
                     self.scroll.insert(id, (nx, ny));
+                    self.last_wheel = Some(id);
                     self.dirty = true;
                     self.collection_scrolled(id);
                     if let Some(error) = self.refresh_transform_geometry() {
@@ -1230,7 +1197,14 @@ impl<D: DataSource> Presenter<D> {
                     return;
                 }
             }
-            at = self.display.parent(kernel, id);
+            // An SVG element (what a hit on a shape names, LLP 1055.000 D8)
+            // has no display box: it scrolls with its `svg`'s ancestors.
+            at = self.display.parent(kernel, id).or_else(|| {
+                node.node_type
+                    .is_svg_element()
+                    .then_some(node.parent)
+                    .flatten()
+            });
         }
         let doc = self.document();
         let viewport = self.display.viewport().unwrap_or(self.viewport);
@@ -1432,4 +1406,16 @@ impl<D: DataSource> Presenter<D> {
     pub fn node_count(&self) -> usize {
         self.host.kernel().live_count()
     }
+}
+
+/// Whether `id` is live and reachable from a root (in [`Kernel::rows`]).
+fn attached(kernel: &exact_kernel::Kernel, id: ViewId) -> bool {
+    let mut at = kernel.node(id);
+    while let Some(node) = at {
+        if node.is_root {
+            return true;
+        }
+        at = node.parent.and_then(|p| kernel.node(p));
+    }
+    false
 }

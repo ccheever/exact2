@@ -38,7 +38,11 @@
 #![deny(missing_docs)]
 
 pub mod agent;
+#[cfg(target_os = "android")]
+pub mod android;
 pub mod app;
+#[cfg(target_os = "android")]
+pub mod canvas;
 mod canvas2d;
 pub mod content_region;
 pub mod delivery;
@@ -76,3 +80,13 @@ pub fn set_event_waker(waker: Option<std::sync::Arc<dyn Fn() + Send + Sync>>) {
 pub use app::run;
 pub use host::{Host, HostError};
 pub use presenter::Presenter;
+
+/// Run `f` inside an atrace section on Android (Perfetto shows it on this
+/// thread); elsewhere just `f`.
+#[inline]
+pub(crate) fn traced<T>(_name: &core::ffi::CStr, f: impl FnOnce() -> T) -> T {
+    #[cfg(target_os = "android")]
+    return android::trace(_name, f);
+    #[cfg(not(target_os = "android"))]
+    f()
+}

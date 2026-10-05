@@ -339,13 +339,15 @@ impl<D: DataSource> Runner<D> {
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
             let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            u.reuse = self.reuse;
             tree.edit_reorder(id, &mut u, edit)
-                .map(|r| (r, u.ops, u.notes))
+                .map(|r| (r, u.ops, u.notes, u.renewed))
         };
         self.tree = Some(tree);
         self.ids = ids;
-        let result = result.map(|(r, ops, notes)| {
+        let result = result.map(|(r, ops, notes, renewed)| {
             self.notes.extend(notes);
+            self.renewed.extend(renewed);
             (r, ops)
         });
         result.map_err(Into::into)

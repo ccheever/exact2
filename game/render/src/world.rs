@@ -21,7 +21,9 @@ pub(crate) trait Writes {
         _: bool,
     ) {
     }
-    fn model(&self, _: &str) -> Option<&[crate::models::ModelNode]> {
+    /// A loaded model's nodes, their names, and its merged draw list (empty when
+    /// nothing merges).
+    fn model(&self, _: &str) -> Option<crate::models::Draws<'_>> {
         None
     }
     fn assets_revision(&self) -> u64 {
@@ -30,6 +32,16 @@ pub(crate) trait Writes {
     fn instances(&mut self, _: &[crate::DrawInstance]) -> Result<(), RenderError> {
         Ok(())
     }
+    fn opacity(&mut self, _: &[(u32, f32)]) {}
+    /// Per record, 1 + its first merged part look (0: none), and those looks;
+    /// set before `instances`.
+    fn part_looks(&mut self, _: &[u32], _: &[[f32; 8]]) {}
+    /// Each record's level of detail and the `ModelLod` entities; set before
+    /// `instances`.
+    fn levels(&mut self, _: &[u8], _: &[crate::lod::Lod]) {}
+    /// Rewrite records `first..` looks in place (tint and glow), and part looks
+    /// `part_first..` (starts relative to their meshes).
+    fn patch_looks(&mut self, _: usize, _: &[crate::DrawInstance], _: usize, _: &[[f32; 8]]) {}
     fn model_poses(
         &mut self,
         _: &World,
@@ -72,19 +84,53 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
             a.feed(w, initial, tick, parent, models);
         }
     }
-    fn model(&self, name: &str) -> Option<&[crate::models::ModelNode]> {
+    fn model(&self, name: &str) -> Option<crate::models::Draws<'_>> {
         if ASSETS {
             self.models
                 .loaded
                 .get(name)
                 .filter(|m| m.active)
-                .map(|m| m.nodes.as_slice())
+                .map(|m| crate::models::Draws {
+                    nodes: &m.nodes,
+                    names: &m.names,
+                    merged: &m.merged,
+                    members: &m.members,
+                    starts: &m.starts,
+                    materials: &m.materials,
+                    custom: &self.models.custom,
+                })
         } else {
             None
         }
     }
     fn assets_revision(&self) -> u64 {
         self.models.revision
+    }
+    fn opacity(&mut self, values: &[(u32, f32)]) {
+        if self.lights.set_opacity(&self.device, &self.queue, values) {
+            self.rebind();
+        }
+    }
+    fn part_looks(&mut self, bases: &[u32], looks: &[[f32; 8]]) {
+        let part_looks = &mut self.models.pending_looks;
+        part_looks.0.clear();
+        part_looks.0.extend_from_slice(bases);
+        part_looks.1.clear();
+        part_looks.1.extend_from_slice(looks);
+    }
+    fn patch_looks(
+        &mut self,
+        first: usize,
+        records: &[crate::DrawInstance],
+        part_first: usize,
+        looks: &[[f32; 8]],
+    ) {
+        if ASSETS {
+            self.patch_draw_looks(first, records, part_first, looks);
+        }
+    }
+    fn levels(&mut self, records: &[u8], lods: &[crate::lod::Lod]) {
+        self.levels.set(records, lods);
     }
     fn instances(&mut self, records: &[crate::DrawInstance]) -> Result<(), RenderError> {
         if ASSETS {
@@ -114,6 +160,11 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
         if ASSETS {
             for (_, sprite) in w.query::<&exact_game::Sprite>().iter() {
                 self.sprite_texture(&sprite.texture);
+            }
+            for (e, look) in w.query::<&exact_game::ParticleLook>().iter() {
+                if !look.texture.is_empty() && w.is_visible(e) {
+                    self.sprite_texture(&look.texture);
+                }
             }
         }
         self.quads
@@ -218,10 +269,98 @@ struct Versions {
     mesh: u64,
     visible: u64,
     viewmodel: u64,
+    opacity: u64,
+    node_materials: u64,
+    material_overrides: u64,
+    lod: u64,
     // An animated rig moves its socket followers' subtrees without a Transform write.
     pose: u64,
+    // Presentation offsets (exact_game::Offset) patch drawn poses like parents do.
+    offset: u64,
+    // Presentation tints (exact_game::Tint), by content for the same reason.
+    tint: u64,
     live: u64,
     membership: u64,
+}
+/// Each faded entity's effective opacity: the product of its own and every
+/// ancestor's `Opacity`, so a multipart unit fades as one. By slot.
+fn effective_opacity(w: &World, out: &mut Vec<(u32, f32)>) {
+    use exact_game::Opacity;
+    out.clear();
+    for (e, o) in w.query::<&Opacity>().iter() {
+        // Start at the topmost faded entity of each chain; its walk covers the rest.
+        let mut product = exact_game::opacity(o.0);
+        let mut at = e;
+        let mut top = true;
+        for _ in 0..=w.len() {
+            let Some(p) = w.get::<Parent>(at) else { break };
+            at = p.0;
+            if w.has::<Opacity>(at) {
+                top = false;
+                break;
+            }
+        }
+        if !top {
+            continue;
+        }
+        let mut stack = vec![(e, std::mem::take(&mut product))];
+        let mut budget = w.len() + 1;
+        while let Some((x, f)) = stack.pop() {
+            out.push((x.index(), f));
+            budget = budget.saturating_sub(1);
+            if budget == 0 {
+                break;
+            }
+            for c in w.children(x) {
+                let own = w.get::<Opacity>(c).map_or(1., |o| exact_game::opacity(o.0));
+                stack.push((c, f * own));
+            }
+        }
+    }
+    out.sort_by_key(|&(slot, _)| slot);
+    out.dedup_by_key(|&mut (slot, _)| slot);
+}
+/// Content of every presentation offset: present rewrites the rows each tick,
+/// so their revision moves even when no offset changed.
+fn offsets(w: &World) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for (e, o) in w.query::<&exact_game::Offset>().iter() {
+        let t = o.0;
+        let words = [t.position.to_array(), t.scale.to_array()]
+            .into_iter()
+            .flatten()
+            .chain(t.rotation.to_array())
+            .map(f32::to_bits)
+            .chain([e.index(), e.generation()]);
+        for word in words {
+            h = (h ^ u64::from(word)).wrapping_mul(0x100_0000_01b3);
+        }
+    }
+    h
+}
+/// Content of every presentation `Tint`.
+fn tints(w: &World) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for (e, t) in w.query::<&exact_game::Tint>().iter() {
+        let words = (t.color.iter().chain(&t.emissive))
+            .map(|v| v.to_bits())
+            .chain([e.index(), e.generation()]);
+        for word in words {
+            h = (h ^ u64::from(word)).wrapping_mul(0x100_0000_01b3);
+        }
+    }
+    h
+}
+/// A primitive's material floats under its `Tint`: base colour (not a grid's
+/// spacing) multiplied, emission added.
+fn tinted(out: &mut [f32], t: &exact_game::Tint) {
+    for c in 0..3 {
+        out[c] *= t.color[c];
+        out[6 + c] += t.emissive[c];
+    }
+    if out[3] >= 0. {
+        out[3] *= t.color[3];
+    }
 }
 impl Versions {
     fn of(w: &World, assets: u64) -> Self {
@@ -234,7 +373,13 @@ impl Versions {
             mesh: w.revision::<Mesh>(),
             visible: w.revision::<Visible>(),
             viewmodel: w.revision::<ViewModel>(),
+            opacity: w.revision::<exact_game::Opacity>(),
+            node_materials: w.revision::<exact_game::NodeMaterials>(),
+            material_overrides: w.revision::<exact_game::MaterialOverrides>(),
+            lod: w.revision::<exact_game::ModelLod>(),
             pose: w.revision::<exact_game::Pose>(),
+            offset: offsets(w),
+            tint: tints(w),
             live: w.entities_revision(),
             membership: w.membership::<Transform>(),
         }
@@ -277,6 +422,10 @@ pub struct Feed {
     // Scratch: entity-index blocks whose poses changed since a cursor.
     changed_blocks: Vec<u32>,
     changed_pages: Vec<usize>,
+    fades: Vec<(u32, f32)>,
+    fades_next: Vec<(u32, f32)>,
+    // Each tinted slot's Tint, rebuilt when their content changes.
+    tints: BTreeMap<u32, exact_game::Tint>,
     scene: Scene,
     glows: Vec<crate::GlowInput>,
 }
@@ -307,6 +456,9 @@ impl Default for Feed {
             model_cursor: None,
             changed_blocks: Vec::new(),
             changed_pages: Vec::new(),
+            fades: Vec::new(),
+            fades_next: Vec::new(),
+            tints: BTreeMap::new(),
             scene: Scene::default(),
             glows: Vec::new(),
         }
@@ -403,20 +555,29 @@ impl Feed {
         let moved = initial
             || next.transform != old.transform
             || next.parent != old.parent
-            || next.pose != old.pose;
+            || next.pose != old.pose
+            || next.offset != old.offset;
         let material = initial
             || next.material != old.material
+            || next.tint != old.tint
             || next.glow != old.glow
             || next.membership != old.membership
             || next.mesh != old.mesh;
-        let batches = initial
+        let looks_changed = next.node_materials != old.node_materials
+            || next.material_overrides != old.material_overrides;
+        let mut batches = initial
             || next.assets != old.assets
             || next.mesh != old.mesh
             || next.parent != old.parent
             || next.visible != old.visible
             || next.viewmodel != old.viewmodel
+            || next.lod != old.lod
             || next.live != old.live
             || next.membership != old.membership;
+        // Present rewrites looks every tick: patch changed content in place.
+        if !batches && looks_changed && !self.assets.patch_looks(w, r)? {
+            batches = true;
+        }
         // Validate live slots before any history swap. A last partial page is clipped
         // only at the device boundary; absent trailing slots do not refuse a valid world.
         if moved || material || batches {
@@ -428,6 +589,7 @@ impl Feed {
             }
         }
         let parent_changed = next.parent != old.parent;
+        let offset_changed = next.offset != old.offset;
         if moved || (self.history_pending && w.tick() != self.tick) {
             r.begin_tick();
             self.current = 1 - self.current;
@@ -436,6 +598,7 @@ impl Feed {
             // Membership too: a parented entity can gain its Transform later.
             let rebuilt = initial
                 || parent_changed
+                || offset_changed
                 || next.membership != old.membership
                 || self.override_cursor.is_none();
             if rebuilt {
@@ -444,6 +607,20 @@ impl Feed {
                     if let Some(t) = scene::pose(w, e) {
                         self.overrides.push((e, floats(t)));
                     }
+                }
+                // Unparented entities drawn at an offset are patched the same way.
+                let parented = self.overrides.len();
+                for (e, _) in w
+                    .query::<(&exact_game::Offset, &Transform)>()
+                    .without::<Parent>()
+                    .iter()
+                {
+                    if let Some(t) = scene::pose(w, e) {
+                        self.overrides.push((e, floats(t)));
+                    }
+                }
+                if self.overrides.len() > parented {
+                    self.overrides.sort_by_key(|(e, _)| e.index());
                 }
                 self.override_pages.clear();
                 for (i, (e, _)) in self.overrides.iter().enumerate() {
@@ -476,8 +653,13 @@ impl Feed {
                 self.buffer_cursors[self.current],
                 &mut self.changed_blocks,
             );
-            if parent_changed {
-                for e in &self.parents {
+            if parent_changed || offset_changed {
+                // Pages patched before, and those patched now, are rewritten.
+                for e in self
+                    .parents
+                    .iter()
+                    .chain(self.overrides.iter().map(|(e, _)| e))
+                {
                     self.transforms[self.current].invalidate(e.index() as usize / PAGE);
                 }
             }
@@ -638,6 +820,14 @@ impl Feed {
             }
         }
         if material {
+            if initial || next.tint != old.tint {
+                self.tints = w
+                    .query::<&exact_game::Tint>()
+                    .iter()
+                    .filter(|(e, _)| w.is_visible(*e))
+                    .map(|(e, t)| (e.index(), *t))
+                    .collect();
+            }
             // Frame-time Glow writes bypass page fingerprints. Restore authored
             // values when a tween disappears, including model emission. Retargeting
             // an existing tween needs only its next frame-time write.
@@ -677,6 +867,7 @@ impl Feed {
                 if !initial
                     && next.mesh == old.mesh
                     && next.glow == old.glow
+                    && next.tint == old.tint
                     && next.membership == old.membership
                     && !self.materials.needs_check(index, generation)
                 {
@@ -701,6 +892,9 @@ impl Feed {
                     out[9..12].copy_from_slice(
                         self.dimensions.get(first as usize + i).unwrap_or(&[1.0; 3]),
                     );
+                    if let Some(t) = self.tints.get(&(first + i as u32)) {
+                        tinted(out, t);
+                    }
                 }
                 let values = &self.page_scratch[..len * 12];
                 if self.materials.dirty(index, generation, values, true) {
@@ -733,7 +927,8 @@ impl Feed {
             self.changed_pages.clear();
             self.changed_pages
                 .extend(self.changed_blocks.iter().map(|&b| b as usize / PAGE));
-            let moved = if initial || parent_changed || batches {
+            // An offset moves drawn model poses without a simulated pose write.
+            let moved = if initial || parent_changed || offset_changed || batches {
                 crate::models::Moved::All
             } else {
                 crate::models::Moved::Pages {
@@ -741,6 +936,13 @@ impl Feed {
                 }
             };
             r.model_poses(w, &self.assets.entities, initial || parent_changed, moved);
+        }
+        if initial || next.opacity != old.opacity || next.live != old.live || parent_changed {
+            effective_opacity(w, &mut self.fades_next);
+            if initial || self.fades_next != self.fades {
+                std::mem::swap(&mut self.fades, &mut self.fades_next);
+                r.opacity(&self.fades);
+            }
         }
         r.quads(w, initial, self.tick != w.tick(), parent_changed)?;
         r.attachments(
@@ -756,6 +958,9 @@ impl Feed {
             for (entity, glow) in w.query::<&exact_game::Glow>().iter() {
                 let mut values =
                     material_floats(w.get::<Material>(entity).map(|m| *m).unwrap_or_default());
+                if let Some(t) = w.get::<exact_game::Tint>(entity) {
+                    tinted(&mut values, &t);
+                }
                 values[9..12].copy_from_slice(
                     self.dimensions
                         .get(entity.index() as usize)

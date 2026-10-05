@@ -13,6 +13,7 @@ pub fn materials(
     images: &[gltf::image::Data],
     out: &mut Model,
     stem: &str,
+    dir: &std::path::Path,
     used: &std::collections::BTreeSet<usize>,
 ) -> Result<Sources, String> {
     let json = serde_json::to_value(doc.as_json()).map_err(|e| e.to_string())?;
@@ -89,8 +90,20 @@ pub fn materials(
             let key = (texture.index(), srgb, uses_alpha, cutoff.map(f32::to_bits));
             let bits = 1 << slot | u8::from(uses_alpha) << 5;
             let index = if let Some(&(i, ref name)) = cache.get(&key) {
-                payloads.get_mut::<String>(name).unwrap().1 |= bits;
+                if let Some(payload) = payloads.get_mut::<String>(name) {
+                    payload.1 |= bits;
+                }
                 i
+            } else if let Some(name) = cutoff
+                .is_none()
+                .then(|| standalone(texture.source(), dir, srgb))
+                .transpose()?
+                .flatten()
+            {
+                let index = out.textures.len() as u32;
+                out.textures.push(name.clone());
+                cache.insert(key, (index, name));
+                index
             } else {
                 let image = &images[texture.source().index()];
                 let name = format!(
@@ -175,6 +188,46 @@ pub fn materials(
     out.materials.push(MaterialData::default());
     Ok(payloads)
 }
+/// A glTF image whose URI names a PNG under `art/textures/` (colour) or
+/// `art/data/` (linear) samples that standalone texture, baked once for every
+/// model and generated mesh, instead of embedding a copy.
+fn standalone(
+    image: gltf::Image<'_>,
+    dir: &std::path::Path,
+    srgb: bool,
+) -> Result<Option<String>, String> {
+    let gltf::image::Source::Uri { uri, .. } = image.source() else {
+        return Ok(None);
+    };
+    if uri.starts_with("data:") {
+        return Ok(None);
+    }
+    let Ok(path) = std::fs::canonicalize(dir.join(uri)) else {
+        return Ok(None);
+    };
+    let Some(art) = path
+        .ancestors()
+        .find(|a| a.file_name() == Some("art".as_ref()))
+    else {
+        return Ok(None);
+    };
+    let kind = crate::PngKind::of(art, &path);
+    if kind == crate::PngKind::Sprite {
+        return Ok(None);
+    }
+    if (kind == crate::PngKind::Color) != srgb {
+        return Err(format!(
+            "image `{uri}`: art/textures/ holds colour (sRGB) textures and art/data/ \
+             linear ones; this slot samples {}",
+            if srgb { "colour" } else { "linear data" }
+        ));
+    }
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| format!("image `{uri}`: invalid art stem"))?;
+    Ok(Some(format!("{stem}.tex")))
+}
 /// What the sampling slots read, for choosing block formats. Colour slots
 /// (sRGB) never share a payload with data slots (linear): srgb is in its key.
 pub fn channels(slots: u8, cut: Option<u8>) -> Channels {
@@ -229,6 +282,45 @@ fn srgb(v: f32) -> f32 {
     }
 }
 /// Box mip chain with linear-light colour filtering; alpha and data channels are linear.
+/// An RGBM chain whose levels average radiance (rgb times alpha), each level
+/// re-encoded with its own multiplier: per-channel averaging would mix bright
+/// and dim texels' multipliers and darken or brighten the sky's far mips.
+pub fn rgbm_mips(mut w: u32, mut h: u32, rgba: Vec<u8>) -> Vec<Vec<u8>> {
+    let mut out = vec![rgba];
+    while w > 1 || h > 1 {
+        let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
+        let previous = out.last().unwrap();
+        let mut next = vec![0; (nw * nh * 4) as usize];
+        for y in 0..nh {
+            for x in 0..nw {
+                let (x0, x1, y0, y1) = (x * w / nw, (x + 1) * w / nw, y * h / nh, (y + 1) * h / nh);
+                let mut sum = [0f32; 3];
+                for sy in y0..y1 {
+                    for sx in x0..x1 {
+                        let p = &previous[((sy * w + sx) * 4) as usize..][..4];
+                        let m = f32::from(p[3]) / 255.;
+                        for c in 0..3 {
+                            sum[c] += f32::from(p[c]) / 255. * m;
+                        }
+                    }
+                }
+                let n = ((x1 - x0) * (y1 - y0)) as f32;
+                let v = sum.map(|s| s / n);
+                let a = (v.iter().fold(0f32, |a, &b| a.max(b)) * 255.)
+                    .ceil()
+                    .clamp(1., 255.);
+                let at = ((y * nw + x) * 4) as usize;
+                for c in 0..3 {
+                    next[at + c] = (v[c] / (a / 255.) * 255.).round().clamp(0., 255.) as u8;
+                }
+                next[at + 3] = a as u8;
+            }
+        }
+        out.push(next);
+        (w, h) = (nw, nh);
+    }
+    out
+}
 pub fn mips(
     mut w: u32,
     mut h: u32,

@@ -71,22 +71,48 @@ fn main() -> ExitCode {
             .packages
             .iter()
             .map(|package| package.root.display().to_string())
-            .chain(
-                graph
-                    .consulted
-                    .iter()
-                    .filter_map(|manifest| manifest.parent().map(|dir| dir.display().to_string())),
-            )
+            // The nearest directory that exists, for a file looked for and
+            // not found — but only inside a package or a `node_modules`: never
+            // the app (already watched) or a directory above it.
+            .chain(graph.consulted.iter().filter_map(|consulted| {
+                let dir = consulted.ancestors().skip(1).find(|dir| dir.is_dir())?;
+                // A consulted manifest's directory is a package even when
+                // resolution then refused it.
+                let manifest =
+                    consulted.ends_with("package.json") && consulted.parent() == Some(dir);
+                let inside = manifest
+                    || graph.packages.iter().any(|p| dir.starts_with(&p.root))
+                    || dir.components().any(|c| c.as_os_str() == "node_modules");
+                inside.then(|| dir.display().to_string())
+            }))
             .collect();
         roots.sort();
         roots.dedup();
-        let json = format!(
-            "{{\"packages\":[{}]}}\n",
-            roots
-                .iter()
+        // Where a `node_modules` that is not there yet would be made: the
+        // loop watches these directories (not their trees) for its creation.
+        let mut shallow: Vec<String> = graph
+            .consulted
+            .iter()
+            .filter_map(|consulted| {
+                let modules = consulted
+                    .ancestors()
+                    .find(|a| a.file_name().is_some_and(|n| n == "node_modules"))?;
+                let parent = modules.parent()?;
+                (!modules.exists() && parent.is_dir()).then(|| parent.display().to_string())
+            })
+            .collect();
+        shallow.sort();
+        shallow.dedup();
+        let list = |dirs: &[String]| {
+            dirs.iter()
                 .map(|r| format!("{r:?}"))
                 .collect::<Vec<_>>()
                 .join(",")
+        };
+        let json = format!(
+            "{{\"packages\":[{}],\"shallow\":[{}]}}\n",
+            list(&roots),
+            list(&shallow)
         );
         let _ = std::fs::create_dir_all(out);
         let _ = std::fs::write(std::path::Path::new(out).join("dev-sources.json"), json);

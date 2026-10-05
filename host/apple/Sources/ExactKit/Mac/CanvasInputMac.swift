@@ -118,7 +118,13 @@ final class CanvasInput {
     }
     func pointer(_ event: NSEvent, phase: String) -> Bool {
         guard let view, !view.disabled, !view.inert else { return false }
-        let bit = event.buttonNumber == 0 ? 1 : event.buttonNumber == 1 ? 2 : event.buttonNumber == 2 ? 4 : 1 << min(event.buttonNumber, 30)
+        // The event's type names left and right; an event made with
+        // NSEvent.mouseEvent (the agent's) carries buttonNumber 0 for both.
+        let bit = [.leftMouseDown, .leftMouseUp, .leftMouseDragged].contains(event.type) ? 1
+            : [.rightMouseDown, .rightMouseUp, .rightMouseDragged].contains(event.type) ? 2
+            // Other: the middle button (2), or 0 when made by NSEvent.mouseEvent.
+            : [.otherMouseDown, .otherMouseUp, .otherMouseDragged].contains(event.type) && event.buttonNumber <= 2 ? 4
+            : 1 << min(event.buttonNumber, 30)
         var phase = phase
         if phase == "down" {
             guard locked || fallsThrough(event, view) else { return false }

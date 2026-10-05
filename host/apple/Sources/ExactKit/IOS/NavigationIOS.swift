@@ -108,6 +108,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var tabTint: [[Double]?]?
     let tabProxy = TabDelegateProxy()
     private(set) var changing = false
+    /// A context menu's commit pushes without the stack's animation: UIKit
+    /// animates it (`.pop`, LLP 1021 §5.1). The selected route's key tells
+    /// whether its press navigated.
+    var unanimated = false
+    var activeKey: String? { container?.props["navigationKey"] }
     /// While a push or pop runs: paints what each frame newly reveals.
     private var revealLink: CADisplayLink?
     /// LLP 1075.003: each stack Exact built, by controller; what each shown
@@ -339,11 +344,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                 let pushOrPop = NavigationRules.isPushOrPop(from: nav.viewControllers.map(ObjectIdentifier.init), to: stack.map(ObjectIdentifier.init))
                 let arrives = stack.count > 1 && nav.viewControllers.first === stack.first
                     && !nav.viewControllers.contains { $0 === stack.last }
-                nav.setViewControllers(stack, animated: (pushOrPop || arrives) && index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && nav.view.window != nil)
+                nav.setViewControllers(stack, animated: (pushOrPop || arrives) && index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && !unanimated && nav.view.window != nil)
                 recordOwned(nav)
             }
             nav.view.layoutIfNeeded()
         }
+        unanimated = false
         if mounted.count > common {
             pendingSync = true
             presenter.modals.closeTop()
@@ -605,7 +611,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let view = pan.view else {
             return popMayBegin(gestureRecognizer, from: nil, in: nil, velocity: .zero)
         }
-        return popShouldBegin(pan, in: view, velocity: pan.velocity(in: view))
+        // A pan's velocity at shouldBegin is often zero (a finger that
+        // started slowly, or one sample in): read that way every back swipe
+        // is refused as not horizontal. Its travel so far says the direction.
+        return popShouldBegin(pan, in: view, velocity: NavigationRules.popDirection(velocity: pan.velocity(in: view), travel: pan.translation(in: view)))
     }
     /// `shouldBegin` for a pan at `velocity`: from where its finger landed.
     func popShouldBegin(_ pan: UIPanGestureRecognizer, in view: UIView, velocity: CGPoint) -> Bool {
@@ -750,6 +759,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     func reset(clearFocus: Bool = true) {
+        unanimated = false
         presenter.modals.reset()
         for nav in presentedNavigations { retireNavigation(nav, preserving: false) }
         for c in controllers.values { end(c) }

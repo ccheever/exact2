@@ -288,7 +288,7 @@ extension NodeView {
 
     /// The image's pixels onto a sublayer, or none (`draw(_:)` paints them).
     func applyImageLayer() {
-        if let look = flightLook, let layer, kind == "image", symbolView == nil, style["tint_color"] == nil, let bitmap = raster?.image {
+        if let look = flightLook, let layer, kind == "image", symbolView == nil, style["tint_color"] == nil, let bitmap = raster?.image ?? look.stand?.image {
             // Flying (LLP 1013.000 D4): the whole image where the flight
             // puts it; the view's own bounds and radius clip it.
             CATransaction.begin(); CATransaction.setDisableActions(true)

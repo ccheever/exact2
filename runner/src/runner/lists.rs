@@ -75,13 +75,15 @@ impl<D: DataSource> Runner<D> {
             u.full = self.full;
             u.discard = self.kernel.is_detached();
             u.rows = rows;
-            update(&mut tree, &mut u).map(|_| (u.ops, u.surfaces, u.notes))
+            u.reuse = self.reuse;
+            update(&mut tree, &mut u).map(|_| (u.ops, u.surfaces, u.notes, u.renewed))
         };
         self.ids = ids;
         self.tree = Some(tree);
         let (ops, surfaces) = match result {
-            Ok((ops, surfaces, notes)) => {
+            Ok((ops, surfaces, notes, renewed)) => {
                 self.notes = notes;
+                self.renewed = renewed;
                 if settled {
                     let tree = self.tree.as_mut().expect("booted");
                     tree.last_work.rows_scanned += self.lookup_rows.take();

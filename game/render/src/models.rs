@@ -30,15 +30,53 @@ pub(crate) struct Material {
     data: MaterialData,
     names: [Option<String>; 5],
 }
+/// u32 words per model instance record: header, local, normal, tint, glow.
+pub(crate) const INSTANCE_WORDS: usize = 44;
+/// A record's look word flag: its tint replaces the material's base colour factor.
+pub(crate) const REPLACE: u32 = 1 << 31;
 pub(crate) type ModelNode = (MeshId, MaterialId, Mat4, Option<u32>);
+/// What the feed batches one loaded model from.
+pub(crate) struct Draws<'a> {
+    pub nodes: &'a [ModelNode],
+    /// Each node's name, for `NodeMaterials`.
+    pub names: &'a [String],
+    /// The merged draw list (empty when nothing merges) and each draw's part names.
+    pub merged: &'a [ModelNode],
+    pub members: &'a [Vec<String>],
+    pub starts: &'a [Vec<u32>],
+    /// Renderer materials, by model material index.
+    pub materials: &'a [MaterialId],
+    /// Materials a game's `CustomMaterial` shades: a model with any of them in
+    /// a merged draw draws its parts unmerged.
+    pub custom: &'a std::collections::BTreeSet<MaterialId>,
+}
 pub(crate) struct Uploaded {
     pub nodes: Vec<ModelNode>,
+    /// Each drawn node's name, for `NodeMaterials`.
+    pub names: Vec<String>,
+    /// `nodes` with rigid parts sharing a material merged; empty when none merge.
+    pub merged: Vec<ModelNode>,
+    /// Each `merged` draw's node names, in vertex part order, and where each
+    /// part's vertices start in its mesh.
+    pub members: Vec<Vec<String>>,
+    pub starts: Vec<Vec<u32>>,
     pub(crate) digest: u64,
     pub active: bool,
     pub meshes: Vec<MeshId>,
     pub materials: Vec<MaterialId>,
     pub skins: Vec<u32>,
 }
+impl Uploaded {
+    /// Meshes with per-vertex joint words: skinned and rigid-palette nodes, and
+    /// animated merged meshes.
+    pub(crate) fn weighted_meshes(&self) -> impl Iterator<Item = usize> + '_ {
+        (self.nodes.iter().chain(&self.merged))
+            .filter(|n| n.3.is_some())
+            .map(|n| n.0 .0)
+    }
+}
+mod looks;
+mod merge;
 mod textures;
 use textures::upload_texture;
 pub(crate) use textures::Texture;
@@ -73,6 +111,14 @@ pub(crate) struct Models {
     bind_buffers: Option<(wgpu::BindGroupLayout, [wgpu::Buffer; 3])>,
     words: Vec<u32>,
     normals: Vec<([u32; 16], [u32; 16])>,
+    /// Per record, 1 + the first of its merged parts' looks (0: none), and
+    /// those looks (tint, glow, then the part's first vertex as bits; a
+    /// `u32::MAX` start ends each record's run), appended after the records.
+    pub(crate) part_looks: (Vec<u32>, Vec<[f32; 8]>),
+    /// Materials a game's `CustomMaterial` shades (never merged).
+    pub(crate) custom: std::collections::BTreeSet<MaterialId>,
+    /// The feed's looks for the next `set_draw_instances`, part starts relative.
+    pub(crate) pending_looks: (Vec<u32>, Vec<[f32; 8]>),
 }
 impl Models {
     pub fn custom_data(&mut self, queue: &wgpu::Queue, data: impl Fn(u32) -> u32) {
@@ -81,7 +127,7 @@ impl Models {
             let value = data(record.transform);
             if record.data != value {
                 record.data = value;
-                self.words[i * 36 + 2] = value;
+                self.words[i * INSTANCE_WORDS + 2] = value;
                 changed = true;
             }
         }
@@ -170,8 +216,11 @@ impl Models {
         let words = &mut self.words;
         words.clear();
         self.normals.resize(records.len(), ([0; 16], [0; 16]));
-        for ((record, cached), &palette) in
-            records.iter().zip(&mut self.normals).zip(&skinning.offsets)
+        for (index, ((record, cached), &palette)) in records
+            .iter()
+            .zip(&mut self.normals)
+            .zip(&skinning.offsets)
+            .enumerate()
         {
             let key = record.local.to_cols_array().map(f32::to_bits);
             if cached.0 != key {
@@ -192,6 +241,22 @@ impl Models {
             ]);
             words.extend(record.local.to_cols_array().map(f32::to_bits));
             words.extend(normal);
+            words.extend(record.tint.map(f32::to_bits));
+            words.extend(record.glow.map(f32::to_bits));
+            // Low 31 bits: 1 + the record's first part look; top bit: replace.
+            let look = self.part_looks.0.get(index).copied().unwrap_or(0);
+            let base = look & !REPLACE;
+            let at = if base == 0 {
+                0
+            } else {
+                records.len() as u32 + base
+            };
+            words.push(at | (look & REPLACE));
+        }
+        // A merged part's look is one record-sized entry: its tint and glow.
+        for look in &self.part_looks.1 {
+            words.extend([0; 36]);
+            words.extend(look.map(f32::to_bits));
         }
         if words.len() as u64 * 4 > device.limits().max_storage_buffer_binding_size {
             return Err(RenderError::scene(
@@ -380,16 +445,23 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         for id in &meshes {
             self.meshes[id.0].asset = true;
         }
-        let skins = self
-            .models
-            .skinning
-            .as_mut()
-            .unwrap()
-            .add(&self.device, &self.queue, model);
+        let animated = merge::animated_groups(model);
+        let skins = self.models.skinning.as_mut().unwrap().add_merged(
+            &self.device,
+            &self.queue,
+            model,
+            &animated.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>(),
+        );
         if replaced {
             self.models.skinning.as_mut().unwrap().mark_fresh(&skins);
         }
         let mut rigid = skins.iter().skip(model.skins.len());
+        let names = model
+            .nodes
+            .iter()
+            .filter(|n| n.mesh.is_some())
+            .map(|n| n.name.clone())
+            .collect();
         let nodes = model
             .nodes
             .iter()
@@ -412,11 +484,21 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                     )
                 })
             })
-            .collect();
+            .collect::<Vec<ModelNode>>();
+        let drawn: Vec<u32> = model.nodes.iter().filter_map(|n| n.mesh).collect();
+        let first = skins.len() - animated.len();
+        let (merged, members, starts, merged_meshes) =
+            self.merge_static(model, &nodes, &drawn, &animated, &skins[first..]);
+        let mut meshes = meshes;
+        meshes.extend(merged_meshes);
         self.models.loaded.insert(
             name.into(),
             Uploaded {
                 nodes,
+                names,
+                merged,
+                members,
+                starts,
                 digest,
                 active: true,
                 meshes,
@@ -467,7 +549,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                     .loaded
                     .iter()
                     .filter(|(n, m)| m.active && live.contains(*n))
-                    .flat_map(|(_, m)| m.nodes.iter().filter(|n| n.3.is_some()).map(|n| n.0 .0))
+                    .flat_map(|(_, m)| m.weighted_meshes())
                     .collect::<std::collections::BTreeSet<_>>()
                     .iter()
                     .map(|&i| self.meshes[i].vertex_bytes)
@@ -648,6 +730,23 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             assert!(records.is_empty(), "model instances need prepared assets");
             return Ok(());
         };
+        // Part starts become absolute vertices; direct callers bring no looks.
+        let (bases, mut looks) = std::mem::take(&mut self.models.pending_looks);
+        for (record, &base) in records.iter().zip(&bases) {
+            let base = base & !REPLACE;
+            if base == 0 {
+                continue;
+            }
+            let first = self.meshes[record.geometry.0].base_vertex as u32;
+            for look in &mut looks[base as usize - 1..] {
+                let start = look[7].to_bits();
+                if start == u32::MAX {
+                    break;
+                }
+                look[7] = f32::from_bits(first + start);
+            }
+        }
+        self.models.part_looks = (bases, looks);
         self.models.set(
             &self.device,
             &self.queue,
@@ -864,145 +963,7 @@ fn texture_names(m: &MaterialData, names: &[String]) -> [Option<String>; 5] {
     .map(|i| i.map(|i| names[i as usize].clone()))
 }
 #[cfg(test)]
-mod arrival_tests {
-    use super::*;
-    #[test]
-    fn content_digest_reuses_equal_bytes_and_replaces_changed_names() {
-        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
-            return;
-        };
-        let mut renderer =
-            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
-        let mut model = Model {
-            meshes: vec![exact_game::asset::MeshData {
-                positions: vec![0.; 9],
-                normals: vec![0.; 9],
-                uvs: vec![0.; 6],
-                indices: vec![0, 1, 2],
-                ..Default::default()
-            }],
-            nodes: vec![exact_game::asset::Node {
-                mesh: Some(0),
-                ..Default::default()
-            }],
-            materials: vec![MaterialData::default()],
-            ..Default::default()
-        };
-        renderer.prepare_model("resident.model", &model).unwrap();
-        let before = renderer.residency_work();
-        let old_mesh = renderer.models.loaded["resident.model"].nodes[0].0;
-        renderer
-            .prepare_model("resident.model", &model.clone())
-            .unwrap();
-        assert_eq!(before.json(), renderer.residency_work().json());
-        model.meshes[0].positions[0] = 0.5;
-        renderer.prepare_model("resident.model", &model).unwrap();
-        assert_eq!(
-            old_mesh, renderer.models.loaded["resident.model"].nodes[0].0,
-            "replacement reuses the retired slot after accepting its digest"
-        );
-        let delta = renderer.residency_work().since(before);
-        assert_eq!(delta.mesh_uploads, 1);
-        assert_eq!(delta.pipeline_creations, 0);
-        assert_eq!(delta.texture_uploads, 0);
-        let mut texture = TextureData {
-            width: 1,
-            height: 1,
-            mips: vec![vec![255; 4]],
-            ..Default::default()
-        };
-        renderer.add_texture("resident.tex", &texture).unwrap();
-        let before = renderer.residency_work();
-        renderer
-            .add_texture("resident.tex", &texture.clone())
-            .unwrap();
-        assert_eq!(before.json(), renderer.residency_work().json());
-        texture.mips[0][0] = 0;
-        renderer.add_texture("resident.tex", &texture).unwrap();
-        assert_eq!(renderer.residency_work().since(before).texture_uploads, 1);
-        texture.srgb = !texture.srgb;
-        renderer.add_texture("resident.tex", &texture).unwrap();
-        texture.wrap[0] = Wrap::Clamp;
-        renderer.add_texture("resident.tex", &texture).unwrap();
-        assert_eq!(renderer.residency_work().since(before).texture_uploads, 3);
-    }
-    #[test]
-    fn normal_cache_and_rebatch_scratch_follow_the_live_records() {
-        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
-            return;
-        };
-        let mut renderer =
-            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
-        renderer
-            .prepare_model("empty.model", &Model::default())
-            .unwrap();
-        let layout = &renderer.pipelines.models.as_ref().unwrap().instance;
-        for x in 0..8 {
-            let records = [DrawInstance {
-                data: 0,
-                transform: 0,
-                geometry: MeshId(0),
-                material: MaterialId(0),
-                local: Mat4::from_translation(glam::Vec3::new(x as f32, 0., 0.)),
-                skin: None,
-            }];
-            renderer
-                .models
-                .set(&gpu.device, &gpu.queue, layout, &renderer.uniform, &records)
-                .unwrap();
-            assert_eq!(renderer.models.normals.len(), 1);
-            let ptr = renderer.models.words.as_ptr();
-            renderer
-                .models
-                .set(&gpu.device, &gpu.queue, layout, &renderer.uniform, &records)
-                .unwrap();
-            assert_eq!(ptr, renderer.models.words.as_ptr());
-        }
-    }
-    #[test]
-    fn material_waits_for_all_textures_before_rebinding() {
-        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
-            return;
-        };
-        let mut renderer =
-            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
-        let model = Model {
-            meshes: vec![exact_game::asset::MeshData {
-                positions: vec![0.; 9],
-                normals: vec![0.; 9],
-                uvs: vec![0.; 6],
-                indices: vec![0, 1, 2],
-                ..Default::default()
-            }],
-            nodes: vec![exact_game::asset::Node {
-                mesh: Some(0),
-                ..Default::default()
-            }],
-            materials: vec![MaterialData {
-                base_color_texture: Some(0),
-                normal_texture: Some(1),
-                ..Default::default()
-            }],
-            textures: vec!["color.tex".into(), "normal.tex".into()],
-            ..Default::default()
-        };
-        renderer.prepare_model("two.model", &model).unwrap();
-        let initial = renderer.models.materials[0].bind.clone();
-        let texture = TextureData {
-            width: 1,
-            height: 1,
-            mips: vec![vec![255; 4]],
-            ..Default::default()
-        };
-        renderer.add_texture("color.tex", &texture).unwrap();
-        assert_eq!(renderer.models.materials[0].bind, initial);
-        renderer.add_texture("normal.tex", &texture).unwrap();
-        let final_bind = renderer.models.materials[0].bind.clone();
-        assert_ne!(final_bind, initial);
-        renderer.add_texture("normal.tex", &texture).unwrap();
-        assert_eq!(renderer.models.materials[0].bind, final_bind);
-    }
-}
+mod arrival_tests;
 
 #[cfg(test)]
 mod retirement_regressions {
@@ -1053,6 +1014,8 @@ mod retirement_regressions {
                     data: 0,
                     transform,
                     skin: None,
+                    tint: [1.; 4],
+                    glow: [0.; 3],
                     ..records[0]
                 })
                 .collect();
@@ -1309,6 +1272,8 @@ mod retirement_regressions {
             material: node.1,
             local: node.2,
             skin: None,
+            tint: [1.; 4],
+            glow: [0.; 3],
         };
         renderer
             .set_draw_instances(std::slice::from_ref(&record))
@@ -1453,11 +1418,11 @@ mod retirement_regressions {
 
 /// Model-capable presentation executor. Primitive modules never instantiate it.
 #[derive(Default)]
-pub struct ModelPresentation<P: crate::Presentation = ()> {
+pub struct ModelExecutor<P: crate::Executor = ()> {
     inner: P,
     definitions: Option<exact_game::animation::Definitions>,
 }
-impl<P: crate::Presentation> crate::Presentation for ModelPresentation<P> {
+impl<P: crate::Executor> crate::Executor for ModelExecutor<P> {
     fn wants_audio(&self) -> bool {
         self.inner.wants_audio()
     }

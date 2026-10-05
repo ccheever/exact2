@@ -81,6 +81,7 @@ pub use exact_canvas;
 pub use exact_plan::{Items, Str, Value};
 pub use format::formatting;
 pub use head::Head;
+pub use instance::collection::{set_bootstrap_extent, set_lead_scale};
 pub use instance::collection::{
     AnchorCorrection, CollectionFeedback, CollectionFill, CollectionRow, CollectionSnapshot,
     FeedbackError, ListAxis, ReorderBinding, ReorderEnding, ReorderFrame, ReorderGeometry,

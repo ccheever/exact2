@@ -62,7 +62,8 @@ impl Acquire {
     pub(crate) const ENABLED: bool = cfg!(any(
         target_os = "ios",
         target_os = "tvos",
-        target_os = "macos"
+        target_os = "macos",
+        target_os = "android"
     ));
 
     /// Whether a texture asked for at a present is waited on

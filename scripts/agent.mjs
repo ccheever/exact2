@@ -8,17 +8,18 @@
 //   Web defaults to Chrome; EXACT_WEB_BROWSER selects the same option. Install
 //   the other engines with: bunx playwright@1.63.0 install firefox webkit
 //   tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save
-//   tap <target> [wheel <dx> <dy> [gesture] [modifiers <Control…>] | drop <path…> | into <key> [block <v>] [inline <v>] | hover | history <n> | {"history":n} | contextmenu | mouse | dblclick | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | drag <dx> <dy> [from <x> <y>] [mouse] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …] | drag to <target> [at <x> <y>] […]] | type <target> <text…> | type <target> key <Name> | type <target> copy|cut|paste <text…>
+//   tap <target> [wheel <dx> <dy> [gesture] [modifiers <Control…>] | drop <path…> | into <key> [block <v>] [inline <v>] | hover | history <n> | {"history":n} | contextmenu | mouse | dblclick | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | drag <dx> <dy> [from <x> <y>] [mouse] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …, inside the hold under --touch platform] | drag to <target> [at <x> <y>] […]] | type <target> <text…> | type <target> key <Name> | type <target> copy|cut|paste <text…>
 //   tap <target> down [at <x> <y>] · tap move [by] <x> <y> [over <ms>] · tap hold <ms> · tap up · tap cancel   (a held contact, LLP 1035.003 D1)
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
 //   tap @<id> <choice> | type @<id> <value>   (by the node it answers at, or its capability: files F11)
 //   clock <ms|+ms|+ms real|settle|data> | resize <w>x<h> | close | prefer <media feature or page fact> <value> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]
 //   bun scripts/agent.mjs trace <file>   (a development session's trace, LLP 1079 D5: no app runs)
-// A target is a testId or a view id; each op is one argument (quote it).
+// A target is a testId, a view id, or else a view's exact label or text (interactive first; several refuse,
+// naming them; `tap "Sky off"` quotes several words); each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, closePage, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
+import { Cdp, closePage, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs, tapRefusal, worldView } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -44,7 +45,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { dragTap, duringAllowed, duringOp } from './agent-drag.mjs';
-import { runTests } from './agent-test.mjs';
+import { runTests, nodeNamed, targetsIn } from './agent-test.mjs';
 import { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard } from './agent-keys.mjs';
 export { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard } from './agent-keys.mjs';
 import { appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
@@ -68,8 +69,8 @@ async function waitAtMost(operation, ms, onTimeout) {
  * exceptions and console errors arrive over CDP separately and remain logs. */
 export function browserDiagnosticNoise(line) {
   return /crashpad|updater|gcm|VERBOSE|DevTools listening/i.test(line)
-    // Linux without a session bus: Chrome's dbus client reports it on every launch.
-    || /:ERROR:dbus\/(bus|object_proxy)\.cc:\d+\] (Failed to connect to the bus|Failed to call method: org\.freedesktop\.DBus)/.test(line)
+    // Linux without a session bus or GSettings schemas: Chrome's dbus client and GLib report it on every launch.
+    || /:ERROR:dbus\/(bus|object_proxy)\.cc:\d+\] (Failed to connect to the bus|Failed to call method: org\.freedesktop\.DBus)/.test(line) || /GLib-GIO-CRITICAL \*\*: [\d:.]+: g_settings_schema_source_lookup: assertion 'source != NULL' failed$/.test(line)
     || /CVDisplayLinkCreateWithCGDisplay failed|CVReturn:\s*-6670/i.test(line)
     // The browser process checking the renderer's paint-timing report
     // against itself (two paints in one frame, image before first): its
@@ -84,6 +85,9 @@ export const VIEWPORT = [420, 900];
 
 export { LAUNCH_MEDIA, PREFERENCES, PAGE_FACTS, FOLD_FACTS, displayFeatures } from './agent-prefer.mjs'; // `prefer`'s tables and the web carrier's CDP path
 /** An app made by `exact new` builds itself: its own `exact.mjs web-build`, when the dist is its default one. */
+/** An `exact new` app's own command for a native build (`mac`, `ios`), else null. */
+const ownAppleBuild = (app, verb) => app.dir && !resolve(app.dir).startsWith(ROOT + '/') && existsSync(resolve(app.dir, 'exact.mjs'))
+  ? `(cd '${String(app.dir).replaceAll("'", "'\\''")}' && bun exact.mjs ${verb})` : null;
 const ownWebBuild = (app, dist) => app.dir && app.target && existsSync(resolve(app.dir, 'exact.mjs')) && resolve(dist) === resolve(app.target, 'web-dist')
   ? `(cd '${String(app.dir).replaceAll("'", "'\\''")}' && bun exact.mjs web-build)` : null;
 /** Refuse to drive anything but a complete, authenticated build of the
@@ -138,7 +142,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
   const kept = storage === undefined ? null : driveStore(selected.id, storage, env);
   if (kept && fresh) await removeBrowserProfile(kept.profile);
   await new Promise((ok, fail) => { server.once('error', fail); server.listen(kept && !pageURL ? kept.port : 0, '127.0.0.1', ok); }).catch((e) => {
-    throw e.code === 'EADDRINUSE' ? new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open, and a store is one drive's at a time`) : e;
+    throw e.code === 'EADDRINUSE' ? new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open (a store is one drive's at a time), or another program holds the port: try another store name`) : e;
   });
   const port = server.address().port;
   const chrome = chromium().executable;
@@ -200,7 +204,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       await waitAtMost(stdioClosed, 1000);
       const said = [...launchTail, ...(partial ? [partial] : [])].slice(-6).map(l => '  chrome: ' + l).join('\n'); // and an unterminated last line
       const alive = child.exitCode === null && child.signalCode === null;
-      throw new Error(`Chrome ${alive ? 'did not answer' : 'did not start'} (${error.message}); CHROME=${chrome}\n${said || '  (it printed nothing)'}${alive ? '' : '\nSet CHROME to a browser that runs here.'}`);
+      throw copyCdpFailureContext(error, new Error(`Chrome ${alive ? 'did not answer' : 'did not start'} (${error.message}); CHROME=${chrome}\n${said || '  (it printed nothing)'}${alive ? '' : '\nSet CHROME to a browser that runs here.'}`));
     });
     const target = targetInfos.find((t) => t.type === 'page') ?? (await cdp.send('Target.createTarget', { url: 'about:blank' }));
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
@@ -286,7 +290,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       if (req.op === 'tap' && req.close !== undefined) return closePage(req, { cdp, sessionId, call, frame });
       // A settle runs up to the page's 20 s deadline twice (requests, then rounds).
       const timeout = req.op === 'clock' && (req.settle || req.data) ? 60000 : req.op === 'perf' && req.live > 0 ? req.live + 30000 : undefined;
-      return JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`, timeout));
+      return JSON.parse(await evaluate(`(typeof globalThis.exact?.agentSettled === 'function' ? exact.agentSettled(${JSON.stringify(req)}) : Promise.reject(new Error('the page has no agent adapter: a production build has none, and in a development build a raw reload after the router rewrote the URL drops ?agent=1; use a test file\\'s reload, or load the drive\\'s launch URL again as a new page'))).then((r) => JSON.stringify(r))`, timeout));
     };
     return {
       host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, call, launchFacts: facts,
@@ -569,7 +573,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
   const deviceBundle = artifacts?.bundle;
   const bin = windows ? (process.env.EXACT_WINDOWS_BIN ?? resolve(a.dir, `dist-windows/${a.crate('windows')}.exe`))
     : linux ? (process.env.EXACT_LINUX_BIN ?? linuxBinary(a)) : (process.env.EXACT_MAC_BIN ?? artifacts.binary);
-  if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run bun host/apple/build.mjs --device first' : windows ? 'run bun host/windows/build.mjs first' : linux ? `run ${linuxBuild(a).join(' ')} first` : sample ? 'run bun host/apple/build.mjs --host first' : 'run bun host/apple/build.mjs first');
+  if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run bun host/apple/build.mjs --device first' : windows ? 'run bun host/windows/build.mjs first' : linux ? `run ${linuxBuild(a).join(' ')} first` : sample ? 'run bun host/apple/build.mjs --host first' : `run ${ownAppleBuild(a, 'mac') ?? `bun host/apple/build.mjs ${a.crate('apple')}`} first`);
   if (!portable) assertAppleIdentity(a, device ? resolve(deviceBundle, 'ExactIOS') : bin);
   if (windows && process.env.EXACT_WINDOWS_BIN) unchecked('windows', 'EXACT_WINDOWS_BIN');
   else if (windows) {
@@ -581,7 +585,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
   else if (!device && process.env.EXACT_MAC_BIN) unchecked(host, 'EXACT_MAC_BIN');
   else if (!device) {
     const receipt = [resolve(bin, '..', 'receipt.json'), resolve(deviceBundle, 'Contents/Resources/receipt.json')].find(existsSync);
-    if (receipt) refuseStale(sample ? 'sample host' : 'macos', receipt, receiptChanges(receipt, a), `bun host/apple/build.mjs ${a.crate('apple')}${sample ? ' --host' : ''}`);
+    if (receipt) refuseStale(sample ? 'sample host' : 'macos', receipt, receiptChanges(receipt, a), (!sample && ownAppleBuild(a, 'mac')) || `bun host/apple/build.mjs ${a.crate('apple')}${sample ? ' --host' : ''}`);
   }
   if (device && (plan || extra.EXACT_PLAN || extra.EXACT_ASSETS)) throw new Error('a phone cannot read host-local plan/assets paths; use --url or its embedded app');
   const ph = device ? phone(pick) : null;
@@ -693,8 +697,8 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
   const a = resolveApp(app);
   const bundle = appleArtifacts(a, { destination: 'ios-simulator', host: hostFixture }).bundle;
   const id = hostFixture ? `${a.id}.host` : a.id;
-  if (!existsSync(bundle)) throw new Error(hostFixture ? 'run bun host/apple/build.mjs --ios --host first' : 'run bun host/apple/build.mjs --ios first');
-  refuseStale('ios', resolve(bundle, 'receipt.json'), receiptChanges(resolve(bundle, 'receipt.json'), a), `bun host/apple/build.mjs --ios ${a.crate('apple')}${hostFixture ? ' --host' : ''}`);
+  if (!existsSync(bundle)) throw new Error(hostFixture ? 'run bun host/apple/build.mjs --ios --host first' : `run ${ownAppleBuild(a, 'ios') ?? `bun host/apple/build.mjs --ios ${a.crate('apple')}`} first`);
+  refuseStale('ios', resolve(bundle, 'receipt.json'), receiptChanges(resolve(bundle, 'receipt.json'), a), (!hostFixture && ownAppleBuild(a, 'ios')) || `bun host/apple/build.mjs --ios ${a.crate('apple')}${hostFixture ? ' --host' : ''}`);
   const dev = simulator();
   showSimulator(dev, true); // a person watching sees what is driven, and keeps the focus
   // Real touches (LLP 1080.000, `--touch platform`; `drag`, an authored test's drag alone): the runner starts first, so its own launch never backgrounds the app.
@@ -839,6 +843,12 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   // (agent-launch.mjs `webStore`; Firefox and WebKit open a fresh one each drive). EXACT_AGENT_STORAGE_FRESH empties it.
   if (storage !== undefined && (!/^[A-Za-z0-9._-]+$/.test(storage) || ['.', '..'].includes(storage))) throw new Error("--storage: one name of letters, digits, '.', '-' or '_'");
   if (storage !== undefined && host !== 'web') env = { ...(env ?? {}), EXACT_AGENT_STORAGE: storage };
+  // The CLI's `390x844` is accepted from a script too; anything else names the two forms.
+  if (typeof size === 'string') {
+    const m = size.match(/^(\d+)x(\d+)$/);
+    if (!m) throw new Error(`size: [width, height] or "<width>x<height>", not ${JSON.stringify(size)}`);
+    size = [Number(m[1]), Number(m[2])];
+  }
   if (url !== undefined && ['macos', 'mac', 'ios', 'linux', 'windows', 'host', 'host-ios'].includes(host)) {
     // @ref LLP 1038 D5/D11 — a native scheme/path is a launch location;
     // HTTP(S) keeps the existing development-plan locator form.
@@ -902,7 +912,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const req = { op: 'tree' };
       if (target != null) req.target = typeof target === 'number' || /^\d+$/.test(String(target)) ? Number(target) : target;
       if (shallow !== false) req.shallow = shallow;
-      const reply = await s.op(req);
+      const reply = await s.op(req).catch(async (e) => { if (typeof req.target !== 'string' || !/no view matches/.test(e.message)) throw e; req.target = (await s.find(target)).id; return s.op(req); });
       const canvas = target != null && shallow === false ? reply.nodes?.find((n) => n.id === req.target || n.props?.testId === req.target) : null;
       return canvas?.world ? s.op({op:"tree", id:canvas.id, world:true, ...under}) : reply;
     },
@@ -926,7 +936,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         return r;
       }
       if (frames) return s.op({ op: 'perf', frames: true, ...(frames.late != null ? { late: frames.late } : {}) });
-      const r = await s.op({ op: 'perf', ...(target != null ? { target: /^\d+$/.test(String(target)) ? Number(target) : target } : {}) });
+      const r = await s.op({ op: 'perf', ...(target != null ? { target: /^\d+$/.test(String(target)) ? Number(target) : (await s.find(target)).id } : {}) });
       if (await sourceMaps.refresh()) for (const site of r.sites) { const n = { planDigest: r.plan, site: site.site }; sourceMaps.attach(n); site.source = n.sourceMap; }
       return { target: target ?? null, ...r };
     },
@@ -939,14 +949,15 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (target != null && at) return s.op({op:"layout", id:(await s.find(target)).id, world:true, x:at[0], y:at[1]});
       const req = { op: 'layout', ...(inspect.native ? { native: inspect.native } : {}) };
       if (target != null) {
-        req.id = (await s.find(target)).id;
+        const found = await s.find(target);
+        req.id = found.id;
         if (await sourceMaps.refresh()) req.plan = true;
-        const reply = await s.op(req);
-        identifyInspectedNode(reply, target);
+        const reply = await s.op(req); // a view found by label or text is checked by its testId, else its type
+        identifyInspectedNode(reply, found.props.testId ?? found.id); if (reply.node && reply.node.type !== found.type) throw Error(`layout: target ${target} changed during inspection; retry`);
         // The JS target keeps no runner to name its plan: it is the plan this carrier serves.
         if (reply.node && carrier.host === 'web' && reply.node.site != null && !reply.node.planDigest && mapLocator && existsSync(mapLocator)) reply.node.planDigest = createHash('sha256').update(readFileSync(mapLocator)).digest('hex');
         if (reply.node) sourceMaps.attach(reply.node);
-        return reply;
+        delete reply.nodes; return reply; // the answer is the target (its box: node.space.viewport); every view's box beside it let an assertion over `nodes` pass whatever the target was (Depot)
       }
       const [l, t] = await Promise.all([s.op(req), s.tree()]);
       const by = new Map(t.nodes.map((n) => [n.id, n]));
@@ -954,30 +965,35 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       return l;
     },
     async target(target) {
-      const text = String(target), colon = text.indexOf(':');
-      const node = await s.find(target, false);
+      const text = String(target), colon = text.indexOf(':'), nodes = (await s.op({ op: 'tree' })).nodes; // one tree for every try
+      const node = await s.find(target, false, false, nodes);
       if (node) return { id: node.id };
-      if (colon < 0) throw new Error(`no view matches ${target}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)`);
-      return { id: (await s.find(text.slice(0, colon))).id, entity: text.slice(colon + 1) };
+      const owner = colon < 0 ? null : await s.find(text.slice(0, colon), false, false, nodes); // an entity before a label holding a colon
+      return owner ? { id: owner.id, entity: text.slice(colon + 1) } : { id: (await s.find(target, true, true, nodes)).id };
     },
-    /** The node for a target: a testId (first in preorder on a selected route; a covered screen's copy only when no active one carries it) or a view id. */
-    async find(target, required = true) {
+    /** The node for a target: a testId (first in preorder on a selected route; a covered screen's copy only when no active one carries it), a view id, else the one view whose label or text it is (`nodeNamed`). */
+    async find(target, required = true, named = true, tree = null) {
       if (target == null) throw new Error(`no view matches ${target}`);
-      const t = await s.op(required ? {op:'tree', target, shallow:true} : {op:'tree'});
-      const matches = typeof target === 'number' || /^\d+$/.test(String(target)) ? t.nodes.filter((n) => n.id === Number(target)) : t.nodes.filter((n) => n.props.testId === target);
-      const node = matches.find((n) => !n.inactive) ?? matches[0];
-      if (!node && required) throw new Error(`no view matches ${target}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)`);
+      const byId = typeof target === 'number' || /^\d+$/.test(String(target));
+      const t = tree ? { nodes: tree } : required ? await s.op({op:'tree', target, shallow:true}).catch((e) => { if (byId || !/no view matches/.test(e.message)) throw e; return null; }) : null;
+      const nodes = t?.nodes ?? (await s.op({op:'tree'})).nodes;
+      const matches = byId ? nodes.filter((n) => n.id === Number(target)) : nodes.filter((n) => n.props.testId === target);
+      const node = matches.find((n) => !n.inactive) ?? matches[0] ?? (byId || !named ? undefined : nodeNamed(nodes, String(target)) ?? undefined);
+      if (!node && required) throw new Error(`no view matches ${target} by testId, label or text${targetsIn(nodes)}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)${await s.inFlight()}`);
       return node;
     },
-    /**
-     * What this carrier's input actually is (LLP 1035.003 D2/D3): whether it
-     * can hold a contact across requests, and how each form is delivered —
-     * `platform` (a real input event through the platform's own path),
-     * `recognized` (an already-recognized event injected), `activation` (a
-     * hit-test and a direct call), `presenter` (seekable native recognition
-     * without OS input injection), or `unsupported`. iOS activates and
-     * injects; it synthesizes no touch (LLP 1008 §9).
-     */
+    /** For a miss: the requests still in flight, whose answers may bring the view (authoring bench: a drive's first op ran before a stored list loaded). */
+    async inFlight() {
+      if (host !== 'web') return ''; // a native read on the error path could time out and close the transport
+      const st = await s.op({ op: 'state' }).catch(() => null);
+      const pending = (st?.pending ?? []).map((p) => p.name).filter(Boolean);
+      return pending.length ? `; ${pending.length} request${pending.length === 1 ? ' is' : 's are'} still in flight (${[...new Set(pending)].join(', ')}): \`clock data\` waits for data, and \`state\` shows what is still pending` : '';
+    },
+    /** What this carrier's input actually is (LLP 1035.003 D2/D3): whether it can hold a contact across requests,
+     * and how each form is delivered — `platform` (a real input event through the platform's own path),
+     * `recognized` (an already-recognized event injected), `activation` (a hit-test and a direct call),
+     * `presenter` (seekable native recognition without OS input injection), or `unsupported`. iOS activates and
+     * injects; it synthesizes no touch (LLP 1008 §9). */
     input: host === 'ios' || host === 'host-ios'
       ? { contact: false, hold: false, delivery: (kind) => (['contextmenu', 'dblclick', 'hover', 'pinch'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : (kind === 'drag' && carrier.touches || kind === 'press' && carrier.touch === 'platform') ? 'platform' : kind === 'drag' ? 'unsupported' : 'activation') }
       : host === 'linux' || host === 'windows'
@@ -1073,14 +1089,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (r.error) throw new Error(r.error);
       return r.scrolled ? { from: r.from, to: r.to } : null;
     },
-    /**
-     * The held contact's next phase (LLP 1035.003 D1): `move` to `{x, y}` in
-     * the viewport or `by` `{dx, dy}`, over `ms` of real time on platform
-     * carriers or seekable time on Linux's presenter; `hold` for `ms`; `up`; `cancel`.
-     * The platform owns hit-testing, recognition, scrolling and animation:
-     * the app receives whatever it delivers, and a carrier that cannot hold
-     * a contact answers `delivery: "unsupported"` rather than faking one.
-     */
+    /** The held contact's next phase (LLP 1035.003 D1): `move` to `{x, y}` in the viewport or `by` `{dx, dy}`,
+     * over `ms` of real time on platform carriers or seekable time on Linux's presenter; `hold` for `ms`; `up`; `cancel`.
+     * The platform owns hit-testing, recognition, scrolling and animation: the app receives whatever it delivers,
+     * and a carrier that cannot hold a contact answers `delivery: "unsupported"` rather than faking one. */
     async pointer(phase, opts = {}) {
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       if (!['move', 'hold', 'up', 'cancel'].includes(phase)) throw new Error(`pointer: not a phase: ${phase} (move, hold, up, cancel)`);
@@ -1270,13 +1282,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const { screenshot, ...tags } = last;
       return { ...tags, screenshot: out, frames, every, over, at, dir, form: animated ? 'animated' : 'sheet' };
     },
-    /**
-     * An input's end (LLP 1012 §2): the `then` of each answer the input
-     * settled lands before the reply, as a click handler's state is there for
-     * a test's next line — the clock unmoved and no timer fired (trivia F3,
-     * kanban F19). A reply still on real time (a store's, the network's)
-     * stays for a `clock` step. The reply's tags are read after it.
-     */
+    /** An input's end (LLP 1012 §2): the `then` of each answer the input settled lands before the reply, as a click
+     * handler's state is there for a test's next line — the clock unmoved and no timer fired (trivia F3, kanban F19).
+     * A reply still on real time (a store's, the network's) stays for a `clock` step. The reply's tags are read after it. */
     async landed(r) {
       if (r == null || r.error != null || r.delivery === 'unsupported') return s.tagged(r);
       // The input closed the window (the app's `close()`, or `close`'s button): no session is left to land in.
@@ -1286,13 +1294,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       delete r.epoch; delete r.incarnation; delete r.clock;
       return s.tagged(r);
     },
-    /**
-     * Every reply carries the runner's `epoch`, `incarnation` and `clock`
-     * (LLP 1035.002 D3). A host that answered the operation itself stamps
-     * them; the web carrier's input and capture are the driver's own (CDP),
-     * so the driver reads the tags after the operation and adds what the
-     * reply lacks. An error is left alone.
-     */
+    /** Every reply carries the runner's `epoch`, `incarnation` and `clock` (LLP 1035.002 D3). A host that answered
+     * the operation itself stamps them; the web carrier's input and capture are the driver's own (CDP), so the driver
+     * reads the tags after the operation and adds what the reply lacks. An error is left alone. */
     async tagged(r) {
       if (r == null || r.error != null || r.epoch != null) return r;
       const tags = await s.op({ op: 'tags' });
@@ -1309,7 +1313,6 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
 // ---------------------------------------------------------------- the CLI
 // Authored tests (LLP 1017 P7): agent-test.mjs drives a file's `test` blocks through `open`.
 export { runTests, textOf } from './agent-test.mjs';
-
 async function main(argv) {
   const { flags, rest } = parseFlags(argv);
   const [host, ...ops] = rest;
@@ -1327,7 +1330,7 @@ async function main(argv) {
   // A trace a person's session saved (LLP 1079 D5), read back with no app running.
   if (host === 'trace' && ops.length === 1) { const t = await readTrace(ops[0], traceLocators); console.log(flags.json ? JSON.stringify(t) : renderTrace(t)); return 0; }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--size <w>x<h>] [--json] <op> [<op> …]\n  desktop carriers open 420x900 unless --size names another viewport; tap and type scroll a target out of view into it first; web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] [modifiers <Control…>] | drop <path…> | hover | history <n> | {"history":n} | contextmenu | mouse | dblclick | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | drag <dx> <dy> [from <x> <y>] [mouse: the left button, desktop pointers] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …: after the move, the finger down] | drag to <target> [at <x> <y>: from its top left] [same options]] | tap <target> down [at <x> <y>], then tap move [by] <x> <y> [over <ms>] | tap hold <ms> | tap up | tap cancel | type <target> <text…> (a select, date, time, range or checkbox: its value) | type <target> key <Name> [for <ms>] | type <target> copy | cut | paste <text…> (the clipboard event at the focus) | tap @N|@<id> <choice> | type @N|@<id> <value> | clock <ms|+ms|+ms real|settle|data> | resize <w>x<h> (the window: web, macOS, Linux) | close (the window\'s close button, asking its beforeunload: web, macOS) | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--size <w>x<h>] [--json] <op> [<op> …]\n  desktop carriers open 420x900 unless --size names another viewport; a target is a testId, a view id, or a view\'s exact label or text (`tap "Sky off"`); tap and type scroll a target out of view into it first; web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] [modifiers <Control…>] | drop <path…> | hover | history <n> | {"history":n} | contextmenu | mouse | dblclick | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | drag <dx> <dy> [from <x> <y>] [mouse: the left button, desktop pointers] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …: after the move, the finger down; inside the hold under --touch platform] | drag to <target> [at <x> <y>: from its top left] [same options]] | tap <target> down [at <x> <y>], then tap move [by] <x> <y> [over <ms>] | tap hold <ms> | tap up | tap cancel | type <target> <text…> (a select, date, time, range or checkbox: its value) | type <target> key <Name> [for <ms>] | type <target> copy | cut | paste <text…> (the clipboard event at the focus) | tap @N|@<id> <choice> | type @N|@<id> <value> | clock <ms|+ms|+ms real|settle|data> | resize <w>x<h> (the window: web, macOS, Linux) | close (the window\'s close button, asking its beforeunload: web, macOS) | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, browser, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
@@ -1338,7 +1341,9 @@ async function main(argv) {
       // `type` keeps the text tail, including newlines and \n, which a
       // whitespace split would flatten (notes: a body typed as one line).
       if (/^type(\s|$)/.test(trimmed)) return ['type', await s.type(...typeCommand(trimmed))];
-      const [op, ...args] = trimmed.split(/\s+/);
+      // A target of several words is quoted inside the op: `tap "Sky off"`.
+      const named = trimmed.match(/^(tap|tree|state|layout|perf)\s+"((?:[^"\\]|\\.)*)"(?:\s+([\s\S]*))?$/);
+      const [op, ...args] = named ? [named[1], JSON.parse(`"${named[2]}"`), ...(named[3] ? named[3].split(/\s+/) : [])] : trimmed.split(/\s+/);
       let r;
       switch (op) {
         case 'tree': r = args[0] === '--ax' ? await s.tree(args[1], {ax: true}) : await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
@@ -1366,7 +1371,7 @@ async function main(argv) {
           else if (args[1] === 'down') r = await s.tap(args[0], { down: true, at: args[2] === 'at' ? [Number(args[3]), Number(args[4])] : undefined });
           else if (args[1] === 'history') r = await s.tap(args[0], { history: Number(args[2]) });
           else if (args[1] === 'drag') {
-            // tap <target> drag <dx> <dy> [from <x> <y>] [mouse] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …]
+            // tap <target> drag <dx> <dy> [from <x> <y>] [mouse] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …, inside the hold under --touch platform]
             // tap <target> drag to <target> [at <x> <y>] … (LLP 1094 D12): it ends on the other node.
             const to = args[2] === 'to';
             const drag = to ? { to: args[3] } : { dx: Number(args[2]), dy: Number(args[3]) };
@@ -1375,7 +1380,7 @@ async function main(argv) {
                 // The rest of the line is quoted ops and nothing else; reads and the clock only (a tap would be a second finger).
                 const after = line.indexOf(' drag ') + 1, rest = line.slice(after + line.slice(after).search(/\sduring\s+"/) + ' during '.length);
                 const ops = [...rest.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`));
-                if (!ops.length || rest.replace(/"((?:[^"\\]|\\.)*)"/g, '').trim()) throw new Error('tap … drag … during: the last option, each op quoted, as during "state" "clock +600"');
+                if (!ops.length || rest.replace(/"((?:[^"\\]|\\.)*)"/g, '').trim()) throw new Error('tap … drag … during: the last option, each op quoted, as hold 300 during "state" "clock +600" (a hold the touch runner needs)');
                 // A filmed screenshot (`over … every`) loops on the clock: not one bounded read.
                 const refused = ops.find((op) => !duringAllowed(op));
                 if (refused) throw new Error(`tap … drag … during: ${JSON.stringify(refused)} is not a read or the clock`);

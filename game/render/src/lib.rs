@@ -22,6 +22,7 @@ pub mod hooks;
 mod ibl;
 mod lights;
 mod local_shadows;
+mod lod;
 mod model_pipeline;
 mod models;
 mod perf;
@@ -47,8 +48,8 @@ pub use exact_gpu;
 pub use hooks::{
     FrameView, HookGpu, HookTime, HookWork, Hooks, Needs, PostInputs, RenderWorld, SceneCopy,
 };
-pub use models::ModelPresentation;
-pub use surface::{Presentation, WorldSurface};
+pub use models::ModelExecutor;
+pub use surface::{Executor, WorldSurface};
 pub use world::scene::{DisplayedAttachment, PHOTOMETRIC_SCALE};
 pub use world::Feed;
 
@@ -120,6 +121,10 @@ pub struct DrawInstance {
     pub local: Mat4,
     /// Renderer-owned skin template; absent for unskinned nodes.
     pub skin: Option<u32>,
+    /// This node's base-colour multiplier (`NodeMaterials`); `[1; 4]` keeps it.
+    pub tint: [f32; 4],
+    /// Linear emission added to this node; zero adds none.
+    pub glow: [f32; 3],
 }
 
 /// One tightly packed, 48-byte mesh vertex.
@@ -148,6 +153,10 @@ pub struct Batch {
     /// Drawn in the viewmodel layer: the nearest [`VIEWMODEL_DEPTH`] of the depth
     /// range, in front of the whole world; false in [`Batch::new`].
     pub viewmodel: bool,
+    /// The level of detail its instances draw at (0, their own model, in
+    /// [`Batch::new`]). Each frame one level per entity draws; direct drawing
+    /// (no GPU cull) draws level 0 only.
+    pub level: u8,
 }
 
 /// The depth range the viewmodel layer takes while any viewmodel draws; the
@@ -162,6 +171,7 @@ impl Batch {
             slots,
             casts_shadows: true,
             viewmodel: false,
+            level: 0,
         }
     }
     /// This draw in the viewmodel layer, casting no shadows.
@@ -229,6 +239,10 @@ pub struct EnvironmentMapInput<'a> {
     pub intensity: f32,
     /// RGBM range, or zero for plain RGB.
     pub rgbm: f32,
+    /// Also draw it as the visible sky.
+    pub visible: bool,
+    /// Yaw about +Y in radians.
+    pub rotation: f32,
 }
 
 /// Local lights drawn per frame, nearest the camera first. Further eligible
@@ -385,10 +399,10 @@ mod tests {
 macro_rules! module {
     ($game:ty, hooks = $hooks:ty) => { $crate::module!($game, render_hooks (), false, $hooks, &[]); };
     ($game:ty, hooks = $hooks:ty, shaders = $shaders:expr) => { $crate::module!($game, render_hooks (), false, $hooks, $shaders); };
-    ($game:ty, assets, hooks = $hooks:ty, shaders = $shaders:expr) => { $crate::module!($game, render_hooks $crate::ModelPresentation, true, $hooks, $shaders); };
-    ($game:ty, assets, hooks = $hooks:ty) => { $crate::module!($game, render_hooks $crate::ModelPresentation, true, $hooks, &[]); };
+    ($game:ty, assets, hooks = $hooks:ty, shaders = $shaders:expr) => { $crate::module!($game, render_hooks $crate::ModelExecutor, true, $hooks, $shaders); };
+    ($game:ty, assets, hooks = $hooks:ty) => { $crate::module!($game, render_hooks $crate::ModelExecutor, true, $hooks, &[]); };
     ($game:ty) => { $crate::module!($game, hook (), false); };
-    ($game:ty, assets) => { $crate::module!($game, hook $crate::ModelPresentation, true); };
+    ($game:ty, assets) => { $crate::module!($game, hook $crate::ModelExecutor, true); };
     ($game:ty, audio) => { $crate::module!($game, audio_mode false); };
     ($game:ty, audio, assets) => { $crate::module!($game, audio_mode true); };
     ($game:ty, audio, hooks = $hooks:ty, shaders = $shaders:expr) => { $crate::module!($game, audio_mode false, $hooks, $shaders); };
@@ -399,7 +413,7 @@ macro_rules! module {
     ($game:ty, audio_mode $assets:tt, $hooks:ty, $shaders:expr) => {
         #[derive(Default)]
         struct GameAudio(exact_game_audio::SurfacePlayer, Option<$crate::exact_game::audio::Sounds>);
-        impl $crate::Presentation for GameAudio {
+        impl $crate::Executor for GameAudio {
             fn wants_audio(&self) -> bool { true }
             fn clock(&mut self, seekable: bool) { self.0.clock(seekable); }
             fn suspend(&mut self, suspended: bool) {
@@ -423,7 +437,7 @@ macro_rules! module {
         $crate::module!($game, audio_hook GameAudio, $assets, $hooks, $shaders);
     };
     ($game:ty, audio_hook $hook:ty, false, $hooks:ty, $shaders:expr) => { $crate::module!($game, render_hooks $hook, false, $hooks, $shaders); };
-    ($game:ty, audio_hook $hook:ty, true, $hooks:ty, $shaders:expr) => { $crate::module!($game, render_hooks $crate::ModelPresentation<$hook>, true, $hooks, $shaders); };
+    ($game:ty, audio_hook $hook:ty, true, $hooks:ty, $shaders:expr) => { $crate::module!($game, render_hooks $crate::ModelExecutor<$hook>, true, $hooks, $shaders); };
     ($game:ty, hook $hook:ty, $assets:literal) => {
         $crate::module!($game, render_hooks $hook, $assets, (), &[]);
     };

@@ -10,6 +10,13 @@ guide's rules don't make obvious.
 
 ## Layout
 
+- **A heading's lines are a screen apart with `line-height=28`.** Cause: a bare
+  number is CSS's unitless `line-height`, a multiple of the font size (at 22 px,
+  28 × 22 = 616 px), unlike a bare number on a length row such as `font-size` or
+  `width`, which means pixels. Fix: write `line-height="28px"`, or a ratio such as
+  `line-height=1.3` (28.6 px at 22 px). (Authoring bench,
+  LLP 1087: three Codex builders, caught only by a screenshot, 2026-10-05.)
+
 - **An image tile grows to its picture's size.** An album tile in a flex row became
   900×1200 pt. Cause: a flex item's automatic minimum is its content size (CSS), and
   an image's content size is its intrinsic size. Fix: give the image or its flex
@@ -24,6 +31,14 @@ guide's rules don't make obvious.
   keyboard. Fix: `interactive-widget="resizes-content"` on the root, or
   `overlays-content` with a `role="toolbar" toolbarPlacement="keyboard"` for a
   toolbar that rides the keyboard without relayout (LLP 1008 §9.1). (Signal Clone.)
+
+- **The app is wider than the window, and its tests still pass.** A root with
+  `width="100%"` and `padding=24` is 48 points too wide: sizes are `content-box`, as
+  on the web, so padding adds to the width. Buttons at the right edge are cut off,
+  and an `expect` never sees it. Fix: `box-sizing="border-box"` on any box sized in
+  percent that also has padding or a border (`exact new`'s template does), and
+  `min-width=0` on a `flex=1` input in a row. Look at a screenshot on each host.
+  (Fresh-agent README trial, 2026-10-04.)
 
 - **A raised `z-index` leaves a dragged card under the next column.** A card at
   `position="relative" z-index=10`, dragged over a neighbouring column, paints
@@ -124,6 +139,30 @@ guide's rules don't make obvious.
   on the root and an `id="back"` button on every pushed screen (LLP 1038 §6).
   **Candidate diagnostic:** the compiler could warn on a stacked route with no
   control of that id.
+- **A pushed screen's content is cut off and never scrolls, or its large title never
+  collapses.** Cause: a route is a box, not a scroller, and `navigationScroll` only
+  names one; a title collapses only with the scroller right after the route's
+  `header`. Fix: a `scroll id="feed" flex=1 min-height=0` right after the `header`
+  and `navigationScroll="feed"` on the route (docs/contract-for-agents.md, "Routes and
+  web documents"). The compiler refuses a name nothing in the route carries, or one
+  on a box that never scrolls (`lower-route-scroll`). **Candidate diagnostics:** the
+  compiler could refuse a named scroller that is not right after the `header` (an
+  iOS-only rule today, so not refused); the hosts could journal a route whose
+  content overflows with nothing to scroll it (QUEUE.md).
+- **A sheet won't swipe down to dismiss.** It springs back (the log says "modal
+  dismissal refused: no enabled navigationBack control in the active route").
+  Cause: as for edge-swipe back, the swipe presses the control named by the root's
+  `navigationBack`, and a `navigationPresentation="modal"` route with no enabled
+  control of that id refuses it; `closedby="none"` refuses it too. Fix: an
+  `id="back"` button (Cancel, Done) in every sheet (`ModalIOS.swift`,
+  `refusesDismissal`). (Exact-new iOS app feedback, 2026-10-04.)
+- **The app looks like an imitation of iOS.** Cause: controls built from boxes
+  (a painted switch, buttons laid out as a tab bar or a title bar, rows drawn as a
+  grouped list). Fix: the native Contract forms
+  ([the agent guide](contract-for-agents.md#views-layout-and-interaction), "Prefer
+  native controls"); a hand-built lookalike of a system control is a bug. Match a
+  reference's structure and controls, not its pixels. (Exact-new iOS app feedback,
+  2026-10-04.)
 - **The agent's screenshots and tree don't show the native bars.** Under
   `scripts/agent.mjs` the navigation bar, tab bar, `UIMenu`s and header search are
   not presented; the authored header, tablist and popover paint instead, by design.
@@ -172,6 +211,13 @@ guide's rules don't make obvious.
   helper should see, `follow(next)`, or a `let` bound before the assignment for
   the old one. (Spreadsheet F21 and Files F27 diaries, where a copied block was
   the workaround.)
+
+- **A delete or save is lost when the page reloads right after it.** An action that
+  `send`s a write and navigates away in the same commit passes every test, but a
+  browser reload in the next ~100 ms comes back without the write. Cause: the write
+  is the data module's, and it is done only when its mutation answers; the reload
+  ends the page first. Fix: navigate in the mutation's `then`, which runs once the
+  write has answered. (Authoring bench, LLP 1087, a2-contacts and t2-todo, 2026-10-05.)
 
 ## Input
 
@@ -268,14 +314,84 @@ guide's rules don't make obvious.
     from = -1
     dragging = false
   ```
+- **A write left running after a source answers can be lost on iOS or macOS.** The
+  web kept it; the native host did not, and a list was empty after a relaunch. Cause:
+  the native data executor runs a source's promises while a request waits on them,
+  one request at a time, so a `promise` started and not awaited (a fire-and-forget
+  SQLite write) can stay unfinished, and an answer queues behind a request still in
+  flight. Fix: await the write before answering, or carry it in a
+  request of its own that the view sends (a `flush` source called with the change).
+  (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
+
+- **Two quick sends to one mutation lost the first write on iOS.** Two adds in a
+  row (`send changed = addTask(…)` from consecutive inputs) kept only the second:
+  the log said `forget request 11 (changed)`, and the first insert, queued behind
+  a storage turn still open, never landed; the web finished it. Cause: a second `send` to a mutation
+  forgets the request in flight (its reply is dropped by design); the native
+  executor finishes a forgotten request already in a storage step, but drops one
+  that has not reached its first (QUEUE). Fix until then: give each write that can
+  be in flight at once a mutation of its own, or keep the edits in Contract state and
+  send the whole of it each time, from the value assigned (`let next = …`, then
+  `tasks = next` and `send saved = saveTasks(next)`: a statement reads the state the
+  action started with), so a later request that supersedes an earlier one already
+  carries every change. (Authoring
+  bench, LLP 1087, t2-todo on iOS, 2026-10-05.)
 
 ## Driving and testing
+
+- **A drive script kept in the app folder makes the build stale.** Editing
+  `verify.mjs` beside `app.contract` made the driver refuse the next drive until
+  `bun exact.mjs web-build`. Cause: a file in the app folder counts as a build input
+  unless it is an output (a screenshot, a log) or git-ignored outside the input trees
+  (`data/`, `web/`, `assets/` and the like count even when ignored); any `.json`
+  counts, since the bake captures it. Fix: keep drive scripts, evidence, logs and
+  runtime files in the app's `.exact/` (no build, dev-loop watcher or freshness
+  check reads a dot directory at the app's root), or outside the app folder.
+  (Authoring bench, LLP 1087: five builders, 2026-10-05; Depot's evidence JSON,
+  2026-10-05.)
+
+- **A latency test passes at once, or a reply never lands.** Cause: every drive
+  holds the app's clock, in every browser and on every host: `clock +N` moves the
+  app's time and nothing else, while a `fetch`, a storage call or a stream's next
+  message arrives on real time. Fix: `clock settle` to land what is in flight;
+  `clock +N real` to let N ms of wall time pass with the clock moving alongside
+  (polling, a server push, a measured latency). `state` lists what is pending.
+  (Depot on three backends, 2026-10-05.)
+
+- **A date input reads `10/05/2026` beside a label the app wrote in UTC.** Cause:
+  `input type="date"`/`"time"` show the browser's own locale format and mean a
+  local wall time, as on the web; the app's label used another zone. Fix: label in
+  the viewer's zone, or pass `--locale` and `--time-zone` on a drive (`locale` and
+  `time-zone` lines in a test file) so both agree and the run stays reproducible.
+  (Depot, 2026-10-05.)
+
+- **An iOS screenshot right after a tap shows a segmented control on its old
+  segment.** The tree says the new one is selected. Cause: UIKit animates the
+  selection on real time, and `clock +N` does not move it. Fix: `clock +1000 real`
+  before the screenshot (it moves the app's clock that second too, so a timer due in
+  it fires). (Authoring bench, t1-tip on iOS, 2026-10-05.)
+
+- **The same test passes on the web and fails on iOS at a date past `max`.** Cause:
+  the runner refuses a date, time or datetime outside `min`/`max` (the agent says the
+  date was refused) on iOS, macOS, Linux and the wasm web; the JS web target keeps the
+  value as a browser's date input does. Fix: test values inside the range, or the
+  bound itself. (Authoring bench, t7-wizard on iOS,
+  2026-10-05.)
+
+- **The agent taps the simulator by screen coordinates** (`axe tap -x -y`,
+  `simctl`), and the drive breaks whenever layout moves. Cause: the controls have
+  no `testId`, or the driver was not used on iOS. Fix: give every control a
+  `testId` and drive with `bun exact.mjs agent ios tree "tap <testId>"
+  "screenshot s.png"`; find targets with `tree`, or `tree --ax` for the
+  accessibility tree. (Exact-new iOS app feedback, 2026-10-04.)
 
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
   `scripts/agent.mjs` for dates that read as intended and stay reproducible; in a test
   file, `epoch "…"` and `time-zone "…"` lines, so a run without the flags still means it.
-- **`axe` stops delivering taps.** After `axe touch --down --up --delay` (a long
+- **`axe` stops delivering taps.** Use `axe` only as a last resort, for native
+  chrome only a normal launch presents (bars, `UIMenu`s); drive everything else
+  with `agent ios` by `testId`. After `axe touch --down --up --delay` (a long
   press) or an `axe drag`, a following `axe tap` often reaches no window; it is
   intermittent, and a native bar button can miss the same way with no gesture
   before it. `axe touch --down --up` lands more often, not always. Fix: use the
@@ -292,6 +408,16 @@ guide's rules don't make obvious.
   `axe tap -x <x> -y <y> --tap-style physical`, or
   `axe touch -x <x> -y <y> --down --up`; or the agent's `tap <testId>`.
   (Signal Clone Privacy, 2026-10-04.)
+
+- **The software keyboard never shows on a simulator that drives have used.**
+  A field takes focus (its caret blinks) but no keyboard rises, and
+  `keyboardWillShow` never fires, so a keyboard-riding toolbar cannot be
+  measured. Cause: after agent and `axe` drives the simulator was in
+  hardware-keyboard mode, likely left by the HID input they inject; a
+  headless simulator has no Simulator.app setting to show. Fix: reboot it
+  (`xcrun simctl shutdown <udid>; xcrun simctl boot <udid>`), or toggle
+  Connect Hardware Keyboard where Simulator.app is installed. (Signal Clone
+  keyboard timing, 2026-10-05.)
 
 - **A storage test fails with `storage is busy`, or storage is "unavailable in
   agent mode".** Cause: a drive has no storage unless it names a scratch store, and

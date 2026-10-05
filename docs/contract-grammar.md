@@ -201,8 +201,11 @@ keyword after `else` is its construct's own (`syntax-else-keyword`).
 
 Both option-match arms are required exactly once. Actions have no loops, returns,
 or awaits. A standalone call statement `name(args)` is a host command when `name`
-is one, even inside an action of that name (`action setScheme` may call the
-command `setScheme(s)`). Otherwise it calls an action of the same component, an
+is one. When `name` is also an action, an `action` prop or an injected
+action of the component the statement is written in, the call is refused
+(`syntax-call-ambiguous`, LLP 1089 D1), inside an action of that name too:
+rename the action (Caltrain's wrapper is `action chooseScheme`, which calls
+the command `setScheme(s)`). When `name` is not a host command, it calls an action of the same component, an
 `action` prop or an injected action (LLP 1089), never a function. A call is
 expanded in place: the callee's statements run where the call stands, in the
 caller's one commit, reading the state the action started with. Its arguments
@@ -698,7 +701,10 @@ undelivered notifications`. Geometry inside the action is `frame(id)`:
 action fit(w: number, h: number)
   columns = floor(w / 240)
 column resize=fit …
-``` `panrelease` appends x/y release velocity;
+```
+
+`pan` supplies the move since its last event (dx, dy),
+the first one since the press, so their sum is the drag's offset from the press. `panrelease` appends x/y release velocity;
 `heightrelease` appends height and velocity. A `pan` hears a drag that starts
 anywhere inside it, a nested `button` or `press` node included: past the slop
 the pan takes the contact and the press does not fire, while a tap still

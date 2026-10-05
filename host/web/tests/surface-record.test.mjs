@@ -639,3 +639,22 @@ test('E10 focused Contract buttons consume activation keys before the world', as
   canvas.listeners.keydown({target:canvas,code:'KeyW',timeStamp:0});
   assert.equal(f.events.at(-1).code,'KeyW');
 });
+
+// The art pass's flake (garden diary, "GPU is not settled: GPU presentation
+// world" right after Play while 202 models uploaded): asset delivery spent the
+// agent's whole 2.5 s settle budget, so a first frame still preparing was
+// reported unsettled. Presentation now has its own budget once assets are in.
+test('a slow asset delivery leaves the first frame its own presentation budget', async () => {
+  let clock = 0;
+  const f = await fixture({ performance: { now: () => clock, getEntriesByName: () => [] },
+    delivery: { fetch: async () => { clock += 3000; return { status: 404, ok: false, headers: { get: () => null } }; } } });
+  f.create(1);
+  let first = true;
+  f.gpu.gpu_assets = () => { const requests = first ? ['slow.model'] : []; first = false; return JSON.stringify({ requests, retired: [] }); };
+  f.gpu.gpu_asset = () => true;
+  let preparing = 3;
+  f.gpu.gpu_dirty = () => preparing > 0;
+  f.gpu.gpu_render = () => { preparing--; clock += 100; return 0; };
+  assert.deepEqual(await f.exact.gpu.settled(), []);
+  assert.equal(preparing, 0);
+});

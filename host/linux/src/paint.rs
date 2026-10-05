@@ -29,6 +29,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
+mod backend;
 pub mod border;
 pub(crate) mod control;
 pub(crate) mod damage;
@@ -36,10 +37,14 @@ pub mod gradient;
 pub use gradient::GradientPaint;
 pub(crate) use lift::{Ghost, Lift};
 pub(crate) mod inline;
+mod layer;
 mod lift;
+mod native;
+pub use native::NativeKind;
 mod placed;
 mod presented;
 mod region;
+pub mod rows;
 mod shadow;
 mod space;
 mod svg;
@@ -174,9 +179,7 @@ impl BoxPaint {
     fn capture(node: &NodeRef<'_>, kernel: &Kernel, dark: bool, w: f32) -> Self {
         let s = node.style;
         let widths = s.border_widths();
-        let current = node
-            .computed_style(StyleMask::of(StyleId::TextColor))
-            .text_color;
+        let current = node.computed_row(StyleId::TextColor, |s| s.text_color);
         let colors = s.border_colors(current);
         let env = kernel.env();
         let pad = |d: Dimension| match d.resolve(&env) {
@@ -258,8 +261,17 @@ impl BoxPaint {
         }
     }
     fn paint(&self, backend: &mut dyn Backend, geometry: &BoxGeometry, ts: Transform) {
-        for band in self.shadow_fills(geometry) {
-            backend.fill_border(&band, ts);
+        // The outer shadows, the list's first on top: by the backend's blur
+        // where it has one, else as bands.
+        for s in self.shadows.iter().rev().filter(|s| !s.inset()) {
+            if let Some((color, sigma, shape)) = s.blurred(&geometry.outer) {
+                if backend.blurred_shadow(&shape, color, sigma, &geometry.outer, ts) {
+                    continue;
+                }
+            }
+            for band in s.fills(&geometry.outer, self.widths) {
+                backend.fill_border(&band, ts);
+            }
         }
         // @ref LLP 1053.000 D2 — the backdrop blurs under the background.
         if self.backdrop > 0.0 {
@@ -453,135 +465,7 @@ pub struct Frame {
     pub boxes: Vec<PaintedBox>,
 }
 
-/// What draws the walk's output. Coordinates are viewport points with a
-/// transform (points → points); a backend applies the device scale itself.
-pub trait Backend {
-    /// `"gpu"` or `"cpu"`.
-    fn name(&self) -> &'static str;
-    /// A new frame of this size in points at this scale, cleared to white.
-    fn begin(&mut self, width: f32, height: f32, scale: f32);
-    /// Seed a clipped repaint from an accepted frame; false means full repaint.
-    fn damage(&mut self, _previous: &Pixmap, _rects: &[Rect4]) -> bool {
-        false
-    }
-    /// Begin from an accepted frame, clipped; false leaves a white frame to repaint.
-    fn begin_damage(
-        &mut self,
-        width: f32,
-        height: f32,
-        scale: f32,
-        previous: &Pixmap,
-        rects: &[Rect4],
-    ) -> bool {
-        self.begin(width, height, scale);
-        self.damage(previous, rects)
-    }
-    /// Fill a shape.
-    fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform);
-    /// Fill a shape with a gradient placed in its coordinates (LLP 1066).
-    fn fill_gradient(&mut self, shape: &Shape, gradient: &gradient::GradientPaint, ts: Transform);
-    /// CSS `backdrop-filter: blur(σ)` (LLP 1053.000 D2): what is painted
-    /// under `shape` so far, blurred (σ in points, mirrored edges) and put
-    /// back inside it, under the current clip.
-    fn backdrop_blur(&mut self, _shape: &Shape, _sigma: f32, _ts: Transform) {}
-    /// Fill one colour's share of a border (LLP 1053 G2): its region even-odd, clipped (non-zero).
-    fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
-    /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.
-    /// An explicit tint replaces its RGB through the picture's alpha alone.
-    fn image(
-        &mut self,
-        image: &Arc<Bitmap>,
-        dst: Rect4,
-        clips: &[Shape],
-        ts: Transform,
-        tint: Option<[u8; 4]>,
-    );
-    /// An SVG island's pixels over `dst` in `ts`'s space, blended by `mode`.
-    fn island_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4, _ts: Transform, _mode: u8) {}
-    /// Composite a rendered canvas child (not a decoded image asset).
-    fn surface_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4) {}
-    /// Composite a 2D canvas's bitmap into `dst`, clipped (LLP 1056 D7).
-    fn canvas(&mut self, _pixels: &Arc<Pixmap>, _dst: Rect4, _clips: &[Shape], _ts: Transform) {}
-    /// Paint a paragraph with its top-left at `origin`.
-    fn text(
-        &mut self,
-        text: &mut TextEngine,
-        paragraph: &Paragraph,
-        palette: &[RunPaint],
-        origin: (f32, f32),
-        ts: Transform,
-    );
-    /// Paint one SVG shape in `ts`'s space (LLP 1055 D4).
-    fn svg_path(&mut self, _shape: &SvgPaint<'_>, _ts: Transform) {}
-    /// Clip to an SVG `clipPath` in `ts`'s space until as many pops as this
-    /// returns (LLP 1055.000 D10): the union of its shapes, intersected with
-    /// its own clip and with whatever clip is in force.
-    fn push_svg_clip(&mut self, _clip: &exact_kernel::svg::scene::Clip, _ts: Transform) -> usize {
-        0
-    }
-    /// Clip everything until the matching pop to a shape.
-    fn push_clip(&mut self, shape: &Shape, ts: Transform);
-    /// Push the kernel's validated CSS path in border-box coordinates.
-    /// Returns whether a clip was pushed (recording/custom backends may opt out).
-    fn push_css_clip(&mut self, _path: &exact_kernel::clip::ClipPath, _ts: Transform) -> bool {
-        false
-    }
-    /// End a clip.
-    fn pop_clip(&mut self);
-    /// Composite everything until the matching pop at an opacity.
-    fn push_opacity(&mut self, alpha: f32);
-    /// CSS `mask-image` (LLP 1077 D2): what paints until [`Backend::pop_mask`]
-    /// is one group, clipped to `shape`, the border box.
-    fn push_mask(&mut self, _shape: &Shape, _ts: Transform) {
-        self.push_opacity(1.0);
-    }
-    /// The group, kept where `mask` (a gradient, or one colour) is opaque
-    /// over `shape`, the border box, and nowhere outside it.
-    fn pop_mask(&mut self, _shape: &Shape, _mask: &Result<GradientPaint, [u8; 4]>, _ts: Transform) {
-        self.pop_opacity();
-    }
-    /// End an opacity layer.
-    fn pop_opacity(&mut self);
-    /// The pointer arrow at a point.
-    fn pointer(&mut self, x: f32, y: f32);
-    /// The frame's pixels.
-    fn finish(&mut self) -> Result<Pixmap, String>;
-    /// The last frame's (encode + render, readback) milliseconds, on a
-    /// backend that has them.
-    fn last_frame_ms(&self) -> Option<(f64, f64)> {
-        None
-    }
-}
-
-/// Where a fully transparent subtree draws: nowhere.
-struct Unpainted;
-impl Backend for Unpainted {
-    fn name(&self) -> &'static str {
-        "none"
-    }
-    fn begin(&mut self, _: f32, _: f32, _: f32) {}
-    fn fill(&mut self, _: &Shape, _: [u8; 4], _: Transform) {}
-    fn fill_gradient(&mut self, _: &Shape, _: &gradient::GradientPaint, _: Transform) {}
-    fn fill_border(&mut self, _: &border::BorderFill, _: Transform) {}
-    fn image(&mut self, _: &Arc<Bitmap>, _: Rect4, _: &[Shape], _: Transform, _: Option<[u8; 4]>) {}
-    fn text(
-        &mut self,
-        _: &mut TextEngine,
-        _: &Paragraph,
-        _: &[RunPaint],
-        _: (f32, f32),
-        _: Transform,
-    ) {
-    }
-    fn push_clip(&mut self, _: &Shape, _: Transform) {}
-    fn pop_clip(&mut self) {}
-    fn push_opacity(&mut self, _: f32) {}
-    fn pop_opacity(&mut self) {}
-    fn pointer(&mut self, _: f32, _: f32) {}
-    fn finish(&mut self) -> Result<Pixmap, String> {
-        Err("a transparent subtree has no frame".into())
-    }
-}
+pub use backend::Backend;
 
 /// The painter: the walk over one backend.
 pub struct Painter {
@@ -618,12 +502,15 @@ pub struct Painter {
     /// The node a 3D island paints flat, its own transform being the warp's
     /// (LLP 1077 D8).
     pub(crate) flatten: Option<ViewId>,
+    rows: rows::Rows,
+    /// The `svg` painting now: its elements the reader animates.
+    svg_layers: Vec<(ViewId, Presented)>,
 }
 
 // O(painted owners) references and numeric publication metadata, not copied
 // glyphs/commands or a new render graph. The display retains acknowledged A
 // here while one submitted B owns its corresponding leases.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "android", test))]
 pub(crate) struct Presentation {
     text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
     picture: Option<Rc<region::Picture>>,
@@ -666,7 +553,7 @@ impl Painter {
         std::mem::take(&mut self.materials.1)
     }
 
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(crate) fn presentation(&self) -> Presentation {
         Presentation {
             text: self.accepted_text.clone(),
@@ -677,7 +564,7 @@ impl Painter {
             }),
         }
     }
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(crate) fn replace_presentation(&mut self, mut state: Presentation) -> Presentation {
         std::mem::swap(&mut self.accepted_text, &mut state.text);
         std::mem::swap(&mut self.region_picture, &mut state.picture);
@@ -707,6 +594,8 @@ impl Painter {
             viewport: (0., 0.),
             cpu_ms: None,
             flatten: None,
+            rows: Default::default(),
+            svg_layers: Vec::new(),
         }
     }
 
@@ -885,10 +774,12 @@ impl Painter {
             ranks: self.ranks.clone(),
             reveal: None,
         };
+        self.rows_begin(&walk);
         for root in scene.roots {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
         }
         self.paint_ghost(&mut walk);
+        self.rows_end();
         if let Some(menu) = &scene.menu {
             self.menu(menu);
         }
@@ -937,6 +828,7 @@ impl Painter {
     ) {
         let offset = sticky(walk.scene, id, offset);
         if self.placed(walk, id, ts, offset, clip_rect) {
+            self.row_refuse();
             return;
         }
         if let Some(replay) = walk.replay.filter(|r| {
@@ -965,8 +857,10 @@ impl Painter {
         let f = node.frame;
         let (x, y, w, h) = paint_rect(f, offset);
         let p = (walk.scene.presented)(id);
+        self.row_node(node.key, f, &p);
         // @ref LLP 1077 D8 — turned or moved in space: painted apart, warped.
         if self.spatial(walk, &node, &p, (x, y, w, h), ts, offset, clip_rect) {
+            self.row_refuse();
             self.damage.unsupported = true;
             return;
         }
@@ -982,9 +876,18 @@ impl Painter {
             || node.style.backdrop_blur > 0.0
             || self.material_note(&node)
             || !p.colors.is_empty();
-        let ts = if p.moves() && self.flatten != Some(id) {
+        let origin = node.style.transform_origin.resolve(w, h);
+        let layer = match self.flatten == Some(id) {
+            true => layer::Opened { lowered: 0 },
+            false => self.box_layer(node.key, &p, (x, y, w, h), origin, ts),
+        };
+        self.damage.unsupported |= layer.lowered != 0;
+        let ts = if layer.transform() {
+            // The layer turns it; a layout transition's offset is drawn.
+            ts.pre_translate(p.layout[0], p.layout[1])
+        } else if p.moves() && self.flatten != Some(id) {
             // About `transform-origin`, the centre unless authored (LLP 1061 D6).
-            ts.pre_concat(p.transform((x, y, w, h), node.style.transform_origin.resolve(w, h)))
+            ts.pre_concat(p.transform((x, y, w, h), origin))
         } else {
             ts
         };
@@ -1011,11 +914,15 @@ impl Painter {
             clip: clip_rect,
             scroll: scrolls.then(|| walk.scene.scroll.get(&id).copied().unwrap_or((0.0, 0.0))),
         });
-        let opacity = p.opacity.clamp(0.0, 1.0);
+        let opacity = if layer.opacity() {
+            1.0
+        } else {
+            p.opacity.clamp(0.0, 1.0)
+        };
         // CSS opacity is paint only: a transparent subtree is still hit (the
         // walk records its boxes) and draws through a backend that draws nothing.
         let drawn = (opacity <= 0.0 || !visible)
-            .then(|| std::mem::replace(&mut self.backend, Box::new(Unpainted)));
+            .then(|| std::mem::replace(&mut self.backend, Box::new(layer::Unpainted)));
         if drawn.is_none() && opacity < 1.0 {
             self.backend.push_opacity(opacity);
         }
@@ -1044,6 +951,7 @@ impl Painter {
             None if opacity < 1.0 => self.backend.pop_opacity(),
             None => {}
         }
+        self.layer_close(layer);
     }
 
     fn content(
@@ -1070,28 +978,36 @@ impl Painter {
         match node.node_type {
             // @ref LLP 1056 D7 — a 2D canvas's kept bitmap fills its content box.
             NodeType::Canvas => {
+                self.row_refuse();
                 if let Some(c) = self.canvases.get(&node.id) {
                     let clips = [Shape::rect(content), outer];
                     self.backend.canvas(&c.pixels, content, &clips, ts);
+                } else {
+                    self.native(node, content, &outer, ts);
                 }
             }
             NodeType::Image => {
+                self.row_image(node.id, walk.scene.images.get(&node.id));
                 if node
                     .props
                     .str(exact_kernel::PropId::ImageSource)
                     .is_some_and(|s| s.starts_with("symbol:"))
                 {
                     self.symbol(node, content, image_tint(node, &shown, self.dark), ts);
-                } else if let Some(img) = walk.scene.images.get(&node.id) {
-                    if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
-                        self.backend.image(
-                            img,
-                            dst,
-                            &[Shape::rect(content), outer],
-                            ts,
-                            image_tint(node, &shown, self.dark),
-                        );
+                } else {
+                    self.backend.slot_begin(node.id);
+                    if let Some(img) = walk.scene.images.get(&node.id) {
+                        if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
+                            self.backend.image(
+                                img,
+                                dst,
+                                &[Shape::rect(content), outer],
+                                ts,
+                                image_tint(node, &shown, self.dark),
+                            );
+                        }
                     }
+                    self.backend.slot_end();
                 }
             }
             NodeType::Text => {
@@ -1130,6 +1046,7 @@ impl Painter {
                     text_palette(walk.scene.kernel, node, self.dark, &mut palette);
                     presented_text_colors(walk, node, &paragraph, &mut palette);
                     walk.text.insert(node.key, paragraph.clone());
+                    self.row_text(node.key, &paragraph);
                     // CSS `text-overflow: ellipsis` in a clipping box: an
                     // over-wide line ends in "…" (LLP 1053 G5; paint only).
                     let shown = (s.text_overflow == exact_kernel::TextOverflow::Ellipsis
@@ -1161,6 +1078,7 @@ impl Painter {
                 }
             }
             NodeType::TextInput => {
+                self.row_refuse();
                 let value = node.props.str(PropId::Value).unwrap_or("");
                 let placeholder = value.is_empty();
                 // A password is masked, one bullet a character, as the web and
@@ -1231,6 +1149,9 @@ impl Painter {
                 }
             }
             NodeType::Svg => self.svg(walk, node, rect, content, ts),
+            NodeType::Video | NodeType::WebView | NodeType::NativeView => {
+                self.native(node, content, &outer, ts)
+            }
             NodeType::Control if node.props.str(PropId::Type) == Some("select") => {
                 let label =
                     control::select_label(walk.scene.kernel, node, walk.scene.chosen.get(&node.id));

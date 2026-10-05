@@ -34,6 +34,19 @@ use crate::txn::CommitReceipt;
 use exact_motion::{Animations, Change, Engine, EngineError, Property, Transitions, Value};
 use std::collections::BTreeMap;
 
+/// The live nodes a commit restates to motion, once each: those it created
+/// or touched, and those a producer renewed (LLP 1078).
+pub fn receipt_nodes(receipt: &CommitReceipt) -> impl Iterator<Item = NodeKey> + '_ {
+    let renewed: crate::id::IdSet<NodeKey> = receipt.renewed.iter().copied().collect();
+    receipt
+        .created
+        .iter()
+        .chain(&receipt.touched)
+        .copied()
+        .filter(move |key| !renewed.contains(key))
+        .chain(receipt.renewed.iter().copied())
+}
+
 /// The engine's node number for a kernel node.
 pub fn motion_node(key: NodeKey) -> u64 {
     ((key.generation as u64) << 32) | key.index as u64
@@ -406,11 +419,10 @@ impl Kernel {
         dark: impl Appearance,
         owners: &mut PaintOwners,
     ) -> MotionSync {
-        for key in &receipt.destroyed {
+        for key in receipt.destroyed.iter().chain(&receipt.renewed) {
             owners.0.remove(&motion_node(*key));
         }
-        let keys = receipt.created.iter().chain(receipt.touched.iter());
-        self.paint_adopt(keys.copied(), dark, owners)
+        self.paint_adopt(receipt_nodes(receipt), dark, owners)
     }
 
     /// [`Self::paint_sync`] for chosen nodes: a host's boot, which hears the
@@ -617,12 +629,19 @@ impl Kernel {
     /// kernel produced; a key the commit destroyed resolves to nothing, which
     /// is exactly what makes it a removal.
     pub fn motion_sync(&self, receipt: &CommitReceipt) -> MotionSync {
+        // A renewed node is forgotten and heard again as new (LLP 1078).
         let mut sync = MotionSync {
-            removed: receipt.destroyed.iter().copied().map(motion_node).collect(),
+            removed: receipt
+                .destroyed
+                .iter()
+                .chain(&receipt.renewed)
+                .copied()
+                .map(motion_node)
+                .collect(),
             ..MotionSync::default()
         };
-        for key in receipt.created.iter().chain(receipt.touched.iter()) {
-            self.motion_sync_node(*key, &mut sync);
+        for key in receipt_nodes(receipt) {
+            self.motion_sync_node(key, &mut sync);
         }
         // A consumer the commit left alone whose name now finds another
         // timeline (LLP 1057.003 D4).

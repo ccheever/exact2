@@ -140,6 +140,9 @@ impl<D: DataSource> Host<D> {
     }
 
     fn paint_over(&mut self, view: ViewId, property: Property, value: Option<Value>) {
+        if let Some(n) = self.runner.kernel().node(view) {
+            self.row_dirty.node(n.key);
+        }
         let base = self.presented(view);
         let entry = self.presented.entry(view).or_insert(base);
         entry.colors.set(property, value);

@@ -39,6 +39,11 @@ pub(crate) struct Skinning {
     records: Vec<(usize, usize)>,
     pose_words: Vec<f32>,
     jobs_words: Vec<u32>,
+    // Each job's record, and the jobs dispatched (levels of detail not drawn
+    // this frame skip theirs).
+    job_records: Vec<usize>,
+    active_words: Vec<u32>,
+    active: u32,
     pipeline: Option<wgpu::ComputePipeline>,
     joint_capacity: usize,
     layout: Option<wgpu::BindGroupLayout>,
@@ -62,6 +67,9 @@ impl Skinning {
             records: vec![],
             pose_words: vec![],
             jobs_words: vec![],
+            job_records: vec![],
+            active_words: vec![],
+            active: 0,
             pipeline: None,
             joint_capacity: 0,
             layout: None,
@@ -69,7 +77,19 @@ impl Skinning {
             bind_buffers: None,
         }
     }
+    #[cfg(test)]
     pub fn add(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, model: &Model) -> Vec<u32> {
+        self.add_merged(device, queue, model, &[])
+    }
+    /// `add`, then one more template per `merged` skin: animated rigid parts
+    /// drawn as one mesh whose vertices each follow one of its joints.
+    pub fn add_merged(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        model: &Model,
+        merged: &[exact_game::asset::Skin],
+    ) -> Vec<u32> {
         if model.skins.is_empty() && model.clips.is_empty() {
             return vec![];
         }
@@ -138,7 +158,7 @@ impl Skinning {
                 ..Default::default()
             })
             .collect();
-        for (index, skin) in model.skins.iter().chain(&rigid).enumerate() {
+        for (index, skin) in model.skins.iter().chain(&rigid).chain(merged).enumerate() {
             ids.push(self.templates.len() as u32);
             self.templates.push(Template {
                 meta: self.metadata.len() as u32,
@@ -146,7 +166,7 @@ impl Skinning {
                 words: 4 + model.nodes.len() * 2 + skin.joints.len() + skin.inverse_binds.len(),
                 rest: rest.clone(),
                 joints: skin.joints.len(),
-                rigid: index >= model.skins.len(),
+                rigid: index >= model.skins.len() && index < model.skins.len() + rigid.len(),
             });
             self.metadata
                 .extend([model.nodes.len() as u32, skin.joints.len() as u32, 0, 0]);
@@ -250,10 +270,12 @@ impl Skinning {
         self.records.clear();
         self.offsets.clear();
         self.jobs_words.clear();
+        self.job_records.clear();
         let mut palette = 0usize;
         let mut pose = 0usize;
-        for record in records {
+        for (index, record) in records.iter().enumerate() {
             if let Some(skin) = record.skin {
+                self.job_records.push(index);
                 let t = self
                     .templates
                     .get(skin as usize)
@@ -288,6 +310,7 @@ impl Skinning {
             (self.jobs_words.len() * 4) as u64,
         ));
         self.jobs.write(queue, 0, bytes(&self.jobs_words));
+        self.active = self.job_records.len() as u32;
         if let Some(layout) = &self.layout {
             let buffers = (
                 layout.clone(),
@@ -358,6 +381,26 @@ impl Skinning {
             offset += 2 * len;
         }
     }
+    /// Dispatch only the jobs of records drawn this frame (`hidden[record]`
+    /// false): a crowd's far levels cost no skinning.
+    pub fn activate(&mut self, queue: &wgpu::Queue, hidden: &[bool]) {
+        self.active_words.clear();
+        for (job, &record) in self.job_records.iter().enumerate() {
+            if !hidden.get(record).copied().unwrap_or(false) {
+                self.active_words
+                    .extend_from_slice(&self.jobs_words[job * 4..job * 4 + 4]);
+            }
+        }
+        self.active = (self.active_words.len() / 4) as u32;
+        if self.active > 0 {
+            self.jobs.write(queue, 0, bytes(&self.active_words));
+        }
+    }
+    /// Jobs dispatched per frame.
+    #[cfg(test)]
+    pub fn active_jobs(&self) -> u32 {
+        self.active
+    }
     pub fn feed(&mut self, queue: &wgpu::Queue, w: &World, entities: &[Entity], initial: bool) {
         self.pack(w, entities, initial);
         for template in &mut self.templates {
@@ -365,9 +408,13 @@ impl Skinning {
         }
         self.poses.write(queue, 0, bytes(&self.pose_words));
     }
-    pub fn encode(&self, encoder: &mut wgpu::CommandEncoder, timestamps: Option<&wgpu::QuerySet>) {
-        if self.records.is_empty() {
-            return;
+    pub fn encode(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        timestamps: Option<&wgpu::QuerySet>,
+    ) -> bool {
+        if self.active == 0 {
+            return false;
         }
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("game skin local interpolation"),
@@ -379,7 +426,8 @@ impl Skinning {
         });
         pass.set_pipeline(self.pipeline.as_ref().unwrap());
         pass.set_bind_group(0, self.bind.as_ref().unwrap(), &[]);
-        pass.dispatch_workgroups(self.records.len() as u32, 1, 1);
+        pass.dispatch_workgroups(self.active, 1, 1);
+        true
     }
 }
 
@@ -469,6 +517,8 @@ pub(crate) mod tests {
                 material: draw.1,
                 local: draw.2,
                 skin: draw.3,
+                tint: [1.; 4],
+                glow: [0.; 3],
             }],
         )
         .unwrap();
@@ -507,6 +557,8 @@ pub(crate) mod tests {
             material: crate::MaterialId(0),
             local: Mat4::IDENTITY,
             skin: Some(template),
+            tint: [1.; 4],
+            glow: [0.; 3],
         }];
         skin.set(&gpu.device, &gpu.queue, &uniform, &records)
             .unwrap();
@@ -695,6 +747,8 @@ pub(crate) mod tests {
                     material: crate::MaterialId(0),
                     local: Mat4::IDENTITY,
                     skin: Some(template),
+                    tint: [1.; 4],
+                    glow: [0.; 3],
                 }],
             )
             .unwrap();
@@ -824,6 +878,8 @@ pub(crate) mod tests {
                 material: crate::MaterialId(0),
                 local: Mat4::IDENTITY,
                 skin: Some(template),
+                tint: [1.; 4],
+                glow: [0.; 3],
             }],
         )
         .unwrap();
@@ -962,6 +1018,8 @@ pub(crate) mod tests {
                 material: crate::MaterialId(0),
                 local: Mat4::IDENTITY,
                 skin: Some(template),
+                tint: [1.; 4],
+                glow: [0.; 3],
             })
             .collect();
         let uniform = gpu.device.create_buffer(&wgpu::BufferDescriptor {
@@ -1028,7 +1086,7 @@ mod normal_tests {
             .split("struct BakedMaterial")
             .next()
             .unwrap();
-        let source = format!("{skin}\n@group(0) @binding(0) var<storage,read_write> output:array<vec4<f32>>;\n@compute @workgroup_size(1) fn test_normal() {{ let z=mat4x4<f32>(); let draw=ModelInstance(0u,0u,0u,0u,z,z); output[0]=vec4(normalize(skinned(draw,0u,vec3(0.0),normalize(vec3(1.0,1.0,1.0)))[1]),0.0); }}");
+        let source = format!("{skin}\n@group(0) @binding(0) var<storage,read_write> output:array<vec4<f32>>;\n@compute @workgroup_size(1) fn test_normal() {{ let z=mat4x4<f32>(); let draw=ModelInstance(0u,0u,0u,0u,z,z,vec4(1.0),vec4(0.0)); output[0]=vec4(normalize(skinned(draw,0u,vec3(0.0),normalize(vec3(1.0,1.0,1.0)))[1]),0.0); }}");
         let shader = gpu
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {

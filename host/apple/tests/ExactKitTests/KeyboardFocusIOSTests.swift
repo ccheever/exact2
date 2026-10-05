@@ -42,6 +42,43 @@ final class KeyboardFocusIOSTests: XCTestCase {
         _ = target?.perform(action, with: command)
     }
 
+    func testBlockLinksOpenWithoutAHandlerAndRespectAuthoredPressAndDisabled() {
+        final class Delegate: ExactSessionDelegate {
+            var urls: [String] = []
+            func exactSession(_ session: ExactSession, command name: String, args: [Any]) {
+                if name == "openURL", let url = args.first as? String { urls.append(url) }
+            }
+        }
+        let delegate = Delegate()
+        let session = ExactApp.shared.makeSession(delegate: delegate, label: "block-link")
+        defer { session.destroy() }
+        let p = session.presenter
+        let link = NodeView(id: 9001, kind: "button", presenter: p)
+        link.frame = CGRect(x: 0, y: 0, width: 200, height: 40)
+        p.root.addSubview(link); p.views[link.id] = link
+        link.applyProps(set: ["href": "https://example.test/article"], clear: [])
+        XCTAssertTrue(link.activate(at: link.convert(CGPoint(x: 10, y: 10), to: nil)) === link)
+        XCTAssertEqual(delegate.urls, ["https://example.test/article"])
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        link.handlers = ["press"]
+        p.press(link.id)
+        XCTAssertEqual(presses, [link.id])
+        XCTAssertEqual(delegate.urls.count, 1)
+        link.handlers = []
+        link.applyProps(set: ["disabled": "true"], clear: [])
+        p.press(link.id)
+        XCTAssertEqual(delegate.urls.count, 1)
+        link.applyProps(set: ["inert": "true"], clear: ["disabled"])
+        p.press(link.id)
+        XCTAssertEqual(delegate.urls.count, 1)
+        link.applyProps(set: ["href": "//example.test/relative"], clear: ["inert"])
+        p.press(link.id)
+        XCTAssertEqual(delegate.urls.last, "//example.test/relative")
+        XCTAssertTrue(link.accessibilityActivate())
+        XCTAssertEqual(delegate.urls.count, 3)
+    }
+
     func testTabWalksControlsInTreeOrderAndSkipsText() throws {
         let (p, first, text, field, last) = fixture()
         defer { withExtendedLifetime(p) {} }

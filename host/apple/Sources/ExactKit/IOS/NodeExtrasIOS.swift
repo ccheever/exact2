@@ -35,6 +35,8 @@ final class NodeExtras {
     var layoutPanOrigin: CGPoint = .zero
     var swipeRecognizer: UIPanGestureRecognizer?
     var swipeArmed: Bool = false
+    /// Where a swipe's first finger landed, in the window (its shouldBegin's edge rule).
+    var swipeDownX: CGFloat?
     var swipeHold: SwipeHold?
     var heightRecognizer: UIPanGestureRecognizer?
     var heightHold: HeightDragHold?
@@ -128,6 +130,7 @@ extension NodeView {
     var layoutPanRecognizer: UIPanGestureRecognizer? { get { extras?.layoutPanRecognizer } set { if newValue != nil || extras != nil { more.layoutPanRecognizer = newValue } } }
     var layoutPanOrigin: CGPoint { get { extras?.layoutPanOrigin ?? .zero } set { if newValue != .zero || extras != nil { more.layoutPanOrigin = newValue } } }
     var swipeRecognizer: UIPanGestureRecognizer? { get { extras?.swipeRecognizer } set { if newValue != nil || extras != nil { more.swipeRecognizer = newValue } } }
+    var swipeDownX: CGFloat? { get { extras?.swipeDownX } set { if newValue != nil || extras != nil { more.swipeDownX = newValue } } }
     var swipeArmed: Bool { get { extras?.swipeArmed ?? false } set { if newValue || extras != nil { more.swipeArmed = newValue } } }
     var swipeHold: SwipeHold? { get { extras?.swipeHold } set { if newValue != nil || extras != nil { more.swipeHold = newValue } } }
     var heightRecognizer: UIPanGestureRecognizer? { get { extras?.heightRecognizer } set { if newValue != nil || extras != nil { more.heightRecognizer = newValue } } }

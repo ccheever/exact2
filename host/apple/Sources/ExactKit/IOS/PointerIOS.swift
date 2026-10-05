@@ -130,3 +130,99 @@ extension NodeView {
     func syncPointerRecognizer() {}
 }
 #endif
+
+#if os(iOS) || os(tvOS)
+import UIKit
+
+extension NodeView {
+    // Press: a touch down and up inside the bounds. A node without a
+    // handler passes the touch up the responder chain (UIView's default),
+    // so a touch on a button's text reaches the button, as a DOM click
+    // bubbles. A pan cancels it (the scroll view's `canCancelContentTouches`):
+    // scroll always wins.
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "down", source: self, event: event) == true { return }
+        guard !disabled else { pressed = false; return }
+        if let touch = touches.first, let target = presenter?.svg.target(id, at: local(touch.location(in: nil))) {
+            svgPressed = target; return
+        }
+        if let touch = touches.first, let run = inlineActivationTarget(at: local(touch.location(in: nil))) {
+            inlinePressed = run.id; return
+        }
+        // A Markdown run's link has no view of its own (MarkupRuns): its target is the press.
+        if let touch = touches.first, let href = inlineLink(at: local(touch.location(in: nil))) { linkPressed = href; return }
+        if handlers.contains("press") || defaultLink != nil { pressed = true } else { super.touchesBegan(touches, with: event) }
+    }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        inlinePressed = nil; linkPressed = nil
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "move", source: self, event: event) == true { return }
+        if pressed { pressFollows(inside: touches.first.map(pressInside) ?? false) } else { super.touchesMoved(touches, with: event) }
+    }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self, event: event) == true { finishPointerPress(); return }
+        guard !disabled else { pressed = false; inlinePressed = nil; linkPressed = nil; svgPressed = nil; return }
+        if let target = svgPressed {
+            svgPressed = nil
+            if let touch = touches.first, presenter?.svg.target(id, at: local(touch.location(in: nil))) == target { presenter?.press(target) }
+            return
+        }
+        if let run = inlinePressed {
+            inlinePressed = nil
+            if let touch = touches.first, inlineActivationTarget(at: local(touch.location(in: nil)))?.id == run { _ = activateInline(run) }
+            return
+        }
+        if let href = linkPressed {
+            linkPressed = nil
+            if let touch = touches.first, inlineLink(at: local(touch.location(in: nil))) == href { presenter?.session?.follow(href) }
+            return
+        }
+        // A press under `retainFocus` leaves the editor its focus, as macOS's
+        // mouseDown does: every pressable can take the focus now.
+        if canBecomeFirstResponder, !isFirstResponder, presenter?.contextRetainsFocus(self) != true { _ = becomeFirstResponder() }
+        guard pressed else { return super.touchesEnded(touches, with: event) }
+        pressed = false
+        // A pressed node that did not take the focus: the field being edited
+        // loses it, as a click on a button blurs a page's input.
+        let inside = touches.first.map(pressInside) ?? false
+        if !isFirstResponder && presenter?.contextRetainsFocus(self) != true { presenter?.viewport.endEditing(true) }
+        if inside, presenter?.views[id] === self { presenter?.press(id, held: KeyCodes.held(event?.modifierFlags ?? [])); finishPointerPress() }
+    }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        inlinePressed = nil; linkPressed = nil; svgPressed = nil
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "cancel", source: self, event: event) == true { return }
+        if pressed { pressed = false } else { super.touchesCancelled(touches, with: event) }
+    }
+
+    /// A press delivered by the rule a touch gets: to this node when it has
+    /// a handler, else to the nearest ancestor with one, if the point (in
+    /// the window) is inside that node's box. The agent's `tap` and
+    /// VoiceOver's activation come here — UIKit offers no public touch
+    /// synthesis.
+    @discardableResult
+    func activate(at windowPoint: CGPoint) -> NodeView? {
+        // An SVG element under the point takes it (LLP 1055.000 D17).
+        if kind == "svg", let element = presenter?.svg.target(id, at: local(windowPoint)) { presenter?.press(element); return self }
+        guard let target = activationTarget(at: windowPoint) else { return nil }
+        if target.isSurfaceControl { return target.control("down") && target.control("up") ? target : nil }
+        target.presenter?.press(target.id)
+        return target
+    }
+    /// Resolve before focus changes: a keyboard resize can move the control.
+    func activationTarget(at windowPoint: CGPoint) -> NodeView? {
+        guard !inert else { return nil }
+        var v: UIView? = self
+        while let cur = v {
+            if let n = cur as? NodeView, n.disabled { return nil }
+            if let n = cur as? NodeView, (n.handlers.contains("press") || n.defaultLink != nil || n.isSurfaceControl) {
+                guard n.bounds.contains(n.local(windowPoint)) else { return nil }
+                return n
+            }
+            v = cur.superview
+        }
+        return nil
+    }
+    override func accessibilityActivate() -> Bool {
+        activate(at: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil)) != nil
+    }
+}
+#endif
