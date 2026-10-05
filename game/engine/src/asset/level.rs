@@ -87,6 +87,19 @@ pub(crate) fn names<G: crate::Game>() -> impl Iterator<Item = &'static str> {
     )
 }
 
+/// The declaration naming `name`, for `AssetStore::declared_by`.
+pub(crate) fn declared_by<G: crate::Game>(name: &str) -> Option<&'static str> {
+    if G::ASSETS.contains(&name) {
+        Some("Game::ASSETS")
+    } else if G::STREAMED.contains(&name) {
+        Some("Game::STREAMED")
+    } else if G::LEVEL.is_some_and(|level| level.name == name) {
+        Some("Game::LEVEL")
+    } else {
+        None
+    }
+}
+
 pub(crate) fn validate_declaration<G: crate::Game>() -> Result<(), String> {
     if G::ASSETS.is_empty() && G::LEVEL.is_none() && G::STREAMED.is_empty() {
         return Ok(());

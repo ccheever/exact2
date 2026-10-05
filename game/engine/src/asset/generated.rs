@@ -149,6 +149,13 @@ impl World {
         if !super::asset_name(name) || !name.ends_with(".model") {
             return Err(format!("generated `{name}`: expected a .model asset name"));
         }
+        // Refused here, not when the declared bytes land on it (which a hostless
+        // test never sees): one name, one source.
+        if let Some(declaration) = self.assets.declared_by.and_then(|of| of(name)) {
+            return Err(format!(
+                "generated `{name}`: the name is declared in {declaration}, whose delivered bytes would replace this model; give the generated model another name"
+            ));
+        }
         model
             .validate()
             .map_err(|e| format!("generated `{name}`: {e}"))?;

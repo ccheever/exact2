@@ -42,6 +42,8 @@ pub trait Executor: Default {
 impl Executor for () {}
 
 use crate::renderer::RETIRED_BUDGET;
+/// `Game::STREAMED` models prepared per frame after the first drawn one.
+const STREAMED_PER_FRAME: usize = 8;
 
 /// One simulation and its lazily created GPU renderer, for an exact canvas.
 /// Model pipelines prepare during delivery; primitive pipelines prepare at first render.
@@ -418,10 +420,15 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
         }
         let (renderer, _feed) = self.render.as_mut().unwrap();
         let live = sim.presentation_assets().map(str::to_owned).collect();
+        // Streamed models wait for the first drawn frame, then a few go per frame.
+        let streamed = sim.streamed_unprepared();
+        let open = STREAMED_PER_FRAME * usize::from(self.ready_work.is_some());
+        let held: std::collections::BTreeSet<&str> = streamed.iter().skip(open).copied().collect();
         // Accept deliveries before the sole compaction: live identical residents
         // may still be marked retired until preparation reactivates them.
         let prepared: Vec<_> = sim
             .presentation_models()
+            .filter(|(name, _)| !held.contains(name))
             .map(|(name, model)| {
                 let digest = *self
                     .placed
@@ -437,6 +444,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
                 )
             })
             .collect();
+        let streaming = !held.is_empty();
         // Resident geometry is independent of draw readiness: a texture still in
         // flight hides the model but must not evict this pass's accepted bytes.
         let touched = prepared
@@ -466,7 +474,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
             renderer.compact_assets(&live, &touched);
         }
         self.finish_restore();
-        self.assets_dirty = false;
+        self.assets_dirty = streaming;
         self.dirty = true;
     }
     fn carry(&mut self) -> Result<Option<Vec<u8>>, SurfaceError> {
@@ -821,6 +829,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
             }
             if ASSETS && !sim.device_assets_ready() {
                 reasons.push("device assets pending".into());
+            }
+            if ASSETS && !sim.streamed_unprepared().is_empty() {
+                reasons.push("streamed models preparing".into());
             }
             if self.ready_work.is_none() {
                 reasons.push("first draw pending".into());

@@ -283,7 +283,10 @@ metallic or emissive per part; `MaterialData`'s `Default` is glTF's, fully metal
 A material is part of the model's identity. The entity's `Material` still tints and
 adds emission to every part; its metallic and roughness do not reach a model. Materials may sample
 textures named in `model.textures`, such as a shared `art/textures/` PNG, which become
-the model's dependencies and are requested like a baked model's. Saves store names and content identities,
+the model's dependencies and are requested like a baked model's. A generated name
+is the game's alone: registering one that `Game::ASSETS`, `STREAMED` or `LEVEL`
+declares returns an error naming the declaration, since delivered bytes would
+otherwise land on it later. Saves store names and content identities,
 not vertices, so reconstruct from the same level and seed before restoring. Changed
 level bytes or generated output refuse restore by name. Keep other generator inputs
 in the level or saved setup arguments; identity checks cannot prove a generator is

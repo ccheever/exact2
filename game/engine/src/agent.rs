@@ -186,6 +186,20 @@ impl<G: Game> Sim<G> {
     pub fn presentation_assets(&self) -> impl Iterator<Item = &str> {
         self.world.assets.states.keys().map(String::as_str)
     }
+    /// `state.world.loading`: names still in flight, but streamed models
+    /// nothing shows, which nothing waits for.
+    fn loading_names(&self) -> Vec<String> {
+        let assets = &self.world.assets;
+        assets
+            .states
+            .iter()
+            .filter(|(n, s)| {
+                **s == crate::asset::AssetState::Pending
+                    && (assets.shown.contains(*n) || !G::STREAMED.contains(&n.as_str()))
+            })
+            .map(|(n, _)| n.clone())
+            .collect()
+    }
     /// Named content failures; readiness must never hide a failed declaration.
     pub fn asset_failures(&self) -> impl Iterator<Item = &str> {
         self.world.assets.states.values().filter_map(|s| match s {
@@ -303,7 +317,7 @@ impl<G: Game> Sim<G> {
             "state" => {
                 let host_input = self.host_input();
                 Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"loading\":{},\"assets\":{},\"restarted\":{},\"restored\":{}{}{},\"args\":{},\"resources\":{},\"audio\":{},\"input\":{{\"actions\":{},\"held\":{},\"forwarded\":{},\"controls\":{},\"forwardedControls\":{},\"controlContacts\":{},\"refusedPosts\":{},\"pending\":{}}},\"published\":{}}}}}",
-                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.assets.states.iter().filter(|(_, s)| **s == crate::asset::AssetState::Pending).map(|(n, _)| n.clone()).collect::<Vec<_>>())?, w.assets.state_json(), self.restarted, self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), self.paranoid_samples().map_or_else(String::new, |(skipped, owed)| format!(",\"paranoid\":{{\"skipped\":{skipped},\"owed\":{owed}}}")), self.args_json, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.actions().json(), encode(&self.input.keys)?, encode(&host_input.keys)?, encode(&self.input.held_controls())?, encode(&host_input.held_controls())?, encode(&host_input.control_contacts())?, self.refused_posts, encode(&self.pending_input())?, w.published_json(true)))
+                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&self.loading_names())?, w.assets.state_json(), self.restarted, self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), self.paranoid_samples().map_or_else(String::new, |(skipped, owed)| format!(",\"paranoid\":{{\"skipped\":{skipped},\"owed\":{owed}}}")), self.args_json, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.actions().json(), encode(&self.input.keys)?, encode(&host_input.keys)?, encode(&self.input.held_controls())?, encode(&host_input.held_controls())?, encode(&host_input.control_contacts())?, self.refused_posts, encode(&self.pending_input())?, w.published_json(true)))
             },
             "layout" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().ok_or("layout needs an entity")?)?;

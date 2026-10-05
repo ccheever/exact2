@@ -256,6 +256,7 @@ impl<G: Game> Sim<G> {
     fn build(args: &G::Args, assets: crate::asset::AssetStore) -> World {
         let mut world = World::new(G::HZ, 0);
         world.assets = assets;
+        world.assets.declared_by = Some(crate::asset::level::declared_by::<G>);
         world.assets.restart_generated();
         if !G::ASSETS.is_empty() || G::LEVEL.is_some() {
             for name in crate::asset::level::names::<G>() {
@@ -377,13 +378,15 @@ impl<G: Game> Sim<G> {
             .any(|s| *s == crate::asset::AssetState::Pending)
             || !self.world.assets.redelivery.is_empty()
     }
-    /// Every retained model and dependency prepared for the current device.
+    /// Every retained model and dependency prepared for the current device,
+    /// but `Game::STREAMED` models, which draw once prepared (`streamed_unprepared`).
     pub fn device_assets_ready(&self) -> bool {
         self.world.assets.states.iter().all(|(n, s)| {
             *s != crate::asset::AssetState::Loaded
                 || n.ends_with(".level.json")
                 || n.ends_with(".sound")
                 || self.world.assets.prepared.contains(n)
+                || (n.ends_with(".model") && G::STREAMED.contains(&n.as_str()))
         })
     }
     /// Move texture payloads to the renderer; no CPU mip copy survives upload.

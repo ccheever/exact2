@@ -43,6 +43,9 @@ impl<G: Game> Sim<G> {
                 .collect();
             let mut roots: std::collections::BTreeSet<_> =
                 names.iter().map(|(n, _)| n.clone()).collect();
+            if self.world.assets.shown != roots {
+                self.world.assets.shown = roots.clone();
+            }
             // Declared and streamed assets stay resident: one that leaves the
             // screen and returns is still Loaded, so a save never refuses for it.
             // Undeclared cosmetics retire when unshown, bounding their memory.
@@ -76,14 +79,43 @@ impl<G: Game> Sim<G> {
             })
             .map(|(n, _)| n.clone())
             .collect();
-        // What setup and the first frame wait for goes first; streamed names last.
-        names.sort_by_key(|n| {
-            (
-                G::STREAMED.contains(&n.as_str()),
-                !assets.required.contains(n),
-            )
-        });
+        // Streamed names nothing shows are asked for only once nothing else is
+        // in flight: a host fetches in request order, so they never queue ahead
+        // of what setup waits for, what is shown, or the textures those name.
+        let unshown = |n: &str| G::STREAMED.contains(&n) && !assets.shown.contains(n);
+        if assets
+            .states
+            .iter()
+            .any(|(n, s)| *s == crate::asset::AssetState::Pending && !unshown(n))
+        {
+            names.retain(|n| !unshown(n));
+        }
+        // What setup and the first frame wait for goes first.
+        names.sort_by_key(|n| (unshown(n), !assets.required.contains(n)));
         assets.requested.extend(names.iter().cloned());
+        names
+    }
+    /// `Game::STREAMED` models delivered but not yet prepared for the device,
+    /// those an entity shows first. A device-backed surface prepares none
+    /// before its first drawn frame and a few per frame after it, so streamed
+    /// content never delays or bloats that frame; until prepared, one draws
+    /// as if still in flight.
+    pub fn streamed_unprepared(&self) -> Vec<&str> {
+        let assets = &self.world.assets;
+        let mut names: Vec<&str> = G::STREAMED
+            .iter()
+            .copied()
+            .filter(|n| {
+                n.ends_with(".model")
+                    && assets.models.contains_key(n)
+                    && !assets.prepared.contains(*n)
+                    && matches!(
+                        assets.states.get(n),
+                        Some(crate::asset::AssetState::Pending | crate::asset::AssetState::Loaded)
+                    )
+            })
+            .collect();
+        names.sort_by_key(|n| !assets.shown.contains(*n));
         names
     }
 }

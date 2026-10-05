@@ -257,7 +257,8 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             self.perf.culled = renderer.culled();
             self.perf.culled_triangles = renderer.culled_triangles();
         }
-        let wants = !G::paused(sim.args()) || ticks != 0;
+        // A paused world still wants frames while streamed models await preparation.
+        let wants = !G::paused(sim.args()) || ticks != 0 || self.assets_dirty;
         self.dirty = false;
         wants
             || self.hooks.needs().contains(crate::Needs::ANIMATE)

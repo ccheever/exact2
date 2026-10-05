@@ -507,6 +507,9 @@ pub(crate) struct Assets {
     pub requested: BTreeSet<String>,
     pub prepared: BTreeSet<String>,
     pub redelivery: BTreeSet<String>,
+    /// Names an entity's mesh or sprite showed when requests were last taken:
+    /// shown `Game::STREAMED` models are fetched and prepared first.
+    pub shown: BTreeSet<String>,
     pub dependencies: map::AssetMap<Vec<String>>,
     /// Each texture's models, `dependencies` reversed: a delivery finishes
     /// only the models it concerns. Write both through `set_dependencies`.
@@ -521,6 +524,10 @@ pub(crate) struct AssetStore {
     owner: Option<ManuallyDrop<Rc<Assets>>>,
     release: Option<fn(ManuallyDrop<Rc<Assets>>)>,
     identity: Option<&'static generated::IdentityCodec>,
+    /// Which of the game's declarations (`Game::ASSETS`, `STREAMED`, `LEVEL`)
+    /// names an asset; installed by `Sim` before setup, so a generated model
+    /// cannot take a name whose delivered bytes would land on it.
+    pub(crate) declared_by: Option<fn(&str) -> Option<&'static str>>,
 }
 impl Drop for AssetStore {
     fn drop(&mut self) {
@@ -543,6 +550,7 @@ impl std::ops::Deref for AssetStore {
             requested: BTreeSet::new(),
             prepared: BTreeSet::new(),
             redelivery: BTreeSet::new(),
+            shown: BTreeSet::new(),
             dependencies: map::AssetMap::EMPTY,
             dependents: map::AssetMap::EMPTY,
             retired: Vec::new(),
@@ -555,11 +563,9 @@ impl std::ops::DerefMut for AssetStore {
         if self.owner.is_none() {
             // The callback owns destruction; ManuallyDrop keeps that executor
             // out of primitive worlds. No raw pointers or unsafe drops are used.
-            *self = Self {
-                owner: Some(ManuallyDrop::new(Rc::new(Assets::default()))),
-                release: Some(|owner| drop(ManuallyDrop::into_inner(owner))),
-                identity: None,
-            };
+            self.owner = Some(ManuallyDrop::new(Rc::new(Assets::default())));
+            self.release = Some(|owner| drop(ManuallyDrop::into_inner(owner)));
+            self.identity = None;
         }
         Rc::make_mut(self.owner.as_mut().unwrap())
     }
