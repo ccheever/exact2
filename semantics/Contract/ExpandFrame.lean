@@ -48,7 +48,7 @@ values; the rest (shapes, `fn`s, routes, resources, the clock) the root's. -/
 noncomputable def frameEnv (ce : CEnv) (C : CComponent) (c : String) (id : InstId)
     (binds : List (String × Expr × Frame × Locals)) : Env :=
   { prog := { shapes := ce.root.prog.shapes, fns := ce.root.prog.fns, routes := ce.root.prog.routes,
-              resources := ce.root.prog.resources,
+              strings := ce.root.prog.strings, resources := ce.root.prog.resources,
               derives := (frameNames C binds).map fun x => { name := x, ty := .unknown, body := .none } },
     slots := [],
     derives := (frameNames C binds).filterMap fun x => (frameVal ce c id binds x).map (x, ·),
@@ -56,7 +56,7 @@ noncomputable def frameEnv (ce : CEnv) (C : CComponent) (c : String) (id : InstI
 
 theorem frameEnv_same (ce : CEnv) (C : CComponent) (c : String) (id : InstId)
     (binds : List (String × Expr × Frame × Locals)) : Same ce.root (frameEnv ce C c id binds) :=
-  ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 theorem lookup_filterMap {f : String → Option Value} {x : String} :
     ∀ (ns : List String), lookup x (ns.filterMap fun y => (f y).map (y, ·)) = if x ∈ ns then f x else .none

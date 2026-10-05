@@ -8,7 +8,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { open } from './agent.mjs';
 import { duringOp } from './agent-drag.mjs';
-import { launchFacts, webStore } from './agent-launch.mjs';
+import { driveStore, launchFacts } from './agent-launch.mjs';
 import { resolveApp } from './app.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a control's value (a select's options
@@ -64,7 +64,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   // Where the host keeps its stores, as it will see its environment (a drive's env overrides the driver's).
   const launched = { ...process.env, ...(env ?? {}) };
   const id = resolveApp(app).id, chrome = host === 'web' && (browser ?? launched.EXACT_WEB_BROWSER ?? 'chrome') === 'chrome';
-  const base = device ? null : chrome ? webStore(id, storage, launched, launched.HOME || homedir()).base : host === 'web' ? null : storeBase(id, host, launched, launched.HOME || homedir());
+  const base = device ? null : chrome ? driveStore(id, storage, env).base : host === 'web' ? null : storeBase(id, host, launched, launched.HOME || homedir());
   // A run's own names where the driver can remove them; a simulator's (one drive at a time: a launch ends the
   // last) reuse one store a test, emptied at launch, so they cannot pile up in its app container.
   const tag = base ? `.r${process.pid}-${Math.random().toString(36).slice(2, 8)}` : '';

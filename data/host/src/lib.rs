@@ -91,6 +91,9 @@ impl<D: DataSource> Storage<D> {
         store: &mut Store,
         result: Result<Answer, DataError>,
     ) -> Result<Answer, DataError> {
+        // The web's storage is the browser's, ready before any send.
+        #[cfg(target_arch = "wasm32")]
+        let _ = target;
         let mut answer = result?;
         if let Answer::Later(request) = &mut answer {
             if request.http != exact_runner::HttpScheduling::Ordered
@@ -412,6 +415,7 @@ impl<D: DataSource> DataSource for Storage<D> {
                 let (kind, message) = refusal?;
                 Some(Box::new(move || Outcome::Failed { kind, message }))
             }
+            #[cfg(not(target_arch = "wasm32"))]
             Pending::Storage(payload, grants) => {
                 let paths = self.directories.clone();
                 let alive = self.alive.clone();

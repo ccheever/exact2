@@ -131,7 +131,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         ),
         StyleValueError::AutoNotAdmitted { .. } => "`auto` is not admitted here".into(),
         StyleValueError::OutOfRange { .. } => "out of the row's range".into(),
-        StyleValueError::BadColor { .. } => "a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, `lab()`, `oklch()`, a named colour, `transparent`, or `light-dark(a, b)` of two".into(),
+        StyleValueError::BadColor { .. } => "a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, `lab()`, `oklch()`, a named colour, `transparent`, `light-dark(a, b)` of two, a role (`\"secondary-label\"`, `\"CanvasText\"`: LLP 1095), or `platform-color(ios <name>Color, …, <fallback>)` written whole as a string literal".into(),
         StyleValueError::BadShapeOutside { .. } => "expected none, circle(), ellipse(), inset() with one round radius, or polygon() with at most 64 vertices; lengths are points/px or percentages".into(),
         StyleValueError::BadClipPath { .. } => "expected none or path() with explicit absolute M/L/Q/C/Z commands and separated finite coordinates".into(),
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
@@ -391,6 +391,70 @@ fn scheme_colour(a: &Attr, rows: &[StyleId]) -> Result<(), LowerError> {
     )
 }
 
+/// Whether `e` puts a `platform-color(` literal into a value it computes.
+fn builds_platform_color(e: &Expr) -> bool {
+    let named = |t: &str| t.contains("platform-color(");
+    match e {
+        Expr::Str(t, _) => named(t),
+        Expr::Template(parts, _) => parts.iter().any(|p| match p {
+            contract_syntax::TemplatePart::Text(t) => named(t),
+            contract_syntax::TemplatePart::Expr(e) => builds_platform_color(e),
+        }),
+        Expr::Some(e, _)
+        | Expr::Member(e, _, _)
+        | Expr::NamedArg(_, e, _)
+        | Expr::Unary(_, e, _)
+        | Expr::Typed(e, _, _) => builds_platform_color(e),
+        Expr::Arrow { body, .. } => builds_platform_color(body),
+        Expr::Call(_, args, _) => args.iter().any(builds_platform_color),
+        Expr::Binary(_, l, r, _) => builds_platform_color(l) || builds_platform_color(r),
+        Expr::Ternary(c, y, n, _) => [c, y, n].iter().any(|e| builds_platform_color(e)),
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => [subject, some, none]
+            .iter()
+            .any(|e| builds_platform_color(e)),
+        Expr::Let { value, body, .. } => {
+            builds_platform_color(value) || builds_platform_color(body)
+        }
+        Expr::List(items, _) => items.iter().any(builds_platform_color),
+        Expr::Number(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => false,
+    }
+}
+
+/// The `position-area` values every host places (LLP 1021 §5), as CSS
+/// spells them; the row's enum, by name.
+const POSITION_AREAS: [&str; 8] = [
+    "none",
+    "bottom span-right",
+    "bottom",
+    "bottom span-all",
+    "top span-right",
+    "top",
+    "top span-all",
+    "center",
+];
+
+/// `position-area` places a popover against the invoker that opens it (its
+/// implicit anchor, LLP 1021 §5): there is no `anchor-name`, so on any other
+/// node it would name nothing to place against.
+pub(crate) fn check_position_area(attrs: &[Attr]) -> Result<(), LowerError> {
+    let Some(a) = attrs.iter().find(|a| a.name == "position-area") else {
+        return Ok(());
+    };
+    if attrs.iter().any(|a| a.name == "popover") {
+        return Ok(());
+    }
+    err(
+        "lower-css-position-area",
+        "`position-area` is admitted on a `popover` only: its anchor is the button whose `popovertarget` opens it. `anchor-name` and `position-anchor` are not implemented",
+        a.span,
+    )
+}
+
 pub(crate) fn check_style_value(
     a: &Attr,
     rows: &[StyleId],
@@ -430,6 +494,16 @@ pub(crate) fn check_style_value(
                 pending.push((some, some.span()));
             }
             Expr::Let { body, .. } => pending.push((body, body.span())),
+            // @ref LLP 1095 D3 — a plan's platform colours are its literals:
+            // never built from a template, a concatenation or a call.
+            Expr::Str(..) => {}
+            other if builds_platform_color(other) => {
+                return err(
+                    "lower-platform-color-literal",
+                    format!("`{}`: write `platform-color(…)` whole, as a string literal (a branch of `?:` or `match` may be one); it is never built from a template, a concatenation or data, so the platform colours a plan names are fixed when it compiles (LLP 1095 D3)", a.name),
+                    span,
+                );
+            }
             _ => {}
         }
         // A computed gradient is parsed where it is painted: a native host
@@ -468,6 +542,9 @@ pub(crate) fn check_style_value(
                 && matches!(v.as_str(), "text" | "all" | "contain")
             {
                 return err("lower-css-user-select", "CSS user-select text/all/contain require selectable text and selection ownership on iOS and Linux; those presenters do not implement it. Supported portable values are auto and none", span);
+            }
+            if rows.contains(&StyleId::PositionArea) && !POSITION_AREAS.contains(&v.trim()) {
+                return err("lower-css-position-area", format!("`position-area=\"{v}\"`: exact2 places an invoker's popover in a subset of CSS `position-area`: {}. Other areas (left, right, a corner, span-left, logical keywords) are not implemented by the native top layers; a flip is `position-try`, also not implemented", POSITION_AREAS.join(", ")), span);
             }
             if rows.contains(&StyleId::WrapFlow) && !matches!(v.as_str(), "auto" | "both") {
                 return err("lower-attr-value", "unsupported `wrap-flow` value: CSS Exclusions defines it; exact2 v1 implements `both` (or `auto`)", span);

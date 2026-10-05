@@ -6,10 +6,10 @@ defaultTargets = ["Contract", "Apps"]
 [[lean_lib]]
 name = "Contract"
 precompileModules = true
-# `stdlib`'s equations (`Contract.Eval`) are realized where a proof first
-# unfolds it, under the command line's options — a `set_option` does not
-# reach them — and its match on the roster's names outgrew the default
-# budget when `concat` joined it (LLP 1088 §9.1).
+# The roster's match (`Contract.Eval.stdlib`) has outgrown the default
+# budget for the equations and splitter Lean makes for it where a proof
+# unfolds it; those are made outside any `set_option … in`, so the budget is
+# the library's.
 leanOptions = { maxHeartbeats = 400000 }
 
 # Real apps' embeddings (`contract lean`, kept current by `difftest apps`)

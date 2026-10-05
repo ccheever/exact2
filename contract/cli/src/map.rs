@@ -36,7 +36,17 @@ impl SourceMap {
         captured: &std::path::Path,
         original: &std::path::Path,
     ) -> Result<(), String> {
-        self.sources.relocate(captured, original)
+        self.relocate_sources_through(&[(captured.to_path_buf(), original.to_path_buf())])
+    }
+
+    /// [`relocate_sources`](Self::relocate_sources) through several captured
+    /// directories: each pair maps the sources under its first path to the
+    /// second, the first pair that holds a source winning.
+    pub fn relocate_sources_through(
+        &mut self,
+        moves: &[(std::path::PathBuf, std::path::PathBuf)],
+    ) -> Result<(), String> {
+        self.sources.relocate(moves)
     }
 
     fn at(&self, out: &mut Vec<u8>, span: Span) {

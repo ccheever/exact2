@@ -141,15 +141,16 @@ export function x_encodeRouteSegment(v, pc) { return str(segmentOf(v), pc); }
 /** `replaceAll(s, find, with)` with a string `find` (LLP 1088 D2), built piece by piece through one counter of the
  * result's well-formed UTF-8 that carries a high surrogate across pieces (a low one completing it is the pair's 4
  * bytes, anything else settles it as U+FFFD's 3), so a quadratic `` $` `` stops at the bound before it is built. */
-export function x_replaceAll(s, find, w, pc) {
+export function x_replaceAll(s, find, w, pc, max = MAX) {
   let bytes = 0, high = false;
   const out = [], put = piece => {
     for (let i = 0; i < piece.length; i++) {
       const u = piece.charCodeAt(i);
-      if (high) { high = false; if (u >= 0xdc00 && u <= 0xdfff) { bytes += 4; continue; } bytes += 3; }
+      // A completed pair is checked as it lands, as the runner's `Built::keep` does (runner/src/strings.rs).
+      if (high) { high = false; if (u >= 0xdc00 && u <= 0xdfff) { bytes += 4; if (bytes > max) throw new Trap("StringTooLong", pc); continue; } bytes += 3; }
       if (u >= 0xd800 && u <= 0xdbff) high = true;
       else bytes += u < 0x80 ? 1 : u < 0x800 ? 2 : 3; // a lone low half is U+FFFD's 3
-      if (bytes > MAX) throw new Trap("StringTooLong", pc);
+      if (bytes > max) throw new Trap("StringTooLong", pc);
     }
     out.push(piece);
   };
@@ -170,7 +171,7 @@ export function x_replaceAll(s, find, w, pc) {
     for (let at = s.indexOf(find); at >= 0; at = s.indexOf(find, at + find.length)) { put(s.slice(end, at)); sub(at); end = at + find.length; }
     put(s.slice(end));
   }
-  if (high && bytes + 3 > MAX) throw new Trap("StringTooLong", pc);
+  if (high && bytes + 3 > max) throw new Trap("StringTooLong", pc);
   return out.join("").toWellFormed();
 }
 /** `toLowerCase(s)` (LLP 1088 D2): the browser's whole-string mapping, context rules kept, then the bound checked. */

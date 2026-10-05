@@ -139,10 +139,24 @@ declaration. One name brought into a file twice from different declarations,
 or brought and also declared, is refused; rename one with `as`. Fonts stay
 app-wide, like CSS's `@font-face`.
 
-Imports are `.contract` files inside the app directory. Paths begin with `./`,
-stay below the importing file, and cannot contain `..` segments. They cannot
-import JavaScript packages or TypeScript functions. Import cycles and unknown
-names are refused. Keep external work behind the data interface.
+A `use` names one of three things:
+
+- a file of the app: `./parts.contract`, or `../lib/row.contract`, as long as
+  it stays inside the app's directory;
+- a built-in: `use Activity from "exact:motion"` is the one app-wide timeline
+  for loading indicators, so every spinner keeps one rhythm;
+- a package: `use Card from "@acme/ui"` reads an installed package's
+  `.contract` files, found in `node_modules` as Node finds JavaScript. Its
+  `package.json` `exports` maps `.` (and any subpaths) to `.contract` files;
+  without `exports`, `index.contract`. A local library is a dependency too:
+  `"@me/ui": "file:../ui"` in the app's `package.json`, or a Bun workspace.
+  A package's own relative uses stay inside the package.
+
+A library is Contract only: components, shapes, functions, styles, keyframes and
+timelines. It cannot own resources or carry TypeScript; its components take data
+through props, `inject` and slots. Fonts it names are the app's to supply.
+Contract never imports JavaScript or TypeScript. Import cycles and unknown names
+are refused. Keep external work behind the data interface.
 
 Identifiers start with an ASCII letter or underscore. Letters, digits, and
 underscores can follow. A hyphen followed by a letter is part of the identifier:

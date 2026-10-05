@@ -205,7 +205,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// never a Tab stop on the web. An explicit `tabindex` makes any box
     /// focusable, and a Tab stop only when ≥ 0 (LLP 1088 D7.3).
     override var acceptsFirstResponder: Bool {
-        if disabled || inert || isHiddenOrHasHiddenAncestor { return false }
+        if formDisabled || inert || isHiddenOrHasHiddenAncestor { return false }
         if field != nil || textArea != nil { return false }
         return props["semanticTag"] == "dialog" || isParagraph || explicitTabIndex != nil || tabbable
     }
@@ -220,7 +220,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// skip every non-field).
     override var canBecomeKeyView: Bool { acceptsFirstResponder && tabbable }
     override func becomeFirstResponder() -> Bool {
-        guard !disabled else { return false }
+        guard !formDisabled else { return false }
         let ok = super.becomeFirstResponder()
         if ok { presenter?.collections.pinsChanged() }
         if ok, handlers.contains("focus") { presenter?.focus(id) }
@@ -754,13 +754,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// the four; a `light-dark()` pair is two fours and this picks one
     /// (LLP 1034 D1). Anything else is not a colour.
     func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
-        style[key]?.channels(dark: dark ?? drawsDark)
+        style[key]?.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast)
     }
 
     /// Whether any colour on this node is a pair — what says an appearance
     /// change is something to this view rather than nothing.
     var hasSchemeColor: Bool {
-        style.values.contains { $0.isSchemeColor || $0.isSchemeGradient }
+        style.values.contains { $0.isSchemeColor || $0.isSchemeGradient || $0.containsSystemColor }
     }
 
     func color(_ key: String, _ fallback: NSColor) -> NSColor {
@@ -780,6 +780,16 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // An `svg`'s paints are resolved into its scene's layers.
         presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock)
         guard hasSchemeColor || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
+        reapplyColors()
+    }
+    /// A system colour changed under this view (the accent, LLP 1095 D5):
+    /// what it resolved is applied again, as for an appearance change; an
+    /// untinted symbol follows the accent, so it counts too.
+    func systemColorsChanged() {
+        guard hasSchemeColor || symbolView != nil || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
+        reapplyColors()
+    }
+    private func reapplyColors() {
         paragraphOwner.invalidateText()
         paragraphOwner.needsDisplay = true
         applyStyle(style)
@@ -835,7 +845,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // a white field in a dark app (the night) paints a light placeholder
         // and it vanishes. Mute this field's text color — the web's
         // `input::placeholder` (`#3c3c434c` on black type).
-        let ink = (f.textColor ?? NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 1)).withAlphaComponent(0.30)
+        let ink = (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30)
         f.placeholderAttributedString = NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: ink,
@@ -1127,7 +1137,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let f = field, let t = text {
             (f.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
             f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
-            f.textColor = color("text_color", .black)
+            f.textColor = color("text_color", SystemColor.canvasText)
             applyPlaceholder(f)
             f.frame = contentBox()
         }
@@ -1165,7 +1175,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // display, so a new filtered box is not pictured empty.
         if layerBoxEligible, !Capture.capturing { applyLayerPaint() }
         setPaintPosition(paintZPosition)
-        f.render(layer, clip: resolvedClipMask(), scale: window?.backingScaleFactor ?? 2)
+        f.render(layer, clip: resolvedClipMask(), scale: window?.backingScaleFactor ?? 2, dark: drawsDark)
     }
 
     override func viewDidMoveToSuperview() {
@@ -1461,25 +1471,19 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func rightMouseDown(with event: NSEvent) {
         // DOM's order on a Mac: the secondary button's `pointerdown`, then
         // the `contextmenu` at its point, on the button's down (studio diary R22).
+        // A canvas that wants input takes the pointer as well; the node's
+        // own `contextmenu` still runs (review b5-b 2), and then no system
+        // menu opens.
         pointerPressed(event)
-        if canvasInput?.pointer(event, phase: "down") == true { return }
-        guard !disabled, handlers.contains("contextmenu") else { return super.rightMouseDown(with: event) }
-        presenter?.mouseEvent(id, 10, pointerSample(event).line)
-    }
-    override func rightMouseDragged(with event: NSEvent) {
-        if canvasInput?.pointer(event, phase: "move") != true { super.rightMouseDragged(with: event) }
-    }
-    override func otherMouseDown(with event: NSEvent) {
-        if canvasInput?.pointer(event, phase: "down") != true { super.otherMouseDown(with: event) }
-    }
-    override func otherMouseDragged(with event: NSEvent) {
-        if canvasInput?.pointer(event, phase: "move") != true { super.otherMouseDragged(with: event) }
-    }
-    override func otherMouseUp(with event: NSEvent) {
-        if canvasInput?.pointer(event, phase: "up") != true { super.otherMouseUp(with: event) }
+        let canvas = canvasInput?.pointer(event, phase: "down") == true
+        if !disabled, handlers.contains("contextmenu") { presenter?.mouseEvent(id, 10, pointerSample(event).line); return }
+        if !canvas { super.rightMouseDown(with: event) }
     }
     override func scrollWheel(with event: NSEvent) {
-        if canvasInput?.wheel(event) != true, presenter?.mouseTransformDrag.scroll(self, event: event) != true, !wheel(event) { super.scrollWheel(with: event) }
+        // A canvas that wants input scrolls itself; the nodes' `wheel` is
+        // still heard (review b5-b 2).
+        if canvasInput?.wheel(event) == true { _ = wheel(event); return }
+        if presenter?.mouseTransformDrag.scroll(self, event: event) != true, !wheel(event) { super.scrollWheel(with: event) }
     }
     override func magnify(with event: NSEvent) {
         if presenter?.mouseTransformDrag.magnify(self, event: event) != true, !wheel(event) { super.magnify(with: event) }

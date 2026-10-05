@@ -117,8 +117,14 @@ are animatable and constant-call values can be evaluated at compilation.
 Styles accept literal style attributes and explicitly styleable props (currently
 `buttonStyle`), not arbitrary expressions or event props.
 
-A `use` path begins with `./`, stays below its importing file without `..`
-segments, and resolves to a `.contract` file inside the app directory. A file's
+A `use` specifier is a relative path (`./` or `../`) to a `.contract` file that
+stays inside the using file's root — the app directory, or the package it
+belongs to (`contract-use-path`); an `exact:` built-in (`exact:motion`;
+`contract-use-builtin`); or a package name, `name[/sub]` or
+`@scope/name[/sub]`, found in the nearest `node_modules` above the using file
+and mapped through its `package.json` `exports` (a string, or the `contract` or
+`default` condition), else `index.contract` (`contract-use-package`).
+`contract sources <file>` prints every file a compile reads, as JSON. A file's
 names are its own declarations and the names its `use` lines list, each
 optionally renamed with `as` (LLP 1091): a component, shape, function, style,
 keyframes, or timeline, declared by the used file or named by its own `use`
@@ -494,7 +500,7 @@ Several tags share a kernel node type with different fixed properties.
 | Family | Names |
 | --- | --- |
 | Boxes / layout | `view`, `box`, `row`, `column`, `scroll`, `list` |
-| Structure | `main`, `header`, `nav`, `section`, `footer`, `article`, `aside`, `dialog` |
+| Structure | `main`, `header`, `nav`, `section`, `footer`, `article`, `aside`, `dialog`, `hr` |
 | Text and controls | `text`, `button`, `link`, `input`, `textarea`, `select`, `option` |
 | Media / metadata | `image`, `video`, `audio`, `iframe`, `canvas`, `head` |
 | SVG scene | `svg`, `g`, `path`, `polyline`, `polygon`, `circle`, `ellipse`, `line`, `rect` |
@@ -835,7 +841,9 @@ makes the element focusable — a click, `focus(id)` and `autofocus` reach it, a
 the elements that are stops by kind (inputs, buttons, handlers) in tree order. A
 negative value is focusable but skipped by Tab, a handler's element included
 (`button tabindex=(revealed ? 0 : -1)` keeps a hidden swipe action out of the order).
-A disabled, inert or `display: none` element is never focusable. Tab and Shift-Tab walk
+An inert or `display: none` element is never focusable, nor is a disabled `button`,
+`input`, `textarea` or control. `disabled` means nothing on a box, as on a `<div>` in
+Chrome: `box tabindex=0 disabled=true` is still a Tab stop. Tab and Shift-Tab walk
 and wrap on the web, macOS, iPadOS's hardware keyboard and Linux; tvOS's remote skips a
 negative value and keeps UIKit's geometric order.
 

@@ -13,6 +13,14 @@ import UIKit
 typealias KeyPlatformView = UIView
 #endif
 
+extension NodeView {
+    /// `disabled` where HTML defines it: a button, an input, a control. It
+    /// takes those out of focus and keys; on any other box it means nothing
+    /// there, as Chrome's `<div disabled>` (LLP 1088 D7.3, amended
+    /// 2026-10-04). A press is still refused on any disabled node.
+    var formDisabled: Bool { disabled && ["button", "input", "textarea", "control"].contains(kind) }
+}
+
 extension KeyCodes {
     /// The chord prefix of the modifiers held, in `Event::key`'s spelling.
     static func held(shift: Bool, control: Bool, alt: Bool, meta: Bool) -> String {
@@ -40,7 +48,7 @@ extension Presenter {
         var path: [UInt32] = []
         var next: KeyPlatformView? = target
         while let view = next {
-            if let node = view as? NodeView, views[node.id] === node, node.handlers.contains("key"), !node.disabled, !node.inert {
+            if let node = view as? NodeView, views[node.id] === node, node.handlers.contains("key"), !node.formDisabled, !node.inert {
                 path.append(node.id)
             }
             next = view.superview
@@ -153,7 +161,7 @@ extension NodeView {
     /// with it: true when a `key` handler prevented its default. An input
     /// method's composition keeps its keys.
     func editorKeyDown(_ presses: Set<UIPress>) -> Bool {
-        guard !disabled, let key = presses.first?.key, (field?.markedTextRange ?? textArea?.markedTextRange) == nil else { return false }
+        guard !formDisabled, let key = presses.first?.key, (field?.markedTextRange ?? textArea?.markedTextRange) == nil else { return false }
         return presenter?.keyDown(at: self, NodeView.keyName(key), held: KeyCodes.held(key.modifierFlags)) == true
     }
 }

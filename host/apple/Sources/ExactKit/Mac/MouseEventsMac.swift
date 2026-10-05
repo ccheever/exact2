@@ -3,7 +3,8 @@
 // (NodeViewMac's `rightMouseDown`).
 //
 // A wheel's turn or a trackpad's scroll over a node is heard by every
-// enabled node from it up that declares `wheel`, innermost first, as the
+// node from it up that declares `wheel` (a disabled box included, as a
+// `<div disabled>` in Chrome; not a disabled form control or an inert node), innermost first, as the
 // DOM's bubbles; one that calls `preventDefault()` keeps the scroll from
 // happening (a canvas zooming on ⌘-scroll). A trackpad's pinch is a wheel
 // with Control held and `deltaY` of -100 × the magnification, which is how
@@ -18,6 +19,26 @@ import AppKit
 import UniformTypeIdentifiers
 
 extension NodeView {
+    // Any button holds the pointer, as in a browser (review b5-b 1): the
+    // secondary's moves and the middle button's down, moves and up are the
+    // held node's pointer events too, `buttons` 2 or 4 (`pointerSample`).
+    override func rightMouseDragged(with event: NSEvent) {
+        pointerDragged(event)
+        if canvasInput?.pointer(event, phase: "move") != true { super.rightMouseDragged(with: event) }
+    }
+    override func otherMouseDown(with event: NSEvent) {
+        pointerPressed(event)
+        if canvasInput?.pointer(event, phase: "down") != true { super.otherMouseDown(with: event) }
+    }
+    override func otherMouseDragged(with event: NSEvent) {
+        pointerDragged(event)
+        if canvasInput?.pointer(event, phase: "move") != true { super.otherMouseDragged(with: event) }
+    }
+    override func otherMouseUp(with event: NSEvent) {
+        pointerReleased(event)
+        if canvasInput?.pointer(event, phase: "up") != true { super.otherMouseUp(with: event) }
+    }
+
     /// `wheel` at this node and its ancestors, once per event however many
     /// of the views on the way pass it up; true when a handler prevented
     /// its default, and the scroll stops here.
@@ -27,7 +48,7 @@ extension NodeView {
         var path: [NodeView] = []
         var next: NSView? = self
         while let view = next {
-            if let node = view as? NodeView, presenter.views[node.id] === node, node.handlers.contains("wheel"), !node.disabled, !node.inert {
+            if let node = view as? NodeView, presenter.views[node.id] === node, node.handlers.contains("wheel"), !node.formDisabled, !node.inert {
                 path.append(node)
             }
             next = view.superview
@@ -71,7 +92,7 @@ extension NodeView {
     /// The dragged files this node would take: file URLs of a type the
     /// manifest declares.
     private func droppable(_ info: NSDraggingInfo) -> [URL] {
-        guard handlers.contains("drop"), !disabled, !inert else { return [] }
+        guard handlers.contains("drop"), !formDisabled, !inert else { return [] }
         let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         return urls.filter(ExactDocuments.accepts)
     }
@@ -93,7 +114,7 @@ extension NodeView {
     static func dropTarget(_ view: NSView) -> NodeView? {
         var next: NSView? = view
         while let view = next {
-            if let node = view as? NodeView, node.handlers.contains("drop"), !node.disabled, !node.inert { return node }
+            if let node = view as? NodeView, node.handlers.contains("drop"), !node.formDisabled, !node.inert { return node }
             next = view.superview
         }
         return nil

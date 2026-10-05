@@ -1,11 +1,16 @@
 # LLP 1093: Text that flows across boxes — CSS multi-column, and the break rules that only mean something with it
 
 **Type:** RFC
-**Status:** Draft r2 (round 1 of 3). r1 was reviewed twice by Grok 4.7 (xhigh), both one family because the Codex/Astra budget was exhausted, with two scopes: CSS fidelity against Chrome 154 (`llp/reviews/1093-r1.grok-a.md`) and kernel and host implementation (`llp/reviews/1093-r1.grok-b.md`). Both NOT READY. r2 resolves every finding but one fix, A1's, which is rejected on its own evidence (§9). Admitted (orchestrator for Charlie, 2026-10-05) by the trade §8 Q1 offered, recorded in `rules/DEFERRED.md`.
+**Status:** Accepted (r4, by the orchestrator under Charlie's delegation after three review rounds; Grok 4.7 only — Codex budget exhausted; round-3 findings folded unreviewed — the implementation review checks them), 2026-10-05.
+- r1 was reviewed with two scopes: CSS fidelity against Chrome 154 (`llp/reviews/1093-r1.grok-a.md`) and kernel and host implementation (`llp/reviews/1093-r1.grok-b.md`). Both were NOT READY.
+- r2 had a delta review (`llp/reviews/1093-r2.grok.md`): NOT READY, with five MATERIAL findings.
+- r3 had the final round (`llp/reviews/1093-r3.grok.md`): NOT READY, with four MATERIAL findings.
+- r4 folds round 3's fixes as proposed, with no further review (§9).
+- Admitted (orchestrator for Charlie, 2026-10-05) by the trade §8 Q1 offered, recorded in `rules/DEFERRED.md`.
 **Systems:** Kernel (`schema.json` rows; a new `kernel/src/fragment.rs`; `TextMeasurer::lines`; `Kernel::fragments`), vendored Taffy (one patch), Contract (lowering), Apple host (`exact_set_lines`, a `fragments` op, fragment layers), Linux host (new `fragments.rs`), web hosts (none: the browser does it), Agent (LLP 1012 `layout`, `tap`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-05
-**Revised:** 2026-10-05 (r2)
+**Revised:** 2026-10-05 (r2, r3, r4)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stage 1 on 2026-10-05, stage 2 on 2026-10-06 (§6)
 **Related:** the reader's diary (`~/projects/x2apps/reader/DIARY.md`, Rough and Top 5 item 4); the typography lane (`fix/typo` `0b56caef4`, which refuses these rows by name, and its QUEUE line, whose recommendation this takes); LLP 1001 §5–§6; LLP 1043.000 D4–D7, §8; LLP 1051.000 (`frame()`); LLP 1083; `vendor/taffy/EXACT-PATCHES.md`; the element resize event (`resize=action`, its own document, landing before stage 2). External, read 2026-10-04: CSS Multi-column Layout 1 §3–§7; CSS Fragmentation 3 §3–§5; Chrome 154.0.8037.98's block fragmentation (break appeal, column balancer), measured by the reviews and re-measured for r2.
 
@@ -51,7 +56,11 @@ CSS fragmentation has three kinds of container: columns, pages (print, `@page`) 
 | `break-before`, `break-after` | `auto`, `avoid`, `column`, `avoid-column` | `auto` |
 | `break-inside` | `auto`, `avoid`, `avoid-column` | `auto` |
 
-`column-gap` stays an `f32` defaulting to 0, so flex and grid are unchanged. An unset bit on a multicol container computes to 1em of that element's own `font-size` (Chrome: a 16px multicol inside a 40px parent has a 16px gap); an authored 0 stays 0, and the web emits nothing for an unset bit.
+`column-gap` stays an `f32` defaulting to 0. `to_taffy` keeps copying it into Taffy's engine gap (`kernel/src/style.rs:1331`), so flex and grid are unchanged.
+
+The multicol gap is resolved separately, at layout, into the patch's `gap` (D2). It is the row when its mask bit is set, so an authored 0 stays 0. Otherwise it is the element's computed `font-size`, CSS's 1em. Chrome gives a 16px gap for a 16px multicol inside a 40px parent, and 40px for `font-size: 2em` on a 20px parent.
+
+The web emits nothing for an unset bit, and the computed value stays `normal`.
 
 **Refused by name at lowering, each with what to write instead:**
 
@@ -64,19 +73,26 @@ CSS fragmentation has three kinds of container: columns, pages (print, `@page`) 
 
 **D1. A multicol container is a block container with `column-count` or `column-width` other than `auto`.** That means `view`, a `text`, or any tag whose `display` is `block`.
 
-- It establishes an independent formatting context: its first child's `margin-top` stays inside it (Chrome: 30px below the container's top).
+- It establishes an independent formatting context. Its first child's `margin-top` stays inside it (Chrome: 30px below the container's top), and it shares no floats with its parent.
 - A `text` that is a multicol container is one paragraph whose lines flow through its columns.
 - The used count N and width W are CSS Multicol §3.4's pseudo-algorithm over the content-box width U, the two rows and the gap (for `column-width: w`, N = max(1, ⌊(U + gap)/(w + gap)⌋), W = (U + gap)/N − gap).
 - Columns progress from the inline-start edge. Column i's left edge in the content box is i·(W + gap) under `ltr` and U − W − i·(W + gap) under `rtl` (Chrome, three columns of 100 with a 10px gap in 320: x = 220, 110, 0). Columns beyond N are overflow columns. They are scrollable overflow, clipped by `overflow` as anything else is.
 
 **D2. The flow thread is laid out by Taffy, once, at width W.** This takes one vendored-Taffy patch, the next number in `EXACT-PATCHES.md` (Exact's: upstream has no multicol). A block container whose style carries `multicol: Some { count, width, gap, used_height }`:
 
-- sets `establishes_new_bfc` (`vendor/taffy/src/compute/block.rs:516`), before margin collapsing is decided;
-- once its content width U is known, computes W, and lays its in-flow children out with W as their available width and as the basis for percentage widths (Chrome: `width: 50%` is 100px in a 400px two-column container);
-- gives children a percentage-height basis only when its own height is definite before the flow thread is laid out (`height: 50%` in a 200px-tall multicol is 100px). Under an auto height the basis is indefinite (Chrome: an 18px box in a 59px container);
-- sizes itself from `used_height` when the kernel has written one (D5). `used_height` is never a percentage basis, so writing it does not change the children's inputs, and Taffy's cache keeps them.
+- **Is its own formatting context.** It joins both of `block.rs`'s conditions:
+  - the one that chooses a new `BlockFormattingContext` in `compute_block_layout` (`vendor/taffy/src/compute/block.rs:369` and `:419–425`), so it shares no floats with its parent;
+  - the local of the same name in `compute_inner` (`:516`), which keeps its first child's margin inside.
+- **Lays its children out at W.** Once its content width U is known, it computes W. Its in-flow children get W as their available width and as their basis for percentage widths (Chrome: `width: 50%` is 100px in a 400px two-column container). When the used width is content-sized, the outer width stays the `:552` result. U is that width less the horizontal content-box inset, which is what children already resolve against (`container_inner_width`, `:972–973`). The children are laid out as one column, N = 1 and W = U (D10.5).
+- **For `overflow: scroll`, U and H are its client box.** Taffy reserves a scrollbar gutter only there (`:465–476`). The native hosts' scrollbars are overlays, so `overflow: auto` reserves none, and the fixtures use `scrollbar-width: none`, as LLP 1083's did.
+- **Gives children a percentage-height basis only when its own height is definite before the flow thread is laid out.** In Chrome, `height: 50%` in a 200px-tall multicol is 100px. Under an auto height the basis is indefinite: Chrome makes the box 18px in a 59px container.
+- **Takes `used_height`, when the kernel has written one (D5), only at `container_outer_height`, after its children are laid out (`:615–618`).** `used_height` is the columns' content-box height H.
+  - The value written there is H plus the vertical padding and border, then the existing `min-height`/`max-height` clamp. Chrome 154 gives a padded `balance` container 60px for 40px of columns, `min-height: 100px` 100px, and `max-height: 30px` with `padding: 10px` 50px.
+  - It is never written to `style.size`, to `known_dimensions`, or to `container_percentage_resolution_height`. So the children's inputs, their indefinite basis and Taffy's cache all stand.
 
-Every container without the field is unchanged. That is held by the 512-tree incremental-against-fresh comparison Patch 7 left behind and by the existing fixtures.
+  Writing it as a style height would be wrong. Chrome makes the same tree with `height: 59px` resolve the box to 30px and push the sibling into a third column, with a `scrollWidth` of 600, not 400.
+
+Every container without the field is unchanged. That is held by the 512-tree incremental-against-fresh comparison Patch 7 left behind, and by the existing fixtures.
 
 **D3. The cut is a walk over the flow thread in document order, in the kernel** (`kernel/src/fragment.rs`; `layout.rs` is at 1,492 of its 1,500 lines). It produces intervals [s₀, e₀), [s₁, e₁), … in flow-thread y, each at most the column height H. Column k shows the content in its interval, translated by (column k's left edge (D1), −sₖ). Translation replaces CSS's pagination struts, and nothing is re-laid out.
 
@@ -134,9 +150,23 @@ Every case above is a fixture (§4), measured before code. A pattern the fixture
 
 Chrome's own results are the table's evidence: six 20px blocks with `auto` under an auto height make a 300×120 container with every block at x = 0. Four 20px blocks under `max-height: 200` make a 40px container with `balance` and an 80px single column with `auto`.
 
-**The balancer is Chrome's.** It starts at the content's height over N, no lower than the tallest unbreakable piece. It runs D4's cut at that height. While the cut needs more than N columns and H is below its cap, it stretches H by the least space shortage the cut reported, and it stops when H no longer grows. There is no N − 1 bound: when the shortage is one line, each walk moves one line. The shortage includes the lines D4's earlier perfect break pushes on. That is why six lines with `widows: 4` in two columns balance to 80px (2 + 4), not 60px (3 + 3): at 60, the perfect break after line 2 needs a third column. Eight lines with `orphans: 3; widows: 3` in three columns stay at 60px (3 + 3 + 2), because that split fits in N columns. No split there is perfect, so stretching stops.
+**The balancer is Chrome's.** It starts at the content's height over N, clamped to the cap below and no lower than the tallest unbreakable piece, and runs D4's cut at that height. Without the clamp, a guess that already fits in N columns would never meet the cap.
 
-Each walk reruns the cut over geometry already laid out, with no re-measure and no Taffy pass. With `balance` under an auto or `max-height` height, the kernel writes the balanced H into the container's `used_height` (D2) and lays out once more. Only the container and what follows it move. H depends on the flow thread, the flow thread depends on W, and neither depends on the container's height, so the second pass is a fixed point. A fresh replay reaches the same frames, which `layout_equality.rs` holds with multicol trees. `used_height` lives in the kernel's fragmentation state and is applied by `taffy_style`, so `measure_auto_height`'s restore (`kernel/src/kernel/geometry.rs:57–75`) puts it back. `measure()` on a multicol container runs the same cut and answers the balanced height.
+Chrome 154: six 20px blocks under `height: 40px` in two columns balance to 40px, three columns of two (`scrollWidth` 600), not to the guess of 60px. Under a definite height the container's border box stays the specified one. Under `max-height` it is D2's clamped outer height: four 20px blocks under `max-height: 30px` make a 30px container, `scrollWidth` 600. Its cap is:
+
+- `h` under a definite height;
+- `m` under `max-height`;
+- the flow thread's single-column height under an auto height.
+
+While the cut needs more than N columns and H is below its cap, it adds the cut's *shortage* to H. The shortage is the least addition that would let some column end later than it does: the overflow of the next line or box past that column's bottom. It is 0 when no addition would, as when every column ends at a forced break. Four paragraphs with `break-before: column` in `column-count: 2` keep four columns at any height.
+
+The loop stops when the content fits in N columns, the shortage is 0, or H reaches the cap. Extra columns are then overflow columns of that height. A step need not reduce the column count, because a later one can. There is no N − 1 bound: when the shortage is one line, each walk moves one line. The shortage includes the lines D4's earlier perfect break pushes on. That is why six lines with `widows: 4` in two columns balance to 80px (2 + 4), not 60px (3 + 3): at 60, the perfect break after line 2 needs a third column. Eight lines with `orphans: 3; widows: 3` in three columns stay at 60px (3 + 3 + 2), because that split fits in N columns. No split there is perfect, so stretching stops.
+
+Each walk reruns the cut over geometry already laid out, with no re-measure and no Taffy pass.
+
+With `balance` under an auto or `max-height` height, the kernel writes the balanced H into the container's `used_height` (D2) and lays out once more from the root. Only the container, its ancestors and what follows it move. The children see the same indefinite basis, so they hit Taffy's cache. H depends on the flow thread and the flow thread on W, and neither on the container's height, so the second pass is a fixed point. A fresh replay reaches the same frames, which `layout_equality.rs` holds with multicol trees.
+
+`used_height` lives in the kernel's fragmentation state, and `taffy_style` maps it into the patch's `multicol` field, never into `size`. `measure_auto_height` (`kernel/src/kernel/geometry.rs:57–75`) is the hypothetical layout behind `measure()`. It clears `used_height` for its compute, runs the cut on the result, and answers the border box D2 would write: the cut's H plus padding and border, clamped. Its restore then puts the live `used_height` back.
 
 **D6. Lines come from the host's engine, on request.** `TextMetrics` stays a size and a baseline. `TextMeasurer` gains a method with a default that returns nothing, in which case the paragraph is monolithic:
 
@@ -152,12 +182,17 @@ It returns each line box's bottom in content coordinates, for the request the me
 
 Measured is cut is painted, because it is one paragraph.
 
-**D7. What the kernel publishes.** Fragmentation stays sparse, like 1043.000's resolved exclusions. It is a kernel record, `Kernel::fragments(key)`, read the way `Kernel::sticky_constraint` is read:
+**D7. What the kernel publishes.** Fragmentation stays sparse, like 1043.000's resolved exclusions. The cut's output is stored, not recomputed later. Once frames are translated, a function rederiving it from published frames, as `sticky_constraint` is rederived (`kernel/src/kernel/sticky.rs:91–148`), could not recover a line range. The record is `Kernel::fragments(key)`. It is written by each cut and removed when a box no longer straddles.
 
 - Every box in a multicol container's flow is published at its translated frame. A box wholly inside one column needs nothing new from a host.
 - A box that straddles cuts is published with its **union** frame, which is what `getBoundingClientRect` returns (Chrome: two client rects at x = 0 and 220 have a 420-wide union) and so what `frame()` answers on the web.
 - Each such box also gets a list of fragments, one per column it touches. A fragment is a rectangle in the box's coordinates, sliced as CSS `slice` does: the first keeps the top edge, the last the bottom, and each one before a break runs to its column's end. A paragraph's fragment also carries its line range and an (dx, dy) to add to those lines' unfragmented positions.
-- The container's scrollable overflow is the fragmented extent: through the right edge of its last column, and H tall. Publication's `set_content` (`kernel/src/layout/publication.rs:92–97`) gets that, never the flow thread's height. Hosts grow scroll extents from that field (`host/apple/src/host.rs:1344`, `host/linux/src/paint.rs:1439`). The fixture is Chrome's `scrollWidth` of 260 for three 80px columns with a 10px gap. It uses `scrollbar-width: none`, as LLP 1083's did.
+- **The container's scrollable overflow is one border-box rectangle**, written through publication's `set_content` (`kernel/src/layout/publication.rs:92–97`) in place of the flow thread's.
+  - Its extent is the union of the column boxes and every flow box's translated border box, which keeps D10.4's absolutely positioned boxes, plus the end padding. It is never smaller than the client box.
+  - Chrome 154: three 80px columns with a 10px gap give `scrollWidth` 260. With `padding: 10px` they give 280 by 60. An absolutely positioned box at `top: 200px` in the flow gives 620.
+  - The hosts' walks (`host/apple/src/host.rs:1344–1350`, `host/linux/src/paint.rs:1439–1445`) start from that field and take each child's published frame. The frames are already translated, so the walks agree with it.
+  - `set_content` stores the union's right and bottom edges, not its width, which is how `scrollable_overflow_rect` is stored today.
+  - Under `rtl`, overflow columns extend left of the box (Chrome: columns at x = 68, −22, −112 in an 80px box, still `scrollWidth` 260). Those edges cannot record overflow left of 0, and the hosts' extents grow only rightward, which D10.8 declares.
 - The container is published with its column rectangles, and with which of them hold a box. A zero-height box from a forced break counts as holding one.
 
 A host draws `column-rule` centred in each gap between two columns that both hold a box, as tall as the columns. A column with no box gets no rule. A rule wider than its gap stays centred on the gap, moves no column, and paints under the columns' contents (Chrome: a 12px rule in a 4px gap shows only in the gap).
@@ -166,8 +201,16 @@ On Apple these reach the batch as a `fragments` op beside `sticky`, the presente
 
 **D8. Each host paints and hits the fragments it was given.** The files that would hold this are at the line cap, so each host's part goes in new files called from the existing functions:
 
-- **Linux, stage 1.** A new `host/linux/src/fragments.rs` covers three things. It paints a paragraph's buffer lines at each fragment's offset, and a rule as a rectangle. It produces the `layout` reply's fragments. It tests hits against fragments. `paint.rs` (1,498 lines) and `presenter.rs` (1,488) only call it. `hit` and `tap` accept a point only inside a fragment, never anywhere in a union.
-- **Apple, stage 2 (macOS and iOS).** A fragmented paragraph's view holds one layer per fragment, sized to it, drawing its line range at the fragment's offset, so no paragraph backs a two-page layer. Column rules are thin layers on the container. This lives in new files beside `NodeViewMac.swift` (1,480) and `NodeViewIOS.swift` (1,479). Their `hitTest` overrides (`NodeViewMac.swift:668`, `NodeViewIOS.swift:722`) call one line into it, answering only inside fragments. Selection (`TextSelectionMac.swift:293–310`, and iOS's) picks the fragment containing the point and inverts its (dx, dy) into content coordinates. The existing `lineIndex` then applies, so `selectionchange` holds across columns.
+- **Linux, stage 1.** A new `host/linux/src/fragments.rs` paints a paragraph's buffer lines at each fragment's offset and a rule as a rectangle. It also produces the `layout` reply's fragments and tests hits.
+  - `paint.rs` has two lines to spare (1,498), so the same change moves its paragraph paint arm (`paint.rs:1078–1143`) into `fragments.rs`, and `paint.rs` ends at or below 1,500. `presenter.rs` (1,488) only calls it.
+  - Hits follow the record. A box with no `fragments` record is hit as its translated frame, like any box. A box with one is hit only inside a fragment, never in its union's gap. `tap` aims at the centre of the first fragment, not `PaintedBox::center` (`presenter.rs:1156`), which sits in the gap.
+- **Apple, stage 2 (macOS and iOS).** A fragmented paragraph's view holds one layer per fragment, sized to it, drawing its line range at the fragment's offset, so no paragraph backs a two-page layer. Column rules are thin layers on the container.
+  - This lives in new files beside `NodeViewMac.swift` (1,480) and `NodeViewIOS.swift` (1,479). Their `hitTest` overrides (`NodeViewMac.swift:668`, `NodeViewIOS.swift:727`) each make a one-line call into it, with Linux's rule.
+  - One map serves every text hit: the point's fragment, by its rectangle inside the union, then the inverse of its (dx, dy). A point in no fragment, in the union's gap, maps to nothing.
+  - On macOS the map feeds `TextSelectionMac`'s `line` and `index` (`:293–310`), so `lineIndex` and the caret's `stringIndex` both see unfragmented content coordinates.
+  - `draw` (`:315–320`) paints `selectionRects` per fragment, for that fragment's line range, offset by its (dx, dy).
+  - On both platforms the map also feeds `InlineText.textOffset` (`InlineText.swift:116–128`), which link hits use.
+  - iOS has no text selection (`TextSelectionMac.swift` is macOS-only), so there it is link hits alone. `selectionchange` then holds across columns on macOS, the one host with a selection owner (`PresenterMac.swift:60`).
 - **Web (JS target and wasm host).** The rows reach CSS by their own names; the browser lays out, breaks and paints, and the kernel's cut never runs.
 
 **D9. The web is CSS multicol itself, and Chrome is the oracle.** Firefox has never implemented `widows` and `orphans`, and Firefox's and WebKit's balancers are their own. `conform-firefox` and `conform-webkit` record those cases as browser differences, not exact2's. Unlike `wrap-flow` (LLP 1043.000 D1), nothing executes multicol for the browser: every engine ships it.
@@ -177,10 +220,11 @@ On Apple these reach the batch as a `fragments` op beside `sticky`, the presente
 1. **A box with a definite `height` or `min-height`** is monolithic. Chrome slices it (a 200px box in 150px columns is 190×150 and 190×50; `min-height: 300px` spans three columns). **A box with `max-height`** is monolithic too. Chrome keeps its border box at the cap and fragments its overflowing children. The message for both says to use an auto height.
 2. **Row and wrapped flexboxes, grids, and a nested multicol container taller than its column** are monolithic. Chrome fragments them; a nested multicol that fits is one rect in both.
 3. **A box with its own decoration** that would fragment is monolithic until hosts slice decorations (§5, deferred). Decoration here means a background, border, radius, shadow, gradient, filter or clip-path. Chrome slices it. A highlight is an inline run's background, painted with its line, and unaffected.
-4. **An absolutely positioned box whose containing block lies inside the flow** is placed unfragmented, translated with its containing block's first fragment. A box whose containing block is the multicol container itself is placed against the container, as CSS does.
-5. **A multicol container whose width is sized from content** (shrink-to-fit in a flex row) takes its content's intrinsic widths as one column. W is not solved from an intrinsic U.
+4. **An absolutely positioned box whose containing block lies inside the flow** is placed at its flow-thread position, then translated by the column whose interval holds its own flow-thread top. It is never fragmented. Chrome places a 10×10 box at `top: 200px` in 40px columns with a 90px pitch at (540, 0): flow y = 240, column 6, `scrollWidth` 620, `scrollHeight` 40. The kernel matches that, so the case is parity. Chrome would fragment a box that crosses its column's bottom. A box whose containing block is the multicol container itself is placed against the container, as CSS does.
+5. **A multicol container whose width is sized from content** (shrink-to-fit in a flex row) is one column, N = 1 and W = U, and U is Taffy's content-based width (D2). Chrome sizes it from N columns.
 6. **Markdown, exclusions and virtualized lists.** One-node Markdown (LLP 1045) is monolithic. Exclusions (`wrap-flow`) and virtualized lists inside a flow are refused. `position: sticky` inside a flow behaves as `relative`.
 7. **Fixed-height items in a column flexbox are pushed whole, where Chrome slices them.** This is item 1, inside a flexbox. A column of fixed-height items will not match Chrome until it is lifted. A gap before an item Chrome slices through is kept there; in the kernel the item moves with its gap truncated.
+8. **Under `rtl`, overflow columns, which lie left of the box, are painted and clipped but not scrollable** on native hosts, whose scroll extents grow only rightward. Paging by `translate` (D11) is unaffected. Chrome scrolls them.
 
 **D11. How an app pages: by `translate`, and by reading where the flow ends.** There is no page-count fact and no new `Geometry` field. A spread is `column-count=2` on a container two pages wide, and each turn moves it by the container's width plus a gap. The page arithmetic is all `frame()`, read in the element resize event's action on the flow (`resize=action`, its own document, landing before stage 2):
 
@@ -214,7 +258,7 @@ Not taken:
 
 ## 4. Tests
 
-- **Chrome fixtures.** `kernel/tests/it/browser_columns.rs` and `fixtures/browser_columns.tsv`, measured in Chrome 154 by `browser_cases.rs`'s method, with each box's fragments from `getClientRects`. Text is `white-space: pre` with a pixel `line-height`, so Chrome's line boxes are exact and `MonospaceMeasurer` reproduces them. Every Chrome result cited in D1–D7 and D10 is a case, about forty in all. The reviews' measurements (`llp/reviews/1093-r1.grok-a.md`) are the first draft of the TSV.
+- **Chrome fixtures.** `kernel/tests/it/browser_columns.rs` and `fixtures/browser_columns.tsv`, measured in Chrome 154 by `browser_cases.rs`'s method, with each box's fragments from `getClientRects`. Text is `white-space: pre` with a pixel `line-height`, so Chrome's line boxes are exact and `MonospaceMeasurer` reproduces them. Every Chrome result cited in D1–D7 is a parity case, about forty in all. `mismatches` (`browser_cases.rs:177–188`) compares one rect per node. A row whose Chrome result is several `getClientRects` is also compared, rect by rect, against `Kernel::fragments`, through a fragment comparison beside it in `browser_columns.rs`. A case D10 declares carries the kernel's expected rects beside Chrome's, and both comparisons use the former. Each D10 row then holds the deviation to exactly what is declared. The reviews' measurements (`llp/reviews/1093-r1.grok-a.md`, `1093-r2.grok.md`) are the first draft of the TSV.
 - **Kernel.** `layout_equality.rs` gains multicol trees: incremental equals rehydrated equals fresh replay, with the cut's resume point and `used_height` exercised. Unit tests hold the §3.4 arithmetic, propagation and the appeal ranking.
 - **Hosts.** `TextParityMacTests` gains a multicol case: a bundled face, so lines match Chrome's, and each column's first and last words equal Chrome's. The Linux host's `css_tests` gains the same case, plus a fragment hit-test.
 - **Contract.** The admitted names lower, and each refusal in §1 and D10 is a diagnostic test. These replace `fix/typo`'s fragmentation refusals in `contract/cli/tests/it/typography.rs`.
@@ -233,7 +277,9 @@ Not taken:
 | What | Preconditions |
 |---|---|
 | Slicing a box's own decorations per fragment (D10.3; the orchestrator kept it here) | stage 2's per-fragment layers; an app that needs a decorated box to split; Chrome fixtures for radius and shadow slicing |
-| Slicing fixed-, min- and max-height boxes, and items (D10.1, D10.7) | the cut can end a fragment inside a box with no children to break between; Chrome fixtures exist already |
+| Slicing `height` and `min-height` boxes, and fixed-height items (D10.1, D10.7) | the cut can end a fragment inside a box with no children to break between; stage 1's D10 fixture rows |
+| Fragmenting a `max-height` box's overflowing children (D10.1) | the cut fragments children past a border box that stays at its cap (Chrome: a second, zero-height fragment) |
+| Scrolling `rtl` overflow columns (D10.8) | hosts scroll overflow left of a box's origin |
 | Row-flex, grid and nested-multicol fragmentation (D10.2) | an app that needs it; Chrome fixtures for flex lines and grid rows |
 | Fragmenting absolutely positioned boxes (D10.4) | an app that needs it |
 | Splitting one-node Markdown (D10.6) | the Markdown viewer (LLP 1033) asks; its engine then answers `lines` with block boundaries |
@@ -268,5 +314,24 @@ Nothing yet.
 
 **r2 (2026-10-05).** Every finding of both r1 reviews is resolved except one, rejected with evidence. Each disposition is in its review file.
 
-- *A1's fix* was to keep stretching while appeal improves within N columns. It is rejected, because it predicts 100px (3 + 5, perfect, two columns) for the reviewer's own eight-line case, where Chrome stays at 60. The six-line case it raised is explained by D4's earlier perfect break pushing a third column, which the ordinary stretch then removes. D5 now says so, and both cases are fixtures.
+- *A1's fix* was to keep stretching while appeal improves within N columns. It is rejected, because it predicts 80px (4 + 4, perfect, two columns) for the reviewer's own eight-line case, where Chrome stays at 60. r2 said 100px; the r2 review corrected it to 80px. The six-line case it raised is explained by D4's earlier perfect break pushing a third column, which the ordinary stretch then removes. D5 now says so, and both cases are fixtures.
 - *The changes:* A2–A9 and B1–B5, B9 rewrote D1–D5 and §1. A10–A13, B7, B8 and B10 changed D7, D8 and D10. B6, B12 and B13 changed D2, D6 and D8. B11 and the orchestrator's decisions changed D11, §5, §6 and §8.
+
+**r3 (2026-10-05).** This answers the r2 delta review (`llp/reviews/1093-r2.grok.md`). Each of its findings was checked in the code and re-measured in Chrome 154.
+
+- *Finding 1:* `used_height` becomes Taffy's `container_outer_height` only, so it is never a percentage basis (D2, D5). `measure_auto_height` answers the cut's height.
+- *Finding 2:* the scrollable overflow is a union of the column boxes and translated boxes, plus padding (D7). `rtl`'s leftward overflow is declared as D10.8.
+- *Finding 3:* the patch joins both BFC conditions, and a content-sized width is one column (D2, D10.5).
+- *Finding 4:* fragments are a stored record. A box without one is hit as its frame, and `tap` aims at the first fragment (D7, D8).
+- *Finding 5:* one fragment map feeds selection, the caret, highlights and `textOffset`. iOS has link hits only (D8).
+- *Findings 6–9:* the balancer's cap and shortage (D5), the layout-time 1em gap (§1), D10's fixture rows and the split deferred rows (§4, §5), and the paragraph arm leaving `paint.rs` (D8).
+- *Finding 10:* the status line and A1's height (above).
+
+**r4 (2026-10-05).** This folds the round-3 review (`llp/reviews/1093-r3.grok.md`) as the reviewer proposed. Under the three-round rule it gets no further review; the implementation review checks it. The code citations were checked on origin/main.
+
+- *Finding 1:* `used_height` is the content-box H. The outer height written is H plus padding and border, then clamped (D2, D5).
+- *Finding 2:* the balancer's first guess is clamped to the cap (D5).
+- *Finding 3:* an absolutely positioned box takes its own flow position's column, so 620 is parity (D10.4).
+- *Finding 4:* for a content-sized width, U is the outer width less the inset (D2).
+- *Findings 5–6:* `set_content` stores edges (D7, D10.8), and fragmented rows get a fragment comparison (§4).
+- *Findings 7–9:* the status line and the line numbers.

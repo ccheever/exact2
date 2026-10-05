@@ -134,7 +134,8 @@ def rosterTy (f : String) (args : List STy) : STy :=
   if f = "now" ∨ f = "length" ∨ f = "floor" ∨ f = "max" ∨ f = "min" ∨ f = "indexOf" then .number
   else if f = "isEmpty" ∨ f = "includes" ∨ f = "startsWith" ∨ f = "endsWith" then .bool
   else if f = "toString" ∨ f = "trim" ∨ f = "encodeURIComponent" ∨ f = "join"
-    ∨ f = "replaceAll" ∨ f = "toLowerCase" then .string
+    ∨ f = "replaceAll" ∨ f = "toLowerCase" ∨ f = "formatTime" ∨ f = "formatDate" ∨ f = "formatNumber"
+    ∨ f = "t" then .string
   -- Text's, or a list's own type (LLP 1088 §9.1).
   else if f = "slice" then
     match args with

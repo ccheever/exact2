@@ -123,6 +123,7 @@ impl Gen<'_> {
             let w = Writes {
                 slots: &states,
                 send: false,
+                nav: false,
             };
             let typing = if i == 0 {
                 std::mem::take(&mut first)
@@ -297,9 +298,11 @@ impl Gen<'_> {
             2 => {
                 let c = self.expr(&ctx.heads, &Ty::Bool, 2, false);
                 out.push_str(&format!("{pad}when {c}\n"));
+                self.arm_child(ctx, indent + 2, out);
                 self.items(ctx, depth - 1, indent + 2, out);
                 if self.rng.chance(1, 2) {
                     out.push_str(&format!("{pad}else\n"));
+                    self.arm_child(ctx, indent + 2, out);
                     self.items(ctx, depth - 1, indent + 2, out);
                 }
             }
@@ -316,10 +319,12 @@ impl Gen<'_> {
                 let shown = self.show(&v, &inner);
                 out.push_str(&format!("{pad}    text {shown} testId={written}\n"));
                 self.targets.inert.extend(ids);
+                self.arm_child(ctx, indent + 4, out);
                 if self.rng.chance(1, 2) {
                     self.items(&some, depth - 1, indent + 4, out);
                 }
                 out.push_str(&format!("{pad}  case none\n"));
+                self.arm_child(ctx, indent + 4, out);
                 self.items(ctx, depth - 1, indent + 4, out);
             }
             4 => {
@@ -348,6 +353,17 @@ impl Gen<'_> {
                 let k = self.rng.below(self.children.len() as u64) as usize;
                 self.use_child(ctx, k, indent, out);
             }
+        }
+    }
+
+    /// Now and then a stateful child at the head of a `when` or `match`
+    /// arm: the arm instance owns its state, so hiding the arm and showing
+    /// it again starts the child afresh. Its props read the arm's
+    /// enclosing scope (`ctx`), never the `match` binder.
+    fn arm_child(&mut self, ctx: &Ctx, indent: usize, out: &mut String) {
+        if !self.children.is_empty() && self.rng.chance(1, 3) {
+            let k = self.rng.below(self.children.len() as u64) as usize;
+            self.use_child(ctx, k, indent, out);
         }
     }
 

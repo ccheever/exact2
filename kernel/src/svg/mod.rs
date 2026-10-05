@@ -9,8 +9,8 @@
 //! SVG, and no two hosts can disagree about an arc.
 
 use crate::generated::NodeType;
+use crate::gradient::ColorText;
 use crate::style::{Color, ColorValue};
-use std::fmt::Write as _;
 
 pub mod filter;
 pub mod length;
@@ -203,7 +203,7 @@ impl Paint {
     /// CSS's grammar for the subset.
     pub fn parse(css: &str) -> Option<Paint> {
         let t = css.trim();
-        if t.len() >= 4 && t[..4].eq_ignore_ascii_case("url(") {
+        if t.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("url(")) {
             let close = t.find(')')?;
             let inner = t[4..close].trim().trim_matches(|c| c == '"' || c == '\'');
             let id = inner.strip_prefix('#').filter(|id| !id.is_empty())?;
@@ -232,20 +232,29 @@ impl Paint {
 
     /// The value as CSS reads it.
     pub fn css(&self) -> String {
+        self.text(ColorText::Css)
+    }
+
+    /// The wire form: [`Self::css`], with every reference kept (LLP 1095 D1).
+    pub fn wire(&self) -> String {
+        self.text(ColorText::Wire)
+    }
+
+    fn text(&self, mode: ColorText) -> String {
         match self {
             Paint::None => "none".into(),
             Paint::CurrentColor => "currentcolor".into(),
-            Paint::Color(ColorValue::Fixed(c)) => hex(*c),
-            Paint::Color(ColorValue::LightDark(a, b)) => {
-                format!("light-dark({}, {})", hex(*a), hex(*b))
+            Paint::Color(c) => {
+                let mut out = String::new();
+                crate::gradient::color_text(&mut out, *c, mode);
+                out
             }
-            Paint::Color(c @ ColorValue::System(_)) => Paint::Color(c.pair()).css(),
             Paint::Url(id, fallback) => {
                 let tail = match fallback {
                     PaintFallback::Default => String::new(),
                     PaintFallback::None => " none".into(),
                     PaintFallback::CurrentColor => " currentcolor".into(),
-                    PaintFallback::Color(c) => format!(" {}", Paint::Color(*c).css()),
+                    PaintFallback::Color(c) => format!(" {}", Paint::Color(*c).text(mode)),
                 };
                 format!("url(#{id}){tail}")
             }
@@ -327,12 +336,6 @@ impl PaintOrder {
             .collect::<Vec<_>>()
             .join(" ")
     }
-}
-
-fn hex(c: Color) -> String {
-    let mut s = String::with_capacity(9);
-    let _ = write!(s, "#{:08x}", c.0);
-    s
 }
 
 /// SVG `marker-start`, `marker-mid` and `marker-end`: `none`, or a

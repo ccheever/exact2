@@ -370,6 +370,7 @@ public final class Agent {
         // The scheme first: the preferences' notification reads it.
         if let dark { systemScheme(dark: dark) }
         DisplayPreferences.agentContrast = contrast
+        systemContrast(more: DisplayPreferences.contrast == "more")
         DisplayPreferences.agent = (motion, transparency)
         if page != nil { PageFacts.agent = facts }
         let keyword = { (on: Bool) in on ? "reduce" : "no-preference" }

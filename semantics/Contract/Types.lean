@@ -73,12 +73,19 @@ def Ty.lePrefix : List Ty → List Ty → Bool
   | t :: ts, u :: us => t.le u && lePrefix ts us
   | _ :: _, [] => false
 
-/-- The roster entries the semantics refuses as unsupported (formats,
-geometry), at the types the roster spells. -/
+/-- The roster entries whose result is a string or a refusal on any
+arguments (the formats and `t`), and those the semantics refuses as
+unsupported (geometry), at the types the roster spells. `t` is typed as
+`contract lean` writes it: the locale slot, the key, then each
+placeholder's name and its value as `toString` prints it. -/
 def unsupportedTy (name : String) (ts : List Ty) : Option Ty :=
   if name = "formatTime" ∨ name = "formatDate" then
     match ts with | [.number, .number, .string] => .some .string | _ => .none
   else if name = "formatNumber" then match ts with | [.number, .string] => .some .string | _ => .none
+  else if name = "t" then
+    match ts with
+    | .string :: .string :: rest => if rest.all (· == .string) then .some .string else .none
+    | _ => .none
   else if name = "frame" ∨ name = "measure" then
     match ts with | [.string] => .some (.record "Geometry") | _ => .none
   else if name = "toLowerCase" then match ts with | [.string] => .some .string | _ => .none
@@ -177,6 +184,19 @@ def binTy (op : BinOp) (a b : Ty) : Option Ty :=
     else if a.le .string && b.le .string then .some .bool else .none
   | .eq | .ne => if a.compat b then .some .bool else .none
   | .and | .or => if a.le .bool && b.le .bool then .some .bool else .none
+
+/-- A use of data source `src` with arguments of types `ts`, answering
+`res`, against the source's one signature (`record_source`): as many
+arguments, each meeting its parameter, the answer meeting the source's. -/
+def sourceOk (p : Program) (src : String) (ts : List Ty) (res : Ty) : Bool :=
+  match p.sources.find? (·.1 == src) with
+  | .none => true
+  | .some (_, ps, r) =>
+    ps.length == ts.length && (ts.zip ps).all (fun (t, u) => t.compat u) && res.compat r
+
+/-- A mutation's answer type (`unknown` for a name that is none). -/
+def mutationTy (p : Program) (x : String) : Ty :=
+  ((p.mutations.find? (·.name == x)).map (·.ty)).getD .unknown
 
 /-- A shape's field types, by name. -/
 def shapeTys (p : Program) (s : String) : Option (List Ty) :=
@@ -318,8 +338,9 @@ def StmtsTy (p : Program) (G : Scope) : Scope → List Stmt → Prop
   | Γ, .assign x e :: rest =>
     isSlot p x = true ∧ (∃ t, HasTy p G Γ e t ∧ t.le (slotTy p x) = true) ∧ StmtsTy p G Γ rest
   | Γ, .command _ args :: rest => (∃ ts, ListTy p G Γ args ts) ∧ StmtsTy p G Γ rest
-  | Γ, .send x _ args :: rest =>
-    isMutation p x = true ∧ (∃ ts, ListTy p G Γ args ts) ∧ StmtsTy p G Γ rest
+  | Γ, .send x src args :: rest =>
+    isMutation p x = true ∧ (∃ ts, ListTy p G Γ args ts ∧ sourceOk p src ts (mutationTy p x) = true) ∧
+      StmtsTy p G Γ rest
   | Γ, .refresh x :: rest => isResource p x = true ∧ StmtsTy p G Γ rest
   | Γ, .ifS c thn els :: rest =>
     (∃ t, HasTy p G Γ c t ∧ t.le .bool = true) ∧ StmtsTy p G Γ thn ∧ StmtsTy p G Γ els ∧
@@ -421,8 +442,9 @@ structure WellTyped (p : Program) : Prop where
   lateInits : ∀ i st, p.states[i]? = .some st → st.owner = .none → st.late = true →
     ∃ t, HasTy p (lateScope p i) [] st.init t ∧ t.le st.ty = true
   derives : ∀ d ∈ p.derives, ∃ t, HasTy p (settleScope p) [] d.body t ∧ t.le d.ty = true
-  /-- A source's signature is free: its arguments need only type. -/
-  resources : ∀ r ∈ p.resources, ∃ ts, ListTy p (settleScope p) [] r.args ts
+  /-- A resource's arguments type, and meet its source's one signature. -/
+  resources : ∀ r ∈ p.resources, ∃ ts, ListTy p (settleScope p) [] r.args ts ∧
+    sourceOk p r.source ts r.ty = true
   actions : ∀ a ∈ p.actions, StmtsTy p (compScope p) a.params.reverse a.body
   tasks : ∀ t ∈ p.tasks, ∃ u, HasTy p (compScope p) [] t.ms u ∧ u.le .number = true
   /-- A task names an action, which takes no parameters (the analyzer's
@@ -431,6 +453,10 @@ structure WellTyped (p : Program) : Prop where
   /-- A task's interval is a number literal (the compiler's
   `lower-timer-literal`). -/
   taskLiterals : ∀ t ∈ p.tasks, ∃ b, t.ms = .num b
+  /-- A mutation's `then` names an action that takes no parameters: the
+  clock runs it with none. -/
+  thenActions : ∀ m ∈ p.mutations, ∀ a, m.andThen = .some a →
+    ∃ ad, p.actions.find? (·.name == a) = .some ad ∧ ad.params = []
   view : NodesTy p (compScope p) [] p.view
 
 end Contract

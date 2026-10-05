@@ -93,6 +93,12 @@ test('slice, replaceAll and toLowerCase are the web methods, well formed and bou
   expect(x_replaceAll('😀', '', '-')).toBe('-�-�-');
   expect([x_toLowerCase('ΟΣ'), x_toLowerCase('İ'), x_toLowerCase('ABC')]).toEqual(['ος', 'i̇', 'abc']);
   expect(() => x_replaceAll('x'.repeat(10000), '', "$`$'")).toThrow('Trap(StringTooLong { pc: 4 })');
+  // The bound at a smaller limit, as the runner's own tests take it (strings.rs `replace_all(…, max)`): a result
+  // that ends on a completed surrogate pair past it traps too (review b5-a 1: "xxx" → three emoji is 12 bytes).
+  expect(() => replaceAll('xxx', 'x', '😀', 9, 8)).toThrow('Trap(StringTooLong { pc: 9 })');
+  expect(replaceAll('xx', 'x', '😀', 9, 8)).toBe('😀😀');
+  expect(() => replaceAll('😀😀', '', '', 9, 7)).toThrow('Trap(StringTooLong { pc: 9 })');
+  expect(replaceAll('😀😀', '', '', 9, 8)).toBe('😀😀');
 });
 
 // LLP 1088 §9.1: `concat`, and `slice` and `includes` over a list, are the web's array methods (`includes` by

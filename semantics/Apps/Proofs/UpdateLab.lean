@@ -16,7 +16,8 @@ theorem advance_keeps_user_state {c o t c' out} (hc : Reachable updateLab c)
     ∀ x ∈ ["counter", "note", "live"], lookup x c'.slots = lookup x c.slots := by
   intro x hx
   refine hc.advance_untouched (fun a ha hname => ?_) h
-  simp only [updateLab, List.mem_cons, List.mem_nil_iff, or_false] at ha hname hx
+  simp only [updateLab, clockActions, thenActions, List.map_cons, List.map_nil, List.filterMap_cons,
+    List.filterMap_nil, List.nil_append, List.cons_append, List.mem_cons, List.mem_nil_iff, or_false] at ha hname hx
   rcases hx with rfl | rfl | rfl <;>
     rcases ha with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> simp_all <;> decide
 

@@ -4,9 +4,11 @@
 mod animation;
 mod canvas_defer;
 mod content_region;
+mod controls;
 mod development;
 mod flights;
 mod glass;
+mod header_box;
 mod height_drag;
 mod holds;
 mod host;

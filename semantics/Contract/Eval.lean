@@ -10,6 +10,7 @@ construct (`contract/lower/src/expr.rs`, `stmts.rs`).
 import Contract.Syntax
 import Contract.Value
 import Contract.Route
+import Contract.Format
 
 namespace Contract
 
@@ -88,6 +89,53 @@ def indexOfOf : Value → Value → Result Value
   | .list xs, x => .ok (.num (positionOf (xs.findIdx? (Value.strictEq · x))))
   | _, _ => .error (.type "`indexOf` of arguments it does not take")
 
+/-- A format entry on evaluated arguments. A style the compiler would have
+refused is refused as unsupported. -/
+def formatting (f : String) (args : List Value) : Result Value :=
+  match f, args with
+  | "formatTime", [.num e, .num o, .str "short"] => .ok (.str (Format.formatTime e o))
+  | "formatDate", [.num e, .num o, .str "medium"] => .ok (.str (Format.formatDate e o false))
+  | "formatDate", [.num e, .num o, .str "month-year"] => .ok (.str (Format.formatDate e o true))
+  | "formatNumber", [.num n, .str "compact"] => .ok (.str (Format.compact n))
+  | f, _ => .error (.unsupported s!"roster entry `{f}` of arguments it does not take")
+
+/-- The name/value pairs of a `t` call: one list (the VM's) or the
+arguments themselves (the embedding's); a value that is not a string
+fills nothing. -/
+def pairStrs (rest : List Value) : List (Option String) :=
+  let pairs := match rest with
+    | [.list ps] => ps
+    | ps => ps
+  pairs.map fun | .str s => Option.some s | _ => Option.none
+
+/-- `t(locale, key, pairs)`: the VM's call has the name/value pairs as one
+list, the embedding's (`contract lean`) as the arguments after the key. A
+key no table has traps. -/
+def text (tables : Format.Tables) (args : List Value) : Result Value :=
+  match args with
+  | .str loc :: .str key :: rest =>
+    match Format.text tables loc key (pairStrs rest) with
+    | .some s => .ok (.str s)
+    | .none => .error (.refused s!"no table has the text `{key}`")
+  | _ => .error (.unsupported "`t` of arguments it does not take")
+
+theorem formatting_str {f args v} (h : formatting f args = .ok v) : ∃ s, v = .str s := by
+  unfold formatting at h; split at h <;> simp at h <;> exact ⟨_, h.symm⟩
+
+theorem text_str {tables args v} (h : text tables args = .ok v) : ∃ s, v = .str s := by
+  unfold text at h; split at h
+  · split at h <;> simp at h; exact ⟨_, h.symm⟩
+  · simp at h
+
+theorem formatting_err {f args e} (h : formatting f args = .error e) : ∃ w, e = .unsupported w := by
+  unfold formatting at h; split at h <;> simp at h; exact ⟨_, h.symm⟩
+
+theorem text_err {tables args e} (h : text tables args = .error e) :
+    (∃ w, e = .refused w) ∨ ∃ w, e = .unsupported w := by
+  unfold text at h; split at h
+  · split at h <;> simp at h; exact .inl ⟨_, h.symm⟩
+  · simp at h; exact .inr ⟨_, h.symm⟩
+
 /-- A roster entry applied to evaluated arguments. `map` and `filter` are
 not here: their callback is evaluated by `eval`. -/
 def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
@@ -146,7 +194,7 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
         | _ => .error (.type "join of an item that is not a string, number or bool")
       .ok (.str (sep.intercalate parts))
   -- LLP 1088 D2: over UTF-16 code units, well formed. `toLowerCase` is
-  -- left out, as the formats are.
+  -- left out (its case tables are Unicode's).
   | "slice", [v, .num a, .num b] => sliceOf v a b
   | "replaceAll", [.str s, .str find, .str w] => .ok (.str (Str.replaceAll s find w))
   -- LLP 1088 §9.1: JavaScript's `Array.prototype.concat`.
@@ -154,6 +202,11 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   -- LLP 1088 §9.1 (2026-10-04 note): `indexOf` and `split` as JavaScript's.
   | "indexOf", [a, b] => indexOfOf a b
   | "split", [.str s, .str sep] => .ok (.list ((Str.split s sep).map .str))
+  -- Formatting and localized text (`Contract.Format`).
+  | "formatTime", vs => formatting "formatTime" vs
+  | "formatDate", vs => formatting "formatDate" vs
+  | "formatNumber", vs => formatting "formatNumber" vs
+  | "t", vs => text env.prog.strings vs
   | "length", _ | "isEmpty", _ | "floor", _ | "max", _ | "min", _ | "first", _ | "at", _
   | "includes", _ | "startsWith", _ | "endsWith", _ | "trim", _ | "join", _
   | "encodeURIComponent", _ | "slice", _ | "replaceAll", _ | "concat", _ | "indexOf", _

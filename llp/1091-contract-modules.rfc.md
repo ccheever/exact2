@@ -1,7 +1,7 @@
 # LLP 1091: Contract modules
 
 **Type:** RFC
-**Status:** Accepted by Charlie (r1, 2026-10-04: "Approve recs" on §7). r2 resolves round 1 (Astra max, Grok 4.7 xhigh: both SOUND WITH CHANGES; §9). Stage 1 built on r2; stage 2 not started
+**Status:** Accepted by Charlie (r1, 2026-10-04: "Approve recs" on §7). r2 resolves round 1 (Astra max, Grok 4.7 xhigh: both SOUND WITH CHANGES; §9). Stage 1 landed (7cdf080e2), stage 2 (f0a074f32); r3 records the code review (§10)
 **Systems:** Contract loader (`contract/cli/src/{sources.rs,symbols.rs,map.rs,rust.rs,lean.rs}`), syntax (`contract/syntax`), the TS bake's capture (`js/bake`), the web build's capture (`host/web-js/build.mjs`), the dev loop and `build.rs` rebuild tracking, `exact new` (`game/new.mjs`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
@@ -227,11 +227,11 @@ types. That's the right answer, and the first time it's been expressible.
 
 `use Activity from "exact:motion"` resolves to a `.contract` file compiled
 into the compiler (`contract/lib/motion.contract`, `include_str!`), loaded
-like any other file under the source path `exact:motion`. The first two:
+like any other file under the source path `exact:motion`. The first:
 
-- `exact:motion` — `timeline Activity` (LLP 1055.002 D8), and the shared
-  keyframes the corpus re-declares (`spin`, `pulse`, `fade-in`, `shimmer`
-  if they're the same everywhere; to confirm when implementing).
+- `exact:motion` — `timeline Activity` (LLP 1055.002 D8). As built it
+  carries no keyframes: the corpus's spinners don't agree on one `spin`,
+  and no consumer asked for a shared one.
 - Nothing else until a consumer asks. Every built-in is a source file an
   author can read, not compiler magic.
 
@@ -243,9 +243,12 @@ A specifier that isn't `./…` or `exact:…` is a package:
 `use Button from "@acme/ui"` or `"@acme/ui/button.contract"`.
 
 - Resolution follows Node: walk up from the using file to
-  `node_modules/@acme/ui/package.json`. The bare name maps to the package's
-  `exports["."]` if it ends `.contract`, else `index.contract`. A subpath maps
-  through `exports` when present, else to the file at that path.
+  `node_modules/@acme/ui/package.json`. `exports` maps `.` and `./sub` to a
+  string, or to an object's `contract` or else `default` condition; as in
+  Node, a package with `exports` offers only what it lists. Without
+  `exports`, the bare name is `index.contract` and a subpath the file at
+  that path. A bare `card.contract` is a mistaken relative path, refused
+  with `contract-use-path`, not looked up as a package.
 - A package's own relative `use`s must stay inside the package's canonical
   root, by the same rule that keeps an app's inside the app today. Symlinks
   are followed first, so `bun link` and `"file:../ui"` work.
@@ -366,7 +369,22 @@ Stage 2:
 
 1. **Stage 1, scope (2026-10-05).** One commit: syntax, loader, symbols, map,
    rust, diagnostics, app migrations, docs. No executor or plan change.
-2. **Stage 2, reach (2026-10-06).** `exact:` built-ins with `exact:motion`;
+2. **Stage 2, reach (built 2026-10-04).** As built:
+   `contract/cli/src/resolve.rs` (specifiers), `contract/lib/motion.contract`,
+   `contract::source_graph` and `contract sources` (the graph, on failure
+   too), `contract::rerun_if_changed` in every app `build.rs`, the wasm dev
+   session's watch of every used file, the JS dev loop's watch of each
+   package root (`.gen/dev-sources.json`, written by `exact-web-js
+   --dev-reload`), the TS bake staging packages under `node_modules/<name>`
+   (two copies of one name refused) and relocating through each, deploy
+   capturing the repository of a package linked from outside the app and
+   Exact (a registry package is pinned by the captured `bun.lock`), `exact
+   new` writing `package.json`, and `@exact/reading` (`packages/reading`, a
+   Bun workspace) shared by `apps/markdown` and `apps/llp`: the block model,
+   `Runs` and `SchemeButton`. Their `Blocks` had diverged in layout and stay
+   each app's. Lexy is not in this repository; its move to `exact:motion` is
+   its owner's. Planned as:
+   **Stage 2, reach (2026-10-06).** `exact:` built-ins with `exact:motion`;
    package resolution; the source list and its consumers; `exact new` writes
    `package.json`; `Blocks` shared between markdown and llp as the consumer.
 
@@ -418,6 +436,7 @@ stage 1 lands, and stage 2 waits on them.
 - r1 (2026-10-04): Charlie's rulings on §7.
 - r2 (2026-10-04): the round-1 reviews (`llp/reviews/rfc-2026-10-04-1091.{astra,grok}.md`,
   both SOUND WITH CHANGES), disposed below; stage 1 built against this text.
+- r3 (2026-10-04): stage 2 as built (§5) and the code review (§10).
 
 ## 9. Review dispositions (round 1)
 
@@ -432,3 +451,147 @@ stage 1 lands, and stage 2 waits on them.
 | Astra 7 / Grok 3: a hyphenated name is not a Rust identifier | Pre-existing in `contract rust`; recorded in D4, not widened |
 | Astra 8: library fonts have no delivery | Taken: D6 says the app supplies a library's faces in stage 2 |
 | Grok 6: `provide`/`inject` stay one string channel | Taken: said in D11 |
+
+## 10. Code review dispositions (stages 1 and 2)
+
+Astra and Grok reviewed the landed code (`llp/reviews/code-2026-10-04-1091.{astra,grok}.md`), both
+UNSOUND. Every finding is taken, each with a case in `contract/cli/tests/it/scope_review.rs`, and
+every plan in the repository stays byte-identical to stage 2's.
+
+| Finding | Fix |
+|---|---|
+| Astra 4 / Grok 1: every word of an `animation` literal was read as a keyframes name | The rewrite reads the shorthand as CSS does: per comma-separated animation, the first word that is not an animation keyword, a number or a function; in `animation-name`, each item. A computed part glued to a unit is a time |
+| Astra 3: a `clock(Name)` literal inside an inline `match` was not rewritten | `match` arms are rewritten as ternary arms are |
+| Astra 6 / Grok 2: a local action's curried call, a primitive type, or a roster call was resolved as another file's top-level name | The rewrite tracks bindings (members, parameters, `each`/`match`/arrow/`let` binders); primitives and roster calls are never refused; a used file's shape named like a roster function is renamed |
+| Astra 2 / Grok 3: the package was the nearest `package.json` above the file, not the one whose `exports` were read | The package is the directory of the consulted manifest's real path; an exported file that leads out of it is refused |
+| Astra 5: one library installed under two names kept only the first in the graph, so the bake staged one | `SourceGraph::packages` lists every name a package was reached by; the bake stages each |
+| Astra 8: a manifest whose `exports` refused was not watched | `SourceGraph::consulted` lists every `package.json` read; `build.rs`, the wasm session and the JS loop watch them |
+| Astra 7: a generated name (`Helper__ui`) bypassed `use` | Generated names are refused like declared ones |
+| Grok 4: alike fonts on different lines did not merge | Fonts compare by family and faces, not position |
+| Grok 5: an `exports` condition that is not a path hid `default` | Conditions fall through |
+| Astra 1: deploy reinstalled an absolute `file:` or a `link:` from the live tree | Deploy refuses them (a relative `file:` moves with the snapshot) and, after the materialized install, refuses any Contract source outside the captured tree |
+
+## 11. Windows deploy path qualification (2026-10-04)
+
+**Implementer:** Codex, 2026-10-04. This is the Windows completion of D10 and
+the final row of §10, within Charlie's Windows/papercut authorization. It does
+not change Contract syntax, snapshots, signing, native JS, runtime grants or
+the publisher's sequence/receipt rules.
+
+### Evidence and bounded change
+
+At `b89d6b6f0`, after fetching current `origin/main`, the inherited `f708c99cf`
+deploy changes have three POSIX-only path predicates. An ignored probe in the
+isolated Windows worktree retained `target/deploy-paths/before.{json,log}`:
+real files under a directory containing spaces and `#`, their native canonical
+paths, Bun 1.4.2, the source hash and each original predicate/result. All three
+expected admissions/refusals fail. This is a predicate reproduction, not a
+claim that a complete malicious deployment succeeded.
+
+1. The materialized closure drops native drive paths with `startsWith('/')`.
+   Check every physical app/package source and every consulted manifest with
+   Node's native `isAbsolute`, then the existing canonical-path containment
+   check. Skip only the graph's `builtin` entries, which name `exact:` modules;
+   a nonabsolute physical source is a refusal, not silently omitted. Drive,
+   UNC and extended Windows paths therefore reach the same containment test
+   as POSIX paths. The check remains after install and before returning the
+   materialized app; all consulted manifests stay in its scope. Canonicalize
+   the captured root and file with `realpathSync.native`, then additionally
+   require `resolve(root, relative(root, file)) === file`. The native Windows
+   relative function folds case, so containment alone would admit a distinct
+   case-sensitive `STAGE` sibling beside `stage`. The reconstruction check is
+   local to this closure and does not change other `inside()` callers.
+2. `/^file:\//` misses `file:C:/...` and `file:C:\...`. Extract the target
+   after the existing lowercase `file:` protocol, and use the native path
+   parser's nonempty root to refuse rooted paths. On Windows that also
+   refuses drive-relative `C:library`, whose per-drive current directory is
+   not captured; a leading separator, drive root, UNC or extended root is
+   not a relocatable dependency. POSIX root handling stays unchanged.
+   All `link:` targets remain refused. Relative `file:../library` stays
+   admitted; do not URL-decode, case-fold or reinterpret relative path bytes.
+   This is a refusal predicate, never a new dependency resolver.
+3. Registry-package classification applies a slash regex to `relative()`.
+   Split that native result into native path components and test the existing
+   exact `node_modules` component. Scoped/nested registry packages remain
+   install outputs; a sibling named `node_modules-extra` remains a possible
+   local repository input. Keep canonical package roots and existing repo
+   ownership decisions. No arbitrary separator replacement or case folding.
+
+The three small predicates/closure routine will be callable from the focused
+test and used by the production call sites, so tests exercise those decisions
+rather than a second implementation. Existing general `canonicalPath`/`inside`
+callers are retained; concurrent hostile filesystem replacement and a general
+cross-host path-policy redesign are not claimed by this change.
+
+### File scope and qualification
+
+- `scripts/deploy.mjs`: the three production call sites and their small shared
+  decision helpers; keep the source below 1,500 lines.
+- `scripts/deploy-paths.test.mjs`: a focused test file. The existing
+  `deploy.test.mjs` executes expensive fixtures at import time, so its name
+  filter does not provide an isolated path test. This adds no blocking gate,
+  test runner or configuration.
+- This amendment and `llp/reviews/1091-windows-deploy-paths.gpt.md` record the
+  independent plan/code review and actual evidence.
+
+Use real temporary Windows files/directories with spaces, `#` and Unicode,
+including real canonical/extended paths and a junction to an outside sibling.
+The production closure must accept in-capture app/package sources and
+manifests, skip the virtual builtin, and refuse escaped sources/manifests,
+malformed physical relative paths, and prefix siblings. Compare relative
+and absolute dependency decisions, and real `node_modules`/scoped/nested
+versus similarly named external directories. Add explicit native UNC/drive
+path cases as syntax-only where no share or second drive is available; do
+not describe them as actual remote filesystem I/O. Preserve the old failing
+probe and record these limitations. A real owned case-sensitive NTFS fixture,
+when the host permits enabling that property, must distinguish `stage` from
+`STAGE`; ordinary case-insensitive aliases must still resolve normally. Report
+any unavailable filesystem case capability explicitly.
+
+Run the focused tests and existing applicable deploy tests; run required SDK
+checks with a private target and bounded CPU concurrency, reporting unrelated
+Windows failures rather than weakening them. Full publish/network/GUI work is
+not needed for these local capture decisions. Fetch/review any upstream delta
+before committing or pushing; the frozen Skirmish release and other agents'
+worktrees remain untouched.
+
+**Qualified on Windows x64, Bun 1.4.2, Rust 1.97.0, base `39018dfa4`:** eight
+focused tests / 42 assertions pass without skips, including the actual NTFS
+case-sensitive and junction cases. Full private build, 2,326 default tests
+(54 existing ignores), strict all-target Clippy, caps and boot pass. The raw
+`cargo fmt --all -- --check` command exceeds Windows' argument limit (OS 206);
+all 379 targets emitted by `cargo fmt --all -v -- --check` pass unchanged
+`rustfmt --edition <target edition> --check` in 25 bounded batches, using
+rustfmt 1.9.0-stable. These are cold functional checks, not speed comparisons.
+The existing `deploy.test.mjs` stops during its import-time fixture at the
+intentional `durable stream-head publication is not qualified on Windows`
+refusal (zero completed cases); this patch does not weaken that restriction
+or claim the full publisher suite passed. Logs, original predicate failures
+and the exact partitioned-format inventory remain in the private worktree's
+ignored `target/deploy-paths/`. Both independent source reviews found no
+remaining blocker; neither substitutes for the executed tests.
+
+**Combined-head qualification after the final fetch:** upstream `b79156175`
+adds typed inline expansion for Lean embedding. Its normal `expand_all` path
+still disables those ascriptions. Rebased this four-file correction without
+overlap, then reran the full private build, all 2,326 default tests (54 existing
+ignores), strict all-target Clippy, caps, boot and the eight/42 focused path
+checks: all pass. Repeated the exact Cargo-selected formatting inventory;
+all 379 targets pass in 25 batches, while the unchanged single invocation
+still exceeds Windows' argument limit. This evidence is separate from the
+earlier `39018dfa4` run, not an inference from it.
+
+The actual qualified `39018dfa4` compiler and the rebased compiler both compile
+the frozen repair Skirmish `app.contract` (SHA-256
+`cd8ce8d4812a6a9ad5a6b7b3f0a0b222cb47ce197a5a32b92e2d9adc91715e61`)
+to byte-identical 20,033-byte plans, SHA-256
+`fef0b68e26e6756a36c2ff67980d6f2cdca4d6b89901b987f55b096810b3844a`.
+Their `contract sources` JSON for the same actual absolute Windows path with
+spaces is also byte-identical. The ignored `plan-identity.json` retains both
+compiler hashes, commands, graph bytes and outcomes; no frozen source, build
+or consumer artifact was modified. This establishes the normal game plan and
+source-graph comparison, not general Lean semantic equivalence.
+The advisory `cargo run -p contract-difftest -- quick` exits successfully with
+"nothing changed" for this deploy-only commit; it therefore adds no claim of
+executed Lean corpus coverage.
+

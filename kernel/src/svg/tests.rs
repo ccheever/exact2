@@ -222,6 +222,10 @@ fn paint_and_dasharray_grammar() {
         Paint::parse("url(other.svg#g)").is_none(),
         "external references are refused"
     );
+    assert!(
+        Paint::parse("日本語").is_none(),
+        "a multibyte value is refused, not split mid-character"
+    );
     assert_eq!(Paint::parse(&Paint::BLACK.css()), Some(Paint::BLACK));
     assert_eq!(DashArray::parse("none"), Some(DashArray::default()));
     assert_eq!(DashArray::parse("1, 2px 3").unwrap().0, vec![1.0, 2.0, 3.0]);
@@ -327,9 +331,10 @@ fn a_filter_chain_reaches_as_far_as_its_primitives_read() {
 #[test]
 fn a_boxs_css_filter_is_the_functions_chain_over_a_box_of_no_size() {
     use crate::svg::filter::{FilterList, Op};
-    let black = crate::style::Color::rgba(0, 0, 0, 255);
+    let black = crate::style::ColorValue::Fixed(crate::style::Color::rgba(0, 0, 0, 255));
     let blur =
-        crate::svg::scene::box_filter(&FilterList::parse("blur(2px)").unwrap(), black).unwrap();
+        crate::svg::scene::box_filter(&FilterList::parse("blur(2px)").unwrap(), black, false)
+            .unwrap();
     assert_eq!(
         blur.region,
         (-6.0, -6.0, 12.0, 12.0),
@@ -339,6 +344,7 @@ fn a_boxs_css_filter_is_the_functions_chain_over_a_box_of_no_size() {
     let chain = crate::svg::scene::box_filter(
         &FilterList::parse("drop-shadow(0 10px 12px) saturate(1.8)").unwrap(),
         black,
+        false,
     )
     .unwrap();
     assert_eq!(chain.primitives.len(), 2);
@@ -351,6 +357,44 @@ fn a_boxs_css_filter_is_the_functions_chain_over_a_box_of_no_size() {
         (-36.0, -36.0, 72.0, 82.0),
         "the offset and three standard deviations past the box"
     );
-    assert!(crate::svg::scene::box_filter(&FilterList::parse("url(#f)").unwrap(), black).is_none());
-    assert!(crate::svg::scene::box_filter(&FilterList::parse("none").unwrap(), black).is_none());
+    // A drop-shadow's colour may name a platform colour (LLP 1095 D1): the
+    // browser reads it as the role, the box resolves it (here, its fallback).
+    let role = FilterList::parse("drop-shadow(0 2px 4px system-orange)").unwrap();
+    assert_eq!(FilterList::parse(&role.css()), Some(role.clone()));
+    let orange = crate::style::ColorValue::parse_light_dark("system-orange").unwrap();
+    let shadow = crate::svg::scene::box_filter(&role, black, false).unwrap();
+    let o = orange.resolve(false);
+    let [r, g, b] = [o.r(), o.g(), o.b()].map(|v| f32::from(v) / 255.0);
+    assert!(
+        matches!(shadow.primitives[0].op, Op::DropShadow(.., c) if c[..3] == [r, g, b]),
+        "{:?}",
+        shadow.primitives[0].op
+    );
+    let platform =
+        "drop-shadow(1px 1px platform-color(ios systemTealColor, light-dark(#30b0c7, #40c8e0)))";
+    assert!(FilterList::parse(platform).is_some());
+    assert!(FilterList::parse("drop-shadow(1px 1px light-dark(#000, #fff))").is_some());
+    // Under the dark appearance, a pair's dark half; `currentcolor` too.
+    let pair = FilterList::parse("drop-shadow(0 2px 4px light-dark(#ff0000, #00ff00))").unwrap();
+    let shade =
+        |list: &FilterList, text, dark| match crate::svg::scene::box_filter(list, text, dark)
+            .unwrap()
+            .primitives[0]
+            .op
+        {
+            Op::DropShadow(.., c) => c,
+            ref other => panic!("{other:?}"),
+        };
+    assert_eq!(shade(&pair, black, false), [1.0, 0.0, 0.0, 1.0]);
+    assert_eq!(shade(&pair, black, true), [0.0, 1.0, 0.0, 1.0]);
+    let current = FilterList::parse("drop-shadow(0 2px 4px)").unwrap();
+    let text = crate::style::ColorValue::parse_light_dark("light-dark(#ff0000, #0000ff)").unwrap();
+    assert_eq!(shade(&current, text, true), [0.0, 0.0, 1.0, 1.0]);
+    assert!(
+        crate::svg::scene::box_filter(&FilterList::parse("url(#f)").unwrap(), black, false)
+            .is_none()
+    );
+    assert!(
+        crate::svg::scene::box_filter(&FilterList::parse("none").unwrap(), black, false).is_none()
+    );
 }

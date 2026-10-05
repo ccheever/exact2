@@ -308,9 +308,17 @@ follow-up must meet.
    tag, bound to `PropId::TabIndex`, with no `tabIndex` alias. Its meaning is
    HTML's:
    - an explicit value makes a box a focusable area, subject to the filters
-     HTML also applies. A disabled, inert, hidden or `display: none` box is
-     never focusable, and the existing disabled/inert/hidden checks on every
-     host stay in force;
+     HTML also applies. An inert, hidden or `display: none` box is never
+     focusable, nor is a disabled form control, and the existing inert/hidden
+     checks on every host stay in force. **Amended
+     2026-10-04 (orchestrator, under Charlie's delegation):** `disabled`
+     filters only the elements where HTML defines it (a button, an input,
+     a select, a textarea: Contract's `button`, `input`, `textarea` and
+     controls). Chrome makes a `<div tabindex=0 disabled>` a Tab stop and
+     focuses it by click and script, since `disabled` means nothing on a
+     div, so a disabled box is focusable on every host; a disabled button or
+     input is not. Conformance (`synthetic-tabindex`) caught Linux skipping
+     it while Chrome stopped there.;
    - `≥ 0` puts it in sequential navigation, positive values first in
      ascending order, then `0` in tree order;
    - a negative value is focusable by pointer and script but skipped by Tab.
@@ -395,7 +403,8 @@ follow-up must meet.
    - `tabindex=-1` on a node with a `key` handler leaves the web's Tab order;
    - a plain box with no `tabindex` is not a Tab stop on any host (the
      absent-is-not-zero rule);
-   - a disabled, inert or hidden box with `tabindex=0` is skipped;
+   - an inert or hidden box and a disabled button with `tabindex=0` are
+     skipped, and a disabled box is not (amended 2026-10-04, above);
    - Linux: Tab, Shift-Tab, wrap, and the start from no focus;
    - tvOS: `canBecomeFocused` is false for `tabindex=-1` (async lane).
 
@@ -582,7 +591,8 @@ Implementer: Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, on
   - D7.3 adds tvOS (`canBecomeFocused` is false for `< 0`, and the order stays
     geometric) and a real Linux Tab walk. Linux headless joins the stage 2
     exit.
-  - D7.3 keeps HTML's disabled, inert and hidden filters.
+  - D7.3 keeps HTML's disabled, inert and hidden filters (disabled on form
+    controls only, as HTML has it; amended 2026-10-04).
   - D2's `lowercase_bounded` is reached only through `link()`'s pointer, and
     conformance fixtures use stable mappings only.
   - Two items are recorded for the stage-1 lane, which is already building

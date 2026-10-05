@@ -288,7 +288,8 @@ fn if_when_and_their_explicit_else_need_non_empty_blocks() {
 #[test]
 fn rejections_carry_stable_ids_and_spans() {
     let cases = [
-        ("use theme from \"x\"\n", "contract-no-imports", 1),
+        ("use theme from \"./theme.ts\"\n", "contract-no-imports", 1),
+        ("use theme from \"./theme\"\n", "contract-no-imports", 1),
         (
             "component A\n  state x = 1\n\tview\n",
             "syntax-tab-indent",

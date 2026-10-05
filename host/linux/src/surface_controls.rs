@@ -6,6 +6,18 @@ use exact_runner::Event;
 use serde_json::json;
 use std::collections::BTreeSet;
 
+/// A form control HTML lets `disabled` take out of focus and input: a
+/// button, an input or a control. On any other box `disabled` means
+/// nothing to focus or keys, as Chrome's `<div disabled>` (LLP 1088 D7.3,
+/// amended 2026-10-04).
+pub(crate) fn disabled_control(n: &exact_kernel::NodeRef<'_>) -> bool {
+    n.props.bool(PropId::Disabled) == Some(true)
+        && matches!(
+            n.node_type,
+            NodeType::Pressable | NodeType::TextInput | NodeType::Control
+        )
+}
+
 impl<D: DataSource> Presenter<D> {
     pub(crate) fn control_target(&self, id: u32) -> Option<u32> {
         let mut cursor = Some(id);
@@ -467,9 +479,13 @@ impl<D: DataSource> Presenter<D> {
     /// included (LLP 1088 D7.3), as the Apple hosts take the first
     /// responder. What tap, `autofocus` and `focus()` may focus; Tab takes
     /// only the `tabbable` ones.
+    ///
+    /// `disabled` keeps only a form control out (a button, an input, a
+    /// control), where HTML defines it; on a box it means nothing to focus,
+    /// as in Chrome (LLP 1088 D7.3, amended 2026-10-04).
     pub(crate) fn focusable(&self, id: ViewId) -> bool {
         self.host.kernel().node(id).is_some_and(|n| {
-            n.props.bool(PropId::Disabled) != Some(true)
+            !disabled_control(&n)
                 && (n.props.get(PropId::TabIndex).is_some()
                     || n.props.str(PropId::Action).is_some()
                     || n.node_type == NodeType::TextInput

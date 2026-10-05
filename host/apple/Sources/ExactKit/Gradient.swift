@@ -260,10 +260,11 @@ extension BatchValue {
     /// is something to the view that shows it.
     ///
     /// Nested too: a layer list, a shadow list's or a text shadow's colour,
-    /// a symbol palette (LLP 1077).
+    /// a symbol palette (LLP 1077), and a box filter with a dark program
+    /// (`pd`, LLP 1095 D9).
     var isSchemeGradient: Bool {
         switch self {
-        case .object(let o): return o["dark"] != nil || o.values.contains { $0.isSchemeColor || $0.isSchemeGradient }
+        case .object(let o): return o["dark"] != nil || o["pd"] != nil || o.values.contains { $0.isSchemeColor || $0.isSchemeGradient }
         case .array(let a): return a.contains { $0.isSchemeColor || $0.isSchemeGradient }
         default: return false
         }

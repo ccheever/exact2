@@ -1462,12 +1462,12 @@ pub fn with_entry<D: DataSource>(
     }
 }
 
+mod colors;
+#[path = "abi/commands.rs"]
+mod commands;
 mod exports;
 mod preferences;
 pub(crate) mod segments;
-
-#[path = "abi/commands.rs"]
-mod commands;
 
 #[cfg(test)]
 #[path = "abi_tests.rs"]

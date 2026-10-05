@@ -7,13 +7,14 @@ use taffy::prelude::{auto, length, percent};
 use crate::arena::NodeArena;
 use crate::error::StyleValueError;
 use crate::generated::{
-    AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, Direction, Display, FlexDirection,
-    FlexWrap, GridAutoFlow, JustifyContent, JustifyItems, NodeType, Overflow, PositionType,
-    StyleId, StyleMask, StyleProps,
+    AlignContent, AlignItems, AlignSelf, BoxSizing, Direction, Display, FlexDirection, FlexWrap,
+    GridAutoFlow, JustifyContent, JustifyItems, NodeType, Overflow, PositionType, StyleId,
+    StyleMask, StyleProps,
 };
 
 mod backdrop;
 pub use backdrop::link as link_backdrop_filter;
+mod border;
 pub(crate) mod effects;
 pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
@@ -33,6 +34,7 @@ pub use exact_motion::color::css::link_wide as link_wide_colors;
 mod viewport;
 pub use viewport::ViewportUnit;
 pub mod relative;
+pub mod roles;
 mod shadow;
 pub mod space;
 pub(crate) mod stroke;
@@ -681,11 +683,11 @@ pub enum ColorValue {
     /// CSS `light-dark(a, b)`: the first under a light scheme, the second
     /// under a dark one.
     LightDark(Color, Color),
-    /// One of UIKit's label, fill and separator colours by WebKit's name
-    /// (`symbols::SYSTEM_COLORS`, by index): the table's pair wherever a
-    /// colour paints, and the name an Apple host draws vibrantly inside a
-    /// material (LLP 1077 D13).
-    System(u8),
+    /// A colour role (LLP 1095 D2), by id into `COLOR_ROLES`: the platform's
+    /// own colour where a host has it, the role's pair everywhere else.
+    Role(u8),
+    /// A `platform-color()` (LLP 1095 D3), by id into the interned table.
+    Platform(u16),
 }
 
 impl Default for ColorValue {
@@ -697,9 +699,13 @@ impl Default for ColorValue {
 impl ColorValue {
     /// The colour under an appearance. A host that paints calls this; the web
     /// host does not, because it hands the pair to the browser.
-    pub const fn resolve(self, dark: bool) -> Color {
-        match self.pair() {
-            ColorValue::Fixed(c) => c,
+    pub fn resolve(self, dark: bool) -> Color {
+        // @ref LLP 1095 D1 — a reference is what the host reported, else
+        // its fallback pair.
+        if let Some(c) = roles::reported(self, dark) {
+            return c;
+        }
+        match self.fallback() {
             ColorValue::LightDark(light, night) => {
                 if dark {
                     night
@@ -707,42 +713,35 @@ impl ColorValue {
                     light
                 }
             }
-            // `pair` never returns one.
-            ColorValue::System(_) => Color(0),
+            ColorValue::Fixed(c) => c,
+            ColorValue::Role(_) | ColorValue::Platform(_) => Color::TRANSPARENT,
         }
     }
 
-    /// A system colour as the pair it paints; any other value as it is.
-    pub const fn pair(self) -> ColorValue {
-        match self {
-            ColorValue::System(i) => symbols::system_pair(i),
-            other => other,
-        }
+    /// Whether this depends on the appearance: a pair or a reference — what
+    /// a host asks before deciding whether an appearance change is anything to it.
+    pub fn is_scheme_aware(self) -> bool {
+        !matches!(self, ColorValue::Fixed(_))
     }
 
-    /// The system colour's WebKit name, when this is one.
-    pub fn system_name(self) -> Option<&'static str> {
-        match self {
-            ColorValue::System(i) => symbols::SYSTEM_COLORS.get(i as usize).map(|s| s.0),
-            _ => None,
-        }
-    }
-
-    /// Whether this is a pair — what a host asks before deciding whether an
-    /// appearance change is anything to it.
-    pub const fn is_scheme_aware(self) -> bool {
-        matches!(self, ColorValue::LightDark(..) | ColorValue::System(_))
-    }
-
-    /// `light-dark(<color>, <color>)`, CSS's own spelling, or one of UIKit's
-    /// label, fill and separator colours by WebKit's name, which is such a
-    /// pair (LLP 1077 D13). Whitespace is free; anything that is not two
-    /// parseable colours is not this function, and falls through to the
-    /// plain colour parse.
+    /// A colour that is more than one colour: a role (LLP 1095 D2, which
+    /// takes in WebKit's `-apple-system-*` names, LLP 1077 D13), a
+    /// `platform-color()` (D3), or `light-dark(<color>, <color>)`, CSS's own
+    /// spelling. Whitespace is free; anything else is not this, and falls
+    /// through to the plain colour parse.
     pub fn parse_light_dark(text: &str) -> Option<ColorValue> {
-        if let Some(system) = symbols::system_color(text) {
-            return Some(system);
+        if let Some(role) = roles::role(text) {
+            return Some(ColorValue::Role(role));
         }
+        if text.trim_start().starts_with("platform-color(") {
+            return roles::parse_platform(text);
+        }
+        ColorValue::parse_pair(text)
+    }
+
+    /// `light-dark(<color>, <color>)` alone (LLP 1034): a reference is not
+    /// valid inside one (LLP 1095 D1).
+    pub fn parse_pair(text: &str) -> Option<ColorValue> {
         let inner = text.trim().strip_prefix("light-dark(")?.strip_suffix(')')?;
         // The comma between the two colours, not one inside an `rgb()`.
         let mut depth = 0;
@@ -1103,23 +1102,6 @@ pub(crate) fn encode_grid_rows(
 }
 
 impl StyleProps {
-    /// CSS effective border widths: none and hidden occupy no border area.
-    pub fn border_widths(&self) -> [f32; 4] {
-        [
-            (self.border_style_top, self.border_width_top),
-            (self.border_style_right, self.border_width_right),
-            (self.border_style_bottom, self.border_width_bottom),
-            (self.border_style_left, self.border_width_left),
-        ]
-        .map(|(style, width)| {
-            if style == BorderStyle::Solid {
-                width.max(0.0)
-            } else {
-                0.0
-            }
-        })
-    }
-
     /// Whether every padding and border width reaches layout as zero, read
     /// without building the engine's style: a kernel that mirrors no engine
     /// tree checks content regions too (LLP 1047 §10).
@@ -1133,17 +1115,6 @@ impl StyleProps {
         .into_iter()
         .all(|p| p.lp_is_zero(env))
             && self.border_widths().into_iter().all(|w| w.to_bits() == 0)
-    }
-
-    /// Border colours after resolving currentColor against this node's computed colour.
-    pub fn border_colors(&self, current: ColorValue) -> [ColorValue; 4] {
-        [
-            self.border_color_top,
-            self.border_color_right,
-            self.border_color_bottom,
-            self.border_color_left,
-        ]
-        .map(|color| color.unwrap_or(current))
     }
 
     /// Lower to engine style. `node_type` supplies the per-tag defaults the

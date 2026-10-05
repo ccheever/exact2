@@ -214,15 +214,24 @@ impl BackgroundImage {
         &self.0
     }
 
-    /// Canonical CSS, also the wire form: stop positions explicit, colours
-    /// as `#rrggbbaa` or `light-dark()` of two, layers by commas.
+    /// Canonical CSS: stop positions explicit, colours as `#rrggbbaa` or
+    /// `light-dark()` of two, layers by commas.
     pub fn css(&self) -> String {
+        self.text(ColorText::Css)
+    }
+
+    /// The wire form: [`Self::css`], with every reference kept (LLP 1095 D1).
+    pub fn wire(&self) -> String {
+        self.text(ColorText::Wire)
+    }
+
+    fn text(&self, mode: ColorText) -> String {
         if self.0.is_empty() {
             return "none".into();
         }
         self.0
             .iter()
-            .map(Gradient::css)
+            .map(|g| g.text(mode))
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -274,6 +283,10 @@ fn one_gradient(css: &str) -> Result<Gradient, &'static str> {
 impl Gradient {
     /// Canonical CSS of the one gradient.
     pub fn css(&self) -> String {
+        self.text(ColorText::Css)
+    }
+
+    fn text(&self, mode: ColorText) -> String {
         let mut out = String::new();
         let position = |out: &mut String, at: [Length; 2]| {
             for length in at {
@@ -315,7 +328,7 @@ impl Gradient {
         }
         for stop in &self.stops {
             out.push_str(", ");
-            color_css(&mut out, stop.color);
+            color_text(&mut out, stop.color, mode);
             let _ = write!(out, " {}%", exact_num::Shortest32(stop.at));
         }
         out.push(')');
@@ -517,8 +530,24 @@ fn hex(out: &mut String, c: Color) {
     let _ = write!(out, "#{:08x}", c.0);
 }
 
+/// Where a value's text goes: the browser, or the wire, which keeps a
+/// `platform-color()` as written so the reader interns the same reference
+/// (LLP 1095 D1); the browser gets its web colour, else its fallback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorText {
+    /// CSS a browser reads.
+    Css,
+    /// What `parse` reads back as the same value.
+    Wire,
+}
+
 /// A colour row's canonical CSS: `#rrggbbaa`, or `light-dark()` of two.
-pub(crate) fn color_css(out: &mut String, color: ColorValue) {
+pub fn color_css(out: &mut String, color: ColorValue) {
+    color_text(out, color, ColorText::Css);
+}
+
+/// A colour as [`color_css`] writes it, or for the wire.
+pub fn color_text(out: &mut String, color: ColorValue, mode: ColorText) {
     match color {
         ColorValue::Fixed(c) => hex(out, c),
         ColorValue::LightDark(light, dark) => {
@@ -528,8 +557,7 @@ pub(crate) fn color_css(out: &mut String, color: ColorValue) {
             hex(out, dark);
             out.push(')');
         }
-        // Its pair: this text reaches browsers, which have no such names.
-        ColorValue::System(_) => color_css(out, color.pair()),
+        reference => crate::style::roles::reference_css(out, reference, mode),
     }
 }
 

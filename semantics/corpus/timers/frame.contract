@@ -1,0 +1,29 @@
+// A frame task while the host presents no frames: a virtual display, a
+// frame every 1000/60 ms after boot.
+component App
+  state frames = 0
+  state last = -1
+  action tick
+    frames = frames + 1
+    last = now()
+  task f mount
+    every(frame, tick)
+  view
+    text `${frames}` testId="frames"
+
+test "sixty a second"
+  clock +16
+  expect state frames == 0
+  clock +1
+  expect state frames == 1
+  clock +983
+  expect state frames == 60
+  expect state last == 1000
+  clock +17
+  expect state frames == 61
+  clock +16
+  expect state frames == 61
+
+test "too many in one advance"
+  clock +100000
+  clock +10

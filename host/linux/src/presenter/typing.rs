@@ -180,7 +180,7 @@ impl<D: DataSource> Presenter<D> {
             .kernel()
             .node(id)
             .ok_or_else(|| format!("no view {id}"))?;
-        if node.props.bool(PropId::Disabled) == Some(true) || self.host.route_visibility(id).1 {
+        if crate::surfaces::controls::disabled_control(&node) || self.host.route_visibility(id).1 {
             return Err(format!("view {id} is disabled or inert"));
         }
         if node.props.str(PropId::Action).is_some()
@@ -343,7 +343,7 @@ impl<D: DataSource> Presenter<D> {
             .host
             .kernel()
             .node(id)
-            .is_none_or(|n| n.props.bool(PropId::Disabled) == Some(true))
+            .is_none_or(|n| crate::surfaces::controls::disabled_control(&n))
         {
             return;
         }

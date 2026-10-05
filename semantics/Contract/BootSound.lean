@@ -212,7 +212,7 @@ theorem startTimers_good {p : Program} (hp : WellTyped p) (slots : List (String 
   unfold startTimers
   refine mapM_goodW fun t ht => ?_
   split
-  · simp only [throw, throwThe, MonadExceptOf.throw, bind, Except.bind, GoodW]; exact ⟨trivial, by simp⟩
+  · simp [pure, Except.pure, GoodW]
   · obtain ⟨b, hb⟩ := hp.taskLiterals t ht
     rw [hb, show fuel = (fuel - 1) + 1 from rfl]
     simp [eval, Value.asNum, bind, Except.bind, pure, Except.pure, GoodW]
@@ -333,8 +333,6 @@ theorem boot_sound {p : Program} (hp : WellTyped p) (o : Oracle) : OutcomeOK (bo
   split
   · next e he => exact ofW (startTimers_good hp slots₀) he
   next timers ht =>
-  split
-  · exact Legitimate.unsupported _
   split
   · next e he =>
     exact ofW (settle_strict (o := o) (now := 0) (prev := {}) (force := []) N.resources

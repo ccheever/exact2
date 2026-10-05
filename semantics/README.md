@@ -10,6 +10,7 @@ tested against it, differentially and at random.
 | `Contract/Binary64Facts.lean` | That model proved: correct rounding, overflow, monotonicity, exactness (below). |
 | `Contract/Number.lean` | `max`/`min` with the runner's NaN and signed-zero rules, and JavaScript's `Number#toString` over exact rationals. |
 | `Contract/Value.lean` | Values, structural equality as the runner's `compare::equal`, and the roster's string functions. |
+| `Contract/Format.lean` | The roster's formats (`formatTime`, `formatDate`, `formatNumber`) and `t(...)`'s strings tables, as the runner computes them. |
 | `Contract/Route.lean` | The router (LLP 1038): canonical locations, the route table's matching, `path`, launch, the six verbs and the reads. |
 | `Contract/Eval.lean` | Operational semantics of expressions: the interpreter `eval`. |
 | `Contract/Runtime.lean` | Operational semantics of programs: statements, actions as transactions, settlement of derives and resources, rendering with keyed rows, timers, events. |
@@ -21,6 +22,7 @@ tested against it, differentially and at random.
 | `Contract/Lower.lean` | A compiler from the semantics' expressions and statements to VM code, mirroring `contract/lower` (`expr.rs`, `stmts.rs`) instruction for instruction. |
 | `Contract/VmFacts.lean`, `Lower{Types,Sim,Spec,Proof,Lists,Calls,Correct,Stmt}.lean` | Its correctness proof (below). |
 | `Contract/LowerCheck.lean` | The Lean half of `difftest lowering`. |
+| `vm-extract/` | The shipped VM machine (`runner/src/machine.rs`) extracted to Lean by Charon and Aeneas, and proved to refine `Contract/Vm.lean` step by step and run by run (`vm-extract/README.md`). |
 | `Contract/ValTy.lean` | Types as sets of values (`ValTy`, `conforms` without finiteness), the order and join the checker's `?` induces (`Ty.le`, `Ty.unify`), and that `conforms` at a complete type gives `ValTy`. |
 | `Contract/Types.lean` | The type system: typing judgments for expressions, statements, views and programs (`HasTy`, `StmtsTy`, `NodesTy`, `WellTyped`), mirroring the Rust checker (contract/types). |
 | `Contract/TypeCheck.lean` | The checker as a program (`check`), proved sound for the judgments. |
@@ -46,6 +48,11 @@ tested against it, differentially and at random.
 `Contract.Program` term. It runs after the whole compiler (a program the
 plan backend refuses is refused here too) and embeds the expanded root with
 the checker's types. Names stay names: the semantics does its own scoping.
+Its `shapes` are the ones the program reaches: those its types and records
+name, those of the roster entries it calls, the router's four when it has
+routes, and what their fields name — not every shape the checker knows, so a
+compiler shape the program never reaches (an event's) does not make an app
+embedding stale when it is added.
 
 **Differential testing.** For each case, `difftest` compiles the program to a
 plan and boots it on the runner, delivers the script's events, and prints a
@@ -83,9 +90,12 @@ the Lean checker must judge the same. A mutant the compiler refuses cannot
 pass `contract lean`, so its expansion is emitted with the types of the
 program it came from (`contract::lean::emit_checked`). Mutants touch only
 what the semantics evaluates (a view's presentation attributes are left
-alone). A refusal for what the embedding does not carry (a prop's or an
-inject's declared type, a source's one signature) is counted as `OUTSIDE`,
-not a disagreement. A disagreement is kept under `target/difftest/types/`.
+alone). The embedding carries what the Rust checker judges at a use and
+at a source: every typed prop's and inject's argument is ascribed its
+declared type (`.typed`, from `contract_syntax::expand_typed`), and the
+program carries each data source's one signature (`Program.sources`), which
+every resource and `send` must meet. A disagreement is kept under
+`target/difftest/types/`.
 
 A divergence is kept under `target/difftest/failures/` (the program, the
 events, both observations); random failures have their scripts shrunk first.
@@ -191,8 +201,8 @@ source as it is.
    `Apps/<Module>.lean`, `def <name> : Contract.Program`. Check that the
    semantics agrees with the runner on it
    (`cargo run --release -p contract-difftest -- explore apps/<app>/app.contract`)
-   and that it is not refused (routes, `t(...)` and the rest of the list
-   below are outside the semantics). From then on `difftest apps`, in the
+   and that it is not refused (geometry reads are outside the semantics,
+   below). From then on `difftest apps`, in the
    async lane, fails when the source moves and the embedding did not.
 2. **State.** Write the property in `Apps/Proofs/<Module>.lean` over the
    embedding: of every reachable configuration (`Reachable <name> c`), of
@@ -227,7 +237,8 @@ def screens : List String := ["lock", "home", "settings", "display", "messages"]
 def ScreenOK (v : Value) : Prop := ∃ s ∈ screens, v = .str s
 
 theorem screen_always : ∀ c, Reachable typeTour c → SlotIn "screen" ScreenOK c.slots := by
-  refine Reachable.slotIn screen_boot ?_ (fun _ a ha => by simp [typeTour] at ha)
+  refine Reachable.slotIn screen_boot ?_
+    (fun _ a ha => by simp [typeTour, clockActions, thenActions] at ha)
   intro c ev a args env ls vs payload rows _ hh hvs
   refine BodyKeeps.of_wp fun ad had hname => ?_
   subst hname
@@ -361,8 +372,9 @@ submodules step for step, numbering and spelling included: capture-avoiding
 substitution renaming a binder `x@k` when a replacement mentions it, view
 binders `x#n`, derive resolution (freshened binders `x@bk`, a dependency
 read twice on every path bound once by a `let`), lifted states and actions
-`x#n` with their owners, props and injects captured as hidden parameters
-`@capture:n:i`, tail calls resolved (`p@ck`, `x@bk`, `p@tailk`; the
+`x#n` with their owners, a slot's fill inlined afresh at each `children`
+node under that node's region arms, props and injects captured as hidden
+parameters `@capture:n:i`, tail calls resolved (`p@ck`, `x@bk`, `p@tailk`; the
 `@check:` statement the flat embedding drops is not emitted).
 
 **`difftest expansion`** checks the real expander on each program:
@@ -374,7 +386,9 @@ cargo run -p contract-difftest -- expansion --seed 1 --count 500     # generated
 ```
 
 (a) the Lean expander's output on the component-level embedding against
-Rust's expansion (the flat embedding), declaration by declaration and node
+Rust's expansion (the flat embedding of the expansion the plan compiler
+makes, `contract::lean::lean_plain`: its uses' arguments not ascribed as
+`contract lean`'s are for the checker), declaration by declaration and node
 by node, types apart (a lifted type that differs is reported, not failed:
 a child's declarations carry the standalone checker's types); (b) the
 component-level semantics of the unexpanded file against the flat
@@ -432,22 +446,31 @@ calls; `provide`/`inject` scoping in a render; and their composition into
 a run, where both semantics take a fixed fuel the expansion spends
 differently.
 
-**Findings.** Four disagreements, each a program the runner runs as the
-flat semantics does (so a bug in inline.rs, if the component-level
-reading is the intended one):
+**Findings, fixed.** The first run found four disagreements, each a bug in
+inline.rs (the rule: a child's state lives exactly as long as its instance,
+owned by the innermost region arm around the instance, or the root). Each
+is now a case in `corpus/components/` and a runner test in
+`contract/cli/tests/it/child_state_lifetime.rs`.
 
 1. A stateful child in a slot fill, the slot component showing `children`
-   under a `when`: hiding and showing the arm keeps the child's state. The
-   fill is inlined before the slot component's view, so its uses are owned
-   by the *use site's* region, not the region around `children`.
-2. A slot component that shows `children` twice: the fill is inlined once
-   and copied, so both copies share one instance's state (and region tags).
-3. A slot component that repeats `children` per `each` row: every row's
-   copy shares one instance's state, for the same reason.
-4. A child whose prop holds a number that is not finite (`1 / d` with `d`
-   zero): the child's own actions are refused (`ArgumentType` on
-   `@capture:n:i`), though they never read the prop, because the expansion
-   passes every prop to a lifted action as a hidden, type-checked argument.
+   under a `when`, kept its state across hide and show: the fill was
+   inlined before the slot component's view, so its uses were owned by the
+   *use site's* region. The fill is now inlined at `children`, under the
+   arms around it (`fill-state-when`).
+2. A slot component showing `children` twice shared one instance's state
+   and region tags between the copies (the fill was inlined once and
+   copied). Each `children` now inlines the fill afresh: its own instances,
+   numbers and tags (`fill-twice`).
+3. A slot component repeating `children` per `each` row shared one
+   instance across the rows, for the same reason; each row now owns its
+   copy (`fill-per-row`).
+4. A child whose prop held a number that is not finite had all its actions
+   refused (`ArgumentType` on `@capture:n:i`), even those that never read
+   the prop. A hidden parameter (one whose name begins with `@`, which no
+   authored name can) is the compiler's argument, not the host's, so its
+   argument is held to its type but not to finiteness (`Runtime.argOk`,
+   `typed`; the runner's `Value::typed`; the JS target's `N` type code), as
+   the prop read in place is (`nonfinite-prop-action`).
 
 ## Lean
 
@@ -500,6 +523,13 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
 - `conforms_valTy`: what the runtime check admits at a complete type is a
   value of that type; `conforms_of_valTy`: a value of a type whose numbers
   are finite passes the check. Finiteness is all that separates them.
+- `VmExtract.step_ok`, `VmExtract.machine_run_ok` (`vm-extract/`, checked by
+  its own `check.sh` under Aeneas's Lean): the runner's VM machine as
+  shipped, translated by Charon and Aeneas, refines `Contract.Vm`: whatever a
+  step or a run of it returns, the model's step or interpreter returns too,
+  or traps correspondingly. The trusted base (the translation, a few standard
+  functions, the runner's `Val` and `Host` instances against the model's) is
+  in `vm-extract/README.md`.
 - `EnvGood.envOK` (`EnvSound.lean`): an environment whose root slots are
   present and of their types, whose row slots in force are of theirs and
   whose settled derives and resources are declared ones of theirs
@@ -579,14 +609,53 @@ the semantics evaluates of a view (a `text`'s text, `testId`, handlers,
 regions), type a command's arguments without its host signature, and check
 the expanded root, so a component nothing uses is not checked. Rust refuses
 more: `let` shadowing, host command signatures, presentation attributes,
-placeholders, `t(...)`, a prop's declared type, and a data source's one
-signature across its uses.
+placeholders, `t(...)`'s key and placeholder names against the tables, and a prop's declared type where the expansion
+reads its argument only in presentation or not at all (the ascription is
+judged where the semantics evaluates it). A data source's signature is
+carried as the Rust checker unified it across its uses, and checked per use
+(`sourceOk`: as many arguments, each meeting its parameter, the answer
+meeting the source's).
+
+## The clock
+
+`advance` moves the clock as the runner's `advance_within` does. Timers
+fire in order of due time, ties by declaration order. A mutation's `then`
+is armed, due at the commit's time, by every commit that stood in which a
+send into the mutation was answered (here every answer is synchronous,
+`armThens`; arming again moves the due time); it runs as its own commit
+at the next advance, before any timer due at or after its time, ties by
+the mutations' order. A frame task is the runner's virtual display while
+the host presents no frames (the harness never does): due at
+`virtualFrame 0 k = k·1000/60` for k = 1, 2, …; presented frames
+(`Runner::frame`) are not modelled. One advance makes at most 4096 fires,
+`then`s counted. The actions the clock runs are `clockActions`: the
+tasks' and the mutations' `then`s.
+
+## Formatting and localized text
+
+`formatTime`, `formatDate` and `formatNumber` (`Contract/Format.lean`) are
+the runner's (`runner/src/stdlib.rs`, `runner/src/format.rs`) transcribed:
+`en-US` at the fixed UTC offset the call names, the wall time truncated
+then shifted and held to years 1–9999 (else `""`), the calendar by
+Hinnant's `civil_from_days` over integers, compact numbers from the
+shortest digits Rust's `{}` prints (of two equally near shortest forms the
+upper, where `toString` takes the even). `t(...)` reads the strings tables
+(`strings/<locale>.json` beside the source), which the embedding carries
+(`Program.strings`, the base first) with the resolved locale's slot
+(`Program.locale`, the plan's `#locale`, initialized to the base before
+every other slot and left out of the observation, as the runner's is). The
+embedding writes `t("key", name=value)` as the compiler lowers it: the
+locale slot, the key, then each name and its value through `toString`;
+`Plan::localized` falls back to the base table and `strings::fill` fills
+`{$name}`/`{name}` and the `\{`, `\}`, `\\` escapes. The host's `place`
+event (a viewer locale other than the base) is not delivered by the
+harness, so only the base table is read there.
 
 ## What the semantics leaves out
 
-These are refused as unsupported rather than given a meaning:
-`t(...)`, the `format*` entries, geometry reads, frame tasks, and a mutation's
-`then`. Routes are in (`Contract/Route.lean`, the `exact_route` crate and the
+Geometry reads (`frame(id)`, `measure(id)`: where layout put a node) are
+refused as unsupported rather than given a meaning: layout is out of
+scope. Routes are in (`Contract/Route.lean`, the `exact_route` crate and the
 runner's plan boundary transcribed): the router slot starts at the launch of
 `/`, as the harness boots the runner, and a commit that leaves it holding an
 invalid router is refused; the host's `navigate` event, which the harness

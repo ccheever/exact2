@@ -9,9 +9,11 @@
 //! trusted. There is no closure, no heap of the VM's own, no ambient read that
 //! is not an operand: `now()` reads the clock the runner passes in.
 
+use crate::machine::{self, Host, Kind, Machine, Num, Val};
+pub use crate::machine::{Instruction, Trap};
 use crate::stdlib;
 use exact_plan::bytes::Reader;
-use exact_plan::{Items, Opcode, Operand, Plan, Stdlib, Value};
+use exact_plan::{Opcode, Operand, Plan, Stdlib, Value};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -125,93 +127,6 @@ pub struct Env<'a> {
     pub store_dependent_resources: &'a [bool],
 }
 
-/// A typed evaluation failure. The plan was validated, so a trap is a
-/// semantic defect the compiler let through, named by pc.
-#[allow(missing_docs)]
-#[derive(Debug, Clone, PartialEq)]
-pub enum Trap {
-    StackUnderflow {
-        pc: usize,
-    },
-    TypeMismatch {
-        pc: usize,
-        op: Opcode,
-    },
-    UnwrapNone {
-        pc: usize,
-    },
-    BadField {
-        pc: usize,
-        index: u16,
-    },
-    BadScope {
-        pc: usize,
-        depth: u16,
-    },
-    BadParam {
-        pc: usize,
-        index: u16,
-    },
-    Arity {
-        pc: usize,
-        expected: usize,
-    },
-    WriteNotDeclared {
-        pc: usize,
-        slot: u32,
-    },
-    BadJump {
-        pc: usize,
-        target: u32,
-    },
-    Malformed {
-        pc: usize,
-    },
-    NoResult,
-    /// An expression would make a string longer than [`MAX_STRING`] bytes.
-    StringTooLong {
-        pc: usize,
-    },
-    /// A derive or resource read before it settled this update; the runner's
-    /// settlement loop retries it later in the same pass.
-    Pending {
-        pc: usize,
-    },
-    /// A `List`, `Record` or `Some` would hold more than [`MAX_VALUE_NODES`]
-    /// values or [`MAX_VALUE_BYTES`] string bytes, shared ones counted where
-    /// they appear.
-    ValueTooLarge {
-        pc: usize,
-    },
-    /// A `List`, `Record` or `Some` would nest deeper than [`MAX_VALUE_DEPTH`].
-    ValueTooDeep {
-        pc: usize,
-    },
-    /// A `Map`, `Filter` or `join` (at `pc`) would take this evaluation past
-    /// [`MAX_LIST_STEPS`] (LLP 1017.003 D3).
-    IterationLimit {
-        pc: usize,
-    },
-}
-
-/// A `Map` or `Filter` in progress (LLP 1017.003 D5): its callback body is
-/// `start..end`, run once per item with the item and its index bound as
-/// locals `locals` and `locals + 1`, on an operand stack of its own (the
-/// caller's is kept in `caller`), so a body can neither read nor drop what
-/// its caller left, nor drop a local it did not bind.
-struct Callback {
-    pc: usize,
-    filter: bool,
-    start: usize,
-    end: usize,
-    items: Items,
-    next: usize,
-    out: Vec<Value>,
-    extent: Extent,
-    locals: usize,
-    caller: Vec<Value>,
-}
-
 /// Take `n` list steps, or trap at `pc`.
 fn step(steps: &mut u32, n: usize, pc: usize) -> Result<(), Trap> {
     *steps = steps.saturating_add(u32::try_from(n).unwrap_or(u32::MAX));
@@ -285,16 +200,6 @@ fn list_call(
     let v = Value::list(built);
     extents.remember(&v, e);
     Ok(Some(v))
-}
-
-impl Callback {
-    /// Bind item `self.next` and its index, counting the run.
-    fn begin(&mut self, locals: &mut Vec<Value>, steps: &mut u32) -> Result<(), Trap> {
-        step(steps, 1, self.pc)?;
-        locals.push(self.items[self.next].clone());
-        locals.push(Value::Number(self.next as f64));
-        Ok(())
-    }
 }
 
 /// A value's expanded extent: its values (a shared one counted once per
@@ -447,22 +352,9 @@ pub fn intern(plan: &Plan) -> Vec<Value> {
         .collect()
 }
 
-/// One decoded instruction: its opcode and operands in declared order,
-/// integers widened, an `f64` operand in `number`.
-#[derive(Debug, Clone, Copy)]
-pub struct Instruction {
-    /// Its offset in the body.
-    pub pc: usize,
-    /// The opcode.
-    pub op: Opcode,
-    /// Integer operands in declared order.
-    pub args: [u64; 3],
-    /// The `f64` operand, if the opcode has one.
-    pub number: f64,
-}
-
 /// Decode the instruction at `r`: the one decoder the VM, the dependency
 /// table and the retained-binding grammar share.
+#[inline]
 pub fn decode(r: &mut Reader<'_>) -> Result<Instruction, Trap> {
     let pc = r.position();
     let malformed = |_| Trap::Malformed { pc };
@@ -525,504 +417,426 @@ pub fn is_literal(code: &[u8]) -> bool {
 
 /// Evaluate `code` in `env`. `allowed_writes` bounds `StoreSlot`; an action
 /// passes its `writes` range, an expression passes nothing.
+///
+/// The loop is [`machine::run`], over [`Value`] and this environment.
 pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcome, Trap> {
-    let mut stack: Vec<Value> = Vec::with_capacity(16);
-    let mut locals: Vec<Value> = Vec::new();
-    let mut out = Outcome::default();
-    let mut extents = Extents::default();
-    let mut callbacks: Vec<Callback> = Vec::new();
-    let mut steps = 0u32;
-    let mut r = Reader::new(code);
-    let malformed = |pc: usize| Trap::Malformed { pc };
-    // A jump inside a callback body stays inside it (the plan checker's
-    // rule, checked again here: a plan is never trusted).
-    let jump_to = |target: u32, callbacks: &[Callback], pc: usize| {
-        if callbacks.last().is_some_and(|c| target as usize > c.end) {
-            return Err(Trap::BadJump { pc, target });
-        }
-        jump(code, target).ok_or(Trap::BadJump { pc, target })
+    let mut run = Run {
+        env,
+        code,
+        allowed_writes,
+        cursor: Reader::new(code),
+        out: Outcome::default(),
+        extents: Extents::default(),
+        steps: 0,
     };
-    macro_rules! pop {
-        ($pc:expr) => {
-            stack.pop().ok_or(Trap::StackUnderflow { pc: $pc })?
-        };
-    }
-    macro_rules! num2 {
-        ($pc:expr, $op:expr, $f:expr) => {{
-            let b = pop!($pc);
-            let a = pop!($pc);
-            match (a, b) {
-                (Value::Number(a), Value::Number(b)) => stack.push($f(a, b)),
-                _ => return Err(Trap::TypeMismatch { pc: $pc, op: $op }),
-            }
-        }};
-    }
-    loop {
-        // A callback body's end: collect what the run left, then run the
-        // next item or finish the list (which may end an outer body too).
-        while let Some(c) = callbacks.last_mut().filter(|c| r.position() == c.end) {
-            let pc = c.end;
-            // One value left, every local it bound dropped.
-            if stack.len() != 1 || locals.len() != c.locals + 2 {
-                return Err(Trap::Malformed { pc });
-            }
-            let v = pop!(pc);
-            let kept = match (c.filter, v) {
-                (true, Value::Bool(keep)) => keep.then(|| c.items[c.next].clone()),
-                (true, _) => {
-                    return Err(Trap::TypeMismatch {
-                        pc: c.pc,
-                        op: Opcode::Filter,
-                    })
-                }
-                (false, v) => Some(v),
-            };
-            if let Some(v) = kept {
-                c.extent = c.extent.with(extents.of(&v, c.pc)?, c.pc)?;
-                c.out.push(v);
-            }
-            locals.truncate(c.locals);
-            c.next += 1;
-            if c.next < c.items.len() {
-                c.begin(&mut locals, &mut steps)?;
-                r = jump(code, c.start as u32).ok_or(Trap::Malformed { pc })?;
-                break;
-            }
-            let c = callbacks.pop().expect("the last callback");
-            stack = c.caller;
-            // A filter that kept every item is that list, shared.
-            let v = if c.filter && c.out.len() == c.items.len() {
-                Value::List(c.items)
-            } else {
-                let v = Value::list(c.out);
-                extents.remember(&v, c.extent);
-                v
-            };
-            stack.push(v);
-        }
-        if r.is_empty() {
-            break;
-        }
-        let Instruction {
-            pc,
-            op,
-            args,
-            number: f64_arg,
-        } = decode(&mut r)?;
-        match op {
-            Opcode::Number => stack.push(Value::Number(f64_arg)),
-            Opcode::Bool => stack.push(Value::Bool(args[0] != 0)),
-            Opcode::Str => stack.push(
-                env.strings
-                    .get(args[0] as usize)
-                    .ok_or(malformed(pc))?
-                    .clone(),
-            ),
-            Opcode::None => stack.push(Value::NONE),
-            Opcode::Unit => stack.push(Value::Unit),
-            // @ref LLP 1090 D2 — a `Some` adds depth and nothing else: the
-            // JS target erases it, and `type-option-option` keeps at most one
-            // above each counted value, so walks stay within twice the count.
-            Opcode::Some => {
-                let v = pop!(pc);
-                let inner = extents.of(&v, pc)?;
-                let e = Extent {
-                    depth: inner.depth + 1,
-                    ..inner
-                }
-                .check(pc)?;
-                let v = Value::some(v);
-                extents.remember(&v, e);
-                stack.push(v);
-            }
-            Opcode::LoadSlot => {
-                let slot = args[0] as usize;
-                let row = env.plan.slots.get(slot).ok_or(malformed(pc))?;
-                let v = match env.plan.owner_region(row) {
-                    // An owned slot: the value the innermost instance of its
-                    // region (a row, an arm) holds.
-                    Some(region) => Frame::row_of(env.frames, region.0)
-                        .and_then(|r| r.borrow().get(&(slot as u32)).cloned())
-                        .ok_or(Trap::BadScope { pc, depth: 0 })?,
-                    None => env.slots.get(slot).cloned().ok_or(malformed(pc))?,
-                };
-                stack.push(v);
-            }
-            Opcode::LoadDerive => {
-                let derive = args[0] as usize;
-                let value = env
-                    .derives
-                    .get(derive)
-                    .ok_or(malformed(pc))?
-                    .clone()
-                    .ok_or(Trap::Pending { pc })?;
-                out.store_dependent |= env
-                    .store_dependent_derives
-                    .get(derive)
-                    .copied()
-                    .unwrap_or(false);
-                stack.push(value);
-            }
-            Opcode::LoadResource => {
-                let resource = args[0] as usize;
-                let value = env
-                    .resources
-                    .get(resource)
-                    .ok_or(malformed(pc))?
-                    .as_ref()
-                    .ok_or(Trap::Pending { pc })?
-                    .read(env.plan);
-                out.store_dependent |= env
-                    .store_dependent_resources
-                    .get(resource)
-                    .copied()
-                    .unwrap_or(false);
-                stack.push(value);
-            }
-            Opcode::LoadParam => stack.push(env.params.get(args[0] as usize).cloned().ok_or(
-                Trap::BadParam {
-                    pc,
-                    index: args[0] as u16,
-                },
-            )?),
-            Opcode::LoadIndex => {
-                let depth = args[0] as usize;
-                let index = env
-                    .frames
-                    .len()
-                    .checked_sub(depth + 1)
-                    .and_then(|i| env.frames.get(i))
-                    .and_then(|f| f.index)
-                    .ok_or(Trap::BadScope {
-                        pc,
-                        depth: depth as u16,
-                    })?;
-                stack.push(Value::Number(index as f64));
-            }
-            Opcode::LoadItem | Opcode::LoadBound => {
-                let depth = args[0] as usize;
-                let frame = env
-                    .frames
-                    .len()
-                    .checked_sub(depth + 1)
-                    .and_then(|i| env.frames.get(i))
-                    .ok_or(Trap::BadScope {
-                        pc,
-                        depth: depth as u16,
-                    })?;
-                let v = if op == Opcode::LoadItem {
-                    &frame.item
-                } else {
-                    &frame.bound
-                };
-                stack.push(v.clone().ok_or(Trap::BadScope {
-                    pc,
-                    depth: depth as u16,
-                })?);
-            }
-            Opcode::Field => {
-                let index = args[0] as u16;
-                match pop!(pc) {
-                    Value::Record(fields) => stack.push(
-                        fields
-                            .get(index as usize)
-                            .cloned()
-                            .ok_or(Trap::BadField { pc, index })?,
-                    ),
-                    _ => return Err(Trap::TypeMismatch { pc, op }),
-                }
-            }
-            Opcode::Record => {
-                let ty = exact_plan::TypesId(args[0] as u32);
-                let n = env.plan.type_(ty).fields.len as usize;
-                if stack.len() < n {
-                    return Err(Trap::StackUnderflow { pc });
-                }
-                let fields = stack.split_off(stack.len() - n);
-                let e = extents.built(&fields, pc)?;
-                let v = Value::record(fields);
-                extents.remember(&v, e);
-                stack.push(v);
-            }
-            Opcode::List => {
-                let n = args[0] as usize;
-                if stack.len() < n {
-                    return Err(Trap::StackUnderflow { pc });
-                }
-                let items = stack.split_off(stack.len() - n);
-                let e = extents.built(&items, pc)?;
-                let v = Value::list(items);
-                extents.remember(&v, e);
-                stack.push(v);
-            }
-            // @ref LLP 1024 D1 — the leftover attributes, one replaced object.
-            Opcode::NativeProps => {
-                let n = args[0] as usize * 2;
-                if stack.len() < n {
-                    return Err(Trap::StackUnderflow { pc });
-                }
-                let pairs = stack.split_off(stack.len() - n);
-                let json = stdlib::native_props(&pairs).ok_or(Trap::TypeMismatch { pc, op })?;
-                if json.len() > MAX_STRING {
-                    return Err(Trap::StringTooLong { pc });
-                }
-                stack.push(Value::str(&json));
-            }
-            Opcode::Add => num2!(pc, op, |a, b| Value::Number(a + b)),
-            Opcode::Sub => num2!(pc, op, |a, b| Value::Number(a - b)),
-            Opcode::Mul => num2!(pc, op, |a, b| Value::Number(a * b)),
-            Opcode::Div => num2!(pc, op, |a, b| Value::Number(a / b)),
-            Opcode::Rem => num2!(pc, op, |a, b| Value::Number(a % b)),
-            // Two numbers by IEEE order (a NaN is unordered: every test
-            // false), two strings by UTF-16 code units (LLP 1088 D1).
-            Opcode::Lt | Opcode::Le | Opcode::Gt | Opcode::Ge => {
-                let b = pop!(pc);
-                let a = pop!(pc);
-                let order = match (&a, &b) {
-                    (Value::Number(a), Value::Number(b)) => a.partial_cmp(b),
-                    _ => match (a.as_str(), b.as_str()) {
-                        (Some(a), Some(b)) => Some(crate::strings::order(a, b)),
-                        _ => return Err(Trap::TypeMismatch { pc, op }),
-                    },
-                };
-                stack.push(Value::Bool(order.is_some_and(|o| match op {
-                    Opcode::Lt => o.is_lt(),
-                    Opcode::Le => o.is_le(),
-                    Opcode::Gt => o.is_gt(),
-                    _ => o.is_ge(),
-                })));
-            }
-            Opcode::Neg => match pop!(pc) {
-                Value::Number(n) => stack.push(Value::Number(-n)),
-                _ => return Err(Trap::TypeMismatch { pc, op }),
-            },
-            Opcode::Eq | Opcode::Ne => {
-                let b = pop!(pc);
-                let a = pop!(pc);
-                let eq = crate::compare::equal(&a, &b).ok_or(Trap::TypeMismatch { pc, op })?;
-                stack.push(Value::Bool(if op == Opcode::Eq { eq } else { !eq }));
-            }
-            Opcode::Not => match pop!(pc) {
-                Value::Bool(b) => stack.push(Value::Bool(!b)),
-                _ => return Err(Trap::TypeMismatch { pc, op }),
-            },
-            Opcode::Concat => {
-                let b = pop!(pc);
-                let a = pop!(pc);
-                match (a.as_str(), b.as_str()) {
-                    (Some(a), Some(b)) => {
-                        if a.len() + b.len() > MAX_STRING {
-                            return Err(Trap::StringTooLong { pc });
-                        }
-                        stack.push(stdlib::assembled(|s| {
-                            s.push_str(a);
-                            s.push_str(b);
-                        }));
-                    }
-                    _ => return Err(Trap::TypeMismatch { pc, op }),
-                }
-            }
-            Opcode::Jump => r = jump_to(args[0] as u32, &callbacks, pc)?,
-            Opcode::JumpIfFalse => {
-                let target = args[0] as u32;
-                match pop!(pc) {
-                    Value::Bool(true) => {}
-                    Value::Bool(false) => r = jump_to(target, &callbacks, pc)?,
-                    _ => return Err(Trap::TypeMismatch { pc, op }),
-                }
-            }
-            Opcode::JumpIfNone => {
-                let target = args[0] as u32;
-                match stack.last() {
-                    Some(Value::Option(Some(_))) => {}
-                    Some(Value::Option(None)) => r = jump_to(target, &callbacks, pc)?,
-                    Some(_) => return Err(Trap::TypeMismatch { pc, op }),
-                    None => return Err(Trap::StackUnderflow { pc }),
-                }
-            }
-            Opcode::Unwrap => match pop!(pc) {
-                Value::Option(Some(v)) => stack.push((*v).clone()),
-                Value::Option(None) => return Err(Trap::UnwrapNone { pc }),
-                _ => return Err(Trap::TypeMismatch { pc, op }),
-            },
-            Opcode::Call => {
-                let f = Stdlib::from_wire(args[0] as u8).ok_or(malformed(pc))?;
-                let n = f.arity();
-                if stack.len() < n {
-                    return Err(Trap::Arity { pc, expected: n });
-                }
-                // The arguments are read where they are, not moved to a
-                // vector of their own: a call is the VM's commonest cost.
-                let at = stack.len() - n;
-                let call_args = &stack[at..];
-                let v = if f == Stdlib::Join {
-                    if let Some(Value::List(items)) = call_args.first() {
-                        step(&mut steps, items.len(), pc)?;
-                    }
-                    match stdlib::join(call_args, MAX_STRING) {
-                        Ok(v) => v,
-                        Err(stdlib::JoinError::Type) => return Err(Trap::TypeMismatch { pc, op }),
-                        Err(stdlib::JoinError::TooLong) => return Err(Trap::StringTooLong { pc }),
-                    }
-                } else if let Some(v) = list_call(f, call_args, &mut steps, &mut extents, pc)? {
-                    v
-                } else {
-                    stdlib::call(
-                        f,
-                        call_args,
-                        env.now_ms,
-                        env.plan,
-                        env.router,
-                        env.format,
-                        env.geometry,
-                    )
-                    .map_err(|error| match error {
-                        stdlib::CallError::TypeMismatch => Trap::TypeMismatch { pc, op },
-                        stdlib::CallError::StringTooLong => Trap::StringTooLong { pc },
-                    })?
-                };
-                stack.truncate(at);
-                stack.push(v);
-            }
-            // @ref LLP 1017.003 D5 — a callback body follows inline, to `end`.
-            Opcode::Map | Opcode::Filter => {
-                let end = args[0] as usize;
-                let start = r.position();
-                if end < start || end > code.len() {
-                    return Err(Trap::BadJump {
-                        pc,
-                        target: end as u32,
-                    });
-                }
-                let Value::List(items) = pop!(pc) else {
-                    return Err(Trap::TypeMismatch { pc, op });
-                };
-                if items.is_empty() {
-                    r = jump_to(end as u32, &callbacks, pc)?;
-                    stack.push(Value::List(items));
-                    continue;
-                }
-                let mut c = Callback {
-                    pc,
-                    filter: op == Opcode::Filter,
-                    start,
-                    end,
-                    out: Vec::with_capacity(if op == Opcode::Map { items.len() } else { 0 }),
-                    extent: Extent {
-                        nodes: 1,
-                        ..Extent::default()
-                    },
-                    items,
-                    next: 0,
-                    locals: locals.len(),
-                    caller: std::mem::take(&mut stack),
-                };
-                c.begin(&mut locals, &mut steps)?;
-                callbacks.push(c);
-            }
-            Opcode::StoreSlot => {
-                let slot = args[0] as u32;
-                if !allowed_writes.contains(&slot) {
-                    return Err(Trap::WriteNotDeclared { pc, slot });
-                }
-                let v = pop!(pc);
-                let row = env.plan.slots.get(slot as usize).ok_or(malformed(pc))?;
-                match env.plan.owner_region(row) {
-                    Some(region) => {
-                        // An owned slot: written to the instance in force —
-                        // an action run with none (`act`, a timer) has none
-                        // to write.
-                        let row = Frame::row_of(env.frames, region.0)
-                            .ok_or(Trap::BadScope { pc, depth: 0 })?;
-                        out.row_writes.push((slot, v, row.clone()));
-                    }
-                    None => out.writes.push((slot, v)),
-                }
-            }
-            Opcode::Command => {
-                let name = env.plan.str(exact_plan::StrId(args[0] as u32)).to_string();
-                let n = args[1] as usize;
-                if stack.len() < n {
-                    return Err(Trap::StackUnderflow { pc });
-                }
-                let cargs = stack.split_off(stack.len() - n);
-                out.commands.push((name, cargs));
-            }
-            Opcode::Send => {
-                let m = args[0] as u32;
-                let slot = env.plan.mutation(exact_plan::MutationsId(m)).slot.0;
-                if !allowed_writes.contains(&slot) {
-                    return Err(Trap::WriteNotDeclared { pc, slot });
-                }
-                let source = env.plan.str(exact_plan::StrId(args[1] as u32)).to_string();
-                let n = args[2] as usize;
-                if stack.len() < n {
-                    return Err(Trap::StackUnderflow { pc });
-                }
-                let sargs = stack.split_off(stack.len() - n);
-                out.sends.push((m, source, sargs));
-            }
-            Opcode::Refresh => out.refreshes.push(args[0] as u32),
-            Opcode::PendingResource | Opcode::FailedResource => {
-                // Known once the resource settled this pass, like its value.
-                let i = args[0] as usize;
-                if env.resources.get(i).is_none_or(Option::is_none) {
-                    return Err(Trap::Pending { pc });
-                }
-                let flag = if op == Opcode::FailedResource {
-                    env.failed_resources.get(i).is_some_and(Option::is_some)
-                } else {
-                    env.pending_resources.get(i).copied().unwrap_or(false)
-                };
-                stack.push(Value::Bool(flag));
-            }
-            Opcode::PendingMutation => stack.push(Value::Bool(
-                env.pending_mutations
-                    .get(args[0] as usize)
-                    .copied()
-                    .unwrap_or(false),
-            )),
-            Opcode::Pop => {
-                pop!(pc);
-            }
-            Opcode::BindLocal => {
-                let v = pop!(pc);
-                locals.push(v);
-            }
-            Opcode::LoadLocal => stack.push(locals.get(args[0] as usize).cloned().ok_or(
-                Trap::BadScope {
-                    pc,
-                    depth: args[0] as u16,
-                },
-            )?),
-            Opcode::DropLocal => {
-                if callbacks
-                    .last()
-                    .is_some_and(|c| locals.len() <= c.locals + 2)
-                {
-                    return Err(Trap::Malformed { pc });
-                }
-                locals.pop().ok_or(Trap::StackUnderflow { pc })?;
-            }
-            Opcode::Return => {
-                if !callbacks.is_empty() {
-                    return Err(Trap::Malformed { pc });
-                }
-                out.value = stack.pop().unwrap_or(Value::Unit);
-                return Ok(out);
-            }
-        }
-    }
-    Err(Trap::NoResult)
+    let mut m = Machine::new();
+    m.stack = Vec::with_capacity(16);
+    run.out.value = machine::run(&mut run, &mut m)?;
+    Ok(run.out)
 }
 
-fn jump(code: &[u8], target: u32) -> Option<Reader<'_>> {
-    if target as usize > code.len() {
-        return None;
+/// The runner's value, as the machine sees it.
+impl Val for Value {
+    #[inline]
+    fn kind(&self) -> Kind<'_, Value> {
+        match self {
+            Value::Number(n) => Kind::Number(*n),
+            Value::Bool(b) => Kind::Bool(*b),
+            exact_plan::str_value!() => Kind::Str,
+            Value::Unit => Kind::Unit,
+            Value::Option(None) => Kind::None,
+            Value::Option(Some(v)) => Kind::Some(v),
+            Value::List(items) => Kind::List(items),
+            Value::Record(items) => Kind::Record(items),
+        }
     }
-    let mut r = Reader::new(code);
-    r.bytes(target as usize).ok()?;
-    Some(r)
+
+    #[inline]
+    fn number(n: f64) -> Value {
+        Value::Number(n)
+    }
+
+    #[inline]
+    fn index(n: usize) -> Value {
+        Value::Number(n as f64)
+    }
+
+    #[inline]
+    fn boolean(b: bool) -> Value {
+        Value::Bool(b)
+    }
+
+    #[inline]
+    fn unit() -> Value {
+        Value::Unit
+    }
+
+    #[inline]
+    fn none() -> Value {
+        Value::NONE
+    }
+
+    #[inline]
+    fn num(op: Num, a: f64, b: f64) -> Value {
+        match op {
+            Num::Add => Value::Number(a + b),
+            Num::Sub => Value::Number(a - b),
+            Num::Mul => Value::Number(a * b),
+            Num::Div => Value::Number(a / b),
+            Num::Rem => Value::Number(a % b),
+            Num::Lt => Value::Bool(a < b),
+            Num::Le => Value::Bool(a <= b),
+            Num::Gt => Value::Bool(a > b),
+            Num::Ge => Value::Bool(a >= b),
+        }
+    }
+
+    #[inline]
+    fn negate(a: f64) -> Value {
+        Value::Number(-a)
+    }
+
+    #[inline]
+    fn num_eq(a: f64, b: f64) -> bool {
+        a == b
+    }
+
+    #[inline]
+    fn str_eq(a: &Value, b: &Value) -> bool {
+        Value::same_str(a, b) || a.as_str() == b.as_str()
+    }
+
+    fn str_cmp(op: Num, a: &Value, b: &Value) -> bool {
+        let o = crate::strings::order(
+            a.as_str().unwrap_or_default(),
+            b.as_str().unwrap_or_default(),
+        );
+        match op {
+            Num::Lt => o.is_lt(),
+            Num::Le => o.is_le(),
+            Num::Gt => o.is_gt(),
+            _ => o.is_ge(),
+        }
+    }
+
+    #[inline]
+    fn concat(a: &Value, b: &Value) -> Option<Value> {
+        let (a, b) = (a.as_str()?, b.as_str()?);
+        if a.len() + b.len() > MAX_STRING {
+            return None;
+        }
+        Some(stdlib::assembled(|s| {
+            s.push_str(a);
+            s.push_str(b);
+        }))
+    }
+}
+
+/// One evaluation's environment, effects and bounds: the machine's host.
+struct Run<'e, 'a> {
+    env: &'e Env<'a>,
+    code: &'e [u8],
+    allowed_writes: &'e [u32],
+    /// Where the last instruction was read up to.
+    cursor: Reader<'e>,
+    out: Outcome,
+    extents: Extents,
+    steps: u32,
+}
+
+impl Host<Value> for Run<'_, '_> {
+    type Extent = Extent;
+
+    #[inline]
+    fn fetch(&mut self, pos: usize) -> Result<Option<(Instruction, usize)>, Trap> {
+        if pos >= self.code.len() {
+            return Ok(None);
+        }
+        // Straight-line code reads on from the last instruction; a jump or a
+        // callback's next item moves the cursor.
+        if self.cursor.position() != pos {
+            self.cursor = Reader::new(self.code);
+            self.cursor
+                .bytes(pos)
+                .map_err(|_| Trap::Malformed { pc: pos })?;
+        }
+        let ins = decode(&mut self.cursor)?;
+        Ok(Some((ins, self.cursor.position())))
+    }
+
+    #[inline]
+    fn code_len(&self) -> usize {
+        self.code.len()
+    }
+
+    fn string(&self, i: u64, pc: usize) -> Result<Value, Trap> {
+        self.env
+            .strings
+            .get(i as usize)
+            .cloned()
+            .ok_or(Trap::Malformed { pc })
+    }
+
+    fn load_slot(&self, i: u64, pc: usize) -> Result<Value, Trap> {
+        let slot = i as usize;
+        let env = self.env;
+        let row = env.plan.slots.get(slot).ok_or(Trap::Malformed { pc })?;
+        match env.plan.owner_region(row) {
+            // An owned slot: the value the innermost instance of its region
+            // (a row, an arm) holds.
+            Some(region) => Frame::row_of(env.frames, region.0)
+                .and_then(|r| r.borrow().get(&(slot as u32)).cloned())
+                .ok_or(Trap::BadScope { pc, depth: 0 }),
+            None => env.slots.get(slot).cloned().ok_or(Trap::Malformed { pc }),
+        }
+    }
+
+    fn load_derive(&mut self, i: u64, pc: usize) -> Result<Value, Trap> {
+        let derive = i as usize;
+        let env = self.env;
+        let value = env
+            .derives
+            .get(derive)
+            .ok_or(Trap::Malformed { pc })?
+            .clone()
+            .ok_or(Trap::Pending { pc })?;
+        self.out.store_dependent |= env
+            .store_dependent_derives
+            .get(derive)
+            .copied()
+            .unwrap_or(false);
+        Ok(value)
+    }
+
+    fn load_resource(&mut self, i: u64, pc: usize) -> Result<Value, Trap> {
+        let resource = i as usize;
+        let env = self.env;
+        let value = env
+            .resources
+            .get(resource)
+            .ok_or(Trap::Malformed { pc })?
+            .as_ref()
+            .ok_or(Trap::Pending { pc })?
+            .read(env.plan);
+        self.out.store_dependent |= env
+            .store_dependent_resources
+            .get(resource)
+            .copied()
+            .unwrap_or(false);
+        Ok(value)
+    }
+
+    fn load_param(&self, i: u64, pc: usize) -> Result<Value, Trap> {
+        self.env
+            .params
+            .get(i as usize)
+            .cloned()
+            .ok_or(Trap::BadParam {
+                pc,
+                index: i as u16,
+            })
+    }
+
+    fn load_frame(&self, op: Opcode, depth: u64, pc: usize) -> Result<Value, Trap> {
+        let depth = depth as usize;
+        let frames = self.env.frames;
+        let bad = Trap::BadScope {
+            pc,
+            depth: depth as u16,
+        };
+        let frame = frames
+            .len()
+            .checked_sub(depth + 1)
+            .and_then(|i| frames.get(i))
+            .ok_or(bad.clone())?;
+        match op {
+            Opcode::LoadIndex => frame.index.map(|index| Value::Number(index as f64)),
+            Opcode::LoadItem => frame.item.clone(),
+            _ => frame.bound.clone(),
+        }
+        .ok_or(bad)
+    }
+
+    fn resource_flag(&self, op: Opcode, i: u64, pc: usize) -> Result<bool, Trap> {
+        // Known once the resource settled this pass, like its value.
+        let i = i as usize;
+        let env = self.env;
+        if env.resources.get(i).is_none_or(Option::is_none) {
+            return Err(Trap::Pending { pc });
+        }
+        Ok(if op == Opcode::FailedResource {
+            env.failed_resources.get(i).is_some_and(Option::is_some)
+        } else {
+            env.pending_resources.get(i).copied().unwrap_or(false)
+        })
+    }
+
+    #[inline]
+    fn pending_mutation(&self, i: u64) -> bool {
+        self.env
+            .pending_mutations
+            .get(i as usize)
+            .copied()
+            .unwrap_or(false)
+    }
+
+    // @ref LLP 1090 D2 — a `Some` adds depth and nothing else: the JS
+    // target erases it, and `type-option-option` keeps at most one above
+    // each counted value, so walks stay within twice the count.
+    fn some(&mut self, v: Value, pc: usize) -> Result<Value, Trap> {
+        let inner = self.extents.of(&v, pc)?;
+        let e = Extent {
+            depth: inner.depth + 1,
+            ..inner
+        }
+        .check(pc)?;
+        let v = Value::some(v);
+        self.extents.remember(&v, e);
+        Ok(v)
+    }
+
+    fn list(&mut self, items: Vec<Value>, pc: usize) -> Result<Value, Trap> {
+        let e = self.extents.built(&items, pc)?;
+        let v = Value::list(items);
+        self.extents.remember(&v, e);
+        Ok(v)
+    }
+
+    fn record_len(&self, ty: u64, _pc: usize) -> Result<usize, Trap> {
+        let ty = exact_plan::TypesId(ty as u32);
+        Ok(self.env.plan.type_(ty).fields.len as usize)
+    }
+
+    fn record(&mut self, _ty: u64, fields: Vec<Value>, pc: usize) -> Result<Value, Trap> {
+        let e = self.extents.built(&fields, pc)?;
+        let v = Value::record(fields);
+        self.extents.remember(&v, e);
+        Ok(v)
+    }
+
+    fn native_props(&mut self, pairs: Vec<Value>, pc: usize) -> Result<Value, Trap> {
+        let json = stdlib::native_props(&pairs).ok_or(Trap::TypeMismatch {
+            pc,
+            op: Opcode::NativeProps,
+        })?;
+        if json.len() > MAX_STRING {
+            return Err(Trap::StringTooLong { pc });
+        }
+        Ok(Value::str(&json))
+    }
+
+    fn arity(&self, f: u64, pc: usize) -> Result<usize, Trap> {
+        let f = Stdlib::from_wire(f as u8).ok_or(Trap::Malformed { pc })?;
+        Ok(f.arity())
+    }
+
+    fn call(&mut self, f: u64, stack: &[Value], at: usize, pc: usize) -> Result<Value, Trap> {
+        let f = Stdlib::from_wire(f as u8).ok_or(Trap::Malformed { pc })?;
+        let op = Opcode::Call;
+        let call_args = &stack[at..];
+        if f == Stdlib::Join {
+            if let Some(Value::List(items)) = call_args.first() {
+                step(&mut self.steps, items.len(), pc)?;
+            }
+            return match stdlib::join(call_args, MAX_STRING) {
+                Ok(v) => Ok(v),
+                Err(stdlib::JoinError::Type) => Err(Trap::TypeMismatch { pc, op }),
+                Err(stdlib::JoinError::TooLong) => Err(Trap::StringTooLong { pc }),
+            };
+        }
+        if let Some(v) = list_call(f, call_args, &mut self.steps, &mut self.extents, pc)? {
+            return Ok(v);
+        }
+        let env = self.env;
+        stdlib::call(
+            f,
+            call_args,
+            env.now_ms,
+            env.plan,
+            env.router,
+            env.format,
+            env.geometry,
+        )
+        .map_err(|error| match error {
+            stdlib::CallError::TypeMismatch => Trap::TypeMismatch { pc, op },
+            stdlib::CallError::StringTooLong => Trap::StringTooLong { pc },
+        })
+    }
+
+    fn may_write(&self, slot: u64) -> bool {
+        self.allowed_writes.contains(&(slot as u32))
+    }
+
+    fn store(&mut self, slot: u64, v: Value, pc: usize) -> Result<(), Trap> {
+        let slot = slot as u32;
+        let plan = self.env.plan;
+        let row = plan
+            .slots
+            .get(slot as usize)
+            .ok_or(Trap::Malformed { pc })?;
+        match plan.owner_region(row) {
+            Some(region) => {
+                // An owned slot: written to the instance in force — an action
+                // run with none (`act`, a timer) has none to write.
+                let row = Frame::row_of(self.env.frames, region.0)
+                    .ok_or(Trap::BadScope { pc, depth: 0 })?;
+                self.out.row_writes.push((slot, v, row.clone()));
+            }
+            None => self.out.writes.push((slot, v)),
+        }
+        Ok(())
+    }
+
+    fn command(&mut self, name: u64, args: Vec<Value>) {
+        let name = self
+            .env
+            .plan
+            .str(exact_plan::StrId(name as u32))
+            .to_string();
+        self.out.commands.push((name, args));
+    }
+
+    fn mutation_slot(&self, m: u64, _pc: usize) -> Result<u64, Trap> {
+        let id = exact_plan::MutationsId(m as u32);
+        Ok(u64::from(self.env.plan.mutation(id).slot.0))
+    }
+
+    fn send(&mut self, m: u64, source: u64, args: Vec<Value>) {
+        let source = self
+            .env
+            .plan
+            .str(exact_plan::StrId(source as u32))
+            .to_string();
+        self.out.sends.push((m as u32, source, args));
+    }
+
+    fn refresh(&mut self, r: u64) {
+        self.out.refreshes.push(r as u32);
+    }
+
+    #[inline]
+    fn steps(&mut self, n: usize, pc: usize) -> Result<(), Trap> {
+        step(&mut self.steps, n, pc)
+    }
+
+    #[inline]
+    fn extent(&self) -> Extent {
+        Extent {
+            nodes: 1,
+            ..Extent::default()
+        }
+    }
+
+    #[inline]
+    fn kept(&mut self, e: Extent, v: &Value, pc: usize) -> Result<Extent, Trap> {
+        e.with(self.extents.of(v, pc)?, pc)
+    }
+
+    fn collected(&mut self, out: Vec<Value>, e: Extent) -> Value {
+        let v = Value::list(out);
+        self.extents.remember(&v, e);
+        v
+    }
 }
 
 #[cfg(test)]

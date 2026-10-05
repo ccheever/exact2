@@ -76,7 +76,18 @@ structure CProgram where
   components : List CComponent := []
   routes : List RouteDecl := []
   router : Option String := .none
+  /-- The strings tables and the resolved locale's slot (`Program.strings`,
+  `Program.locale`). -/
+  strings : List (String × List (String × String)) := []
+  locale : Option String := .none
   deriving Repr, Inhabited
+
+/-- The resolved locale's slot, as `contract lean` writes it: a root state
+of the base locale (the first table's), after the router's. -/
+def CProgram.localeStates (p : CProgram) : List StateDecl :=
+  match p.locale with
+  | .some x => [{ name := x, ty := .string, init := .str ((p.strings.head?.map (·.1)).getD "") }]
+  | .none => []
 
 def CProgram.component? (p : CProgram) (name : String) : Option CComponent :=
   p.components.find? (·.name == name)
@@ -107,5 +118,12 @@ def ownCallsComponent (c : CComponent) : CComponent :=
 /-- Every component's own calls made (calls.rs `expand_file`). -/
 def ownCallsProgram (p : CProgram) : CProgram :=
   { p with root := ownCallsComponent p.root, components := p.components.map ownCallsComponent }
+
+/-- Whether a statement of `body` is `name(…)`. -/
+def commandsIn (name : String) : List Stmt → Bool
+  | [] => false
+  | .command n _ :: rest => n == name || commandsIn name rest
+  | .ifS _ a b :: rest | .matchS _ _ a b :: rest => commandsIn name a || commandsIn name b || commandsIn name rest
+  | _ :: rest => commandsIn name rest
 
 end Contract.Components

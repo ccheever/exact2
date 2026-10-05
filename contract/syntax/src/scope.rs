@@ -48,6 +48,9 @@ pub struct Scope {
     /// file that declares them, so a reference to one is refused with the
     /// `use` that would bring it rather than resolved behind the author's back.
     pub elsewhere: HashMap<(Kind, String), String>,
+    /// Whether a call names a roster function, which no file declares and
+    /// every file sees: never another file's name, so never refused.
+    pub roster: Option<fn(&str) -> bool>,
 }
 
 impl Scope {
@@ -93,7 +96,10 @@ impl Scope {
 /// [`resolve_clock_timelines_in`](crate::clock::resolve_clock_timelines_in),
 /// which knows the bindings that shadow it.
 pub fn rescope(file: &mut File, scope: &Scope) -> Result<(), SyntaxError> {
-    let mut r = Rewriter { scope };
+    let mut r = Rewriter {
+        scope,
+        locals: Vec::new(),
+    };
     let File {
         names: _,
         routes,
@@ -131,7 +137,9 @@ pub fn rescope(file: &mut File, scope: &Scope) -> Result<(), SyntaxError> {
         r.scope.rename(Kind::Call, &mut f.name, f.span)?;
         r.params(&mut f.params)?;
         r.ty(&mut f.ret)?;
+        let mark = r.bind(f.params.iter().map(|p| p.name.clone()));
         r.expr(&mut f.body)?;
+        r.locals.truncate(mark);
     }
     if let Some(routes) = routes {
         for row in &mut routes.rows {
@@ -153,7 +161,14 @@ pub fn rescope(file: &mut File, scope: &Scope) -> Result<(), SyntaxError> {
 
 struct Rewriter<'a> {
     scope: &'a Scope,
+    /// The bindings in scope where the rewrite stands — a component's
+    /// members, an action's or `fn`'s parameters, `each`, `match`, arrow and
+    /// `let` binders. A call of one is the binding's, never a top-level name.
+    locals: Vec<String>,
 }
+
+/// The written types no declaration can be (`types` reads them first).
+const PRIMITIVES: [&str; 4] = ["number", "string", "bool", "unit"];
 
 type R = Result<(), SyntaxError>;
 
@@ -175,6 +190,20 @@ impl Rewriter<'_> {
             span,
         } = c;
         self.scope.rename(Kind::Component, name, *span)?;
+        let members: Vec<String> = (props.iter().chain(injects.iter()).map(|p| p.name.clone()))
+            .chain(
+                provides
+                    .iter()
+                    .chain(&*states)
+                    .chain(&*derives)
+                    .map(|b| b.name.clone()),
+            )
+            .chain(resources.iter().map(|r| r.name.clone()))
+            .chain(mutations.iter().map(|m| m.name.clone()))
+            .chain(actions.iter().map(|a| a.name.clone()))
+            .chain(tasks.iter().map(|t| t.name.clone()))
+            .collect();
+        let mark = self.bind(members);
         self.params(props)?;
         self.params(injects)?;
         for b in provides.iter_mut().chain(states).chain(derives) {
@@ -192,12 +221,27 @@ impl Rewriter<'_> {
         }
         for a in actions {
             self.params(&mut a.params)?;
+            let inner = self.bind(a.params.iter().map(|p| p.name.clone()));
             self.stmts(&mut a.body)?;
+            self.locals.truncate(inner);
         }
         for t in tasks {
             self.expr(&mut t.timer.0)?;
         }
-        self.nodes(view)
+        self.nodes(view)?;
+        self.locals.truncate(mark);
+        Ok(())
+    }
+
+    /// Bring `names` into scope; returns the mark to truncate back to.
+    fn bind(&mut self, names: impl IntoIterator<Item = String>) -> usize {
+        let mark = self.locals.len();
+        self.locals.extend(names);
+        mark
+    }
+
+    fn local(&self, name: &str) -> bool {
+        self.locals.iter().any(|l| l == name)
     }
 
     fn params(&mut self, params: &mut [Param]) -> R {
@@ -211,15 +255,21 @@ impl Rewriter<'_> {
 
     fn ty(&mut self, ty: &mut TypeExpr) -> R {
         match ty {
+            TypeExpr::Named(name, _) if PRIMITIVES.contains(&name.as_str()) => Ok(()),
             TypeExpr::Named(name, span) => self.scope.rename(Kind::Call, name, *span),
             TypeExpr::Option(inner, _) | TypeExpr::List(inner, _) => self.ty(inner),
         }
     }
 
     fn stmts(&mut self, stmts: &mut [Stmt]) -> R {
+        let mark = self.locals.len();
         for stmt in stmts {
             match stmt {
-                Stmt::Let { expr, .. } | Stmt::Assign { expr, .. } => self.expr(expr)?,
+                Stmt::Let { name, expr, .. } => {
+                    self.expr(expr)?;
+                    self.locals.push(name.clone());
+                }
+                Stmt::Assign { expr, .. } => self.expr(expr)?,
                 Stmt::Command { args, .. } | Stmt::Send { args, .. } => self.exprs(args)?,
                 Stmt::Refresh { .. } => {}
                 Stmt::If {
@@ -239,7 +289,9 @@ impl Rewriter<'_> {
                     ..
                 } => {
                     self.expr(subject)?;
+                    let inner = self.bind([some.0.clone()]);
                     self.stmts(&mut some.1)?;
+                    self.locals.truncate(inner);
                     self.stmts(none)?;
                 }
                 // The parser never makes a call (LLP 1089); expansion does,
@@ -250,6 +302,7 @@ impl Rewriter<'_> {
                 }
             }
         }
+        self.locals.truncate(mark);
         Ok(())
     }
 
@@ -288,11 +341,18 @@ impl Rewriter<'_> {
                     self.nodes(otherwise)?;
                 }
                 Node::Each {
-                    list, key, body, ..
+                    var,
+                    index,
+                    list,
+                    key,
+                    body,
+                    ..
                 } => {
                     self.expr(list)?;
+                    let mark = self.bind(std::iter::once(var.clone()).chain(index.clone()));
                     self.expr(key)?;
                     self.nodes(body)?;
+                    self.locals.truncate(mark);
                 }
                 Node::Match {
                     subject,
@@ -301,7 +361,9 @@ impl Rewriter<'_> {
                     ..
                 } => {
                     self.expr(subject)?;
+                    let mark = self.bind([some.0.clone()]);
                     self.nodes(&mut some.1)?;
+                    self.locals.truncate(mark);
                     self.nodes(none)?;
                 }
             }
@@ -313,8 +375,10 @@ impl Rewriter<'_> {
         for a in attrs {
             match a.name.as_str() {
                 "class" => self.class(&mut a.value)?,
-                "animation" | "animation-name" | "animationName" | "exit-animation"
-                | "exitAnimation" => self.animation(&mut a.value)?,
+                "animation" | "exit-animation" | "exitAnimation" => {
+                    self.animation(&mut a.value, true)?
+                }
+                "animation-name" | "animationName" => self.animation(&mut a.value, false)?,
                 "animation-timeline" | "animationTimeline" => self.timeline(&mut a.value)?,
                 _ => {}
             }
@@ -336,55 +400,110 @@ impl Rewriter<'_> {
     }
 
     /// The keyframes an `animation` literal names, where it is written (D5).
-    /// A name computed as the app runs is matched against the table as it is
-    /// today: no file can be said to have written it.
-    fn animation(&mut self, value: &mut Expr) -> R {
+    /// In a shorthand that is each comma-separated animation's first word
+    /// that is not one of CSS's animation keywords or a number, as CSS reads
+    /// it; in `animation-name`, each item. A name computed as the app runs is
+    /// matched against the table as it is today: no file can be said to have
+    /// written it.
+    fn animation(&mut self, value: &mut Expr, shorthand: bool) -> R {
         match value {
             Expr::Str(text, span) => {
-                if let Some(to) = self.keyframes_text(text, *span)? {
-                    *text = to;
-                }
-                Ok(())
+                let span = *span;
+                let mut parts = [Part::Text(text)];
+                self.keyframes_in(&mut parts, shorthand, span)
             }
-            Expr::Template(parts, span) => {
-                for part in parts {
-                    if let TemplatePart::Text(text) = part {
-                        if let Some(to) = self.keyframes_text(text, *span)? {
-                            *text = to;
-                        }
-                    }
-                }
-                Ok(())
+            Expr::Template(template, span) => {
+                let span = *span;
+                let mut parts: Vec<Part<'_>> = template
+                    .iter_mut()
+                    .map(|part| match part {
+                        TemplatePart::Text(text) => Part::Text(text),
+                        TemplatePart::Expr(_) => Part::Computed,
+                    })
+                    .collect();
+                self.keyframes_in(&mut parts, shorthand, span)
             }
             Expr::Ternary(_, yes, no, _) => {
-                self.animation(yes)?;
-                self.animation(no)
+                self.animation(yes, shorthand)?;
+                self.animation(no, shorthand)
             }
             Expr::Match { some, none, .. } => {
-                self.animation(some)?;
-                self.animation(none)
+                self.animation(some, shorthand)?;
+                self.animation(none, shorthand)
             }
             _ => Ok(()),
         }
     }
 
-    fn keyframes_text(&self, text: &str, span: Span) -> Result<Option<String>, SyntaxError> {
-        let mut out = String::with_capacity(text.len());
-        let mut changed = false;
-        for (word, is_word) in words(text) {
-            match is_word
-                .then(|| self.scope.resolve(Kind::Keyframes, word, span))
-                .transpose()?
-                .flatten()
+    /// Resolve and rename the keyframes names in a literal's text parts. A
+    /// computed part is a word no file wrote: when it stands where the name
+    /// would, the animation's name is not literal and is left alone.
+    fn keyframes_in(&self, parts: &mut [Part<'_>], shorthand: bool, span: Span) -> R {
+        // Whether the current animation's name has been seen (or is computed),
+        // and whether the next text begins glued to a computed part.
+        let (mut named, mut glued) = (false, false);
+        for part in parts.iter_mut() {
+            let Part::Text(text) = part else {
+                glued = true;
+                continue;
+            };
+            // A computed value glued to a unit (`${d}ms`) is a time; one that
+            // stands alone may be the name, which is then not literal.
+            if glued
+                && !text.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-')
             {
-                Some(to) if to != word => {
-                    out.push_str(to);
-                    changed = true;
-                }
-                _ => out.push_str(word),
+                named = true;
             }
+            let mut out = String::with_capacity(text.len());
+            let mut depth = 0usize;
+            let mut changed = false;
+            let runs: Vec<(&str, bool)> = words(text).collect();
+            for (i, &(run, is_word)) in runs.iter().enumerate() {
+                let first = i == 0 && glued;
+                if !is_word {
+                    for c in run.chars() {
+                        match c {
+                            '(' => depth += 1,
+                            ')' => depth = depth.saturating_sub(1),
+                            ',' if depth == 0 => named = false,
+                            _ => {}
+                        }
+                    }
+                    out.push_str(run);
+                    continue;
+                }
+                let function = runs
+                    .get(i + 1)
+                    .is_some_and(|(next, word)| !word && next.starts_with('('));
+                let candidate = !named
+                    && !first
+                    && depth == 0
+                    && !function
+                    && !(shorthand && is_animation_keyword(run))
+                    && !run.starts_with(|c: char| c.is_ascii_digit() || c == '.')
+                    && !(run.starts_with('-')
+                        && run[1..].starts_with(|c: char| c.is_ascii_digit() || c == '.'))
+                    && run != "none";
+                if candidate {
+                    named = true;
+                    if let Some(to) = self.scope.resolve(Kind::Keyframes, run, span)? {
+                        if to != run {
+                            out.push_str(to);
+                            changed = true;
+                            continue;
+                        }
+                    }
+                } else if !shorthand && depth == 0 && !first {
+                    named = true;
+                }
+                out.push_str(run);
+            }
+            if changed {
+                **text = out;
+            }
+            glued = false;
         }
-        Ok(changed.then_some(out))
+        Ok(())
     }
 
     /// A `clock(Name)` literal names a timeline where it is written (D5); a
@@ -410,6 +529,10 @@ impl Rewriter<'_> {
             Expr::Ternary(_, yes, no, _) => {
                 self.timeline(yes)?;
                 self.timeline(no)
+            }
+            Expr::Match { some, none, .. } => {
+                self.timeline(some)?;
+                self.timeline(none)
             }
             _ => Ok(()),
         }
@@ -441,7 +564,11 @@ impl Rewriter<'_> {
             | Expr::NamedArg(_, inner, _)
             | Expr::Unary(_, inner, _) => self.expr(inner),
             Expr::Call(name, args, span) => {
-                self.scope.rename(Kind::Call, name, *span)?;
+                let roster = self.scope.roster.is_some_and(|f| f(name))
+                    && !self.scope.names.contains_key(&(Kind::Call, name.clone()));
+                if !self.local(name) && !roster {
+                    self.scope.rename(Kind::Call, name, *span)?;
+                }
                 self.exprs(args)
             }
             Expr::Binary(_, a, b, _) => {
@@ -455,18 +582,31 @@ impl Rewriter<'_> {
             }
             Expr::Match {
                 subject,
+                var,
                 some,
                 none,
                 ..
             } => {
                 self.expr(subject)?;
+                let mark = self.bind([var.clone()]);
                 self.expr(some)?;
+                self.locals.truncate(mark);
                 self.expr(none)
             }
-            Expr::Arrow { body, .. } => self.expr(body),
-            Expr::Let { value, body, .. } => {
+            Expr::Arrow { params, body, .. } => {
+                let mark = self.bind(params.iter().cloned());
+                self.expr(body)?;
+                self.locals.truncate(mark);
+                Ok(())
+            }
+            Expr::Let {
+                name, value, body, ..
+            } => {
                 self.expr(value)?;
-                self.expr(body)
+                let mark = self.bind([name.clone()]);
+                self.expr(body)?;
+                self.locals.truncate(mark);
+                Ok(())
             }
             Expr::Typed(inner, ty, _) => {
                 self.expr(inner)?;
@@ -474,6 +614,44 @@ impl Rewriter<'_> {
             }
         }
     }
+}
+
+/// One part of an `animation` literal: text to read, or a computed value.
+enum Part<'a> {
+    Text(&'a mut String),
+    Computed,
+}
+
+/// The words CSS's `animation` shorthand reads as something other than a
+/// name: timing functions, iteration count, direction, fill mode, play
+/// state, and the CSS-wide keywords.
+fn is_animation_keyword(word: &str) -> bool {
+    matches!(
+        word.to_ascii_lowercase().as_str(),
+        "linear"
+            | "ease"
+            | "ease-in"
+            | "ease-out"
+            | "ease-in-out"
+            | "step-start"
+            | "step-end"
+            | "infinite"
+            | "normal"
+            | "reverse"
+            | "alternate"
+            | "alternate-reverse"
+            | "none"
+            | "forwards"
+            | "backwards"
+            | "both"
+            | "running"
+            | "paused"
+            | "initial"
+            | "inherit"
+            | "unset"
+            | "revert"
+            | "revert-layer"
+    )
 }
 
 /// `text` split into runs of name characters (a keyframes name's: letters,

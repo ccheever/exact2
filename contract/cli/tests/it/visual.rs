@@ -105,15 +105,13 @@ fn apples_affordances_are_declared_rows_and_haptic_is_a_command() {
     assert_eq!(palette.symbol_palette.0.len(), 2);
     assert_eq!(style_of(&r, "value").symbol_value, 0.4);
     assert_eq!(style_of(&r, "mono").symbol_value, -1.0);
+    // A role now (LLP 1095 D2): the platform's colour, its pair the fallback.
     let secondary = style_of(&r, "secondary").text_color;
+    assert!(matches!(secondary, exact_kernel::ColorValue::Role(_)));
     assert_eq!(
-        secondary.system_name(),
-        Some("-apple-system-secondary-label")
+        secondary.fallback(),
+        exact_kernel::ColorValue::parse_light_dark("light-dark(#3c3c4399, #ebebf599)").unwrap()
     );
-    assert!(matches!(
-        secondary.pair(),
-        exact_kernel::ColorValue::LightDark(..)
-    ));
     let k = r.kernel();
     let tap = k.node_by_key(k.find_by_test_id("tap")[0]).unwrap().id;
     r.dispatch(tap, exact_runner::Event::Press).unwrap();

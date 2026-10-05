@@ -628,7 +628,7 @@ export function P(e, name, f) {
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
     else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } if (e.value !== (v ?? "")) e.value = v ?? ""; }
     else if (name === "scrollTop" || name === "scrollLeft") { if (v != null) (Scrolls.get(e) ?? Scrolls.set(e, {}).get(e))[name] = Number(v); }
-    else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e) e.blur(); /* HTML focus fixup, now (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; }
+    else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e && e.matches(":disabled")) e.blur(); /* HTML focus fixup, now, for a control only (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; }
     else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) Paint?.facts(e); } }
     else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) Paint?.facts(e); }
     if (e.localName === "a" && (name === "target" || name === "href" && (!e.hasAttribute("target") || e.rel === "external noopener"))) { const out = name === "href" && v != null && /^\s*(https?:)?\/\//i.test(v), t = name === "target" ? v : out ? "_blank" : null; if (t) e.setAttribute("target", t); else e.removeAttribute("target"); if (t === "_blank") e.rel = out ? "external noopener" : "noopener"; else e.removeAttribute("rel"); } // a link to an absolute URL leaves the app in a new browsing context unless its `target` is authored (element.rs `leaves_app`, `props_of`; chat F11)
@@ -849,9 +849,10 @@ export function on(e, kind, f) {
     case "refresh": return;
     case "dblclick": return l(kind, ev => { ev.preventDefault(); f(); }); case "pointerdown": case "pointerup": case "pointermove": return pointer(e, kind, f); // pointer.js (LLP 1005 §Events, 1056 §3)
     // UI Events' `contextmenu` is a PointerEvent: where the secondary click was (studio diary R22).
-    case "contextmenu": return l(kind, ev => { ev.preventDefault(); f(record(e, ev)); });
+    // A field's own edit menu stays the browser's; the nearest handler alone hears it, as on the wasm host and macOS (review b5-b 3).
+    case "contextmenu": return l(kind, ev => { if (ev.target.closest("input,textarea,[contenteditable]")) return; ev.preventDefault(); ev.stopPropagation(); f(record(e, ev)); });
     // DOM's own, bubbling to every ancestor's handler; one that calls `preventDefault()` keeps the scroll (a pinch is a Control-held wheel) from happening (studio diary R3).
-    case "wheel": return e.addEventListener("wheel", ev => { const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false });
+    case "wheel": return e.addEventListener("wheel", ev => { if (e.matches(":disabled") || e.closest("[inert]")) return; const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false });
     // Files dropped from outside, each a `doc:` handle (files.js, documents-glue.js; studio diary R19).
     case "drop": return OnHooks.drop?.(e, f);
     // Chrome blurs an element it is removing (still connected); a retired view's blur is dropped (glue.js).

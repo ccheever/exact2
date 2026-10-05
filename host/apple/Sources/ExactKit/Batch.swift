@@ -17,9 +17,30 @@ enum BatchValue: Equatable {
         for value in a { guard let n = value.number else { return nil }; result.append(n) }
         return result
     }
-    var isSchemeColor: Bool { array?.count == 2 && array?.first?.numbers?.count == 4 && array?.last?.numbers?.count == 4 }
-    func channels(dark: Bool) -> [Double]? {
+    /// A colour row naming a platform colour (LLP 1095 D1): `{"sys", "c"}`.
+    var isSystemColor: Bool {
+        if case .object(let o) = self { return o["sys"]?.string != nil }
+        return false
+    }
+    /// Whether a platform colour is anywhere in the value: a palette's, a
+    /// shadow's.
+    var containsSystemColor: Bool {
+        switch self {
+        case .object(let o): return o["sys"]?.string != nil || o.values.contains { $0.containsSystemColor }
+        case .array(let a): return a.contains { $0.containsSystemColor }
+        default: return false
+        }
+    }
+    var isSchemeColor: Bool {
+        if case .object(let o) = self { return o["sys"] != nil }
+        return array?.count == 2 && array?.first?.numbers?.count == 4 && array?.last?.numbers?.count == 4
+    }
+    func channels(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil) -> [Double]? {
         if let c = numbers, c.count == 4 { return c }
+        // @ref LLP 1095 D5 — a platform colour by name, its pair the fallback.
+        if case .object(let o) = self, let name = o["sys"]?.string {
+            return SystemColor.channels(name, dark: dark, contrast: contrast, elevated: elevated, tintColor: tint, fallback: o["c"]?.channels(dark: dark))
+        }
         guard let a = array, a.count == 2, let c = a[dark ? 1 : 0].numbers, c.count == 4 else { return nil }
         return c
     }

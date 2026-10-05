@@ -96,6 +96,13 @@ impl<'m, T: SubstitutionValue> Subst<'m, T> {
         }
     }
 
+    /// The replacements, for a view's substitution (no binder is in force
+    /// over a view: its binders are renamed apart, never entered).
+    pub(super) fn map(&self) -> &'m BTreeMap<String, T> {
+        debug_assert!(self.binders.is_empty());
+        self.map
+    }
+
     fn get(&self, name: &str) -> Option<Replacement<'_>> {
         for (bound, spelled) in self.binders.iter().rev() {
             if bound == name {

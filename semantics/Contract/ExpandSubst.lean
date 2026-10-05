@@ -65,12 +65,14 @@ structure Same (e₁ e₂ : Env) : Prop where
   fns : e₁.prog.fns = e₂.prog.fns
   shapes : e₁.prog.shapes = e₂.prog.shapes
   routes : e₁.prog.routes = e₂.prog.routes
+  strings : e₁.prog.strings = e₂.prog.strings
   now : e₁.now = e₂.now
   resources : e₁.prog.resources = e₂.prog.resources
   resVals : e₁.resources = e₂.resources
 
 theorem Same.symm {e₁ e₂ : Env} (h : Same e₁ e₂) : Same e₂ e₁ :=
-  ⟨h.fns.symm, h.shapes.symm, h.routes.symm, h.now.symm, h.resources.symm, h.resVals.symm⟩
+  ⟨h.fns.symm, h.shapes.symm, h.routes.symm, h.strings.symm, h.now.symm, h.resources.symm,
+    h.resVals.symm⟩
 
 theorem Same.shape {e₁ e₂ : Env} (h : Same e₁ e₂) (s : String) : e₁.shape s = e₂.shape s := by
   simp [Env.shape, h.shapes]
@@ -82,7 +84,7 @@ theorem Same.fieldIndex {e₁ e₂ : Env} (h : Same e₁ e₂) (s f : String) :
 theorem Same.stdlib_eq {e₁ e₂ : Env} (h : Same e₁ e₂) (f : String) (vs : List Value) :
     Contract.stdlib e₁ f vs = Contract.stdlib e₂ f vs := by
   unfold Contract.stdlib
-  rw [h.now, h.routes]
+  rw [h.now, h.routes, h.strings]
 
 mutual
 /-- Inside a `fn` no component-level name is read: environments that agree

@@ -35,6 +35,9 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
     let source = r#"component Controls
   state removed = false
   state text = ""
+  state spins = 0
+  action spun(e: WheelEvent)
+    spins = spins + 1
   action change(value: string)
     text = value
   action remove
@@ -48,7 +51,7 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
             box testId="label" width=100 height=100
       canvas testId="b" width=100 height=100
         button testId="b-jump" action="jump" width=100 height=100
-      canvas testId="raw" width=100 height=100
+      canvas testId="raw" wheel=spun width=100 height=100
         button testId="hud-remove" press=remove width=100 height=30
       button testId="remove" press=remove width=100 height=30
 "#;

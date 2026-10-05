@@ -632,7 +632,7 @@ final class Presenter {
     func focusElement(_ args: [Any], selectText: Bool = false) {
         guard args.count == 1, let name = args.first as? String,
               let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
-              let window = target.window, !target.disabled,
+              let window = target.window, !target.formDisabled,
               target.bounds.width > 0, target.bounds.height > 0 else { return }
         var ancestor: NSView? = target
         while let view = ancestor {
@@ -1208,7 +1208,7 @@ final class Presenter {
     /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is
     /// one by kind; an explicit negative never, though it still takes a click.
     static func tabbable(_ v: NodeView) -> Bool {
-        if v.props["disabled"] == "true" { return false }
+        if v.formDisabled { return false }
         if let index = v.explicitTabIndex, index < 0 { return false }
         if v.field != nil || v.textArea != nil { return true }
         if v.kind == "native", v.presenter?.session?.natives.focusTarget(v) != nil { return true }

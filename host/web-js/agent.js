@@ -10,6 +10,9 @@ import { environment, navigation, unselected, guestOutline, guestTap, guestType,
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
 const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hook', 'hook'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
 const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', AUDIO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
+/** The view an operation names: its id, else the first node with that testId on an active screen, a covered
+ * screen's or an unselected tab's copy only when no active one carries it, as the runner's `target`. */
+const targetOf = (nodes, t) => { const named = nodes.filter(n => n.props.testId === t); return nodes.find(n => n.id === t) ?? named.find(n => !n.inactive) ?? named[0]; };
 export function install(exact) {
   const views = exact.views, id = exact.viewId;
   // A Markdown text's pieces are its content, not views.
@@ -203,8 +206,7 @@ export function install(exact) {
       case 'tree': {
         let nodes = all(), roots = nodes.filter(n => n.depth === 0).map(n => n.id);
         if (req.target != null) {
-          // A covered screen's copy only when no active one carries the testId, as the runner's.
-          const named = nodes.filter(n => n.props.testId === req.target), hit = nodes.find(n => n.id === req.target) ?? named.find(n => !n.inactive) ?? named[0];
+          const hit = targetOf(nodes, req.target);
           if (!hit) return { error: `no view matches ${req.target}` };
           nodes = req.shallow ? [hit] : nodes.filter(n => n === hit || views.get(hit.id).contains(views.get(n.id)));
           roots = [hit.id];
@@ -252,7 +254,8 @@ export function install(exact) {
       case 'perf': {
         if (req.frames) return { virtual: true }; // the agent's clock presents no frame (LLP 1079 D4)
         let el = document.getElementById('exact-root');
-        if (req.target != null) { const hit = all().find(n => n.id === req.target || n.props.testId === req.target); if (!hit) return { error: `no view matches ${req.target}` }; el = views.get(hit.id); }
+        // The view `tree` names (review b5-c 1).
+        if (req.target != null) { const hit = targetOf(all(), req.target); if (!hit) return { error: `no view matches ${req.target}` }; el = views.get(hit.id); }
         return perf.reply(el, tags());
       }
       case 'clock': {
@@ -277,9 +280,10 @@ export function install(exact) {
             seek(false);
             if (typeof stopped === 'string') return { error: `clock: ${stopped}`, clock: exact.clock.now };
             // A `then` that sent asks again; what it sends lands in the next round.
-            if (!busy()) return { clock: exact.clock.now, settled: true };
+            // A `then` that read a baked resource whose source is not ready leaves it waiting, in no flight (review b5-c 2).
+            if (!busy() && !activating()) return { clock: exact.clock.now, settled: true };
           }
-          return { clock: exact.clock.now, settled: false, reason: 'requests' };
+          return { clock: exact.clock.now, settled: false, reason: activating() ? 'data' : 'requests' };
         }
         if (req.settle) {
           // Settled: no request in flight and no commit pending, within 20 s.

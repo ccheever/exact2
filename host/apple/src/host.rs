@@ -27,6 +27,8 @@ mod arrange;
 mod arrange_tests;
 #[path = "canvas2d.rs"]
 pub(crate) mod canvas2d;
+#[path = "colors.rs"]
+mod colors;
 #[path = "content_region/host.rs"]
 mod content_region_host;
 #[path = "covers.rs"]
@@ -174,6 +176,9 @@ pub struct Host<D: DataSource> {
     /// a check writes it once.
     update_line: Option<String>,
     delivery: Option<&'static crate::delivery::Hooks>,
+    /// The reported colours' generation this session last presented; `None`
+    /// before its first report, which corrects without motion (LLP 1095 D9).
+    colors_seen: Option<u64>,
 }
 
 /// A plan's bytes at boot: copied from while decoding, or linked into the
@@ -439,6 +444,7 @@ impl<D: DataSource> Host<D> {
             secrets,
             update_line: None,
             delivery,
+            colors_seen: None,
         };
         let mut batch = Batch::new();
         host.native_prepare_candidate().map_err(HostError::Layout)?;
