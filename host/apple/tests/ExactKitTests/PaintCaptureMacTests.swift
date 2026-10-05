@@ -6,6 +6,67 @@ import XCTest
 private var capturedPaintPixels: [[UInt8]] = []
 
 final class PaintCaptureMacTests: XCTestCase {
+    func testAgentCaptureKeepsPlacementsOnTheirUploadedChildren() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "capture-placements")
+        defer { session.destroy() }
+        let p = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        defer { window.close() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "canvas"],
+            ["op": "create", "id": 3, "kind": "view", "props": ["testId": "hud"],
+             "style": ["background_color": [0, 0, 255, 255]]],
+            ["op": "create", "id": 4, "kind": "view", "props": ["testId": "placed"],
+             "style": ["background_color": [255, 0, 0, 255]]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "children", "id": 2, "ids": [3, 4]], ["op": "roots", "ids": [1]],
+            ["op": "rank", "id": 3, "rank": 2],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 100, "h": 100],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 100, "h": 100],
+            ["op": "frame", "id": 3, "x": 25, "y": 25, "w": 50, "h": 50],
+            ["op": "frame", "id": 4, "x": 0, "y": 0, "w": 20, "h": 20],
+        ]))
+        let canvas = try XCTUnwrap(p.views[2]), hud = try XCTUnwrap(p.views[3]), placed = try XCTUnwrap(p.views[4])
+        let module = GpuModule(create: { _, _, _, _, _ in 7 }, bind: { _, _, _ in 0 },
+            render: { _, _, _, _, _ in 1 }, dirty: { _ in 0 }, destroy: { _ in },
+            texture: { _, _, _, _, _ in 0 }, textureMetal: nil, sync: nil,
+            childrenMode: { _ in 2 }, readback: { _, _, _, _, _, bytes, length in
+                if let bytes { for i in 0..<length { bytes[i] = i % 4 == 1 || i % 4 == 3 ? 255 : 0 } }
+                return 0
+            }, child: { _, _, _, _, _, _, _, _, _, _, _, _ in 0 }, childrenCount: { _, _ in 0 },
+            placement: { _, index, out, _ in
+                guard index == 1, let out else { return 0 }
+                for (i, value) in [Float(1), 0, 0, 0, 1, 0, 0, 0, 1, 0].enumerated() { out[i] = value }
+                return 1
+            }, shader: nil, validateShader: nil, clearShaders: nil, errorLen: { 0 }, errorPtr: { nil },
+            wantsInput: nil, input: nil, messages: nil, published: nil, agent: nil, outPtr: nil)
+        let entry = Canvases.Entry(view: canvas, name: "paint", values: [])
+        entry.id = 7; entry.module = module; entry.each = true; entry.through = true
+        session.canvases.entries[2] = entry
+        window.orderFront(nil)
+        canvas.needsCapture = true
+        session.canvases.captureIfNeeded()
+        _ = session.canvases.readback(view: canvas)
+        XCTAssertNil(hud.placement); XCTAssertNotNil(placed.placement)
+        window.displayIfNeeded(); CATransaction.flush()
+        for _ in 0..<2 {
+            // The HUD's higher paint rank makes cacheDisplay temporarily
+            // reorder these live views; readback still reports upload indices.
+            let rep = try XCTUnwrap(Capture.picture(of: p.viewport))
+            let color = try XCTUnwrap(rep.colorAt(x: rep.pixelsWide / 2, y: rep.pixelsHigh / 2))
+            XCTAssertGreaterThan(color.blueComponent, 0.99, "ordinary HUD still covers the GPU picture")
+            XCTAssertLessThan(color.greenComponent, 0.01)
+            XCTAssertNil(hud.placement); XCTAssertEqual(hud.alphaValue, 1)
+            XCTAssertNotNil(placed.placement); XCTAssertEqual(placed.alphaValue, 0)
+            XCTAssertEqual(canvas.overlay?.subviews.compactMap { ($0 as? NodeView)?.id }, [3, 4])
+        }
+    }
+
     func testCanvasTextCaptureKeepsAppKitGlyphOrientation() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "capture-orientation")

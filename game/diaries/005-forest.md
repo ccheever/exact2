@@ -1525,3 +1525,40 @@ short drives are deliberately `UNVERIFIED` partial runs; the complete paired
 proofs above precede the merge. The placement fixture is also rebuilt with
 the fixed renderer restored after its original-renderer comparison; its
 queued proof failures remain open.
+
+**Capture must preserve uploaded child identity (2026-10-04).** The placement
+fixture's remaining screenshot failure is real, but only in the agent's
+capture: the window-server image contains the covering HUD and no duplicate
+sign. The agent image loses the HUD and draws a second sign at the origin
+(`placement-fixture/artifacts/capture-probe-before/`). During `cacheDisplay`,
+the agent sorts live subviews by paint rank. GPU readback then applies
+placement indices to that temporary order instead of the order whose child
+textures it uploaded. Subsequent layout reads settle the host and conceal
+the temporary wrong assignments.
+
+The macOS canvas now keeps the uploaded child identities beside those
+textures and applies each returned placement to its matching, still-mounted
+view. A new regression with an ordinary HUD above a placed child fails twelve
+pixel/placement/alpha assertions on the previous code, then passes twice in
+sequence with the fix. All six capture tests pass in 0.232 s. The independent
+AppKit glyph-orientation oracle remains intact; the two capture mechanisms
+have not been consolidated. A direct Swift invocation first used this Mac's
+Command Line Tools and failed on unchanged `Notify.swift`; rerunning with
+the build script's Xcode selection compiles and reproduces the actual defect.
+
+The save failures have separate explanations. Native focus changes queue Blur
+events without advancing time: the probe has three pending after reordering,
+zero after the next tick. The proof now checks that only focus blur is pending
+and compares complete continuation saves after equal elapsed time, one in
+reordered child order and one restored in original order. It still checks the
+immediate world snapshot and projected frames, and restored reordered hits.
+The old pin is exactly EXSIM v6: changing only byte 6 of the current 2,229-byte
+continuation from 7 to 6 reproduces `84506a97…`; the current file hashes to
+`651e8484…`. This is the version bump in `2e49129cb`, not a changed simulation.
+
+The corrected web/macOS proof (`placement-fixture/artifacts/prove/run-QBGxGf/`)
+passes every gameplay, capture, placement and save comparison; its sole
+failure on each host is that explained old pin. All three complete saves
+match across hosts and cleanup audits are available and empty. The new HUD
+capture was inspected. Root checks pass in 43.659 s; broader native tests and
+the strict baseline refresh follow this source change.

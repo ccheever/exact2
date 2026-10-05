@@ -78,10 +78,14 @@ if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,e
   check('named sign resolves new child order',(await s.state('world:sign')).entity.placed.child===2);
   check('named label resolves new child order',(await s.state('world:name')).entity.placed.child===1);
   check('reorder preserves projected sign box',['x','y','w','h'].every(k=>Math.abs(beforeReorder[k]-reorderedSign[k])<=0.5),{beforeReorder,reorderedSign});
-  check('Contract reorder leaves every saved world byte unchanged',equal(await w.snapshot(),mid));
-  const reorderedSave=resolve(out,'reordered.world');await w.save(reorderedSave);
-  check('complete save is independent of child order',readFileSync(save).equals(readFileSync(reorderedSave)));
+  check('Contract reorder leaves the world snapshot unchanged',equal(await w.snapshot(),mid));
+  // Native focus changes can queue Blur without advancing a simulation tick.
+  // A complete save includes that input; compare continuations after the same
+  // elapsed time below, instead of mistaking equal worlds for equal queues.
+  const pending=(await s.state()).world[0].input.pending;
+  check('reorder queues no game input except focus blur',pending.total===pending.blur,pending);
   await w.run(4500);
+  check('normal ticks consume reorder focus input',(await s.state()).world[0].input.pending.total===0);
   const pinnedSave=resolve(out,"continuation.world"); await w.save(pinnedSave); pinSave("continuation",pinnedSave);
   {
     check('fixed sign explicitly hidden from behind',(await s.state('world:sign')).entity.placed.hidden===true);
@@ -100,11 +104,12 @@ if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,e
   const r=await start(save),rw=r.world('world');
   check('restore carries every component, no outcomes',equal(await rw.snapshot(),mid));
   check('restored name resolves original Contract order',(await r.state('world:sign')).entity.placed.child===1);
-  await r.tap('reorder');await r.clock('+0');
-  check('restored name resolves reordered Contract',(await r.state('world:sign')).entity.placed.child===2);
   await rw.run(4500);check('restored orbit keeps same hash',equal(await rw.snapshot(),end));
+  const originalOrderSave=resolve(out,'original-order-continuation.world');await rw.save(originalOrderSave);
+  check('complete continuation save is independent of child order',readFileSync(pinnedSave).equals(readFileSync(originalOrderSave)));
   await r.close();
   const hit=await start(save);await hit.tap('hud');await hit.tap('reorder');await hit.clock('+0');
+  check('restored name resolves reordered Contract',(await hit.state('world:sign')).entity.placed.child===2);
   const reorderedTap=await hit.tap('pull');check('reordered Pull still receives hit',!reorderedTap.error,reorderedTap);
   await hit.close();
 });

@@ -64,6 +64,9 @@ final class Canvases {
         /// it (LLP 1014 D5): captured one by one, hit-tested through the
         /// surface's placements.
         var each = false
+        /// Placement indices belong to the last upload, not the overlay's
+        /// current paint order (an agent capture temporarily sorts its views).
+        var uploadedChildren: [NodeView] = []
         /// A children texture has been uploaded (so an emptied overlay is
         /// captured once more, to clear it).
         var uploaded = false
@@ -264,6 +267,7 @@ final class Canvases {
             uploaded += 1
         }
         _ = m.childrenCount(e.id, UInt32(children.count))
+        e.uploadedChildren = children
         if ExactEnv.agentMode {
             FileHandle.standardError.write(Data(String(format: "canvas %d: captured %d children in %.2f ms\n", Int(e.view.id), uploaded, (CACurrentMediaTime() - t0) * 1000).utf8))
         }
@@ -281,7 +285,7 @@ final class Canvases {
     private func readPlacements(_ m: GpuModule, _ e: Entry) {
         guard e.each, let overlay = e.view.overlay else { return }
         var h = [Float](repeating: 0, count: 10)
-        for (i, child) in overlay.subviews.compactMap({ $0 as? NodeView }).enumerated() {
+        for (i, child) in e.uploadedChildren.enumerated() where child.superview === overlay {
             let outcome = h.withUnsafeMutableBufferPointer { m.placement(e.id, UInt32(i), $0.baseAddress, $0.count) }
             let next: [Double]? = outcome == 1 ? h.map { Double($0) } : nil
             let changed = next != child.placement || child.placementHidden != (outcome == 2)
@@ -360,7 +364,7 @@ final class Canvases {
             e.each = each
             e.through = each || m.wantsChildren(e.id) != 0
             e.view.needsCapture = e.through
-            if !each { _ = m.childrenCount(e.id, 0) }
+            if !each { _ = m.childrenCount(e.id, 0); e.uploadedChildren.removeAll() }
             if !each, let overlay = e.view.overlay {
                 for case let child as NodeView in overlay.subviews {
                     child.placement = nil; child.placementHidden = false; child.alphaValue = 1
