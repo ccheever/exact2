@@ -766,14 +766,8 @@ final class TextEngine {
     /// `textChannels`' nine, in the colour's own space (LLP 1100 D2).
     static func color(_ c: [Double]) -> PlatformColor {
         if c.count == 9, (0...2).contains(Int(c[4])), case let name = [CGColorSpace.extendedSRGB, CGColorSpace.extendedDisplayP3, CGColorSpace.extendedLinearSRGB][Int(c[4])],
-           let space = CGColorSpace(name: name), let made = CGColor(colorSpace: space, components: c[5...].map { CGFloat($0) }) {
-            let cg = ColorRange.tagged(made)
-            #if canImport(UIKit)
-            return UIColor(cgColor: cg)
-            #else
-            if let color = NSColor(cgColor: cg) { return color }
-            #endif
-        }
+           let space = CGColorSpace(name: name), let made = CGColor(colorSpace: space, components: c[5...].map { CGFloat($0) }),
+           let color = PlatformColor(cgColor: ColorRange.tagged(made)) as PlatformColor? { return color }
         #if canImport(UIKit)
         return UIColor(red: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
         #else
