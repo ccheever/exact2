@@ -136,6 +136,31 @@ class Scene: UIResponder, UIWindowSceneDelegate {
     for k in v.layer.animationKeys() ?? [] { if let s = v.layer.animation(forKey: k) as? CASpringAnimation { p("H2 key=\(k) from=\(String(describing: s.fromValue)) to=\(String(describing: s.toValue)) additive=\(s.isAdditive)") } }
     reset()
 
+    // X. Edge cases: an overdamped physical timing parameter, a negative
+    // bounce through the timing-parameter initialiser, damping ratio 0, a
+    // call that does not change the value, and a velocity vector with dx != dy.
+    dump("X phys-overdamped k=100 c=40") {
+      let a = UIViewPropertyAnimator(duration: 1, timingParameters: UISpringTimingParameters(mass: 1, stiffness: 100, damping: 40, initialVelocity: .zero))
+      a.addAnimations { v.transform = CGAffineTransform(scaleX: 0.2, y: 0.2) }; a.startAnimation()
+    }
+    for b in [-0.5, -0.2] {
+      dump("X E2 d=0.4 b=\(b)") {
+        let a = UIViewPropertyAnimator(duration: 99, timingParameters: UISpringTimingParameters(duration: 0.4, bounce: b, initialVelocity: .zero))
+        a.addAnimations { v.transform = CGAffineTransform(scaleX: 0.2, y: 0.2) }; a.startAnimation()
+      }
+    }
+    for vel in [0.0, 1.0] {
+      dump("X zeta0 d=0.4 v=\(vel)") { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0, initialSpringVelocity: vel, options: [], animations: { v.transform = CGAffineTransform(scaleX: 0.2, y: 0.2) }) }
+    }
+    dump("X unchanged-center v=1") { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 1, options: [], animations: { v.center = CGPoint(x: 50, y: 50) }) }
+    dump("X vector dx=1 dy=5 center") {
+      let a = UIViewPropertyAnimator(duration: 0.4, timingParameters: UISpringTimingParameters(dampingRatio: 0.8, initialVelocity: CGVector(dx: 1, dy: 5)))
+      a.addAnimations { v.center = CGPoint(x: 150, y: 150) }; a.startAnimation()
+    }
+    dump("X vector dx=5 dy=1 center") {
+      let a = UIViewPropertyAnimator(duration: 0.4, timingParameters: UISpringTimingParameters(dampingRatio: 0.8, initialVelocity: CGVector(dx: 5, dy: 1)))
+      a.addAnimations { v.center = CGPoint(x: 150, y: 150) }; a.startAnimation()
+    }
     // W. Dense sweep at duration 1 s: velocity -5...20 by 0.05 (velocity x duration is the
     // only other dimensionless input; see the LLP).
     for z in [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 1.0] { for i in -100...400 {
@@ -168,6 +193,36 @@ class Scene: UIResponder, UIWindowSceneDelegate {
       sample("S", a, root.layer)
     }
 
+    // R. Retargets: a second call 100 or 250 ms into the first, on a paused
+    // container layer, sampled every 10 ms (position.x in points, or opacity).
+    let box = UIView(frame: root.bounds); root.addSubview(box)
+    let w = UIView(frame: CGRect(x: 0, y: 0, width: 100, height: 100)); box.addSubview(w)
+    func run(_ name: String, at t1: Double, _ first: () -> Void, _ second: () -> Void, read: (CALayer) -> Double) {
+      UIView.performWithoutAnimation { w.center = CGPoint(x: 50, y: 50); w.alpha = 1 }
+      w.layer.removeAllAnimations()
+      box.layer.speed = 0; box.layer.timeOffset = 0; CATransaction.flush()
+      first(); CATransaction.flush()
+      box.layer.timeOffset = t1; CATransaction.flush()
+      second(); CATransaction.flush()
+      var row = "R \(name) t1=\(t1)"
+      for k in w.layer.animationKeys() ?? [] { if let a = w.layer.animation(forKey: k) as? CABasicAnimation { row += " [\(k) bt=\(a.beginTime) from=\(String(describing: a.fromValue)) to=\(String(describing: a.toValue)) add=\(a.isAdditive) dur=\(a.duration)]" } }
+      var t = 0.0
+      while t <= 1.2 { box.layer.timeOffset = t; CATransaction.flush(); row += " \(t):\(read(w.layer.presentation() ?? w.layer))"; t += 0.01 }
+      out += row + "\n"
+      box.layer.speed = 1
+    }
+    let px: (CALayer) -> Double = { Double($0.position.x) }
+    let op: (CALayer) -> Double = { Double($0.opacity) }
+    for t1 in [0.1, 0.25] {
+      run("center", at: t1, { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [], animations: { w.center = CGPoint(x: 150, y: 50) }) },
+                            { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 1, options: [], animations: { w.center = CGPoint(x: 350, y: 50) }) }, read: px)
+      run("center-bfcs", at: t1, { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [], animations: { w.center = CGPoint(x: 150, y: 50) }) },
+                            { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 1, options: [.beginFromCurrentState], animations: { w.center = CGPoint(x: 350, y: 50) }) }, read: px)
+      run("alpha", at: t1, { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [], animations: { w.alpha = 0.2 }) },
+                            { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [], animations: { w.alpha = 1 }) }, read: op)
+      run("alpha-bfcs", at: t1, { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [], animations: { w.alpha = 0.2 }) },
+                            { UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [.beginFromCurrentState], animations: { w.alpha = 1 }) }, read: op)
+    }
     try? out.write(toFile: NSTemporaryDirectory() + "out.txt", atomically: true, encoding: .utf8)
     exit(0)
   }

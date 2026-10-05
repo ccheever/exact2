@@ -61,10 +61,14 @@ export function caSettle(k, c, v0) {
   return Math.log((1 + Math.abs(B)) / EPS) / (z * w);
 }
 // The bounce form's end time at or above critical damping: the critically
-// damped settle time, |−1 + (v0 − ω)·T|·e^(−ωT) = ε, solved by bisection.
+// damped settle time, the last T with |−1 + (v0 − ω)·T|·e^(−ωT) = ε. Scan
+// back from 100/ω in steps of 0.01/ω to the last sign change, then bisect.
 export function criticalSettle(w, v0) {
-  let lo = 0, hi = 100 / w;
   const f = (T) => Math.abs(-1 + (v0 - w) * T) * Math.exp(-w * T) - EPS;
+  let hi = 100 / w, lo = hi;
+  while (lo > 0 && f(lo) <= 0) lo -= 0.01 / w;
+  if (lo <= 0) return 0;
+  hi = lo + 0.01 / w;
   for (let i = 0; i < 200; i++) { const m = (lo + hi) / 2; if (f(m) > 0) lo = m; else hi = m; }
   return lo;
 }
@@ -99,7 +103,9 @@ for (const [name, set] of [
     if (!ok) miss.push(`ζ ${r.z} v·d ${u.toFixed(3)}: UIKit W ${Wm.toFixed(4)}, model ${W.toFixed(4)}, curve Δ ${e.toFixed(4)}`);
   }
   console.log(`\n${name}: ${set.length} calls; damping = 2·min(ζ,1)·√k, mass 1, v0 = v, end = d: ${shape ? shape + ' violations' : 'all'}`);
-  console.log(`  closed form at v = 0: ${v0exact}/${v0n} within 1e-7`);
+  const v0rows = set.filter((r) => r.v === 0);
+  const wErr = Math.max(0, ...v0rows.map((r) => Math.abs(durationW0(Math.min(r.z, 1)) / (Math.sqrt(r.k) * r.d) - 1)));
+  console.log(`  closed form at v = 0: ${v0exact}/${v0n} within 1e-7; worst relative error ${fmt(wErr)} in W, ${fmt((1 + wErr) ** 2 - 1)} in k`);
   console.log(`  model W within 1e-5: ${exact}/${set.length}; curve error over [0, d]: median ${fmt(pct(errs, 0.5))}, p99 ${fmt(pct(errs, 0.99))}, max ${errs.length ? Math.max(...errs).toFixed(4) : '-'}`);
   for (const m of miss.slice(0, 12)) console.log('   miss ' + m);
   if (miss.length > 12) console.log(`   … ${miss.length - 12} more`);
@@ -108,15 +114,17 @@ for (const [name, set] of [
 // 2. Duration + bounce (iOS 17): stiffness, damping, and where it ends.
 {
   const E = [...rows('E'), ...rows('E2')];
-  let kc = 0, endWorst = 0;
+  let kc = 0, bits = 0, kcWorst = 0, endWorst = 0;
   for (const r of E) {
     const { k, c } = bounceSpring(r.d, r.b);
+    kcWorst = Math.max(kcWorst, Math.abs(k / r.stiffness - 1), Math.abs(c / r.damping - 1));
     if (Math.abs(k / r.stiffness - 1) < 1e-12 && Math.abs(c / r.damping - 1) < 1e-12) kc++;
+    if (k === r.stiffness && c === r.damping) bits++;
     const w = Math.sqrt(k), v0 = r.v ?? 0;
     const end = c / (2 * w) < 1 ? caSettle(k, c, v0) : criticalSettle(w, v0);
     endWorst = Math.max(endWorst, Math.abs(end / r.duration - 1));
   }
-  console.log(`\nE duration + bounce: ${E.length} calls; k = (2π/d)², c = 4π(1−b)/d or 4π/(d(1+b)): ${kc}/${E.length} exact; end time worst relative error ${fmt(endWorst)}`);
+  console.log(`\nE duration + bounce: ${E.length} calls; k = (2π/d)², c = 4π(1−b)/d or 4π/(d(1+b)): ${kc}/${E.length} within 1e-12 (worst ${fmt(kcWorst)}; ${bits} bit-identical); end time worst relative error ${fmt(endWorst)}`);
 }
 
 // 3. Core Animation's settlingDuration below critical damping (every row that reports one).
@@ -139,7 +147,9 @@ for (const [name, set] of [
   console.log(`\nSwiftUI Spring(response:dampingRatio:), ζ ≤ 1: ${okF}/${F.filter((r) => r.z <= 1).length} match k = (2π/r)², c = 4πζ/r`);
   console.log(`  above 1, stiffness / (2π/r)² = ${over.map(([z, f]) => `${f.toFixed(4)} at ζ ${z} (2ζ²−1 = ${(2 * z * z - 1).toFixed(4)})`).join('; ')}`);
   const G2 = rows('G2');
-  console.log(`  Spring(settlingDuration:dampingRatio:) vs the duration form at v = 0: worst relative stiffness gap ${fmt(Math.max(...G2.map((r) => Math.abs(((durationW0(Math.min(r.z, 1)) / r.settling) ** 2) / r.stiffness - 1))))}`);
+  const A = rows('A');
+  const gap = Math.max(...G2.map((r) => { const u = A.find((a) => a.d === r.settling && a.z === r.z && a.v === 0); return Math.abs(r.stiffness / u.stiffness - 1); }));
+  console.log(`  Spring(settlingDuration:dampingRatio:) vs UIKit's duration form at v = 0 (same d, ζ): worst relative stiffness gap ${fmt(gap)}`);
 }
 
 // 5. Rendered curves: Core Animation's presentation vs caPos, before the end; the value after it.
@@ -178,3 +188,53 @@ for (const l of lines.filter((l) => l.startsWith('U A '))) {
   const k = (durationW(z, v * d) / d) ** 2;
   console.log(`  d ${d} ζ ${z} v ${v}: UIKit k ${r.k.toFixed(4)}, model k ${k.toFixed(4)}, curve Δ ${curveErr(k, r.k, Math.min(z, 1), v, d).toFixed(4)}`);
 }
+
+// 7. Retargets (R lines): position is the sum of additive components, each
+// ending at its own duration; opacity is replaced, from the model value or,
+// with .beginFromCurrentState, the presented one, without carried velocity.
+console.log('\nRetargets (R lines):');
+{
+  const A = rows('A'), kOf = (d, z, v) => A.find((r) => r.d === d && r.z === z && r.v === v).stiffness;
+  const k0 = kOf(0.4, 0.8, 0), k1 = kOf(0.4, 0.8, 1), c = (k) => 1.6 * Math.sqrt(k);
+  for (const l of lines.filter((l) => l.startsWith('R '))) {
+    const name = l.split(' ')[1], t1 = Number(l.match(/t1=([\d.]+)/)[1]);
+    const pts = samples(l.slice(l.lastIndexOf(']') + 1));
+    if (name.startsWith('center')) {
+      // 50 → 150 at t 0 (v 0), then → 350 at t1 (v 1); both 0.4 s, ζ 0.8.
+      let worst = 0;
+      for (const [t, x] of pts) {
+        let m = t < t1 - 1e-9 ? 150 : 350;
+        if (t < 0.4 - 1e-9) m -= 100 * (1 - caPos(k0, c(k0), 0, t));
+        if (t >= t1 - 1e-9 && t < t1 + 0.4 - 1e-9) m -= 200 * (1 - caPos(k1, c(k1), 1, t - t1));
+        worst = Math.max(worst, Math.abs(m - x));
+      }
+      console.log(`  ${name.padEnd(12)} t1 ${t1}: two additive components, worst error ${worst.toFixed(4)} pt of a 300 pt move`);
+    } else {
+      const from = Number(l.match(/from=Optional\(([\d.]+)\)/)[1]);
+      console.log(`  ${name.padEnd(12)} t1 ${t1}: one animation, from ${from} (${Math.abs(from - 0.2) < 1e-6 ? 'the model value: the presented value jumps' : 'the presented value'}), velocity 0`);
+    }
+  }
+}
+
+// 8. The proposed validation and band predicate (LLP 1099 D2): a result is a
+// root when |g(W)| ≤ 0.1·ε and 0 < W ≤ 1e4; the band is u > 0 with
+// 1 ≤ u/min(ζ,1) ≤ 7.
+console.log('\nValidation and band predicate over A, W and the Signal U rows:');
+{
+  const g = (W, zeta, u) => { const z = Math.min(zeta, 1), e = Math.exp(-z * W); return z < 1 ? Math.abs((u / W - z) / Math.sqrt(1 - z * z)) * e - EPS : Math.abs(u - W - 1) * e - EPS; };
+  const pts = [...rows('A').filter((r) => r.z !== undefined && r.d !== undefined).map((r) => [r.z, r.v * r.d, Math.sqrt(r.stiffness) * r.d]), ...rows('W').map((r) => [r.z, r.u, Math.sqrt(r.k)])];
+  for (const l of lines.filter((l) => l.startsWith('U A '))) { const [d, z, v] = l.match(/d=([\d.]+) z=([\d.]+) v=([\d.]+)/).slice(1).map(Number); pts.push([z, v * d, Math.sqrt(fields(l.replace(/ [\d.e-]+:-?[\d.e+-]+/g, '')).k) * d]); }
+  let miss = 0, inBand = 0, flagged = 0, refused = 0, refusedMatch = 0, worstMatch = 0;
+  for (const [z, u, Wm] of pts) {
+    const W = durationW(z, u), match = Math.abs(Math.log(W / Wm)) < 1e-5, band = u > 0 && u / Math.min(z, 1) >= 1 && u / Math.min(z, 1) <= 7;
+    const root = Number.isFinite(W) && W > 0 && W <= 1e4 && Math.abs(g(W, z, u)) <= 0.1 * EPS;
+    if (band) flagged++;
+    if (!match) { miss++; if (band) inBand++; }
+    if (!root) { refused++; if (match) refusedMatch++; }
+    if (match) worstMatch = Math.max(worstMatch, Math.abs(g(W, z, u)) / EPS);
+  }
+  console.log(`  ${pts.length} calls: ${miss} misses, ${inBand} of them inside the band; the band flags ${flagged}; validation refuses ${refused} (${refusedMatch} of which UIKit matched); worst |g|/ε among matches ${worstMatch.toFixed(3)}`);
+}
+// 9. Edge cases (X lines), printed for the record.
+console.log('\nEdge cases (X lines):');
+for (const l of lines.filter((l) => l.startsWith('X '))) console.log('  ' + l.replace(/ mass=1\.0| additive=true/g, ''));
