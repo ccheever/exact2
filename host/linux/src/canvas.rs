@@ -965,8 +965,8 @@ const MOVES_MOUNTED: u32 = 6;
 
 impl<D: DataSource + Default> CanvasHost<D> {
     /// Boot `D`'s app over a view of `size` pixels at `scale` pixels per
-    /// point. The environment is read as on Linux (`EXACT_ASSETS`, …);
-    /// `EXACT_PAINTER` is set to `canvas` here.
+    /// point. Assets use the Linux environment; the carrier directly selects
+    /// its Canvas recorder and enables the reader's native motion lowering.
     pub fn boot(
         plan: &'static [u8],
         compat: &'static str,
@@ -975,6 +975,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     ) -> Result<CanvasHost<D>, String> {
         let started = std::time::Instant::now();
         let origin_ns = monotonic_ns();
+        // Motion lowering still reads this policy; painter construction is direct.
         std::env::set_var("EXACT_PAINTER", "canvas");
         // Eight viewports of decoded pictures, Apple's rule: the reader's copy
         // is a GPU buffer (no heap copy, no upload), and a picture decoded
@@ -997,7 +998,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
         crate::surfaces::prepare_gpu(compat);
         let mut config = crate::app::Config::from_env_static(plan, compat);
         config.scale = scale;
-        let (p, error) = crate::app::boot_presenter::<D>(&mut config, viewport)?;
+        let (p, error) = crate::app::boot_presenter_with_painter::<D>(
+            &mut config,
+            viewport,
+            crate::presenter::PainterBoot::canvas(),
+        )?;
         if let Some(e) = error {
             eprintln!("exact: {e}");
         }

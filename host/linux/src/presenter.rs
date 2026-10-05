@@ -95,7 +95,8 @@ mod events_tests;
 #[path = "presenter/visibility_tests.rs"]
 mod visibility_tests;
 
-use painter::{cpu_info, open_backend};
+use painter::cpu_info;
+pub(crate) use painter::PainterBoot;
 pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
 
 /// The presenter: one host, its painter, and the host state.
@@ -243,7 +244,7 @@ impl<D: DataSource> Presenter<D> {
             viewport,
             scale,
             Assets::embedded(assets),
-            choice,
+            PainterBoot::selected(choice),
             None,
             "/",
             None,
@@ -265,6 +266,7 @@ impl<D: DataSource> Presenter<D> {
         (compat, delivery): (&str, exact_runner::Delivery),
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
+        painter: PainterBoot,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
         let assets = match selected {
             Some(set) => Assets::selected(root, set),
@@ -276,7 +278,7 @@ impl<D: DataSource> Presenter<D> {
             viewport,
             scale,
             assets,
-            PainterChoice::from_env(),
+            painter,
             Some(delivery),
             launch,
             region,
@@ -293,11 +295,12 @@ impl<D: DataSource> Presenter<D> {
         viewport: (f32, f32),
         scale: f32,
         assets: Assets,
-        choice: PainterChoice,
+        painter: PainterBoot,
         delivery: Option<exact_runner::Delivery>,
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
+        let choice = painter.choice;
         if region.is_some() && choice != PainterChoice::Cpu {
             return Err(HostError::Painter(
                 "content-region trial requires explicit CPU painting (EXACT_PAINTER=cpu)".into(),
@@ -314,7 +317,7 @@ impl<D: DataSource> Presenter<D> {
             return Err(HostError::Asset(reason));
         }
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
-        let (backend, painter) = open_backend(choice).map_err(HostError::Painter)?;
+        let (backend, painter) = painter.open().map_err(HostError::Painter)?;
         let (mut host, error) = Host::boot_decoded(
             decoded,
             data,
