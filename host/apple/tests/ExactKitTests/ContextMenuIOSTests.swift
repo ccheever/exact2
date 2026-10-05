@@ -101,6 +101,46 @@ final class ContextMenuIOSTests: XCTestCase {
         XCTAssertTrue(popover.isHidden, "which stays hidden")
     }
 
+    /// The view's focus (key commands): a bar's touch sets it aside until the
+    /// next touch on the page, a second bar touch keeps it held, and a
+    /// context menu shown meanwhile returns it when it ends.
+    func testABarsTouchSetsTheViewsFocusAsideUntilTheNextTouch() throws {
+        let session = try boot()
+        let view = try XCTUnwrap(session.view)
+        let focus = session.presenter.menus.focus
+        if !view.isFirstResponder { XCTAssertTrue(view.becomeFirstResponder()) }
+        focus.setAside(untilTouch: true)
+        XCTAssertFalse(view.isFirstResponder)
+        focus.setAside(untilTouch: true)
+        XCTAssertTrue(focus.untilNextTouch, "a second bar touch keeps what is held")
+        focus.touched()
+        XCTAssertTrue(view.isFirstResponder, "back at the next touch on the page")
+        focus.setAside(untilTouch: true)
+        focus.setAside()
+        XCTAssertFalse(focus.untilNextTouch, "a menu with an end returns it")
+        focus.restore()
+        XCTAssertTrue(view.isFirstResponder)
+        // A focused node is blurred by a bar's touch, and the view, which hears
+        // key commands, takes the focus at the next touch on the page.
+        let node = try node(session, "peek")
+        XCTAssertTrue(node.becomeFirstResponder())
+        focus.setAside(untilTouch: true)
+        XCTAssertFalse(node.isFirstResponder)
+        XCTAssertFalse(view.isFirstResponder, "not while the bar's menu may be up")
+        XCTAssertTrue(focus.untilNextTouch)
+        focus.touched()
+        XCTAssertTrue(view.isFirstResponder)
+        // A context menu over a focused node: neither the node nor the view
+        // keeps the focus while it shows (a resigning node hands it to the
+        // view), and the node has it back after.
+        XCTAssertTrue(node.becomeFirstResponder())
+        focus.setAside()
+        XCTAssertFalse(node.isFirstResponder)
+        XCTAssertFalse(view.isFirstResponder)
+        focus.restore()
+        XCTAssertTrue(node.isFirstResponder)
+    }
+
     func testAMenuDismissedWithoutAChoiceReturnsItsRowAndAPreviewThatDoesNotNavigateDismisses() throws {
         let session = try boot()
         let host = session.presenter.menus.context
@@ -262,6 +302,30 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
         XCTAssertNil(p.menus.context.open)
         XCTAssertTrue(row.superview === pop.container, "the row back in its popover")
         XCTAssertTrue(source.interactions.compactMap { $0 as? UIContextMenuInteraction }.isEmpty, "and the interaction gone with the popover's name")
+    }
+
+    /// A touch on a bar leaves a focused node blurred, as a touch on a page's
+    /// chrome leaves an element on the web (`BarTouch`).
+    func testABarsTouchBlursAFocusedNode() throws {
+        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        let p = presenter()
+        let source = try XCTUnwrap(p.views[1])
+        XCTAssertTrue(source.becomeFirstResponder())
+        var events: [String] = []
+        p.onBlur = { _ in events.append("blur") }
+        p.menus.focus.setAside(untilTouch: true)
+        XCTAssertFalse(source.isFirstResponder)
+        XCTAssertEqual(events, ["blur"])
+        XCTAssertFalse(p.menus.focus.untilNextTouch, "with no session view, nothing waits to return")
+        // The bar's recognizer is installed once, and holds no touch.
+        let bar = UINavigationBar(frame: CGRect(x: 0, y: 0, width: 400, height: 44))
+        p.menus.focus.watch(bar)
+        p.menus.focus.watch(bar)
+        let touches = (bar.gestureRecognizers ?? []).filter { $0 is BarTouch }
+        XCTAssertEqual(touches.count, 1)
+        XCTAssertEqual(touches.first?.cancelsTouchesInView, false)
+        XCTAssertEqual(touches.first?.delaysTouchesBegan, false)
+        XCTAssertEqual((p.viewport.gestureRecognizers ?? []).filter { $0 is BarTouch }.count, 1, "and one on the viewport, carried into a presentation")
     }
 
     func testAnInertPopoverRefusesTheCommit() throws {

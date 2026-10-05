@@ -764,9 +764,25 @@ menu's glass and the dismissal. In the delegate:
   session's focus aside as they show, with no `blur`, and return it with no
   `focus` once they have ended, unless something else has taken it. A text
   field's focus stays where it is. A bar item's pull-down
-  (`NavigationBarIOS`) still raises the keyboard: UIKit decides from the
+  (`NavigationBarIOS`) gives no hook early enough: UIKit decides from the
   focus it saw as the menu began, and setting the focus aside in the
-  menu's rows provider is too late (measured). QUEUE has it.
+  menu's rows provider is too late (measured). So a touch on a navigation
+  bar whose items hold a menu sets the focus aside as it begins
+  (`BarTouch`, a recognizer that recognizes nothing). The menu says nothing
+  when it ends, and a focus returned while it shows lets its input take it
+  again, raising the keyboard (measured: returned 5 s after the touch, the
+  keyboard rose). So the view's own focus comes back at the next touch on
+  the page (a recognizer on the viewport, which a presentation carries
+  along), and a focused node is blurred, `blur` dispatched, as a touch on a
+  page's chrome blurs an element on the web, the view then taking the focus
+  at the next touch on the page. A node that resigns hands the focus to
+  `ExactView`, its nearest ancestor that takes it (UIKit's fallback,
+  measured), so every set-aside releases the view too. Which bar item was touched is
+  not known (UIKit exposes no bar item's view), so any touch on such a bar
+  does this. The bar's recognizer is installed as each stack is prepared,
+  rebuilt stacks included. A bare UIKit app's
+  bar item behaves the same way: no keyboard without a first responder,
+  the keyboard with one.
 - `state.navigation.popover` is `{kind: "contextmenu", source, popover,
   preview, phase}` once the menu is showing (a provider has run), with
   `phase` `commit` after a commit. A configuration UIKit asked for that
