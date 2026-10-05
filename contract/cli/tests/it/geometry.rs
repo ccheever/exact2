@@ -473,3 +473,42 @@ fn a_resize_rect_of_a_box_across_columns_is_its_stitched_size() {
         "the container keeps its box"
     );
 }
+
+/// A column child's percentage padding is of the column width (CSS
+/// Multi-column §3.4), which layout already resolved. A container 400 wide
+/// with two columns and no gap has columns 200 wide: `padding: 10%` is 20
+/// on each side, and the content box is 160 wide. The same percentage of
+/// the container's content box would be 40, and the content box 120.
+#[test]
+fn a_column_childs_percentage_padding_is_of_the_column() {
+    let plan = contract::compile(
+        r#"component App
+  state seen = ""
+  action fit(w: number, h: number, r: DOMRectReadOnly)
+    seen = `${w}`
+  view
+    view width=400 height=80 column-count=2 column-gap=0
+      view id="child" padding="10%" resize=fit
+        view height=20
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    let due = r.resize_due(0);
+    let key = r.kernel().find_by_id("child")[0];
+    let view = r.kernel().arena().local_id(key.index);
+    let child = due.iter().find(|d| d.0 == view).expect("child").1;
+    assert_eq!(
+        (child.x, child.y, child.width, child.height),
+        (20.0, 20.0, 160.0, 20.0),
+        "10% of the 200-wide column"
+    );
+}

@@ -113,7 +113,10 @@ impl<D: DataSource> Runner<D> {
                     .and_then(|_| self.kernel.node(view))
                     .map_or(ResizeRect::default(), |node| {
                         // A percentage padding is of the containing block's
-                        // width, its parent's content box.
+                        // width. Layout already resolved it, against the
+                        // column width in a multi-column container (CSS
+                        // Multi-column §3.4). The parent's content box is
+                        // only the fallback when that layout is absent.
                         let block = (!arena.is_root(key.index))
                             .then(|| arena.parent(key.index))
                             .flatten()
@@ -121,7 +124,8 @@ impl<D: DataSource> Runner<D> {
                             .map_or(node.frame.width, |up| {
                                 exact_kernel::svg::scene::content_box(&up).2
                             });
-                        content_rect(&node, block, self.stitched(key))
+                        let resolved = self.kernel.resolved_padding(key);
+                        content_rect(&node, block, resolved, self.stitched(key))
                     });
                 let last = self
                     .resized
@@ -185,29 +189,37 @@ pub type Resized = Vec<(NodeKey, ResizeRect)>;
 fn content_rect(
     node: &exact_kernel::NodeRef<'_>,
     block: f32,
+    resolved: Option<(f32, f32, f32, f32)>,
     stitched: Option<(f32, f32)>,
 ) -> ResizeRect {
     use exact_kernel::{BorderStyle, Dimension};
     let s = node.style;
-    let pad = |d: Dimension| match d {
-        Dimension::Points(p) => p,
-        Dimension::Percent(p) => block * p / 100.0,
-        _ => 0.0,
+    let (used_l, used_t, used_r, used_b) = match resolved {
+        Some((l, t, r, b)) => (Some(l), Some(t), Some(r), Some(b)),
+        None => (None, None, None, None),
+    };
+    let pad = |used: Option<f32>, d: Dimension| match used {
+        Some(p) => p,
+        None => match d {
+            Dimension::Points(p) => p,
+            Dimension::Percent(p) => block * p / 100.0,
+            _ => 0.0,
+        },
     };
     let border = |w: f32, style: BorderStyle| match style {
         BorderStyle::None | BorderStyle::Hidden => 0.0,
         _ => w,
     };
-    let (left, top) = (pad(s.padding_left), pad(s.padding_top));
+    let (left, top) = (pad(used_l, s.padding_left), pad(used_t, s.padding_top));
     let (frame_width, frame_height) = stitched.unwrap_or((node.frame.width, node.frame.height));
     let width = frame_width
         - left
-        - pad(s.padding_right)
+        - pad(used_r, s.padding_right)
         - border(s.border_width_left, s.border_style_left)
         - border(s.border_width_right, s.border_style_right);
     let height = frame_height
         - top
-        - pad(s.padding_bottom)
+        - pad(used_b, s.padding_bottom)
         - border(s.border_width_top, s.border_style_top)
         - border(s.border_width_bottom, s.border_style_bottom);
     ResizeRect {
