@@ -40,7 +40,7 @@ export function media(e, attrs) {
   if (typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   const props = {};
   for (const k in attrs) if (!k.startsWith("data-")) props[k] = BOOL.has(k) ? "true" : attrs[k];
-  e.$media = { retired: false, app: null, command: (name, seconds) => command(e, name, seconds) };
+  e.$media = { retired: false, app: null, poster: attrs["data-app-poster"] ?? null, command: (name, seconds) => command(e, name, seconds) };
   e.exactMedia = { props, handlers: [] };
   if (attrs["data-app-src"]) appSource(e, attrs["data-app-src"]);
   if (attrs["data-app-poster"]) appPoster(e, attrs["data-app-poster"]);
