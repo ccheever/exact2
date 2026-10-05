@@ -260,8 +260,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             #if !os(tvOS)
             c.showsSeparators = s?.card ?? true
             #endif
-            // No section fill behind a card-less section's clear cells.
-            if s?.card == false { c.backgroundColor = .clear }
+            // The list's own background stays behind a card-less section's
+            // clear cells: the inset card is the cells' background, not the
+            // section's (a clear section background showed the route's white).
             let section = NSCollectionLayoutSection.list(using: c, layoutEnvironment: environment)
             // A plain list's footer stays under its rows, as its header
             // stays at their top: UIKit pins both by default.

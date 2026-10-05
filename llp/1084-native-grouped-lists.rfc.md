@@ -221,8 +221,12 @@ author writes `section background-color="transparent"`.
 - **iOS.** That section's cells take a clear background, and a pressable
   standard row still shows UIKit's highlight while pressed (a configuration
   update handler). Its layout shows no separators (iOS only: tvOS has no
-  `showsSeparators`). A section that gains or loses its card configures its
-  rows and lays the list out again.
+  `showsSeparators`), and keeps the appearance's list background: the inset
+  card is the cells' background, not the section's (a clear section
+  background showed the route's white, simulator, 2026-10-04). A custom row
+  keeps its full height, as no UIKit separator stands in for its border. A
+  row whose card changed, its section's or by moving, is configured again,
+  and the list is laid out again.
 
 Proofs: `contract/cli/tests/it/grouped_list.rs`
 `a_transparent_section_has_no_card` and
