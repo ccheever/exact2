@@ -567,6 +567,25 @@ element: the compiler refuses one behind a wrapper (`lower-route-place`). Make e
 route `position="absolute" inset=0`: the hosts hide a covered route, as
 `visibility: hidden` does, so an in-flow route still takes its room.
 
+A route does not scroll by itself, as a `div` does not: content taller than it is
+never seen. A fixed shell (a map, a camera, a chat whose composer stays put) is
+fine; anything else puts its content in a `scroll` or `list` with `flex=1
+min-height=0` right after its `header`, and names it with `navigationScroll`:
+
+```text
+column navigationKey=`${e.id}` navigationScroll="feed" position="absolute" inset=0 display="flex" flex-direction="column"
+  header
+    text "Inbox"
+  scroll id="feed" flex=1 min-height=0
+    …
+```
+
+`navigationScroll` names an element of the route by its `id`; on iOS that scroller
+goes under the bar and collapses a large title, which happens only when it is the
+route's child right after its `header`. The compiler refuses a literal name that no
+element of the route carries, or one whose element is a box that never scrolls on y
+(`lower-route-scroll`).
+
 ## Tabs and stacks
 
 Tabs with a stack each have one layout that works on web, macOS and iOS

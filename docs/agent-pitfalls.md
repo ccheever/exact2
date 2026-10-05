@@ -96,6 +96,16 @@ guide's rules don't make obvious.
   on the root and an `id="back"` button on every pushed screen (LLP 1038 §6).
   **Candidate diagnostic:** the compiler could warn on a stacked route with no
   control of that id.
+- **A pushed screen's content is cut off and never scrolls, or its large title never
+  collapses.** Cause: a route is a box, not a scroller, and `navigationScroll` only
+  names one; a title collapses only with the scroller right after the route's
+  `header`. Fix: a `scroll id="feed" flex=1 min-height=0` right after the `header`
+  and `navigationScroll="feed"` on the route (docs/contract-for-agents.md, "Routes and
+  web documents"). The compiler refuses a name nothing in the route carries, or one
+  on a box that never scrolls (`lower-route-scroll`). **Candidate diagnostics:** the
+  compiler could refuse a named scroller that is not right after the `header` (an
+  iOS-only rule today, so not refused); the hosts could journal a route whose
+  content overflows with nothing to scroll it (QUEUE.md).
 - **The agent's screenshots and tree don't show the native bars.** Under
   `scripts/agent.mjs` the navigation bar, tab bar, `UIMenu`s and header search are
   not presented; the authored header, tablist and popover paint instead, by design.

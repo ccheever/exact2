@@ -199,6 +199,7 @@ impl NavPlace {
         &self,
         tag: &str,
         attrs: &[Attr],
+        children: &[Node],
         span: Span,
     ) -> Result<NavPlace, LowerError> {
         let has = |name: &str| attrs.iter().any(|a| a.name == name);
@@ -217,7 +218,10 @@ impl NavPlace {
                     )
                 }
                 NavPlace::Outside => return Ok(NavPlace::Outside),
-                _ => return Ok(NavPlace::InRoute),
+                _ => {
+                    check_scroll(tag, attrs, children)?;
+                    return Ok(NavPlace::InRoute);
+                }
             };
             return err(
                 "lower-route-place",
@@ -242,4 +246,118 @@ impl NavPlace {
             other => other.clone(),
         })
     }
+}
+
+/// A route's literal `navigationScroll` names its content scroller by HTML
+/// id (LLP 1075.003 §3.5), resolved inside the route as `navigationBack` is.
+/// Refused only where that provably fails: no element of the route can carry
+/// the id, or every one that does is a plain box that never scrolls on y.
+/// Anything the compiler cannot see through — a computed id or overflow, a
+/// class, an unexpanded use — is given the benefit.
+fn check_scroll(tag: &str, attrs: &[Attr], children: &[Node]) -> Result<(), LowerError> {
+    let Some(named) = attrs.iter().rev().find(|a| a.name == "navigationScroll") else {
+        return Ok(());
+    };
+    let Expr::Str(name, _) = &named.value else {
+        return Ok(());
+    };
+    if name.is_empty() {
+        return Ok(());
+    }
+    let mut carriers: Vec<(&str, &[Attr])> = Vec::new();
+    let mut doubt = false;
+    // The route itself is inside the route, as the hosts resolve it.
+    let mut elements = vec![(tag, attrs)];
+    let mut stack: Vec<&Node> = children.iter().collect();
+    while let Some(node) = stack.pop() {
+        match node {
+            Node::Element {
+                tag,
+                attrs,
+                children,
+                ..
+            } => {
+                elements.push((tag, attrs));
+                stack.extend(children);
+            }
+            Node::When {
+                then, otherwise, ..
+            } => stack.extend(then.iter().chain(otherwise)),
+            Node::Each { body, .. } => stack.extend(body),
+            Node::Match { some, none, .. } => stack.extend(some.1.iter().chain(none)),
+            Node::Use { .. } | Node::Children { .. } => doubt = true,
+        }
+    }
+    for (tag, attrs) in elements {
+        match attrs
+            .iter()
+            .rev()
+            .find(|a| a.name == "id")
+            .map(|a| &a.value)
+        {
+            Some(Expr::Str(id, _)) if id == name => carriers.push((tag, attrs)),
+            Some(Expr::Str(..)) | None => {}
+            Some(_) => doubt = true,
+        }
+    }
+    if carriers.is_empty() && !doubt {
+        return err(
+            "lower-route-scroll",
+            format!("this route's `navigationScroll=\"{name}\"` names no element: nothing in the route has `id=\"{name}\"`, so no host finds its content scroller (on iOS the large title stays still and nothing scrolls under the bar). Give the route's scroller, a `scroll` or `list` right after its `header`, `id=\"{name}\"`, or remove `navigationScroll` (docs/contract-for-agents.md, \"Routes and web documents\")"),
+            named.span,
+        );
+    }
+    match carriers.as_slice() {
+        // A computed id elsewhere may name a scroller in another branch.
+        [(tag, attrs), ..] if !doubt && carriers.iter().all(|(t, a)| still_on_y(t, a)) => err(
+            "lower-route-scroll",
+            format!("this route's `navigationScroll=\"{name}\"` names a `{tag}` that never scrolls on y: its overflow-y is visible or hidden, so it grows with or clips its content and the host has no scroller to follow (on iOS the large title stays still). Make `id=\"{name}\"` a `scroll` or `list` with `flex=1 min-height=0`, or give it `overflow-y=\"auto\"` and a bounded height (docs/contract-for-agents.md, \"Routes and web documents\")"),
+            attrs.iter().find(|a| a.name == "id").map_or(named.span, |a| a.span),
+        ),
+        _ => Ok(()),
+    }
+}
+
+/// Whether a box provably never scrolls on y: a plain box, or a `scroll` or
+/// `list` (whose block axis scrolls unless a row says otherwise), whose
+/// literal overflow rows leave y visible or hidden, CSS's computation
+/// included (a visible y beside a non-visible x computes to auto). A class,
+/// a style or a computed row may say otherwise, so they are doubt.
+fn still_on_y(tag: &str, attrs: &[Attr]) -> bool {
+    const PLAIN: &[&str] = &[
+        "view", "box", "column", "row", "main", "header", "nav", "section", "footer", "article",
+        "aside",
+    ];
+    let scrolls = matches!(tag, "scroll" | "list");
+    if !scrolls && !PLAIN.contains(&tag) {
+        return false;
+    }
+    let (mut x, mut y) = ("visible", if scrolls { "scroll" } else { "visible" });
+    for a in attrs {
+        let name = a.name.as_str();
+        if matches!(name, "class" | "className" | "style") || name.starts_with("ua:") {
+            return false;
+        }
+        let (to_x, to_y) = match name {
+            "overflow" => (true, true),
+            "overflow-x" | "overflowX" => (true, false),
+            "overflow-y" | "overflowY" => (false, true),
+            _ => continue,
+        };
+        let Expr::Str(v, _) = &a.value else {
+            return false;
+        };
+        let v = match v.as_str() {
+            "visible" => "visible",
+            "hidden" | "clip" => "hidden",
+            _ => "scroll",
+        };
+        if to_x {
+            x = v;
+        }
+        if to_y {
+            y = v;
+        }
+    }
+    y == "hidden" || (y == "visible" && x == "visible")
 }
