@@ -840,3 +840,24 @@ fn concurrent_budget_changes_keep_decode_admission_atomic() {
     drop(permit);
     assert_eq!(total(&session), 0);
 }
+
+#[test]
+fn a_decode_its_view_let_go_of_before_taking_it_stays_cold_for_the_next_view() {
+    let gate = Gate::new();
+    let session = gate.session();
+    let drops = Arc::new(AtomicUsize::new(0));
+    let first = session.request(demand(1, 1, 4, 0)).unwrap();
+    complete(gate.next_decode().unwrap(), &drops);
+    assert_eq!(session.stats().delivery_cells, 1);
+    // Its row left the screen before the picture was taken.
+    assert!(session.cancel(first));
+    assert_eq!(session.stats().delivery_cells, 0);
+    assert_eq!(session.stats().cold_bytes, 4 * MIB);
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    // Another view showing the same picture decodes nothing.
+    let again = session.request(demand(2, 1, 4, 0)).unwrap();
+    assert_eq!(session.status(again), Some(RequestStatus::Ready));
+    assert!(gate.next_decode().is_none());
+    assert_eq!(session.stats().dedup_hits, 1);
+    drop(session.take_ready(again).unwrap());
+}

@@ -549,7 +549,7 @@ impl RasterSession {
         }
         let id = RequestId(identity());
         if let Some(previous) = previous {
-            cancel_request(session, previous, &mut garbage);
+            cancel_request(session, previous, false, &mut garbage);
         }
         if let Some(entry) = session.entries.get_mut(&demand.key) {
             if entry.requests.is_empty() {
@@ -671,7 +671,7 @@ impl RasterSession {
         let Some(session) = state.sessions.get_mut(&self.id()) else {
             return false;
         };
-        let result = cancel_request(session, request, &mut garbage);
+        let result = cancel_request(session, request, true, &mut garbage);
         enforce_cold_limit(session, &mut garbage);
         drop(state);
         drop(garbage);
@@ -704,7 +704,7 @@ impl RasterSession {
                 .map(|(id, _)| *id)
                 .collect();
             for id in ids {
-                cancel_request(session, id, &mut garbage);
+                cancel_request(session, id, false, &mut garbage);
             }
             let keys: Vec<_> = session
                 .entries
@@ -1007,7 +1007,14 @@ fn remove_entry(s: &mut SessionState, key: RasterKey, garbage: &mut Vec<Arc<Imag
         }
     }
 }
-fn cancel_request(s: &mut SessionState, request: RequestId, garbage: &mut Vec<Arc<Image>>) -> bool {
+/// `keep`: a decoded picture nobody took yet stays cold (a view that let go
+/// of its request); otherwise it goes, as a replaced or retired one does.
+fn cancel_request(
+    s: &mut SessionState,
+    request: RequestId,
+    keep: bool,
+    garbage: &mut Vec<Arc<Image>>,
+) -> bool {
     let Some(binding) = s.requests.remove(&request) else {
         return false;
     };
@@ -1017,11 +1024,18 @@ fn cancel_request(s: &mut SessionState, request: RequestId, garbage: &mut Vec<Ar
     let e = s.entries.get_mut(&key).unwrap();
     e.requests.remove(&request);
     if e.requests.is_empty() {
-        if let Phase::Ready {
-            image,
-            delivery: false,
-        } = &e.phase
-        {
+        let ready = match &e.phase {
+            Phase::Ready { delivery, .. } => keep || !*delivery,
+            _ => false,
+        };
+        if let (true, Phase::Ready { image, delivery }) = (ready, &mut e.phase) {
+            // Decoded, delivered or not: kept cold, as a picture its view let
+            // go of is, for the next view that asks for it. An undelivered one
+            // gives its delivery cell back.
+            if *delivery {
+                *delivery = false;
+                s.cells -= 1;
+            }
             image.unpin();
             e.touched = identity();
         } else {

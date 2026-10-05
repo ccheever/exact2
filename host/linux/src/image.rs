@@ -212,8 +212,19 @@ impl Images {
                 reports.push((*id, None));
             }
             if !view.visible {
-                if let Some((request, _)) = view.request.take() {
-                    self.backend.cancel(request);
+                // A decode under way finishes into the cache (`poll` lets go
+                // of it then): a row a fling carries past before its picture
+                // is decoded would otherwise throw the work away, and the
+                // next row showing that picture decode it again.
+                if let Some((request, _)) = view.request {
+                    let decoding = matches!(
+                        self.backend.session.status(request),
+                        Some(RequestStatus::Decoding)
+                    );
+                    if !decoding {
+                        self.backend.cancel(request);
+                        view.request = None;
+                    }
                 }
                 view.lease = None;
                 self.bitmaps.remove(id);
@@ -319,7 +330,21 @@ impl Images {
                 }
                 _ => continue,
             };
-            if !view.visible || !self.decode_enabled {
+            if !view.visible {
+                // Its decode has finished since it went out of view: kept
+                // cold, its delivery cell free for the pictures that show.
+                if let Some((request, _)) = view.request {
+                    if !matches!(
+                        self.backend.session.status(request),
+                        Some(RequestStatus::Decoding)
+                    ) {
+                        self.backend.cancel(request);
+                        view.request = None;
+                    }
+                }
+                continue;
+            }
+            if !self.decode_enabled {
                 continue;
             }
             // Ask for the intended bucket first: a cache hit requires no new
