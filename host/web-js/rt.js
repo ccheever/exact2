@@ -724,7 +724,7 @@ export const painted = () => Painted ??= new Promise(r => { let o; const done = 
 /** A context menu's popover (LLP 1021 §5.1): after the node's own `contextmenu` (both fire), the popover its `contextpopover` names opens anchored to it,
  * the browser's own menu prevented and no ancestor hearing the event (macOS consumes the click too); a field's edit menu stays the browser's, and a disabled or inert node opens nothing. */
 export function cp(e) {
-  e.addEventListener("contextmenu", ev => { if (ev.$cp || !e.getAttribute("contextpopover") || ev.target.closest("input,textarea,[contenteditable]") || e.matches(":disabled") || e.closest("[inert]")) return; ev.$cp = 1; ev.preventDefault(); ev.stopPropagation(); setTimeout(() => { const p = document.getElementById(e.getAttribute("contextpopover") ?? ""); try { if (p && !p.matches(":popover-open")) p.showPopover({ source: e }); } catch {} }); });
+  e.addEventListener("contextmenu", ev => { if (ev.$cp || !e.getAttribute("contextpopover") || ev.target.closest("input,textarea,[contenteditable]") || e.matches(":disabled") || e.closest("[inert]")) return; ev.$cp = 1; ev.preventDefault(); ev.stopPropagation(); setTimeout(() => { if (!e.isConnected || e.matches(":disabled") || e.closest("[inert]")) return; const p = document.getElementById(e.getAttribute("contextpopover") ?? ""); try { if (p && !p.matches(":popover-open")) p.showPopover({ source: e }); } catch {} }); });
 }
 /** A native module's element (LLP 1024 D3): the real custom element, empty until the web host's adapter (`native.js`)
  * and the app's module artifact load (`painted`); the module renders into it, its events reaching the handlers as `exact-native` events (`on`). */

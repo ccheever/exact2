@@ -145,8 +145,9 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     }
     /// The popover as it is now, if its source still names it.
     private func current(_ owner: Open) -> NodeView? {
+        // Its own action, which has run, may have disabled, hidden or moved it.
         guard let source = owner.source, live(source), source.props["contextPopover"] == owner.name,
-              let pop = popover(named: owner.name) else { return nil }
+              menus?.eligible(source) == true, let pop = popover(named: owner.name) else { return nil }
         owner.popover = pop
         return pop
     }
@@ -254,12 +255,13 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         // transition (`pendingSync`) is still the commit's.
         presenter.navigation.unanimated = true
         presenter.press(row.id)
-        if !presenter.navigation.inTransition { presenter.navigation.unanimated = false }
+        if !presenter.navigation.inTransition || presenter.navigation.activeKey == before { presenter.navigation.unanimated = false }
         // A press that unmounted its source, or renamed its popover, without
         // navigating: `sync` left the row to the commit, which may not end.
         if presenter.navigation.activeKey == before, !(owner.source.map { live($0) && $0.props["contextPopover"] == owner.name } ?? false) {
             restore(owner)
             open = nil
+            sync()
             return
         }
         // UIKit grows the preview into the screen only when the commit adds
@@ -298,7 +300,15 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         return true
     }
 
+    /// Showing: the focus is set aside, or UIKit's type-to-select brings
+    /// the software keyboard up over the menu (MenuFocusIOS.swift).
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willDisplayMenuFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
+        menus?.focus.setAside()
+    }
+
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
+        let focus: () -> Void = { [weak self] in self?.menus?.focus.restore() }
+        if let animator { animator.addCompletion(focus) } else { focus() }
         guard let owner = open, owner.configuration === configuration else { return }
         let finish = { [weak self, weak owner] in
             guard let self, let owner, self.open === owner else { return }

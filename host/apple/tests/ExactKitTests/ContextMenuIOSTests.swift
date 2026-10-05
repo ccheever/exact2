@@ -161,7 +161,7 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
         window.addSubview(p.viewport)
         window.makeKeyAndVisible()
         p.apply(wireBatch([
-            ["op": "create", "id": 1, "kind": "button", "handlers": ["press"], "props": ["contextPopover": "m"]],
+            ["op": "create", "id": 1, "kind": "button", "handlers": ["press", "focus", "blur"], "props": ["contextPopover": "m"]],
             ["op": "create", "id": 2, "kind": "view", "props": ["popover": "auto", "id": "m"]],
             ["op": "create", "id": 3, "kind": "button", "handlers": ["press"], "props": ["contextPreview": "true"]],
             ["op": "create", "id": 4, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Pin"]],
@@ -228,6 +228,40 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
         XCTAssertTrue(row.superview === controller.view, "still the preview's while the menu shows")
         p.menus.context.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
         XCTAssertTrue(row.superview === other.container, "then where the kernel put it")
+    }
+
+    /// UIKit's type-to-select takes a focus that is not text and, with no
+    /// hardware keyboard, raises the software keyboard over the menu: the
+    /// focus is set aside while the menu shows, dispatching neither `blur`
+    /// nor `focus` (MenuFocusIOS).
+    func testTheFocusIsSetAsideQuietlyWhileTheMenuShows() throws {
+        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        let p = presenter()
+        let source = try XCTUnwrap(p.views[1])
+        XCTAssertTrue(source.becomeFirstResponder())
+        var events: [String] = []
+        p.onFocus = { _ in events.append("focus") }
+        p.onBlur = { _ in events.append("blur") }
+        let (interaction, configuration, _) = try opened(p)
+        p.menus.context.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: nil)
+        XCTAssertFalse(source.isFirstResponder, "set aside as the menu shows")
+        p.menus.context.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
+        XCTAssertTrue(source.isFirstResponder, "and back when it has ended")
+        XCTAssertEqual(events, [], "neither blur nor focus reaches the app")
+    }
+
+    func testAPressThatClearsItsSourcesPopoverEndsTheMenuAndItsInteraction() throws {
+        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        let p = presenter()
+        let (interaction, configuration, _) = try opened(p)
+        let row = try XCTUnwrap(p.views[3]), pop = try XCTUnwrap(p.views[2]), source = try XCTUnwrap(p.views[1])
+        p.onPress = { [weak p] _ in p?.apply(wireBatch([["op": "props", "id": 1, "clear": ["contextPopover"]]])) }
+        let commit = Commit()
+        p.menus.context.contextMenuInteraction(interaction, willPerformPreviewActionForMenuWith: configuration, animator: commit)
+        XCTAssertEqual(commit.preferredCommitStyle, .dismiss)
+        XCTAssertNil(p.menus.context.open)
+        XCTAssertTrue(row.superview === pop.container, "the row back in its popover")
+        XCTAssertTrue(source.interactions.compactMap { $0 as? UIContextMenuInteraction }.isEmpty, "and the interaction gone with the popover's name")
     }
 
     func testAnInertPopoverRefusesTheCommit() throws {

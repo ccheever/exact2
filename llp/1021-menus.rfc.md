@@ -750,6 +750,23 @@ menu's glass and the dismissal. In the delegate:
   The style is read off the outcome. An author writes no
   `pop`/`dismiss` row, and a press that sometimes navigates gets the right
   one each time.
+- **The focus while the menu shows** (`MenuFocusIOS.swift`). UIKit's menus
+  take typing for type-to-select: as one shows, its key input
+  (`_UITypeSelectKeyInput`) takes the place of a first responder that is not
+  text. With no hardware keyboard attached, that raises the software
+  keyboard over the menu's lower rows. Exact always has such a responder:
+  `ExactView` holds the focus for key commands, and a pressed node takes
+  it. A bare UIKit app on the same iOS 27 simulator shows its context menu
+  with no keyboard, and shows the keyboard as soon as a plain `UIView` is
+  first responder. Setting that responder aside as the menu shows removes
+  the keyboard (measured both ways). So a context menu
+  (`willDisplayMenuFor`) and an invoker's pull-down (`MenuButton`) set the
+  session's focus aside as they show, with no `blur`, and return it with no
+  `focus` once they have ended, unless something else has taken it. A text
+  field's focus stays where it is. A bar item's pull-down
+  (`NavigationBarIOS`) still raises the keyboard: UIKit decides from the
+  focus it saw as the menu began, and setting the focus aside in the
+  menu's rows provider is too late (measured). QUEUE has it.
 - `state.navigation.popover` is `{kind: "contextmenu", source, popover,
   preview, phase}` once the menu is showing (a provider has run), with
   `phase` `commit` after a commit. A configuration UIKit asked for that
@@ -814,7 +831,10 @@ popover and given to another parent returns there; an inert popover
 refuses the commit. `ContextMenuMacTests`: the `NSMenu` omits the preview
 row and presses a picked item on the next turn. On the simulator (iOS 27,
 real touches through `axe`): the row lifts, morphs into the preview with
-Bump and Clear below, and tapping the preview grows it into Detail. The
+Bump and Clear below, and tapping the preview grows it into Detail. After
+the focus fix, no keyboard rises over the context menu or the "Open in
+Maps" pull-down, and `ExactView` is first responder again after each
+(read with lldb). The
 agent opens, reads and commits the painted popover on iOS and in Chrome
 (`tap peek contextmenu`, `tap peek-preview`: `peeks 1`, then Detail's
 route). `MenuHost.context` and the right-mouse path on macOS were not

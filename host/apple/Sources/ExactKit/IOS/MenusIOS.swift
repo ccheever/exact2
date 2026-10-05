@@ -96,6 +96,8 @@ final class MenuHost {
     /// The context menus (LLP 1021 §5.1, ContextMenusIOS.swift).
     private(set) lazy var context = ContextMenuHost(presenter: presenter!, menus: self)
     #endif
+    /// The focus a native menu sets aside while it shows (MenuFocusIOS.swift).
+    private(set) lazy var focus = MenuFocus(presenter: presenter!)
 
     private func isDialog(_ node: NodeView) -> Bool { node.props["semanticTag"] == "dialog" }
     private func isConfirmation(_ node: NodeView) -> Bool {
@@ -168,7 +170,12 @@ final class MenuHost {
                 continue
             }
             let button = overlays[v.id] ?? {
+                #if os(iOS)
+                let b = MenuButton(type: .custom)
+                b.focus = focus
+                #else
                 let b = UIButton(type: .custom)
+                #endif
                 b.showsMenuAsPrimaryAction = true
                 b.autoresizingMask = [.flexibleWidth, .flexibleHeight]
                 overlays[v.id] = b

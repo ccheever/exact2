@@ -295,7 +295,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         guard !formDisabled, !inert else { return false }
         let ok = super.becomeFirstResponder()
         if ok { presenter?.collections.pinsChanged() }
-        if ok, handlers.contains("focus") { presenter?.focus(id) }
+        if ok, handlers.contains("focus"), presenter?.menus.focus.quiet != true { presenter?.focus(id) } // a menu's set-aside focus returns quietly (MenuFocusIOS)
         return ok
     }
     override func resignFirstResponder() -> Bool {
@@ -303,7 +303,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if ok { showFocusRing(false) }
         if ok { presenter?.collections.pinsChanged() }
         if ok { inputCanvas?.canvasInput?.blur() }
-        if ok, handlers.contains("blur") { presenter?.blur(id) }
+        if ok, handlers.contains("blur"), presenter?.menus.focus.quiet != true { presenter?.blur(id) }
         return ok
     }
     /// A hardware keyboard's Tab and Shift-Tab move the focus through the
