@@ -1,0 +1,626 @@
+// The Usage page (lane "pages"), measured against the served reference at
+// 1280×840 and 840×620: UsagePage's header (breadcrumb, metric and period
+// toggles or selects, refresh), the cost/tokens summary with the provider
+// chart, Totals, Breakdown, and the Limits view. T3 Code, MIT (LICENSE-T3).
+use Icon from "./icons.contract"
+use R5Probe from "./r5-composer.contract"
+use R5TextProbes from "./r5-composer.contract"
+use ProviderMark from "./icons.contract"
+use DriverMark from "./provider-icons.contract"
+use PgIcon from "./pages-icons.contract"
+use UsageChart from "./pages-usage-shapes.contract"
+use UsageShare from "./pages-usage-shapes.contract"
+use UsageModelDetail from "./pages-usage-shapes.contract"
+use UsagePrices from "./pages-usage-shapes.contract"
+use UsageShareBar from "./pages-usage-shapes.contract"
+
+shape UsageText
+  key: string
+  text: string
+shape UsageProviderRow
+  key: string
+  driver: string
+  label: string
+  light: string
+  dark: string
+  sessions: string
+  value: string
+  detail: string
+shape UsageTotal
+  key: string
+  label: string
+  value: string
+shape UsageModelRow
+  key: string
+  rank: string
+  row: number
+  driver: string
+  model: string
+  cost: string
+  share: string
+  tokens: string
+  unpriced: bool
+  bar: number
+  light: string
+  dark: string
+shape UsageColumn
+  key: string
+  label: string
+shape UsagePeriodRow
+  key: string
+  label: string
+  cells: list<UsageText>
+  total: string
+  tokens: string
+shape UsageLimitWindow
+  key: string
+  label: string
+  remaining: number
+  fill: number
+  pace: string
+  resets: string
+  light: string
+  dark: string
+shape UsageLimitPool
+  key: string
+  driver: string
+  label: string
+  windows: list<UsageLimitWindow>
+shape UsageView
+  metric: string
+  windowDays: number
+  breakdown: string
+  plotWidth: number
+  menuWidth: number
+  // r5-composer: the menus' texts to measure (r5-composer-menus.ts checkMenu).
+  menuProbes: list<R5Probe>
+  empty: string
+  error: string
+  environmentLabel: string
+  environmentName: string
+  environmentStatus: string
+  environmentSelected: bool
+  environmentCount: number
+  windowLabel: string
+  total: string
+  sessions: string
+  unpriced: string
+  notices: list<UsageText>
+  providers: list<UsageProviderRow>
+  chartTitle: string
+  chart: UsageChart
+  totals: list<UsageTotal>
+  models: list<UsageModelRow>
+  shares: list<UsageShare>
+  detail: UsageModelDetail
+  prices: UsagePrices
+  periodLabel: string
+  columns: list<UsageColumn>
+  periods: list<UsagePeriodRow>
+  limits: list<UsageLimitPool>
+  limitsEmpty: bool
+  coverage: list<UsageText>
+shape UsageKey
+  id: string
+  chord: string
+  kind: string
+  value: string
+  days: number
+  label: string
+
+component UsagePage
+  props
+    page: UsageView
+    keys: list<UsageKey>
+    scheme: string
+    wide: bool
+    lg: bool
+    md: bool
+    sm: bool
+    sidebarOpen: bool
+    keySidebar: string
+    toggleSidebar: action
+    op: action
+    setMetric: action
+    setWindow: action
+    setBreakdown: action
+    reload: action
+    toggleEnvironment: action
+    back: action
+  view
+    column position="absolute" left=0 top=0 right=0 bottom=0 background-color="light-dark(#fcfcfc, #0a0a0a)" inert=(page.detail.open or page.prices.open) testId="usage-page"
+      UsageKeys(keys=keys, limits=(page.metric == "limits"), dialog=(page.detail.open or page.prices.open), setMetric=setMetric, setWindow=setWindow, back=back)
+      when wide
+        row width="100%" height=52 flex-shrink=0 padding-left=(sidebarOpen ? 20 : 130) padding-right=20 box-sizing="border-box" align-items="center" gap=12 position="relative"
+          UsageSidebarToggle(sidebarOpen=sidebarOpen, keySidebar=keySidebar, toggle=toggleSidebar)
+          UsageBreadcrumb(page=page, scheme=scheme, toggleEnvironment=toggleEnvironment, op=op)
+          row margin-left="auto" align-items="center" gap=8 flex-shrink=0
+            row height=28 padding=2 gap=2 box-sizing="border-box" border-radius=10 background-color="light-dark(#d4d4d766, #ffffff08)" align-items="center" role="group" aria-label="Usage metric"
+              Segment(label="Cost", pressed=(page.metric == "cost"), disabled=false, press=setMetric("cost"), testId="usage-metric-cost")
+              Segment(label="Tokens", pressed=(page.metric == "tokens"), disabled=false, press=setMetric("tokens"), testId="usage-metric-tokens")
+              Segment(label="Limits", pressed=(page.metric == "limits"), disabled=false, press=setMetric("limits"), testId="usage-metric-limits")
+            row height=28 padding=2 gap=2 box-sizing="border-box" border-radius=10 background-color="light-dark(#d4d4d766, #ffffff08)" align-items="center" role="group" aria-label="Usage period"
+              Segment(label="Past 24h", pressed=(page.windowDays == 1), disabled=(page.metric == "limits"), press=setWindow(1), testId="usage-period-1")
+              Segment(label="7 days", pressed=(page.windowDays == 7), disabled=(page.metric == "limits"), press=setWindow(7), testId="usage-period-7")
+              Segment(label="30 days", pressed=(page.windowDays == 30), disabled=(page.metric == "limits"), press=setWindow(30), testId="usage-period-30")
+              Segment(label="90 days", pressed=(page.windowDays == 90), disabled=(page.metric == "limits"), press=setWindow(90), testId="usage-period-90")
+            UsageRefresh(limits=(page.metric == "limits"), reload=reload)
+      else
+        column width="100%" flex-shrink=0 padding-left=(sidebarOpen ? 20 : 130) padding-right=20 padding-top=8 padding-bottom=8 box-sizing="border-box" gap=8 position="relative"
+          UsageSidebarToggle(sidebarOpen=sidebarOpen, keySidebar=keySidebar, toggle=toggleSidebar)
+          row height=20 align-items="center" gap=12
+            UsageBreadcrumb(page=page, scheme=scheme, toggleEnvironment=toggleEnvironment, op=op)
+          row height=28 justify-content="flex-end" align-items="center" gap=4
+            UsageSelect(menuId="usage-metric-select", label=(page.metric == "cost" ? "Cost" : page.metric == "tokens" ? "Tokens" : "Limits"), ariaLabel="Usage metric", disabled=false, scheme=scheme)
+              UsageOption(menuId="usage-metric-select", label="Cost", selected=(page.metric == "cost"), press=setMetric("cost"))
+              UsageOption(menuId="usage-metric-select", label="Tokens", selected=(page.metric == "tokens"), press=setMetric("tokens"))
+              UsageOption(menuId="usage-metric-select", label="Limits", selected=(page.metric == "limits"), press=setMetric("limits"))
+            UsageSelect(menuId="usage-period-select", label=(page.windowDays == 1 ? "Past 24h" : page.windowDays == 7 ? "7 days" : page.windowDays == 90 ? "90 days" : "30 days"), ariaLabel="Usage period", disabled=(page.metric == "limits"), scheme=scheme)
+              UsageOption(menuId="usage-period-select", label="Past 24h", selected=(page.windowDays == 1), press=setWindow(1))
+              UsageOption(menuId="usage-period-select", label="7 days", selected=(page.windowDays == 7), press=setWindow(7))
+              UsageOption(menuId="usage-period-select", label="30 days", selected=(page.windowDays == 30), press=setWindow(30))
+              UsageOption(menuId="usage-period-select", label="90 days", selected=(page.windowDays == 90), press=setWindow(90))
+            UsageRefresh(limits=(page.metric == "limits"), reload=reload)
+      scroll flex=1 min-height=0 width="100%" testId="usage-scroll"
+        column width="100%" max-width=1024 margin-left="auto" margin-right="auto" padding-left=24 padding-right=24 padding-top=24 padding-bottom=48 box-sizing="border-box" gap=24
+          when page.empty != ""
+            text page.empty font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" testId="usage-empty"
+          else
+            when page.metric == "limits"
+              column width="100%" gap=32
+                when page.limitsEmpty
+                  text "No provider on the selected environments reports subscription limits." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" testId="usage-limits-empty"
+                each pool in page.limits key=pool.key
+                  LimitSection(pool=pool, scheme=scheme, md=md)
+            else
+              when page.total == ""
+                UsageSkeleton(lg=lg, md=md)
+              else
+                UsageSummary(page=page, scheme=scheme, lg=lg, md=md, sm=sm, setBreakdown=setBreakdown, op=op)
+
+// SidebarControl: the global sidebar toggle sits at the window controls when the sidebar is closed.
+component UsageSidebarToggle
+  props
+    sidebarOpen: bool
+    keySidebar: string
+    toggle: action
+  view
+    when not sidebarOpen
+      button press=toggle position="absolute" left=91 top=12 width=28 height=28 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar"
+        Icon(name="panel-left", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
+
+// WorkspaceBreadcrumb: "Usage / All environments", the environment filter menu.
+component UsageBreadcrumb
+  props
+    page: UsageView
+    scheme: string
+    toggleEnvironment: action
+    op: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    row align-items="center" gap=12 min-width=0 role="navigation" aria-label="Usage breadcrumb"
+      text "Usage" font-size=14 line-height="20px" font-weight=500 color="light-dark(#71717b, #818181)" role="heading" aria-level=1 flex-shrink=0
+      text "/" font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" flex-shrink=0
+      column position="relative" min-width=40
+        R5TextProbes(probes=page.menuProbes)
+        button popovertarget="usage-environment-menu" hover=hover testId="usage-environment" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap=2 min-width=0
+          text page.environmentLabel font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" text-decoration-line=(over ? "underline" : "none") line-clamp=1
+          box width=14 height=14 opacity=(over ? 1 : 0) display="flex"
+            PgIcon(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
+        column id="usage-environment-menu" popover="auto" position="absolute" left=0 top=0 padding-top=4 testId="usage-environment-layer"
+          column width=page.menuWidth padding=4 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" testId="usage-environment-menu"
+            CheckRow(label="All environments", status="", checked=page.environmentSelected, press=toggleEnvironment, testId="usage-environment-all")
+            box width="calc(100% - 16px)" height=1 margin-left=8 margin-top=4 margin-bottom=4 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+            when page.environmentCount > 0
+              CheckRow(label=page.environmentName, status=(page.metric == "limits" ? "" : page.environmentStatus), checked=page.environmentSelected, press=toggleEnvironment, testId="usage-environment-current")
+            else
+              text "No environments connected." padding=8 font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+            when length(page.coverage) > 0 and page.metric != "limits"
+              column width="100%" padding=8 gap=4 border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" box-sizing="border-box"
+                each line in page.coverage key=line.key
+                  text line.text font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+            box width="calc(100% - 16px)" height=1 margin-left=8 margin-top=4 margin-bottom=4 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+            UsageMenuItem(label="Model prices", icon="sliders-horizontal", press=op("usage-prices-open", "", ""), menuId="usage-environment-menu", testId="usage-model-prices")
+
+// MenuCheckboxItem: a 16pt check column, then the label (and scan status).
+component CheckRow
+  props
+    label: string
+    status: string
+    checked: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover role="menuitemcheckbox" aria-checked=checked testId=testId width="100%" min-height=28 padding-left=8 padding-right=16 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      box width=16 height=16 display="flex" align-items="center" justify-content="center" flex-shrink=0
+        when checked
+          PgIcon(name="check", size=14, color="light-dark(#27272a, #f5f5f5)")
+      text label font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
+      when status != ""
+        text status margin-left=4 font-size=12 line-height="16px" color=(status == "Unavailable" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)") flex-shrink=0
+
+// MenuItem: a 16pt muted glyph at 80% (pulled in 2pt), then the label; closes the menu.
+component UsageMenuItem
+  props
+    label: string
+    icon: string
+    press: action
+    menuId: string
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press popovertarget=menuId popovertargetaction="hide" hover=hover role="menuitem" testId=testId width="100%" min-height=28 padding-left=6 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=6 border-radius=6 border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      box opacity=0.8 display="flex"
+        PgIcon(name=icon, size=16, color="light-dark(#71717b, #818181)")
+      text label font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+
+// ToggleGroup variant="segmented": a 24pt toggle, raised when pressed.
+component Segment
+  props
+    label: string
+    pressed: bool
+    disabled: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover disabled=disabled role="radio" aria-checked=pressed testId=testId height=24 padding-left=11 padding-right=11 box-sizing="border-box" border-radius=8 border-width=0 background-color=(pressed ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(pressed ? "0 1px 2px #0000001a" : "none") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center"
+      text label font-size=14 line-height="20px" font-weight=500 white-space="nowrap" color=(pressed or (over and not disabled) ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+
+component UsageRefresh
+  props
+    limits: bool
+    reload: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=reload hover=hover aria-label=(limits ? "Refresh limits" : "Refresh usage") testId="usage-refresh" width=28 height=28 padding=0 border-radius=8 border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+      PgIcon(name="refresh-cw", size=14, color="light-dark(#71717b, #818181)")
+
+// The narrow header's SelectTrigger (size compact, ghost) and its popup.
+component UsageSelect
+  props
+    menuId: string
+    label: string
+    ariaLabel: string
+    disabled: bool
+    scheme: string
+  slot
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    column position="relative"
+      button popovertarget=menuId hover=hover disabled=disabled role="combobox" aria-label=ariaLabel testId=menuId height=28 padding-left=11 padding-right=3 box-sizing="border-box" gap=4 border-radius=8 border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+        text label font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" white-space="nowrap"
+        PgIcon(name="chevron-down", size=12, color="light-dark(#71717b, #818181)")
+      column id=menuId popover="auto" position="absolute" left=0 top=0 padding-top=4
+        column min-width=128 padding=4 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="listbox" aria-label=ariaLabel
+          children
+
+component UsageOption
+  props
+    menuId: string
+    label: string
+    selected: bool
+    press: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press popovertarget=menuId popovertargetaction="hide" hover=hover role="option" aria-selected=selected width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      text label font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" flex=1 text-align="left" white-space="nowrap"
+      box width=16 height=16 display="flex" align-items="center" justify-content="center"
+        when selected
+          PgIcon(name="check", size=14, color="light-dark(#27272a, #f5f5f5)")
+
+// usageShortcuts: c / t / l and ⇧⌘1–4 while the page is open, Escape to go back.
+component UsageKeys
+  props
+    keys: list<UsageKey>
+    limits: bool
+    dialog: bool
+    setMetric: action
+    setWindow: action
+    back: action
+  view
+    box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" testId="usage-keys"
+      when not dialog
+        button press=back aria-keyshortcuts="Escape" aria-label="Back" testId="usage-key-back" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+          text "Back" font-size=1
+      each entry in keys key=entry.id
+        when entry.kind == "metric"
+          button press=setMetric(entry.value) aria-keyshortcuts=entry.chord aria-label=entry.label testId=`usage-key-${entry.id}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+            text entry.label font-size=1
+        when entry.kind == "window" and not limits
+          button press=setWindow(entry.days) aria-keyshortcuts=entry.chord aria-label=entry.label testId=`usage-key-${entry.id}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+            text entry.label font-size=1
+
+component UsageSummary
+  props
+    page: UsageView
+    scheme: string
+    lg: bool
+    md: bool
+    sm: bool
+    setBreakdown: action
+    op: action
+  view
+    column width="100%" gap=24
+      each notice in page.notices key=notice.key
+        text notice.text font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+      when lg
+        row width="100%" gap=24 align-items="flex-start"
+          column width=288 flex-shrink=0 gap=20
+            UsageHeadline(page=page, scheme=scheme)
+          column flex=1 min-width=0 gap=12
+            text page.chartTitle font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+            UsageChartView(chart=page.chart, width=page.plotWidth, title=page.chartTitle, scheme=scheme)
+      else
+        column width="100%" gap=24
+          column width="100%" gap=20
+            UsageHeadline(page=page, scheme=scheme)
+          column width="100%" gap=12
+            text page.chartTitle font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+            UsageChartView(chart=page.chart, width=page.plotWidth, title=page.chartTitle, scheme=scheme)
+      column width="100%" gap=8
+        text "Totals" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+        row width="100%" flex-wrap=(md ? "nowrap" : "wrap") column-gap=24 row-gap=16 padding-top=4 padding-bottom=4
+          each metric in page.totals key=metric.key
+            column flex=(md ? 1 : 0) flex-basis=(md ? 0 : "auto") width=(md ? "auto" : "calc(50% - 12px)") min-width=0 gap=2
+              text metric.label font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+              text metric.value font-size=16 line-height="24px" font-weight=500 font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
+      // Cost (or tokens) by type, and by speed when fast requests ran: grid gap-x-12 gap-y-8 lg:grid-cols-2.
+      when length(page.shares) > 0
+        box width="100%" display="grid" grid-template-columns=(lg ? "repeat(2, minmax(0, 1fr))" : "minmax(0, 1fr)") column-gap=48 row-gap=32 testId="usage-shares"
+          each bar in page.shares key=bar.key
+            UsageShareBar(bar=bar, scheme=scheme)
+      column width="100%" gap=12
+        row width="100%" align-items="center" justify-content="space-between" gap=12
+          text "Breakdown" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          row height=28 padding=2 gap=2 box-sizing="border-box" border-radius=10 background-color="light-dark(#d4d4d766, #ffffff08)" align-items="center" role="group" aria-label="Usage breakdown"
+            Segment(label="Model", pressed=(page.breakdown == "model"), disabled=false, press=setBreakdown("model"), testId="usage-breakdown-model")
+            Segment(label=page.periodLabel, pressed=(page.breakdown == "time"), disabled=false, press=setBreakdown("time"), testId="usage-breakdown-time")
+        when page.breakdown == "model"
+          ModelTable(page=page, scheme=scheme, sm=sm, op=op)
+        else
+          PeriodTable(page=page)
+
+component UsageHeadline
+  props
+    page: UsageView
+    scheme: string
+  view
+    column width="100%" gap=4
+      text page.total font-size=36 line-height="40px" font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)" testId="usage-total"
+      row align-items="center" gap=0
+        text (page.metric == "cost" ? `${page.sessions} · API estimate` : page.sessions) font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" white-space="pre"
+        when page.unpriced != ""
+          UnpricedInfo(text=page.unpriced, scheme=scheme)
+    each provider in page.providers key=provider.key
+      column width="100%" gap=4
+        row width="100%" justify-content="space-between" align-items="flex-end" gap=16
+          row min-width=0 align-items="center" gap=8
+            box width=8 height=8 border-radius=9999 flex-shrink=0 background-color=(scheme == "dark" ? provider.dark : provider.light)
+            when provider.driver == "codex"
+              ProviderMark(driver="codex", size=16, color="light-dark(#27272a, #f5f5f5)")
+            else
+              DriverMark(driver=provider.driver, size=16, initials="")
+            row min-width=0 align-items="baseline" gap=6
+              text provider.label font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" line-clamp=1 min-width=0
+              text provider.sessions font-size=11 line-height="16px" color="light-dark(#71717b, #818181)" white-space="nowrap" flex-shrink=0 font-variant-numeric="tabular-nums"
+          text provider.value font-size=14 line-height="20px" font-weight=500 flex-shrink=0 font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
+        text provider.detail font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+
+// The "Unpriced usage details" info glyph; its hover popover explains the excluded share.
+component UnpricedInfo
+  props
+    text: string
+    scheme: string
+  view
+    column position="relative" margin-left=4
+      button popovertarget="usage-unpriced" aria-label="Unpriced usage details" testId="usage-unpriced" width=12 height=12 padding=0 border-width=0 background-color="#00000000" display="flex"
+        PgIcon(name="info", size=12, color="light-dark(#71717b, #818181)")
+      column id="usage-unpriced" popover="auto" position="absolute" left=0 top=0 padding-top=4
+        text text max-width=240 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 font-size=12 line-height="16px" color="light-dark(#fafafa, #27272a)" background-color="light-dark(#27272a, #f5f5f5)"
+
+// UsageProviderChart: a 56pt axis, the 224pt plot (layered areas at 12%, then
+// 2pt lines), and three period labels under it.
+component UsageChartView
+  props
+    chart: UsageChart
+    width: number
+    title: string
+    scheme: string
+  view
+    column width="100%" gap=4
+      row width="100%" gap=8
+        column width=56 height=224 position="relative" flex-shrink=0
+          each tick in chart.ticks key=tick.key
+            text tick.label position="absolute" right=0 top=(tick.top - 7) font-size=10 line-height="14px" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+        box flex=1 min-width=0 height=224 overflow="hidden"
+          svg width=width height=224 viewBox=`0 0 ${width} 224` role="img" aria-label=`${title} by provider` testId="usage-chart"
+            each tick in chart.ticks key=tick.key
+              path d=`M0 ${tick.top}H${width}` stroke=(scheme == "dark" ? "#ffffff0f" : "#e4e4e7") stroke-width=1 fill="none"
+            each series in chart.series key=series.key
+              path d=series.area fill=(scheme == "dark" ? series.dark : series.light) fill-opacity=0.12 stroke="none"
+            each series in chart.series key=series.key
+              path d=series.line fill="none" stroke=(scheme == "dark" ? series.dark : series.light) stroke-width=2
+      row width="100%" padding-left=64 box-sizing="border-box" justify-content="space-between"
+        text chart.start font-size=10 line-height="14px" text-transform="uppercase" color="light-dark(#71717b, #818181)"
+        text chart.middle font-size=10 line-height="14px" text-transform="uppercase" color="light-dark(#71717b, #818181)"
+        text chart.end font-size=10 line-height="14px" text-transform="uppercase" color="light-dark(#71717b, #818181)"
+
+// Breakdown → Model (UsagePage, e8545b293b): a table laid out as a grid so the
+// rank and number columns take their content and the model column the rest.
+// Each row is a button over the whole row (the reference's after:inset-0
+// overlay); focus or hover shows as the row's bg-muted/50 fill.
+component ModelTable
+  props
+    page: UsageView
+    scheme: string
+    sm: bool
+    op: action
+  state hovered = ""
+  action hover(rowKey: string, over: bool)
+    hovered = over ? rowKey : (hovered == rowKey ? "" : hovered)
+  view
+    box width="100%" display="grid" grid-template-columns=(sm ? "auto minmax(0, 1fr) auto auto auto" : "auto minmax(0, 1fr) auto auto") role="table" testId="usage-model-table"
+      box grid-row=1 grid-column="1 / -1" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)"
+      text "#" grid-row=1 grid-column=1 padding-top=8 padding-bottom=9 padding-right=12 font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" role="columnheader"
+      text "Model" grid-row=1 grid-column=2 padding-top=8 padding-bottom=9 font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" role="columnheader"
+      text "Cost" grid-row=1 grid-column=3 padding-top=8 padding-bottom=9 padding-left=24 text-align="right" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" role="columnheader"
+      when sm
+        text "Share" grid-row=1 grid-column=4 padding-top=8 padding-bottom=9 padding-left=24 text-align="right" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" role="columnheader"
+      text "Tokens" grid-row=1 grid-column=(sm ? 5 : 4) padding-top=8 padding-bottom=9 padding-left=24 text-align="right" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" role="columnheader"
+      when length(page.models) == 0
+        text "No activity in this window." grid-row=2 grid-column="1 / -1" padding-top=24 padding-bottom=24 text-align="center" font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+      each model in page.models key=model.key
+        box grid-row=model.row grid-column="1 / -1" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e780, #ffffff08)" background-color=(hovered == model.key ? "light-dark(#fafafa80, #ffffff04)" : "#00000000")
+        text model.rank grid-row=model.row grid-column=1 align-self="center" padding-right=12 font-size=12 line-height="16px" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" white-space="nowrap"
+        column grid-row=model.row grid-column=2 min-width=0 padding-top=10 padding-bottom=11
+          row align-items="center" gap=8 min-width=0
+            when model.driver == "codex"
+              ProviderMark(driver="codex", size=14, color="light-dark(#27272a, #f5f5f5)")
+            else
+              DriverMark(driver=model.driver, size=14, initials="")
+            text model.model font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" min-width=0
+          box margin-top=6 height=2 width="100%" max-width=192 aria-hidden=true
+            when model.bar > 0
+              box height=2 width=`${model.bar}%` min-width=8 border-radius=9999 background-color=(scheme == "dark" ? model.dark : model.light)
+        text model.cost grid-row=model.row grid-column=3 align-self="center" padding-left=24 text-align="right" white-space="nowrap" font-size=14 line-height="20px" font-variant-numeric="tabular-nums" color=(model.unpriced ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
+        when sm
+          text model.share grid-row=model.row grid-column=4 align-self="center" padding-left=24 text-align="right" white-space="nowrap" font-size=14 line-height="20px" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+        text model.tokens grid-row=model.row grid-column=(sm ? 5 : 4) align-self="center" padding-left=24 text-align="right" white-space="nowrap" font-size=14 line-height="20px" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+        button press=op("usage-model-open", "", model.key) hover=hover(model.key) grid-row=model.row grid-column="1 / -1" aria-label=model.model testId=`usage-model-${model.key}` padding=0 border-width=0 background-color="#00000000"
+
+component PeriodTable
+  props
+    page: UsageView
+  derive share = `${60 / (length(page.columns) + 2)}%`
+  view
+    column width="100%" role="table" testId="usage-period-table"
+      row width="100%" height=32 border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" align-items="center" role="row"
+        text page.periodLabel width="40%" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" role="columnheader"
+        each column in page.columns key=column.key
+          text column.label width=share text-align="right" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" role="columnheader" line-clamp=1
+        text "Total" width=share text-align="right" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" role="columnheader"
+        text "Tokens" width=share text-align="right" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" role="columnheader"
+      when length(page.periods) == 0
+        text "No activity in this window." width="100%" padding-top=24 padding-bottom=24 text-align="center" font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+      each period in page.periods key=period.key
+        TableRow()
+          text period.label width="40%" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+          each cell in period.cells key=cell.key
+            text cell.text width=share text-align="right" font-size=14 line-height="20px" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+          text period.total width=share text-align="right" font-size=14 line-height="20px" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
+          text period.tokens width=share text-align="right" font-size=14 line-height="20px" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+
+// A body row: 8pt cell padding, a half-strength rule, hover:bg-muted/50.
+component TableRow
+  slot
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    row hover=hover width="100%" height=37 box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(over ? "light-dark(#fafafa80, #ffffff04)" : "#00000000") align-items="center" role="row"
+      children
+
+// UsageLimitsPooled: per provider, each window as a card with the share left and its bar.
+component LimitSection
+  props
+    pool: UsageLimitPool
+    scheme: string
+    md: bool
+  view
+    column width="100%" gap=12 testId=`usage-limits-${pool.key}`
+      row align-items="center" gap=8
+        box width=20 height=20 display="flex" align-items="center" justify-content="center"
+          when pool.driver == "codex"
+            ProviderMark(driver="codex", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
+          else
+            DriverMark(driver=pool.driver, size=16, initials="")
+        text pool.label font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+      each window in pool.windows key=window.key
+        row width="100%" padding=16 box-sizing="border-box" gap=24 flex-wrap=(md ? "nowrap" : "wrap") align-items="center" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
+          column width=176 flex-shrink=0 gap=4
+            text window.label font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            row align-items="baseline" gap=8
+              text `${window.remaining}%` font-size=30 line-height="36px" font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
+              text "left" font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+            when window.resets != ""
+              text window.resets font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+          box flex=1 min-width=120 height=20 position="relative" border-radius=6 overflow="hidden" background-color="light-dark(#fafafa, #ffffff08)" role="img" aria-label=`${window.label}: ${window.remaining}% left${window.resets != "" ? ", " : ""}${window.resets}`
+            box position="absolute" left=0 top=0 bottom=0 width=`${window.fill}%` opacity=0.35 border-radius=6 background-color=(scheme == "dark" ? window.dark : window.light)
+
+// UsageSkeleton: the loaded page's shape while the first summary arrives
+// (Skeleton: bg-muted-foreground/15, rounded-sm; pills and the card toggle).
+component UsageSkeleton
+  props
+    lg: bool
+    md: bool
+  view
+    column width="100%" gap=24 testId="usage-skeleton"
+      box width="100%" display="grid" grid-template-columns=(lg ? "minmax(0, 288px) minmax(0, 1fr)" : "minmax(0, 1fr)") gap=24
+        column gap=20
+          column gap=4
+            box width=144 height=40 border-radius=4 background-color="light-dark(#71717b26, #81818126)"
+            box width=128 height=16 border-radius=4 background-color="light-dark(#71717b26, #81818126)"
+          UsageSkeletonProvider()
+          UsageSkeletonProvider()
+          UsageSkeletonProvider()
+          UsageSkeletonProvider()
+          UsageSkeletonProvider()
+          UsageSkeletonProvider()
+        column gap=12 min-width=0
+          box width=96 height=20 border-radius=4 background-color="light-dark(#71717b26, #81818126)"
+          column gap=4
+            box margin-left=64 height=224 border-radius=4 background-color="light-dark(#71717b26, #81818126)"
+            box margin-left=64 height=16 border-radius=4 background-color="light-dark(#71717b26, #81818126)"
+      column gap=8
+        text "Totals" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+        box width="100%" display="grid" grid-template-columns=(md ? "repeat(5, minmax(0, 1fr))" : "repeat(2, minmax(0, 1fr))") column-gap=24 row-gap=16 padding-top=4 padding-bottom=4
+          UsageSkeletonMetric(label="Processed tokens")
+          UsageSkeletonMetric(label="Cached input")
+          UsageSkeletonMetric(label="Uncached input")
+          UsageSkeletonMetric(label="Output")
+          UsageSkeletonMetric(label="Cache savings")
+      box width="100%" display="grid" grid-template-columns=(lg ? "repeat(2, minmax(0, 1fr))" : "minmax(0, 1fr)") column-gap=48 row-gap=32
+        column gap=10
+          box width=112 height=20 border-radius=4 background-color="light-dark(#71717b26, #81818126)"
+          box height=8 border-radius=4 background-color="light-dark(#71717b26, #81818126)"
+          box width=288 max-width="100%" height=16 border-radius=4 background-color="light-dark(#71717b26, #81818126)"
+      column gap=12
+        row align-items="center" justify-content="space-between" gap=12
+          text "Breakdown" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          box width=112 height=28 border-radius=10 background-color="light-dark(#71717b26, #81818126)"
+        box width="100%" height=176 border-radius=4 background-color="light-dark(#71717b26, #81818126)"
+
+component UsageSkeletonProvider
+  view
+    column gap=4
+      row min-height=20 align-items="center" justify-content="space-between" gap=16
+        row align-items="center" gap=8
+          box width=8 height=8 border-radius=9999 flex-shrink=0 background-color="light-dark(#71717b26, #81818126)"
+          box width=16 height=16 border-radius=9999 flex-shrink=0 background-color="light-dark(#71717b26, #81818126)"
+          box width=80 height=14 border-radius=4 background-color="light-dark(#71717b26, #81818126)"
+        box width=56 height=14 border-radius=4 background-color="light-dark(#71717b26, #81818126)"
+      box width=144 height=16 border-radius=4 background-color="light-dark(#71717b26, #81818126)"
+
+component UsageSkeletonMetric
+  props
+    label: string
+  view
+    column gap=2
+      text label font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+      box width=64 height=24 border-radius=4 background-color="light-dark(#71717b26, #81818126)"

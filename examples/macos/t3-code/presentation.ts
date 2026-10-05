@@ -1,6 +1,22 @@
-import { arr, obj, str, num, messages, visibleTurnItems, type Message, type Obj } from './domain';
+import { snapshotDraftTiles } from './snapshot-settings';
+import { arr, obj, str, num, type Message, type Obj } from './domain';
 import { activeRun, providerAvailable } from './protocol';
 import type { T3Client } from './client';
+import { timelineMessages, timelineSnapshot, transcriptRows } from './timeline-presentation';
+import { sidebarSnapshot } from './sidebar-view';
+import { subagentLead } from './sidebar-lineage';
+import { requestPresentation } from './requests';
+import { threadErrorView } from './timeline-errors';
+import { diffSnapshot } from './diff';
+import { composerSnapshot } from './composer-presentation';
+import { triggerModelName } from './r3-composer-controls-model';
+import { pickerCatalog } from './model-catalog';
+import { look } from './settings-appearance-look';
+import { composerOverlaySnapshot } from './r4-composer-overlay';
+import { composerVideoSnapshot } from './r4-composer-attachments';
+import { alertClip } from './r6-polish-measure'; // r6-polish
+import { tableMenuSnapshot } from './r8-keys-table-menu'; // lane r8-keys
+import { sidebarMinimumWidth } from './r12-sidebar-width'; // lane r12-sidebar
 
 const modes: Record<string, string> = {
   'approval-required': 'Ask for approval', 'auto-accept-edits': 'Auto-accept edits',
@@ -14,125 +30,71 @@ function section(thread: Obj): string {
   return 'active';
 }
 
-function projectMark(name: string): string {
-  const words = name.trim().split(/[\s_-]+/);
-  return ((words[0]?.[0] || '') + (name.match(/\d$/)?.[0] || words[1]?.[0] || '')).toUpperCase();
-}
-function age(value: unknown, now: number): string {
-  const elapsed = now - Date.parse(str(value));
-  if (!Number.isFinite(elapsed)) return '';
-  const minutes = Math.max(1, Math.floor(elapsed / 60_000));
-  return minutes < 60 ? `${minutes}m` : minutes < 1440 ? `${Math.floor(minutes / 60)}h` : `${Math.floor(minutes / 1440)}d`;
-}
-
-/** T3's compact work disclosure: retain every detail without boxing each event. */
-export function transcriptPresentation(client: T3Client): Message[] {
-  const source = messages(client.thread), rows = visibleTurnItems(client.thread);
-  const result: Message[] = [];
-  let group: Message | undefined, groupRun = '';
-  for (let index = 0; index < source.length; index++) {
-    const item = source[index]!;
-    if (item.kind !== 'tool' && item.kind !== 'reasoning') {
-      result.push(item); group = undefined; continue;
-    }
-    const runId = str(obj(rows[index]?.item).runId);
-    if (!group || groupRun !== runId) {
-      const run = arr(client.projection.runs).find(run => run.id === runId);
-      const seconds = Math.round((Date.parse(str(run?.completedAt)) - Date.parse(str(run?.startedAt))) / 1000);
-      const duration = Number.isFinite(seconds) && seconds >= 0
-        ? seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s` : '';
-      const working = run && ['preparing', 'starting', 'running', 'waiting'].includes(str(run.status));
-      group = { id: `work-${item.id}`, kind: 'work', title: working ? 'Working…' : duration ? `Worked for ${duration}` : 'Activity', body: '' };
-      groupRun = runId; result.push(group);
-    }
-    group.body += `${group.body ? '\n\n' : ''}${item.title}${item.body ? `\n${item.body}` : ''}`;
+// Live built reference identity (Tailwind v4 600/400 tints); its palette adds indigo to the older source.
+const projectPalette = [
+  ['#4a5565', '#99a1af'], ['#e7000b', '#ff6467'], ['#f54900', '#ff8904'],
+  ['#e17100', '#ffb900'], ['#d08700', '#fdc700'], ['#5ea500', '#9ae600'],
+  ['#00a63e', '#05df72'], ['#009966', '#00d492'], ['#009689', '#00d5be'],
+  ['#0092b8', '#00d3f2'], ['#0084d1', '#00bcff'], ['#155dfc', '#51a2ff'],
+  ['#4f39f6', '#7c86ff'], ['#7f22fe', '#a684ff'], ['#9810fa', '#c27aff'],
+  ['#c800de', '#ed6aff'], ['#e60076', '#fb64b6'], ['#ec003f', '#ff637e'],
+];
+export function projectIdentity(name: string) {
+  const normalized = name.normalize('NFKC').trim();
+  const words = normalized.match(/[\p{L}\p{N}]+/gu) ?? [];
+  const glyphs = Array.from(words[0] ?? 'PR');
+  const first = glyphs[0] ?? 'P';
+  const second = glyphs.slice(1).find(glyph => /\p{N}/u.test(glyph))
+    ?? (words.length > 1 ? Array.from(words[words.length - 1] ?? '')[0] : glyphs[glyphs.length - 1]) ?? first;
+  const mark = words.length ? Array.from(`${first}${second}`.toUpperCase()).slice(0, 2).join('') : 'PR';
+  let index = 0;
+  for (const glyph of normalized.toLocaleLowerCase('en-US') || 'project') {
+    index = (index * 31 + (glyph.codePointAt(0) ?? 0)) % projectPalette.length;
   }
-  return result;
+  const [light, dark] = projectPalette[index]!;
+  return { projectMark: mark, projectInk: `light-dark(${light}, ${dark})`,
+    projectSurface: `light-dark(${light}24, ${dark}24)` };
 }
-function threadStatus(thread: Obj): string {
-  if (thread.pendingRuntimeRequest) return 'Needs input';
-  if (thread.status === 'failed') return 'Error';
-  if (thread.status === 'queued') return 'Queued';
-  if (['preparing', 'starting', 'running'].includes(str(thread.status))) return 'Working';
-  if (thread.status === 'waiting') return 'Finishing';
-  if (arr(thread.pendingBackgroundTasks).length) return 'Waiting';
-  return '';
-}
-
-export function diffPresentation(diff: string) {
-  const files: { id: string; name: string; additions: number; deletions: number }[] = [];
-  let file: typeof files[number] | undefined;
-  const lines = diff ? diff.split('\n').map((text, index) => {
-    const kind = text.startsWith('diff --git ') || text.startsWith('--- ') || text.startsWith('+++ ')
-      ? 'file' : text.startsWith('@@') ? 'hunk' : text.startsWith('+') ? 'addition'
-        : text.startsWith('-') ? 'deletion' : 'context';
-    if (text.startsWith('diff --git ')) {
-      const name = text.match(/ b\/(.*)$/)?.[1] || text.slice(11);
-      file = { id: String(index), name, additions: 0, deletions: 0 };
-      files.push(file);
-    } else if (text.startsWith('+++ b/') && file) file.name = text.slice(6);
-    if (file && kind === 'addition') file.additions++;
-    if (file && kind === 'deletion') file.deletions++;
-    return { id: String(index), kind, text: text || ' ' };
-  }) : [];
-  return { diffLines: lines, diffFiles: files };
+// Provider account marks follow the source instance-display helper, including
+// disabled sibling instances: their configured identities still disambiguate.
+export function providerBadge(provider: Obj | undefined, providers: Obj[]) {
+  const accent = str(provider?.accentColor).trim();
+  const color = /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : '';
+  const driver = str(provider?.driver);
+  const siblings = providers.filter(candidate=>candidate.driver === driver
+    && (driver !== 'acpRegistry' || candidate.acpRegistryAgentId === provider?.acpRegistryAgentId));
+  if (!provider || !color && siblings.length <= 1) return {providerBadge:'',providerBadgeColor:''};
+  const words = str(provider.displayName, str(provider.instanceId)).replace(/[_-]+/g,' ').split(/\s+/u).filter(Boolean);
+  const initials = words.length === 1 ? Array.from(words[0]!).slice(0,2).join('')
+    : words.slice(0,2).map(word=>Array.from(word)[0] ?? '').join('');
+  return {providerBadge:initials.toUpperCase(),providerBadgeColor:color};
 }
 
-function responseReason(client: T3Client, responseType: string, approval: boolean): string {
-  if (responseType === 'not_resumable') return 'The provider process is gone. Continue the thread in T3 Code.';
-  if (approval && responseType !== 'live') return 'This approval is no longer live. Continue the thread in T3 Code.';
-  if (client.connection !== 'connected') return 'Reconnect to respond to this request.';
-  if (!client.ready) return 'Wait for synchronization to finish before responding.';
-  if (!client.scopes.includes('orchestration:operate')) return 'This connection does not have permission to respond.';
-  if (!client.writable) return 'This server does not support responses from this client.';
-  if (client.pending || client.busy) return 'Wait for the current submission to finish before responding.';
-  return '';
+/** ServerProvider advisory semantics from T3's ProviderStatusBanner. */
+export function providerBanner(provider: Obj | undefined) {
+  const empty = { providerBannerKey: '', providerBannerTitle: '', providerBannerMessage: '', providerBannerWarning: false };
+  if (!provider || provider.status === 'disabled') return empty;
+  const auth = str(obj(provider.auth).status), advisory = obj(provider.compatibilityAdvisory);
+  const unauthenticated = provider.status === 'error' && auth === 'unauthenticated';
+  const incompatible = !unauthenticated && (advisory.status === 'broken'
+    || provider.status === 'ready' && advisory.status === 'unsupported');
+  if (!incompatible && (provider.status === 'ready'
+    || provider.driver === 'antigravity' && provider.installed && provider.status === 'warning' && auth === 'unknown')) return empty;
+  const name = str(provider.displayName, str(provider.driver, 'Provider'));
+  const status = incompatible ? str(advisory.status) : str(provider.status);
+  const message = incompatible ? str(advisory.message) : str(provider.message,
+    unauthenticated ? 'Sign in via the CLI to authenticate again.' : `${name} provider is unavailable.`);
+  return {
+    providerBannerKey: [str(provider.instanceId), status, incompatible ? str(provider.version) : auth, message].join('\u0000'),
+    providerBannerTitle: unauthenticated ? `${name} is unauthenticated` : incompatible
+      ? `${name} ${str(provider.version)} is ${advisory.status === 'broken' ? 'known to be broken' : 'unsupported'}` : `${name} provider status`,
+    providerBannerMessage: message,
+    providerBannerWarning: advisory.status !== 'broken' && (provider.status === 'warning' || incompatible),
+  };
 }
 
-function requests(client: T3Client) {
-  const approvals: { id: string; label: string; detail: string; canRespond: boolean; responseReason: string; options: { id: string; label: string }[] }[] = [];
-  const questions: { id: string; requestId: string; header: string; question: string; multiSelect: boolean; canRespond: boolean;
-    responseReason: string; answer: string; last: boolean; customAllowed: boolean; options: { id: string; label: string; description: string; selected: boolean }[] }[] = [];
-  const items = arr(client.projection.turnItems);
-  for (const request of arr(client.projection.runtimeRequests)) {
-    if (request.status !== 'pending') continue;
-    const requestId = str(request.id);
-    const item = items.slice().reverse().find(item => item.requestId === request.id);
-    if (!item) continue;
-    const responseType = str(obj(request.responseCapability).type);
-    const reason = responseReason(client, responseType, item.type === 'approval_request');
-    const canRespond = !reason;
-    if (item.type === 'approval_request') {
-      const offered = arr(item.options);
-      const options = offered.length ? offered.map(option => ({
-        id: str(option.decision), label: str(option.label) + (option.warning ? ` — ${str(option.warning)}` : ''),
-      })) : [
-        { id: 'accept', label: 'Allow once' }, { id: 'acceptForSession', label: 'Allow for session' },
-        { id: 'decline', label: 'Decline' }, { id: 'cancel', label: 'Cancel' },
-      ];
-      approvals.push({ id: requestId, label: str(item.appName) ? `${str(item.appName)} requests approval` : 'Approval required',
-        detail: str(item.prompt, str(item.title, 'The provider is waiting for permission.')),
-        canRespond, responseReason: reason, options });
-    } else if (item.type === 'user_input_request') {
-      const entries = arr(item.questions);
-      entries.forEach((question, index) => {
-        const id = `${requestId}::${str(question.id)}`, answer = client.answers[id];
-        questions.push({ id, requestId, header: str(question.header), question: str(question.question),
-          multiSelect: question.multiSelect === true, canRespond, responseReason: reason, last: index === entries.length - 1,
-          customAllowed: question.allowCustomAnswer !== false,
-          answer: typeof answer === 'string' ? answer : '',
-          options: arr(question.options).map(option => {
-            const value = typeof option.value === 'string' ? option.value : str(option.label);
-            return { id: value, label: str(option.label), description: str(option.description),
-              selected: Array.isArray(answer) ? answer.includes(value) : answer === value };
-          }),
-        });
-      });
-    }
-  }
-  return { approvals, questions };
-}
-
+/** T3's timeline rows (timeline-presentation.ts transcriptRows). */
+export function transcriptPresentation(client: T3Client): Message[] { return [...subagentLead(client), ...transcriptRows(client)]; }
 export function snapshot(client: T3Client, now = 0) {
   const project = client.shell.projects.find(project => project.id === client.projectId);
   const providers = arr(client.config.providers);
@@ -145,7 +107,6 @@ export function snapshot(client: T3Client, now = 0) {
   const modelReady = !!provider && providerAvailable(provider) && !!currentModel;
   const run = activeRun(client.projection);
   const pending = client.pending;
-  const query = client.query.toLowerCase().trim();
   const transcript = transcriptPresentation(client);
   for (const request of arr(client.projection.runtimeRequests)) {
     if (request.status === 'pending' && ['auth_refresh', 'dynamic_tool_call'].includes(str(request.kind))) {
@@ -158,40 +119,47 @@ export function snapshot(client: T3Client, now = 0) {
       : client.connection === 'reconnecting' ? 'Reconnecting…' : client.connection === 'connecting' ? 'Connecting…'
         : client.statusMessage || 'Disconnected';
   return {
-    revision: client.revision, available: client.available, connected: client.connection === 'connected',
+    revision: client.revision, alertClip: alertClip(client.presentation), ...providerBanner(provider), available: client.available, connected: client.connection === 'connected',
     connecting: ['connecting', 'reconnecting'].includes(client.connection), syncComplete: client.ready,
-    status: connectionMessage, error: client.error, serverUrl: client.origin,
+    status: connectionMessage, serverUrl: client.origin,
     uncertain: pending?.uncertain === true,
     uncertainMessage: pending?.uncertain ? `${pending.description} may already have reached T3. Reconnect and check the thread before retrying.` : '',
-    sidebarWidth: client.local.sidebarWidth, sidebarOpen: client.local.sidebarOpen, query: client.query,
+    sidebarWidth: client.local.sidebarWidth, sidebarMinWidth: sidebarMinimumWidth(client.local.clientSettings?.fontSizeInterface), sidebarOpen: client.local.sidebarOpen, query: client.query,
     projectId: client.projectId, projectName: str(project?.title, 'Choose a project'), threadId: client.threadId,
-    threadTitle: str(obj(client.projection.thread).title, 'New thread'), draft: client.draft,
-    settled: section(obj(client.projection.thread)) === 'settled', projectMark: projectMark(str(project?.title)),
+    threadTitle: str(obj(client.projection.thread).title, 'New thread'),
+    // The header title keyed by its text: a reused one-line text keeps drawing the previous title clipped to the new width.
+    threadHeading: [str(obj(client.projection.thread).title, 'New thread')].map(title => ({ id: title, label: title })), draft: client.draft, snapshotDrafts: snapshotDraftTiles(client), snapshotOwner: client.snapshotOwner,
+    settled: section(obj(client.projection.thread)) === 'settled', ...projectIdentity(str(project?.title)),
     running: !!run, canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId,
     canStop: client.writable && !pending && !client.busy && !!run,
-    providerId: client.providerId, modelId: client.modelId, modelLabel: str(currentModel?.name, client.modelId || 'Choose model'),
-    providerDriver: str(provider?.driver), optionId: str(option?.id),
+    providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? triggerModelName(currentModel) : client.modelId || 'Choose model',
+    composerCollapseOnScroll: client.local.deviceSettings.composerCollapseOnScroll,
+    planModeEnabled: client.local.deviceSettings.planModeEnabled,
+    composerResting: client.presentation.owner === `${client.origin}:${client.projectId}:${client.threadId}` && client.presentation.resting === true,
+    transcriptAway: client.presentation.owner === `${client.origin}:${client.projectId}:${client.threadId}` && client.presentation.atEnd === false,
+    ...composerOverlaySnapshot(client, transcript), // the composer over the transcript (r4-composer-overlay.ts)
+    ...composerVideoSnapshot(client), // the shelf's videos and their preview (r4-composer-attachments.ts)
+    providerDriver: str(provider?.driver), ...providerBadge(provider,providers), optionId: str(option?.id),
     optionLabel: str(arr(option?.options).find(choice => choice.id === selectedOption)?.label, 'Default'),
-    modelOptions: arr(option?.options).map(choice => ({ id: str(choice.id), value: str(choice.id), label: str(choice.label), selected: choice.id === selectedOption })),
+    modelOptions: arr(option?.options).map(choice => ({ id: str(choice.id), value: str(choice.id), label: str(choice.label), selected: choice.id === selectedOption, default: choice.isDefault === true })),
     runtimeMode: client.runtimeMode, modeLabel: modes[client.runtimeMode] || client.runtimeMode, interactionMode: client.interactionMode,
     hasMore: client.thread?.hasMore === true, historyLoading: client.historyLoading,
     diffOpen: client.diffOpen, diffLoading: client.diffLoading, diffError: client.diffError,
-    diffText: client.diffText, diffTitle: client.diffTitle, ...diffPresentation(client.diffText),
+    ...diffSnapshot(client, now),
     projects: client.shell.projects.map(project => ({ id: str(project.id), name: str(project.title), path: str(project.workspaceRoot), selected: project.id === client.projectId })),
-    threads: client.shell.threads.filter(thread => (!client.projectId || thread.projectId === client.projectId)
-      && (!query || `${str(thread.title)} ${str(obj(thread.latestVisibleMessage).text)}`.toLowerCase().includes(query)))
-      .slice().sort((a, b) => str(b.updatedAt).localeCompare(str(a.updatedAt)))
-      .map(thread => {
-        const projectName = str(client.shell.projects.find(project => project.id === thread.projectId)?.title);
-        const prs = arr(thread.pullRequests);
-        return { id: str(thread.id), title: str(thread.title, 'Untitled thread'), projectName, projectMark: projectMark(projectName),
-          age: age(thread.updatedAt, now), badge: prs.length > 1 ? String(prs.length) : prs.length === 1 ? String(num(prs[0]?.number)) : '', stacked: prs.length > 1,
-          section: section(thread), status: threadStatus(thread), selected: thread.id === client.threadId };
-      }),
-    messages: transcript,
+    ...sidebarSnapshot(client, now, { projectIdentity, providerBadge }),
+    messages: timelineMessages(client, transcript, now), ...timelineSnapshot(client),
     providers: providers.map(provider => ({ id: str(provider.instanceId), name: str(provider.displayName, str(provider.driver)), available: providerAvailable(provider) })),
     models: providers.flatMap(provider => arr(provider.models).map(model => ({ id: str(model.slug), name: str(model.name, str(model.slug)),
       providerId: str(provider.instanceId), selected: provider.instanceId === client.providerId && model.slug === client.modelId }))),
-    ...requests(client),
+    ...threadErrorView(client, requestPresentation(client)),
+    composer: composerSnapshot(client, now),
+    look: look(client),
+    ...tableMenuSnapshot(client), // lane r8-keys: a table's Copy popup over every layer
   };
+}
+
+/** T3's picker catalog (model-catalog.ts); browsing and searching never change the selected model. */
+export function modelCatalog(client: T3Client, providerId: string, query: string) {
+  return pickerCatalog(client, providerId, query, providerBadge);
 }

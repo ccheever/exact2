@@ -1,0 +1,823 @@
+// App-local chat typography over the existing portable Markdown parser.
+use FileTypeIcon from "./timeline-files.contract"
+use TimelineIcon from "./timeline-icons.contract"
+use Tip from "./shell-tip.contract"
+use AttachmentUrl from "./timeline-attachments.contract"
+use CodeTip from "./r4-timeline-tips.contract"
+shape ChatRun
+  id: string
+  text: string
+  weight: number
+  slant: string
+  mono: bool
+  href: string
+  kind: string
+  icon: string
+shape ChatCell
+  id: string
+  runs: list<ChatRun>
+// A table row (r4_timeline_tables.rs): its cells, one per column.
+shape ChatTableRow
+  id: string
+  header: bool
+  cells: list<ChatCell>
+// A table column: the cell that sizes it (drawn invisibly in every row, so the
+// host's own metrics set the width), whether it reached the 24rem cap, and its
+// share of any spare room (its estimated width).
+shape ChatColumn
+  id: string
+  sizer: list<ChatRun>
+  capped: bool
+  header: bool
+  grow: number
+  // GFM alignment from the table's rule row: "left", "right" or "center" (r4_integrate_align.rs).
+  align: string
+shape ChatBlock
+  id: string
+  kind: string
+  depth: number
+  marker: string
+  text: string
+  href: string
+  header: bool
+  runs: list<ChatRun>
+  cells: list<ChatCell>
+  gap: number
+  flow: bool
+  rows: list<ChatTableRow>
+  columns: list<ChatColumn>
+  markdown: string
+  csv: string
+shape ChatDocument
+  id: string
+  blocks: list<ChatBlock>
+
+// A fenced block's highlight (timeline-highlight.ts), matched to the parsed
+// block by its exact text.
+shape CodeToken
+  id: string
+  text: string
+  cls: string
+// A Mermaid diagram flattened by the app module (timeline-mermaid.ts): paths
+// and text runs in the diagram's own user space, painted per theme.
+shape MermaidItem
+  id: string
+  kind: string
+  d: string
+  transform: string
+  fill: string
+  fillDark: string
+  stroke: string
+  strokeDark: string
+  width: number
+  dash: string
+  cap: string
+  join: string
+  text: string
+  x: number
+  y: number
+  size: number
+  weight: number
+  slant: string
+  baseline: string
+shape CodeHighlight
+  id: string
+  code: string
+  icon: string
+  tokens: list<CodeToken>
+// A settled ```mermaid fence, matched to its parsed block by text: `diagram`
+// is "loading", "rendered" or "error" (Mermaid's message, whether Retry may help).
+shape MermaidDiagram
+  id: string
+  code: string
+  diagram: string
+  message: string
+  retryable: bool
+  width: number
+  height: number
+  viewBox: string
+  items: list<MermaidItem>
+
+// MorphIcon on a code block's copy button: the check holds 1.2s after a copy,
+// then the copy glyph returns; two names let a second copy restart it.
+keyframes mdCheckA
+  from opacity=1
+  99% opacity=1
+  to opacity=0
+keyframes mdCheckB
+  from opacity=1
+  99% opacity=1
+  to opacity=0
+keyframes mdCopyA
+  from opacity=0
+  99% opacity=0
+  to opacity=1
+keyframes mdCopyB
+  from opacity=0
+  99% opacity=0
+  to opacity=1
+
+// pierre-light / pierre-dark, the reference's Shiki themes, by token class.
+fn synColor(cls: string): string = cls == "kw" ? "light-dark(#d32a61, #ff678d)" : cls == "decl" or cls == "type" ? "light-dark(#a631be, #d568ea)" : cls == "fn" ? "light-dark(#693acf, #9d6afb)" : cls == "var" ? "light-dark(#d47628, #ffa359)" : cls == "const" ? "light-dark(#d5901c, #ffab16)" : cls == "param" ? "light-dark(#636363, #a3a3a3)" : cls == "pyparam" or cls == "flag" or cls == "interp" or cls == "bold" ? "light-dark(#d5a910, #ffd452)" : cls == "str" ? "light-dark(#199f43, #5ecc71)" : cls == "esc" ? "light-dark(#16a994, #61d5c0)" : cls == "num" ? "light-dark(#1ca1c7, #68cdf2)" : cls == "nul" or cls == "op" or cls == "builtin" ? "#08c0ef" : cls == "punct" ? "#636363" : cls == "com" ? "#737373" : cls == "key" or cls == "tag" or cls == "heading" ? "light-dark(#d5512f, #ff855e)" : cls == "attr" ? "light-dark(#18a46c, #60d199)" : cls == "regex" ? "light-dark(#17a5af, #64d1db)" : cls == "deco" ? "light-dark(#1a85d4, #69b1ff)" : "light-dark(#0a0a0a, #fafafa)"
+
+shape TranscriptMarkdown
+  documents: list<ChatDocument>
+
+// A chip's presentation (r4-timeline-chips.ts), matched to its run by href:
+// kind "link" (a file link's full path), "mention", "file", "video", "image",
+// "skill", "thread", "unresolved", or a popover kind ("terminal", "element",
+// "review") whose `detail` the popover shows under `tip`.
+shape ChipView
+  id: string
+  href: string
+  kind: string
+  label: string
+  size: string
+  tip: string
+  detail: string
+  icon: string
+  target: string
+  owner: string
+// Settings → Appearance for chat Markdown (fontFamilyCode, fontSizeCode,
+// wordWrap) and the message's chips.
+shape MarkdownEnv
+  codeFont: string
+  codeSize: number
+  wrap: bool
+  chips: list<ChipView>
+fn noUrls(): list<AttachmentUrl> = []
+fn noChips(): list<ChipView> = []
+
+component ChatMarkdown
+  props
+    document: ChatDocument
+    local: action
+    code: list<CodeHighlight>
+    env: MarkdownEnv
+  view
+    EnvBlocks(document=document, local=local, code=code, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, env=env)
+
+// An answer or plan in the transcript: its settled Mermaid fences draw as
+// diagrams, painted for the colour scheme.
+component AnswerMarkdown
+  props
+    document: ChatDocument
+    local: action
+    code: list<CodeHighlight>
+    diagrams: list<MermaidDiagram>
+    scheme: string
+    copiedText: string
+    copiedNonce: number
+    env: MarkdownEnv
+  view
+    DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=noUrls())
+
+// UserMessageBody: the same Markdown in the message's own ink, single
+// newlines kept as line breaks and context references drawn as chips.
+component UserMarkdown
+  props
+    document: ChatDocument
+    local: action
+    code: list<CodeHighlight>
+    diagrams: list<MermaidDiagram>
+    ink: string
+    scheme: string
+    copiedText: string
+    copiedNonce: number
+    env: MarkdownEnv
+    urls: list<AttachmentUrl>
+  view
+    DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose=ink, fit=true, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls)
+
+// Markdown blocks at the stock settings (13pt code, wrapped), for a document
+// with no MarkdownEnv of its own.
+component MarkdownBlocks
+  props
+    document: ChatDocument
+    local: action
+    code: list<CodeHighlight>
+    prose: string
+    fit: bool
+  view
+    // A sent message's bubble fits its text (fit); an answer fills the lane.
+    column width=(fit ? "auto" : "100%") max-width="100%" gap=0
+      each block in document.blocks key=block.id
+        column width=(fit ? "auto" : "100%") max-width="100%" margin-top=block.gap
+          when block.kind == "code"
+            CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont="ui-monospace", codeSize=13, wrapDefault=true)
+          else
+            BlockBody(block=block, prose=prose, fit=fit, chips=noChips(), wrapDefault=true, urls=noUrls(), local=local, copiedText="", copiedNonce=0)
+
+// The same blocks under Settings → Appearance (MarkdownEnv).
+component EnvBlocks
+  props
+    document: ChatDocument
+    local: action
+    code: list<CodeHighlight>
+    prose: string
+    fit: bool
+    env: MarkdownEnv
+  view
+    column width=(fit ? "auto" : "100%") max-width="100%" gap=0
+      each block in document.blocks key=block.id
+        column width=(fit ? "auto" : "100%") max-width="100%" margin-top=block.gap
+          when block.kind == "code"
+            CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap)
+          else
+            BlockBody(block=block, prose=prose, fit=fit, chips=env.chips, wrapDefault=env.wrap, urls=noUrls(), local=local, copiedText="", copiedNonce=0)
+
+// The transcript's blocks: a settled ```mermaid fence draws its diagram.
+component DiagramBlocks
+  props
+    document: ChatDocument
+    local: action
+    code: list<CodeHighlight>
+    diagrams: list<MermaidDiagram>
+    prose: string
+    fit: bool
+    scheme: string
+    copiedText: string
+    copiedNonce: number
+    env: MarkdownEnv
+    urls: list<AttachmentUrl>
+  view
+    column width=(fit ? "auto" : "100%") max-width="100%" gap=0
+      each block in document.blocks key=block.id
+        column width=(fit ? "auto" : "100%") max-width="100%" margin-top=block.gap
+          when block.kind == "code"
+            when block.href == "mermaid" and length(filter(diagrams, (entry) => entry.code == block.text)) > 0
+              each entry in filter(diagrams, (entry) => entry.code == block.text) key=entry.id
+                MermaidBlock(block=block, local=local, diagram=entry, scheme=scheme, copied=(copiedText == block.text ? copiedNonce : 0), codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap)
+            else
+              CodeBlock(block=block, local=local, code=code, copiedText=copiedText, copiedNonce=copiedNonce, codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap)
+          else
+            BlockBody(block=block, prose=prose, fit=fit, chips=env.chips, wrapDefault=env.wrap, urls=urls, local=local, copiedText=copiedText, copiedNonce=copiedNonce)
+
+// Every block but a code fence: headings, list items, rules, tables, images, quotes and prose.
+component BlockBody
+  props
+    block: ChatBlock
+    prose: string
+    fit: bool
+    chips: list<ChipView>
+    wrapDefault: bool
+    urls: list<AttachmentUrl>
+    local: action
+    copiedText: string
+    copiedNonce: number
+  view
+    when block.kind == "heading"
+      text role="heading" aria-level=block.depth width="100%" font-size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14) line-height=1.3 color=(block.depth == 6 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
+        ChatRuns(runs=block.runs, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600)
+    else
+      when block.kind == "item"
+        row width="100%" padding-left=(block.depth * 20) box-sizing="border-box"
+          when block.marker == "•"
+            box width=20 height=22.75 flex-shrink=0 position="relative"
+              box position="absolute" left=4 top=9.5 width=5 height=5 box-sizing="border-box" border-radius=(block.depth >= 2 ? 0 : 2.5) border-width=(block.depth == 1 ? 1 : 0) border-style="solid" border-color="light-dark(#27272acc, #f5f5f5cc)" background-color=(block.depth == 1 ? "#00000000" : "light-dark(#27272acc, #f5f5f5cc)")
+          else
+            text block.marker width=20 flex-shrink=0 padding-right=4 box-sizing="border-box" text-align="right" white-space="nowrap" font-size=14 line-height="22.75px" color="light-dark(#27272acc, #f5f5f5cc)"
+          when block.flow
+            FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local)
+          else
+            text flex=1 min-width=0 font-size=14 line-height="22.75px" color=prose
+              ChatRuns(runs=block.runs, size=14, weight=400)
+      else
+        when block.kind == "rule"
+          box width="100%" height=1 margin-top=8 margin-bottom=8 background-color="light-dark(#e4e4e7, #ffffff0f)"
+        else
+          when block.kind == "table-row"
+            row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
+              each cell in block.cells key=cell.id
+                text flex=1 min-width=0 padding-left=12 padding-right=12 padding-top=(block.header ? 8.8 : 7.2) padding-bottom=(block.header ? 8.8 : 7.2) font-size=12 line-height=1.625 color=prose
+                  ChatRuns(runs=cell.runs, size=12, weight=(block.header ? 600 : 400))
+          else
+            when block.kind == "table"
+              MarkdownTable(block=block, prose=prose, fit=fit, wrapDefault=wrapDefault, local=local, copied=(copiedText == block.markdown or copiedText == block.csv ? copiedNonce : 0))
+            else
+              when block.kind == "image"
+                image block.href aria-label=block.text max-width="100%" object-fit="contain"
+              else
+                when block.kind == "quote"
+                  text width="100%" font-size=14 padding-left=12.8 box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" line-height="22.75px" color="light-dark(#71717b, #818181)"
+                    ChatRuns(runs=block.runs, size=14, weight=400)
+                else
+                  when block.flow
+                    FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local)
+                  else
+                    text width=(fit ? "auto" : "100%") max-width="100%" font-size=14 line-height="22.75px" color=prose
+                      ChatRuns(runs=block.runs, size=14, weight=400)
+
+// Inline runs in one text node; only a web link keeps its href (a chip's
+// href is how its ChipView finds it, not a destination).
+component ChatRuns
+  props
+    runs: list<ChatRun>
+    size: number
+    weight: number
+  view
+    each run in runs key=run.id
+      when run.mono
+        text run.text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") font-family="ui-monospace" font-size=12 font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left=5.6 padding-right=5.6 padding-top=1.6 padding-bottom=1.6 border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+      else
+        when run.kind == "link" or run.kind == "link-start"
+          text run.text href=run.href font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
+        else
+          text run.text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant
+
+// Prose with inline code, word by word on 22.75pt lines so every code span is a
+// bordered box whose text shares the line's baseline (`.chat-markdown code`).
+component FlowRuns
+  props
+    runs: list<ChatRun>
+    color: string
+    fit: bool
+    chips: list<ChipView>
+    urls: list<AttachmentUrl>
+    local: action
+  view
+    row flex-grow=(fit ? 0 : 1) min-width=0 width=(fit ? "auto" : "100%") max-width="100%" flex-wrap="wrap" align-items="flex-start"
+      each run in runs key=run.id
+        when run.mono
+          box height=22.75 padding-top=2.45 box-sizing="border-box" flex-shrink=0
+            text run.text font-family="ui-monospace" font-size=12 line-height="14px" white-space="pre" font-weight=run.weight font-style=run.slant padding-left=5.6 padding-right=5.6 padding-top=1.6 padding-bottom=1.6 border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+        else
+          when run.kind == "file" or chipAccent(run.kind) != ""
+            when length(filter(chips, (chip) => chip.href == run.href and run.href != "")) > 0
+              each chip in filter(chips, (chip) => chip.href == run.href) key=chip.id
+                ResolvedChip(run=run, chip=chip, urls=urls, local=local)
+            else
+              when run.kind == "file"
+                FileChip(run=run)
+              else
+                ContextChipBox(run=run)
+          else
+            when run.kind == "break"
+              box width="100%" height=0 flex-shrink=0
+            else
+              when run.kind == "link-start"
+                row flex-shrink=0 align-items="flex-start"
+                  box width=14 height=22.75 margin-left=3.5 margin-right=2.8 padding-top=4.5 box-sizing="border-box" flex-shrink=0
+                    TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
+                  text run.text href=run.href white-space="pre" flex-shrink=0 font-size=14 line-height="22.75px" font-weight=run.weight font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+              else
+                text run.text href=(run.kind == "link" ? run.href : "") white-space="pre" flex-shrink=0 font-size=14 line-height="22.75px" font-weight=run.weight font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+
+// ContextChip's per-kind accent (oklch(0.62 C H)): a fill of the accent at
+// 11%, a border mixing it 34% into the border colour and text mixing it 22%
+// into the foreground; "" for runs that are not context chips.
+fn chipAccent(kind: string): string = kind == "context-file" ? "#0090cd" : kind == "context-video" ? "#d06217" : kind == "context-thread" ? "#009c96" : kind == "context-review-comment" ? "#8a70dd" : kind == "context-terminal" ? "#009f6e" : kind == "context-element" ? "#b87501" : kind == "context-image" ? "#d55665" : kind == "context-skill" ? "#b261be" : kind == "context-citation" ? "#4684e5" : kind == "context-other" ? "#71717b" : ""
+fn chipBorder(kind: string): string = kind == "context-file" ? "light-dark(#a8c8e0, #0090cd61)" : kind == "context-video" ? "light-dark(#e2b9a7, #d0621761)" : kind == "context-thread" ? "light-dark(#a6cccb, #009c9661)" : kind == "context-review-comment" ? "light-dark(#c3bde6, #8a70dd61)" : kind == "context-terminal" ? "light-dark(#a9cdbd, #009f6e61)" : kind == "context-element" ? "light-dark(#d7bfa6, #b8750161)" : kind == "context-image" ? "light-dark(#e4b6b9, #d5566561)" : kind == "context-skill" ? "light-dark(#d4b8da, #b261be61)" : kind == "context-citation" ? "light-dark(#aec5e9, #4684e561)" : "light-dark(#e4e4e7b3, #ffffff14)"
+fn chipInk(kind: string): string = kind == "context-file" ? "light-dark(#2b3d4a, #cadfed)" : kind == "context-video" ? "light-dark(#4a352d, #f0d5c8)" : kind == "context-thread" ? "light-dark(#2a3f40, #c9e2df)" : kind == "context-review-comment" ? "light-dark(#3b374e, #dcd8f2)" : kind == "context-terminal" ? "light-dark(#2c3f38, #cbe2d6)" : kind == "context-element" ? "light-dark(#44382c, #e9d9c7)" : kind == "context-image" ? "light-dark(#4b3337, #f2d3d4)" : kind == "context-skill" ? "light-dark(#433448, #e7d5ea)" : kind == "context-citation" ? "light-dark(#2f3b4f, #ceddf4)" : "light-dark(#27272a, #f5f5f5)"
+fn chipIcon(kind: string): string = kind == "context-thread" ? "messages-square" : kind == "context-review-comment" ? "message-circle" : kind == "context-terminal" ? "square-terminal" : kind == "context-element" ? "mouse-pointer-click" : kind == "context-image" ? "image" : kind == "context-video" ? "film" : kind == "context-skill" ? "skill" : kind == "context-citation" ? "quote" : "circle-dashed"
+// A resolved chip's accent family (ContextChip `kind`).
+fn chipFamily(kind: string): string = kind == "citation" ? "context-citation" : kind == "file" ? "context-file" : kind == "video" ? "context-video" : kind == "image" ? "context-image" : kind == "skill" ? "context-skill" : kind == "thread" ? "context-thread" : kind == "terminal" ? "context-terminal" : kind == "element" ? "context-element" : kind == "review" ? "context-review-comment" : "context-other"
+
+// A composer context reference in a sent message (ContextChip) the message
+// carries no record view for: its kind's glyph (a file's Pierre icon) and label.
+component ContextChipBox
+  props
+    run: ChatRun
+  view
+    row height=22.75 flex-shrink=0 align-items="center" padding-left=1 padding-right=1
+      row height=17 max-width=240 padding-left=6 padding-right=6 gap=4 box-sizing="border-box" align-items="center" border-radius=6 border-width=1 border-style="solid" border-color=chipBorder(run.kind) background-color=`${chipAccent(run.kind)}1c` testId=`context-chip-${run.id}`
+        when run.kind == "context-file"
+          FileTypeIcon(token=run.icon, size=14)
+        else
+          TimelineIcon(name=chipIcon(run.kind), size=14, color=chipInk(run.kind))
+        text run.text min-width=0 line-clamp=1 font-size=12 font-weight=500 line-height="15px" white-space="pre" color=chipInk(run.kind)
+
+// MarkdownFileLink: a workspace file as a mention chip (12pt medium, 17pt
+// tall, 6pt radius, teal-tinted border and fill) with its Pierre icon.
+component FileChip
+  props
+    run: ChatRun
+  view
+    row height=22.75 flex-shrink=0 align-items="center" padding-left=1 padding-right=1
+      FileChipFace(run=run, label=run.text, icon=run.icon)
+
+component FileChipFace
+  props
+    run: ChatRun
+    label: string
+    icon: string
+  view
+    row height=17 padding-left=6 padding-right=6 gap=4 box-sizing="border-box" align-items="center" border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#a9cad4, #39a1b861)" background-color="#0096af1c" testId=`file-chip-${run.id}`
+      FileTypeIcon(token=icon, size=14)
+      text label font-size=12 font-weight=500 line-height="15px" white-space="pre" color="light-dark(#2c3e45, #cbe0e6)"
+
+// One chip with its record view (r4-timeline-chips.ts): a file link's full
+// path in a code tooltip; a mention's path; an attachment's name and size
+// (an image previews on click, its thumbnail leading); a skill's `$name`; a
+// thread that opens; a reference whose record is gone drawn dashed with
+// "This context is no longer available."; terminal, element and review
+// references open their details above the chip.
+component ResolvedChip
+  props
+    run: ChatRun
+    chip: ChipView
+    urls: list<AttachmentUrl>
+    local: action
+  state open = false
+  action toggle
+    open = not open
+  view
+    row height=22.75 flex-shrink=0 align-items="center" padding-left=1 padding-right=1 position="relative"
+      when chip.kind == "link"
+        CodeTip(label=chip.tip, side="top", offset=21)
+          // r4-surfaces: a file link opens in the Files surface (rightPanelStore.openFile).
+          button press=local("surface-file", chip.tip, "") aria-label=chip.tip padding=0 border-width=0 background-color="#00000000" testId=`chip-open-${run.id}`
+            FileChipFace(run=run, label=run.text, icon=run.icon)
+      else
+        when chip.kind == "mention"
+          Tip(label=chip.tip, side="top", align="center", offset=21)
+            button press=local("surface-file", chip.tip, "") aria-label=chip.tip padding=0 border-width=0 background-color="#00000000" testId=`chip-open-${run.id}`
+              FileChipFace(run=run, label=chip.label, icon=chip.icon)
+        else
+          when chip.kind == "unresolved"
+            Tip(label=chip.tip, side="top", align="center", offset=21)
+              row height=17 max-width=240 padding-left=6 padding-right=6 gap=4 box-sizing="border-box" align-items="center" border-radius=6 background-color="light-dark(#f4f4f566, #ffffff04)" position="relative" aria-label=`Unavailable context, ${chip.label}` testId=`context-chip-${run.id}`
+                // UnresolvedChip's dashed border (border-style is solid-only here): one stroked rect.
+                box position="absolute" left=0.5 top=0.5 right=0.5 bottom=0.5 aria-hidden=true
+                  svg width="100%" height="100%" color="light-dark(#e4e4e7, #ffffff12)" fill="none" stroke="currentColor" aria-hidden=true
+                    rect x=0 y=0 width="100%" height="100%" rx=5.5 stroke-width=1 stroke-dasharray="3 3"
+                TimelineIcon(name="circle-dashed", size=14, color="light-dark(#27272a, #f5f5f5)")
+                text chip.label min-width=0 line-clamp=1 font-size=12 font-weight=500 line-height="15px" white-space="pre" color="light-dark(#27272a, #f5f5f5)"
+          else
+            when chip.kind == "terminal" or chip.kind == "element" or chip.kind == "review"
+              button press=toggle aria-label=`${chip.label}. Show details` aria-expanded=open testId=`context-chip-${run.id}` height=17 max-width=240 padding=0 padding-left=6 padding-right=6 gap=4 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius=6 border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}1c`
+                TimelineIcon(name=chipIcon(chipFamily(chip.kind)), size=14, color=chipInk(chipFamily(chip.kind)))
+                text chip.label min-width=0 line-clamp=1 font-size=12 font-weight=500 line-height="15px" white-space="pre" color=chipInk(chipFamily(chip.kind))
+              when open
+                ChipDetails(chip=chip, close=toggle)
+            else
+              Tip(label=(chip.kind == "image" ? "" : chip.tip), side="top", align="center", offset=21)
+                AttachmentChip(run=run, chip=chip, urls=urls, local=local)
+
+// FileChip / ImageChipButton / ThreadContextChip / a skill chip: glyph or
+// thumbnail, the (middle-truncated) name and, for attachments, the size.
+component AttachmentChip
+  props
+    run: ChatRun
+    chip: ChipView
+    urls: list<AttachmentUrl>
+    local: action
+  view
+    when chip.kind == "image" and length(filter(urls, (entry) => entry.id == chip.target and entry.fill != "")) > 0
+      each entry in filter(urls, (entry) => entry.id == chip.target and entry.fill != "") key=entry.id
+        TintedImageChip(run=run, chip=chip, entry=entry, local=local)
+    else
+      AttachmentChipBody(run=run, chip=chip, urls=urls, local=local)
+
+component AttachmentChipBody
+  props
+    run: ChatRun
+    chip: ChipView
+    urls: list<AttachmentUrl>
+    local: action
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  view
+    // r5-panels: a sent file attachment opens its preview beside the thread (ChatView openFileAttachment).
+    // lane r6-media: a sent video's chip opens it in the media dialog (onExpandVideo).
+    when chip.kind == "image" or (chip.kind == "thread" or chip.kind == "citation" or chip.kind == "file" or chip.kind == "video") and chip.target != ""
+      button press=local((chip.kind == "image" or chip.kind == "video" ? "image-open" : chip.kind == "file" ? "surface-r5-attachment" : chip.kind == "citation" ? "chip-citation" : "chip-thread"), chip.target, (chip.kind == "image" or chip.kind == "file" or chip.kind == "video" ? chip.owner : chip.detail)) hover=hover aria-label=(chip.kind == "image" ? chip.tip : chip.kind == "file" or chip.kind == "video" ? `${chip.kind == "video" ? "Video" : "File"} attachment, ${chip.label}, ${chip.size}` : chip.kind == "citation" ? `View cited assistant text: ${chip.label}` : `Thread, ${chip.label}`) testId=`context-chip-${run.id}` height=17 max-width=360 padding=0 padding-left=6 padding-right=6 gap=4 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius=6 border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}${hovered ? "2b" : "1c"}`
+        ChipFace(chip=chip, urls=urls)
+    else
+      row aria-label=(chip.kind == "skill" ? `Skill, ${chip.label}` : chip.kind == "thread" ? `Thread, ${chip.label}` : `${chip.kind == "video" ? "Video" : "File"} attachment, ${chip.label}, ${chip.size}`) testId=`context-chip-${run.id}` height=17 max-width=360 padding-left=6 padding-right=6 gap=4 box-sizing="border-box" align-items="center" border-radius=6 border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}1c`
+        ChipFace(chip=chip, urls=urls)
+
+component ChipFace
+  props
+    chip: ChipView
+    urls: list<AttachmentUrl>
+  view
+    when chip.kind == "file"
+      FileTypeIcon(token=chip.icon, size=14)
+    else
+      when chip.kind == "image" and length(filter(urls, (entry) => entry.id == chip.target)) > 0
+        each entry in filter(urls, (entry) => entry.id == chip.target) key=entry.id
+          image entry.url aria-hidden=true width=14 height=14 flex-shrink=0 border-radius=4 object-fit="cover"
+      else
+        TimelineIcon(name=chipIcon(chipFamily(chip.kind)), size=14, color=chipInk(chipFamily(chip.kind)))
+    text chip.label min-width=0 max-width=(chip.kind == "citation" ? 192 : 288) line-clamp=1 font-size=12 font-weight=500 line-height="15px" white-space="pre" color=chipInk(chipFamily(chip.kind))
+    when chip.size != ""
+      text chip.size flex-shrink=0 font-size=10 font-weight=500 line-height="14px" white-space="pre" color=chipInk(chipFamily(chip.kind))
+
+// ImageChipButton with its accent from the picture's average colour (averageImageColor).
+component TintedImageChip
+  props
+    run: ChatRun
+    chip: ChipView
+    entry: AttachmentUrl
+    local: action
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  view
+    button press=local("image-open", chip.target, chip.owner) hover=hover aria-label=chip.tip testId=`context-chip-${run.id}` height=17 max-width=360 padding=0 padding-left=6 padding-right=6 gap=4 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius=6 border-width=1 border-style="solid" border-color=entry.border background-color=(hovered ? entry.hover : entry.fill)
+      image entry.url aria-hidden=true width=14 height=14 flex-shrink=0 border-radius=4 object-fit="cover"
+      text chip.label min-width=0 max-width=288 line-clamp=1 font-size=12 font-weight=500 line-height="15px" white-space="pre" color=entry.ink
+      text chip.size flex-shrink=0 font-size=10 font-weight=500 line-height="14px" white-space="pre" color=entry.ink
+
+// ContextChipPopover (side top, width lg, compact padding): the reference's
+// title and its details, opened from the chip and closed from it again.
+component ChipDetails
+  props
+    chip: ChipView
+    close: action
+  view
+    column position="absolute" left=0 bottom=26 width=320 max-height=280 padding=12 gap=6 box-sizing="border-box" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" z-index=60 role="dialog" aria-label=chip.label testId="context-chip-details"
+      text chip.tip font-size=12 font-weight=500 line-height="16px" line-clamp=1 color="light-dark(#27272a, #f5f5f5)"
+      text chip.detail font-family=(chip.kind == "terminal" ? "ui-monospace" : "system-ui") font-size=(chip.kind == "terminal" ? 11 : 12) line-height="16px" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
+
+// chat-markdown-codeblock: a 10pt bordered card, a header with the language and
+// the wrap/copy toolbar, and 13pt code on 17.875pt lines.
+component CodeBlock
+  props
+    block: ChatBlock
+    local: action
+    code: list<CodeHighlight>
+    copiedText: string
+    copiedNonce: number
+    codeFont: string
+    codeSize: number
+    wrapDefault: bool
+  // readInitialWordWrapSetting: Settings → Word wrap decides; the toggle flips it.
+  state flipped = false
+  derive wrap = flipped ? not wrapDefault : wrapDefault
+  action toggleWrap
+    flipped = not flipped
+  view
+    column width="100%" box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0b)" background-color="light-dark(#fafafa, #ffffff08)" overflow="hidden"
+      row width="100%" height=30 padding-top=6 padding-right=6 padding-left=12 box-sizing="border-box" align-items="center" justify-content="space-between" gap=8
+        row min-width=0 height=24 align-items="center" gap=6
+          when length(filter(code, (hl) => hl.code == block.text and hl.icon != "")) > 0
+            each hl in filter(code, (hl) => hl.code == block.text and hl.icon != "") key=hl.id
+              FileTypeIcon(token=hl.icon, size=14)
+          else
+            text block.href font-family="ui-monospace" font-size=11 line-height="16px" color="light-dark(#27272ab8, #f5f5f5b8)" line-clamp=1
+        row gap=2 align-items="center"
+          Tip(label=(wrap ? "Disable line wrap" : "Wrap lines"), side="top", align="center", offset=28)
+            button press=toggleWrap aria-label=(wrap ? "Disable line wrap" : "Wrap lines") width=24 height=24 padding=0 border-radius=8 border-width=0 background-color=(wrap ? "light-dark(#fafafa, #ffffff08)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+              Icon(name="text-wrap", size=12, color="light-dark(#27272a, #f5f5f5)")
+          Tip(label="Copy code", side="top", align="center", offset=28)
+            CopyCodeButton(block=block, local=local, copied=(copiedText == block.text ? copiedNonce : 0))
+      when length(filter(code, (hl) => hl.code == block.text)) == 0
+        when wrap
+          text block.text width="100%" padding-left=14.4 padding-right=14.4 padding-top=12.8 padding-bottom=12.8 box-sizing="border-box" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+        else
+          scroll width="100%" overflow-x="scroll" overflow-y="hidden"
+            text block.text padding-left=14.4 padding-right=14.4 padding-top=12.8 padding-bottom=12.8 font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+      each hl in filter(code, (hl) => hl.code == block.text) key=hl.id
+        when wrap
+          text width="100%" padding-left=14.4 padding-right=14.4 padding-top=12.8 padding-bottom=12.8 box-sizing="border-box" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+            each token in hl.tokens key=token.id
+              text token.text color=synColor(token.cls)
+        else
+          scroll width="100%" overflow-x="scroll" overflow-y="hidden"
+            text padding-left=14.4 padding-right=14.4 padding-top=12.8 padding-bottom=12.8 font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+              each token in hl.tokens key=token.id
+                text token.text color=synColor(token.cls)
+// MarkdownMermaidCodeBlock: a settled ```mermaid fence draws its diagram with
+// no card, centred and fit to the lane, a "Show code" toggle and Copy beneath;
+// "Show code" turns it back into the code block, its toolbar led by "Show
+// diagram". While the diagram renders the space says so; a failure shows
+// Mermaid's message (with Retry when loading failed) above the source.
+component MermaidBlock
+  props
+    block: ChatBlock
+    local: action
+    diagram: MermaidDiagram
+    scheme: string
+    copied: number
+    codeFont: string
+    codeSize: number
+    wrapDefault: bool
+  state showCode = false
+  state flipped = false
+  derive wrap = flipped ? not wrapDefault : wrapDefault
+  action toggleCode
+    showCode = not showCode
+  action toggleWrap
+    flipped = not flipped
+  view
+    when showCode
+      column width="100%" box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0b)" background-color="light-dark(#fafafa, #ffffff08)" overflow="hidden"
+        row width="100%" height=30 padding-top=6 padding-right=6 padding-left=12 box-sizing="border-box" align-items="center" justify-content="space-between" gap=8
+          row min-width=0 height=24 align-items="center" gap=6
+            text block.href font-family="ui-monospace" font-size=11 line-height="16px" color="light-dark(#27272ab8, #f5f5f5b8)" line-clamp=1
+          row gap=2 align-items="center" role="toolbar" aria-label="Code block actions"
+            Tip(label="Show diagram", side="top", align="center", offset=28)
+              DiagramToggle(label="Show diagram", icon="workflow", press=toggleCode)
+            Tip(label=(wrap ? "Disable line wrap" : "Wrap lines"), side="top", align="center", offset=28)
+              button press=toggleWrap aria-label=(wrap ? "Disable line wrap" : "Wrap lines") width=24 height=24 padding=0 border-radius=8 border-width=0 background-color=(wrap ? "light-dark(#fafafa, #ffffff08)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+                Icon(name="text-wrap", size=12, color="light-dark(#27272a, #f5f5f5)")
+            Tip(label="Copy code", side="top", align="center", offset=28)
+              CopyCodeButton(block=block, local=local, copied=copied)
+        when wrap
+          text block.text width="100%" padding-left=14.4 padding-right=14.4 padding-top=12.8 padding-bottom=12.8 box-sizing="border-box" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+        else
+          scroll width="100%" overflow-x="scroll" overflow-y="hidden"
+            text block.text padding-left=14.4 padding-right=14.4 padding-top=12.8 padding-bottom=12.8 font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+    else
+      column width="100%" testId=`mermaid-${block.id}`
+        when diagram.diagram == "rendered"
+          button press=local("diagram-open", block.id, block.text) aria-label="Expand diagram" testId=`mermaid-expand-${block.id}` width="100%" padding=0 border-radius=6 border-width=0 background-color="#00000000" display="flex" flex-direction="row" justify-content="center"
+            // light-dark() inside SVG resolves when mounted: a scheme change remounts the drawing.
+            when scheme == "dark"
+              MermaidSvg(diagram=diagram, width=diagram.width)
+            else
+              MermaidSvg(diagram=diagram, width=diagram.width)
+        when diagram.diagram == "loading"
+          column width="100%" min-height=144 align-items="center" justify-content="center" role="status"
+            text "Rendering diagram" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+        when diagram.diagram == "error"
+          column width="100%"
+            row width="100%" align-items="center" justify-content="space-between" gap=8
+              text `Unable to render diagram: ${diagram.message}` min-width=0 font-size=12 line-height="16px" white-space="pre-wrap" color="light-dark(#fb2c36, #fb414a)" role="alert"
+              when diagram.retryable
+                button press=local("diagram-retry", block.id, block.text) testId=`mermaid-retry-${block.id}` height=24 padding-left=7 padding-right=7 box-sizing="border-box" border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+                  text "Retry" font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+            text block.text width="100%" margin-top=8 padding-left=14.4 padding-right=14.4 padding-top=12.8 padding-bottom=12.8 box-sizing="border-box" border-radius=12 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" font-family="ui-monospace" font-size=12 line-height="16px" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
+        row width="100%" margin-top=2 align-items="center" justify-content="space-between"
+          Tip(label="Show code", side="top", align="start", offset=28)
+            DiagramToggle(label="Show code", icon="code", press=toggleCode)
+          Tip(label="Copy code", side="top", align="end", offset=28)
+            CopyCodeButton(block=block, local=local, copied=copied)
+
+// An icon-xs ghost-muted button: muted until hovered, then an accent fill.
+component DiagramToggle
+  props
+    label: string
+    icon: string
+    press: action
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  view
+    button press=press hover=hover aria-label=label width=24 height=24 padding=0 border-radius=8 border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+      TimelineIcon(name=icon, size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+
+// The flattened diagram at its natural size, scaled down to fit (h-auto, max-w-full).
+component MermaidSvg
+  props
+    diagram: MermaidDiagram
+    width: number
+  view
+    svg width=width max-width="100%" viewBox=diagram.viewBox flex-shrink=1 aria-hidden=true
+      each item in diagram.items key=item.id
+        when item.kind == "text"
+          text item.text x=item.x y=item.y transform=item.transform fill=`light-dark(${item.fill}, ${item.fillDark})` font-size=item.size font-weight=item.weight font-style=item.slant dominant-baseline=item.baseline
+        else
+          path d=item.d transform=item.transform fill=`light-dark(${item.fill}, ${item.fillDark})` stroke=`light-dark(${item.stroke}, ${item.strokeDark})` stroke-width=item.width stroke-dasharray=item.dash stroke-linecap=item.cap stroke-linejoin=item.join
+
+// MarkdownCodeBlock's copy button: Copy morphs to a check for 1.2s after a copy.
+component CopyCodeButton
+  props
+    block: ChatBlock
+    local: action
+    copied: number
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  view
+    button press=local("copy-code", block.id, block.text) hover=hover aria-label="Copy code" width=24 height=24 padding=0 border-radius=8 border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+      when copied > 0
+        box position="relative" width=12 height=12
+          box position="absolute" left=0 top=0 width=12 height=12 animation=(copied % 2 == 0 ? "mdCopyA 1.2s linear forwards" : "mdCopyB 1.2s linear forwards")
+            Icon(name="copy", size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+          box position="absolute" left=0 top=0 width=12 height=12 animation=(copied % 2 == 0 ? "mdCheckA 1.2s linear forwards" : "mdCheckB 1.2s linear forwards")
+            TimelineIcon(name="check-mark", size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+      else
+        Icon(name="copy", size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+
+// MarkdownTable (ChatMarkdown.tsx; MIT, see LICENSE-T3): a full-width table of
+// 12pt cells that scrolls sideways past its content width; cells keep one line
+// (ellipsis at 24rem) until "Expand table cells" lets body cells wrap at 24rem
+// (Settings → Word wrap decides the start). The footer's Copy menu copies the
+// table as Markdown or CSV; a copy morphs its icon to a check for 1.2s.
+component MarkdownTable
+  props
+    block: ChatBlock
+    prose: string
+    fit: bool
+    wrapDefault: bool
+    local: action
+    copied: number
+  state flipped = false
+  derive expanded = flipped ? not wrapDefault : wrapDefault
+  action toggleExpanded
+    flipped = not flipped
+  view
+    column width=(fit ? "auto" : "100%") max-width="100%" position="relative" testId=`table-${block.id}`
+      scroll width=(fit ? "auto" : "100%") max-width="100%" overflow-x="scroll" overflow-y="hidden"
+        column width=(fit ? "auto" : "100%") role="table"
+          each tableRow in block.rows key=tableRow.id
+            row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" role="row"
+              each cell in tableRow.cells key=`${cell.id}\u0000${join(map(cell.runs, (part) => part.text), "")}`
+                each column in filter(block.columns, (entry) => entry.id == cell.id) key=column.id
+                  TableCell(cell=cell, column=column, header=tableRow.header, expanded=expanded, prose=prose)
+      row width="100%" margin-top=2 align-items="center" justify-content="space-between"
+        Tip(label=(expanded ? "Collapse table cells" : "Expand table cells"), side="top", align="start", offset=28)
+          TableIconButton(label=(expanded ? "Collapse table cells" : "Expand table cells"), icon=(expanded ? "minimize" : "maximize"), pressed=expanded, press=toggleExpanded, testId=`table-expand-${block.id}`)
+        Tip(label="Copy table", side="top", align="end", offset=28)
+          TableCopyButton(press=local("table-menu", block.id, `${block.markdown}\u0000${block.csv}`), copied=copied, open=false, testId=`table-copy-${block.id}`) // lane r8-keys: its popup is the window's (r8-keys-table-menu.contract)
+
+// A th or td: 7.2/12 padding (8.8 in the header), the column's sizing cell
+// drawn invisibly beneath so every row's cell takes the column's width.
+component TableCell
+  props
+    cell: ChatCell
+    column: ChatColumn
+    header: bool
+    expanded: bool
+    prose: string
+  view
+    column flex-grow=column.grow flex-shrink=0 min-width=0 padding-left=12 padding-right=12 padding-top=(header ? 8.8 : 7.2) padding-bottom=(header ? 8.8 : 7.2) box-sizing="border-box" justify-content="center" role=(header ? "columnheader" : "cell")
+      when length(filter(cell.runs, (part) => part.mono)) > 0
+        // A code span keeps its bordered box (inline spans paint backgrounds only).
+        CellRuns(runs=cell.runs, weight=(header ? 600 : 400), color=prose, nowrap=(header or not expanded), shown=true, justify=(column.align == "center" ? "center" : column.align == "right" ? "flex-end" : "flex-start"))
+      else
+        when header or not expanded
+          // One line, cut with an ellipsis (text-overflow: ellipsis at 24rem).
+          text max-width=(expanded ? 100000 : 360) font-size=12 line-height=1.625 line-clamp=1 color=prose text-align=column.align
+            ChatRuns(runs=cell.runs, size=12, weight=(header ? 600 : 400))
+        else
+          text max-width=360 font-size=12 line-height=1.625 overflow-wrap="anywhere" color=prose text-align=column.align
+            ChatRuns(runs=cell.runs, size=12, weight=400)
+      box height=0 overflow="hidden" aria-hidden=true
+        when column.capped
+          box width=360 height=0
+        else
+          when length(filter(column.sizer, (part) => part.mono)) > 0
+            CellRuns(runs=column.sizer, weight=(column.header ? 600 : 400), color=prose, nowrap=true, shown=false, justify="flex-start")
+          else
+            text max-width=(expanded and column.header ? 100000 : 360) font-size=12 line-height=1.625 white-space="nowrap" opacity=0
+              ChatRuns(runs=column.sizer, size=12, weight=(column.header ? 600 : 400))
+
+// A cell holding code spans: its runs side by side, each code span 12pt SF
+// Mono in its 1pt-bordered, 5.6pt-padded box on the cell's 19.5pt line.
+component CellRuns
+  props
+    runs: list<ChatRun>
+    weight: number
+    color: string
+    nowrap: bool
+    shown: bool
+    justify: string
+  view
+    row min-width=0 max-width=360 min-height=19.5 flex-wrap=(nowrap ? "nowrap" : "wrap") align-items="center" justify-content=justify overflow=(nowrap ? "hidden" : "visible") opacity=(shown ? 1 : 0)
+      each run in runs key=run.id
+        when run.mono
+          text run.text flex-shrink=0 font-family="ui-monospace" font-size=12 line-height="14px" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left=5.6 padding-right=5.6 padding-top=1.6 padding-bottom=1.6 border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+        else
+          text run.text min-width=0 font-size=12 line-height=1.625 white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color=color
+
+// The footer's icon-xs buttons: ghost-muted, or "secondary" while pressed.
+component TableIconButton
+  props
+    label: string
+    icon: string
+    pressed: bool
+    press: action
+    testId: string
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  view
+    button press=press hover=hover aria-label=label testId=testId width=24 height=24 padding=0 border-radius=8 border-width=0 background-color=(pressed ? "light-dark(#fafafa, #ffffff08)" : hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+      TimelineIcon(name=icon, size=12, color=(pressed or hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+
+component TableCopyButton
+  props
+    press: action
+    copied: number
+    open: bool
+    testId: string
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  view
+    button press=press hover=hover aria-label="Copy table" aria-expanded=open id=testId hook="t3-measure" data-frame=testId testId=testId width=24 height=24 padding=0 border-radius=8 border-width=0 background-color=(hovered or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+      when copied > 0
+        box position="relative" width=12 height=12
+          box position="absolute" left=0 top=0 width=12 height=12 animation=(copied % 2 == 0 ? "mdCopyA 1.2s linear forwards" : "mdCopyB 1.2s linear forwards")
+            Icon(name="copy", size=12, color=(hovered or open ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+          box position="absolute" left=0 top=0 width=12 height=12 animation=(copied % 2 == 0 ? "mdCheckA 1.2s linear forwards" : "mdCheckB 1.2s linear forwards")
+            TimelineIcon(name="check-mark", size=12, color=(hovered or open ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+      else
+        Icon(name="copy", size=12, color=(hovered or open ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+
+component TableMenuItem
+  props
+    label: string
+    press: action
+    testId: string
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  view
+    button press=press hover=hover role="menuitem" aria-label=label testId=testId width="100%" height=28 padding-left=8 padding-right=8 box-sizing="border-box" border-radius=6 border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #1c1c1c)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      text label font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 text-align="left" line-clamp=1

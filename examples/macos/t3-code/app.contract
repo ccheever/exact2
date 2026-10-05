@@ -1,129 +1,989 @@
-use NightlyBackdrop from "./nightly.contract"
-use Icon from "./icons.contract"
-use Wordmark from "./icons.contract"
-use ProviderMark from "./icons.contract"
-use ProjectMark from "./icons.contract"
 use Snapshot from "./shapes.contract"
-use Change from "./shapes.contract"
+use R10PairFields from "./r10-connect-shapes.contract" // lane r10-connect
+use TranscriptMarkdown from "./markdown.contract"
+use TimelineAttachmentUrls from "./timeline-attachments.contract"
+use PagesHome from "./pages-hero.contract"
+use UsageView from "./pages-usage.contract"
+use UsageKey from "./pages-usage.contract"
+use PrListView from "./pages-prs.contract"
+use PrDetailView from "./pages-pr-detail.contract"
+use WelcomeView from "./pages-welcome.contract"
 use Viewport from "./shapes.contract"
-use Ink from "./shapes.contract"
-use Muted from "./shapes.contract"
+use PaletteView from "./palette.contract"
+use PaletteResult from "./palette.contract"
+use Change from "./shapes.contract"
+use ProviderPage from "./providers.contract"
+use ProviderWizard from "./providers-wizard.contract"
+use ConnectionsPage from "./connections.contract"
+use AcpRegistry from "./providers-wizard.contract"
+use KeybindingPage from "./settings-keybindings.contract"
+use ScheduledPage from "./settings-scheduled.contract"
+use KeyDispatch from "./settings-shortcuts.contract"
+use SourceControlPage from "./settings-source-control.contract"
+use IntegrationsPage from "./settings-source-control.contract"
+use StoragePage from "./settings-storage.contract"
+use ArchivePage from "./settings-archive.contract"
+use LicenseSettings from "./shapes.contract"
+use DiagnosticsPage from "./settings-diagnostics.contract"
+use SnapshotSettings from "./shapes.contract"
+use CoreNav from "./settings-core.contract"
+use AboutDelivery from "./settings-a-about.contract"
+use SettingsCore from "./settings-core.contract"
+use Settings from "./shapes.contract"
+use ProjectsPage from "./settings-projects.contract"
+use SbSshHosts from "./connections.contract"
+use SbPicker from "./settings-b-icons.contract"
+use PickerCatalog from "./composer-shapes.contract"
+use ComposerEditorView from "./composer-editor.contract"
+use ComposerBranches from "./composer-shapes.contract"
+use ShellView from "./shell-shapes.contract"
+use ShellDetails from "./shell-shapes.contract"
 use Canvas from "./shapes.contract"
-use Surface from "./shapes.contract"
-use Edge from "./shapes.contract"
-use Control from "./shapes.contract"
-use Field from "./shapes.contract"
-use Primary from "./shapes.contract"
-use Overlay from "./shapes.contract"
-use ThreadSection from "./panels.contract"
-use TimelineRow from "./panels.contract"
-use Requests from "./panels.contract"
-use DiffPanel from "./panels.contract"
+use Sidebar from "./sidebar.contract"
+use ChatColumn from "./app-main.contract"
+use RightPanels from "./app-main.contract"
+use PagesCover from "./app-main.contract"
+use RightSheets from "./app-main.contract"
+use ComposerMenus from "./composer-controls.contract"
+use ProjectPicker from "./app-overlays.contract"
+use SettingsWindow from "./app-settings.contract"
+use WelcomeLayer from "./app-overlays.contract"
+use ShortcutDispatch from "./settings-shortcuts.contract"
+use ProjectDialogs from "./app-settings.contract"
+use SidebarOverlays from "./sidebar-overlays.contract"
+use SettingsModals from "./app-settings.contract"
+use WindowOverlays from "./app-overlays.contract"
 
 shape Time
   epochAtZero: number
-
 component T3Code
   state elapsed = 0
   resource wallTime = exactTime() as shape Time
   resource data = snapshot(wallTime.epochAtZero + elapsed) as shape Snapshot
+  resource markdown = renderMarkdown(data.messages) as shape TranscriptMarkdown
+  resource attachmentUrls = timelineAttachments(data.threadId, wallTime.epochAtZero + elapsed, data.revision) as shape TimelineAttachmentUrls // Signed preview URLs for the thread's sent images (timeline-attachments.ts).
+  resource home = pagesHome(data.revision) as shape PagesHome // Lane pages: the empty main view, the utility pages and the sidebar footer route.
+  state utilityPage = ""
+  derive pageCover = utilityPage != "" or home.landing == "no-environment" or home.landing == "no-projects" or home.landing == "start-error"
+  action openPage(name: string)
+    utilityPage = name
+    sidebarHoverId = "" // r8-pointer D11: a press closes its tooltip (Base UI); the pressed footer button unmounts without a hover-out
+  state usageMetric = ""
+  state usageDays = 0
+  state usageBreakdown = "model"
+  state usageRefresh = 0
+  state usageEnvOff = false
+  resource usage = usagePage(utilityPage == "usage", usageMetric, usageDays, usageBreakdown, usageRefresh, viewport.width, data.sidebarOpen ? sidebarWidth : 0, wallTime.epochAtZero + elapsed, usageEnvOff, data.revision) as shape UsageView
+  resource usageShortcuts = usageKeys(data.revision) as shape list<UsageKey>
+  action usageMetricSet(value: string)
+    usageMetric = value
+    send localChanged = command("pageslocal:usage-metric", "", value, 0)
+  action usageWindowSet(days: number)
+    usageDays = days
+    send localChanged = command("pageslocal:usage-window", "", `${days}`, 0)
+  action usageBreakdownSet(value: string)
+    usageBreakdown = value
+  action usageRefreshNow
+    usageRefresh = usageRefresh + 1
+  action usageEnvironmentToggle
+    usageEnvOff = not usageEnvOff
+  // Pull Requests (pages-prs*.contract): the list controls persist; the search applies 250ms after typing stops.
+  state prQuery = ""
+  state prApplied = ""
+  state prTyped = false
+  state prTypedAt = 0
+  state prSelected = ""
+  state prPanelOpen = true
+  state prRefresh = 0
+  state prTab = "summary"
+  resource prList = prList(utilityPage == "pull-requests", prRefresh, wallTime.epochAtZero + elapsed, prSelected, prApplied, prTyped, data.revision) as shape PrListView
+  resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + elapsed, data.revision) as shape PrDetailView
+  resource prMarkdown = renderPullRequestMarkdown(prDetail.bodies) as shape TranscriptMarkdown
+  // RightPanelTabs: half the window by default, leaving the list at least 224pt.
+  derive prPanelWidth = min(floor(viewport.width / 2), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 224)
+  derive prListWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - (prSelected != "" and prPanelOpen ? prPanelWidth : 0)
+  action prType(value: string)
+    prQuery = value
+    prTyped = true
+    prTypedAt = now()
+  action prSettle
+    if utilityPage == "pull-requests" and prTyped and prApplied != prQuery and now() - prTypedAt >= 250
+      prApplied = prQuery
+      send localChanged = command("pageslocal:pr-query", "", prQuery, 0)
+  task prSearchClock mount
+    every(250, prSettle)
+  action prControl(op: string, value: string)
+    if op == "query"
+      prQuery = value
+      prApplied = value
+      prTyped = true
+    send localChanged = command(`pageslocal:pr-${op}`, "", value, 0)
+  action prSelect(ref: string)
+    prSelected = ref
+    prPanelOpen = true
+    prTab = "summary"
+  action prClose
+    prSelected = ""
+  action prTogglePanel
+    prPanelOpen = not prPanelOpen
+  action prReload
+    prRefresh = prRefresh + 1
+  action prSetTab(value: string)
+    prTab = value
+  action prAct(op: string, value: string)
+    if not commandPending
+      commandPending = true
+      send changed = command(`pageslocal:pr-act-${op}`, utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, value, 0)
+  action prCopy(label: string, text: string)
+    send localChanged = command("pageslocal:copy", label, text, 0)
+  // First run (pages-welcome*): with no saved environment, "Set up T3 Code" covers the app until it finishes.
+  state welcomeStep = "connect"
+  state welcomeLink = ""
+  state welcomePairOpen = true
+  state welcomeHelpOpen = false
+  resource welcome = welcome(welcomeStep, wallTime.epochAtZero + elapsed, data.revision) as shape WelcomeView
+  action welcomeGo(step: string)
+    welcomeStep = step
+  action welcomeSetup
+    welcomeStep = "agents"
+    send localChanged = command("pageslocal:welcome-setup", "", "", 0)
+  action welcomeEditLink(value: string)
+    welcomeLink = value
+  action welcomePair
+    if not commandPending and welcomeLink != ""
+      draftOwner = "__unset__"
+      commandPending = true
+      pendingModal = "welcome-pair"
+      modalError = ""
+      send changed = command(data.connected ? "environment-add" : "connect", "", welcomeLink, 0)
+  action welcomeTogglePair
+    welcomePairOpen = not welcomePairOpen
+  action welcomeToggleHelp
+    welcomeHelpOpen = not welcomeHelpOpen
+  action welcomeFinish
+    if not commandPending
+      commandPending = true
+      send changed = command("pageslocal:welcome-finish", "", `${wallTime.epochAtZero + now()}`, 0)
+  action welcomeImport(op: string, id: string, value: string) // also the Usage page's pages:usage-* ops
+    if op != "import" and op != "usage-prices-save"
+      send localChanged = command(startsWith(op, "usage-") ? `pageslocal:${op}` : `pageslocal:welcome-${op}`, id, value, 0)
+    else
+      if not commandPending
+        commandPending = true
+        send changed = command(op == "import" ? "pageslocal:welcome-import" : "pageslocal:usage-prices-save", "", `${wallTime.epochAtZero + now()}`, 0)
+  action openConnectionsPage
+    settingsEnvironmentId = settings.environmentId
+    settingsOpen = true
+    settingsRoute = "connections"
+    settingsMenu = ""
+    modalError = ""
   action tick
     elapsed = now()
   task clock mount
     every(60000, tick)
+  state liveNow = 0 // The timeline's "Working for 12s" ticks each second while a run is live.
+  action liveTick
+    if data.running or data.sidebar.ticking or data.sidebar.undoUntil > wallTime.epochAtZero + liveNow
+      liveNow = now()
+  task liveClock mount
+    every(1000, liveTick)
   resource viewport = exactViewport() as shape Viewport
+  // Command palette (⌘K), file picker (⌘P), content search (⇧⌘F), Add project: palette.contract draws, palette*.ts serves.
+  state paletteOpen = false
+  state paletteMode = "command"
+  state palettePage = ""
+  state paletteQuery = ""
+  state paletteCursor = -1
+  state paletteScroll = 0
+  state paletteCase = false
+  state paletteWord = false
+  state paletteRegex = false
+  state paletteBusy = false
+  resource palette = paletteView(paletteOpen, paletteMode, palettePage, paletteQuery, `${paletteCase ? "case " : ""}${paletteWord ? "word " : ""}${paletteRegex ? "regex" : ""}`, paletteCursor >= 0, wallTime.epochAtZero + elapsed, viewport.prefersColorScheme, data.revision) as shape PaletteView
+  mutation paletteChanged as shape PaletteResult refreshes data then paletteDone
+  // Cursor -1 shows the first row highlighted (a fresh open); -2 hides it after typing or a submenu, Enter still runs it.
+  derive paletteHighlight = palette.count == 0 ? -1 : (paletteCursor >= 0 ? min(paletteCursor, palette.count - 1) : (palette.autoHighlight and paletteCursor == -1 ? 0 : -1))
+  derive paletteListHeight = min(330, min(448, viewport.height * 0.7))
+  // ⌘K, ⌘P and ⇧⌘F toggle their mode; a page (Add project, New thread in..., Change theme) opens on it.
+  action paletteShow(mode: string, page: string)
+    let show = page != "" or not (paletteOpen and paletteMode == mode)
+    paletteOpen = show
+    paletteMode = mode
+    palettePage = page
+    paletteQuery = ""
+    paletteCursor = mode == "files" or page != "" ? -2 : -1
+    paletteScroll = 0
+    modelsOpen = false
+    optionsOpen = ""
+    projectsOpen = false
+    modalError = ""
+    if show
+      focus("palette-input")
+  action paletteClose
+    if paletteMode != "command"
+      paletteMode = "command"
+      palettePage = ""
+      paletteQuery = ""
+      paletteCursor = -1
+      paletteScroll = 0
+      focus("palette-input")
+    else
+      paletteOpen = false
+      focus("composer")
+  action paletteEdit(value: string)
+    paletteQuery = value
+    paletteCursor = paletteMode == "content" ? -1 : -2
+    paletteScroll = 0
+    if value == "" and palette.popOnEmpty
+      palettePage = palette.parent
+  action paletteKey(name: string)
+    if name == "ArrowDown" and palette.count > 0
+      let next = (paletteHighlight < 0 or paletteHighlight + 1 >= palette.count) ? 0 : paletteHighlight + 1
+      paletteCursor = next
+      match first(filter(palette.rows, (r) => r.index == next))
+        case some(r)
+          paletteScroll = next == 0 ? 0 : max(paletteScroll, r.top + r.height + 24 - paletteListHeight)
+        case none
+    if name == "ArrowUp" and palette.count > 0
+      let previous = paletteHighlight <= 0 ? palette.count - 1 : paletteHighlight - 1
+      paletteCursor = previous
+      match first(filter(palette.rows, (r) => r.index == previous))
+        case some(r)
+          paletteScroll = paletteHighlight <= 0 ? max(0, r.top + r.height + 24 - paletteListHeight) : min(paletteScroll, max(0, r.top - 24))
+        case none
+    // Backspace on an empty query and the Back button pop one page.
+    if (name == "Back" or (name == "Backspace" and paletteQuery == "")) and palette.back
+      palettePage = palette.parent
+      paletteQuery = ""
+      paletteCursor = paletteCursor >= 0 ? -1 : -2
+      paletteScroll = 0
+      focus("palette-input")
+  action paletteHover(index: number, over: bool)
+    if over and index >= 0
+      paletteCursor = index
+  action paletteFlag(name: string)
+    paletteCursor = -1
+    paletteScroll = 0
+    paletteCase = name == "case" ? not paletteCase : paletteCase
+    paletteWord = name == "word" ? not paletteWord : paletteWord
+    paletteRegex = name == "regex" ? not paletteRegex : paletteRegex
+  action paletteRun(op: string, arg: string, arg2: string)
+    if op == "page" or op == "browse" or op == "browse-to" or op == "mode"
+      palettePage = op == "browse-to" ? palettePage : (op == "mode" ? "" : arg)
+      paletteMode = op == "mode" ? arg : paletteMode
+      paletteQuery = op == "browse" ? arg2 : (op == "browse-to" ? arg : "")
+      paletteCursor = op == "mode" and arg == "content" ? -1 : -2
+      paletteScroll = 0
+      focus("palette-input") // lane r8-keys: a clicked row takes the focus on its mouse down (NSWindow), so the field takes it back
+    if op == "device"
+      paletteOpen = false
+      send localChanged = command("device-setting", arg, arg2, 0)
+    if op == "copy-thread"
+      paletteOpen = false
+      send localChanged = command("restlocal:copy-thread", ":", "", 0)
+    if op == "settings" or op == "theme-editor" or op == "project-settings"
+      // Toggle theme editor: the Appearance editor seeded from the active theme (toggleThemeEditorForTheme).
+      let editing = settingsOpen and (settingsThemeDialog == "create" or settingsThemeDialog == "edit" or settingsThemeDialog == "duplicate")
+      paletteOpen = false
+      settingsEnvironmentId = settings.environmentId
+      settingsOpen = true
+      settingsRoute = op == "theme-editor" ? "appearance" : (op == "project-settings" ? "projects" : arg)
+      settingsFocusTarget = op == "settings" ? arg2 : ""
+      settingsThemeDialog = op == "theme-editor" and not editing ? "create" : ""
+      settingsThemeSubject = ""
+      settingsQuery = ""
+      settingsMenu = ""
+      settingsMachine = ""
+      settingsProjectKey = ""
+      settingsCheckout = ""
+      settingsProjectId = op == "project-settings" ? arg : ""
+      modalError = ""
+    if op == "usage" or op == "pull-requests" or op == "thread-pull-requests"
+      // Show linked pull requests opens the right panel (rightPanelStore.open(thread, "pull-requests")).
+      paletteOpen = false
+      utilityPage = op == "thread-pull-requests" ? utilityPage : op
+      rightPanel = op == "thread-pull-requests" or rightPanel
+    if (op == "flow" or op == "open-project" or op == "finder" or op == "open-file" or op == "thread" or op == "new-thread" or op == "thread-pull-requests") and not paletteBusy
+      paletteBusy = true
+      send paletteChanged = paletteCommand(op == "flow" ? arg : (op == "finder" ? "pick-folder" : op), op == "flow" ? arg2 : arg, op == "open-file" ? arg2 : palettePage)
+  action paletteDone
+    paletteBusy = false
+    match paletteChanged
+      case some(result)
+        if result.close
+          paletteOpen = false
+        if result.page != "-"
+          palettePage = result.page
+          paletteQuery = result.query
+          paletteCursor = -2
+          paletteScroll = 0
+        if (result.thread != "" or result.project != "") and not commandPending
+          draftOwner = "__unset__"
+          commandPending = true
+          send changed = command(result.thread != "" ? "select-thread" : "new-thread", result.thread != "" ? result.thread : result.project, "", 0)
+          jumpRequest = jumpRequest + 1
+          utilityPage = ""
+          focus("composer")
+      case none
   mutation changed as shape Change refreshes data then commandCompleted
   mutation localChanged as shape Change refreshes data
   state commandPending = false
+  state pendingModal = ""
+  state modalError = ""
   state connecting = false
   state projectsOpen = false
-  state addingProject = false
+  // Settings → Providers (providers.contract): selection, Add provider wizard inputs.
+  state providerSelected = ""
+  state providerDialog = ""
+  state providerSerial = 0
+  state providerCreated = ""
+  state providerTarget = ""
+  state wizardDriver = "codex"
+  state wizardLabel = ""
+  state wizardLabelSet = false
+  state wizardId = ""
+  state wizardIdSet = false
+  state wizardStep = 0
+  state wizardAttempted = false
+  state wizardManual = false
+  state acpQuery = ""
+  // ProviderLastChecked re-renders every second while Providers is open (useRelativeTimeTick).
+  state providerNow = 0
+  action providerTick
+    if settingsOpen and settingsRoute == "providers"
+      providerNow = now()
+  task providerClock mount
+    every(1000, providerTick)
+  resource providerPage = providerPage(providerSelected, settingsOpen and settingsRoute == "providers", data.revision, wallTime.epochAtZero + max(elapsed, providerNow)) as shape ProviderPage
+  resource providerWizard = providerWizard(providerDialog != "", providerSerial, wizardManual ? "acpRegistry" : wizardDriver, wizardLabelSet, wizardLabel, wizardIdSet, wizardId, data.revision) as shape ProviderWizard
+  state connectionRemove = ""
+  state connectionMenu = ""
+  resource connectionsPage = connectionsPage(settingsOpen and settingsRoute == "connections", data.revision, data.status, data.connected, data.connecting) as shape ConnectionsPage
+  resource acpAgents = acpRegistry(acpQuery, providerDialog == "add" and wizardStep == 0, data.revision) as shape AcpRegistry
+  state settingsOpen = false
+  state settingsRoute = "general"
+  state settingsRefresh = 0
+  state keybindingQuery = ""
+  state keybindingOpen = false
+  state keybindingPrevious = ""
+  state keybindingCommand = ""
+  state keybindingKey = ""
+  state keybindingWhen = ""
+  state keybindingSearch = false
+  state keybindingRecording = false
+  resource bindings = keybindingSettings(settingsEnvironmentId, keybindingQuery, settingsOpen and settingsRoute == "keybindings", keybindingPrevious, keybindingKey, keybindingWhen, keybindingCommand, settingsRefresh, data.revision) as shape KeybindingPage
+  resource scheduled = scheduledSettings(settingsEnvironmentId, settingsProjectId, restEditor, restSubject, settingsOpen and settingsRoute == "scheduled-tasks", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision) as shape ScheduledPage
+  state licenseQuery = ""
+  state licenseExpanded = ""
+  state licenseSearchOpen = false
+  state licenseRetry = 0
+  state diagnosticPeriod = "15m"
+  resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute) as shape list<KeyDispatch>
+  resource sourceControl = sourceControlPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "source-control", settingsRefresh, data.revision) as shape SourceControlPage
+  resource integrations = integrationsPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "integrations", settingsRefresh, data.revision) as shape IntegrationsPage
+  resource storageSettings = storageSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "storage", settingsRefresh, data.revision) as shape StoragePage
+  resource archives = archivedSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "archived", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision) as shape ArchivePage
+  resource licenses = licenseSettings(licenseQuery, licenseExpanded, licenseRetry, settingsOpen and settingsRoute == "open-source-licenses", data.revision) as shape LicenseSettings
+  resource diagnostics = diagnosticsSettings(settingsEnvironmentId, diagnosticPeriod, settingsOpen and settingsRoute == "diagnostics", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision) as shape DiagnosticsPage
+  state settingsFocusTarget = ""
+  state snapshotSetupOpen = false
+  state snapshotSetupWasEnabled = false
+  resource snapshotSettings = snapshotSettings(settingsOpen and settingsRoute == "snap-shot", settingsRefresh, data.revision) as shape SnapshotSettings
+  state settingsQuery = ""
+  resource settingsNavigation = settingsNavigation(settingsQuery, settingsCore.kind, settingsResultIndex, data.revision) as shape CoreNav
+  state settingsProjectId = ""
+  state settingsEnvironmentId = ""
+  state settingsMachine = ""
+  state settingsProjectKey = ""
+  state settingsCheckout = ""
+  state settingsMenu = ""
+  state settingsResultIndex = 0
+  state settingsEscapeHeld = false
+  state settingsLegacyOpen = false
+  state settingsScrollTop = 0 // settings search jump: the reveal offset (settings-a)
+  state settingsRestoreOpen = false
+  state settingsThemeDialog = ""
+  state settingsThemeSubject = ""
+  resource delivery = exactDelivery() as shape AboutDelivery // the binary's own update facts (settings-a-about)
+  resource settingsCore = settingsCore(settingsMachine, settingsProjectKey, settingsCheckout, settingsProjectId, settingsRoute, settingsFocusTarget, settingsOpen, settingsRefresh, data.revision, settingsThemeDialog, settingsThemeSubject, delivery.stream, delivery.staged) as shape SettingsCore
+  resource settings = settings(settingsEnvironmentId, settingsProjectId, data.revision, composerFocused, modal, data.running, data.threadId != "", modelsOpen) as shape Settings
+  resource projectsSettings = projectsView(settingsProjectKey, settingsCheckout, settingsProjectId, settingsOpen and settingsRoute == "projects", settingsRefresh, data.revision) as shape ProjectsPage
+  // Lane settings-b: the project icon pickers' search, letters and pasted emoji (settings-b-icons.ts).
+  state sbQuery = ""
+  state sbLetters = ""
+  state sbLettersEdited = false
+  state sbEmoji = ""
+  state sbSshHost = ""
+  resource sbSshHosts = settingsBSshHosts(connecting, sbSshHost, data.revision) as shape SbSshHosts
+  resource pairFields = pairingFields(connecting ? origin : "") as shape R10PairFields // lane r10-connect: a pasted pairing URL fills Host and Pairing code
+  action sbSet(which: string, value: string)
+    if which == "query"
+      sbQuery = value
+    if which == "letters"
+      sbLetters = value
+      sbLettersEdited = true
+    if which == "emoji"
+      sbEmoji = value
+    if which == "ssh-host"
+      sbSshHost = value
+  resource sbPicker = settingsBPicker(restEditor, sbQuery, (sbLettersEdited ? sbLetters : projectsSettings.iconLetters), sbEmoji, projectsSettings.iconCwd, projectsSettings.name, data.revision) as shape SbPicker
   state modelsOpen = false
+  state browseProvider = ""
+  state modelQuery = ""
+  state dismissedProviderBanner = ""
+  action dismissProviderBanner
+    dismissedProviderBanner = data.providerBannerKey
+  resource catalog = modelCatalog(browseProvider, modelQuery, data.revision) as shape PickerCatalog
+  resource editor = composerEditor(data.revision, wallTime.epochAtZero + elapsed) as shape ComposerEditorView // composer-editor.ts
   state optionsOpen = ""
+  // The draft's workspace / branch strip (composer-controls-branch.ts); refs load while its picker is open.
+  state branchQuery = ""
+  resource branches = composerBranches(optionsOpen == "branch", branchQuery, data.revision, shellClock) as shape ComposerBranches
+  state popoverSession = 0
   state origin = ""
   state originEdited = false
   state credential = ""
-  state projectPath = ""
-  state projectTitle = ""
   state draft = ""
   state draftOwner = "__unset__"
   state draggedWidth = 0
+  state sidebarHoverId = ""
+  state sidebarHoverLast = ""
+  state sidebarHoverY = 0 // the hovered row's frame in the window (r5-shell: less the list's scroll)
+  state sidebarHoverH = 0
+  state sidebarScrollY = 0
+  // Sidebar drag (sidebar-drop.ts): the lifted row, its pan and the list's boundaries when it lifted.
+  state dragId = ""
+  state dragSection = ""
+  state dragDx = 0
+  state dragDy = 0
+  state dragX0 = 0
+  state dragY0 = 0
+  state dragW = 0
+  state dragH = 0
+  state dragTopY = 0
+  state dragDividerY = 0
+  state dragWorkingY = 0
+  state dragSnoozedY = 0
+  state dragSettledY = 0
+  derive dragCX = dragX0 + dragW / 2 + dragDx
+  derive dragCY = dragY0 + dragH / 2 + dragDy
+  derive dragTarget = dragId == "" ? "" : (dragCX > sidebarWidth ? "context" : (dragSettledY > 0 and dragCY >= dragSettledY ? "settled" : (dragSnoozedY > 0 and dragCY >= dragSnoozedY ? "snoozed" : (dragWorkingY > 0 and dragCY >= dragWorkingY ? "working" : (dragCY < dragDividerY + 36 ? "pinned" : "active")))))
+  derive dragVerb = (dragTarget == "" or dragTarget == dragSection or dragTarget == "working" or dragTarget == "snoozed" or dragTarget == "context") ? "" : (dragTarget == "pinned" ? "pin" : (dragTarget == "settled" ? "settle" : (dragSection == "pinned" ? "unpin" : (dragSection == "settled" ? "unsettle" : "wake"))))
+  derive dragOffset = dragDy - (dragSection == "pinned" ? 24 : (dragSection == "active" ? 48 : 0))
   state jumpRequest = 0
-  derive modal = connecting or projectsOpen or addingProject or modelsOpen
-  derive sidebarWidth = min(max(208, viewport.width - 640), max(208, draggedWidth > 0 ? draggedWidth : data.sidebarWidth))
-  derive narrowDiff = viewport.width < 1180
-  derive diffWidth = min(560, max(360, viewport.width * 0.42))
-  derive conversationWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - (data.diffOpen and not narrowDiff ? diffWidth : 0)
-  derive composerLeft = (data.sidebarOpen ? sidebarWidth : 0) + (conversationWidth - min(736, conversationWidth - 40)) / 2
+  state composerFocused = false
+  action composerFocus
+    composerFocused = true
+  action composerBlur
+    composerFocused = false
+  action scrollToEnd
+    jumpRequest = jumpRequest + 1
+    foldHold = false
+  derive canRest = data.composerCollapseOnScroll and data.threadId != "" and not composerFocused and not includes(composerText, "\n") and length(data.approvals) == 0 and length(data.questions) == 0 and not data.settled
+  derive resting = data.composerResting and canRest
+  derive modal = connecting or projectsOpen or paletteOpen or settingsOpen or providerDialog != "" or restEditor != "" or welcome.show
+  resource sidebarLaunch = sidebarLaunchWidth(viewport.width, data.revision) as shape number // threadSidebarWidth.ts (r4-polish-sidebar-width.ts): no stored width sizes the sidebar once at load
+  derive sidebarWidth = draggedWidth == 0 and sidebarLaunch > 0 ? sidebarLaunch : min(max(max(208, data.sidebarMinWidth), draggedWidth > 0 ? draggedWidth : data.sidebarWidth), max(max(208, data.sidebarMinWidth), viewport.width - 640)) // a stored width: at least the minimum (13rem, or the brand at the Interface font size: r12-sidebar-width.ts), leaving 40rem of main content
+  derive narrowDiff = viewport.width <= 980
+  // usePreviewPanelInlineSize: 540pt by default, dragged between 360pt and min(70% of the window, room leaving the chat 360pt).
+  state diffUserWidth = 540
+  derive diffWidth = narrowDiff ? (viewport.width <= 760 ? min(viewport.width * 0.88, 384) : min(448, max(320, viewport.width * 0.42))) : max(360, min(diffUserWidth, min(floor(viewport.width * 0.7), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 360)))
+  action resizeDiff(dx: number, dy: number)
+    diffUserWidth = max(360, min(diffWidth - dx, min(floor(viewport.width * 0.7), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 360)))
+  action finishDiffResize(vx: number, vy: number)
+    diffUserWidth = diffWidth
+  derive conversationWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - ((data.diffOpen or rightPanel or shell.panel.open) and not narrowDiff ? diffWidth : 0)
+  derive composerLeft = (data.sidebarOpen ? sidebarWidth : 0) + (details.inline ? max(20, min((conversationWidth - min(data.look.chatMax, conversationWidth - 344)) / 2, conversationWidth - 324 - min(data.look.chatMax, conversationWidth - 344))) : (conversationWidth - min(data.look.chatMax, conversationWidth - 40)) / 2) // the chat lane beside the docked card (ChatColumn laneInset)
   derive composerOwner = `${data.serverUrl}:${data.projectId}:${data.threadId}`
-  derive composerText = draftOwner == composerOwner ? draft : data.draft
-  derive serverOrigin = originEdited ? origin : data.serverUrl
-
+  derive composerText = draftOwner == `${composerOwner}${data.requestKey}` ? draft : data.draft
   action closeOptions
     optionsOpen = ""
+    focus("composer")
   action openOptions(name: string)
+    focus(optionsOpen == name ? "composer" : name == "effort" ? "composer-menu" : name == "runtime" ? `composer-menu-item-${data.composer.runtimeSelected}` : name == "branch" ? "branch-search" : name == "workspace" ? "composer-menu" : "composer-menu-item-0")
     optionsOpen = optionsOpen == name ? "" : name
-  action modelOption(value: string)
+    branchQuery = ""
+    modelsOpen = false
+    popoverSession = popoverSession + 1
+  // A composer menu row that runs a command closes its menu (closeOnClick).
+  action menuCommand(op: string, id: string, value: string, n: number)
     optionsOpen = ""
+    focus("composer")
     if not commandPending
       commandPending = true
-      send changed = command("model-option", data.optionId, value, 0)
+      send changed = command(op, id, value, n)
+  action searchBranches(value: string)
+    branchQuery = value
+  action composerKey(op: string, id: string, value: string) // A composer control's key name (composer-controls-commands.ts).
+    if not commandPending
+      commandPending = true
+      send changed = command(`cc:${op}`, id, value, 0)
+  action composerDrop(op: string, id: string, vx: number, vy: number) // A queued row's grip released (pan release).
+    if not commandPending
+      commandPending = true
+      send changed = command(`cc:${op}`, id, "", 0)
+  action menuPick(op: string, id: string, value: string)
+    optionsOpen = ""
+    focus("composer")
+    if not commandPending
+      commandPending = true
+      send changed = command(op, id, value, 0)
   action commandCompleted
+    match changed
+      case some(result)
+        if pendingModal != ""
+          modalError = startsWith(result.message, "toasted:") ? "" : result.message
+        if result.message == ""
+          if pendingModal == "connect-first" or pendingModal == "connect"
+            connecting = false
+            origin = ""
+            originEdited = false
+          if pendingModal == "welcome-pair"
+            welcomeLink = ""
+            welcomePairOpen = false
+          if pendingModal == "provider-add"
+            providerDialog = ""
+            providerSelected = providerCreated
+          if pendingModal == "provider-close"
+            providerDialog = ""
+          if pendingModal == "provider-acp"
+            wizardManual = false
+            wizardDriver = "acpRegistry"
+            wizardStep = 1
+          if pendingModal == "rest"
+            keybindingOpen = false
+            keybindingPrevious = ""
+            keybindingRecording = false
+            if restEditor == "project-remove" and restSubject == ""
+              settingsOpen = false
+              settingsProjectKey = ""
+              settingsProjectId = ""
+              settingsCheckout = ""
+            restEditor = ""
+            settingsRefresh = settingsRefresh + 1
+          if pendingModal == "settings"
+            settingsRefresh = settingsRefresh + 1
+          if pendingModal == "theme-dialog"
+            settingsThemeDialog = ""
+        // The sidebar's thread menu and New thread ask the window for a place.
+        if result.message == "sidebar:new-thread"
+          draftOwner = "__unset__"
+          jumpRequest = jumpRequest + 1
+          utilityPage = ""
+          focus("composer")
+        if result.message == "sidebar:palette-new-thread"
+          paletteOpen = true
+          paletteMode = "command"
+          palettePage = "new-thread-in"
+          paletteQuery = ""
+          paletteCursor = -1
+          paletteScroll = 0
+          modelsOpen = false
+          optionsOpen = ""
+          focus("palette-input")
+        if result.message == "sidebar:navigate" and data.sidebar.navigateKind == "project-settings"
+          settingsEnvironmentId = settings.environmentId
+          settingsProjectId = data.sidebar.navigateProject
+          settingsProjectKey = ""
+          settingsCheckout = ""
+          settingsRoute = "projects"
+          settingsOpen = true
+          modalError = ""
+      case none
+    pendingModal = ""
     commandPending = false
   action command(op: string, id: string, value: string, n: number)
-    if op == "draft" or op == "search" or op == "sidebar" or op == "answer" or op == "choice" or op == "dismiss-error" or op == "close-diff"
+    if op == "draft" or op == "search" or op == "sidebar" or op == "answer" or op == "choice" or op == "dismiss-error" or op == "close-diff" or op == "diff-view" or op == "favorite-model"
       send localChanged = command(op, id, value, n)
     else
       if not commandPending
         commandPending = true
         send changed = command(op, id, value, n)
+  action editKeybindingQuery(value: string)
+    keybindingQuery = value
+  action newKeybinding
+    keybindingPrevious = "new"
+    keybindingCommand = ""
+    keybindingKey = ""
+    keybindingWhen = ""
+    keybindingRecording = false
+    keybindingOpen = true
+    modalError = ""
+  action editKeybinding(previous: string, commandName: string, shortcut: string, condition: string)
+    if keybindingPrevious != previous
+      keybindingPrevious = previous
+      keybindingCommand = commandName
+      keybindingKey = shortcut
+      keybindingWhen = condition
+      keybindingRecording = false
+  action recordKeybinding(previous: string, commandName: string, shortcut: string, condition: string)
+    if keybindingPrevious != previous
+      keybindingPrevious = previous
+      keybindingCommand = commandName
+      keybindingKey = shortcut
+      keybindingWhen = condition
+    keybindingRecording = true
+  action chooseKeybindingCommand(value: string)
+    keybindingCommand = value
+  action editKeybindingKey(value: string)
+    keybindingKey = value
+    keybindingRecording = false
+  action editKeybindingWhen(value: string)
+    keybindingWhen = value
+  action captureKeybinding(original: string, value: string)
+    keybindingKey = value == "escape" ? original : value
+    keybindingRecording = false
+  action cancelKeybinding
+    keybindingOpen = false
+    keybindingPrevious = ""
+    keybindingRecording = false
+    modalError = ""
+  action searchKeybindings(open: bool)
+    if open or keybindingQuery == ""
+      keybindingSearch = open
+  action keybindingSearchKey(name: string)
+    if name == "Escape"
+      keybindingQuery = ""
+      keybindingSearch = false
+  action settingsCommand(op: string, id: string, value: string)
+    if not commandPending
+      commandPending = true
+      pendingModal = "settings"
+      modalError = ""
+      send changed = command(op, id, value, 0)
+  action previewSnapshotSound(sound: string)
+    if not commandPending
+      commandPending = true
+      pendingModal = ""
+      send changed = command("snapshot-preview-sound", "", sound, 0)
+  action removeSnapshot(imageId: string)
+    send changed = command("remove-snapshot", imageId, "", 0)
+  action toggleSnapshots
+    if snapshotSettings.enabled and not commandPending
+      commandPending = true
+      pendingModal = "settings"
+      modalError = ""
+      send changed = command("setting-snapshot", "snapShotEnabled", "false", 0)
+      snapshotSetupOpen = false
+    else
+      snapshotSetupOpen = true
+      snapshotSetupWasEnabled = false
+      modalError = ""
+  action showSnapshotSetup(open: bool)
+    snapshotSetupOpen = open
+    snapshotSetupWasEnabled = snapshotSettings.enabled
+    modalError = ""
+  // The composer's "Open provider settings" (ChatComposer onOpenProviderSetup).
+  action openProviderSettings(id: string)
+    settingsEnvironmentId = settings.environmentId
+    settingsOpen = true
+    settingsRoute = "providers"
+    settingsMenu = ""
+    providerSelected = id
+    modalError = ""
+  action openSettings
+    sidebarHoverId = "" // r8-pointer D11: the Settings button's tooltip closes on its press
+    settingsEnvironmentId = settings.environmentId
+    settingsOpen = true
+    settingsRoute = "general"
+    settingsMenu = ""
+    settingsMachine = ""
+    settingsProjectKey = ""
+    settingsCheckout = ""
+    settingsProjectId = ""
+    modalError = ""
+  action focusSettingsTarget
+    if settingsOpen and settingsFocusTarget != ""
+      if settingsRoute != "storage" or storageSettings.available
+        if settingsRoute != "archived" or archives.available
+          if settingsRoute != "diagnostics" or diagnostics.available
+            if settingsRoute != "keybindings" or bindings.available
+              if settingsRoute != "scheduled-tasks" or scheduled.available
+                if (settingsRoute != "source-control" or sourceControl.available) and (settingsRoute != "integrations" or integrations.available)
+                  if (settingsRoute != "general" and settingsRoute != "appearance") or (settingsCore.ready and settingsCore.route == settingsRoute and length(settingsCore.sections) > 0)
+                    // scrollIntoView({ block: "center" }): the target's middle at the viewport's middle.
+                    settingsScrollTop = max(0, frame(settingsFocusTarget).y - frame("settings-content-column").y + frame(settingsFocusTarget).height / 2 - frame("settings-content-scroll").height / 2) + (settingsScrollTop == floor(settingsScrollTop) ? 0.25 : 0)
+                    focus(settingsFocusTarget)
+                    settingsFocusTarget = ""
+  task settingsSearchFocus mount
+    every(1000, focusSettingsTarget)
+  action editSettingsQuery(value: string)
+    settingsFocusTarget = ""
+    settingsQuery = value
+    settingsResultIndex = 0
+    settingsEscapeHeld = false
+  action deviceSetting(id: string, value: string)
+    send localChanged = command("device-setting", id, value, 0)
+  action coreChange(row: string, part: string, value: string)
+    settingsMenu = ""
+    if row == "background-activity" and value == "advanced"
+      settingsThemeDialog = "background-activity"
+      modalError = ""
+    else
+      if not commandPending
+        commandPending = true
+        pendingModal = "settings"
+        modalError = ""
+        send changed = command("settings-core", `${row}:${part}|${settingsCore.scopeKey}`, value, 0)
+  action coreSlide(row: string, part: string, value: number)
+    if not commandPending
+      commandPending = true
+      pendingModal = "settings"
+      modalError = ""
+      send changed = command("settings-core", `${row}:${part}|${settingsCore.scopeKey}`, `${value}`, 0)
+  action coreMenu(section: string, id: string)
+    settingsMenu = (id == "" or settingsMenu == id) ? "" : id
+  action coreMenuClose
+    settingsMenu = ""
+  action coreScope(project: bool, id: string, member: string)
+    settingsMenu = ""
+    modalError = ""
+    if project
+      settingsProjectKey = id
+      settingsCheckout = ""
+      settingsProjectId = member
+    else
+      settingsMachine = id
+  action coreLegacy
+    settingsLegacyOpen = not settingsLegacyOpen
+  action coreNavigate(route: string)
+    settingsEscapeHeld = false
+    settingsRoute = route
+    if route == "diagnostics" and settings.environmentId != ""
+      settingsMachine = settings.environmentId
+      settingsProjectKey = ""
+      settingsCheckout = ""
+      settingsProjectId = ""
+    settingsMenu = ""
+    settingsQuery = ""
+    modalError = ""
+  action corePick(route: string, target: string, scope: string, id: string)
+    settingsRoute = route
+    settingsFocusTarget = target
+    settingsQuery = ""
+    settingsMenu = ""
+    modalError = ""
+    if startsWith(id, "search-result-legacy-")
+      settingsLegacyOpen = true
+  action coreSearchKey(k: string)
+    if k == "/"
+      focus("settings-search")
+    if k == "Escape"
+      settingsEscapeHeld = settingsQuery != ""
+      settingsQuery = ""
+      settingsResultIndex = 0
+    if k == "ArrowDown"
+      settingsResultIndex = settingsResultIndex + 1
+    if k == "ArrowUp"
+      settingsResultIndex = settingsResultIndex + settingsNavigation.count - 1
+    if k == "Enter" and settingsNavigation.firstRoute != ""
+      settingsRoute = settingsNavigation.firstRoute
+      settingsFocusTarget = settingsNavigation.firstTarget
+      settingsQuery = ""
+      settingsMenu = ""
+      modalError = ""
+      if startsWith(settingsNavigation.firstId, "legacy-")
+        settingsLegacyOpen = true
+  action coreClearSearch
+    settingsQuery = ""
+    focus("settings-search")
+  action coreRestoreOpen
+    settingsRestoreOpen = true
+  action coreRestoreClose
+    settingsRestoreOpen = false
+  action coreRestoreConfirm
+    settingsRestoreOpen = false
+    if not commandPending
+      commandPending = true
+      pendingModal = "settings"
+      modalError = ""
+      send changed = command("settings-core", `restore-device-defaults:|${settingsCore.scopeKey}`, "", 0)
+  action coreThemeDialog(kind: string, theme: string)
+    settingsThemeDialog = kind
+    settingsThemeSubject = theme
+    modalError = ""
+  action coreThemeChange(row: string, part: string, value: string)
+    if not commandPending
+      commandPending = true
+      pendingModal = "theme-dialog"
+      modalError = ""
+      send changed = command("settings-core", `${row}:${part}|${settingsCore.scopeKey}`, value, 0)
+  state restEditor = ""
+  state restSubject = ""
+  state restLabel = ""
+  state restMenu = ""
+  action restOpen(editor: string, subject: string, label: string)
+    sbQuery = ""
+    sbLettersEdited = false
+    sbEmoji = ""
+    restEditor = editor
+    restSubject = subject
+    restLabel = label
+    restMenu = ""
+    modalError = ""
+  action restMenuOpen(id: string)
+    restMenu = id
+  action restClose
+    restEditor = ""
+    restMenu = ""
+    modalError = ""
+  action rest(op: string, value: string)
+    restMenu = ""
+    if not commandPending
+      commandPending = true
+      pendingModal = "rest"
+      modalError = ""
+      send changed = command(`rest:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, value, 0)
+  action restLocal(op: string, value: string)
+    send localChanged = command(`restlocal:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, value, 0)
+  action restRaw(op: string, id: string, value: string)
+    restMenu = ""
+    if not commandPending
+      commandPending = true
+      pendingModal = "rest"
+      modalError = ""
+      send changed = command(op, id, value, 0)
+  action restInput(op: string, value: string, input: string)
+    if not commandPending
+      commandPending = true
+      pendingModal = "rest"
+      modalError = ""
+      send changed = command(`rest:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, `${value}${encodeURIComponent(input)}`, 0)
+  action refreshSettings
+    settingsRefresh = settingsRefresh + 1
+  action openLicenseSearch
+    licenseSearchOpen = true
+  action closeLicenseSearch
+    if licenseQuery == ""
+      licenseSearchOpen = false
+  action licenseSearchKey(name: string)
+    if name == "Escape"
+      licenseQuery = ""
+      licenseSearchOpen = false
+  action editLicenseQuery(value: string)
+    licenseQuery = value
+  action toggleLicense(id: string)
+    licenseExpanded = licenseExpanded == id ? "" : id
+  action retryLicenses
+    licenseRetry = licenseRetry + 1
+  action selectDiagnosticPeriod(value: string)
+    diagnosticPeriod = value
+  action copyDiagnostic(value: string)
+    send localChanged = command("copy-diagnostic", "", value, 0)
+  action providerUi(what: string, value: string)
+    modalError = ""
+    if what == "select"
+      providerSelected = value
+    if what == "open"
+      providerDialog = value
+      providerSerial = providerSerial + 1
+      wizardDriver = "codex"
+      wizardLabel = ""
+      wizardLabelSet = false
+      wizardId = ""
+      wizardIdSet = false
+      wizardStep = 0
+      wizardAttempted = false
+      wizardManual = false
+      acpQuery = ""
+    if what == "close"
+      providerDialog = ""
+    if what == "hub-remove"
+      providerDialog = what
+      providerTarget = value
+    if what == "driver" or what == "manual"
+      wizardDriver = what == "driver" ? value : wizardDriver
+      wizardManual = what == "manual" and value == "true"
+      wizardLabelSet = false
+      wizardIdSet = false
+      wizardAttempted = false
+    if what == "label"
+      wizardLabel = value
+      wizardLabelSet = true
+    if what == "id"
+      wizardId = value
+      wizardIdSet = true
+    if what == "acp"
+      acpQuery = value
+    if what == "step"
+      let target = value == "back" ? max(0, wizardStep - 1) : min(wizardManual ? 1 : 2, value == "next" ? wizardStep + 1 : (value == "2" ? 2 : (value == "1" ? 1 : 0)))
+      if wizardStep <= 1 and target > 1 and providerWizard.idError != ""
+        wizardAttempted = true
+        wizardStep = 1
+      else
+        wizardStep = target
+  action providerOp(op: string, id: string, field: string, value: string, apply: bool)
+    if apply and not commandPending
+      commandPending = true
+      pendingModal = op == "acp-prepare" ? "provider-acp" : (op == "provider-hub-add" or op == "provider-hub-remove" or op == "provider-chatgpt" ? "provider-close" : "provider")
+      modalError = ""
+      send changed = providerChange(op, id, field, value)
+  // Lane settings-b: the accent picker commits when a drag ends (pan release supplies its velocity).
+  action providerAccent(id: string, hex: string, vx: number, vy: number)
+    if not commandPending
+      commandPending = true
+      pendingModal = "provider"
+      modalError = ""
+      send changed = providerChange("provider-accent", id, "", hex)
+  action providerAdd(driver: string, label: string, id: string, accent: string, f0: string, f1: string, f2: string, f3: string, f4: string)
+    wizardAttempted = true
+    if not commandPending
+      commandPending = true
+      pendingModal = "provider-add"
+      providerCreated = id == "" ? providerWizard.instanceId : id
+      modalError = ""
+      send changed = providerAdd(driver, label, id, accent, f0, f1, f2, f3, f4)
+  action connectionOp(op: string, id: string, value: string)
+    if not commandPending
+      draftOwner = "__unset__"
+      commandPending = true
+      pendingModal = (op == "environment-add" or op == "environment-ssh-add" or op == "environment-ssh-pick") ? (data.connected ? "connect" : "connect-first") : "connection"
+      modalError = ""
+      connectionRemove = ""
+      send changed = command(op, id, value, 0)
+  action connectionAskRemove(target: string)
+    connectionRemove = target
+    connectionMenu = ""
+  action connectionToggleMenu(target: string)
+    connectionMenu = connectionMenu == target ? "" : target
   action openConnection
+    modalError = ""
     connecting = true
     credential = ""
+    sbSshHost = ""
+  action closeConnection
+    modalError = "" // lane r9-connect: closing Add Environment clears its error (setSavedBackendError(null))
+    pendingModal = ""
+    connecting = false
+    credential = ""
+    origin = ""
+    originEdited = false
   action closeModal
+    pendingModal = ""
     connecting = false
     projectsOpen = false
-    addingProject = false
+    paletteOpen = false
+    settingsOpen = false
+    snapshotSetupOpen = false
+    keybindingOpen = false
+    providerDialog = ""
+    connectionRemove = ""
     modelsOpen = false
     credential = ""
     origin = ""
     originEdited = false
   action editOrigin(value: string)
+    credential = pairFields.host != "" and pairFields.source == origin and credential == "" ? pairFields.code : credential
     origin = value
     originEdited = true
   action editCredential(value: string)
+    origin = pairFields.host != "" and pairFields.source == origin ? pairFields.host : origin
     credential = value
-  action connect
-    if not commandPending
-      draftOwner = "__unset__"
-      commandPending = true
-      send changed = command("connect", serverOrigin == "" ? credential : serverOrigin, credential, 0)
-      credential = ""
-      origin = ""
-      originEdited = false
-      connecting = false
-  action reconnect
-    if not commandPending
-      commandPending = true
-      send changed = command("reconnect", "", "", 0)
-  action disconnect
-    if not commandPending
-      draftOwner = "__unset__"
-      commandPending = true
-      send changed = command("disconnect", "", "", 0)
-      connecting = false
-  action forget
-    if not commandPending
-      draftOwner = "__unset__"
-      commandPending = true
-      send changed = command("forget", "", "", 0)
-      credential = ""
-      connecting = false
   action toggleSidebar
-    send localChanged = command("sidebar", "", data.sidebarOpen ? "closed" : "open", sidebarWidth)
+    send localChanged = command("sidebar", "", data.sidebarOpen ? "closed" : "open", 0)
   action resizeSidebar(dx: number, dy: number)
     // Exact's pan delivers incremental viewport deltas, not total translation.
-    draggedWidth = min(max(208, viewport.width - 640), max(208, sidebarWidth + dx))
+    draggedWidth = min(max(max(208, data.sidebarMinWidth), viewport.width - 640), max(max(208, data.sidebarMinWidth), sidebarWidth + dx))
   action finishResize(vx: number, vy: number)
     send localChanged = command("sidebar", "", "open", sidebarWidth)
   action search(value: string)
@@ -136,24 +996,101 @@ component T3Code
       commandPending = true
       send changed = command("select-project", id, "", 0)
       projectsOpen = false
-  action addProject
+  action manageProject(id: string, name: string, path: string)
     projectsOpen = false
-    addingProject = true
-  action editProjectPath(value: string)
-    projectPath = value
-  action editProjectTitle(value: string)
-    projectTitle = value
-  action saveProject
-    if not commandPending
-      commandPending = true
-      send changed = command("add-project", projectPath, projectTitle, 0)
-      addingProject = false
+    settingsEnvironmentId = settings.environmentId
+    settingsProjectId = id
+    settingsProjectKey = ""
+    settingsCheckout = ""
+    settingsRoute = "projects"
+    settingsOpen = true
+    modalError = ""
   action selectThread(id: string)
     if not commandPending
       draftOwner = "__unset__"
       commandPending = true
       send changed = command("select-thread", id, "", 0)
       jumpRequest = jumpRequest + 1
+      utilityPage = ""
+  action openThread(id: string, how: string) // Sidebar (sidebar-commands.ts): a row press says how it opened ("click" reads ⌘/⇧ to multi-select, "search" clears it).
+    if not commandPending and id != ""
+      draftOwner = "__unset__"
+      commandPending = true
+      send changed = command("select-thread", id, how, 0)
+      jumpRequest = jumpRequest + 1
+      utilityPage = ""
+  action sidebarLocal(op: string, id: string, value: string)
+    send localChanged = command(`sidebarlocal:${op}`, id, value, 0)
+  action sidebarRun(op: string, id: string, value: string)
+    if not commandPending and (op != "row-key" or (value != "Enter" and value != " ")) // r12-sidebar: a focused row's keys look for its menu key; Enter and Space stay its press
+      commandPending = true
+      send changed = command(`sidebar:${op}`, id, value, wallTime.epochAtZero + now())
+  action sidebarScrolled(x: number, y: number)
+    sidebarScrollY = y
+  // SidebarThreadTooltip: the hovered row's card opens to its right (SidebarPlacedHoverCard). A search result under the pointer becomes the highlighted one (onMouseMove); an open row menu (the hover Snooze) puts the card away until the next hover.
+  action sidebarHover(id: string, over: bool)
+    if over
+      sidebarHoverId = id
+      sidebarHoverLast = id
+      sidebarHoverY = frame(`row-${id}`).y - sidebarScrollY
+      sidebarHoverH = frame(`row-${id}`).height
+      if data.sidebar.searching
+        send localChanged = command("sidebarlocal:search-hover", id, "", 0)
+    else
+      if sidebarHoverId == id
+        sidebarHoverId = ""
+      if id == ""
+        sidebarHoverY = -10000
+  action sidebarDrag(id: string, section: string, dx: number, dy: number)
+    if section != "working" and data.sidebar.dragEnabled and not commandPending
+      if dragId != id
+        dragId = id
+        dragSection = section
+        dragDx = 0
+        dragDy = 0
+        sidebarHoverId = ""
+        dragX0 = frame(`row-${id}`).x
+        dragY0 = frame(`row-${id}`).y
+        dragW = frame(`row-${id}`).width
+        dragH = frame(`row-${id}`).height
+        dragTopY = frame("sidebar-list-top").y
+        dragDividerY = frame("sidebar-pinned-divider").y
+        dragWorkingY = data.sidebar.workingCount > 0 ? frame("shelf-working").y : 0
+        dragSnoozedY = data.sidebar.snoozedCount > 0 ? frame("shelf-snoozed").y : 0
+        dragSettledY = frame("shelf-settled").y
+      dragDx = dragDx + dx
+      dragDy = dragDy + dy
+  action sidebarDragEnd(id: string, vx: number, vy: number) // r11-upstream: a row-action sweep's release (`sweep|…`, sidebar.contract ThreadSection) is a drop too
+    if dragId == id or startsWith(id, "sweep|")
+      if dragTarget == "context"
+        if not commandPending
+          commandPending = true
+          send changed = command("sidebar:drop", id, `context|${dragCY}|${dragTopY}|${dragDividerY}|${dragCX >= frame("composer").x - 16 and dragCX <= frame("composer").x + frame("composer").width + 16 and dragCY >= frame("composer").y - 24 and dragCY <= frame("composer").y + frame("composer").height + 64}`, wallTime.epochAtZero + now())
+      else
+        if not commandPending and (dragTarget != "" or startsWith(id, "sweep|"))
+          commandPending = true
+          send changed = command("sidebar:drop", id, `${dragTarget}|${dragCY}|${dragTopY}|${dragDividerY}|false`, wallTime.epochAtZero + now())
+      dragId = ""
+      dragSection = ""
+      dragDx = 0
+      dragDy = 0
+  action resetSidebarWidth
+    draggedWidth = 0
+    send localChanged = command("sidebarlocal:width-reset", "", "", 0)
+  // handleNewThreadClick: one project creates at once; several open "New thread in…" unless ⇧ is held (the client reads it).
+  action sidebarNewThread
+    if not commandPending
+      if data.sidebar.projectGroupCount > 1
+        commandPending = true
+        send changed = command("sidebar:new-thread-click", "", "", 0)
+      else
+        if data.projectId != ""
+          draftOwner = "__unset__"
+          commandPending = true
+          send changed = command("new-thread", "", "", 0)
+          jumpRequest = jumpRequest + 1
+          focus("composer")
+          utilityPage = ""
   action newThread
     if not commandPending
       if data.projectId != ""
@@ -162,280 +1099,229 @@ component T3Code
         send changed = command("new-thread", "", "", 0)
         jumpRequest = jumpRequest + 1
         focus("composer")
+        utilityPage = ""
       else
         projectsOpen = true
   action write(value: string)
     draft = value
-    draftOwner = composerOwner
+    draftOwner = `${composerOwner}${data.requestKey}`
     send localChanged = command("draft", "", value, 0)
   action send
-    if not commandPending
-      if data.canSend and composerText != ""
+    if not commandPending and editor.overLimit and data.requestMode != "question"
+      send localChanged = command("editorlocal:arm-limit", "", "", 0)
+    if not commandPending and (not editor.overLimit or data.requestMode == "question")
+      if data.requestMode == "question" or (data.canSend and (composerText != "" or length(data.snapshotDrafts) > 0))
         commandPending = true
         send changed = command("send", "", composerText, 0)
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
-  action stop
-    if not commandPending
-      commandPending = true
-      send changed = command("stop", "", "", 0)
+  action editorOp(op: string, id: string, value: string) // composer-editor.ts: menu picks, the stash
+    send localChanged = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + now())
   action openModels
-    modelsOpen = true
+    focus(modelsOpen ? "composer" : "model-search")
+    modelsOpen = not modelsOpen
+    popoverSession = popoverSession + 1
+    browseProvider = ""
+    modelQuery = ""
+    optionsOpen = ""
+  action closeModels
+    modelsOpen = false
+    focus("composer")
+  action searchModels(value: string)
+    modelQuery = value
   action selectProvider(id: string)
-    if not commandPending
+    browseProvider = id
+    modelQuery = ""
+    focus("model-search")
+  action selectModel(id: string, provider: string)
+    if not commandPending and id != ""
       commandPending = true
-      send changed = command("provider", id, "", 0)
-  action selectModel(id: string)
-    if not commandPending
-      commandPending = true
-      send changed = command("model", id, "", 0)
+      send changed = command("model", id, provider, 0)
       modelsOpen = false
-  action runtime(value: string)
-    optionsOpen = ""
-    if not commandPending
-      commandPending = true
-      send changed = command("runtime", "", value, 0)
-  action interaction(value: string)
-    optionsOpen = ""
-    if not commandPending
-      commandPending = true
-      send changed = command("interaction", "", value, 0)
-  action answer(id: string, value: string)
-    send localChanged = command("answer", id, value, 0)
-  action toggleDiff
-    if data.diffOpen
-      send localChanged = command("close-diff", "", "", 0)
-    else
-      if not commandPending
-        commandPending = true
-        send changed = command("diff", "", "", 0)
-  action closeDiff
-    send localChanged = command("close-diff", "", "", 0)
+      focus("composer")
+  action chatLocal(op: string, id: string, value: string)
+    if op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir"
+      foldHold = true
+    send localChanged = command(`chatlocal:${op}`, id, op == "table-menu" ? `${frame(`table-copy-${id}`).x}|${frame(`table-copy-${id}`).y}|${frame(`table-copy-${id}`).width}|${frame(`table-copy-${id}`).height}|${viewport.width}|${viewport.height}|${value}` : value, 0) // lane r8-keys: a table popup's trigger frame
+  // Opening a fold keeps the reading position (T3 pauses follow-end while it settles); reaching the end resumes following.
+  state foldHold = false
+  action releaseFold
+    if foldHold
+      foldHold = false
+  // Edit from here: the dialog's answer rolls back, then the prompt returns to the composer.
+  action answerRevert(choice: string)
+    if choice != "cancel"
+      draftOwner = "__unset__"
+    send localChanged = command("chatlocal:revert-answer", "", choice, 0)
   action earlier
     if not commandPending
       if data.hasMore and not data.historyLoading
         commandPending = true
-        send changed = command("history", "", "", 0)
-
+        send changed = command("chatlocal:history", "", "", 0)
+  // Window shell (shell*.contract, shell*.ts): toasts, header panel controls, title menu, right panel, thread details, confirm.
+  state shellClock = 0
+  state toastDismissed = ""
+  state toastHover = false
+  state shellOpenHandled = ""
+  resource shell = shellView(data.revision, wallTime.epochAtZero + shellClock, toastDismissed, toastHover, viewport.width <= 980) as shape ShellView
+  state rightPanel = false
+  state rightMaximized = false
+  state detailsOpen = false
+  state detailsEditors = false
+  resource details = shellDetails(detailsOpen, data.threadId, data.revision, conversationWidth >= 984, wallTime.epochAtZero + shellClock, floor(viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth)) as shape ShellDetails
+  state titleMenuOpen = false
+  state titleMenuSerial = 0
+  state titleMenuX = 0
+  state titleMenuY = 0
+  state renaming = false
+  state renameText = ""
+  state confirmTitle = ""
+  state confirmBody = ""
+  state confirmDestructive = false
+  state confirmOp = ""
+  state confirmTarget = ""
+  state confirmValue = ""
+  task shellTicks mount
+    every(500, shellTick)
+  action shellTick
+    if shell.toastCount > 0 or shell.ticking or commandPending
+      shellClock = now()
+    if shell.openRequest != "" and shell.openRequest != shellOpenHandled and shell.openThreadId != "" and not commandPending
+      shellOpenHandled = shell.openRequest
+      draftOwner = "__unset__"
+      commandPending = true
+      send changed = command("select-thread", shell.openThreadId, "", 0)
+      jumpRequest = jumpRequest + 1
+  action toastHovering(over: bool)
+    toastHover = over
+  action toastAct(id: number, op: string, target: string, value: string)
+    toastDismissed = op == "copy" ? toastDismissed : `${toastDismissed} ${op == "dismiss" ? "x" : "a"}${id}`
+    if op == "copy"
+      send localChanged = command("shelllocal:copy-error", `${id}`, value, 0)
+    if op == "ui:settings"
+      settingsEnvironmentId = settings.environmentId
+      settingsOpen = true
+      settingsRoute = target
+      settingsMenu = ""
+      settingsQuery = ""
+      settingsFocusTarget = value
+      modalError = ""
+    if op != "copy" and op != "dismiss" and op != "ui:settings" and not commandPending
+      commandPending = true
+      send changed = command(op, target, value, 0)
+      if op == "select-thread"
+        draftOwner = "__unset__"
+        jumpRequest = jumpRequest + 1
+  action panelUi(what: string, id: string) // r4-surfaces: tabs and surfaces live in the client (r4-surfaces-panel.ts, shell.panel)
+    titleMenuOpen = false
+    rightPanel = what == "toggle" or what == "close" or what == "tab-close" or (what == "key" and id == "Escape") ? ((what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open) or (what == "tab-close" and shell.panel.count > 1)) : (rightPanel or what == "choose")
+    if what == "toggle" or what == "close" or what == "tab-close" or (what == "key" and id == "Escape")
+      rightMaximized = what == "tab-close" and shell.panel.count > 1 and rightMaximized
+      send localChanged = command(what == "tab-close" ? "shelllocal:surface-close" : (what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open ? "shelllocal:surface-show" : "shelllocal:surface-hide"), id, "", 0)
+      if what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open
+        focus("surface-chooser")
+    if what == "maximize"
+      rightMaximized = not rightMaximized
+    if (what == "choose" or (what == "key" and (id == "d" or id == "D" or id == "f" or id == "F" or id == "m" or id == "M" or id == "l" or id == "L" or id == "p" or id == "P"))) and (data.threadId != "" or id == "files" or id == "f" or id == "F") and not commandPending
+      commandPending = true
+      send changed = command((id == "diff" or id == "d" or id == "D") ? "diff" : "shelllocal:surface-open", "", id, 0)
+  action detailsAct(op: string, target: string, value: string)
+    detailsEditors = op == "editors" and not detailsEditors
+    titleMenuOpen = false
+    detailsOpen = op == "toggle" ? (not detailsOpen and conversationWidth < 984) : (detailsOpen and op != "ui:project-settings" and op != "select-thread" and op != "ui:changes") // inline (>= 984): toggle remembers the thread's docked card
+    if op == "ui:project-settings"
+      settingsEnvironmentId = settings.environmentId
+      settingsProjectId = target == "" ? data.projectId : target
+      settingsProjectKey = ""
+      settingsCheckout = ""
+      settingsRoute = "projects"
+      settingsOpen = true
+      modalError = ""
+    if (op != "toggle" or conversationWidth >= 984) and op != "editors" and op != "ui:project-settings" and not commandPending
+      commandPending = true
+      send changed = command(op == "toggle" ? "shelllocal:details-inline" : op == "ui:changes" ? "diff" : op == "ui:editor" ? "shell:open-editor" : op, target, value, 0)
+      if op == "select-thread" or op == "shell:merge-back"
+        draftOwner = "__unset__"
+        jumpRequest = jumpRequest + 1
+  action titleUi(what: string, value: string)
+    if what == "open" or what == "context"
+      titleMenuX = frame("thread-title").x
+      titleMenuY = frame("thread-title").y + frame("thread-title").height + 4
+      titleMenuOpen = (what == "context" or not titleMenuOpen) and not renaming
+      titleMenuSerial = titleMenuSerial + 1
+    if what == "close"
+      titleMenuOpen = false
+    if what == "rename" and shell.serverThread
+      titleMenuOpen = false
+      renaming = true
+      renameText = data.threadTitle
+      focus("header-rename")
+    if what == "edit"
+      renameText = value
+    if what == "key" and value == "Escape"
+      renaming = false
+    if (what == "commit" and renaming) or (what == "new-thread" and data.projectId != "")
+      renaming = false
+      if not commandPending
+        commandPending = true
+        send changed = command(what == "commit" ? "shell:rename" : "new-thread", what == "commit" ? data.threadId : data.projectId, renameText, 0)
+        if what == "new-thread"
+          draftOwner = "__unset__"
+          jumpRequest = jumpRequest + 1
+          focus("composer")
+  action titleMenuPick(op: string, target: string, value: string, askTitle: string, askBody: string, destructive: bool)
+    titleMenuOpen = op == "ui:submenu" and titleMenuOpen
+    if op == "ui:rename"
+      renaming = true
+      renameText = data.threadTitle
+      focus("header-rename")
+    if op == "ui:project-settings"
+      settingsEnvironmentId = settings.environmentId
+      settingsProjectId = target
+      settingsProjectKey = ""
+      settingsCheckout = ""
+      settingsRoute = "projects"
+      settingsOpen = true
+      modalError = ""
+    if op == "ui:confirm"
+      confirmTitle = askTitle
+      confirmBody = askBody
+      confirmDestructive = destructive
+      confirmOp = value
+      confirmTarget = target
+      confirmValue = ""
+    if startsWith(op, "shelllocal:")
+      send localChanged = command(op, target, value, 0)
+    if (op == "ui:new-thread" or not startsWith(op, "ui:")) and not startsWith(op, "shelllocal:") and not commandPending
+      commandPending = true
+      send changed = command(op == "ui:new-thread" ? "new-thread" : op, target, value, 0)
+  action confirmUi(accept: bool)
+    confirmOp = ""
+    if accept and not commandPending
+      commandPending = true
+      send changed = command(confirmOp, confirmTarget, confirmValue, 0)
   view
-    main testId="t3-code" viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas font-family="system-ui" color="light-dark(#27272a, #f5f5f5)"
-      row width="100%" height="100%" min-width=0 inert=modal
+    main testId="t3-code" viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) font-family=(settingsCore.interfaceFont == "ui-serif" ? "ui-serif" : settingsCore.interfaceFont == "ui-rounded" ? "ui-rounded" : settingsCore.interfaceFont == "serif" ? "serif" : settingsCore.interfaceFont == "sans-serif" ? "sans-serif" : settingsCore.interfaceFont == "monospace" ? "monospace" : settingsCore.interfaceFont == "ui-monospace" ? "ui-monospace" : settingsCore.interfaceFont == "ui-sans-serif" ? "ui-sans-serif" : "system-ui") color=(settingsCore.palette.text == "" ? "light-dark(#27272a, #f5f5f5)" : settingsCore.palette.text)
+      row width="100%" height="100%" min-width=0 inert=(modal or shell.panel.deviceSetup)
         when data.sidebarOpen
-          column width=sidebarWidth height="100%" flex-shrink=0 background-color="light-dark(#fafafa, #080808)" border-right-style="solid" border-right-width=1 border-color="light-dark(#e4e4e7, #252525)" position="relative" testId="sidebar"
-            NightlyBackdrop()
-            row height=52 flex-shrink=0 padding-left=90 padding-right=8 gap=12 align-items="center" position="relative"
-              button press=toggleSidebar class=Control width=28 height=28 padding=6 aria-label="Toggle sidebar" aria-keyshortcuts="Meta+B" testId="toggle-sidebar"
-                Icon(name="sidebar", color="#d8daed", size=16)
-              row gap=4 align-items="center"
-                Wordmark()
-                text "Code" font-size=14 font-weight=500 letter-spacing=-0.35 color="#c4c3d2"
-            row padding-left=4 padding-right=4 gap=0 height=40 flex-shrink=0 align-items="center"
-              row flex=1 min-width=0 align-items="center" gap=8 padding-left=10
-                Icon(name="search", size=16, color="light-dark(#71717a, #858585)")
-                input value=data.query input=search placeholder="Search" aria-label="Search threads" testId="search-threads" font-size=14 flex=1 min-width=0 border-width=0 background-color="#00000000" class=Ink
-              button press=openProjects class=Control width=28 aria-label="Choose project" testId="choose-project"
-                Icon(name="folder", size=16, color="light-dark(#71717a, #858585)")
-              button press=addProject class=Control width=28 aria-label="Add project" testId="add-project" disabled=(not data.connected)
-                Icon(name="folder-plus", size=16, color="light-dark(#71717a, #858585)")
-              button press=newThread class=Control width=28 aria-label="New thread" aria-keyshortcuts="Meta+N" testId="new-thread" disabled=(commandPending or not data.connected)
-                Icon(name="compose", size=16, color="light-dark(#71717a, #858585)")
-            scroll flex=1 min-height=0 padding-left=4 padding-right=4 padding-bottom=8 testId="thread-list"
-              column min-height="100%" width="100%" gap=1
-                ThreadSection(threads=data.threads, section="pinned", label="", select=selectThread)
-                ThreadSection(threads=data.threads, section="active", label="", select=selectThread)
-                box flex=1 min-height=16
-                ThreadSection(threads=data.threads, section="working", label="Working", select=selectThread)
-                ThreadSection(threads=data.threads, section="snoozed", label="Snoozed", select=selectThread)
-                ThreadSection(threads=data.threads, section="settled", label="Settled", select=selectThread)
-                when data.query != "" and length(data.threads) == 0
-                  text "No threads found" class=Muted font-size=12 text-align="center" padding=20
-            row height=40 padding-left=8 padding-right=8 box-sizing="border-box" align-items="center" gap=4 flex-shrink=0
-              button press=openConnection testId="connection-settings" class=Control width=28 height=28 padding=6 aria-label="Settings"
-                Icon(name="settings", size=16, color="light-dark(#71717a, #858585)")
-              box flex=1
-              when not data.connected
-                button press=openConnection class=Control testId="connect-server"
-                  text (data.connecting ? "Connecting…" : "Connect") font-size=12 class=Muted
-              button press=reconnect testId="reconnect-server" class=Control width=28 height=28 padding=6 aria-label="Reconnect server"
-                Icon(name="refresh", size=16, color="light-dark(#71717a, #858585)")
-            box position="absolute" top=52 bottom=0 right=-3 width=6 z-index=5 touch-action="none" pan=resizeSidebar panrelease=finishResize aria-label="Resize sidebar" testId="sidebar-resize"
-        column flex=1 min-width=0 height="100%" position="relative"
-          row height=52 flex-shrink=0 align-items="center" gap=10 padding-left=(data.sidebarOpen ? 20 : 90) padding-right=14
-            when not data.sidebarOpen
-              button press=toggleSidebar class=Control width=28 aria-label="Toggle sidebar" aria-keyshortcuts="Meta+B" testId="toggle-sidebar"
-                Icon(name="sidebar", size=16, color="light-dark(#71717a, #858585)")
-              button press=newThread class=Control width=28 aria-label="New thread" aria-keyshortcuts="Meta+N" disabled=(commandPending or not data.connected)
-                Icon(name="compose", size=16, color="light-dark(#71717a, #858585)")
-            when data.projectId != ""
-              ProjectMark(label=data.projectMark, muted=false)
-              text data.projectName font-size=14 class=Muted line-clamp=1 max-width=180
-              text "/" font-size=14 color="light-dark(#d4d4d8, #525252)"
-            text (data.threadTitle == "" ? "New thread" : data.threadTitle) font-size=14 font-weight=500 class=Ink flex=1 min-width=0 line-clamp=1
-            button press=toggleDiff class=Control width=28 aria-label="Toggle changes" aria-keyshortcuts="Meta+D" testId="toggle-diff" disabled=(data.threadId == "") background-color=(data.diffOpen ? "light-dark(#eceef4, #242424)" : "#00000000")
-              Icon(name="changes", size=16, color="light-dark(#71717a, #858585)")
-          when data.error != ""
-            row padding=10 gap=10 background-color="light-dark(#fef2f2, #291516)" align-items="center" flex-shrink=0 testId="error-banner"
-              text data.error font-size=12 line-height=1.4 color="light-dark(#b91c1c, #fca5a5)" flex=1 min-width=0
-              button press=command("dismiss-error", "", "", 0) class=Control aria-label="Dismiss error"
-                text "×" font-size=18 class=Muted
-          when data.uncertain
-            row padding=12 gap=10 background-color="light-dark(#fffbeb, #211b0e)" align-items="center" flex-shrink=0 testId="uncertain-banner"
-              text data.uncertainMessage font-size=12 line-height=1.4 class=Ink flex=1 min-width=0
-              button press=command("retry", "", "", 0) disabled=(commandPending or not data.connected or not data.syncComplete) class=Control border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)"
-                text "Retry request" font-size=12 class=Ink
-          when length(data.messages) == 0
-            column flex=1 min-height=0 justify-content="center" align-items="center" padding=32 gap=10 testId="empty-thread"
-              text (data.connected ? "What would you like to build?" : "Connect to T3 Code") font-size=20 font-weight=500 letter-spacing=-0.5 class=Ink text-align="center"
-              text (not data.connected ? "Connect to your local T3 server to get started." : data.projectId == "" ? "Choose a project, then start a thread." : "Your project, your tools, your coding agent.") font-size=13 line-height=1.5 class=Muted text-align="center"
-              when data.connected and data.projectId == ""
-                button press=openProjects class=Primary margin-top=8 testId="empty-choose-project"
-                  text "Choose project" font-size=12 color="#ffffff"
+          when viewport.prefersColorScheme == "dark"
+            Sidebar(data=data, shell=shell, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, busy=commandPending, keySidebar=settings.keySidebar, keyNewThread=settings.keyNewThread, toggle=toggleSidebar, search=search, openProjects=openProjects, addProject=paletteShow("command", "add-project"), newThread=sidebarNewThread, select=selectThread, openSettings=openSettings, openConnection=openConnection, reconnect=command("reconnect", "", "", 0), resize=resizeSidebar, finishResize=finishResize, command=command, page=utilityPage, pullRequests=home.pullRequests, navigate=openPage, local=sidebarLocal, run=sidebarRun, open=openThread, resetWidth=resetSidebarWidth, hoverCard=sidebarHover, hoverId=sidebarHoverId, openProviders=openProviderSettings, scrolled=sidebarScrolled, drag=sidebarDrag, dragEnd=sidebarDragEnd, dragId=dragId, dragTarget=dragTarget, dragVerb=dragVerb, dragOffset=dragOffset, scrollY=sidebarScrollY)
           else
-            when data.hasMore
-              button press=earlier disabled=(commandPending or data.historyLoading) class=Control align-self="center" margin-top=8 testId="load-earlier"
-                text (data.historyLoading ? "Loading history…" : "Load earlier messages") font-size=11 class=Muted
-            list virtualized=true scrollFollowEnd=true scrollTop=(1000000 + jumpRequest) id="transcript" testId="transcript" flex=1 min-height=0 width="100%" overflow-x="hidden"
-              each message in data.messages key=message.id
-                TimelineRow(message=message)
-          column padding-left=20 padding-right=20 padding-top=12 padding-bottom=20 flex-shrink=0 align-items="center" width="100%" box-sizing="border-box"
-            column width="100%" max-width=736 position="relative"
-              Requests(data=data, command=command, answer=answer, busy=commandPending, maximumHeight=min(300, max(120, viewport.height * 0.35)))
-              when data.settled
-                row margin-left=22 margin-right=22 margin-bottom=-12 padding-left=10 padding-right=10 padding-top=7 padding-bottom=19 gap=8 align-items="center" border-radius=20 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #1d1d1d)" background-color="light-dark(#fafafa, #101010)" testId="settled-banner"
-                  Icon(name="check", size=12, color="light-dark(#71717a, #858585)")
-                  text "This thread is settled" font-size=12 class=Ink
-                  text "Send a message to unsettle" font-size=12 class=Muted flex=1 min-width=0 line-clamp=1
-                  button press=command("unsettle", "", "", 0) class=Control disabled=commandPending testId="unsettle-thread" padding=0
-                    text "Un-settle" font-size=12 class=Ink
-              column width="100%" padding=16 gap=16 border-radius=24 class=Surface border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #202020)" box-sizing="border-box" testId="composer-surface" position="relative"
-                textarea id="composer" testId="composer" hook="t3-composer" value=composerText input=write submit=send placeholder=(data.connected ? "Ask anything, or describe a task…" : "Connect to your T3 server to send a message") aria-label="Message" width="100%" height=64 font-size=14 line-height="21px" padding=0 border-width=0 background-color="#00000000" class=Ink autocorrect="off" spellcheck="false"
-                row width="100%" gap=4 align-items="center" min-width=0 height=32
-                  button press=openModels class=Control aria-label="Choose provider and model" aria-keyshortcuts="Meta+Shift+M" testId="model-picker" disabled=(not data.connected) max-width=240 padding-left=0 padding-right=6 height=28 gap=6
-                    ProviderMark(driver=data.providerDriver)
-                    text (data.modelLabel == "" ? "Choose model" : data.modelLabel) font-size=14 class=Muted line-clamp=1 min-width=0
-                    Icon(name="chevron", size=12, color="light-dark(#71717a, #858585)")
-                  when data.optionId != ""
-                    box width=1 height=16 background-color="light-dark(#e4e4e7, #222222)" margin-left=5 margin-right=5
-                    button press=openOptions("effort") class=Control aria-label="Model reasoning effort" testId="reasoning-effort" disabled=(commandPending or not data.connected or data.running) height=28 padding-left=8 padding-right=8
-                      Icon(name="bolt", size=16, color="light-dark(#71717a, #858585)")
-                      text data.optionLabel font-size=14 class=Muted
-                      Icon(name="chevron", size=12, color="light-dark(#71717a, #858585)")
-                  box width=1 height=16 background-color="light-dark(#e4e4e7, #222222)" margin-left=5 margin-right=5
-                  button press=openOptions("runtime") class=Control aria-label="Approval policy" testId="runtime-mode" disabled=(commandPending or not data.connected or data.running) height=28 padding-left=8 padding-right=8
-                    Icon(name="lock", size=16, color="light-dark(#71717a, #858585)")
-                    text data.modeLabel font-size=14 class=Muted line-clamp=1
-                    Icon(name="chevron", size=12, color="light-dark(#71717a, #858585)")
-                  when data.interactionMode == "plan"
-                    button press=openOptions("runtime") class=Control testId="interaction-mode" aria-label="Plan mode"
-                      Icon(name="plan", size=16, color="light-dark(#71717a, #858585)")
-                      text "Plan" font-size=13 class=Muted
-                  box flex=1 min-width=0
-                  when data.canStop
-                    button press=stop disabled=commandPending testId="stop" aria-label="Stop generation" width=32 height=32 border-radius=16 background-color="light-dark(#27272a, #eeeeee)" border-width=0 display="flex" align-items="center" justify-content="center" flex-shrink=0
-                      box width=10 height=10 border-radius=2 background-color="light-dark(#ffffff, #1c1c1c)"
-                  button press=send id="send-message" hook="t3-send" testId="send-message" aria-label="Send message" aria-keyshortcuts="Meta+Enter" disabled=(commandPending or not data.canSend or composerText == "") width=32 height=32 border-radius=16 background-color=(data.canSend and composerText != "" ? "light-dark(#3b4eba, #353b82)" : "light-dark(#e4e4e7, #202344)") border-width=0 display="flex" align-items="center" justify-content="center" flex-shrink=0
-                    Icon(name="up", size=20, color=(data.canSend and composerText != "" ? "#ffffff" : "light-dark(#a1a1aa, #a3a4bc)"))
-        when data.diffOpen and not narrowDiff
-          box width=diffWidth height="100%" flex-shrink=0
-            DiffPanel(data=data, close=closeDiff)
-      when data.diffOpen and narrowDiff and not modal
-        box position="absolute" top=0 bottom=0 left=0 right=0 background-color="#00000044" z-index=10 press=closeDiff
-        box position="absolute" top=0 bottom=0 right=0 width=min(viewport.width, diffWidth) z-index=11
-          DiffPanel(data=data, close=closeDiff)
+            Sidebar(data=data, shell=shell, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, busy=commandPending, keySidebar=settings.keySidebar, keyNewThread=settings.keyNewThread, toggle=toggleSidebar, search=search, openProjects=openProjects, addProject=paletteShow("command", "add-project"), newThread=sidebarNewThread, select=selectThread, openSettings=openSettings, openConnection=openConnection, reconnect=command("reconnect", "", "", 0), resize=resizeSidebar, finishResize=finishResize, command=command, page=utilityPage, pullRequests=home.pullRequests, navigate=openPage, local=sidebarLocal, run=sidebarRun, open=openThread, resetWidth=resetSidebarWidth, hoverCard=sidebarHover, hoverId=sidebarHoverId, openProviders=openProviderSettings, scrolled=sidebarScrolled, drag=sidebarDrag, dragEnd=sidebarDragEnd, dragId=dragId, dragTarget=dragTarget, dragVerb=dragVerb, dragOffset=dragOffset, scrollY=sidebarScrollY)
+        ChatColumn(pageCover=pageCover, sidebarWidth=sidebarWidth, viewport=viewport, data=data, shell=shell, settings=settings, rightPanel=(rightPanel or shell.panel.open), narrowDiff=narrowDiff, detailsOpen=detailsOpen, details=details, detailsEditors=detailsEditors, titleMenuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panelUi=panelUi, detailsAct=detailsAct, titleUi=titleUi, home=home, commandPending=commandPending, command=command, paletteShow=paletteShow, foldHold=foldHold, releaseFold=releaseFold, jumpRequest=jumpRequest, composerOwner=composerOwner, canRest=canRest, chatLocal=chatLocal, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, dismissedProviderBanner=dismissedProviderBanner, settingsCore=settingsCore, conversationWidth=conversationWidth, resting=resting, scrollToEnd=scrollToEnd, editor=editor, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, selectThread=selectThread, openModels=openModels, composerText=composerText, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=command("stop", "", "", 0), composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=titleMenuPick, interaction=menuPick("interaction", ""), openProviderSettings=openProviderSettings, branches=branches, dismissProviderBanner=dismissProviderBanner, timelineNow=(wallTime.epochAtZero + max(liveNow, elapsed)), contextOver=(dragTarget == "context" and editor.drawer.cardWidth > 0 and dragCX >= editor.drawer.cardX and dragCX <= editor.drawer.cardX + editor.drawer.cardWidth and dragCY >= editor.drawer.cardY and dragCY <= editor.drawer.cardY + editor.drawer.cardHeight))
+        RightPanels(data=data, narrowDiff=narrowDiff, rightMaximized=rightMaximized, viewport=viewport, sidebarWidth=sidebarWidth, diffWidth=diffWidth, shell=shell, command=command, panelUi=panelUi, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, rightPanel=(rightPanel or shell.panel.open), detailsOpen=detailsOpen, detailsAct=detailsAct, chatLocal=chatLocal, paletteShow=paletteShow, prDetail=prDetail, prDocuments=prMarkdown.documents, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy)
+      PagesCover(pageCover=pageCover, data=data, sidebarWidth=sidebarWidth, modal=modal, utilityPage=utilityPage, viewport=viewport, usage=usage, usageShortcuts=usageShortcuts, settings=settings, toggleSidebar=toggleSidebar, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, usageEnvironmentToggle=usageEnvironmentToggle, openPage=openPage, prList=prList, prTyped=prTyped, prQuery=prQuery, prListWidth=prListWidth, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prReload=prReload, paletteShow=paletteShow, prDetail=prDetail, prMarkdown=prMarkdown, prPanelWidth=prPanelWidth, prTab=prTab, prSetTab=prSetTab, prClose=prClose, prAct=prAct, prCopy=prCopy, chatLocal=chatLocal, home=home, commandPending=commandPending, command=command, openConnectionsPage=openConnectionsPage, pagesOp=welcomeImport)
+      RightSheets(data=data, narrowDiff=narrowDiff, modal=modal, panelUi=panelUi, viewport=viewport, diffWidth=diffWidth, shell=shell, command=command, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, rightPanel=(rightPanel or shell.panel.open), detailsOpen=detailsOpen, detailsAct=detailsAct, chatLocal=chatLocal, paletteShow=paletteShow, prDetail=prDetail, prDocuments=prMarkdown.documents, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy)
       when optionsOpen != ""
-        box position="absolute" left=0 right=0 top=0 bottom=0 z-index=19 press=closeOptions aria-label="Close options" aria-keyshortcuts="Escape"
-        column position="absolute" left=min(viewport.width - 256, composerLeft + (optionsOpen == "effort" ? 156 : 250)) bottom=76 width=224 padding=6 gap=2 border-radius=12 border-style="solid" border-width=1 border-color="light-dark(#dedee3, #2a2a2a)" background-color="light-dark(#ffffff, #151515)" z-index=30 box-shadow="0 10px 30px #00000033" testId="composer-options"
-          when optionsOpen == "effort"
-            text "Reasoning effort" font-size=11 class=Muted padding=8
-            each option in data.modelOptions key=option.id
-              button press=modelOption(option.value) class=Control justify-content="flex-start" width="100%" testId=`effort-${option.value}` background-color=(option.selected ? "light-dark(#f4f4f5, #252525)" : "#00000000")
-                text option.label font-size=13 class=Ink flex=1
-                when option.selected
-                  text "✓" font-size=13 class=Ink
-          else
-            text "Permissions" font-size=11 class=Muted padding=8
-            button press=runtime("approval-required") class=Control justify-content="flex-start" width="100%" testId="mode-approval-required"
-              text "Ask for approval" font-size=13 class=Ink
-            button press=runtime("auto-accept-edits") class=Control justify-content="flex-start" width="100%" testId="mode-auto-accept-edits"
-              text "Auto-accept edits" font-size=13 class=Ink
-            button press=runtime("auto") class=Control justify-content="flex-start" width="100%" testId="mode-auto"
-              text "Auto" font-size=13 class=Ink
-            button press=runtime("full-access") class=Control justify-content="flex-start" width="100%" testId="mode-full-access"
-              text "Full access" font-size=13 class=Ink
-            box height=1 width="100%" background-color="light-dark(#e4e4e7, #2a2a2a)" margin-top=4 margin-bottom=4
-            button press=interaction(data.interactionMode == "plan" ? "default" : "plan") class=Control justify-content="flex-start" width="100%" testId="toggle-plan-mode"
-              Icon(name="plan", size=16, color="light-dark(#71717a, #858585)")
-              text (data.interactionMode == "plan" ? "Disable plan mode" : "Plan mode") font-size=13 class=Ink
-      when connecting
-        column class=Overlay
-          column width="100%" max-width=460 padding=24 gap=15 border-radius=18 class=Surface border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)" box-sizing="border-box" role="dialog" aria-label="Connect to T3" testId="connection-dialog"
-            row gap=12 align-items="center"
-              text "Connect to T3" font-size=19 font-weight=600 class=Ink flex=1
-              button press=closeModal class=Control aria-label="Close connection settings" aria-keyshortcuts="Escape"
-                text "×" font-size=20 class=Muted
-            text "Use your existing local T3 server. Provider accounts and projects stay with that server." font-size=13 line-height=1.5 class=Muted
-            text "Server address or pairing link" font-size=11 font-weight=500 class=Muted
-            input value=serverOrigin input=editOrigin placeholder="http://127.0.0.1:3773 or a T3 pairing URL" aria-label="Server address or pairing link" testId="server-origin" class=Field width="100%"
-            text "Pairing credential" font-size=11 font-weight=500 class=Muted
-            input value=credential input=editCredential type="password" placeholder="Token or pairing URL; leave blank to reconnect" aria-label="Pairing credential" testId="server-credential" class=Field width="100%"
-            when not data.available
-              text "This client requires its macOS native transport module." font-size=12 color="light-dark(#b91c1c, #fca5a5)"
-            row gap=8 justify-content="flex-end"
-              when data.connected
-                button press=disconnect disabled=commandPending class=Control testId="disconnect"
-                  text "Disconnect" font-size=12 class=Muted
-              button press=forget disabled=commandPending class=Control testId="forget-server"
-                text "Forget connection" font-size=12 class=Muted
-              button press=connect class=Primary disabled=(commandPending or not data.available or data.connecting or (serverOrigin == "" and credential == "")) testId="connect"
-                text "Connect" font-size=12 color="#ffffff"
-      when projectsOpen
-        column class=Overlay
-          column width="100%" max-width=440 max-height=(viewport.height - 96) padding=18 gap=12 border-radius=16 class=Surface border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)" box-sizing="border-box" role="dialog" aria-label="Choose project" testId="project-dialog"
-            row align-items="center" gap=12
-              text "Projects" font-size=17 font-weight=600 class=Ink flex=1
-              button press=addProject class=Control disabled=(not data.connected) testId="project-dialog-add"
-                text "+ Add project" font-size=12 class=Muted
-              button press=closeModal class=Control aria-label="Close project picker" aria-keyshortcuts="Escape"
-                text "×" font-size=19 class=Muted
-            scroll min-height=100 max-height=(viewport.height - 210)
-              column gap=5
-                each project in data.projects key=project.id
-                  button press=selectProject(project.id) disabled=commandPending testId=`project-${project.id}` padding=12 border-radius=9 border-width=0 display="flex" flex-direction="column" align-items="flex-start" gap=4 width="100%" box-sizing="border-box" background-color=(project.selected ? "light-dark(#f0f2f8, #242424)" : "#00000000")
-                    text project.name font-size=14 font-weight=500 class=Ink
-                    text project.path font-size=11 class=Muted line-clamp=2
-                when length(data.projects) == 0
-                  text "Add a workspace folder to start your first thread." font-size=13 line-height=1.5 class=Muted padding=12
-      when addingProject
-        column class=Overlay
-          column width="100%" max-width=450 padding=24 gap=14 border-radius=18 class=Surface border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)" box-sizing="border-box" role="dialog" aria-label="Add project" testId="add-project-dialog"
-            row align-items="center" gap=12
-              text "Add project" font-size=18 font-weight=600 class=Ink flex=1
-              button press=closeModal class=Control aria-label="Close add project" aria-keyshortcuts="Escape"
-                text "×" font-size=20 class=Muted
-            text "Choose an existing folder on the T3 server's Mac." font-size=13 class=Muted
-            input value=projectPath input=editProjectPath placeholder="/Users/you/projects/my-app" aria-label="Workspace folder" testId="project-path" class=Field width="100%"
-            input value=projectTitle input=editProjectTitle placeholder="Project name (optional)" aria-label="Project name" testId="project-name" class=Field width="100%"
-            button press=saveProject class=Primary align-self="flex-end" disabled=(commandPending or projectPath == "" or not data.connected) testId="save-project"
-              text "Add project" font-size=12 color="#ffffff"
-      when modelsOpen
-        column class=Overlay
-          column width="100%" max-width=550 max-height=(viewport.height - 96) border-radius=18 class=Surface border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)" box-sizing="border-box" overflow="hidden" role="dialog" aria-label="Choose model" testId="model-dialog"
-            row padding=16 gap=10 align-items="center" flex-shrink=0
-              text "Choose model" font-size=17 font-weight=600 class=Ink flex=1
-              button press=closeModal class=Control aria-label="Close model picker" aria-keyshortcuts="Escape"
-                text "×" font-size=20 class=Muted
-            row min-height=180 max-height=(viewport.height - 180) align-items="stretch"
-              scroll width=140 flex-shrink=0 background-color="light-dark(#fafafa, #171717)" padding=8 box-sizing="border-box"
-                column gap=5
-                  each provider in data.providers key=provider.id
-                    button press=selectProvider(provider.id) disabled=(commandPending or not provider.available or data.running) testId=`provider-${provider.id}` class=Control justify-content="flex-start" width="100%" box-sizing="border-box" background-color=(provider.id == data.providerId ? "light-dark(#e8ecf8, #273148)" : "#00000000")
-                      text provider.name font-size=12 class=Ink line-clamp=1
-              scroll flex=1 min-width=0 padding=8 box-sizing="border-box"
-                column gap=4
-                  each model in filter(data.models, (m) => m.providerId == data.providerId) key=model.id
-                    button press=selectModel(model.id) disabled=(commandPending or data.running) testId=`model-${model.id}` class=Control width="100%" box-sizing="border-box" justify-content="flex-start" background-color=(model.selected ? "light-dark(#f0f2f8, #242424)" : "#00000000")
-                      text model.name font-size=13 class=Ink flex=1 min-width=0
-                      when model.selected
-                        text "✓" font-size=14 color="light-dark(#2451cc, #79a3ff)"
-                  when length(filter(data.models, (m) => m.providerId == data.providerId)) == 0
-                    text "No models are available. Check provider setup in T3." font-size=12 line-height=1.5 class=Muted padding=12
+        ComposerMenus(data=data, session=popoverSession, which=optionsOpen, left=composerLeft, viewport=viewport, resting=resting, close=closeOptions, chooseTrait=menuPick("model-option"), chooseRuntime=menuPick("runtime", ""), command=menuCommand, branches=branches, branchQuery=branchQuery, searchBranches=searchBranches, local=chatLocal)
+      ProjectPicker(projectsOpen=projectsOpen, viewport=viewport, paletteShow=paletteShow, data=data, closeModal=closeModal, manageProject=manageProject, commandPending=commandPending, selectProject=selectProject)
+      SettingsWindow(settingsOpen=settingsOpen, settingsCore=settingsCore, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsRestoreOpen=settingsRestoreOpen, data=data, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, sidebarWidth=sidebarWidth, viewport=viewport, settingsMenu=settingsMenu, settingsEscapeHeld=settingsEscapeHeld, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, closeModal=closeModal, toggleSidebar=toggleSidebar, commandPending=commandPending, coreRestoreOpen=coreRestoreOpen, settingsScrollTop=settingsScrollTop, coreMenuClose=coreMenuClose, settingsLegacyOpen=settingsLegacyOpen, coreLegacy=coreLegacy, coreMenu=coreMenu, coreChange=coreChange, coreSlide=coreSlide, coreNavigate=coreNavigate, coreScope=coreScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, rest=rest, restInput=restInput, restLocal=restLocal, integrations=integrations, snapshotSettings=snapshotSettings, snapshotSetupOpen=snapshotSetupOpen, toggleSnapshots=toggleSnapshots, showSnapshotSetup=showSnapshotSetup, changeSnapshot=settingsCommand("setting-snapshot"), previewSnapshotSound=previewSnapshotSound, recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), bindings=bindings, keybindingQuery=keybindingQuery, keybindingSearch=keybindingSearch, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, searchKeybindings=searchKeybindings, keybindingSearchKey=keybindingSearchKey, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, restOpen=restOpen, storageSettings=storageSettings, archives=archives, restMenu=restMenu, restRaw=restRaw, restMenuOpen=restMenuOpen, restClose=restClose, licenses=licenses, licenseQuery=licenseQuery, licenseSearchOpen=licenseSearchOpen, editLicenseQuery=editLicenseQuery, openLicenseSearch=openLicenseSearch, closeLicenseSearch=closeLicenseSearch, licenseSearchKey=licenseSearchKey, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, openConnection=openConnection, connectionOp=connectionOp, connectionAskRemove=connectionAskRemove, connectionMenu=connectionMenu, connectionToggleMenu=connectionToggleMenu, providerPage=providerPage, providerDialog=providerDialog, providerUi=providerUi, providerOp=providerOp, providerAccent=providerAccent, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreRestoreClose=coreRestoreClose, coreRestoreConfirm=coreRestoreConfirm)
+      WelcomeLayer(welcome=welcome, viewport=viewport, welcomeStep=welcomeStep, commandPending=commandPending, modalError=modalError, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeHelpOpen=welcomeHelpOpen, welcomeGo=welcomeGo, welcomeImport=welcomeImport, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, welcomeToggleHelp=welcomeToggleHelp, prCopy=prCopy, welcomeSetup=welcomeSetup, providerUi=providerUi, welcomeFinish=welcomeFinish)
+      ShortcutDispatch(items=shortcuts, selectThread=selectThread, newThread=newThread, chatNew=sidebarNewThread, deviceSetting=deviceSetting, toggleDiff=panelUi("toggle", ""), openDiff=panelUi("choose", "diff"), closeDiff=panelUi("close", ""), panel=panelUi, prClose=prClose, stop=command("stop", "", "", 0), openOptions=openOptions, selectProvider=selectProvider, selectModel=selectModel, back=closeModal, copyThread=restLocal, palette=paletteShow, run=paletteRun, command=command, settings=openSettings, copy=prCopy)
+      ProjectDialogs(restEditor=restEditor, restSubject=restSubject, restLabel=restLabel, scheduled=scheduled, projectsSettings=projectsSettings, commandPending=commandPending, modalError=modalError, rest=rest, restRaw=restRaw, restClose=restClose, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, viewport=viewport, sbSet=sbSet)
+      when viewport.prefersColorScheme == "dark"
+        SidebarOverlays(data=data, width=sidebarWidth, open=(data.sidebarOpen and not modal), busy=commandPending, local=sidebarLocal, run=sidebarRun, hoverId=sidebarHoverId, hoverLast=sidebarHoverLast, hoverY=sidebarHoverY, dragId=dragId, dragTarget=dragTarget, dragVerb=dragVerb, ghostX=dragCX, ghostY=dragCY, shell=shell, pullRequests=home.pullRequests, viewportHeight=viewport.height, hoverH=sidebarHoverH, resize=resizeSidebar, finishResize=finishResize, resetWidth=resetSidebarWidth, hoverCard=sidebarHover)
+      else
+        SidebarOverlays(data=data, width=sidebarWidth, open=(data.sidebarOpen and not modal), busy=commandPending, local=sidebarLocal, run=sidebarRun, hoverId=sidebarHoverId, hoverLast=sidebarHoverLast, hoverY=sidebarHoverY, dragId=dragId, dragTarget=dragTarget, dragVerb=dragVerb, ghostX=dragCX, ghostY=dragCY, shell=shell, pullRequests=home.pullRequests, viewportHeight=viewport.height, hoverH=sidebarHoverH, resize=resizeSidebar, finishResize=finishResize, resetWidth=resetSidebarWidth, hoverCard=sidebarHover)
+      SettingsModals(snapshotSetupOpen=snapshotSetupOpen, snapshotSettings=snapshotSettings, commandPending=commandPending, modalError=modalError, snapshotSetupWasEnabled=snapshotSetupWasEnabled, showSnapshotSetup=showSnapshotSetup, toggleSnapshots=toggleSnapshots, changeSnapshot=settingsCommand("setting-snapshot"), recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), connecting=connecting, origin=origin, credential=credential, pairFields=pairFields, data=data, viewport=viewport, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, editOrigin=editOrigin, editCredential=editCredential, connectionOp=connectionOp, sbSet=sbSet, closeConnection=closeConnection, providerDialog=providerDialog, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardAttempted=wizardAttempted, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerUi=providerUi, providerAdd=providerAdd, providerOp=providerOp, providerPage=providerPage, providerTarget=providerTarget, connectionRemove=connectionRemove, connectionsPage=connectionsPage, connectionAskRemove=connectionAskRemove)
+      WindowOverlays(modelsOpen=modelsOpen, data=data, popoverSession=popoverSession, catalog=catalog, viewport=viewport, modelQuery=modelQuery, composerLeft=composerLeft, resting=resting, commandPending=commandPending, closeModels=closeModels, selectModel=selectModel, searchModels=searchModels, selectProvider=selectProvider, command=command, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteRun=paletteRun, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, detailsOpen=detailsOpen, details=details, rightPanel=(rightPanel or shell.panel.open), narrowDiff=narrowDiff, sidebarWidth=sidebarWidth, conversationWidth=conversationWidth, detailsEditors=detailsEditors, detailsAct=detailsAct, titleMenuOpen=titleMenuOpen, shell=shell, titleMenuX=titleMenuX, titleMenuY=titleMenuY, titleMenuSerial=titleMenuSerial, titleMenuPick=titleMenuPick, titleUi=titleUi, answerRevert=answerRevert, attachmentUrls=attachmentUrls, chatLocal=chatLocal, confirmOp=confirmOp, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct)

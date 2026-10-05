@@ -1,0 +1,90 @@
+// Source Control → Bitbucket credentials (lane settings-a; settings-a-bitbucket.ts),
+// the body of the Bitbucket row's details (BitbucketCredentialsSettings.tsx).
+
+shape BitbucketView
+  key: string
+  saved: string
+  savedLabel: string
+  email: string
+  apiTokenSaved: bool
+  environmentId: string
+
+// The reference's canSave: a new access token, or an email with a new or kept API token
+// that changes something.
+fn bbCanSave(method: string, saved: string, access: string, email: string, savedEmail: string, api: string, apiSaved: bool): bool = method == "access-token" ? trim(access) != "" : (trim(email) != "" and (trim(api) != "" or apiSaved) and (saved != method or trim(api) != "" or trim(email) != savedEmail))
+
+component BitbucketForm
+  props
+    form: BitbucketView
+    busy: bool
+    rest: action
+  state choice = ""
+  state accessDraft = ""
+  state emailDraft = ""
+  state emailEdited = false
+  state apiDraft = ""
+  action choose(next: string)
+    choice = next
+  action editAccess(next: string)
+    accessDraft = next
+  action editEmail(next: string)
+    emailDraft = next
+    emailEdited = true
+  action editApi(next: string)
+    apiDraft = next
+  view
+    column width="100%" gap=16 padding-top=4 padding-left=16 padding-right=16 padding-bottom=16 box-sizing="border-box" testId="bitbucket-credentials"
+      // ToggleGroup variant segmented: the sign-in method.
+      row align-self="flex-start" role="group" aria-label="Bitbucket sign-in method" padding=2 gap=2 border-radius=10 background-color="light-dark(#d4d4d866, #ffffff08)"
+        BbMethod(value="access-token", label="Access token", selected=(choice != "" ? choice : (form.saved != "" ? form.saved : "access-token")), disabled=busy, choose=choose)
+        BbMethod(value="api-token", label="API token", selected=(choice != "" ? choice : (form.saved != "" ? form.saved : "access-token")), disabled=busy, choose=choose)
+      when (choice != "" ? choice : (form.saved != "" ? form.saved : "access-token")) == "access-token"
+        BbInfo(description="Scoped to one repository, project, or workspace. Create it in that item's Bitbucket settings.", link="https://support.atlassian.com/bitbucket-cloud/docs/access-tokens/", linkLabel="Learn more")
+        BbField(label="Access token")
+          input value=accessDraft input=editAccess placeholder=(form.saved == "access-token" ? "Stored secret, enter a new value to replace" : "Not set") type="password" disabled=busy aria-label="Access token" spellcheck="false" autocorrect="off" testId="bitbucket-access-token" flex=1 min-width=0 height=26 padding=0 position="relative" top=4.5 border-width=0 background-color="#00000000" font-size=14 line-height="26px" color="light-dark(#27272a, #f5f5f5)"
+      else
+        BbInfo(description="Uses your Atlassian account, so it reaches every repository you can. Give it read and write access to repositories and pull requests, and read:user:bitbucket.", link="https://id.atlassian.com/manage-profile/security/api-tokens", linkLabel="Create an API token")
+        BbField(label="Atlassian account email")
+          input value=(emailEdited ? emailDraft : form.email) input=editEmail placeholder="you@example.com" type="email" disabled=busy aria-label="Atlassian account email" spellcheck="false" autocorrect="off" testId="bitbucket-email" flex=1 min-width=0 height=26 padding=0 position="relative" top=4.5 border-width=0 background-color="#00000000" font-size=14 line-height="26px" color="light-dark(#27272a, #f5f5f5)"
+        BbField(label="API token")
+          input value=apiDraft input=editApi placeholder=(form.saved == "api-token" ? "Stored secret, enter a new value to replace" : "Not set") type="password" disabled=busy aria-label="API token" spellcheck="false" autocorrect="off" testId="bitbucket-api-token" flex=1 min-width=0 height=26 padding=0 position="relative" top=4.5 border-width=0 background-color="#00000000" font-size=14 line-height="26px" color="light-dark(#27272a, #f5f5f5)"
+      row width="100%" align-items="center" justify-content="space-between" gap=12
+        text (form.saved == "" ? "Without a saved token, the server falls back to its T3CODE_BITBUCKET_* environment variables." : (form.saved == (choice != "" ? choice : form.saved) ? "" : `Saving replaces your ${form.savedLabel}.`)) font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" flex=1 min-width=0 testId="bitbucket-note"
+        row flex-shrink=0 gap=8
+          when form.saved != ""
+            button press=rest("bitbucket", `action=remove&environment=${form.environmentId}`) disabled=busy testId="bitbucket-remove" height=24 padding-left=7 padding-right=7 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" opacity=(busy ? 0.64 : 1)
+              text "Remove" font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+          button press=rest("bitbucket", `action=save&environment=${form.environmentId}&method=${choice != "" ? choice : (form.saved != "" ? form.saved : "access-token")}&accessToken=${encodeURIComponent(accessDraft)}&email=${encodeURIComponent(emailDraft)}&emailEdited=${emailEdited ? "true" : "false"}&apiToken=${encodeURIComponent(apiDraft)}`) disabled=(busy or not bbCanSave(choice != "" ? choice : (form.saved != "" ? form.saved : "access-token"), form.saved, accessDraft, emailEdited ? emailDraft : form.email, form.email, apiDraft, form.apiTokenSaved)) testId="bitbucket-save" height=24 padding-left=7 padding-right=7 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" box-shadow="0 1px 2px #1b4ed83d" display="flex" flex-direction="row" align-items="center" opacity=(busy or not bbCanSave(choice != "" ? choice : (form.saved != "" ? form.saved : "access-token"), form.saved, accessDraft, emailEdited ? emailDraft : form.email, form.email, apiDraft, form.apiTokenSaved) ? 0.64 : 1)
+            text "Save" font-size=12 font-weight=500 line-height="16px" color="#ffffff"
+
+component BbMethod
+  props
+    value: string
+    label: string
+    selected: string
+    disabled: bool
+    choose: action
+  view
+    button press=choose(value) disabled=disabled role="radio" aria-checked=(selected == value) aria-label=label testId=`bitbucket-method-${value}` height=24 padding-left=10 padding-right=10 border-radius=8 border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(selected == value ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(selected == value ? "0 1px 2px #0000000d" : "none")
+      text label font-size=14 font-weight=500 line-height="20px" color=(selected == value ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+
+component BbInfo
+  props
+    description: string
+    link: string
+    linkLabel: string
+  view
+    // The docs link runs inline after the description (InlineButton inside the paragraph).
+    text width="100%" max-width=672 font-size=12 line-height="19.5px" color="light-dark(#71717b, #818181)" testId="bitbucket-docs"
+      text `${description} `
+      text linkLabel href=link font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+
+component BbField
+  props
+    label: string
+  slot
+  view
+    column width="100%" gap=6
+      text label font-size=14 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+      row width="100%" height=28 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow="0 1px 2px #0000000a" align-items="center" padding-left=9 padding-right=9
+        children

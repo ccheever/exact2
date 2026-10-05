@@ -66,6 +66,133 @@ private final class ComposerFixture {
 }
 
 final class ComposerTests: XCTestCase {
+    func testAppearanceChangesWindowAndRestoresSystemInheritance() {
+        let fixture = ComposerFixture()
+        let chrome = T3WindowChrome()
+        chrome.install(fixture.composer)
+        chrome.setAppearance("dark")
+        XCTAssertEqual(fixture.window.appearance?.name, .darkAqua)
+        chrome.setAppearance("light")
+        XCTAssertEqual(fixture.window.appearance?.name, .aqua)
+        chrome.setAppearance("system")
+        XCTAssertNil(fixture.window.appearance)
+        chrome.destroy()
+    }
+
+    func testConfiguredSendShortcutUsesPromptAndPreservesIME() {
+        let fixture = ComposerFixture()
+        let plain = fixture.event(), command = fixture.event(modifiers: .command)
+        XCTAssertEqual(T3Composer.returnAction(plain, hasMarkedText: false, shortcut: "mod-enter"), .passThrough)
+        XCTAssertEqual(T3Composer.returnAction(command, hasMarkedText: false, shortcut: "mod-enter"), .send)
+        XCTAssertEqual(T3Composer.returnAction(plain, hasMarkedText: false, shortcut: "mod-enter-multiline", prompt: "one"), .send)
+        XCTAssertEqual(T3Composer.returnAction(plain, hasMarkedText: false, shortcut: "mod-enter-multiline", prompt: "one\ntwo"), .passThrough)
+        XCTAssertEqual(T3Composer.returnAction(command, hasMarkedText: false, shortcut: "mod-enter-multiline", prompt: "one\ntwo"), .send)
+        XCTAssertEqual(T3Composer.returnAction(command, hasMarkedText: true, shortcut: "mod-enter"), .passThrough)
+        XCTAssertEqual(T3Composer.returnAction(fixture.event(modifiers: [.command, .shift]), hasMarkedText: false, shortcut: "mod-enter"), .passThrough)
+    }
+
+    func testTimelineRejectsProgrammaticMovementAndResetsOwner() {
+        let fixture = ComposerFixture()
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
+        scroll.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 500))
+        fixture.window.contentView?.addSubview(scroll)
+        let element = ExactElement(hook: .t3Transcript, id: "transcript", node: 4, hooks: fixture.hooks)
+        element.platform = scroll; element.view = scroll
+        element.data = ExactData(["timeline-owner": "A", "timeline-rest": "yes"])
+        var changes = 0
+        let timeline = T3Timeline(changed: { _ in changes += 1 })
+        func move(_ y: CGFloat) {
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
+            NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        }
+        move(400); timeline.install(element)
+        move(350)
+        XCTAssertFalse(timeline.resting, "programmatic initial/history-follow movement is not a gesture")
+        XCTAssertFalse(timeline.atEnd)
+        // A real event authorizes subsequent stable viewport movement.
+        scroll.documentView?.addSubview(fixture.editor)
+        fixture.window.makeFirstResponder(fixture.editor)
+        let bound = fixture.event(key: 115)
+        timeline.handle(bound); move(320)
+        XCTAssertTrue(timeline.resting)
+        move(400)
+        XCTAssertTrue(timeline.atEnd); XCTAssertFalse(timeline.resting)
+        timeline.handle(bound); move(370)
+        XCTAssertTrue(timeline.resting, "collapse also works near the end")
+        element.data = ExactData(["timeline-owner": "B", "timeline-rest": "yes"])
+        timeline.install(element)
+        XCTAssertFalse(timeline.resting)
+        XCTAssertEqual(timeline.status["owner"] as? String, "B")
+        XCTAssertGreaterThan(changes, 0)
+        timeline.destroy()
+    }
+
+    func testTimelineResizeAndComposerInteractionDoNotCollapse() {
+        let fixture = ComposerFixture()
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
+        let document = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 500))
+        scroll.documentView = document
+        fixture.window.contentView?.addSubview(scroll)
+        let element = ExactElement(hook: .t3Transcript, id: "transcript", node: 4, hooks: fixture.hooks)
+        element.platform = scroll; element.view = scroll
+        element.data = ExactData(["timeline-owner": "A", "timeline-rest": "yes"])
+        let timeline = T3Timeline(changed: { _ in })
+        timeline.install(element)
+        scroll.frame.size.width = 250
+        document.frame.size.height = 650
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 100))
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        XCTAssertFalse(timeline.resting)
+        element.data = ExactData(["timeline-owner": "A", "timeline-rest": "no"])
+        timeline.install(element)
+        XCTAssertFalse(timeline.resting, "multiline, focus and requests withdraw eligibility")
+        timeline.destroy()
+    }
+
+    func testModelPickerKeysBelongToContractNotTheReturnMonitor() {
+        let fixture = ComposerFixture()
+        let field = NSTextField(frame: NSRect(x: 0, y: 130, width: 200, height: 24))
+        fixture.window.contentView?.addSubview(field)
+        fixture.window.makeFirstResponder(field)
+        // Escape, the arrows and Return in the picker's search field are the
+        // field's own `key`/`submit` (Contract) and the dismiss layer's command.
+        for key: UInt16 in [53, 125, 126, 36] { XCTAssertNotNil(fixture.controller.handle(fixture.event(key: key))) }
+        XCTAssertEqual(fixture.clicks.pointee, 0)
+    }
+
+    func testTriggerAnchorsReportRowOffsetsOnlyWhenTheyMove() {
+        let fixture = ComposerFixture()
+        let row = NSView(frame: NSRect(x: 40, y: 0, width: 600, height: 32))
+        let traits = NSView(frame: NSRect(x: 147, y: 2, width: 90.9, height: 28))
+        let runtime = NSView(frame: NSRect(x: 250.9, y: 2, width: 133, height: 28))
+        row.addSubview(traits); row.addSubview(runtime)
+        fixture.window.contentView?.addSubview(row)
+        var changes = 0
+        let controller = T3Composer(changed: { name in XCTAssertEqual(name, "t3.status"); changes += 1 })
+        // The host retains its elements; the controller holds them weakly.
+        let elements = [(5, "traits", traits), (6, "runtime", runtime)].map { (node: UInt32, name: String, view: NSView) -> ExactElement in
+            let element = ExactElement(hook: .t3Anchor, id: name, node: node, hooks: fixture.hooks)
+            element.view = view; element.platform = view
+            element.data = ExactData(["anchor": name])
+            return element
+        }
+        elements.forEach(controller.install)
+        XCTAssertEqual(controller.anchorFrames["traits"], [147, 91])
+        XCTAssertEqual(controller.anchorFrames["runtime"], [251, 133])
+        XCTAssertEqual((controller.status["anchors"] as? [String: [Double]])?.count, 2)
+        let before = changes
+        row.frame.origin.x = 80
+        controller.measure()
+        XCTAssertEqual(changes, before, "moving the whole row changes no offset")
+        traits.frame.size.width = 70
+        runtime.frame.origin.x = 230
+        XCTAssertEqual(controller.anchorFrames["runtime"], [230, 133], "a frame change re-measures on its own")
+        XCTAssertGreaterThan(changes, before)
+        controller.remove(elements[1])
+        XCTAssertNil(controller.anchorFrames["runtime"], "a removed trigger stops reporting")
+        controller.destroy()
+    }
+
     func testTitlebarKeepsNativeButtonsCenteredAndContentFullSize() {
         let fixture = ComposerFixture()
         fixture.window.styleMask.formUnion([.closable, .miniaturizable, .resizable, .fullSizeContentView])
@@ -167,8 +294,12 @@ final class ComposerTests: XCTestCase {
     }
 }
 
-let suite = ComposerTests.defaultTestSuite
-suite.run()
-guard let run = suite.testRun, run.executionCount == 8 else { exit(1) }
-print("Composer: \(run.executionCount) tests, \(run.totalFailureCount) failures")
-exit(run.hasSucceeded ? 0 : 1)
+var executed = 0, failures = 0, succeeded = true
+for suite in [ComposerTests.defaultTestSuite, ComposerEditorTests.defaultTestSuite, ComposerImageChipTests.defaultTestSuite, ComposerChipTipTests.defaultTestSuite, ImageAccentTests.defaultTestSuite] {
+    suite.run()
+    guard let run = suite.testRun, run.executionCount == suite.testCaseCount else { exit(1) }
+    executed += run.executionCount; failures += run.totalFailureCount; succeeded = succeeded && run.hasSucceeded
+}
+guard executed >= 14 else { exit(1) }
+print("Composer: \(executed) tests, \(failures) failures")
+exit(succeeded ? 0 : 1)

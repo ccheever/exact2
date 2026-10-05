@@ -1,0 +1,62 @@
+// Lane r9-device (MIT reference, see LICENSE-T3): DeviceStreamView's foldingControls under the device
+// rail. DeviceDuoControls: an iPhone Duo's "Fold shape" (Closed, Book, Open) and "Device stance"
+// (Laptop, Tent) groups; DeviceAndroidFoldControls: a foldable emulator's Fold / Unfold. Each group is
+// a pill like the rail's (4pt inset and gap), its buttons the `icon` size (32pt, 8pt radius), ghost or,
+// when chosen, secondary/90, around DeviceDuoGlyph (28pt). A failed command shows a destructive "!".
+// `local` reaches r6-media-device.ts (`surface-r6dev-duo` / `surface-r6dev-fold`, r9-device-duo.ts).
+use R9DevFolding from "./r9-device-shapes.contract"
+use R9DevStand from "./r9-device-shapes.contract"
+use R10DevLeftTip from "./r10-device.contract"
+use R10DevErrorMark from "./r10-device.contract"
+
+fn r9devMuted(): string = "light-dark(#71717b, #818181)"
+fn r9devInk(): string = "light-dark(#27272a, #f5f5f5)"
+
+component R9DevFoldingControls
+  props
+    folding: R9DevFolding
+    local: action
+  view
+    column flex-shrink=0 align-items="center" gap=8 role="group" aria-label=(folding.kind == "duo" ? "iPhone Duo stands" : "Android fold controls") testId="device-folding"
+      each group in folding.groups key=group.id
+        column flex-shrink=0 align-items="center" gap=4 padding=4 border-radius=999 border-width=1 border-style="solid" border-color="light-dark(#e4e4e780, #ffffff0a)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" box-shadow="0 1px 2px #0000000d" role="group" aria-label=group.label testId=`device-folding-${group.id}`
+          each stand in group.stands key=stand.id
+            R9DevStandButton(stand=stand, enabled=folding.enabled, press=local(`surface-r6dev-${folding.kind}`, "", stand.id))
+      when folding.error != ""
+        R10DevErrorMark(error=folding.error)
+
+component R9DevStandButton
+  props
+    stand: R9DevStand
+    enabled: bool
+    press: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    // lane r10-device: the stand's TooltipPopup side="left" (r10-device.contract); a disabled button still shows it, as Base UI's trigger does.
+    box position="relative" flex-shrink=0
+      button press=press hover=hover disabled=(not enabled) aria-label=stand.label aria-checked=stand.selected testId=`device-stand-${stand.id}` width=32 height=32 padding=0 border-radius=8 border-width=0 opacity=(enabled ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(stand.selected ? "light-dark(#fafafae6, #ffffff07)" : over and enabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+        R9DevDuoGlyph(pose=stand.glyph, color=(stand.selected ? r9devInk() : r9devMuted()))
+      R10DevLeftTip(label=stand.tip, shown=over)
+
+// DeviceDuoGlyph: Bitrig's fold outlines and the stance contours, 28pt.
+component R9DevDuoGlyph
+  props
+    pose: string
+    color: string
+  view
+    svg width=28 height=28 viewBox=(pose == "laptop" or pose == "tent" ? "0 0 22 16" : "0 0 24 32") color=color fill="none" stroke="currentColor" stroke-width=(pose == "laptop" or pose == "tent" ? 1.25 : 1.8) stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+      when pose == "laptop"
+        path d="M2.7351 12.9857 L15.8128 11.4159 L14.4114 3.3787 C14.1943 2.134 13.1275 1.2319 12.0283 1.3639 L2.9308 2.4559 C1.8317 2.5879 1.1167 3.7038 1.3337 4.9485 L2.7351 12.9857 Z M2.7351 12.9857 L15.8128 11.4159 L19.9103 12.8914 C20.5449 13.1199 20.1683 13.4121 19.0692 13.5441 L9.9717 14.6361 C8.8725 14.7681 7.4672 14.6898 6.8326 14.4612 L2.7351 12.9857 Z"
+      when pose == "tent"
+        path d="M3.2522 2.7267 L18.7478 1.4816 L16.696 9.7017 C16.3782 10.9748 15.0649 12.0915 13.7626 12.1962 L2.983 13.0623 C1.6807 13.167 0.8826 12.2199 1.2004 10.9468 L3.2522 2.7267 Z M3.2522 2.7267 L18.7478 1.4816 L20.7996 10.6909 C21.1174 12.1172 20.3193 13.3581 19.017 13.4628 L8.2374 14.3289 C6.9351 14.4336 5.6218 13.3623 5.304 11.936 L3.2522 2.7267 Z"
+      when pose == "closed"
+        rect x=2 y=9 width=20 height=13 rx=2.2
+        path d="M19.3 12.5v6"
+        circle cx=5 cy=12 r=0.5 fill="currentColor" stroke="none"
+      when pose == "book"
+        path d="M4.2 6.5h15.6c1 0 1.6.8 1.2 1.7L17.7 16l3.3 7.8c.4.9-.2 1.7-1.2 1.7H4.2c-1 0-1.6-.8-1.2-1.7L6.3 16 3 8.2c-.4-.9.2-1.7 1.2-1.7Z"
+      when pose == "open"
+        rect x=2 y=2 width=20 height=28 rx=2.4
+        path d="M10 27h4"

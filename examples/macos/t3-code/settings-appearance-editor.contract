@@ -1,0 +1,157 @@
+// Appearance → the floating theme editor (lane settings-a; settings-appearance-editor.ts).
+// Reference ThemeEditorPanel.tsx: a 416pt panel at the window's bottom-right with
+// its header (title, "Select a color below", minimize, close), Theme name,
+// Appearance (Light/Dark), Colors with Advanced and Filter colors, the colour
+// families, and Cancel / Create theme. ThemeColorPicker's popover chooses a colour.
+use CoreIcon from "./settings-core.contract"
+use CorePalette from "./settings-core.contract"
+use SettingsGhost from "./settings-core.contract"
+use EditorRow from "./settings-appearance-editor-shapes.contract"
+use EditorView from "./settings-appearance-editor-shapes.contract"
+
+component ThemeEditorPanel
+  props
+    editor: EditorView
+    pal: CorePalette
+    viewportHeight: number
+    busy: bool
+    error: string
+    close: action
+    commit: action
+    save: action
+  state minimized = false
+  state name = ""
+  state named = false
+  action toggleMinimized
+    minimized = not minimized
+  // The name travels with Save (no commit on blur: a blur-time write would make Save's
+  // own click land on a busy, disabled button).
+  action editName(next: string)
+    name = next
+    named = true
+  view
+    column position="absolute" right=16 bottom=16 width=416 max-height=(viewportHeight * 0.8) border-radius=14 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.canvas box-shadow="0 20px 25px -5px #0000001a, 0 8px 10px -6px #0000001a" box-sizing="border-box" overflow="hidden" z-index=35 role="dialog" aria-label=editor.title testId="theme-editor"
+      row flex-shrink=0 align-items="center" gap=4 padding-top=8 padding-bottom=8 padding-left=12 padding-right=12 border-bottom-width=(minimized ? 0 : 1) border-bottom-style="solid" border-color=pal.divider box-sizing="border-box"
+        row flex=1 min-width=0 gap=8 align-items="baseline"
+          text editor.title font-size=14 font-weight=500 line-height="20px" color=pal.text role="heading" aria-level=2 flex-shrink=0
+          text "Select a color below" font-size=12 line-height="16px" color=pal.muted line-clamp=1
+        button press=toggleMinimized aria-label=(minimized ? "Expand the theme editor" : "Minimize the theme editor") class=SettingsGhost width=24 height=24 border-radius=8 testId="theme-editor-minimize"
+          // f2cc80a7 MorphIcon ChevronDown↔ChevronUp: a half turn on morphicons' snappy spring.
+          box rotate=(minimized ? "180deg" : "0deg") transition="rotate spring(420, 30, 1)"
+            CoreIcon(name="chevron-down", size=14, color=pal.muted)
+        button press=close aria-label="Close the theme editor" aria-keyshortcuts="Escape" class=SettingsGhost width=24 height=24 border-radius=8 testId="theme-editor-close"
+          CoreIcon(name="x", size=14, color=pal.muted)
+      when not minimized
+        scroll flex=1 min-height=0 max-height=(viewportHeight * 0.8 - 88) width="100%"
+          column padding-top=12 padding-bottom=12 padding-left=12 padding-right=6 gap=12 box-sizing="border-box" width="100%"
+            row width="100%" gap=12 align-items="center"
+              text "Theme name" font-size=14 font-weight=500 line-height="20px" color=pal.text width=128 flex-shrink=0
+              input value=(named ? name : editor.name) input=editName placeholder=(editor.title == "Edit theme" ? "Theme name" : "e.g. Aurora") aria-label="Theme name" spellcheck="false" flex=1 min-width=0 height=28 padding-top=3 padding-bottom=3 line-height="20px" padding-left=9 padding-right=9 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-size=14 color=pal.text testId="theme-editor-name"
+            row width="100%" gap=12 align-items="center"
+              text "Appearance" font-size=14 font-weight=500 line-height="20px" color=pal.text width=128 flex-shrink=0
+              row role="group" aria-label="Theme appearance" padding=2 gap=2 border-radius=10 background-color=pal.highlight
+                EditorToggle(label="Light", on=(editor.appearance == "light"), pal=pal, press=commit("theme-editor", "appearance", "light"))
+                EditorToggle(label="Dark", on=(editor.appearance == "dark"), pal=pal, press=commit("theme-editor", "appearance", "dark"))
+            column width="100%" gap=12
+              row width="100%" gap=12 align-items="flex-start"
+                column width=128 flex-shrink=0
+                  text "Colors" font-size=14 font-weight=500 line-height="20px" color=pal.text role="heading" aria-level=3
+                  when not editor.advanced
+                    text "Two colors, rest derived" font-size=12 line-height="16px" color=pal.muted
+                row flex=1 min-width=0 gap=12 align-items="flex-start"
+                  when editor.advanced
+                    EditorFilter(value=editor.filter, pal=pal, commit=commit("theme-editor", "filter"))
+                  else
+                    box flex=1
+                  row gap=8 align-items="center" padding-top=2 flex-shrink=0
+                    text "Advanced" font-size=14 font-weight=500 line-height="20px" color=pal.text
+                    button press=commit("theme-editor", "advanced", editor.advanced ? "false" : "true") role="switch" aria-checked=editor.advanced aria-label="Advanced Use advanced theme colors" class=SettingsGhost justify-content="flex-start" width=30 height=18 padding=2 border-radius=9 background-color=(editor.advanced ? pal.accent : pal.switchOff) testId="theme-editor-advanced"
+                      box width=14 height=14 border-radius=7 background-color=pal.thumb margin-left=(editor.advanced ? 12 : 0)
+              when editor.advanced
+                column width="100%" gap=20
+                  each group in editor.groups key=group.id
+                    column width="100%" gap=8
+                      text group.title font-size=14 font-weight=500 line-height="20px" color=pal.text role="heading" aria-level=4
+                      column width="100%" gap=4
+                        each row in group.rows key=row.id
+                          EditorColorRow(row=row, presets=editor.presets, pal=pal, commit=commit)
+                  when length(editor.groups) == 0
+                    text "No matches." font-size=12 line-height="16px" color=pal.muted
+              else
+                column width="100%" gap=4
+                  each row in editor.rows key=row.id
+                    EditorColorRow(row=row, presets=editor.presets, pal=pal, commit=commit)
+            when error != ""
+              text error role="alert" font-size=12 line-height="18px" color="light-dark(#dc2626, #f87171)" testId="theme-editor-error"
+        row flex-shrink=0 justify-content="flex-end" align-items="center" gap=8 padding-top=8 padding-bottom=8 padding-left=12 padding-right=12 border-top-width=1 border-top-style="solid" border-color=pal.divider box-sizing="border-box"
+          button press=close class=SettingsGhost height=28 padding-left=10 padding-right=10 border-radius=8 testId="theme-editor-cancel"
+            text "Cancel" font-size=14 font-weight=500 line-height="20px" color=pal.text
+          button press=save(named ? name : editor.name) disabled=(busy or (named ? name : editor.name) == "" or not editor.canSave) class=SettingsGhost height=28 padding-left=10 padding-right=10 gap=6 border-radius=8 background-color=pal.accent opacity=(busy or (named ? name : editor.name) == "" or not editor.canSave ? 0.64 : 1) testId="theme-editor-save"
+            CoreIcon(name="paintbrush", size=16, color=pal.accentText)
+            text editor.saveLabel font-size=14 font-weight=500 line-height="20px" color=pal.accentText
+
+component EditorToggle
+  props
+    label: string
+    on: bool
+    pal: CorePalette
+    press: action
+  view
+    button press=press role="radio" aria-checked=on class=SettingsGhost height=24 padding-left=10 padding-right=10 border-radius=8 background-color=(on ? pal.canvas : "#00000000") box-shadow=(on ? "0 1px 2px #0000000d" : "none") testId=`theme-editor-appearance-${label}`
+      text label font-size=14 font-weight=500 line-height="20px" color=(on ? pal.text : pal.muted)
+
+component EditorFilter
+  props
+    value: string
+    pal: CorePalette
+    commit: action
+  state draft = ""
+  state edited = false
+  action edit(next: string)
+    draft = next
+    edited = true
+  view
+    input value=(edited ? draft : value) input=edit change=commit placeholder="Filter colors" aria-label="Filter colors" spellcheck="false" flex=1 min-width=0 height=28 padding-top=3 padding-bottom=3 line-height="20px" padding-left=9 padding-right=9 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-size=14 color=pal.text testId="theme-editor-filter"
+
+// ThemeColorField: the family label, the swatch (opens the picker) and the hex value.
+component EditorColorRow
+  props
+    row: EditorRow
+    presets: list<string>
+    pal: CorePalette
+    commit: action
+  state hovered = false
+  state draft = ""
+  state editing = false
+  action hover(over: bool)
+    hovered = over
+  action edit(next: string)
+    draft = next
+    editing = true
+  action leave
+    editing = false
+  view
+    row width="100%" height=44 padding-top=6 padding-bottom=6 padding-left=8 padding-right=8 gap=8 align-items="center" box-sizing="border-box" border-radius=10 hover=hover background-color=(hovered ? pal.highlight : "#00000000") testId=`theme-editor-row-${row.id}`
+      text row.label font-size=14 line-height="20px" color=(hovered ? pal.text : pal.muted) flex=1 min-width=0 line-clamp=1
+      box position="relative" flex-shrink=0
+        button popovertarget=`theme-color-${row.id}` aria-label=`Choose ${row.label} color` width=24 height=24 padding=1 box-sizing="border-box" border-radius=12 border-width=1 border-style="solid" border-color="light-dark(#27272a4d, #f5f5f54d)" background-color="#00000000" testId=`theme-editor-swatch-${row.id}`
+          box width=20 height=20 border-radius=10 background-color=row.value
+        EditorPicker(row=row, presets=presets, pal=pal, commit=commit)
+      input value=(editing ? draft : row.value) input=edit change=commit("theme-editor", `color:${row.role}`) blur=leave aria-label=`${row.label} hex value` spellcheck="false" width=112 height=30 flex-shrink=0 padding-top=4 padding-bottom=4 line-height="20px" padding-left=9 padding-right=9 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-family="ui-monospace" font-size=12 color=pal.text testId=`theme-editor-hex-${row.id}`
+
+component EditorPicker
+  props
+    row: EditorRow
+    presets: list<string>
+    pal: CorePalette
+    commit: action
+  view
+    column id=`theme-color-${row.id}` popover="auto" position="absolute" margin-top=4 width=288 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label=`${row.label} color` testId=`theme-color-${row.id}-popover`
+      row align-items="center" justify-content="space-between" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 border-bottom-width=1 border-bottom-style="solid" border-color=pal.divider
+        column min-width=0
+          text row.label font-size=12 font-weight=600 line-height="16px" color=pal.text line-clamp=1
+          text "Choose a color" font-size=10 line-height="14px" color=pal.muted
+        box width=28 height=28 border-radius=14 background-color=row.value box-shadow="0 1px 2px #0000001a"
+      row flex-wrap="wrap" gap=6 padding=12 box-sizing="border-box"
+        each color in presets key=color
+          button press=commit("theme-editor", `color:${row.role}`, color) popovertarget=`theme-color-${row.id}` popovertargetaction="hide" aria-label=`Use ${color}` width=26 height=26 padding=0 border-radius=13 border-width=1 border-style="solid" border-color="light-dark(#27272a26, #f5f5f526)" background-color=color testId=`theme-color-${row.id}-preset-${color}`

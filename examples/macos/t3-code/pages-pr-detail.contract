@@ -1,0 +1,489 @@
+// The pull request detail panel (lane "pages"), measured against the served
+// reference at 1280×840: the right panel's tab strip, PullRequestDetailPanel's
+// header (repository and number, the actions menu, title, author, checkout
+// command, branches and diff stat), the Summary/Timeline tabs and the checks
+// rollup. Sources: T3 Code (MIT, see LICENSE-T3) components/pullRequest/
+// {PullRequestDetailPanel,PullRequestSummaryTab,PullRequestTimelineTab}.tsx.
+use Icon from "./icons.contract"
+use PgIcon from "./pages-icons.contract"
+use ChatMarkdown from "./markdown.contract"
+use ChatDocument from "./markdown.contract"
+use CodeHighlight from "./markdown.contract"
+use MarkdownEnv from "./markdown.contract"
+use PrChip from "./pages-prs.contract"
+use PrAvatar from "./pages-prs.contract"
+use PrMenuBox from "./pages-prs.contract"
+
+// PullRequestCopyableCode: the value and "Copied" cross-fade (150ms) for the
+// hook's 1.6s; two names let a second copy restart it.
+keyframes prdShownA
+  from opacity=0
+  9% opacity=1
+  91% opacity=1
+  to opacity=0
+keyframes prdShownB
+  from opacity=0
+  9% opacity=1
+  91% opacity=1
+  to opacity=0
+keyframes prdHiddenA
+  from opacity=1
+  9% opacity=0
+  91% opacity=0
+  to opacity=1
+keyframes prdHiddenB
+  from opacity=1
+  9% opacity=0
+  91% opacity=0
+  to opacity=1
+
+shape PrPerson
+  key: string
+  login: string
+  avatar: string
+  initial: string
+shape PrBody
+  id: string
+  kind: string
+  title: string
+  body: string
+shape PrCheck
+  key: string
+  name: string
+  status: string
+  statusLabel: string
+  description: string
+  url: string
+shape PrComment
+  key: string
+  bodyId: string
+  author: string
+  avatar: string
+  initial: string
+  age: string
+  kind: string
+shape PrEvent
+  key: string
+  kind: string
+  title: string
+  detail: string
+  age: string
+  author: string
+  avatar: string
+  initial: string
+shape PrDetailView
+  open: bool
+  loading: bool
+  error: string
+  errorTitle: string
+  githubUrl: string
+  copiedCheckout: number
+  copiedBranch: number
+  ref: string
+  number: number
+  numberLabel: string
+  title: string
+  repository: string
+  url: string
+  state: string
+  stateLabel: string
+  conflict: string
+  author: string
+  authorAvatar: string
+  authorInitial: string
+  updated: string
+  checkoutCommand: string
+  baseBranch: string
+  headBranch: string
+  files: string
+  additions: string
+  deletions: string
+  checksSummary: string
+  checksTone: string
+  reviewers: list<PrPerson>
+  labels: list<PrChip>
+  bodies: list<PrBody>
+  hasBody: bool
+  bodyId: string
+  checks: list<PrCheck>
+  comments: list<PrComment>
+  commentCount: number
+  commentsLabel: string
+  timeline: list<PrEvent>
+  canEdit: bool
+  canClose: bool
+  canReopen: bool
+  canDraft: bool
+  canReady: bool
+  canMerge: bool
+  canUpdateBranch: bool
+  canReview: bool
+  canLabel: bool
+  projectId: string
+  host: string
+  hostName: string
+  code: list<CodeHighlight>
+  // r4-timeline: Settings → Appearance code font, size and word wrap for the Markdown.
+  md: MarkdownEnv
+  diffScheme: string
+
+fn prdTone(lifecycle: string): string = lifecycle == "draft" ? "light-dark(#71717b, #9f9fa9cc)" : lifecycle == "closed" ? "light-dark(#e7000b, #ffa2a2e6)" : lifecycle == "merged" ? "light-dark(#7f22fe, #c4b4ffe6)" : "light-dark(#009966, #5ee9b5e6)"
+fn prdIcon(lifecycle: string): string = lifecycle == "draft" ? "git-pull-request-draft" : lifecycle == "closed" ? "git-pull-request-closed" : lifecycle == "merged" ? "git-merge" : "git-pull-request-arrow"
+fn prdCheckIcon(status: string): string = status == "failure" or status == "cancelled" ? "circle-x" : status == "pending" or status == "action-required" ? "circle-dot" : status == "success" ? "circle-check" : "circle-dashed"
+fn prdCheckTone(status: string): string = status == "failure" or status == "cancelled" ? "light-dark(#e40014, #fb414a)" : status == "pending" or status == "action-required" ? "light-dark(#e17100, #ffb900e6)" : status == "success" ? "light-dark(#009966, #5ee9b5e6)" : "light-dark(#71717b, #818181)"
+
+// RightPanelTabs (inline) around the detail: the pull request's tab, then the panel body.
+component PrPanel
+  props
+    detail: PrDetailView
+    documents: list<ChatDocument>
+    scheme: string
+    width: number
+    tab: string
+    setTab: action
+    close: action
+    reload: action
+    act: action
+    copy: action
+    local: action
+  view
+    column width=width height="100%" flex-shrink=0 box-sizing="border-box" border-left-width=1 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fcfcfc, #0a0a0a)" testId="pull-request-panel"
+      row height=52 flex-shrink=0 width="100%" padding-left=8 padding-right=56 box-sizing="border-box" align-items="center" gap=4
+        row height=24 padding-left=6 padding-right=8 box-sizing="border-box" gap=2 border-radius=8 background-color="light-dark(#27272a0d, #ffffff0a)" align-items="center" role="tab" aria-selected=true testId="pull-request-tab"
+          PrTabClose(detail=detail, close=close)
+          text detail.numberLabel font-size=12 line-height="16px" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+      when detail.number == 0 and detail.error == ""
+        column flex=1 width="100%" align-items="center" justify-content="center" testId="pull-request-loading"
+          text "Loading pull request…" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+      when detail.error != ""
+        PrUnavailable(detail=detail, reload=reload)
+      when detail.number > 0 and detail.error == ""
+        scroll flex=1 min-height=0 width="100%" testId="pull-request-scroll"
+          column width="100%" padding-bottom=64 box-sizing="border-box"
+            PrdHeader(detail=detail, scheme=scheme, reload=reload, act=act, copy=copy)
+            row width="100%" padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 box-sizing="border-box" border-top-width=1 border-bottom-width=1 border-top-style="solid" border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" align-items="center" gap=8 role="navigation" aria-label="Pull request tabs"
+              row height=28 padding=2 gap=2 box-sizing="border-box" border-radius=10 background-color="light-dark(#d4d4d766, #ffffff08)" align-items="center" role="tablist"
+                PrdTab(label="Summary", active=(tab == "summary"), press=setTab("summary"), testId="pull-request-tab-summary")
+                PrdTab(label="Timeline", active=(tab == "timeline"), press=setTab("timeline"), testId="pull-request-tab-timeline")
+              box flex=1 min-width=0
+              when detail.checksSummary != ""
+                row align-items="center" gap=6 flex-shrink=0 aria-label=`Checks: ${detail.checksSummary}`
+                  when detail.checksTone != ""
+                    PgIcon(name=prdCheckIcon(detail.checksTone == "passing" ? "success" : detail.checksTone == "failing" ? "failure" : "pending"), size=14, color=prdCheckTone(detail.checksTone == "passing" ? "success" : detail.checksTone == "failing" ? "failure" : "pending"))
+                  text detail.checksSummary font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" white-space="nowrap"
+            when tab == "summary"
+              PrdSummary(detail=detail, documents=documents, local=local)
+            else
+              PrdTimeline(detail=detail)
+
+// The tab's leading slot: the lifecycle glyph, which becomes the close button.
+component PrTabClose
+  props
+    detail: PrDetailView
+    close: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=close hover=hover aria-label=`Close ${detail.numberLabel}` testId="pull-request-close" width=16 height=16 padding=0 border-radius=6 border-width=0 background-color=(over ? "light-dark(#27272a14, #ffffff14)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+      when over
+        PgIcon(name="x", size=12, color="light-dark(#27272a, #f5f5f5)")
+      else
+        PgIcon(name=prdIcon(detail.state), size=12, color=prdTone(detail.state))
+
+component PrdTab
+  props
+    label: string
+    active: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover role="tab" aria-selected=active testId=testId height=24 padding-left=10 padding-right=10 box-sizing="border-box" border-radius=8 border-width=0 background-color=(active ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(active ? "0 1px 2px #0000001a" : "none") display="flex" flex-direction="row" align-items="center" justify-content="center"
+      text label font-size=14 line-height="20px" font-weight=500 white-space="nowrap" color=(active or over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+
+// Button size="xs" variant="outline": the header's actions.
+// PullRequestsUnavailableState (Empty, md:p-12, gap-6): the stacked pull request
+// glyph, its title ("Could not load pull requests", or "#N not found" for an
+// issue link, 7bc161f869) and text, then Retry and Open on GitHub.
+component PrUnavailable
+  props
+    detail: PrDetailView
+    reload: action
+  view
+    column flex=1 min-height=0 width="100%" padding=48 box-sizing="border-box" align-items="center" justify-content="center" gap=24 testId="pull-request-error"
+      box width=36 height=36 position="relative" margin-bottom=24 flex-shrink=0
+        box position="absolute" left=0 bottom=1 width=36 height=36 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" translate="-7.74px 0.48px" rotate=-10 scale=0.84
+        box position="absolute" left=0 bottom=1 width=36 height=36 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" translate="7.74px 0.48px" rotate=10 scale=0.84
+        box position="absolute" left=0 top=0 width=36 height=36 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
+          PgIcon(name="git-pull-request-arrow", size=18, color="light-dark(#27272a, #f5f5f5)")
+      column max-width=384 align-items="center" flex-shrink=0
+        text detail.errorTitle font-size=20 line-height="28px" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 testId="pull-request-error-title"
+        text detail.error margin-top=4 font-size=14 line-height="20px" text-align="center" color="light-dark(#71717b, #818181)" testId="pull-request-error-text"
+      row flex-wrap="wrap" justify-content="center" gap=8 flex-shrink=0
+        PrdOutline(icon="refresh-cw", label="Retry", press=reload, testId="pull-request-retry")
+        when detail.githubUrl != ""
+          link href=detail.githubUrl testId="pull-request-open-github" height=28 padding-left=7 padding-right=9 box-sizing="border-box" gap=4 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
+            PgIcon(name="external-link", size=14, color="light-dark(#71717b, #818181)")
+            text "Open on GitHub" font-size=14 line-height="20px" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
+
+// Button size="sm" variant="outline": 28pt, a 14pt muted glyph pulled in 2pt (-mx-0.5), 6pt from the label.
+component PrdOutline
+  props
+    icon: string
+    label: string
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover testId=testId height=28 padding-left=7 padding-right=9 box-sizing="border-box" gap=4 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" flex-shrink=0
+      PgIcon(name=icon, size=14, color="light-dark(#71717b, #818181)")
+      text label font-size=14 line-height="20px" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
+
+component PrdButton
+  props
+    icon: string
+    label: string
+    iconColor: string
+    textColor: string
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover testId=testId height=24 padding-left=7 padding-right=7 box-sizing="border-box" gap=4 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" flex-shrink=0
+      PgIcon(name=icon, size=14, color=iconColor)
+      text label font-size=12 line-height="16px" font-weight=500 white-space="nowrap" color=textColor
+
+component PrdHeader
+  props
+    detail: PrDetailView
+    scheme: string
+    reload: action
+    act: action
+    copy: action
+  view
+    column width="100%" padding-left=16 padding-right=16 padding-bottom=16 box-sizing="border-box"
+      row height=28 width="100%" align-items="center" gap=4
+        row min-width=0 flex=1 align-items="center" gap=4
+          text detail.repository font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
+          link href=detail.url aria-label=`Open pull request ${detail.numberLabel} on host` testId="pull-request-open-host" display="flex" flex-direction="row" align-items="center" gap=2 flex-shrink=0
+            text detail.numberLabel font-size=12 line-height="16px" font-weight=500 color=prdTone(detail.state)
+            PgIcon(name="external-link", size=10, color=prdTone(detail.state))
+        PrdMore(detail=detail, scheme=scheme, reload=reload, act=act, copy=copy)
+      row width="100%" min-height=24 margin-top=4 align-items="center" gap=4
+        text detail.title font-size=16 line-height="22px" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1 flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+      row width="100%" min-height=20 margin-top=8 align-items="center" gap=6
+        PrAvatar(avatar=detail.authorAvatar, initial=detail.authorInitial, size=16)
+        text detail.author font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 flex-shrink=1 min-width=0
+        text "·" font-size=12 line-height="16px" color="light-dark(#71717b80, #81818180)" flex-shrink=0
+        text detail.updated font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" white-space="nowrap" flex-shrink=0
+        box flex=1 min-width=0
+        when detail.checkoutCommand != ""
+          PrdCopy(text=detail.checkoutCommand, ariaLabel="Copy checkout command", copied=detail.copiedCheckout, tone="light-dark(#71717b, #818181)", copy=copy, testId="pull-request-copy-checkout")
+      row width="100%" min-height=20 margin-top=16 align-items="center" gap=8
+        row flex=1 min-width=0 align-items="center" gap=6
+          text detail.baseBranch font-family="ui-monospace" font-size=12 line-height="16px" color="light-dark(#71717bb3, #828282b3)" white-space="nowrap" flex-shrink=0
+          box width=14 height=14 aria-label="receives changes from" flex-shrink=0
+            PgIcon(name="arrow-left", size=14, color="light-dark(#71717bb3, #828282b3)")
+          PrdCopy(text=detail.headBranch, ariaLabel="Copy pull request branch", copied=detail.copiedBranch, tone="light-dark(#71717bb3, #828282b3)", copy=copy, testId="pull-request-copy-branch")
+        row flex-shrink=0 align-items="center" gap=8
+          row min-width=64 justify-content="flex-end" align-items="center" gap=6
+            PgIcon(name="file-diff", size=14, color="light-dark(#71717b, #818181)")
+            text detail.files font-size=12 line-height="16px" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" white-space="nowrap"
+          row align-items="baseline" gap=4
+            text detail.additions font-family="ui-monospace" font-size=12 line-height="16px" color=(detail.diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
+            text detail.deletions font-family="ui-monospace" font-size=12 line-height="16px" color=(detail.diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
+
+// A mono value that copies itself (the checkout command, the head branch);
+// PullRequestCopyableCode swaps it for a centred "Copied" for 1.6s.
+component PrdCopy
+  props
+    text: string
+    ariaLabel: string
+    copied: number
+    tone: string
+    copy: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=copy("", text) hover=hover aria-label=ariaLabel testId=testId height=20 padding-left=4 padding-right=4 box-sizing="border-box" border-radius=4 border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" min-width=0 flex-shrink=1 position="relative"
+      text text font-family="ui-monospace" font-size=12 line-height="16px" color=tone line-clamp=1 min-width=0 animation=(copied == 0 ? "none" : (copied % 2 == 0 ? "prdHiddenA 1.6s linear forwards" : "prdHiddenB 1.6s linear forwards"))
+      when copied > 0
+        row position="absolute" left=4 right=4 top=2 bottom=2 justify-content="center" align-items="center" animation=(copied % 2 == 0 ? "prdShownA 1.6s linear forwards" : "prdShownB 1.6s linear forwards") aria-hidden=true testId=`${testId}-copied`
+          text "Copied" font-family=(testId == "pull-request-copy-checkout" ? "ui-monospace" : "system-ui") font-size=12 line-height="16px" color=tone white-space="nowrap"
+
+// "More pull request actions": the lifecycle change, the host links, close/reopen.
+component PrdMore
+  props
+    detail: PrDetailView
+    scheme: string
+    reload: action
+    act: action
+    copy: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    column position="relative" flex-shrink=0
+      button popovertarget="pr-more-menu" hover=hover aria-label="More pull request actions" testId="pull-request-more" width=24 height=24 padding=0 border-radius=8 border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+        PgIcon(name="ellipsis", size=16, color="light-dark(#71717b, #818181)")
+      row id="pr-more-menu" popover="auto" position="absolute" padding-top=4 align-items="flex-start" testId="pr-more-layer"
+        PrMenuBox(scheme=scheme, width=240, label="More pull request actions")
+          PrdMenuItem(icon="refresh-cw", label="Refresh", shortcut="", iconColor="light-dark(#71717b, #818181)", textColor="light-dark(#27272a, #f5f5f5)", press=reload, testId="pr-more-refresh")
+          when detail.canDraft or detail.canReady
+            box width="calc(100% - 16px)" height=1 margin-left=8 margin-top=4 margin-bottom=4 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+            when detail.canDraft
+              PrdMenuItem(icon="git-pull-request-draft", label="Convert to draft", shortcut="", iconColor="light-dark(#71717b, #818181)", textColor="light-dark(#27272a, #f5f5f5)", press=act("action", "draft"), testId="pr-more-draft")
+            when detail.canReady
+              PrdMenuItem(icon="git-pull-request-arrow", label="Ready for review", shortcut="", iconColor="light-dark(#71717b, #818181)", textColor="light-dark(#27272a, #f5f5f5)", press=act("action", "ready"), testId="pr-more-ready")
+          box width="calc(100% - 16px)" height=1 margin-left=8 margin-top=4 margin-bottom=4 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+          PrdLinkItem(href=detail.url, label=`Open on ${detail.hostName}`)
+          PrdMenuItem(icon="link", label="Copy link", shortcut="⇧⌘C", iconColor="light-dark(#71717b, #818181)", textColor="light-dark(#27272a, #f5f5f5)", press=copy("PR link", detail.url), testId="pr-more-copy-link")
+          PrdMenuItem(icon="copy", label="Copy PR number", shortcut="⇧⌘K", iconColor="light-dark(#71717b, #818181)", textColor="light-dark(#27272a, #f5f5f5)", press=copy("PR number", detail.numberLabel), testId="pr-more-copy-number")
+          when detail.canClose or detail.canReopen
+            box width="calc(100% - 16px)" height=1 margin-left=8 margin-top=4 margin-bottom=4 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+            when detail.canClose
+              PrdMenuItem(icon="git-pull-request-closed", label="Close pull request", shortcut="", iconColor="light-dark(#e40014, #ff6467)", textColor="light-dark(#e40014, #ff6467)", press=act("action", "close"), testId="pr-more-close")
+            when detail.canReopen
+              PrdMenuItem(icon="git-pull-request-arrow", label="Reopen pull request", shortcut="", iconColor="light-dark(#71717b, #818181)", textColor="light-dark(#27272a, #f5f5f5)", press=act("action", "reopen"), testId="pr-more-reopen")
+        box width=16 height=1 flex-shrink=0
+
+component PrdMenuItem
+  props
+    icon: string
+    label: string
+    shortcut: string
+    iconColor: string
+    textColor: string
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press popovertarget="pr-more-menu" popovertargetaction="hide" hover=hover role="menuitem" testId=testId width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      PgIcon(name=icon, size=14, color=iconColor)
+      text label font-size=14 line-height="20px" color=textColor flex=1 min-width=0 text-align="left" white-space="nowrap"
+      when shortcut != ""
+        text shortcut font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" flex-shrink=0
+
+component PrdLinkItem
+  props
+    href: string
+    label: string
+  view
+    link href=href role="menuitem" testId="pr-more-open-host" width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 display="flex" flex-direction="row" align-items="center"
+      PgIcon(name="arrow-up-right", size=14, color="light-dark(#71717b, #818181)")
+      text label font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 white-space="nowrap"
+
+// PullRequestSummaryTab: reviewers and labels, the description, checks and comments.
+component PrdSummary
+  props
+    detail: PrDetailView
+    documents: list<ChatDocument>
+    local: action
+  state descriptionOpen = true
+  state checksOpen = false
+  state commentsOpen = true
+  action toggle(section: string)
+    descriptionOpen = section == "description" ? not descriptionOpen : descriptionOpen
+    checksOpen = section == "checks" ? not checksOpen : checksOpen
+    commentsOpen = section == "comments" ? not commentsOpen : commentsOpen
+  view
+    column width="100%" testId="pull-request-summary"
+      column width="100%" padding-left=16 padding-right=16 padding-top=10 padding-bottom=4 box-sizing="border-box" gap=8
+        row min-height=24 align-items="center" gap=8
+          row width=96 align-items="center" gap=8 flex-shrink=0
+            PgIcon(name="users", size=14, color="light-dark(#71717b, #818181)")
+            text "Reviewers" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+          when length(detail.reviewers) == 0
+            text "None" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+          else
+            row flex-wrap="wrap" align-items="center" gap=8 min-width=0
+              each reviewer in detail.reviewers key=reviewer.key
+                row align-items="center" gap=4
+                  PrAvatar(avatar=reviewer.avatar, initial=reviewer.initial, size=16)
+                  text reviewer.login font-size=12 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+        row min-height=24 align-items="center" gap=8
+          row width=96 align-items="center" gap=8 flex-shrink=0
+            PgIcon(name="tag", size=14, color="light-dark(#71717b, #818181)")
+            text "Labels" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+          when length(detail.labels) == 0
+            text "None" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+          else
+            row flex-wrap="wrap" align-items="center" gap=4 min-width=0
+              each chip in detail.labels key=chip.key
+                text chip.name height=20 padding-left=5 padding-right=5 box-sizing="border-box" border-radius=6 background-color=chip.background font-size=12 line-height="20px" color=chip.ink
+      PrdSectionHeader(label="Description", open=descriptionOpen, press=toggle("description"), testId="pull-request-description-toggle")
+      when descriptionOpen
+        column width="100%" padding-left=16 padding-right=44 box-sizing="border-box" testId="pull-request-description"
+          when detail.hasBody
+            each document in filter(documents, (doc) => doc.id == detail.bodyId) key=document.id
+              ChatMarkdown(document=document, local=local, code=detail.code, env=detail.md)
+          else
+            text "No description provided." font-size=14 line-height="22.75px" font-style="italic" color="light-dark(#71717b, #818181)"
+      PrdSectionHeader(label="Checks", open=checksOpen, press=toggle("checks"), testId="pull-request-checks-toggle")
+      when checksOpen
+        column width="100%" padding-left=16 padding-right=16 box-sizing="border-box" gap=2 testId="pull-request-checks"
+          each check in detail.checks key=check.key
+            row min-height=28 align-items="center" gap=8
+              PgIcon(name=prdCheckIcon(check.status), size=14, color=prdCheckTone(check.status))
+              text check.name font-size=12 line-height="16px" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1
+              text check.statusLabel font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" flex-shrink=0
+          when length(detail.checks) == 0
+            text "No checks reported" padding-top=8 padding-bottom=8 font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+      PrdSectionHeader(label=detail.commentsLabel, open=commentsOpen, press=toggle("comments"), testId="pull-request-comments-toggle")
+      when commentsOpen
+        column width="100%" padding-left=16 padding-right=16 box-sizing="border-box" gap=12 testId="pull-request-comments"
+          each comment in detail.comments key=comment.key
+            column width="100%" gap=4
+              row align-items="center" gap=6
+                PrAvatar(avatar=comment.avatar, initial=comment.initial, size=16)
+                text comment.author font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                text comment.age font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+              each document in filter(documents, (doc) => doc.id == comment.bodyId) key=document.id
+                ChatMarkdown(document=document, local=local, code=detail.code, env=detail.md)
+          when length(detail.comments) == 0
+            text "No comments yet." padding-top=8 padding-bottom=8 font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+
+// CollapsibleSection's header: a 40pt row, the label and a chevron that turns.
+component PrdSectionHeader
+  props
+    label: string
+    open: bool
+    press: action
+    testId: string
+  view
+    button press=press aria-expanded=open testId=testId width="100%" height=40 padding-left=16 padding-right=16 box-sizing="border-box" gap=6 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+      text label font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717b, #818181)" white-space="nowrap"
+      PgIcon(name=(open ? "chevron-down" : "chevron-right"), size=14, color="light-dark(#71717b99, #80808099)")
+
+// PullRequestTimelineTab: commits and remarks in the order they happened.
+component PrdTimeline
+  props
+    detail: PrDetailView
+  view
+    column width="100%" padding-left=16 padding-right=16 padding-top=16 box-sizing="border-box" gap=14 testId="pull-request-timeline"
+      each event in detail.timeline key=event.key
+        row width="100%" align-items="flex-start" gap=10
+          box width=16 height=16 margin-top=1 display="flex" align-items="center" justify-content="center" flex-shrink=0
+            PgIcon(name=(event.kind == "commit" ? "git-commit-horizontal" : event.kind == "review" ? "user-check" : "message-square"), size=14, color="light-dark(#71717b, #818181)")
+          column flex=1 min-width=0 gap=2
+            row align-items="center" gap=6 min-width=0
+              PrAvatar(avatar=event.avatar, initial=event.initial, size=14)
+              text event.author font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" flex-shrink=0
+              text event.title font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
+              box flex=1 min-width=0
+              text event.age font-size=11 line-height="16px" color="light-dark(#71717b, #818181)" white-space="nowrap" flex-shrink=0
+            when event.detail != ""
+              text event.detail font-family=(event.kind == "commit" ? "ui-monospace" : "system-ui") font-size=12 line-height="16px" color="light-dark(#71717bcc, #818181cc)" line-clamp=2
+      when length(detail.timeline) == 0
+        text "Nothing has happened on this pull request yet." font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"

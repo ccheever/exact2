@@ -1,0 +1,25 @@
+// Lane r10-device (MIT reference, see LICENSE-T3): the tooltips of DeviceDuoControls' stands and
+// DeviceAndroidFoldControls' Fold / Unfold, and of their destructive "!" (`TooltipPopup side="left"`,
+// ui/tooltip.tsx: sideOffset 4, centred on the trigger, 600 ms open delay), drawn with
+// shell-tip.contract's card. The bubble sits outside its trigger's box, so it takes no hits.
+use TipCard from "./shell-tip.contract"
+
+component R10DevLeftTip
+  props
+    label: string
+    shown: bool
+  view
+    row position="absolute" right="100%" top=0 bottom=0 padding-right=4 align-items="center" justify-content="flex-end" width=360 pointer-events="none" inert=true z-index=140
+      TipCard(label=label, shown=shown)
+
+// The failed command's "!" (role alert), its message on hover.
+component R10DevErrorMark
+  props
+    error: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    box position="relative" hover=hover flex-shrink=0 display="flex" flex-direction="row" align-items="center"
+      text "!" font-size=12 line-height="16px" color="light-dark(#e40014, #ff6467)" role="alert" aria-label=error testId="device-folding-error"
+      R10DevLeftTip(label=error, shown=over)

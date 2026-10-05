@@ -1,0 +1,211 @@
+// The right panel's tabbed surfaces (lane r4-surfaces, r4-surfaces-panel.ts):
+// the tab strip, the Files surface (tree and preview), the Linked pull requests
+// surface and the device hub's setup wizard, as ShellView.panel carries them.
+use ChatDocument from "./markdown.contract"
+use CodeHighlight from "./markdown.contract"
+use R5PrSurface from "./r5-panels-shapes.contract"
+use R5Attachment from "./r5-panels-shapes.contract"
+use R6DeviceView from "./r6-device-shapes.contract"
+use R6DeviceMini from "./r6-device-shapes.contract"
+use R12TabStrip from "./r12-threads.contract"
+
+shape R4Tab
+  id: string
+  kind: string
+  title: string
+  icon: string
+  tone: string
+  fileToken: string
+  active: bool
+  pending: bool
+shape R4TreeRow
+  id: string
+  path: string
+  name: string
+  depth: number
+  directory: bool
+  expanded: bool
+  selected: bool
+  token: string
+  ignored: bool
+  guides: list<R4Guide>
+shape R4Guide
+  id: string
+  left: number
+shape R4Crumb
+  id: string
+  label: string
+  path: string
+  current: bool
+  directory: bool
+shape R4CodeRun
+  id: string
+  text: string
+  syntax: string
+shape R4CodeLine
+  id: string
+  number: string
+  runs: list<R4CodeRun>
+shape R4Editor
+  id: string
+  label: string
+  selected: bool
+shape R4TableRow
+  id: string
+  header: bool
+  cells: list<R4CodeRun>
+shape R4Files
+  cwd: string
+  project: string
+  ready: bool
+  loading: bool
+  error: string
+  query: string
+  truncated: bool
+  rows: list<R4TreeRow>
+  hasDirectories: bool
+  allExpanded: bool
+  explorer: bool
+  showExplorer: bool
+  path: string
+  preview: string
+  previewError: string
+  crumbs: list<R4Crumb>
+  lines: list<R4CodeLine>
+  text: string
+  textKey: string
+  gutter: number
+  wrap: bool
+  truncatedNote: string
+  canRender: bool
+  rendered: bool
+  renderLabel: string
+  renderIcon: string
+  editable: bool
+  pending: bool
+  editorId: string
+  editorLabel: string
+  editors: list<R4Editor>
+  absolutePath: string
+  markdown: ChatDocument
+  code: list<CodeHighlight>
+  table: list<R4TableRow>
+  editing: bool
+  editorText: string
+  editorsOpen: bool
+  crumbMenu: R4CrumbMenu
+  crumbsMask: string
+  crumbsOffset: number
+  url: string
+shape R4CrumbEntry
+  id: string
+  path: string
+  label: string
+  directory: bool
+  token: string
+  current: bool
+  ignored: bool
+shape R4CrumbMenu
+  open: bool
+  root: string
+  x: number
+  back: string
+  backPath: string
+  status: string
+  entries: list<R4CrumbEntry>
+shape R4LinkedRow
+  key: string
+  index: number
+  number: number
+  title: string
+  url: string
+  host: string
+  repository: string
+  depth: number
+  state: string
+  stateLabel: string
+  waiting: bool
+  conflict: string
+  open: bool
+  watching: bool
+  checks: string
+  checksLabel: string
+  review: string
+  reviewLabel: string
+  additions: string
+  deletions: string
+  author: string
+  avatar: string
+  initial: string
+  head: string
+  base: string
+  age: string
+  stackSize: number
+  stackLabel: string
+  sourceLabel: string
+  unlinkLabel: string
+  canWatch: bool
+shape R4Prs
+  supported: bool
+  rows: list<R4LinkedRow>
+  footer: string
+  canWatch: bool
+  menu: string
+shape R4Platform
+  id: string
+  platform: string
+  ready: bool
+  message: string
+shape R4HostNotice
+  id: string
+  label: string
+  detail: string
+  failed: bool
+shape R4DeviceRow
+  id: string
+  name: string
+  description: string
+  action: string
+  platform: string
+shape R4DeviceGroup
+  id: string
+  label: string
+  devices: list<R4DeviceRow>
+shape R4Device
+  loaded: bool
+  step: number
+  enabled: bool
+  busy: bool
+  pending: string
+  hostStatus: string
+  hubStatus: string
+  hubReady: bool
+  platforms: list<R4Platform>
+  agentEnabled: bool
+  agentStatus: string
+  agentReady: bool
+  failure: string
+  canContinue: bool
+  doneLabel: string
+  notices: list<R4HostNotice>
+  groups: list<R4DeviceGroup>
+  empty: string
+  hint: string
+  panelStatus: string
+  refreshable: bool
+  // lane r6-media: the opened device and its workspace (r6-media-device.ts).
+  r6: R6DeviceView
+shape R4Panel
+  open: bool
+  kind: string
+  active: string
+  count: number
+  tabs: list<R4Tab>
+  files: R4Files
+  prs: R4Prs
+  device: R4Device
+  deviceSetup: bool
+  pr: R5PrSurface
+  attachment: R5Attachment
+  deviceMini: R6DeviceMini
+  tabStrip: R12TabStrip // lane r12-threads: the tab strip's scroll (r12-threads-tabs.ts)

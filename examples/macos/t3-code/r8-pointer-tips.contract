@@ -1,0 +1,22 @@
+// Lane r8-pointer (D9, D10): tooltips inside a hover-revealed transcript row.
+// Natively one view is hovered at a time: a Tip's own hover box inside the row
+// takes the hover from the row, so the row's actions (opacity 0 until the row is
+// hovered) hid the very tooltip being opened. RowTip reports its hover to the
+// row's owner (the chat column's row and part keys) instead of keeping its own,
+// so the row stays revealed while one of its tooltips is open.
+use TipBubble from "./shell-tip.contract"
+
+component RowTip
+  props
+    label: string
+    side: string
+    align: string
+    offset: number
+    shown: bool
+    hover: action
+  slot
+  view
+    box position="relative" hover=hover flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0
+      children
+      when label != ""
+        TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=shown)

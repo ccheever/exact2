@@ -1,0 +1,271 @@
+// The Files surface (lane r4-surfaces, r4-surfaces-files.ts), measured on the
+// served reference (MIT, see LICENSE-T3: components/files/FilePreviewPanel.tsx,
+// FileBrowserPanel.tsx, FileBreadcrumbs.tsx, fileSurfaceChrome.tsx and the
+// compact @pierre/trees tree): the explorer alone, or a file's subheader
+// (breadcrumbs, Open in editor, rendered/wrap/explorer toggles), its numbered
+// lines and the explorer beside them. `local` is the window's chatLocal: a
+// `surface-*` op reaches r4-surfaces-panel.ts without the command gate.
+use R4Files from "./r4-surfaces-shapes.contract"
+use R4TreeRow from "./r4-surfaces-shapes.contract"
+use R4Crumb from "./r4-surfaces-shapes.contract"
+use R4CodeLine from "./r4-surfaces-shapes.contract"
+use ShellIcon from "./shell-icons.contract"
+use ShellEditorIcon from "./shell-icons.contract"
+use TipBubble from "./shell-tip.contract"
+use FileTypeIcon from "./timeline-files.contract"
+use synColor from "./markdown.contract"
+use MarkdownBlocks from "./markdown.contract"
+use R4Icon from "./r4-surfaces-icons.contract"
+
+// The surface body under the panel's tab bar. Rebuilt per scheme so SVG glyphs
+// resolve their light-dark() side (file icons, chevrons).
+component R4FilesBody
+  props
+    files: R4Files
+    scheme: string
+    sheet: bool
+    local: action
+  view
+    when scheme == "dark"
+      R4FilesSurface(files=files, sheet=sheet, local=local)
+    else
+      R4FilesSurface(files=files, sheet=sheet, local=local)
+
+component R4FilesSurface
+  props
+    files: R4Files
+    sheet: bool
+    local: action
+  view
+    column flex=1 min-height=0 width="100%" position="relative" overflow="hidden" testId="files-surface"
+      when files.path != ""
+        R4FileHeader(files=files, sheet=sheet, local=local)
+      when files.truncatedNote != ""
+        text files.truncatedNote flex-shrink=0 padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#fe9a0033, #fe9a0033)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size=11 line-height="16px" color="light-dark(#bb4d00, #ffb900)" role="status"
+      row flex=1 min-height=0 width="100%" overflow="hidden" align-items="stretch"
+        when files.path != "" and files.preview != ""
+          column flex=1 min-width=0 min-height=0 overflow="hidden"
+            R4FilePreview(files=files, local=local)
+        when files.showExplorer
+          column min-height=0 flex-shrink=(files.path != "" and files.preview != "" ? 0 : 1) flex-grow=(files.path != "" and files.preview != "" ? 0 : 1) width=(files.path != "" and files.preview != "" ? "46%" : "100%") max-width=(files.path != "" and files.preview != "" ? 352 : 100000) min-width=(files.path != "" and files.preview != "" ? 256 : 0) box-sizing="border-box" border-left-width=(files.path != "" and files.preview != "" ? 1 : 0) border-left-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" testId="files-explorer"
+            R4Explorer(files=files, local=local)
+      when files.crumbMenu.open
+        button press=local("surface-files-crumb-close", "", "") aria-label="Close folder menu" position="absolute" left=0 top=0 right=0 bottom=0 z-index=9 padding=0 border-width=0 background-color="#00000000" testId="crumb-menu-backdrop"
+        column position="absolute" left=files.crumbMenu.x top=(sheet ? 32 : 26) z-index=10 min-width=160 max-width=320 padding=4 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" testId="crumb-menu"
+          when files.crumbMenu.back != ""
+            R4CrumbItem(label=files.crumbMenu.back, icon="arrow-left", token="", trailing=false, current=false, ignored=false, test="crumb-back", press=local("surface-files-crumb-dir", files.crumbMenu.backPath, ""))
+            box height=1 margin-top=4 margin-bottom=4 margin-left=8 margin-right=8 background-color="light-dark(#e4e4e7, #ffffff0f)"
+          when files.crumbMenu.status != ""
+            text files.crumbMenu.status height=28 padding-left=8 padding-right=8 font-size=14 line-height="28px" opacity=0.64 color="light-dark(#27272a, #f5f5f5)"
+          each entry in files.crumbMenu.entries key=entry.id
+            R4CrumbItem(label=entry.label, icon=(entry.directory ? "folder" : ""), token=entry.token, trailing=entry.directory, current=entry.current, ignored=entry.ignored, test=`crumb-entry-${entry.path}`, press=local(entry.directory ? "surface-files-crumb-dir" : "surface-file", entry.path, ""))
+      when files.editorsOpen
+        button press=local("surface-files-editors", "", "") aria-label="Close editor menu" position="absolute" left=0 top=0 right=0 bottom=0 z-index=9 padding=0 border-width=0 background-color="#00000000" testId="file-editors-backdrop"
+        column position="absolute" right=104 top=(sheet ? 36 : 30) z-index=10 min-width=160 padding=4 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Open in" testId="file-editors"
+          each editor in files.editors key=editor.id
+            button press=local("surface-files-open-editor", files.absolutePath, editor.id) role="menuitem" testId=`file-editor-${editor.id}` width="100%" height=28 padding-left=8 padding-right=8 gap=8 box-sizing="border-box" border-width=0 border-radius=6 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+              ShellEditorIcon(editor=editor.id, size=16)
+              text editor.label flex=1 min-width=0 text-align="left" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+
+// FILE_SURFACE_SUBHEADER_CLASS: 28pt with 12pt below in the inline panel, 40pt over a hairline in a sheet; 12pt sides, 8pt gaps.
+component R4FileHeader
+  props
+    files: R4Files
+    sheet: bool
+    local: action
+  state hovered = ""
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  view
+    row height=(sheet ? 40 : 28) flex-shrink=0 margin-bottom=(sheet ? 0 : 12) padding-left=12 padding-right=12 box-sizing="border-box" gap=8 align-items="center" position="relative" z-index=5 border-bottom-width=(sheet ? 1 : 0) border-bottom-style="solid" border-color="light-dark(#0000001b, #ffffff1f)" background-color=(sheet ? "light-dark(#ffffff, #0a0a0a)" : "#00000000") testId="file-subheader"
+      // lane r7-polish: a clip whose `w-max min-w-full` trail is end-justified (r7-polish-crumbs.ts), faded on its left while it overflows.
+      row hook="t3-anchor" data-anchor="crumbs-clip" flex=1 min-width=0 align-items="center" justify-content=(files.crumbsOffset >= 0 ? "flex-start" : "flex-end") overflow="hidden" mask-image=files.crumbsMask aria-label="Breadcrumbs" testId="file-breadcrumbs"
+        row hook="t3-anchor" data-anchor="crumbs" flex-shrink=0 min-width="100%" margin-left=(files.crumbsOffset > 0 ? 0 - files.crumbsOffset : 0) align-items="center"
+          each crumb in files.crumbs key=crumb.id
+            R4CrumbView(crumb=crumb, open=(files.crumbMenu.open and files.crumbMenu.root == crumb.id), local=local)
+      when files.editorId != ""
+        row flex-shrink=0 height=24 align-items="center" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" role="group" aria-label="Open in editor"
+          box position="relative"
+            button press=local("surface-files-open-editor", files.absolutePath, files.editorId) hover=hover("editor") aria-label="Open file in preferred editor" testId="file-open-editor" width=24 height=22 padding=0 border-width=0 border-radius=7 background-color=(hovered == "editor" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+              ShellEditorIcon(editor=files.editorId, size=14)
+            TipBubble(label=files.editorLabel, side="bottom", align="center", offset=28, inset=0, shown=(hovered == "editor"))
+          box width=1 height=22 background-color="light-dark(#d4d4d8, #ffffff14)"
+          button press=local("surface-files-editors", "", "") hover=hover("editors") aria-label="Choose editor" aria-expanded=files.editorsOpen testId="file-choose-editor" width=23 height=22 padding=0 border-width=0 border-radius=7 background-color=(files.editorsOpen or hovered == "editors" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+            ShellIcon(name="chevron-down", size=14, color="light-dark(#27272a, #f5f5f5)")
+      when files.canRender
+        R4Toggle(id="render", label=files.renderLabel, icon=files.renderIcon, pressed=files.rendered, hovered=hovered, hover=hover, press=local("surface-files-render", files.path, ""))
+      when files.preview == "code" or (files.preview != "" and not files.rendered and files.preview != "loading" and files.preview != "error")
+        R4Toggle(id="wrap", label=(files.wrap ? "Disable word wrap" : "Enable word wrap"), icon="wrap-text", pressed=files.wrap, hovered=hovered, hover=hover, press=local("surface-files-wrap", "", ""))
+      when files.preview != ""
+        R4Toggle(id="explorer", label=(files.explorer ? "Hide file explorer" : "Show file explorer"), icon="folder-tree", pressed=files.explorer, hovered=hovered, hover=hover, press=local("surface-files-explorer", "", ""))
+
+// One row of a folder crumb's menu: its Pierre glyph, label and a chevron for a folder; the open file is the checked
+// radio item (MenuRadioItem: `data-checked:bg-foreground/[0.08]`, no indicator; icons `-mx-0.5`). lane r7-polish.
+component R4CrumbItem
+  props
+    label: string
+    icon: string
+    token: string
+    trailing: bool
+    current: bool
+    ignored: bool
+    test: string
+    press: action
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  view
+    button press=press hover=hover role="menuitem" testId=test width="100%" height=28 padding-left=8 padding-right=8 gap=8 box-sizing="border-box" border-width=0 border-radius=6 display="flex" flex-direction="row" align-items="center" background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : current ? "light-dark(#0a0a0a14, #fafafa14)" : "#00000000")
+      box margin-left=-2 margin-right=-2 flex-shrink=0 display="flex"
+        when token != ""
+          FileTypeIcon(token=token, size=16)
+        else
+          when icon == "arrow-left"
+            R4Icon(name="arrow-left", size=16, color="light-dark(#71717b, #818181)")
+          else
+            ShellIcon(name=icon, size=16, color="light-dark(#71717b, #818181)")
+      text label flex=1 min-width=0 text-align="left" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size=14 line-height="20px" color=(ignored ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
+      when trailing
+        box margin-left=-2 margin-right=-2 flex-shrink=0 display="flex"
+          ShellIcon(name="chevron-right", size=16, color="light-dark(#71717b, #818181)")
+
+// FileSurfaceAction as a Toggle (ghost sm): 28pt, 10pt radius, the accent fill when pressed.
+component R4Toggle
+  props
+    id: string
+    label: string
+    icon: string
+    pressed: bool
+    hovered: string
+    hover: action
+    press: action
+  view
+    box position="relative" flex-shrink=0
+      button press=press hover=hover(id) aria-label=label testId=`file-toggle-${id}` width=28 height=28 padding=0 border-radius=10 border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(pressed ? "light-dark(#f4f4f5, #ffffff0f)" : hovered == id ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000")
+        R4Icon(name=icon, size=14, color=(pressed ? "light-dark(#18181b, #fafafa)" : "light-dark(#71717b, #a1a1aa)"))
+      TipBubble(label=label, side="bottom", align="end", offset=32, inset=0, shown=(hovered == id))
+
+// FileBreadcrumbs: 12pt muted crumbs (2pt sides, 4pt radius) between 14pt chevrons; the file is medium foreground.
+component R4CrumbView
+  props
+    crumb: R4Crumb
+    open: bool
+    local: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    // r6-polish: hooked so the folder menu opens under the crumb as laid out (r4-surfaces-files.ts crumbMenu).
+    box hook="t3-anchor" data-anchor=`crumb:${crumb.id}` display="flex" flex-direction="row" flex-shrink=0 min-width=0 align-items="center"
+      when crumb.id != "."
+        box margin-left=4 margin-right=4 flex-shrink=0 display="flex"
+          ShellIcon(name="chevron-right", size=14, color="light-dark(#71717b99, #81818199)")
+      when crumb.current
+        text crumb.label max-width=160 padding-left=2 padding-right=2 font-size=12 font-weight=500 line-height="16px" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)"
+      else
+        button press=local("surface-files-crumb", crumb.path, "") hover=hover aria-label=`Browse ${crumb.label}` testId=`crumb-${crumb.id}` max-width=160 padding-left=2 padding-right=2 border-radius=4 border-width=0 background-color=(over or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+          text crumb.label font-size=12 line-height="16px" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color=(over or open ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+
+// The file body: a spinner while it reads, its error, the rendered Markdown or
+// table, or Pierre's numbered lines (13/20 mono on the code background). A click
+// on an editable file opens the editor over the same text (r4-surfaces-files.ts
+// keeps its starting text fixed for the session); each change is written back.
+component R4FilePreview
+  props
+    files: R4Files
+    local: action
+  view
+    when files.preview == "loading"
+      column flex=1 align-items="center" justify-content="center" testId="file-loading"
+        R4Icon(name="loader", size=24, color="light-dark(#71717b, #818181)")
+    when files.preview == "error"
+      column flex=1 align-items="center" justify-content="center" padding-left=24 padding-right=24
+        text files.previewError text-align="center" font-size=12 line-height="19.5px" color="light-dark(#e40014, #ff6467)" testId="file-error"
+    when files.preview == "markdown"
+      scroll flex=1 min-height=0 width="100%" testId="file-markdown"
+        column width="100%" max-width=896 padding-left=24 padding-right=24 padding-top=20 padding-bottom=20 box-sizing="border-box" align-self="center"
+          MarkdownBlocks(document=files.markdown, local=local, code=files.code, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false)
+    when files.preview == "table"
+      scroll flex=1 min-height=0 width="100%" testId="file-table"
+        column min-width="100%"
+          each row in files.table key=row.id
+            row min-width="100%" background-color=(row.header ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000")
+              each cell in row.cells key=cell.id
+                text cell.text flex=1 max-width=320 min-width=64 padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color=(row.header ? "light-dark(#e4e4e7, #ffffff0f)" : "light-dark(#e4e4e799, #ffffff0a)") white-space="pre-wrap" font-size=12 line-height="16px" font-weight=(row.header ? 500 : 400) font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
+    // lane r10-device: a rendered HTML page in the app module's sandboxed, network-less web view (BrowserDocumentFrame).
+    when files.preview == "html"
+      box hook="t3-media" data-media-url=files.url data-media-kind="html" data-media-name=files.path flex=1 min-height=0 width="100%" background-color="#ffffff" aria-label=files.path testId="file-html"
+    when files.preview == "code"
+      scroll flex=1 min-height=0 width="100%" testId="file-code"
+        // r8-pointer: the editor fills the pane, so a click below the last line lands in it (focus, caret at the end).
+        column position="relative" width=(files.wrap ? "100%" : "auto") min-width="100%" min-height="100%" padding-top=8 padding-bottom=8 box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" press=local("surface-files-begin-edit", files.path, "") role="code" aria-label=files.path testId="file-lines"
+          each line in files.lines key=line.id
+            R4CodeRow(line=line, gutter=files.gutter, wrap=files.wrap)
+          // Editing keeps the coloured, numbered lines: the editor's own text is clear over them, its caret and selection visible.
+          when files.editing
+            textarea id="file-editor" hook="t3-plain-text" value=files.editorText input=local("surface-files-edit", files.path) blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top=7 right=0 bottom=9 padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family="ui-monospace" font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false"
+
+component R4CodeRow
+  props
+    line: R4CodeLine
+    gutter: number
+    wrap: bool
+  view
+    row width="100%" align-items="flex-start"
+      text line.number width=gutter flex-shrink=0 padding-right=9.83 box-sizing="border-box" text-align="right" font-family="ui-monospace" font-size=13 line-height="20px" font-variant-numeric="tabular-nums" color="light-dark(#565656, #9d9d9d)"
+      text flex=1 min-width=0 padding-left=7.8 padding-right=7.8 box-sizing="border-box" font-family="ui-monospace" font-size=13 line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
+        each run in line.runs key=run.id
+          text run.text color=synColor(run.syntax)
+
+// FileBrowserPanel: refresh, "Search files" and expand/collapse all (36pt, 4pt
+// below in the inline panel), status lines, then the compact tree (24pt rows,
+// 16pt inset, 18.7pt per level with 1pt guides).
+component R4Explorer
+  props
+    files: R4Files
+    local: action
+  state hovered = ""
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  view
+    column flex=1 min-height=0 width="100%"
+      row height=36 flex-shrink=0 margin-bottom=4 padding-left=8 padding-right=8 box-sizing="border-box" gap=4 align-items="center"
+        box position="relative" flex-shrink=0
+          button press=local("surface-files-refresh", "", "") hover=hover("refresh") aria-label="Refresh workspace files" testId="files-refresh" width=24 height=24 padding=0 border-radius=8 border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(hovered == "refresh" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+            R4Icon(name="refresh-cw", size=14, color="light-dark(#71717b, #a1a1aa)")
+          TipBubble(label=(files.loading ? "Refreshing…" : "Refresh files"), side="bottom", align="start", offset=28, inset=0, shown=(hovered == "refresh"))
+        row flex=1 min-width=0 height=28 padding-left=8 padding-right=8 box-sizing="border-box" align-items="center"
+          input value=files.query input=local("surface-files-search", "") key=local("surface-files-search-key", "") placeholder="Search files" aria-label=`Search ${files.project} files` testId="files-search" autocorrect="off" spellcheck="false" flex=1 min-width=0 height=20 padding=0 border-width=0 background-color="#00000000" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+        when files.hasDirectories
+          box position="relative" flex-shrink=0
+            button press=local("surface-files-expand-all", "", "") hover=hover("expand") aria-label=(files.allExpanded ? "Collapse all folders" : "Expand all folders") testId="files-expand-all" width=24 height=24 padding=0 border-radius=8 border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(hovered == "expand" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+              R4Icon(name=(files.allExpanded ? "chevrons-down-up" : "chevrons-up-down"), size=14, color="light-dark(#71717b, #a1a1aa)")
+            TipBubble(label=(files.allExpanded ? "Collapse all folders" : "Expand all folders"), side="bottom", align="end", offset=28, inset=0, shown=(hovered == "expand"))
+      when files.error != ""
+        button press=local("surface-files-refresh", "", "") padding=16 border-width=0 background-color="#00000000" testId="files-error"
+          text `${files.error} Click to retry.` text-align="left" font-size=12 line-height="19.5px" color="light-dark(#e40014, #ff6467)"
+      when files.truncated
+        text "More matches available. Refine your search." padding-left=12 padding-right=12 padding-top=4 padding-bottom=4 font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+      when files.loading or not files.ready
+        text "Loading files…" role="status" padding-left=12 padding-right=12 padding-top=4 padding-bottom=4 font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+      scroll flex=1 min-height=0 width="100%" role="tree" aria-label=`${files.project} files` testId="files-tree"
+        column width="100%" padding-left=16 padding-right=16 box-sizing="border-box"
+          each row in files.rows key=row.id
+            R4TreeRowView(row=row, local=local)
+
+component R4TreeRowView
+  props
+    row: R4TreeRow
+    local: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=local(row.directory ? "surface-files-toggle" : "surface-file", row.path, "tree") hover=hover role="treeitem" aria-label=row.name aria-expanded=row.expanded aria-selected=row.selected testId=`tree-${row.path}` width="100%" height=24 padding-left=(6.8 + row.depth * 18.7) padding-right=6 box-sizing="border-box" gap=4.4 border-radius=5 border-width=0 position="relative" display="flex" flex-direction="row" align-items="center" background-color=(row.selected ? "light-dark(#27272a1f, #f5f5f51f)" : over ? "light-dark(#27272a0d, #f5f5f50d)" : "#00000000") opacity=(row.ignored ? 0.5 : 1)
+      each guide in row.guides key=guide.id
+        box position="absolute" left=guide.left top=0 bottom=0 width=1 background-color="light-dark(#71717b40, #81818140)"
+      when row.directory
+        ShellIcon(name=(row.expanded ? "chevron-down" : "chevron-right"), size=16, color="light-dark(#84848a, #8b8b92)")
+      else
+        FileTypeIcon(token=row.token, size=16)
+      text row.name flex=1 min-width=0 text-align="left" font-size=12 line-height="24px" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)"

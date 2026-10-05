@@ -1,0 +1,50 @@
+// ui/tooltip.tsx TooltipPopup (Base UI Tooltip, 600 ms open delay): a 1px
+// popover-bordered 8pt card, 12/16.5 text inset 4×8, max 320 wide, offset 4
+// from its trigger. The wrapper owns hover; the bubble is mounted with the
+// trigger (opacity 0) so its delayed fade has a starting value, sits after the
+// trigger in paint order and never takes hits. `side` is where the reference
+// lands after collision flipping; `align` where it lands after shifting.
+component Tip
+  props
+    label: string
+    side: string
+    align: string
+    offset: number
+  slot
+  state over = false
+  action setOver(value: bool)
+    over = value
+  view
+    box position="relative" hover=setOver flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0
+      children
+      when label != ""
+        TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=over)
+
+// The bubble alone, for triggers that already track their own hover. `inset`
+// moves an end- (or start-) aligned bubble past the trigger's edge, as Base
+// UI's 5pt collision shift lands it against the window edge. An aligned
+// bubble's row reaches 360pt the other way, so a 320pt card shifted far in
+// (r8-pointer: the Send tooltip beside a right panel) never wraps early.
+component TipBubble
+  props
+    label: string
+    side: string
+    align: string
+    offset: number
+    inset: number
+    shown: bool
+  view
+    when side == "top"
+      row position="absolute" bottom=offset left=(align == "start" ? 0 - inset : (align == "end" ? -360 : -160)) right=(align == "end" ? 0 - inset : (align == "start" ? -360 : -160)) justify-content=(align == "start" ? "flex-start" : align == "end" ? "flex-end" : "center") pointer-events="none" z-index=140
+        TipCard(label=label, shown=shown)
+    else
+      row position="absolute" top=offset left=(align == "start" ? 0 - inset : (align == "end" ? -360 : -160)) right=(align == "end" ? 0 - inset : (align == "start" ? -360 : -160)) justify-content=(align == "start" ? "flex-start" : align == "end" ? "flex-end" : "center") pointer-events="none" z-index=140
+        TipCard(label=label, shown=shown)
+
+component TipCard
+  props
+    label: string
+    shown: bool
+  view
+    column max-width=320 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" opacity=(shown ? 1 : 0) transition=(shown ? "opacity 150ms ease 600ms" : "opacity 0ms") pointer-events="none" role="tooltip" aria-hidden=(not shown) testId="tooltip"
+      text label font-size=12 line-height="16.5px" white-space="pre-line" color="light-dark(#27272a, #f5f5f5)"

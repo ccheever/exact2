@@ -1,0 +1,90 @@
+// Keyboard dispatch for the reference commands that have a counterpart here
+// (keyboard-dispatch.ts). Each is a zero-size button whose aria-keyshortcuts
+// the host binds, so a chord, its menu item and an agent press run one action.
+shape KeyDispatch
+  id: string
+  command: string
+  chord: string
+  kind: string
+  target: string
+  extra: string
+  label: string
+
+component ShortcutDispatch
+  props
+    items: list<KeyDispatch>
+    selectThread: action
+    newThread: action
+    chatNew: action
+    deviceSetting: action
+    toggleDiff: action
+    openDiff: action
+    closeDiff: action
+    panel: action // lane r9-input: ⌘W closes the active surface tab (panelUi("tab-close", id))
+    prClose: action
+    stop: action
+    openOptions: action
+    selectProvider: action
+    selectModel: action
+    back: action
+    copyThread: action
+    palette: action
+    run: action
+    command: action
+    settings: action
+    copy: action
+  view
+    box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" testId="keyboard-dispatch"
+      each item in items key=item.id
+        when item.kind == "thread"
+          ShortcutButton(item=item, press=selectThread(item.target))
+        when item.kind == "chat-new"
+          ShortcutButton(item=item, press=chatNew)
+        when item.kind == "new-thread"
+          ShortcutButton(item=item, press=newThread)
+        when item.kind == "appearance"
+          ShortcutButton(item=item, press=deviceSetting("appearanceMode", item.target))
+        when item.kind == "diff"
+          ShortcutButton(item=item, press=toggleDiff)
+        when item.kind == "diff-open"
+          ShortcutButton(item=item, press=openDiff)
+        when item.kind == "close-diff"
+          ShortcutButton(item=item, press=closeDiff)
+        when item.kind == "close-surface"
+          ShortcutButton(item=item, press=panel("tab-close", item.target))
+        when item.kind == "pr-close"
+          ShortcutButton(item=item, press=prClose)
+        when item.kind == "stop"
+          ShortcutButton(item=item, press=stop)
+        when item.kind == "options"
+          ShortcutButton(item=item, press=openOptions(item.target))
+        when item.kind == "provider"
+          ShortcutButton(item=item, press=selectProvider(item.target))
+        when item.kind == "model"
+          ShortcutButton(item=item, press=selectModel(item.target, item.extra))
+        when item.kind == "back"
+          ShortcutButton(item=item, press=back)
+        when item.kind == "copy-thread"
+          ShortcutButton(item=item, press=copyThread("copy-thread", ""))
+        when item.kind == "palette"
+          ShortcutButton(item=item, press=palette(item.target, item.extra))
+        when item.kind == "palette-run"
+          ShortcutButton(item=item, press=run(item.target, item.extra, ""))
+        when item.kind == "new-thread-in"
+          ShortcutButton(item=item, press=run("new-thread", item.target, ""))
+        when item.kind == "flow"
+          ShortcutButton(item=item, press=run("flow", item.target, item.extra))
+        when item.kind == "command"
+          ShortcutButton(item=item, press=command(item.target, item.extra, "", 0))
+        when item.kind == "settings"
+          ShortcutButton(item=item, press=settings)
+        when item.kind == "pr-copy"
+          ShortcutButton(item=item, press=copy(item.target, item.extra))
+
+component ShortcutButton
+  props
+    item: KeyDispatch
+    press: action
+  view
+    button press=press aria-keyshortcuts=item.chord aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+      text item.label font-size=1

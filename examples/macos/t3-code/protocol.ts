@@ -5,7 +5,7 @@ export interface BridgeReply {
   ok: boolean;
   generation: number;
   value?: unknown;
-  error?: { kind: string; message: string; uncertain: boolean };
+  error?: { kind: string; message: string; uncertain: boolean; reason?: string; detail?: string };
 }
 export interface Native {
   available: boolean;
@@ -20,8 +20,12 @@ export interface Files {
   };
 }
 export class ClientError extends Error {
-  constructor(message: string, readonly kind = 'client', readonly uncertain = false) {
+  /** A typed server error's own fields (PullRequestOperationError.reason "not-found", .detail); '' otherwise. */
+  readonly reason: string;
+  readonly detail: string;
+  constructor(message: string, readonly kind = 'client', readonly uncertain = false, typed: { reason?: string; detail?: string } = {}) {
     super(message);
+    this.reason = typed.reason ?? ''; this.detail = typed.detail ?? '';
   }
 }
 export function reply(value: unknown): BridgeReply {
@@ -35,6 +39,7 @@ export function reply(value: unknown): BridgeReply {
     ...(data.ok ? {} : { error: {
       kind: str(error.kind, 'transport'), message: str(error.message, 'The connection failed.'),
       uncertain: error.uncertain === true,
+      ...(str(error.reason) ? { reason: str(error.reason) } : {}), ...(str(error.detail) ? { detail: str(error.detail) } : {}),
     } }),
   };
 }
@@ -115,31 +120,49 @@ export function modelSelection(instanceId: string, model: string, options?: unkn
   if (!instanceId || !model) throw new ClientError('Choose an available provider and model.');
   return { instanceId, model, ...(Array.isArray(options) && options.length ? { options: arr(options) } : {}) };
 }
-export function sendPayload(commandId: string, threadId: string, messageId: string, text: string): Obj {
+export function sendPayload(commandId: string, threadId: string, messageId: string, text: string, attachments: Obj[] = []): Obj {
   return {
-    type: 'message.dispatch', commandId, threadId, messageId, text, attachments: [],
+    type: 'message.dispatch', commandId, threadId, messageId, text, attachments,
     createdBy: 'user', creationSource: 'web', deliveryIntent: 'auto', dispatchMode: { type: 'start_immediately' },
   };
 }
 export function launchPayload(commandId: string, threadId: string, messageId: string, projectId: string,
-  text: string, selection: Obj, runtimeMode: string, interactionMode: string): Obj {
+  text: string, selection: Obj, runtimeMode: string, interactionMode: string, attachments: Obj[] = []): Obj {
   return {
     commandId, threadId, projectId, title: text.trim().split('\n')[0].slice(0, 100) || 'New thread',
     generateTitle: true, creationSource: 'web', modelSelection: selection, runtimeMode, interactionMode,
-    workspaceStrategy: { type: 'root' }, initialMessage: { messageId, text, attachments: [] },
+    workspaceStrategy: { type: 'root' }, initialMessage: { messageId, text, attachments },
   };
 }
 
+/**
+ * applyServerConfigProjection (client-runtime state/serverConfigProjection.ts). A
+ * HEAD server may send a second snapshot mid-stream (late editor discovery,
+ * 0080e80); snapshots never carry published themes or usage-limit sources, so a
+ * capable server's current sets are carried across it.
+ */
 export function applyConfig(current: Obj, event: Obj): Obj {
   if (event.type === 'snapshot') {
     const config = obj(event.config);
     if (!Array.isArray(config.providers) || !str(obj(config.environment).environmentId)) {
       throw new ClientError('T3 returned an invalid provider configuration.', 'protocol');
     }
-    return config;
+    const capabilities = obj(obj(config.environment).capabilities);
+    const carried: Obj = { ...config };
+    delete carried.environmentThemes; delete carried.usageLimitSources;
+    if (capabilities.environmentThemes === true && Array.isArray(current.environmentThemes)) carried.environmentThemes = current.environmentThemes;
+    if (capabilities.usageLimitSources === true && Array.isArray(current.usageLimitSources)) carried.usageLimitSources = current.usageLimitSources;
+    return carried;
   }
+  if (!Object.keys(current).length) return current;
   const payload = obj(event.payload);
+  const without = (key: string): Obj => { const next = { ...current }; delete next[key]; return next; };
+  if (event.type === 'keybindingsUpdated') return { ...current, keybindings: arr(payload.keybindings), issues: arr(payload.issues) };
   if (event.type === 'providerStatuses') return { ...current, providers: arr(payload.providers) };
   if (event.type === 'settingsUpdated') return { ...current, settings: obj(payload.settings) };
+  // The full published set; an empty set clears it (never in a snapshot).
+  if (event.type === 'environmentThemesUpdated') return arr(payload.themes).length ? { ...current, environmentThemes: arr(payload.themes) } : without('environmentThemes');
+  // Quota from the server's usage-limit sources (never in a snapshot; /usage-limits reads it).
+  if (event.type === 'usageLimitSourcesUpdated') return arr(payload.sources).length ? { ...current, usageLimitSources: arr(payload.sources) } : without('usageLimitSources');
   return current;
 }

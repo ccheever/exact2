@@ -1,0 +1,24 @@
+// Lane r5-shell: the sidebar's resize rail at the window level (ui/sidebar.tsx
+// SidebarRail; MIT, see LICENSE-T3). The reference's rail is a 16pt button over
+// the full window height (`absolute inset-y-0 w-4 -right-4 -translate-x-1/2`,
+// z 20), centred on the sidebar container's right edge: x 247–263 beside a
+// 256pt sidebar (measured in the HEAD oracle). Inside the sidebar a strip that
+// reaches past it is not hit-testable natively, so SidebarOverlays mounts this
+// one after the chat column, where it paints and hit-tests above both. Hover
+// draws the 2pt `after:` line (left 8) in the sidebar border colour (in dark, its
+// first point over the sidebar's 1pt border reads #262626 and its second #1d1d1d) and
+// shows "Drag to resize sidebar" (SidebarEdgeTips); drag resizes, double click
+// resets (the reference's rail ignores a click while the sidebar is open).
+component SidebarWindowRail
+  props
+    width: number
+    hovered: bool
+    line: string
+    fill: string
+    resize: action
+    finishResize: action
+    resetWidth: action
+    hoverCard: action
+  view
+    box position="absolute" left=(width - 9) top=0 bottom=0 width=16 z-index=20 touch-action="none" pan=resize panrelease=finishResize dblclick=resetWidth hover=hoverCard("sidebar-rail") role="separator" aria-orientation="vertical" aria-label="Resize Sidebar" testId="sidebar-resize"
+      box position="absolute" left=8 top=0 bottom=0 width=2 box-sizing="border-box" pointer-events="none" border-left-style="solid" border-left-width=1 border-color=(hovered ? line : "#00000000") background-color=(hovered ? fill : "#00000000")

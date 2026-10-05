@@ -1,0 +1,242 @@
+use R5Probe from "./r5-composer.contract"
+use R4EnvOption from "./r4-git-shapes.contract"
+use StripPrTip from "./r7-handoff.contract"
+use R9CheckoutItem from "./r9-connect-shapes.contract" // lane r9-connect
+// The composer's projected toolbar/menu rows (composer-presentation.ts) and the
+// model picker catalog (model-catalog.ts).
+shape ComposerTrait
+  key: string
+  kind: string
+  descriptor: string
+  value: string
+  label: string
+  description: string
+  selected: bool
+  isDefault: bool
+  index: number
+shape ComposerRuntime
+  mode: string
+  label: string
+  description: string
+  icon: string
+  selected: bool
+  index: number
+// A docked composer notice (ComposerBannerStack item) and a todo step (ComposerTasksBadge).
+// A description part: plain text, or (threadId set) an inline link that opens that thread.
+shape NoticeSegment
+  key: string
+  label: string
+  threadId: string
+  last: bool
+shape ComposerNotice
+  id: string
+  variant: string
+  icon: string
+  title: string
+  description: string
+  action: string
+  actionLabel: string
+  dismiss: string
+  dismissLabel: string
+  priority: number
+  front: bool
+  action2: string
+  action2Label: string
+  lines: list<string>
+  actionReason: string
+  dismissId: string
+  segments: list<NoticeSegment>
+shape ComposerTask
+  key: string
+  text: string
+  status: string
+  duration: string
+shape ComposerQueued
+  runId: string
+  text: string
+  images: number
+  index: number
+  editing: bool
+  last: bool
+// The workspace / branch strip under the draft composer (composer-controls-branch.ts).
+shape BranchRef
+  name: string
+  badge: string
+  selected: bool
+  index: number
+shape ComposerBranches
+  show: bool
+  envMode: string
+  forceWorktree: bool
+  envLabel: string
+  envLocked: bool
+  envIcon: string
+  previous: bool
+  previousBranch: string
+  branchLabel: string
+  branch: string
+  loading: bool
+  refs: list<BranchRef>
+  status: string
+  creatable: string
+  enterOp: string
+  enterValue: string
+  // lane r9-connect: "Checkout pull request" before the refs (0 or 1).
+  checkout: list<R9CheckoutItem>
+  // lane r4-git: "Run on" (r4-git-env.ts stripRunOn).
+  envShow: bool
+  // lanes r12/r13-threads: a non-Git project (a No project draft, say) shows only the machine selector
+  // (BranchToolbarEnvironmentSelector); envLocked then means a started thread's static machine row.
+  gitless: bool
+  envMachine: string
+  envMachineLabel: string
+  envOptions: list<R4EnvOption>
+  envMenuWidth: number
+  originShown: bool
+  originOn: bool
+  // lane r7-handoff: the pull request badge before the branch trigger (r7-handoff-strip.ts).
+  prShow: bool
+  prText: string
+  prIcon: string
+  prState: string
+  prLabel: string
+  prList: bool
+  prUrl: string
+  prTarget: string
+  prTips: list<StripPrTip>
+// One provider mark of a multi-model draft's trigger (r3-composer-controls-fanout.ts).
+shape FanoutMark
+  key: string
+  driver: string
+shape ComposerView
+  placeholder: string
+  modelTip: string
+  fanout: bool
+  fanoutLabel: string
+  fanoutAria: string
+  fanoutMarks: list<FanoutMark>
+  fanoutMore: number
+  fanoutKeys: list<string>
+  traitsLabel: string
+  traitsSpeed: string
+  traitsAria: string
+  runtimeIconOnly: bool
+  traitsIconOnly: bool
+  restingRuntimeIconOnly: bool
+  restingTraitsIconOnly: bool
+  sendRunning: bool
+  sendLabel: string
+  sendIcon: string
+  sendStatus: string
+  sendSpinner: bool
+  sendTooltip: string
+  sendChords: string
+  canResume: bool
+  planReady: bool
+  planTitle: string
+  noProvider: string
+  providerSetupId: string
+  tasksTotal: number
+  tasksDone: number
+  tasksCurrent: string
+  tasks: list<ComposerTask>
+  syncStatus: string
+  activity: string
+  notices: list<ComposerNotice>
+  implementX: number
+  implementWidth: number
+  queued: list<ComposerQueued>
+  contextShow: bool
+  contextAria: string
+  contextPercent: string
+  contextOffset: number
+  contextOver: bool
+  contextUsed: string
+  contextMax: string
+  contextTotal: string
+  contextCost: string
+  contextNote: string
+  contextCompact: bool
+  meterX: number
+  meterWidth: number
+  actionsX: number
+  toolbarTop: number
+  toolbarRight: number
+  sendTipWidth: number
+  stripTop: number
+  stripLeft: number
+  stripRight: number
+  queueReorder: bool
+  queueSteer: bool
+  queueSteerReason: string
+  queueEditing: string
+  queueDropSeq: number
+  traitsCount: number
+  traitsSelected: number
+  traits: list<ComposerTrait>
+  runtimeMode: string
+  runtimeLabel: string
+  runtimeIcon: string
+  runtimeDescription: string
+  runtimeSelected: number
+  runtimeCount: number
+  runtimes: list<ComposerRuntime>
+  // r5-composer: menu texts to measure, and the menus' widths from the measurements (r5-composer-menus.ts).
+  menuProbes: list<R5Probe>
+  effortMenuWidth: number
+  runtimeMenuWidth: number
+  planVisible: bool
+  planActive: bool
+  traitsX: number
+  traitsWidth: number
+  runtimeX: number
+  runtimeWidth: number
+  keyEffort: string
+  keyMode: string
+  attach: bool
+  subagent: bool
+  subagentModel: string
+  subagentEffort: string
+  subagentStatus: string
+  subagentAnnounce: string
+  subagentParent: string
+
+shape PickerRow
+  key: string
+  kind: string
+  id: string
+  providerId: string
+  name: string
+  label: string
+  driver: string
+  favorite: bool
+  selected: bool
+  isNew: bool
+  index: number
+  highlighted: bool
+  expanded: bool
+  checked: bool
+shape PickerRail
+  id: string
+  index: number
+  name: string
+  driver: string
+  ready: bool
+  selected: bool
+  providerBadge: string
+  providerBadgeColor: string
+shape PickerCatalog
+  searching: bool
+  provider: string
+  favoritesSelected: bool
+  count: number
+  legacyCount: number
+  restCount: number
+  restLegacyCount: number
+  highlight: number
+  highlightKind: string
+  highlightId: string
+  highlightProvider: string
+  models: list<PickerRow>
+  providers: list<PickerRail>
+  railIndex: number

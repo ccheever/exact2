@@ -20,6 +20,23 @@ unknown in the library (research "Knowledge-update handoff"; spec open decision 
 Reference product pin: T3 Code `1e2ecbd975` (no fetch made). The embedded server pin is
 chosen in `20261005-embedded-server-runtime`.
 
+## Parallel implementation, 2026-10-06
+
+The user requested parallel work on independent tasks without unresolved issue prerequisites.
+For this local implementation wave, work starts from the preserved round-12 source snapshot
+on `daehyeon/t3code-parallel-features`, with a task-named branch/worktree for each worker.
+The original `daehyeon/t3-code` branch is preserved and is not reset. The main import,
+hot-file-split and desktop-oracle PR gates remain pending for delivery and final acceptance;
+no merged prerequisite is claimed. Implementation is separated from those procedural gates
+for this wave; missing runtime/tooling evidence remains explicitly unverified.
+
+Selected: client-activity-reporting, right-panel-tab-menu, upstream-timeline-and-markdown.
+Their listed framework issues have existing app workarounds or are excluded features.
+Workers own separate feature files; the coordinator alone edits shared root/client/native
+registration files and plan indexes. Library revision: `20261005-platforms-v3`, with the
+checkout's code as framework authority. Agents inherit the current host model and reasoning.
+No scheduler, external publication or pixel-fidelity loop is part of this request.
+
 ## Implementation order
 
 Groups run in order; tickets inside a group may run in parallel (the user's execution

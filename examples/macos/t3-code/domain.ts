@@ -13,7 +13,18 @@ export interface ThreadState {
   hasMore: boolean;
   latestLocalTurnOrdinal: number | null;
 }
-export interface Message { id: string; kind: string; title: string; body: string }
+export interface Activity { id: string; label: string; body: string; icon: string; output: string; result: string; failed: boolean; timestamp: string;
+  tone?: string; ok?: boolean; reasoning?: boolean; expandable?: boolean; detail?: string; status?: string; targetId?: string; answer?: string; retryRunId?: string }
+export interface Message { id: string; kind: string; title: string; body: string; checkpointId?: string; runId?: string; sourceThreadId?: string; completed?: boolean; createdAt?: string; activities?: Activity[]; files?: { path: string; additions: number; deletions: number }[]; folded?: Message[]; expanded?: boolean;
+  icon?: string; tone?: string; failed?: boolean; live?: boolean; startedMs?: number; detail?: string; status?: string; groupId?: string; continues?: boolean;
+  revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number; copyFailed?: boolean;
+  meta?: boolean; streaming?: boolean; actionsId?: string; collapsible?: boolean;
+  code?: { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[];
+  diagrams?: import('./timeline-mermaid').MermaidDiagramView[];
+  setup?: import('./timeline-worktree').SetupView[];
+  images?: { id: string; name: string; snapshot: boolean; appName: string; appInitial: string; windowTitle: string; accessible: boolean; video: boolean }[];
+  attachFiles?: { id: string; name: string; icon: string }[];
+  chips?: import('./r4-timeline-chips').ChipView[] }
 
 function isObject(value: unknown): value is Obj {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -409,14 +420,23 @@ function present(row: Obj): Message {
     case "error": kind = "error"; title = "Error"; body = str(obj(item.failure).message); break;
     case "approval_request": kind = "request"; title = "Approval requested"; body = str(item.prompt); break;
     case "user_input_request": kind = "request"; title = "Input requested"; body = arr(item.questions).map(question => str(question.question)).join("\n\n"); break;
+    case "fork": kind = "fork"; title = "Conversation fork"; body = "Forked from conversation"; break;
     case "notification": title = "Notification"; body = [str(item.summary), str(item.detail)].filter(Boolean).join("\n\n"); break;
-    case "checkpoint": title = "Checkpoint"; body = arr(item.files).map(file => str(file.path)).join("\n"); break;
+    case "checkpoint": return { id, kind: "checkpoint", title: "Changes", body: "", checkpointId: str(item.checkpointId),
+      files: arr(item.files).map(file => ({ path: str(file.path), additions: num(file.additions), deletions: num(file.deletions) })) };
     default: body = str(item.message) || str(item.summary);
   }
-  return { id, kind, title, body };
+  return { id, kind, title, body, runId: str(item.runId), sourceThreadId: str(row.sourceThreadId) };
 }
 
-export function messages(state: ThreadState | null): Message[] { return visibleTurnItems(state).map(present); }
+export function messages(state: ThreadState | null): Message[] {
+  return visibleTurnItems(state).map(row => {
+    const item = obj(row.item);
+    const stored = arr(state?.projection.messages).find(message => message.id === item.messageId);
+    return { ...present(row), runId: str(item.runId), sourceThreadId: str(row.sourceThreadId),
+      completed: item.status === 'completed', createdAt: str(stored?.createdAt ?? item.startedAt ?? item.updatedAt) };
+  });
+}
 
 export function readyCheckpoint(state: ThreadState | null): number | null {
   if (!state) return null;
@@ -427,4 +447,13 @@ export function readyCheckpoint(state: ThreadState | null): number | null {
     if (ordinal >= 0 && (latest === null || ordinal > latest)) latest = ordinal;
   }
   return latest;
+}
+
+// Reference projectSettings.resolveWorktreeCleanup: off clears every rule,
+// custom owns a complete rule object, otherwise inherit environment retention.
+export function effectiveWorktreeRules(settings: Obj, override: Obj): Obj {
+  const policy = obj(override.worktreeCleanup ?? settings.worktreeCleanup);
+  const rules = policy.mode === 'off' ? {} : policy.mode === 'custom' ? obj(policy.rules) : obj(settings.storageCleanup);
+  return { worktreeAfterDays: typeof rules.worktreeAfterDays === 'number' ? rules.worktreeAfterDays : null,
+    worktreeOnMerge: rules.worktreeOnMerge === true, worktreeOnDelete: rules.worktreeOnDelete === true, worktreeUnchanged: rules.worktreeUnchanged === true };
 }

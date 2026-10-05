@@ -1,0 +1,201 @@
+// The empty main view (lane "pages"), measured against the served reference
+// at 1280×840: DraftHeroHeadline's sentence and its project menu, and the
+// index landings (NoProjectsHero, DraftStartError and the hosted
+// HostedStaticOnboardingState), from T3 Code (MIT, see LICENSE-T3).
+use Snapshot from "./shapes.contract"
+use ProjectMark from "./icons.contract"
+use Icon from "./icons.contract"
+use PgIcon from "./pages-icons.contract"
+
+shape HeroProject
+  id: string
+  name: string
+  mark: string
+  ink: string
+  surface: string
+  selected: bool
+shape HeroName
+  id: string
+shape PagesHome
+  landing: string
+  headline: string
+  projectName: string
+  // r6-polish: the name keyed by its text, so a new name mounts a fresh text (a reused one-line text keeps drawing the old string).
+  projectNames: list<HeroName>
+  projects: list<HeroProject>
+  noProjectItem: bool
+  scratchLine: bool
+  scratchDraft: bool
+  noProjectsDescription: string
+  scratchStart: bool
+  savedEnvironments: number
+  firstRunPending: bool
+  pullRequests: bool
+
+// The draft hero. The heading sits 16pt above the composer stack (pb-4,
+// upstream 44b4965017), so the column ends 4pt above the composer column's
+// 12pt top padding; with a shoulder tab (the stash badge) on the stack it
+// sits on the tab (pb-0), 12pt into that padding.
+component EmptyThread
+  props
+    data: Snapshot
+    home: PagesHome
+    scheme: string
+    shoulder: bool
+    busy: bool
+    command: action
+    addProject: action
+  view
+    column flex=1 min-height=0 width="100%" justify-content="flex-end" align-items="center" padding-left=20 padding-right=20 box-sizing="border-box" testId="empty-thread"
+      when data.connected and data.threadId == "" and home.landing == ""
+        column width="100%" max-width=1024 padding-bottom=(shoulder ? 0 : 4) margin-bottom=(shoulder ? -12 : 0) box-sizing="border-box" align-items="center" flex-shrink=0
+          row width="100%" max-width=736 justify-content="center" flex-wrap="wrap" align-items="baseline" role="heading" aria-level=1 aria-label=(home.headline == "work" ? "What should we work on?" : home.headline == "build" ? `What should we build in ${home.projectName}?` : home.headline == "start" ? `${home.projectName} to start` : "Add a project to start") testId="draft-hero-heading"
+            when home.headline == "work"
+              text "What should we work on?" font-size=30 line-height="36px" letter-spacing=-0.75 color="light-dark(#27272a, #f5f5f5)"
+            when home.headline == "build"
+              text "What should we build in " font-size=30 line-height="36px" letter-spacing=-0.75 white-space="pre" color="light-dark(#27272a, #f5f5f5)"
+              HeroPicker(home=home, scheme=scheme, small=false, command=command, addProject=addProject)
+              text "?" font-size=30 line-height="36px" letter-spacing=-0.75 color="light-dark(#27272a, #f5f5f5)"
+            when home.headline == "start"
+              HeroPicker(home=home, scheme=scheme, small=false, command=command, addProject=addProject)
+              text " to start" font-size=30 line-height="36px" letter-spacing=-0.75 white-space="pre" color="light-dark(#27272a, #f5f5f5)"
+            when home.headline == "add"
+              text "Add a project to start" font-size=30 line-height="36px" letter-spacing=-0.75 color="light-dark(#27272a, #f5f5f5)"
+          when home.noProjectItem
+            row height=24 margin-top=8 align-items="center" justify-content="center"
+              when home.scratchDraft
+                HeroPicker(home=home, scheme=scheme, small=true, command=command, addProject=addProject)
+              when home.scratchLine
+                ScratchLink(busy=busy, command=command)
+
+// "or start without a project": an InlineButton (tone muted, text-sm medium).
+component ScratchLink
+  props
+    busy: bool
+    command: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=command("pages:hero-scratch", "", "", 0) hover=hover disabled=busy testId="hero-start-without-project" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" position="relative"
+      text "or start without a project" font-size=14 line-height="20px" font-weight=500 color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+      when over
+        box position="absolute" left=0 right=0 top=17 height=1 background-color="light-dark(#27272a, #f5f5f5)"
+
+// InlineButton tone="picker": the project title with a dotted underline
+// (decoration-foreground/30, 4pt offset) that turns solid on hover, and the
+// menu centred under it, 4pt below (MenuPopup align="center").
+component HeroPicker
+  props
+    home: PagesHome
+    scheme: string
+    small: bool
+    command: action
+    addProject: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    column position="relative" flex-shrink=1 min-width=0 max-width=256
+      button popovertarget="hero-project-menu" hover=hover testId="empty-choose-project" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="column" align-items="flex-start" max-width=256 position="relative"
+        each name in home.projectNames key=name.id
+          text name.id font-size=(small ? 14 : 30) line-height=(small ? "20px" : "36px") letter-spacing=(small ? 0 : -0.75) font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 max-width=256
+        box position="absolute" left=0 right=0 top=(small ? 18 : 33) height=(small ? 1 : 2) overflow="hidden"
+          svg width=2000 height=(small ? 1 : 2) viewBox=(small ? "0 0 2000 1" : "0 0 2000 2") aria-hidden=true
+            path d=(small ? "M0 .5H2000" : "M0 1H2000") stroke=(scheme == "dark" ? (over ? "#f5f5f5" : "#f5f5f54d") : (over ? "#27272a" : "#27272a4d")) stroke-width=(small ? 1 : 2) stroke-dasharray=(over ? "none" : (small ? "1 1" : "2 2"))
+      column id="hero-project-menu" popover="auto" position="absolute" left=0 right=0 top=0 padding-top=4 align-items="center" testId="hero-project-menu-layer"
+        HeroMenu(home=home, scheme=scheme, command=command, addProject=addProject)
+
+// MenuPopup (dropdown-glass, rounded-lg, max-h-80) with MenuRadioItem rows,
+// a separator and the Add project MenuItem.
+component HeroMenu
+  props
+    home: PagesHome
+    scheme: string
+    command: action
+    addProject: action
+  state hovered = ""
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  view
+    column min-width=160 max-height=320 flex-shrink=0 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label="Choose project" testId="hero-project-menu"
+      scroll width="100%" max-height=318 padding=4 box-sizing="border-box"
+        column width="100%" role="group"
+          when home.noProjectItem
+            button press=command("pages:hero-scratch", "", "", 0) popovertarget="hero-project-menu" popovertargetaction="hide" hover=hover("no-project") role="menuitemradio" aria-checked=home.scratchDraft testId="hero-project-none" width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 border-width=0 background-color=(hovered == "no-project" ? "light-dark(#f4f4f5, #ffffff0a)" : home.scratchDraft ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+              PgIcon(name="message-square-dashed", size=16, color="light-dark(#4b5563, #9ca3af)")
+              text "No project" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+          each project in home.projects key=project.id
+            button press=command("pages:hero-project", project.id, "", 0) popovertarget="hero-project-menu" popovertargetaction="hide" hover=hover(project.id) role="menuitemradio" aria-checked=project.selected aria-label=project.name testId=`hero-project-${project.id}` width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 border-width=0 background-color=(hovered == project.id ? "light-dark(#f4f4f5, #ffffff0a)" : project.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+              ProjectMark(label=project.mark, muted=false, ink=project.ink, surface=project.surface, size=16)
+              text project.name font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" line-clamp=1 white-space="nowrap" min-width=0 text-align="left"
+        box width="calc(100% - 16px)" height=1 margin-left=8 margin-top=4 margin-bottom=4 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+        button press=addProject popovertarget="hero-project-menu" popovertargetaction="hide" hover=hover("add-project") role="menuitem" testId="hero-add-project" width="100%" min-height=28 padding-left=6 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=6 border-radius=6 border-width=0 background-color=(hovered == "add-project" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+          box opacity=0.8 display="flex"
+            PgIcon(name="folder-plus", size=16, color="light-dark(#71717b, #818181)")
+          text "Add project" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+
+// The main column's empty routes, drawn over the conversation column: the
+// desktop shell keeps a 52pt titlebar strip (WorkspacePageHeader) above an
+// Empty state centred in the rest.
+component PagesLanding
+  props
+    home: PagesHome
+    scheme: string
+    sidebarOpen: bool
+    keySidebar: string
+    busy: bool
+    toggleSidebar: action
+    command: action
+    addProject: action
+    openConnections: action
+  view
+    column position="absolute" left=0 top=0 right=0 bottom=0 background-color="light-dark(#fcfcfc, #0a0a0a)" testId=`landing-${home.landing}`
+      row height=52 flex-shrink=0 width="100%" padding-left=(sidebarOpen ? 20 : 130) padding-right=13 box-sizing="border-box" align-items="center" gap=8 position="relative" border-bottom-width=(home.landing == "no-environment" ? 1 : 0) border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)"
+        when not sidebarOpen
+          button press=toggleSidebar position="absolute" left=91 top=12 width=28 height=28 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar"
+            Icon(name="panel-left", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
+        when home.landing == "no-environment"
+          text "T3 Code" font-size=14 line-height="20px" font-weight=500 color="light-dark(#71717b99, #81818199)"
+      column flex=1 min-height=0 width="100%" padding=48 box-sizing="border-box" align-items="center" justify-content="center"
+        when home.landing == "no-projects"
+          column width="100%" max-width=512 padding-left=32 padding-right=32 padding-top=48 padding-bottom=48 box-sizing="border-box" align-items="center"
+            text "What should we work on?" font-size=30 line-height="36px" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1
+            text home.noProjectsDescription margin-top=4 font-size=14 line-height="20px" text-align="center" color="light-dark(#71717b, #818181)"
+            row margin-top=24 justify-content="center" gap=8
+              LandingButton(scheme=scheme, label="Add project", icon="plus", primary=true, busy=false, press=addProject, testId="landing-add-project")
+              when home.scratchStart
+                LandingButton(scheme=scheme, label="Start without a project", icon="message-square-dashed", primary=false, busy=busy, press=command("pages:hero-scratch", "", "", 0), testId="landing-start-without-project")
+        when home.landing == "start-error"
+          column width="100%" max-width=448 align-items="center"
+            text "Couldn’t start a new thread" font-size=20 line-height="28px" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1
+            text "The project is still available. Try opening the draft again." margin-top=4 font-size=14 line-height="20px" text-align="center" color="light-dark(#71717b, #818181)"
+            row margin-top=20 justify-content="center"
+              LandingButton(scheme=scheme, label="Try again", icon="refresh-cw", primary=true, busy=busy, press=command("pages:hero-retry", "", "", 0), testId="landing-try-again")
+        when home.landing == "no-environment"
+          column width="100%" max-width=576 padding-left=32 padding-right=32 padding-top=48 padding-bottom=48 box-sizing="border-box" border-radius=24 border-width=1 border-style="solid" border-color="light-dark(#e4e4e78c, #ffffff08)" background-color="light-dark(#ffffff33, #11111133)" box-shadow="0 1px 3px #0000000d, 0 1px 2px -1px #0000000d" align-items="center" testId="no-environment-card"
+            box width=44 height=44 margin-bottom=20 box-sizing="border-box" border-radius=12 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0b)" background-color="light-dark(#fcfcfcb3, #0a0a0ab3)" display="flex" align-items="center" justify-content="center"
+              PgIcon(name="link", size=20, color="light-dark(#71717b, #818181)")
+            text "Connect to a computer running T3 Code" font-size=20 line-height="28px" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1
+            text "This app connects to T3 Code running on your computer or a server. Start the T3 Code desktop app or command-line server on that machine and keep it running." margin-top=4 font-size=14 line-height="20px" text-align="center" color="light-dark(#71717b, #818181)"
+            text "Open Connections and add that machine using its pairing link. This app must be able to reach it." margin-top=4 font-size=14 line-height="20px" text-align="center" color="light-dark(#71717b, #818181)"
+            row margin-top=24 justify-content="center"
+              LandingButton(scheme=scheme, label="Open Connections", icon="plus", primary=true, busy=false, press=openConnections, testId="landing-open-connections")
+
+// Button size="sm": 28pt, px 9, rounded-lg, a 16pt glyph 6pt from the label.
+component LandingButton
+  props
+    scheme: string
+    label: string
+    icon: string
+    primary: bool
+    busy: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover disabled=busy testId=testId height=28 padding-left=9 padding-right=9 box-sizing="border-box" gap=6 border-radius=8 border-width=1 border-style="solid" border-color=(primary ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") background-color=(primary ? (over ? "light-dark(#1b4ed8e6, #346bf1e6)" : "light-dark(#1b4ed8, #346bf1)") : (over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff06)")) box-shadow=(primary ? (scheme == "dark" ? "inset 0 1px 0 #ffffff29, 0 1px 2px #346bf13d" : "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d") : "0 1px 2px #0000000d") opacity=(busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center"
+      PgIcon(name=icon, size=16, color=(primary ? "#ffffff" : "light-dark(#71717b, #818181)"))
+      text label font-size=14 line-height="20px" font-weight=500 white-space="nowrap" color=(primary ? "#ffffff" : "light-dark(#27272a, #f5f5f5)")

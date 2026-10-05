@@ -1,0 +1,379 @@
+// Work-log rows from T3's chat/WorkLog.tsx, MessagesTimeline.tsx and
+// V2LifecycleRow.tsx (MIT, see LICENSE-T3): a 24pt line with a 16pt tool icon,
+// the live shimmer that sweeps a 72pt highlight across it, and the
+// V2ItemInspector panel an entry discloses.
+use Activity from "./shapes.contract"
+use CodeHighlight from "./markdown.contract"
+use synColor from "./markdown.contract"
+use Icon from "./icons.contract"
+use TimelineIcon from "./timeline-icons.contract"
+use Tip from "./shell-tip.contract"
+use R11RetryPreparation from "./r11-upstream.contract"
+
+// .live-activity-focus: a 72pt window crossing a box 144pt wider than the
+// row every 2.2s, its content held still by the counter-translation. Keyframe
+// values are literal, so each estimated row width (40pt steps) has its pair.
+keyframes tlFocus80
+  from translate="0px 0px"
+  to translate="224px 0px"
+keyframes tlCounter80
+  from translate="0px 0px"
+  to translate="-224px 0px"
+keyframes tlFocus120
+  from translate="0px 0px"
+  to translate="264px 0px"
+keyframes tlCounter120
+  from translate="0px 0px"
+  to translate="-264px 0px"
+keyframes tlFocus160
+  from translate="0px 0px"
+  to translate="304px 0px"
+keyframes tlCounter160
+  from translate="0px 0px"
+  to translate="-304px 0px"
+keyframes tlFocus200
+  from translate="0px 0px"
+  to translate="344px 0px"
+keyframes tlCounter200
+  from translate="0px 0px"
+  to translate="-344px 0px"
+keyframes tlFocus240
+  from translate="0px 0px"
+  to translate="384px 0px"
+keyframes tlCounter240
+  from translate="0px 0px"
+  to translate="-384px 0px"
+keyframes tlFocus280
+  from translate="0px 0px"
+  to translate="424px 0px"
+keyframes tlCounter280
+  from translate="0px 0px"
+  to translate="-424px 0px"
+keyframes tlFocus320
+  from translate="0px 0px"
+  to translate="464px 0px"
+keyframes tlCounter320
+  from translate="0px 0px"
+  to translate="-464px 0px"
+keyframes tlFocus360
+  from translate="0px 0px"
+  to translate="504px 0px"
+keyframes tlCounter360
+  from translate="0px 0px"
+  to translate="-504px 0px"
+keyframes tlFocus400
+  from translate="0px 0px"
+  to translate="544px 0px"
+keyframes tlCounter400
+  from translate="0px 0px"
+  to translate="-544px 0px"
+keyframes tlFocus440
+  from translate="0px 0px"
+  to translate="584px 0px"
+keyframes tlCounter440
+  from translate="0px 0px"
+  to translate="-584px 0px"
+keyframes tlFocus480
+  from translate="0px 0px"
+  to translate="624px 0px"
+keyframes tlCounter480
+  from translate="0px 0px"
+  to translate="-624px 0px"
+keyframes tlFocus520
+  from translate="0px 0px"
+  to translate="664px 0px"
+keyframes tlCounter520
+  from translate="0px 0px"
+  to translate="-664px 0px"
+keyframes tlFocus560
+  from translate="0px 0px"
+  to translate="704px 0px"
+keyframes tlCounter560
+  from translate="0px 0px"
+  to translate="-704px 0px"
+keyframes tlFocus600
+  from translate="0px 0px"
+  to translate="744px 0px"
+keyframes tlCounter600
+  from translate="0px 0px"
+  to translate="-744px 0px"
+keyframes tlFocus640
+  from translate="0px 0px"
+  to translate="784px 0px"
+keyframes tlCounter640
+  from translate="0px 0px"
+  to translate="-784px 0px"
+keyframes tlFocus680
+  from translate="0px 0px"
+  to translate="824px 0px"
+keyframes tlCounter680
+  from translate="0px 0px"
+  to translate="-824px 0px"
+keyframes tlFocus720
+  from translate="0px 0px"
+  to translate="864px 0px"
+keyframes tlCounter720
+  from translate="0px 0px"
+  to translate="-864px 0px"
+keyframes tlFocus760
+  from translate="0px 0px"
+  to translate="904px 0px"
+keyframes tlCounter760
+  from translate="0px 0px"
+  to translate="-904px 0px"
+keyframes tlFocus800
+  from translate="0px 0px"
+  to translate="944px 0px"
+keyframes tlCounter800
+  from translate="0px 0px"
+  to translate="-944px 0px"
+keyframes tlFocus840
+  from translate="0px 0px"
+  to translate="984px 0px"
+keyframes tlCounter840
+  from translate="0px 0px"
+  to translate="-984px 0px"
+keyframes tlFocus880
+  from translate="0px 0px"
+  to translate="1024px 0px"
+keyframes tlCounter880
+  from translate="0px 0px"
+  to translate="-1024px 0px"
+keyframes tlFocus920
+  from translate="0px 0px"
+  to translate="1064px 0px"
+keyframes tlCounter920
+  from translate="0px 0px"
+  to translate="-1064px 0px"
+keyframes tlFocus960
+  from translate="0px 0px"
+  to translate="1104px 0px"
+keyframes tlCounter960
+  from translate="0px 0px"
+  to translate="-1104px 0px"
+keyframes tlFocus1000
+  from translate="0px 0px"
+  to translate="1144px 0px"
+keyframes tlCounter1000
+  from translate="0px 0px"
+  to translate="-1144px 0px"
+// The copy button's check and "Copied!" toast last the 1s anchored toast;
+// two names let a second copy restart them.
+keyframes tlShownA
+  from opacity=1
+  99% opacity=1
+  to opacity=0
+keyframes tlShownB
+  from opacity=1
+  99% opacity=1
+  to opacity=0
+keyframes tlHiddenA
+  from opacity=0
+  99% opacity=0
+  to opacity=1
+keyframes tlHiddenB
+  from opacity=0
+  99% opacity=0
+  to opacity=1
+
+// WorkLogLine: icon slot, secondary label; tone colours warnings and failures.
+// An answered question trails its answer (strong while the row is closed).
+component WorkLine
+  props
+    icon: string
+    label: string
+    failed: bool
+    highlighted: bool
+    tone: string
+    answer: string
+    strong: bool
+  view
+    row flex=1 min-width=0 min-height=24 gap=6 align-items="center"
+      row width=24 height=24 flex-shrink=0 align-items="center" justify-content="center"
+        box width=16 height=16 opacity=(tone == "shine" ? 0 : highlighted or tone == "warning" or tone == "error" ? 1 : 0.7)
+          TimelineIcon(name=icon, size=16, color=(tone == "warning" ? "light-dark(#e17100, #fe9a00)" : tone == "error" ? "light-dark(#fb2c36, #fb414a)" : failed ? "light-dark(#971a2066, #fca5a566)" : highlighted ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#44444a, #818181)"))
+      when answer != ""
+        row flex=1 min-width=0 gap=6 align-items="baseline"
+          text label min-width=0 font-size=14 line-height="22.75px" line-clamp=1 text-align="left" color="light-dark(#71717b, #818181)"
+          text answer min-width=0 font-size=14 line-height="22.75px" line-clamp=1 text-align="left" color=(strong ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+      else
+        text label flex=1 min-width=0 font-size=14 line-height="22.75px" font-weight=(tone == "warning" or tone == "error" ? 500 : 400) line-clamp=1 text-align="left" color=(tone == "warning" ? "light-dark(#e17100, #fe9a00)" : tone == "error" ? "light-dark(#fb2c36, #fb414a)" : highlighted ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+
+// The row width the sweep is laid out for: the label's estimated width,
+// rounded up to the 40pt step its keyframes exist for.
+fn shineWidth(label: string): number = max(80, min(1000, floor((30 + length(label) * 7 + 39) / 40) * 40))
+// The .live-activity-focus mask: a 72pt window at the left of the sweep box.
+fn shineStop(px: number, width: number): string = toString(floor(px / (width + 144) * 10000) / 100)
+fn shineMask(width: number): string = `linear-gradient(to right, #00000000 0%, #0000001f ${shineStop(10.8, width)}%, #0000008c ${shineStop(25.2, width)}%, #000000 ${shineStop(36, width)}%, #0000008c ${shineStop(46.8, width)}%, #0000001f ${shineStop(61.2, width)}%, #00000000 ${shineStop(72, width)}%, #00000000 100%)`
+
+// LiveActivityRow: a fit-width line whose highlight sweeps while it is live;
+// a running tool sweeps its label only (.live-tool-shine).
+component LiveActivity
+  props
+    label: string
+    icon: string
+    failed: bool
+    active: bool
+    shimmer: bool
+  derive sweep = shineWidth(label)
+  view
+    row position="relative" min-height=24 max-width="100%" min-width=0 overflow="hidden" border-radius=8 align-items="center" aria-label=(failed ? "Tool call failed" : label)
+      WorkLine(icon=icon, label=label, failed=failed, highlighted=false, tone="", answer="", strong=false)
+      when active and not failed
+        box position="absolute" top=0 bottom=0 left=-72 width=(sweep + 144) pointer-events="none" mask-image=shineMask(sweep) animation=`tlFocus${sweep} 2.2s linear infinite` aria-hidden=true
+          box width="100%" height="100%" animation=`tlCounter${sweep} 2.2s linear infinite`
+            row position="absolute" top=0 bottom=0 left=72 right=72 align-items="center" overflow="hidden"
+              WorkLine(icon=icon, label=label, failed=false, highlighted=true, tone=(shimmer ? "" : "shine"), answer="", strong=false)
+
+// A header's label sweeping like a live row, with no icon slot ("Setting up worktree…").
+component LiveLabel
+  props
+    label: string
+  derive sweep = shineWidth(label)
+  view
+    row position="relative" max-width="100%" min-width=0 overflow="hidden" align-items="center" aria-label=label
+      text label font-size=14 line-height="22.75px" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+      box position="absolute" top=0 bottom=0 left=-72 width=(sweep + 144) pointer-events="none" mask-image=shineMask(sweep) animation=`tlFocus${sweep} 2.2s linear infinite` aria-hidden=true
+        box width="100%" height="100%" animation=`tlCounter${sweep} 2.2s linear infinite`
+          row position="absolute" top=0 bottom=0 left=72 right=72 align-items="center" overflow="hidden"
+            text label font-size=14 line-height="22.75px" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
+
+// SimpleWorkEntryRow: one entry, its hover time and a disclosure of its input,
+// exit status, paths or results; provider failures keep their red heading.
+// Reads and skills disclose plain text (output); other tools the inspector
+// panel (body), flush with the row, its JSON input highlighted (code).
+component WorkEntry
+  props
+    entry: Activity
+    grouped: bool
+    command: action
+    code: list<CodeHighlight>
+    // toolCallExpandedBodyClassName: text-(length:--font-size-code) leading-relaxed (r4-timeline).
+    codeSize: number
+  state expanded = false
+  state hovering = false
+  action toggle
+    if entry.expandable
+      expanded = not expanded
+  action setHover(over: bool)
+    hovering = over
+  view
+    column hover=setHover width="100%" padding-left=2 padding-right=2 padding-top=(grouped ? 0 : 2) padding-bottom=(grouped ? 0 : 2) box-sizing="border-box" border-radius=8 background-color="#00000000"
+      when entry.tone == "provider-error" or entry.tone == "provider-warning"
+        row width="100%" min-height=24 gap=6 align-items="center"
+          row width=24 height=24 flex-shrink=0 align-items="center" justify-content="center"
+            Icon(name="circle-alert", size=16, color=(entry.tone == "provider-warning" ? "light-dark(#e17100, #fe9a00)" : "light-dark(#fb2c36, #fb414a)"))
+          text entry.label flex=1 min-width=0 font-size=14 font-weight=500 line-height="22.75px" color=(entry.tone == "provider-warning" ? "light-dark(#e17100, #fe9a00)" : "light-dark(#fb2c36, #fb414a)")
+          Tip(label=entry.timeTip, side="top", align="center", offset=20)
+            text entry.timestamp flex-shrink=0 margin-right=4 font-size=12 line-height="16px" white-space="nowrap" color="light-dark(#71717b, #818181)"
+        when entry.detail != ""
+          text entry.detail margin-left=28 padding-top=4 padding-bottom=4 font-size=14 line-height="22.75px" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272acc, #f5f5f5cc)"
+        when entry.retryRunId != ""
+          R11RetryPreparation(runId=entry.retryRunId, command=command)
+      else
+        button press=toggle testId=`work-detail-${entry.id}` aria-label=(entry.failed ? `${entry.answer != "" ? entry.label + ": " + entry.answer : entry.label}, tool call failed` : entry.answer != "" ? `${entry.label}: ${entry.answer}` : entry.label) aria-expanded=expanded width="100%" min-height=24 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap=6
+          // Separate lines for the two labels: a one-line text reused for a new string can keep drawing the old one.
+          when entry.reasoning and expanded
+            WorkLine(icon=entry.icon, label=entry.status, failed=entry.failed, highlighted=false, tone=(entry.tone == "warning" or entry.tone == "error" ? entry.tone : ""), answer="", strong=false)
+          else
+            WorkLine(icon=entry.icon, label=entry.label, failed=entry.failed, highlighted=false, tone=(entry.tone == "warning" or entry.tone == "error" ? entry.tone : ""), answer=entry.answer, strong=(not expanded))
+          when entry.targetId != ""
+            button press=command("select-thread", entry.targetId, "", 0) aria-label="Open created thread" padding=0 border-width=0 background-color="#00000000" flex-shrink=0
+              text "Open chat" font-size=14 line-height="22.75px" color="light-dark(#1447e6, #50a2ff)"
+          box position=(hovering or expanded ? "relative" : "absolute") opacity=(hovering or expanded ? 1 : 0) flex-shrink=0 margin-right=4
+            Tip(label=(hovering or expanded ? entry.timeTip : ""), side="top", align="center", offset=20)
+              text entry.timestamp font-size=12 line-height="16px" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+          row width=16 height=16 flex-shrink=0 align-items="center" justify-content="center" opacity=(entry.expandable ? 0.7 : 0) rotate=(expanded ? 90 : 0)
+            Icon(name="right", size=12, color="light-dark(#71717b, #818181)")
+        when expanded and entry.reasoning
+          text entry.output margin-left=28 padding-left=2 padding-right=2 padding-top=4 padding-bottom=4 font-size=14 line-height="22.75px" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
+        when expanded and length(filter(code, (hl) => hl.id == entry.id and hl.icon == "QA")) > 0
+          each hl in filter(code, (hl) => hl.id == entry.id and hl.icon == "QA") key=hl.id
+            column margin-left=28 margin-top=8
+              // space-y-2 between questions, space-y-1 between a question and its answer.
+              each line in hl.tokens key=line.id
+                text line.text margin-top=(line.id == "0" ? 0 : line.cls == "q" ? 8 : 4) margin-left=(line.cls == "a" ? 12 : 0) font-size=14 line-height="20px" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
+        when expanded and not entry.reasoning and entry.output != ""
+          column margin-top=4 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 box-sizing="border-box" border-radius=8 background-color="light-dark(#fafafa66, #ffffff03)"
+            scroll width="100%" max-height=256 overflow-x="hidden"
+              text entry.output width="100%" font-family="ui-monospace" font-size=codeSize line-height=1.625 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
+        when expanded and not entry.reasoning and entry.output == "" and (entry.body != "" or entry.result != "")
+          column margin-top=4 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 gap=8 box-sizing="border-box" border-radius=8 background-color="light-dark(#fafafa66, #ffffff03)"
+            when entry.body != ""
+              column width="100%"
+                each hl in filter(code, (hl) => hl.id == entry.id and hl.icon == "INPUT") key=hl.id
+                  text hl.icon margin-bottom=4 font-size=10 font-weight=500 letter-spacing=0.25 line-height="14px" color="light-dark(#71717b, #818181)"
+                scroll width="100%" max-height=320 overflow-x="hidden"
+                  when length(filter(code, (hl) => hl.id == entry.id and length(hl.tokens) > 0)) > 0
+                    each hl in filter(code, (hl) => hl.id == entry.id and length(hl.tokens) > 0) key=hl.id
+                      text width="100%" padding=8 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e780, #ffffff08)" background-color="light-dark(#fcfcfc99, #0a0a0a99)" font-family="ui-monospace" font-size=11 line-height="17.875px" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
+                        each token in hl.tokens key=token.id
+                          text token.text color=(token.cls == "" ? "light-dark(#71717b, #818181)" : synColor(token.cls))
+                  else
+                    text entry.body width="100%" padding=8 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e780, #ffffff08)" background-color="light-dark(#fcfcfc99, #0a0a0a99)" font-family="ui-monospace" font-size=11 line-height="17.875px" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
+            when entry.result != ""
+              text entry.result font-size=12 line-height="16px" color=(entry.ok ? "#00bc7d" : "light-dark(#fb2c36, #fb414a)")
+
+// TimelineSystemDivider: a rule, a pill with the event and its detail, a rule.
+component SystemDivider
+  props
+    label: string
+    detail: string
+    icon: string
+    danger: bool
+  view
+    row width="100%" min-width=0 align-items="center" gap=8 padding-top=8 padding-bottom=8 role="separator" aria-label=label
+      box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0b)"
+      row min-width=0 flex-shrink=1 align-items="center" justify-content="center" gap=6 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=999
+        TimelineIcon(name=icon, size=12, color=(danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)"))
+        text label flex-shrink=0 font-size=11 font-weight=500 line-height="15px" color=(danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
+        when detail != ""
+          text `· ${detail}` min-width=0 max-width=320 line-clamp=1 opacity=0.7 font-size=11 line-height="15px" color=(danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
+      box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0b)"
+
+// SubagentTimelineLink: the agent's avatar and status dot, title, status or
+// latest detail, elapsed time and the way into its thread.
+component SubagentRow
+  props
+    agent: Activity
+    command: action
+  view
+    button press=command("select-thread", agent.targetId, "", 0) disabled=(agent.targetId == "") aria-label=`Open ${agent.label}` aria-description=agent.result width="100%" min-width=0 padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 box-sizing="border-box" border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap=10
+      box position="relative" width=24 height=24 flex-shrink=0 border-radius=12 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#fafafa, #ffffff08)" box-sizing="border-box" align-items="center" justify-content="center"
+        TimelineIcon(name="bot", size=14, color="light-dark(#71717b, #818181)")
+        box position="absolute" right=-1 bottom=-1 width=8 height=8 opacity=(agent.tone == "none" ? 0 : 1) border-radius=4 border-width=2 border-style="solid" border-color="light-dark(#fcfcfc, #0a0a0a)" box-sizing="content-box" background-color=(agent.tone == "error" ? "light-dark(#fb2c36, #fb414a)" : agent.tone == "success" ? "#00bc7d" : agent.tone == "info" ? "#2b7fff" : "light-dark(#71717b99, #81818199)")
+      column flex=1 min-width=0
+        row gap=8 align-items="baseline" min-width=0
+          text agent.label min-width=0 line-clamp=1 font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)" text-align="left"
+          when agent.body != "" and (agent.status == "event" or agent.status != "completed")
+            text agent.result flex-shrink=0 font-size=10 line-height="14px" color=(agent.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
+        text (agent.body != "" ? agent.body : agent.result) line-clamp=1 font-size=11 line-height="17.875px" text-align="left" color=(agent.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
+      text agent.output flex-shrink=0 font-family="ui-monospace" font-size=10 line-height="14px" color="light-dark(#71717bcc, #818181cc)"
+      when agent.targetId != ""
+        Icon(name="right", size=14, color="light-dark(#71717b99, #81818199)")
+
+// MessageCopyButton: the copy glyph becomes a primary check while the anchored
+// "Copied!" toast shows; a failure says so in the same place.
+component CopyButton
+  props
+    id: string
+    copied: number
+    failed: bool
+    local: action
+    hover: action
+  view
+    box position="relative" width=24 height=24 flex-shrink=0
+      button press=local("copy", id, "") testId=`copy-${id}` aria-label="Copy message" focus=hover(true) blur=hover(false) width=24 height=24 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+        when copied > 0
+          box width=12 height=12 animation=(copied % 2 == 0 ? "tlHiddenA 1s linear forwards" : "tlHiddenB 1s linear forwards")
+            Icon(name="copy", size=12, color="light-dark(#71717b, #818181)")
+          box position="absolute" left=6 top=6 width=12 height=12 animation=(copied % 2 == 0 ? "tlShownA 1s linear forwards" : "tlShownB 1s linear forwards")
+            when failed
+              Icon(name="x", size=12, color="light-dark(#fb2c36, #fb414a)")
+            else
+              TimelineIcon(name="check-mark", size=12, color="light-dark(#1b4ed8, #346bf1)")
+        else
+          Icon(name="copy", size=12, color="light-dark(#71717b, #818181)")
+      when copied > 0
+        box position="absolute" bottom=30 left=-60 width=144 align-items="center" pointer-events="none" animation=(copied % 2 == 0 ? "tlShownA 1s linear forwards" : "tlShownB 1s linear forwards") aria-hidden=true
+          text (failed ? "Failed to copy" : "Copied!") padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=8 font-size=12 line-height="16px" white-space="nowrap" color="light-dark(#fafafa, #0a0a0a)" background-color="light-dark(#18181b, #fafafa)"

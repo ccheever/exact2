@@ -1,0 +1,3 @@
+// Retired: the settings-rest panels moved to settings-storage, settings-archive,
+// settings-licenses, settings-diagnostics, settings-keybindings, settings-scheduled,
+// settings-source-control and settings-projects. Nothing imports this file.

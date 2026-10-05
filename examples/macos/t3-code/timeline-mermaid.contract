@@ -1,0 +1,33 @@
+// ExpandedImageDialog for a Mermaid diagram (T3 Code, MIT; see LICENSE-T3):
+// MermaidDiagram's "Expand diagram" opens the flattened drawing on the page's
+// background at its own size, never larger, up to 92% of the window (less the
+// arrows' 96pt) and min(86vh, 100vh − 160pt) high, named "Mermaid diagram".
+use MermaidDiagram from "./markdown.contract"
+use MermaidSvg from "./markdown.contract"
+use Icon from "./icons.contract"
+
+fn diagramScale(width: number, height: number, maxWidth: number, maxHeight: number): number = min(1, min(maxWidth / max(1, width), maxHeight / max(1, height)))
+
+component DiagramPreviewDialog
+  props
+    diagram: MermaidDiagram
+    windowWidth: number
+    windowHeight: number
+    scheme: string
+    local: action
+  derive scale = diagramScale(diagram.width, diagram.height, windowWidth * 0.92 - 96, min(windowHeight * 0.86, windowHeight - 160))
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-label="Expanded image preview" testId="diagram-preview"
+      button press=local("diagram-close", "", "") aria-label="Close image preview" aria-keyshortcuts="Escape" position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="diagram-preview-backdrop"
+      column min-width=0 align-items="center"
+        box position="relative" width=(diagram.width * scale) height=(diagram.height * scale)
+          // ZoomableImage: the page's background, rounded-lg, ring-1 ring-border/70 and shadow-2xl.
+          when scheme == "dark"
+            box width="100%" height="100%" border-radius=8 overflow="hidden" background-color="#0a0a0a" box-shadow="0 0 0 1px #ffffff12, 0 25px 50px -12px #00000040"
+              MermaidSvg(diagram=diagram, width=(diagram.width * scale))
+          else
+            box width="100%" height="100%" border-radius=8 overflow="hidden" background-color="#fcfcfc" box-shadow="0 0 0 1px #e4e4e7b3, 0 25px 50px -12px #00000040"
+              MermaidSvg(diagram=diagram, width=(diagram.width * scale))
+          button press=local("diagram-close", "", "") aria-label="Close image preview" testId="diagram-preview-close" position="absolute" right=0 top=-40 width=24 height=24 padding=0 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center"
+            Icon(name="x", size=14, color="#ffffff")
+        text "Mermaid diagram" margin-top=8 line-clamp=1 font-size=12 line-height="16px" color="#ffffffcc"

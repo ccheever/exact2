@@ -1,0 +1,167 @@
+use R5Probe from "./r5-composer.contract"
+// The sidebar's projected rows and view state (sidebar-view.ts).
+shape SnoozePreset
+  id: string
+  label: string
+  wakeLabel: string
+  until: string
+// ProjectFavicon: an override (monogram, emoji, Lucide) or the favicon image,
+// else the automatic monogram; gray inks for a receding slim row (r3-sidebar-glyph.ts).
+shape ProjectGlyph
+  kind: string
+  d: string
+  emoji: string
+  src: string
+  text: string
+  ink: string
+  surface: string
+  gray: string
+  graySurface: string
+// A row control's tooltip: center x from the sidebar's left (or right) edge, the control's top in the row (r3-sidebar-tips.ts).
+shape SidebarRowTip
+  name: string
+  label: string
+  x: number
+  fromRight: bool
+  top: number
+  start: bool
+shape SearchPart
+  id: string
+  text: string
+  hit: bool
+shape Thread
+  id: string
+  // r6-polish: Working's start (epoch ms; the label ticks from the root clock) and a background environment's machine glyph.
+  workingSince: number
+  remoteMachine: string
+  title: string
+  projectName: string
+  projectMark: string
+  projectInk: string
+  projectSurface: string
+  projectGray: string
+  projectGraySurface: string
+  providerDriver: string
+  providerBadge: string
+  providerBadgeColor: string
+  providerName: string
+  age: string
+  badge: string
+  stacked: bool
+  badgeIcon: string
+  badgeState: string
+  section: string
+  status: string
+  selected: bool
+  searchFirst: bool
+  matchLabel: string
+  matchUser: bool
+  matchParts: list<SearchPart>
+  card: bool
+  statusIcon: string
+  statusColor: string
+  duration: string
+  titleColor: string
+  titleWeight: number
+  recede: bool
+  pinned: bool
+  canPin: bool
+  canSettle: bool
+  canSnooze: bool
+  canUnsettle: bool
+  canWake: bool
+  wakeLabel: string
+  woke: bool
+  branch: string
+  worktree: bool
+  draft: bool
+  jump: string
+  renaming: bool
+  multi: bool
+  regenerating: bool
+  label: string
+  hoverKey: string
+  glyph: ProjectGlyph
+  idleRecede: bool
+  idleTitleColor: string
+  idleTitleWeight: number
+  tips: list<SidebarRowTip>
+  hoverEnvironment: string
+  hoverMachine: string
+  hoverModel: string
+  hoverHandoff: string
+  hoverError: string
+  hoverErrorWarning: bool
+shape SidebarScope
+  key: string
+  label: string
+  mark: string
+  ink: string
+  surface: string
+  selected: bool
+  all: bool
+  glyph: ProjectGlyph
+shape SidebarDraft
+  id: string
+  projectName: string
+  mark: string
+  ink: string
+  surface: string
+  preview: string
+  glyph: ProjectGlyph
+shape SidebarView
+  drafts: list<SidebarDraft>
+  // r6-polish: a row shows Working (the root's one-second clock runs); the texts its tooltips are placed by (r6-polish.contract).
+  ticking: bool
+  probes: list<R5Probe>
+  searching: bool
+  searchPending: bool
+  searchIndex: number
+  searchSelectedId: string
+  settledCount: number
+  snoozedCount: number
+  workingCount: number
+  settledExpanded: bool
+  snoozedExpanded: bool
+  workingExpanded: bool
+  showMore: number
+  emptyText: string
+  emptyAddProject: bool
+  hasProjects: bool
+  projectGroupCount: number
+  dragEnabled: bool
+  scopeKey: string
+  scopeLabel: string
+  scopeMark: string
+  scopeInk: string
+  scopeSurface: string
+  scopeGlyph: ProjectGlyph
+  scopes: list<SidebarScope>
+  scopeOpen: bool
+  scopeQuery: string
+  scopeFirst: string
+  navigateKind: string
+  navigateProject: string
+  renameId: string
+  renameTitle: string
+  selectionCount: number
+  undoText: string
+  undoLabel: string
+  undoUntil: number
+  dialog: string
+  dialogTitle: string
+  dialogDescription: string
+  dialogMode: string
+  dialogDate: string
+  dialogAmount: string
+  dialogUnit: string
+  dialogTime: string
+  dialogError: string
+  jumpHints: bool
+  pillKey: string
+  pillTone: string
+  pillTitle: string
+  pillDescription: string
+  pillDismissible: bool
+  // r11-upstream (1826fb55cc): a released row-action sweep bumps it, ending the section's sweep.
+  sweepEpoch: number

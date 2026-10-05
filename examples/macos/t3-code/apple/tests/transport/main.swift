@@ -32,10 +32,82 @@ private func call(_ transport: T3Transport, _ request: [String: Any], file: Stat
 }
 
 final class TransportTests: XCTestCase {
+    func testAgentStorageHonorsExplicitScratchWithoutChangingLiveRoots() {
+        let original = URL(fileURLWithPath: "/system/tmp/exact-agent-123-2/data")
+        let scratch = URL(fileURLWithPath: ProcessInfo.processInfo.environment["TMPDIR"]!)
+        let expected = scratch.appendingPathComponent("exact-agent-123-2/data")
+        XCTAssertEqual(T3Storage.dataRoot(agent: true, contextData: original).path, expected.path)
+        XCTAssertEqual(T3Storage.dataRoot(agent: false, contextData: original), original)
+        XCTAssertEqual(T3Storage.dataRoot(agent: true, contextData: original, environment: ["TMPDIR": "relative"]), original)
+        XCTAssertEqual(T3Storage.dataRoot(agent: true, contextData: original, environment: [:]), original)
+    }
+
     func makeTransport() -> T3Transport {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [HTTPFixture.self]
         return T3Transport(persistent: false, configuration: config, changed: { _ in })
+    }
+
+    func testAgentCredentialsSurviveDisconnectButNeverAnotherInstance() throws {
+        let cache = T3Credentials(persistent: false)
+        try cache.save("disposable-test-token", origin: "http://fixture", environment: "A")
+        XCTAssertEqual(try cache.read(origin: "http://fixture", environment: "A"), "disposable-test-token")
+        XCTAssertNil(try cache.read(origin: "http://other", environment: "A"))
+        XCTAssertNil(try cache.read(origin: "http://fixture", environment: "B"))
+        XCTAssertNil(try T3Credentials(persistent: false).read(origin: "http://fixture", environment: "A"))
+        try cache.forget(origin: "http://fixture", environment: "A")
+        XCTAssertNil(try cache.read(origin: "http://fixture", environment: "A"))
+    }
+
+    func testSavedEnvironmentsRememberForgetAndStayPerInstance() throws {
+        let saved = T3SavedEnvironments(persistent: false)
+        saved.remember(origin: "http://127.0.0.1:1", descriptor: ["environmentId": "A", "label": "First", "platform": ["machine": "laptop"]])
+        saved.remember(origin: "http://127.0.0.1:2", descriptor: ["environmentId": "B", "label": "Second"])
+        saved.remember(origin: "http://127.0.0.1:1", descriptor: ["environmentId": "A", "label": "First again", "platform": ["machine": "desktop"]])
+        XCTAssertEqual(saved.all.compactMap { $0["environmentId"] as? String }, ["A", "B"])
+        XCTAssertEqual(saved.all.first?["label"] as? String, "First again")
+        XCTAssertEqual(saved.all.first?["machine"] as? String, "desktop")
+        XCTAssertNil(saved.all.first?["token"])
+        saved.forget(origin: "http://127.0.0.1:2", environment: "B")
+        XCTAssertEqual(saved.all.count, 1)
+        XCTAssertEqual(T3SavedEnvironments(persistent: false).all.count, 0)
+        HTTPFixture.reset { _ in XCTFail("Listing and forgetting saved environments must not connect"); return (500, [:]) }
+        let transport = makeTransport(); defer { transport.destroy() }
+        XCTAssertEqual(((call(transport, ["op": "environments"])["value"] as? [String: Any])?["saved"] as? [Any])?.count, 0)
+        XCTAssertEqual(((call(transport, ["op": "forgetEnvironment", "origin": "ftp://x", "environmentId": "A"])["error"] as? [String: Any])?["kind"]) as? String, "Address")
+        let forgot = call(transport, ["op": "forgetEnvironment", "origin": "http://127.0.0.1:9", "environmentId": "A"])
+        XCTAssertEqual((forgot["value"] as? [String: Any])?["state"] as? String, "disconnected")
+        XCTAssertEqual(HTTPFixture.count, 0)
+    }
+
+    func testPairingAnotherEnvironmentKeepsTheActiveConnectionAndSavesItsToken() throws {
+        var exchanged = 0
+        HTTPFixture.reset { request in
+            switch request.url!.path {
+            case "/.well-known/t3/environment":
+                return (200, ["environmentId": "env-b", "label": "Fixture B", "orchestrationProtocolVersion": 2, "platform": ["machine": "laptop", "os": "darwin"]])
+            case "/oauth/token":
+                exchanged += 1
+                return exchanged == 1 ? (401, ["_tag": "EnvironmentAuthInvalidError", "code": "auth_invalid", "reason": "invalid_credential"])
+                    : (200, ["access_token": "bearer-b", "token_type": "Bearer"])
+            default: XCTFail("Pairing must not open a socket or session: \(request.url!.path)"); return (500, [:])
+            }
+        }
+        let transport = makeTransport(); defer { transport.destroy() }
+        let refused = call(transport, ["op": "pairEnvironment", "origin": "http://127.0.0.1:14806", "credential": "invalid-fixture-code"])
+        XCTAssertEqual((refused["error"] as? [String: Any])?["message"] as? String, "The environment credential is invalid.")
+        XCTAssertEqual((refused["error"] as? [String: Any])?["kind"] as? String, "Authentication")
+        XCTAssertFalse("\(refused)".contains("invalid-fixture-code"))
+        let empty = call(transport, ["op": "pairEnvironment", "origin": "http://127.0.0.1:14806", "credential": ""])
+        XCTAssertEqual((empty["error"] as? [String: Any])?["message"] as? String, "Enter a pairing code.")
+        let paired = call(transport, ["op": "pairEnvironment", "origin": "http://127.0.0.1:14806/pair#token=PAIRCODE", "credential": "http://127.0.0.1:14806/pair#token=PAIRCODE"])
+        XCTAssertEqual((paired["value"] as? [String: Any])?["environmentId"] as? String, "env-b")
+        XCTAssertNil((paired["value"] as? [String: Any])?["access_token"])
+        let saved = (call(transport, ["op": "environments"])["value"] as? [String: Any])?["saved"] as? [[String: Any]] ?? []
+        XCTAssertEqual(saved.map { $0["label"] as? String }, ["Fixture B"])
+        XCTAssertEqual((call(transport, ["op": "status"])["value"] as? [String: Any])?["state"] as? String, "disconnected")
+        _ = call(transport, ["op": "forgetEnvironment", "origin": "http://127.0.0.1:14806", "environmentId": "env-b"])
+        XCTAssertEqual(((call(transport, ["op": "environments"])["value"] as? [String: Any])?["saved"] as? [Any])?.count, 0)
     }
 
     func testNoNetworkBeforeExplicitConnectAndUUIDsAreNative() {
@@ -98,7 +170,7 @@ final class TransportTests: XCTestCase {
                 let body = String(decoding: bytes, as: UTF8.self)
                 let fields = URLComponents(string: "http://fixture/?" + body)!.queryItems!
                 XCTAssertEqual(fields.first { $0.name == "subject_token" }?.value, pairing)
-                XCTAssertEqual(fields.first { $0.name == "scope" }?.value, "orchestration:read orchestration:operate")
+                XCTAssertEqual(fields.first { $0.name == "scope" }?.value, "orchestration:read orchestration:operate review:write")
                 return (200, ["access_token": access, "token_type": "Bearer", "expires_in": 3600])
             case "/api/auth/websocket-ticket":
                 XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer " + access)
@@ -230,6 +302,33 @@ final class TransportTests: XCTestCase {
         XCTAssertEqual(failure.kind, "Forbidden"); XCTAssertEqual(failure.message, "Read only")
     }
 
+    // Wire shapes captured from a HEAD (f90b77d) server: a typed failure keeps its own
+    // tag and message (Cause.squash), and PullRequestOperationError's reason/detail survive.
+    func testTypedFailuresKeepTheirTagMessageReasonAndDetail() throws {
+        let thread = T3Wire.failure(["_tag": "Failure", "cause": [["_tag": "Fail", "error": [
+            "_tag": "OrchestrationV2GetThreadProjectionError", "threadId": "t", "message": "Failed to load orchestration V2 thread t",
+            "cause": ["name": "OrchestratorProjectionError", "message": "Failed to load orchestration projection for thread t.",
+                      "cause": ["name": "ProjectionStoreThreadNotFoundError", "message": "No orchestration projection exists for thread t."]]]]]])
+        XCTAssertEqual(thread.kind, "OrchestrationV2GetThreadProjectionError")
+        XCTAssertEqual(thread.message, "Failed to load orchestration V2 thread t")
+        let pr = T3Wire.failure(["_tag": "Failure", "cause": [["_tag": "Fail", "error": [
+            "_tag": "PullRequestOperationError", "operation": "getDetail", "detail": "GitHub could not find pull request #7.",
+            "reason": "not-found", "cause": ["name": "Error", "message": "HTTP 404"]]]]])
+        XCTAssertEqual(pr.kind, "PullRequestOperationError")
+        XCTAssertEqual(pr.message, "Pull request operation getDetail failed: GitHub could not find pull request #7.")
+        XCTAssertEqual(pr.reason, "not-found"); XCTAssertEqual(pr.detail, "GitHub could not find pull request #7.")
+        XCTAssertEqual(pr.json["reason"] as? String, "not-found")
+        XCTAssertEqual(pr.json["detail"] as? String, "GitHub could not find pull request #7.")
+        let die = T3Wire.failure(["_tag": "Failure", "cause": [["_tag": "Die", "defect": "Unknown request tag: x.y"]]])
+        XCTAssertEqual(die.kind, "RPC"); XCTAssertEqual(die.message, "Unknown request tag: x.y")
+        let mixed = T3Wire.failure([["_tag": "Interrupt"], ["_tag": "Fail", "error": ["_tag": "EnvironmentAuthorizationError", "message": "The authenticated token is missing required scope: orchestration:operate."]]])
+        XCTAssertEqual(mixed.kind, "EnvironmentAuthorizationError")
+        XCTAssertEqual(T3Wire.failure(["_tag": "Interrupt"]).kind, "Interrupt")
+        XCTAssertEqual(T3Wire.failure(["cause": ["_tag": "Fail", "error": ["_tag": "Legacy", "message": "Old wire"]]]).message, "Old wire")
+        XCTAssertEqual(T3Wire.failure(["_tag": "SilentError"]).message, "The server refused the request (SilentError).")
+        XCTAssertEqual(T3Wire.failure(["_tag": "Failure", "cause": [["_tag": "Fail", "error": ["_tag": "Wrapped", "cause": ["name": "Error", "message": "Inner text"]]]]]).message, "Inner text")
+    }
+
     func testEndpointBoundaryAndPairingURL() throws {
         let origin = try T3Endpoint.origin("https://EXAMPLE.test/pair?token=secret")
         XCTAssertEqual(origin.absoluteString, "https://example.test")
@@ -267,6 +366,18 @@ final class TransportTests: XCTestCase {
         XCTAssertEqual(probe["ok"] as? Bool, true, "Unary RPC failed: \(probe["error"] ?? "none")")
         let http = call(transport, ["op": "http", "path": "/api/orchestration/shell", "generation": generation])
         XCTAssertEqual(http["ok"] as? Bool, true, "HTTP snapshot failed: \(http["error"] ?? "none")")
+        // Signed upload is a fixture-only asset lifecycle, never provider dispatch.
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6QXkAAAAASUVORK5CYII=")!
+        let created = call(transport, ["op": "request", "method": "attachments.createUploadUrl", "payload": ["type": "image", "name": "native-isolated-snapshot.png", "mimeType": "image/png", "sizeBytes": png.count], "generation": generation])
+        XCTAssertEqual(created["ok"] as? Bool, true)
+        if let upload = created["value"] as? [String: Any], let attachmentId = upload["attachmentId"] as? String, let route = upload["relativeUrl"] as? String {
+            defer { XCTAssertEqual(call(transport, ["op": "request", "method": "attachments.delete", "payload": ["attachmentId": attachmentId], "generation": generation])["ok"] as? Bool, true) }
+            XCTAssertTrue(route.hasPrefix("/api/attachments/upload/"))
+            XCTAssertFalse(route.contains("?") || route.contains("%"), "Reference signs base64url path components")
+            let rejected = call(transport, ["op": "uploadAttachment", "path": "/api/attachments/upload/invalid", "base64": png.base64EncodedString(), "generation": generation])
+            XCTAssertEqual(rejected["ok"] as? Bool, false)
+            XCTAssertEqual(call(transport, ["op": "uploadAttachment", "path": route, "base64": png.base64EncodedString(), "generation": generation])["ok"] as? Bool, true)
+        } else { XCTFail("Upload metadata unavailable") }
         for (key, method) in [("config", "subscribeServerConfig"), ("shell", "orchestration.subscribeShell")] {
             let subscribed = call(transport, ["op": "subscribe", "key": key, "method": method, "payload": [:], "generation": generation])
             XCTAssertEqual(subscribed["ok"] as? Bool, true)
@@ -294,8 +405,164 @@ final class TransportTests: XCTestCase {
     }
 }
 
-let suite = TransportTests.defaultTestSuite
-suite.run()
-guard let run = suite.testRun, run.executionCount == 12 else { exit(1) }
-print("T3 transport: \(run.executionCount) tests, \(run.totalFailureCount) failures")
-exit(run.hasSucceeded ? 0 : 1)
+// Lane r13-store (F5): an environment removed on this device leaves nothing that names it. Two loopback servers
+// (R3Socket, R3HTTP) are paired, one is focused, then removed; credentials and the saved list are in memory and the
+// remembered origin lives in a UserDefaults suite of this test's own, so no real Keychain item and no real preferences
+// domain is read or written.
+final class ForgetOriginTests: XCTestCase {
+    private let originKey = "t3.server.origin"
+    private struct Rig {
+        let a: R3Socket, b: R3Socket
+        let credentials: T3Credentials, saved: T3SavedEnvironments
+        let defaults: UserDefaults, suite: String
+        var originA: String { "http://127.0.0.1:\(a.port)" }
+        var originB: String { "http://127.0.0.1:\(b.port)" }
+    }
+    private func makeRig() throws -> Rig {
+        let a = try R3Socket(), b = try R3Socket()
+        let suite = "exact-t3-transport-forget-\(UUID().uuidString)"
+        let rig = Rig(a: a, b: b, credentials: T3Credentials(persistent: false), saved: T3SavedEnvironments(persistent: false),
+                      defaults: UserDefaults(suiteName: suite)!, suite: suite)
+        R3HTTP.reset { request in
+            let environment = request.url?.port == Int(a.port) ? "env-a" : "env-b"
+            switch request.url!.path {
+            case "/.well-known/t3/environment":
+                return (200, ["environmentId": environment, "label": "Fixture \(environment)", "orchestrationProtocolVersion": 2, "capabilities": ["connectionProbe": true]])
+            case "/oauth/token": return (200, ["access_token": "bearer-\(environment)", "token_type": "Bearer"])
+            case "/api/auth/session": return (200, ["authenticated": true, "scopes": ["orchestration:read", "orchestration:operate"]])
+            case "/api/auth/websocket-ticket": return (200, ["ticket": "ticket-\(environment)"])
+            default: return (404, [:])
+            }
+        }
+        return rig
+    }
+    private func makeTransport(_ rig: Rig, persistent: Bool = true) -> T3Transport {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [R3HTTP.self]
+        return T3Transport(persistent: persistent, configuration: config, credentials: rig.credentials, savedEnvironments: rig.saved,
+                           defaults: rig.defaults, signals: false, changed: { _ in })
+    }
+    private func perform(_ transport: T3Transport, _ request: [String: Any]) -> [String: Any] {
+        let done = DispatchSemaphore(value: 0)
+        var result: [String: Any] = [:]
+        transport.perform(request) { result = $0; done.signal() }
+        XCTAssertEqual(done.wait(timeout: .now() + 5), .success, "\(request["op"] ?? "") did not answer")
+        return result
+    }
+    private func status(_ transport: T3Transport) -> [String: Any] { perform(transport, ["op": "status"])["value"] as? [String: Any] ?? [:] }
+    private func pair(_ transport: T3Transport, _ origin: String) {
+        let paired = perform(transport, ["op": "pairEnvironment", "origin": origin, "credential": "pairing"])
+        XCTAssertEqual(paired["ok"] as? Bool, true, "\(paired)")
+    }
+    /// Pairs A and B, then focuses `focus` (its socket opens, which remembers the origin).
+    private func pairedAndFocused(_ rig: Rig, on focus: String) -> T3Transport {
+        let transport = makeTransport(rig)
+        pair(transport, rig.originA); pair(transport, rig.originB)
+        let opened = perform(transport, ["op": "connect", "origin": focus, "credential": ""])
+        XCTAssertEqual((opened["value"] as? [String: Any])?["state"] as? String, "connected", "\(opened)")
+        return transport
+    }
+    private func environmentIds(_ rig: Rig) -> [String] { rig.saved.all.compactMap { $0["environmentId"] as? String } }
+
+    func testPairedBothThenFocusedBRemembersBAndRemovingItLeavesNothingNamingB() throws {
+        let rig = try makeRig(); defer { UserDefaults.standard.removePersistentDomain(forName: rig.suite) }
+        let transport = pairedAndFocused(rig, on: rig.originB); defer { transport.destroy() }
+        // The starting point: B is focused, remembered, saved and has its credential.
+        XCTAssertEqual(status(transport)["origin"] as? String, rig.originB)
+        XCTAssertEqual(rig.defaults.string(forKey: originKey), rig.originB)
+        XCTAssertEqual(try rig.credentials.read(origin: rig.originB, environment: "env-b"), "bearer-env-b")
+        XCTAssertEqual(environmentIds(rig), ["env-a", "env-b"])
+
+        let removed = perform(transport, ["op": "forgetEnvironment", "origin": rig.originB, "environmentId": "env-b"])
+        let after = removed["value"] as? [String: Any] ?? [:]
+        XCTAssertEqual(after["state"] as? String, "disconnected")
+        XCTAssertNotEqual(after["origin"] as? String, rig.originB)
+        XCTAssertEqual(after["origin"] as? String, "")
+        XCTAssertEqual(after["environmentId"] as? String, "")
+        XCTAssertNotEqual(status(transport)["origin"] as? String, rig.originB, "A later status read does not restore B either")
+        XCTAssertNil(rig.defaults.string(forKey: originKey), "the remembered origin is cleared")
+        XCTAssertNil(try rig.credentials.read(origin: rig.originB, environment: "env-b"), "B's credential item is gone")
+        XCTAssertEqual(try rig.credentials.read(origin: rig.originA, environment: "env-a"), "bearer-env-a", "A keeps its credential")
+        XCTAssertEqual(environmentIds(rig), ["env-a"])
+
+        // A relaunch: a new transport on the same stores. Its first status names neither B nor anything stale.
+        let relaunched = makeTransport(rig); defer { relaunched.destroy() }
+        XCTAssertEqual(status(relaunched)["origin"] as? String, "")
+        XCTAssertEqual(status(relaunched)["state"] as? String, "disconnected")
+    }
+
+    func testRemovingTheUnfocusedBKeepsTheFocusAndItsRememberedOrigin() throws {
+        let rig = try makeRig(); defer { UserDefaults.standard.removePersistentDomain(forName: rig.suite) }
+        let transport = pairedAndFocused(rig, on: rig.originA); defer { transport.destroy() }
+        XCTAssertEqual(rig.defaults.string(forKey: originKey), rig.originA)
+        let removed = perform(transport, ["op": "forgetEnvironment", "origin": rig.originB, "environmentId": "env-b"])
+        XCTAssertEqual((removed["value"] as? [String: Any])?["state"] as? String, "connected")
+        XCTAssertEqual((removed["value"] as? [String: Any])?["origin"] as? String, rig.originA)
+        XCTAssertEqual(rig.defaults.string(forKey: originKey), rig.originA)
+        XCTAssertNil(try rig.credentials.read(origin: rig.originB, environment: "env-b"))
+        XCTAssertEqual(environmentIds(rig), ["env-a"])
+        // The relaunch finds A: the key names a saved environment.
+        let relaunched = makeTransport(rig); defer { relaunched.destroy() }
+        XCTAssertEqual(status(relaunched)["origin"] as? String, rig.originA)
+    }
+
+    func testDisconnectWithForgetOnTheFocusedBClearsTheSameThings() throws {
+        let rig = try makeRig(); defer { UserDefaults.standard.removePersistentDomain(forName: rig.suite) }
+        let transport = pairedAndFocused(rig, on: rig.originB); defer { transport.destroy() }
+        let forgot = perform(transport, ["op": "disconnect", "forget": true])
+        let after = forgot["value"] as? [String: Any] ?? [:]
+        XCTAssertEqual(after["state"] as? String, "disconnected")
+        XCTAssertEqual(after["origin"] as? String, "")
+        XCTAssertNil(rig.defaults.string(forKey: originKey))
+        XCTAssertNil(try rig.credentials.read(origin: rig.originB, environment: "env-b"))
+        XCTAssertEqual(environmentIds(rig), ["env-a"])
+        // Without forget the focus stays remembered (Switch off / Disconnect are the reversible paths).
+        let kept = try makeRig(); defer { UserDefaults.standard.removePersistentDomain(forName: kept.suite) }
+        let other = pairedAndFocused(kept, on: kept.originB); defer { other.destroy() }
+        let disconnected = perform(other, ["op": "disconnect", "forget": false])
+        XCTAssertEqual((disconnected["value"] as? [String: Any])?["origin"] as? String, kept.originB)
+        XCTAssertEqual(kept.defaults.string(forKey: originKey), kept.originB)
+        XCTAssertEqual(environmentIds(kept), ["env-a", "env-b"])
+    }
+
+    func testAKeyLeftByAnEarlierBuildForARemovedEnvironmentIsDroppedNotRestored() throws {
+        let rig = try makeRig(); defer { UserDefaults.standard.removePersistentDomain(forName: rig.suite) }
+        rig.saved.remember(origin: rig.originA, descriptor: ["environmentId": "env-a", "label": "A"])
+        rig.defaults.set(rig.originB, forKey: originKey) // B is not saved: the old build forgot it and left the key
+        let first = makeTransport(rig); defer { first.destroy() }
+        XCTAssertEqual(status(first)["origin"] as? String, "")
+        XCTAssertNil(rig.defaults.string(forKey: originKey))
+        rig.defaults.set("not an address", forKey: originKey)
+        let second = makeTransport(rig); defer { second.destroy() }
+        XCTAssertEqual(status(second)["origin"] as? String, "")
+        XCTAssertNil(rig.defaults.string(forKey: originKey))
+        // A saved environment's origin is restored as before.
+        rig.defaults.set(rig.originA, forKey: originKey)
+        let third = makeTransport(rig); defer { third.destroy() }
+        XCTAssertEqual(status(third)["origin"] as? String, rig.originA)
+    }
+
+    func testAnAgentRunKeepsNoOriginButStillNamesNothingAfterRemoval() throws {
+        let rig = try makeRig(); defer { UserDefaults.standard.removePersistentDomain(forName: rig.suite) }
+        let transport = makeTransport(rig, persistent: false); defer { transport.destroy() }
+        pair(transport, rig.originA); pair(transport, rig.originB)
+        _ = perform(transport, ["op": "connect", "origin": rig.originB, "credential": ""])
+        XCTAssertNil(rig.defaults.string(forKey: originKey), "a non-persistent transport never writes the key")
+        let removed = perform(transport, ["op": "forgetEnvironment", "origin": rig.originB, "environmentId": "env-b"])
+        XCTAssertEqual((removed["value"] as? [String: Any])?["origin"] as? String, "")
+        XCTAssertEqual(status(transport)["origin"] as? String, "")
+        XCTAssertNil(try rig.credentials.read(origin: rig.originB, environment: "env-b"))
+    }
+}
+
+// R3TransportTests (r3.swift): reconnect policy, read gate, stream retries. ForgetOriginTests: F5, removal leaves no origin.
+let suites = [TransportTests.defaultTestSuite, R3TransportTests.defaultTestSuite, ForgetOriginTests.defaultTestSuite]
+var executed = 0, failures = 0, succeeded = true
+for suite in suites {
+    suite.run()
+    guard let run = suite.testRun else { exit(1) }
+    executed += run.executionCount; failures += run.totalFailureCount; succeeded = succeeded && run.hasSucceeded
+}
+print("T3 transport: \(executed) tests, \(failures) failures")
+guard executed >= 17 else { exit(1) }
+exit(succeeded ? 0 : 1)
