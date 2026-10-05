@@ -1342,7 +1342,6 @@ impl DataSource for Saving {
         Some(exact_runner::BackgroundState {
             queued: self.left.saturating_sub(1),
             in_flight: self.left.min(1),
-            operations: self.left,
             done: self.done,
             ..Default::default()
         })

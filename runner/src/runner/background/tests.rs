@@ -61,7 +61,6 @@ impl DataSource for Saving {
         Some(BackgroundState {
             queued: self.left.saturating_sub(1),
             in_flight: u64::from(self.left > 0),
-            operations: self.left,
             done: self.landed,
             ..Default::default()
         })

@@ -50,7 +50,6 @@ impl Module {
         self.background.state = BackgroundState {
             queued: num("queued"),
             in_flight: num("inFlight"),
-            operations: num("operations"),
             done: num("done"),
             failed: num("failed"),
             last: json.get("last").and_then(Json::as_str).map(str::to_string),

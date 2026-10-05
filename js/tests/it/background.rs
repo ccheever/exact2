@@ -241,7 +241,7 @@ fn background_rounds_equal_deliveries_and_an_idle_module_hands_out_none() {
     assert!(
         journal
             .iter()
-            .any(|l| l.contains("background: storage (0 waiting)")),
+            .any(|l| l.contains("background: storage (1 waiting)")),
         "{journal:#?}"
     );
     assert!(

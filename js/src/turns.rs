@@ -21,7 +21,7 @@ impl Module {
     /// background's (LLP 1097 D2: an answer may await background work).
     pub(crate) fn outstanding(&self) -> bool {
         !self.streams.is_empty()
-            || self.background.state.operations > 0
+            || self.background.state.queued + self.background.state.in_flight > 0
             || self.parked.iter().any(|(_, p)| p.ticket != WAITING)
     }
 

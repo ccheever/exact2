@@ -135,6 +135,8 @@ pub struct Module {
     placement: Placement,
     /// The Canvas 2D roster the bake read (LLP 1056 D1).
     canvas_surfaces: Vec<(String, usize)>,
+    /// A background round is out: the host holds its ticket (LLP 1097 D5).
+    background_out: bool,
 }
 impl Module {
     /// Construct from binary-admitted identity/grants and baked HBC digest.
@@ -151,6 +153,7 @@ impl Module {
             streams: Table::new(),
             placement: Placement::Main,
             canvas_surfaces: Vec::new(),
+            background_out: false,
         }
     }
 
@@ -397,6 +400,14 @@ fn outcome_json(outcome: Outcome) -> Result<Json, DataError> {
     })
 }
 
+impl Module {
+    /// One of the realm's own operations on this module, its reply parsed.
+    fn realm(&self, op: &str) -> Result<Json, DataError> {
+        let bytes = call(object([("op", op.into()), ("id", self.id.into())]))?;
+        json::parse(&bytes).map_err(|e| unavailable(e.to_string()))
+    }
+}
+
 impl DataSource for Module {
     fn app_id(&self) -> &str {
         &self.app
@@ -507,6 +518,14 @@ impl DataSource for Module {
     /// 1027.002 D3, change 1), scoped to this module's own names; the
     /// loader's registry runs the token its way.
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
+        // A background round is a turn of the realm's own (LLP 1097 D7),
+        // under a registry token the realm hands out.
+        if token == exact_runner::BACKGROUND {
+            return match self.realm("background-round").map(|r| r["token"].as_u64()) {
+                Ok(Some(registry)) => Dispatch::Host(registry),
+                _ => Dispatch::Missing,
+            };
+        }
         let granted = Store::new(&self.grants, []).granted().to_vec();
         let snapshot: Vec<_> = store
             .snapshot()
@@ -526,6 +545,71 @@ impl DataSource for Module {
             Ok(response) if response["ok"] == true => Dispatch::Host(token),
             _ => Dispatch::Missing,
         }
+    }
+
+    /// The page's realm finishes storage an answer did not await as the
+    /// background's (LLP 1097 D5, D7): a round goes out when its operation
+    /// is the one in flight and none is out.
+    fn background(&mut self, _: &Store) -> Option<Request> {
+        if self.background_out || !self.ready || self.placement != Placement::Main {
+            return None;
+        }
+        let state = self.realm("background").ok()?;
+        (state["head"] == true).then(|| {
+            self.background_out = true;
+            Request::continuation(exact_runner::BACKGROUND)
+        })
+    }
+
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<Request>, DataError> {
+        self.background_out = false;
+        let body = match outcome {
+            Outcome::Response(response) => response.body,
+            Outcome::Failed { message, .. } => return Err(unavailable(message)),
+            _ => return Err(unavailable("a background round answered something else")),
+        };
+        let state = json::parse(&body).map_err(|e| unavailable(e.to_string()))?;
+        if state["delivered"] != true {
+            return Ok(None);
+        }
+        Ok(self.background(store))
+    }
+
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        if !self.ready || self.placement != Placement::Main {
+            return None;
+        }
+        let state = self.realm("background").ok()?;
+        let n = |k: &str| state[k].as_u64().unwrap_or(0);
+        Some(exact_runner::BackgroundState {
+            queued: n("queued"),
+            in_flight: n("inFlight"),
+            done: n("done"),
+            failed: n("failed"),
+            last: state["last"].as_str().map(str::to_string),
+        })
+    }
+
+    fn take_logs(&mut self) -> Vec<String> {
+        if !self.ready {
+            return Vec::new();
+        }
+        let Ok(reply) = self.realm("journal") else {
+            return Vec::new();
+        };
+        reply["lines"]
+            .as_array()
+            .map(|lines| {
+                lines
+                    .iter()
+                    .filter_map(|l| l.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn discard(&mut self, token: u64) {

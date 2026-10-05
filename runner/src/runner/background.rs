@@ -79,15 +79,10 @@ impl<D: DataSource> Runner<D> {
                 self.send_background(next);
             }
             Ok(None) => {
-                self.background.rounds += 1;
-                let rest = self
-                    .data
-                    .background_state()
-                    .map_or(0, |s| s.queued + s.in_flight);
-                if rest == 0 {
-                    let rounds = std::mem::take(&mut self.background.rounds);
-                    self.log(exact_num::text!("background: done ({} operations)", rounds));
-                }
+                // The background's run ends here: what it still has queued
+                // goes out when its operation is next in flight.
+                let rounds = std::mem::take(&mut self.background.rounds) + 1;
+                self.log(exact_num::text!("background: done ({} operations)", rounds));
             }
             Err(
                 super::DataError::UnknownSource(m)
@@ -124,8 +119,9 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// The background's operations queued or in flight: the `background`
-    /// count a `clock` reply carries beside `inflight` (LLP 1097 D9).
+    /// The module's storage operations queued or in flight: the
+    /// `background` count a `clock` reply carries beside `inflight` (LLP
+    /// 1097 D9).
     pub fn background_operations(&self) -> u64 {
         self.data
             .background_state()

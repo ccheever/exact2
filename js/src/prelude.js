@@ -663,7 +663,9 @@
   // storage, so the flag is set by the executor that runs inline alone.
   var moving = false;
   var background = { id: 0, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, background: true };
-  var backgroundCounts = { done: 0, failed: 0, last: null };
+  // The module's storage operations that landed and failed, and the last
+  // failure's line (`state.background`, LLP 1097 D8).
+  var storageCounts = { done: 0, failed: 0, last: null };
   // Set before the first answer, never after: an app cannot turn it on.
   global.__exact_main_thread = function () { if (initializing) moving = true; };
   // Where a completion's count lives: the call that issued it, or the
@@ -691,12 +693,6 @@
   }
   // The operation in flight's owner, or null.
   function headOwner() { return head ? owner(head.call) : null; }
-  // Background operations: queued, and in flight.
-  function backgroundOps() {
-    var queued = 0;
-    for (var i = 0; i < queue.length; i++) if (owner(queue[i].call) === background) queued++;
-    return { queued: queued, inFlight: headOwner() === background ? 1 : 0 };
-  }
   var abortHooks = global.__ibex2_abort;
   delete global.__ibex2_abort;
   function watchAbort(signal, aborted) {
@@ -925,7 +921,7 @@
         currentCall = at;
         unstore(at);
         if (ok) {
-          if (at === background) backgroundCounts.done++;
+          storageCounts.done++;
           try { resolve(convert ? convert(value) : value); } catch (e) { reject(e); }
           return;
         }
@@ -936,7 +932,7 @@
         // background's, so one nobody catches is still seen (D8).
         var line = "storage failed: " + what + ": " + error.code + " " + errorText(error);
         journal(line);
-        if (at === background) { backgroundCounts.failed++; backgroundCounts.last = line; }
+        storageCounts.failed++; storageCounts.last = line;
         reject(error);
       };
       if (head) queue.push(op);
@@ -1105,6 +1101,11 @@
       storing.forEach(function (c) { if (c !== background && !calls.has(c.id)) left = true; });
       if (left) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
       if (!final && (pending.size || storing.size)) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
+    } else if (moving && !final && background.storage > 0) {
+      // The page's realm runs one answer at a time, but background work
+      // goes on beside it: an answer awaiting it parks and is asked again
+      // after a background delivery (LLP 1097 D7).
+      return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
     }
     call.replied = true;
     calls.delete(call.id);
@@ -1256,16 +1257,15 @@
     } catch (e) { return fail(e); }
     finally { currentCall = null; }
   };
-  // The background's state, after a call or a delivery (LLP 1097 D5, D8):
-  // whether its operation is the one in flight (`head`), its operations
-  // queued and in flight, every storage operation of the module waiting
-  // (`operations`), and what landed and failed.
+  // The module's storage, after a call or a delivery (LLP 1097 D5, D8):
+  // whether the operation in flight is the background's (`head`), the
+  // operations queued behind it and in flight, an answer's or the
+  // background's, and what landed and failed.
   global.__exact_background = function () {
     checkpoint();
     currentCall = null;
-    var ops = backgroundOps();
-    return JSON.stringify({ head: headOwner() === background, queued: ops.queued, inFlight: ops.inFlight,
-      operations: queue.length + (head ? 1 : 0), done: backgroundCounts.done, failed: backgroundCounts.failed, last: backgroundCounts.last });
+    return JSON.stringify({ head: headOwner() === background, queued: queue.length, inFlight: head ? 1 : 0,
+      done: storageCounts.done, failed: storageCounts.failed, last: storageCounts.last });
   };
   // A background round delivers with the background current: what its
   // completion's reaction issues is the background's too.

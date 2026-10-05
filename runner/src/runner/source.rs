@@ -134,20 +134,19 @@ impl Native {
 /// [`DataSource::forgotten`] never prunes it.
 pub const BACKGROUND: u64 = u64::MAX - 2;
 
-/// A module's background storage (LLP 1097 D8): `state.background`, and
-/// the `background` count a `clock` reply carries.
+/// A module's storage (LLP 1097 D8): `state.background`, and the
+/// `background` count a `clock` reply carries. Its operations are counted
+/// module-wide, an answer's and the background's alike, as the JS target,
+/// which has no owners, counts them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BackgroundState {
-    /// Background operations waiting behind the one in flight.
+    /// Operations waiting behind the one in flight.
     pub queued: u64,
-    /// Background operations in flight: 0 or 1.
+    /// Operations in flight: 0 or 1.
     pub in_flight: u64,
-    /// The module's storage operations queued or in flight, an answer's or
-    /// the background's: what `clock settle` waits for.
-    pub operations: u64,
-    /// Background operations that landed, since load.
+    /// Operations that landed, since load.
     pub done: u64,
-    /// Background operations that failed, since load.
+    /// Operations that failed, since load.
     pub failed: u64,
     /// The last failure's journal line.
     pub last: Option<String>,
