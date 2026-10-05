@@ -327,5 +327,13 @@ fn else_if_and_else_when_say_to_nest_the_choice() {
 #[test]
 fn a_negative_number_is_an_expect_state_value() {
     let tests = contract::tests("test \"t\"\n  expect state offset == -1\n").unwrap();
-    assert_eq!(tests.len(), 1);
+    assert!(matches!(
+        &tests[0].steps[0],
+        Step::ExpectState { value: contract_syntax::Expr::Number(n, _), .. } if *n == -1.0
+    ));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("{\"op\":\"expect-state\",\"name\":\"offset\",\"value\":-1,\"line\":2}"),
+        "{json}"
+    );
 }
