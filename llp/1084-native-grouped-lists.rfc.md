@@ -255,6 +255,37 @@ Proofs: `GroupedListIOSTests.testARealTouchAimsAtTheCellOrAccessoryUIKitDraws`;
 switch twice, its detail button and a row with real touches, each read back
 from the app's state.
 
+## 6.4 A section's authored spacing (2026-10-04, Signal Clone)
+
+Signal's tables put 20 points between sections (`OWSTableViewController2`'s
+`defaultSpacingBetweenSections`), where UIKit's list leaves 35. The author
+writes the section's margins, as on the web: `section margin-top=20
+margin-bottom=0`.
+- **The sheet's numbers are UIKit's.** A margin of 0 beside a header or a
+  footer or in a plain list, 17.33, or 35.33 above a first section, is the
+  sheet's (§2), and iOS keeps UIKit's own gap there (its last footerless
+  section has 20 below it, which the sheet's 17.33 stands for). Any other
+  number is the author's: a margin written as exactly one of those reads
+  as UIKit's.
+- **Kernel.** At a boundary where either margin is the author's, the space
+  is the web's: the two margins collapse to the larger, as block margins do
+  (30 under one section and 40 over the next are 40, not 70).
+  `GroupedSection.space_above` carries it, `GroupedList.space_below` the
+  last section's authored `margin-bottom`; `exact_grouped_list` writes
+  `"spaceAbove"` and `"spaceBelow"`. Only points count; a percentage is 0.
+- **iOS.** The whole space goes above the later section, and the earlier
+  one's bottom inset is 0 unless it has a footer (that inset is UIKit's gap
+  between its rows and the footer). Above a header the space is the list
+  configuration's `headerTopPadding`: a section's top inset under a header
+  is the header-to-rows gap (measured, iOS 27). The space under the last
+  section is its bottom inset, unless it has a footer.
+
+Proofs: `contract/cli/tests/it/grouped_list.rs`
+`an_authored_margin_is_the_webs_space_and_the_sheets_is_uikits` and
+`authored_margins_collapse_as_the_web_lays_them_out` (the web's own frames
+agree); the Signal clone's settings sheet on the iOS 27 simulator (20-point
+gaps, a titled section's header 20 under the card above).
+
 ## 7. Open
 
 - **A real touch's identity when a row's control is replaced.** §6.3's `projected: {row, part}` tells rows and parts apart, not the authored control behind one switch: a `when` that replaces a row's control between the aim and the touch passes as the old one (the switch the finger meets is the same one). Carrying the target id needs the host's model in the dispatch log's landing (astra, round 3 of `code-2026-10-04-grouped-platform-tap`, deferred).

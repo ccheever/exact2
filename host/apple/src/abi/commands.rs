@@ -232,9 +232,9 @@ impl<D: DataSource> Bridge<D> {
 
     /// A grouped list's sections and rows (`exact_grouped_list`, LLP 1084
     /// D4), as JSON in the output buffer: `{"style","sections":[{"view",
-    /// "header","footer","card","marginTop","marginBottom","rows":[{"view","custom","symbol","title",
+    /// "header","footer","card","spaceAbove","rows":[{"view","custom","symbol","title",
     /// "secondary","subtitle","accessory","target","pressable",
-    /// "destructive","disabled"}]}]}`, `null` for a node that is not one.
+    /// "destructive","disabled"}]}],"spaceBelow"}`, `null` for a node that is not one.
     /// `accessory` is `none`, `disclosure`, `checkmark`, `toggle` or
     /// `detail`; `target` the toggle's control or the detail's button. Not
     /// a batch: nothing changes.
@@ -263,11 +263,9 @@ impl<D: DataSource> Bridge<D> {
                     json.push_str(",\"footer\":");
                     opt(&s.footer, &mut json);
                     json.push_str(&format!(",\"card\":{}", s.card));
-                    let margin = |m: Option<f32>| m.map_or("null".into(), |m| m.to_string());
                     json.push_str(&format!(
-                        ",\"marginTop\":{},\"marginBottom\":{}",
-                        margin(s.margins.0),
-                        margin(s.margins.1)
+                        ",\"spaceAbove\":{}",
+                        s.space_above.map_or("null".into(), |v| v.to_string())
                     ));
                     json.push_str(",\"rows\":[");
                     for (j, r) in s.rows.iter().enumerate() {
@@ -299,7 +297,10 @@ impl<D: DataSource> Bridge<D> {
                     }
                     json.push_str("]}");
                 }
-                json.push_str("]}");
+                json.push_str(&format!(
+                    "],\"spaceBelow\":{}}}",
+                    list.space_below.map_or("null".into(), |v| v.to_string())
+                ));
             }
         }
         self.output = json.into_bytes();

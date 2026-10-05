@@ -31,12 +31,14 @@ struct GroupedListModel: Equatable {
         /// Whether the rows sit on a card; false for a transparent group
         /// (`section background-color="transparent"`): clear cells, no separators.
         var card = true
-        /// Its authored `margin-top` and `margin-bottom`, points.
-        var marginTop: CGFloat?
-        var marginBottom: CGFloat?
+        /// The space above it when the author changed a margin there (the
+        /// web's, collapsed); nil keeps UIKit's gap (`Kernel::grouped_list`).
+        var spaceAbove: CGFloat?
     }
     var style = "inset-grouped"
     var sections: [Section] = []
+    /// The space under the last section when its author set it.
+    var spaceBelow: CGFloat?
 
     init(style: String = "inset-grouped", sections: [Section] = []) { self.style = style; self.sections = sections }
     init?(json: Data) {
@@ -55,9 +57,9 @@ struct GroupedListModel: Equatable {
             }
             return Section(view: view, header: s["header"] as? String, footer: s["footer"] as? String, rows: rows,
                            card: s["card"] as? Bool ?? true,
-                           marginTop: (s["marginTop"] as? NSNumber).map { CGFloat($0.doubleValue) },
-                           marginBottom: (s["marginBottom"] as? NSNumber).map { CGFloat($0.doubleValue) })
+                           spaceAbove: (s["spaceAbove"] as? NSNumber).map { CGFloat($0.doubleValue) })
         }
+        spaceBelow = (o["spaceBelow"] as? NSNumber).map { CGFloat($0.doubleValue) }
     }
     var appearance: UICollectionLayoutListConfiguration.Appearance {
         // tvOS has no inset grouped list.
@@ -302,16 +304,23 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             #if !os(tvOS)
             c.showsSeparators = s?.card ?? true
             #endif
+            // An authored space above a header is above it: UIKit's top inset
+            // there is the header-to-rows gap (§6.3).
+            let space = s?.spaceAbove
+            if let space, s?.header != nil { c.headerTopPadding = space }
             // The list's own background stays behind a card-less section's
             // clear cells: the inset card is the cells' background, not the
             // section's (a clear section background showed the route's white).
             let section = NSCollectionLayoutSection.list(using: c, layoutEnvironment: environment)
-            // Contract's sheet writes UIKit's own gaps as the section's
-            // margins (§2); one the author changed (Signal's 20-point
-            // sections) is the space UIKit leaves. Within a point it is UIKit's.
+            // A boundary the author changed (Signal's 20-point sections) is
+            // the web's space, all of it above the later section; a footer's
+            // bottom inset is its own gap under the rows, and stays.
             var insets = section.contentInsets
-            if let top = s?.marginTop, abs(top - insets.top) > 1 { insets.top = top }
-            if let bottom = s?.marginBottom, abs(bottom - insets.bottom) > 1 { insets.bottom = bottom }
+            if let space, s?.header == nil { insets.top = space }
+            if s?.footer == nil {
+                if index + 1 < model.sections.count { if self.section(at: index + 1)?.spaceAbove != nil { insets.bottom = 0 } }
+                else if let below = model.spaceBelow { insets.bottom = below }
+            }
             section.contentInsets = insets
             // A plain list's footer stays under its rows, as its header
             // stays at their top: UIKit pins both by default.
@@ -363,7 +372,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // went or changed lays the list out again.
         let texts = previous.sections.map { [$0.header, $0.footer] } != next.sections.map { [$0.header, $0.footer] }
             || !recarded.isEmpty // separators are the section layout's
-        let regapped = previous.sections.map { [$0.marginTop, $0.marginBottom] } != next.sections.map { [$0.marginTop, $0.marginBottom] }
+        let regapped = previous.sections.map(\.spaceAbove) != next.sections.map(\.spaceAbove) || previous.spaceBelow != next.spaceBelow
         if restyled { collection.setCollectionViewLayout(layout(), animated: false) }
         source.apply(snapshot, animatingDifferences: false)
         if texts {

@@ -475,17 +475,49 @@ fn a_cardless_section_draws_no_separators_and_takes_only_transparent() {
 }
 
 #[test]
-fn a_sections_margins_are_the_sheets_gaps_or_the_authors() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"a\"\n      text \"Account\"\n  section margin-top=20 margin-bottom=0\n    button press=go testId=\"b\"\n      text \"Chats\"");
+fn an_authored_margin_is_the_webs_space_and_the_sheets_is_uikits() {
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"a\"\n      text \"Account\"\n  section\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=20 margin-bottom=0\n    button press=go testId=\"c\"\n      text \"Help\"");
     let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    let above: Vec<_> = list.sections.iter().map(|s| s.space_above).collect();
     assert_eq!(
-        list.sections[0].margins,
-        (Some(35.33), Some(17.33)),
-        "the sheet's: UIKit's first gap above, a section's below"
+        above,
+        [None, None, Some(20.0)],
+        "the sheet's numbers keep UIKit's gaps; the author's 20 is the space above"
+    );
+    assert_eq!(list.space_below, Some(0.0), "and the 0 under the last");
+}
+
+#[test]
+fn authored_margins_collapse_as_the_web_lays_them_out() {
+    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section margin-bottom=30\n    button press=go testId=\"a\"\n      text \"Account\"\n  section margin-top=40\n    header\n      text \"More\"\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=0.5\n    button press=go testId=\"c\"\n      text \"Help\"";
+    let r = boot(body);
+    let k = r.kernel();
+    let list = k.grouped_list(id(&r, "list")).unwrap();
+    assert_eq!(
+        list.sections[0].space_above, None,
+        "the first keeps UIKit's"
     );
     assert_eq!(
-        list.sections[1].margins,
-        (Some(20.0), Some(0.0)),
-        "the author's replace them (Signal's 20-point sections)"
+        list.sections[1].space_above,
+        Some(40.0),
+        "30 and 40 meet as 40, not 70, above the header"
+    );
+    // The web's own layout agrees: the rows are 40 apart where the margins
+    // meet, less the separator's overlap.
+    let a = k.node(id(&r, "a")).unwrap().frame;
+    let header_top = k.node(id(&r, "b")).unwrap().frame.y - 40.33;
+    assert!(
+        (header_top - (a.y + a.height - 1.0) - 40.0).abs() < 0.5,
+        "web gap {}",
+        header_top - (a.y + a.height - 1.0)
+    );
+    assert_eq!(
+        list.sections[2].space_above,
+        Some(17.33),
+        "a half point is the author's: it meets the sheet's 17.33 under the last section"
+    );
+    assert_eq!(
+        list.space_below, None,
+        "the last section's bottom is the sheet's"
     );
 }
