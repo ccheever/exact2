@@ -13,14 +13,70 @@ import { resolveApp } from './app.mjs';
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
  * are its choices, not its text; LLP 1087 wizard trials), else its descendants' in order — the web's `textContent`, a button's
  * label — else a field's value. `nodes` is a `tree` reply's, in preorder. */
-export function textOf(nodes, node) {
+export function textOf(nodes, node, live = false) {
   if (node.props.text != null) return node.props.text;
   const at = nodes.indexOf(node), runs = [];
   // A checkbox or switch (only those take `checked`): `true` or `false`.
   if (node.type === 'Control' && node.props.checked != null) return String(node.props.checked);
   if (node.type === 'Control' && node.props.value != null) return node.props.value;
-  for (let i = at + 1; i < nodes.length && nodes[i].depth > node.depth; i++) if (nodes[i].props.text != null) runs.push(nodes[i].props.text);
+  // `live`: only what an active screen shows (a covered descendant's text is not this node's name).
+  for (let i = at + 1; i < nodes.length && nodes[i].depth > node.depth; i++) if (nodes[i].props.text != null && !(live && nodes[i].inactive)) runs.push(nodes[i].props.text);
   return runs.length ? runs.join('') : node.props.value;
+}
+
+// What a person activates, most direct first: a control, or a view a press or an edit acts on (2); one taking a gesture
+// or focus (1); none (0) — a `scroll` or `pointermove` handler only watches.
+const PRESSES = new Set(['press', 'change', 'input', 'submit', 'select', 'dblclick']);
+const GESTURES = new Set(['contextmenu', 'focus', 'swiperight', 'pan', 'drop']);
+const tier = (n) => n.type === 'Control' || n.type === 'TextInput' || (n.handlers ?? []).some((h) => PRESSES.has(h)) ? 2 : (n.handlers ?? []).some((h) => GESTURES.has(h)) ? 1 : 0;
+const interactive = (n) => tier(n) > 0;
+const name = (n) => n.props.testId ?? (n.props.accessibilityLabel ? `"${n.props.accessibilityLabel}"` : null);
+
+/** A target no testId carries, by the name a person reads (`nodes` a whole `tree` reply's, in preorder): the node whose
+ * accessibilityLabel is exactly `target`, else whose text (`textOf`) is: on the active screens first (their text without a
+ * covered descendant's), then anywhere. The most directly interactive win; of nested ones the outermost interactive,
+ * or the innermost otherwise. More than one left
+ * refuses, naming them; none returns null. */
+export function nodeNamed(nodes, target) {
+  let ends = null; // each node's preorder index and the end of its subtree, computed once and only on a match
+  const spans = () => {
+    ends = new Map();
+    const open = [];
+    nodes.forEach((n, i) => {
+      while (open.length && open.at(-1).n.depth >= n.depth) { const o = open.pop(); ends.set(o.n, [o.i, i]); }
+      open.push({ n, i });
+    });
+    for (const o of open) ends.set(o.n, [o.i, nodes.length]);
+  };
+  const passes = [true, false].flatMap((live) => [(n) => n.props.accessibilityLabel, (n) => textOf(nodes, n, live)].map((read) => [live, read]));
+  for (const [live, read] of passes) {
+    let found = nodes.filter((n) => { if (live && n.inactive) return false; const v = read(n); return v != null && String(v).trim() === target; });
+    if (!found.length) continue;
+    const top = found.reduce((t, n) => Math.max(t, tier(n)), 0);
+    found = found.filter((n) => tier(n) === top);
+    if (found.length > 1) {
+      if (!ends) spans();
+      const kept = [];
+      for (const n of found) { // preorder: an ancestor comes before what it holds
+        const inside = (m) => { const [i, end] = ends.get(m), [j] = ends.get(n); return j > i && j < end; };
+        if (interactive(n)) { if (!kept.length || !inside(kept.at(-1))) kept.push(n); } // kept subtrees are disjoint
+        else { while (kept.length && inside(kept.at(-1))) kept.pop(); kept.push(n); }
+      }
+      found = kept;
+    }
+    if (found.length === 1) return found[0];
+    throw new Error(`${JSON.stringify(target)} names ${found.length} views: ${found.slice(0, 8).map((n) => `${n.id}${n.props.testId ? ` (${n.props.testId})` : ''} ${n.type}`).join(', ')}${found.length > 8 ? ', …' : ''}; target one by its view id`);
+  }
+  return null;
+}
+
+/** A few targets an agent can name instead of a point: interactive views' testIds and labels, else their text. */
+export function targetsIn(nodes, limit = 12) {
+  const named = [...new Set(nodes.filter((n) => interactive(n) && !n.inactive).map((n) => {
+    const text = textOf(nodes, n);
+    return name(n) ?? (text != null && String(text).trim() ? JSON.stringify(String(text).trim()) : null);
+  }).filter(Boolean))];
+  return named.length ? `; targets here: ${named.slice(0, limit).join(', ')}${named.length > limit ? ', …' : ''}` : '';
 }
 
 /** Where a native host keeps a drive's scratch stores (host/apple and host/linux `configure_storage`), or

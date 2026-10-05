@@ -47,7 +47,7 @@ This guide is documentation, not an additional policy layer. Documents in
 | Derived labels, record copies, bounded list transforms | Contract expressions / `fn` |
 | Network, authentication, storage, sorting, domain algorithms | App TypeScript/Rust data module |
 | Device facts | Reserved source with an admitted shape |
-| Complex native widget | App's declared native module |
+| A system control (button, list, switch, picker, menu, tabs, bars) | Contract's native form ([below](#views-layout-and-interaction)); an app native module only where none exists |
 | Canvas 2D drawing | Data module's canvas surface |
 | GPU scene or game | Optional GPU/game artifact |
 | App identity, grants/deploy selection, module placement | App manifest and data-module declarations |
@@ -503,6 +503,29 @@ styleable host-policy prop; its names and allowable branches are checked against
 checks in [`controls.rs`](../contract/lower/src/controls.rs), and test the actual
 platform look. Do not assume arbitrary custom paint or typography is admitted.
 
+**Prefer native controls.** Write the Contract form and each host draws its own
+control; a hand-built lookalike (a painted switch, a row of buttons for tabs, a
+drawn title bar) is a bug. On iOS:
+
+| Write | iOS draws |
+| --- | --- |
+| `button appearance="auto"` (`buttonStyle`) | `UIButton` |
+| `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)) |
+| `input type="checkbox" switch` | `UISwitch` |
+| `input type="range"` | `UISlider` |
+| `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker` |
+| `select` of `option`s | a pop-up button with its menu |
+| `popover="auto" role="menu"` of `button`s, opened by `popovertarget` | `UIMenu` (LLP 1021) |
+| `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl` (LLP 1059) |
+| a route whose first child is a `header` holding one heading and its buttons | the navigation bar; an `h1` is a large title |
+| a route with `navigationPresentation="modal"` | a sheet |
+
+`contract vocab <name>` lists each one's props. A route does not scroll by
+itself: its content goes in a `scroll`, `list` or `overflow-y="auto"` box, which
+`navigationScroll` names for the bar ("Routes and web documents"). A sheet's swipe down and a pushed screen's edge swipe press the
+route's enabled control whose `id` is the root's `navigationBack`; without one
+both are refused, as is the swipe on a sheet with `closedby="none"`.
+
 An `image` source is the same string on every host: a path under the app's
 `assets/`, an `http(s)` URL, `symbol:<role>`, an `app:/data|cache|tmp/…` file
 (a picked photo, or one the data module kept with `storage.fs`; it shows after a
@@ -748,7 +771,12 @@ Production artifacts do not need a development source map.
 
 The driver has ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 `layout`, `logs`, `clock`, `prefer`, and `perf`. Variations are arguments, not new
-commands. Use `tree` to find targets, `state` for data and delivery, `layout` for
+commands. Targets are `testId`s (or view ids): give every control a `testId` and
+drive it on every host, iOS included (`agent ios`), never by screen coordinates.
+A target no `testId` carries resolves by a view's exact accessibility label or
+text (`tap "Save draft"`); a name several views share refuses, naming them.
+`tree --ax` prints the platform's accessibility tree, as VoiceOver would read it.
+Use `tree` to find targets, `state` for data and delivery, `layout` for
 geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: per
 plan site, evaluations, unchanged results, instances created and retired), and
 screenshots for rendered output. Logs name refused operations and data errors.
@@ -906,6 +934,8 @@ Before reporting an app change done:
 - Complete examples use current syntax, including inferred effects and provider sections.
 - The app was built for every affected runtime surface required by repository policy.
 - The requested interaction was driven, with state/log/layout evidence as appropriate.
+- A reference design is matched in structure, controls and hierarchy, not pixels:
+  native controls set their own metrics, so stop when it reads as the same app.
 - Authored tests and relevant checks pass, or remaining failures are named accurately.
 - Formatting and line caps hold; no generated artifacts or unrelated work entered the commit.
 - The result states what changed, how it was verified, and any actual platform limitation.
