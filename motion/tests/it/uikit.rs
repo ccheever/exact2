@@ -330,6 +330,8 @@ fn the_critical_end_takes_the_last_crossing() {
     assert_eq!(uikit::critical_settle(1.0, 0.0), 9.233413476451585);
     assert!((uikit::critical_settle(1.0, 1.2261769259289865) - 5.421646815).abs() < 1e-8);
     assert!((uikit::critical_settle(1.0, 1.2262) - 5.454495022).abs() < 1e-8);
+    // A large velocity: the second lobe's falling side.
+    assert!((uikit::critical_settle(1.0, 1000.0) - 16.62538030859402).abs() < 1e-8);
 }
 
 /// Core Animation's rendered curves (rows U: springs UIKit made; rows S:
@@ -428,6 +430,27 @@ fn a_critical_spring_on_the_overdamped_branch_is_critical() {
     let t = 1.0 / 2f64.sqrt();
     let p = 1.0 + uikit::sample(&config, Branch::Overdamped, -1.0, 0.0, t).displacement;
     assert!((p - (1.0 - 2.0 * (-1.0f64).exp())).abs() < 1e-9, "{p}");
+}
+
+/// The textbook branch is exact2's physics at every ζ (LLP 1099 D4): an
+/// overdamped spring is neither clamped nor paired as Core Animation's
+/// overdamped branch would.
+#[test]
+fn the_textbook_branch_keeps_overdamped_physics() {
+    let config = SpringConfig {
+        stiffness: 246.74011002723395,
+        damping: 62.83185307179586,
+        mass: 1.0,
+    };
+    let t = 0.3;
+    let textbook = uikit::sample(&config, Branch::Textbook, -1.0, 1.0, t);
+    assert_eq!(textbook, config.sample(-1.0, 1.0, t));
+    let critical = SpringConfig {
+        damping: 2.0 * config.stiffness.sqrt(),
+        ..config
+    }
+    .sample(-1.0, 1.0, t);
+    assert!((textbook.displacement - critical.displacement).abs() > 0.2);
 }
 
 #[test]
