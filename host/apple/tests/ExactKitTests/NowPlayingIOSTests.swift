@@ -108,4 +108,19 @@ final class NowPlayingIOSTests: XCTestCase {
         XCTAssertEqual((np.report(p)["artworkError"] as? String)?.hasPrefix("an app:/ artwork"), true)
         np.left(p)
     }
+
+    /// Two claimants play in one commit (LLP 1098 D5). The episode is earlier
+    /// in the document and its `timeControlStatus` callback arrives last; the
+    /// later claimant still owns Now Playing.
+    func testTwoPlaysInOneCommitGoToTheLaterClaimant() {
+        let episode = claimant("Episode", "audio", listeners: "play")
+        let trailer = claimant("Trailer", "video", listeners: "play")
+        np.joined(episode); np.updated(episode)
+        np.joined(trailer); np.updated(trailer)
+        np.played(trailer)
+        np.played(episode)
+        XCTAssertTrue(np.owner === trailer)
+        np.left(episode)
+        np.left(trailer)
+    }
 }
