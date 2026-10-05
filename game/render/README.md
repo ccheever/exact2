@@ -334,7 +334,8 @@ part's node, through the palette rigid parts already use. A many-part prop or a
 rigid-limbed character is one draw per material. `NodeMaterials` still colours
 parts one by one: an instance's per-part looks follow its records in the instance
 buffer, each with its part's first vertex, and the record's last word points at
-them; the vertex shader takes the last part starting at or before its vertex.
+them; the vertex shader binary-searches them for the last part starting at or
+before its vertex (the run's first entry holds its part count).
 Static merges add no per-vertex data. The parts' own meshes stay resident: a model
 whose merged draw has a material a game's `CustomMaterial` shades draws its parts
 unmerged, since a custom vertex shader (wind sway about a node) sees node-local

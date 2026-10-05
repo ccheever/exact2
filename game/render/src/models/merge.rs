@@ -330,5 +330,8 @@ mod tests {
         let records = renderer.models.records.len();
         let word = (records + 1) * super::super::INSTANCE_WORDS + 36;
         assert_eq!(renderer.models.words[word], 0.9f32.to_bits());
+        // The run's first entry keeps its part count for the shader's search.
+        let run = records * super::super::INSTANCE_WORDS;
+        assert_eq!(renderer.models.words[run], 2, "two parts in the run");
     }
 }

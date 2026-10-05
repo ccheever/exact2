@@ -253,10 +253,17 @@ impl Models {
             };
             words.push(at | (look & REPLACE));
         }
-        // A merged part's look is one record-sized entry: its tint and glow.
+        // A merged part's look is one record-sized entry: its tint and glow. A
+        // run's first entry also holds the run's part count, for the shader's
+        // binary search over the starts.
+        let mut run = words.len();
         for look in &self.part_looks.1 {
             words.extend([0; 36]);
             words.extend(look.map(f32::to_bits));
+            if look[7].to_bits() == u32::MAX {
+                words[run] = ((words.len() - run) / INSTANCE_WORDS - 1) as u32;
+                run = words.len();
+            }
         }
         if words.len() as u64 * 4 > device.limits().max_storage_buffer_binding_size {
             return Err(RenderError::scene(
