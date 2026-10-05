@@ -26,6 +26,9 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     private var socket: URLSessionWebSocketTask?
     private var httpTasks: [Int: URLSessionDataTask] = [:]
     private var pending: [String: Pending] = [:]
+    private let activity: T3ActivityReporter?
+    private let activityID = UUID()
+    private var activityScopes: [String: UUID] = [:]
     private var streams: [String: String] = [:] // request id -> app subscription key
     /// Same-session resubscribes after a stream failure (rpc/client.ts): consecutive
     /// failures per key, and the failed subscription whose `_retryDue` is scheduled.
@@ -69,8 +72,9 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
 
     init(persistent: Bool, dataDirectory: URL? = nil, configuration: URLSessionConfiguration = .ephemeral,
          credentials: T3Credentials? = nil, savedEnvironments: T3SavedEnvironments? = nil, remembersOrigin: Bool = true,
-         defaults: UserDefaults = .standard, random: @escaping () -> Double = { Double.random(in: 0..<1) }, signals: Bool = true,
+         activity: T3ActivityReporter? = nil, defaults: UserDefaults = .standard, random: @escaping () -> Double = { Double.random(in: 0..<1) }, signals: Bool = true,
          changed: @escaping (String) -> Void) {
+        self.activity = activity
         self.persistent = persistent; self.changed = changed; self.remembersOrigin = remembersOrigin; self.defaults = defaults; self.random = random
         preferencesURL = dataDirectory?.appendingPathComponent("t3-code.json", isDirectory: false)
         self.credentials = credentials ?? T3Credentials(persistent: persistent)
@@ -218,7 +222,8 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         guard data.count <= T3Wire.maximumBytes else { throw T3Failure(kind: "Limit", message: "Drafts and preferences are too large to save.") }
         do {
             try FileManager.default.createDirectory(at: preferencesURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: preferencesURL, options: .atomic)
+            if let activity { try activity.writePreferences(text, to: preferencesURL) }
+            else { try data.write(to: preferencesURL, options: .atomic) }
         } catch { throw T3Failure(kind: "Persistence", message: "Could not save drafts and preferences: \(error.localizedDescription)") }
     }
     private func restoreOrigin() {
@@ -256,6 +261,18 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         let cleaned = clean(text)
         guard next != state || cleaned != message else { return }
         state = next; message = cleaned
+        activity?.changed()
+        if next == "connected", let environment = descriptor["environmentId"] as? String {
+            let epoch = generation
+            activity?.connect(activityID, environment: environment) { [weak self] payload, finished in
+                guard let self else { finished(); return }
+                self.queue.async { [weak self] in
+                    guard let self, self.alive, self.state == "connected", self.generation == epoch else { finished(); return }
+                    do { try self.rpc(["method": "server.reportClientActivity", "payload": payload]) { _ in finished() } }
+                    catch { finished() }
+                }
+            }
+        }
         if alive { changed("t3.status") }
     }
     private func clean(_ input: String) -> String {
@@ -559,12 +576,16 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         unsubscribe(key)
         failedStreams[key] = nil
         streams[id] = key
+        let lease = UUID(); activityScopes[id] = lease
+        activity?.retain(lease, environment: descriptor["environmentId"] as? String ?? "", method: method,
+                         payload: request["payload"] as? [String: Any] ?? [:])
         send(text, epoch: generation)
         finish(completion, value: ["id": id])
     }
     private func unsubscribe(_ key: String) {
         for (id, value) in streams where value == key {
             streams.removeValue(forKey: id)
+            if let lease = activityScopes.removeValue(forKey: id) { activity?.release(lease) }
             send(["_tag": "Interrupt", "requestId": id], epoch: generation)
         }
     }
@@ -661,6 +682,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
             if success { finish(call.completion, value: exit["value"] ?? NSNull()) }
             else { finish(call.completion, failure: T3Wire.failure(exit)) }
         } else if let key = streams.removeValue(forKey: id) {
+            if let lease = activityScopes.removeValue(forKey: id) { activity?.release(lease) }
             let problem = success ? nil : failure(T3Wire.failure(exit))
             var value: [String: Any] = problem.map { ["_transportError": $0.json] } ?? ["_streamEnded": true]
             // An expected failure resubscribes on this session after 250 ms doubling to 30 s;
@@ -707,6 +729,8 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     }
 
     private func retire(_ reason: T3Failure) {
+        activity?.disconnect(activityID)
+        for lease in activityScopes.values { activity?.release(lease) }; activityScopes.removeAll()
         tick?.cancel(); tick = nil
         connectedAt = nil
         let waiters = probing?.waiters ?? []; probing = nil
@@ -800,6 +824,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
 
     /// A reachability change: offline questions a live socket (3 s); back online wakes a waiting retry.
     func networkChanged(online: Bool) {
+        if online { activity?.changed() }
         queue.async { [self] in
             guard alive, wantsConnection else { return }
             if !online { if state == "connected", socket != nil { probe(timeout: T3Reconnect.quickProbe, waiter: nil) } }

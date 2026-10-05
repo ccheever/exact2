@@ -18,6 +18,7 @@ import {
 import { composerFileRecords, fileChipContexts, foldLimit, pruneFiles, takeFold } from './composer-editor-files';
 import { imageChipContexts, imageContextRecords } from './composer-editor-attach';
 import { composerDrawer, composerStackHold, NO_DRAWER, type ComposerDrawer, type StackHold } from './composer-editor-drawer';
+import { WorkspaceDiscovery, workspaceValues } from './composer-workspace-snapshots';
 import { videoOp } from './r4-composer-attachments';
 
 export type ComposerMenuRow = Omit<MenuRow, 'insert'>;
@@ -27,6 +28,7 @@ export type ComposerEditorView = { owner: string; menu: ComposerMenu; promptLimi
 
 type Search = { entries: Obj[]; failed: boolean; providers?: Obj[] };
 type EditorCache = {
+  discovery: WorkspaceDiscovery;
   trigger: EditorTrigger | null; rows: MenuRow[]; owner: string;
   searches: Map<string, Search>; pending: Map<string, number>; usageLimits: number;
   /** A send was refused for length: the line shows until the prompt fits. */
@@ -38,7 +40,7 @@ type EditorCache = {
 const caches = new WeakMap<T3Client, EditorCache>();
 function cache(client: T3Client): EditorCache {
   let entry = caches.get(client);
-  if (!entry) { entry = { trigger: null, rows: [], owner: '', searches: new Map(), pending: new Map(), usageLimits: 0, limitArmed: false, stashOpen: false, prRecords: new Map() }; caches.set(client, entry); }
+  if (!entry) { entry = { discovery: new WorkspaceDiscovery(), trigger: null, rows: [], owner: '', searches: new Map(), pending: new Map(), usageLimits: 0, limitArmed: false, stashOpen: false, prRecords: new Map() }; caches.set(client, entry); }
   return entry;
 }
 
@@ -58,10 +60,6 @@ function project(client: T3Client): Obj { return client.shell.projects.find(entr
 export function workspaceCwd(client: T3Client): string {
   const thread = obj(client.projection.thread);
   return str(thread.worktreePath) || str(project(client).workspaceRoot);
-}
-function snapshotFor(entries: Obj[] | undefined, cwd: string, key: 'skills' | 'slashCommands', fallback: Obj[]): Obj[] {
-  const snapshot = arr(entries).find(entry => str(entry.cwd) === cwd);
-  return snapshot ? arr(snapshot[key]) : fallback;
 }
 function planModeUiEnabled(client: T3Client): boolean {
   const current = provider(client);
@@ -200,6 +198,16 @@ function holds(client: T3Client): StackHold {
   if (!hold) { hold = { owner: '', height: 0 }; stackHolds.set(client, hold); }
   return hold;
 }
+/** Root readiness resource; independent from the editor/menu resource. */
+export function composerWorkspaceView(client: T3Client) {
+  return cache(client).discovery.state(client.ready ? client.environmentId : '', client.generation, provider(client), workspaceCwd(client));
+}
+/** Root mutation: await the RPC, then Contract starts its retry clock on completion. */
+export async function refreshComposerWorkspace(client: T3Client, native: Native | null | undefined, key: string) {
+  composerWorkspaceView(client); // Recheck the current environment/provider before dispatch.
+  if (!native?.available || !client.ready) return { key, retry: false };
+  return cache(client).discovery.refresh(key, (method, payload) => client.restAccess(native).request(method, payload, true));
+}
 async function editorView(client: T3Client, native: Native | null | undefined, now: number): Promise<Omit<ComposerEditorView, 'drawer'>> {
   const entry = cache(client);
   const stash: ComposerStash = { ...stashView(client.local, now), menuOpen: entry.stashOpen && stashView(client.local, now).count > 0, keyStash: commandChord(client, 'composer.stash', 'Meta+S') };
@@ -231,7 +239,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   const current = provider(client);
   const cwd = workspaceCwd(client);
   const driver = str(current.driver);
-  const skills = snapshotFor(arr(current.workspaceSnapshots), cwd, 'skills', arr(current.skills));
+  const skills = workspaceValues(current, cwd, 'skills');
   let rows: MenuRow[] = [];
   let loading = false;
   let prFailed = false;
@@ -240,7 +248,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   if (trigger.kind === 'slash-command') {
     rows = slashRows({ query: trigger.query, atPromptStart: state.atStart === true, planModeUiEnabled: planModeUiEnabled(client),
       compactAvailable: compactAvailable(client, state.blankAround === true), driver,
-      slashCommands: snapshotFor(arr(current.workspaceSnapshots), cwd, 'slashCommands', arr(current.slashCommands)),
+      slashCommands: workspaceValues(current, cwd, 'slashCommands'),
       skills, showSkillsInSlashMenu: prefs(client).showSkillsInSlashMenu !== false });
   } else if (trigger.kind === 'skill') {
     rows = skillRows(skills, trigger.query, driver);

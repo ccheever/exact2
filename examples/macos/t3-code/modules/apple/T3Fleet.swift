@@ -11,6 +11,7 @@ final class T3Fleet: @unchecked Sendable {
     private let credentials: T3Credentials
     private let saved: T3SavedEnvironments
     private let persistent: Bool
+    private let activity: T3ActivityReporter?
     private let configuration: URLSessionConfiguration
     private let changed: (String) -> Void
     private var alive = true
@@ -18,7 +19,8 @@ final class T3Fleet: @unchecked Sendable {
     static let limit = 8
 
     init(persistent: Bool, credentials: T3Credentials, saved: T3SavedEnvironments,
-         configuration: URLSessionConfiguration = .ephemeral, changed: @escaping (String) -> Void) {
+         configuration: URLSessionConfiguration = .ephemeral, activity: T3ActivityReporter? = nil, changed: @escaping (String) -> Void) {
+        self.activity = activity
         self.persistent = persistent; self.credentials = credentials; self.saved = saved
         self.configuration = configuration; self.changed = changed
         outdated = T3OutdatedHosts(credentials: credentials, saved: saved, configuration: configuration, changed: changed)
@@ -56,7 +58,7 @@ final class T3Fleet: @unchecked Sendable {
             guard transports.count < Self.limit else { lock.unlock(); return failure("Limit", "Too many environments are switched on.") }
             let changed = self.changed
             let created = T3Transport(persistent: persistent, configuration: configuration.copy() as! URLSessionConfiguration,
-                                      credentials: credentials, savedEnvironments: saved, remembersOrigin: false,
+                                      credentials: credentials, savedEnvironments: saved, remembersOrigin: false, activity: activity,
                                       changed: { _ in changed("t3.fleet") })
             transports[key] = created
             transport = created

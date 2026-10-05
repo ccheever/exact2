@@ -12,7 +12,7 @@ import { settingsNavigation, searchContext } from './settings-search';
 import { settingsCore } from './settings-core-view';
 import { archivedSettings, licenseSettings, storageSettings } from './settings-data';
 import { T3Client } from './client';
-import { composerEditorView } from './composer-editor';
+import { composerEditorView, composerWorkspaceView, refreshComposerWorkspace } from './composer-editor';
 import { composerBranches } from './composer-controls-branch';
 import { providerPage, providerWizard, acpRegistry, providerFieldValues } from './providers';
 import { connectionsPage } from './connections';
@@ -48,6 +48,8 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
     return snapshot(client, Number(args[0]) || 0);
   }
   if (source === 'composerBranches') return composerBranches(client, native, args[0] === true, String(args[1] || ''));
+  if (source === 'composerWorkspace') return composerWorkspaceView(client);
+  if (source === 'refreshComposerWorkspace') return refreshComposerWorkspace(client, native, String(args[0] || ''));
   if (source === 'composerEditor') return composerEditorView(client, native, Number(args[1]) || 0);
   if (source === 'snapshotSettings') return snapshotSettings(client, native, args[0] === true);
   if (source === 'archivedSettings') return archivedSettings(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, Number(args[3]) || 0);

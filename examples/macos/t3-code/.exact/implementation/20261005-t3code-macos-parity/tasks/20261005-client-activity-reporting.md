@@ -1,12 +1,12 @@
 ---
 name: 20261005-client-activity-reporting
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: in-progress
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
+base_branch: daehyeon/t3code-macos-parity
+branch: daehyeon/t3code-client-activity-reporting
 pr_url: null
 verified_commit: null
 ---
@@ -146,15 +146,50 @@ Required environment: Xcode 27.0, pinned Bun 1.4.2, reference runtime copy, no T
 
 ## Progress
 
-Planned. No branch.
+2026-10-06: local implementation complete on the task-named branch, ready for integration
+and verification. User authorized independent parallel implementation before procedural common
+PR gates; main migration and desktop-oracle dependencies remain pending, not satisfied.
+Base: round-12 snapshot `1c6b4a12a`, framework `c1522fdac` plus the existing native parking
+patch. This is **not** the prepared main pin. Source behavior checked against reference
+`1e2ecbd975`; guidance revision `20261005-platforms-v3` (foundations, state/data,
+components, platforms and testing). Native timer/window APIs remain app-local guidance.
+
+- Added a shared native activity reporter: 25-second cadence, 250-ms single-slot debounce,
+  one batch in flight, silent errors, wall timestamps, interaction expiry and AppKit window
+  focus/visibility notifications. Window mouse-move delivery is enabled while observing and
+  restored at teardown. Scope retain/release follows transport subscribe/unsubscribe/Exit/retire.
+- Install identity is retained in `t3-code.json`; draft/preference writes preserve it. Fleet
+  and focused transports share one reporter and identity. Persistent identity failure falls
+  back to `ephemeral-client`; isolated agent reporters use an ephemeral UUID.
+- Workspace discovery reuses partial skills/commands, deduplicates in-flight requests and
+  rejects obsolete selection/reset completions. Its pure readiness resource is independent
+  from editor/menu reads. A root mutation awaits refresh completion and owns the 10-second
+  retry deadline on the Exact clock, avoiding source timers and slow-RPC menu stalls.
+- Independent implementation review found delayed-menu, completion-clock, stale-reset and
+  pointer-delivery concerns; corrected, regression-tested and re-reviewed with no remaining
+  concrete finding. This is implementation review, not final acceptance.
+
+Integration seams owned by the coordinator: `T3Module.swift` creates and destroys one reporter
+and passes `activity:` to the focused transport and fleet. Root Contract registers
+`composerWorkspace(data.revision)` returning `{key, needed}` and an awaited
+`refreshComposerWorkspace(key)` mutation returning `{key, retry}`. Its completion action
+sets a keyed `now() + 10000` retry deadline; existing one-second ticks dispatch only when
+needed, not pending and due. `apple/src/markdown.rs` registers both TypeScript source names.
+These shared-file changes are delivered by the coordinator/timeline lane, not this commit.
+
+The native mapping used here is visible = a visible, unminimized main-capable app window with
+visible occlusion while the app is not hidden; focused = active app with a key main-capable
+window. Real-input/oracle parity of this mapping remains unverified. No pixel-perfect loop.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 2026-10-06 local implementation | round-12 `1c6b4a12a`, reference `1e2ecbd975`, Bun 1.4.2, macOS/Xcode host | Frozen install passed; 6 workspace logic tests passed; strict TypeScript passed; native activity 7/7 passed; full Swift module build plus transport 36/36 passed before final single-flight callback refinement (refined reporter compiled/tested afterward). Full Bun 1152 passed, 1 source-registration integration failure | Existing commands in README; new `apple/tests/activity/main.swift` and `composer-workspace-snapshots.test.ts`; local logs `/tmp/t3-activity-{bun,native,transport}-tests.log` (not portable proof) | Shared source registration/root/module integration; fresh integrated build; cadence/server effects/attended pointer/agent retry/oracle traces and five gates unverified |
 
 ## Next action
 
-After the two dependencies merge: `prepare`, then `implement`. Decide with the user at `prepare`
-how `visible` and `focused` map to macOS window states (see Implementation notes).
+Coordinator integrates the shared root/module/source-registration seams, runs the integrated
+build and checks, then hands off to `verify`. Required real-time cadence/server-effect,
+attended pointer, agent-clock retry and desktop-oracle traces remain unverified. Reconcile
+main migration and common dependency records before claiming verification or publication.
