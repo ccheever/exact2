@@ -470,7 +470,7 @@ pub(crate) fn bad_escape(next: Option<char>) -> String {
     let accepted = "a string accepts \\n \\t \\\" \\\\ \\` \\$";
     match next {
         Some(c) => format!("unknown escape `\\{c}`; {accepted}"),
-        None => format!("a `\\` with nothing after it; {accepted}"),
+        None => format!("a `\\` ends the line, escaping nothing; {accepted}"),
     }
 }
 

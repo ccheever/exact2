@@ -547,6 +547,9 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
     // evaluate takes a function of no arguments as Playwright's carriers do (r23 t2).
     expect(await chrome.carrier.evaluate(() => 1 + 1)).toBe(2);
     expect(await chrome.carrier.evaluate('1 + 2')).toBe(3);
+    expect(await chrome.carrier.evaluate(async () => 4)).toBe(4);
+    expect(await chrome.carrier.evaluate(({ probe() { return 5; } }).probe)).toBe(5);
+    expect(await chrome.carrier.evaluate(({ async probe() { return 6; } }).probe)).toBe(6);
     await chrome.close(); chrome = null;
     const { firefox } = await import('playwright-core');
     if (!existsSync(firefox.executablePath())) {

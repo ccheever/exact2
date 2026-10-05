@@ -235,8 +235,9 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     // The viewport exactly: Chrome will not make a window narrower than 500.
     await call('Emulation.setDeviceMetricsOverride', { width: size[0], height: size[1], deviceScaleFactor: 1, mobile: false });
     const evaluate = async (expression, timeoutMs) => {
-      // A function of no arguments is called in the page, as Playwright's carriers do.
-      const r = await call('Runtime.evaluate', { expression: typeof expression === 'function' ? `(${expression})()` : expression, returnByValue: true, awaitPromise: true }, timeoutMs);
+      // A function of no arguments is called in the page, as Playwright's carriers do (a method's shorthand too).
+      if (typeof expression === 'function') { let text = `${expression}`; try { new Function(`(${text})`); } catch { text = text.startsWith('async ') ? `async function ${text.slice(6)}` : `function ${text}`; } expression = `(${text})()`; }
+      const r = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, timeoutMs);
       if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
       return r.result.value;
     };
