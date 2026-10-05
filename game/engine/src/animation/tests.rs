@@ -1417,4 +1417,5 @@ fn standalone_layers_require_fresh_sockets_and_carry_authored_edits() {
 }
 
 mod layers;
+mod shown;
 mod sockets_cursor;

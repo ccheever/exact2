@@ -173,6 +173,19 @@ pose or emitting markers. Root motion belongs to the base controller. Layers
 can also stand alone over the bind pose. Unskinned animated mesh nodes follow
 the same interpolated hierarchy as skinned nodes; adding an artificial skin is
 unnecessary.
+Simulated controllers need their model in `Game::ASSETS`, because a tick reads
+what they produce. Animation nothing simulated reads is presentation:
+`Game::present` inserts `animation::ShownClips`, clips at times it derives from saved
+causes (`ShownClips::clip("walk", walked / stride).speed(rate)`, `.and(clip, t, weight)`
+mixed over it, `.once()`, `.in_place(root)` for a walk drawn in place while the
+simulation moves the entity). It plays on any model that has arrived (declared,
+`Game::STREAMED` or loaded on sight; `animation::drawn_model`), from the frame it
+lands, in place of a simulated `Pose`; until then the entity draws nothing, as
+any pending model. The previous tick samples at `time - speed * dt`, so frames
+interpolate. Sockets drawn on a `ShownClips` rig follow it; `animation::socket` and a
+follower's simulated pose do not. Entity inspection names its state (`drawn`,
+`waiting for its model`, or the refusal, such as a missing clip), and `pose` reads
+its joints. A tick that reads it panics: arrival never reaches a hash or a save.
 `SocketFollow::new("fox", "head").offset(t)` attaches to a joint while preserving
 the saved local transform. `animation::socket(w, target, joint)` reads the current
 world-space tick endpoint; displayed attachments use the interpolated local chain.

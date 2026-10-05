@@ -539,7 +539,10 @@ Animated unskinned mesh nodes use one hierarchy matrix per draw, with no vertex
 weights or authored skin. They share interpolation, culling and shadow transforms
 with skinned nodes.
 The feed copies the saved previous/current **local** TRS into retained buffers on
-completed ticks, even when the entity Transform did not move. Rendering allocates
+completed ticks, even when the entity Transform did not move. An entity with a
+presentation `animation::ShownClips` draws that instead, sampled once per entity per
+completed tick from the model the renderer has (streamed and on-sight models
+included) at its clip times and one tick earlier; sockets drawn on it follow. Rendering allocates
 no new collections for these histories. Skin templates retain parent-first node
 order without changing glTF's joint indices.
 

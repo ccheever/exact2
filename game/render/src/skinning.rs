@@ -56,6 +56,8 @@ pub(crate) struct Skinning {
     layout: Option<wgpu::BindGroupLayout>,
     bind: Option<wgpu::BindGroup>,
     bind_buffers: Option<(wgpu::BindGroupLayout, [wgpu::Buffer; 5])>,
+    // Presentation playback (`animation::ShownClips`), sampled once per entity per pack.
+    shown: animation::ShownPose,
 }
 impl Skinning {
     pub fn new(device: &wgpu::Device) -> Self {
@@ -87,6 +89,7 @@ impl Skinning {
             layout: None,
             bind: None,
             bind_buffers: None,
+            shown: Default::default(),
         }
     }
     #[cfg(test)]
@@ -373,19 +376,35 @@ impl Skinning {
     }
     fn pack(&mut self, w: &World, entities: &[Entity], initial: bool) {
         let mut offset = 0;
+        // The entity `shown` holds a sample for (its records are adjacent).
+        let mut sampled: Option<(Entity, bool)> = None;
         for &(record, template) in &self.records {
             let t = &self.templates[template];
             let len = t.rest.len();
             let e = entities[entities
                 .binary_search_by_key(&(record as u32), |e| e.index())
                 .expect("skin entity belongs to model batches")];
+            // A presentation ShownClips pose draws in place of the simulated one;
+            // its refusals are named by entity inspection, and draw `Pose`.
+            let shown = match sampled {
+                Some((at, shown)) if at == e => shown,
+                _ => {
+                    let shown = w.has::<animation::ShownClips>(e)
+                        && self.shown.sample(w, e, &t.rest).unwrap_or(false);
+                    sampled = Some((e, shown));
+                    shown
+                }
+            };
             let p = w.get::<Pose>(e);
-            let (prev, curr) = p
-                .as_ref()
-                .filter(|p| p.local.len() == len && p.previous.len() == len)
-                .map_or((&t.rest[..], &t.rest[..]), |p| {
-                    (&p.previous[..], &p.local[..])
-                });
+            let (prev, curr) = if shown && self.shown.local.len() == len {
+                (&self.shown.previous[..], &self.shown.local[..])
+            } else {
+                p.as_ref()
+                    .filter(|p| p.local.len() == len && p.previous.len() == len)
+                    .map_or((&t.rest[..], &t.rest[..]), |p| {
+                        (&p.previous[..], &p.local[..])
+                    })
+            };
             self.pose_words[offset..offset + len].copy_from_slice(
                 if initial || t.fresh || w.is_fresh(e) {
                     curr

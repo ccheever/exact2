@@ -259,6 +259,7 @@ The dev compiler retains its last good plan on an error.
 | Team colours, mutation looks | A `Material` on a model entity tints every node and adds emission; `NodeMaterials` per named node or `MaterialOverrides` per material (one model in every team's colours), written from `Game::present` |
 | Cheaper far trees and crowds | `ModelLod { levels: vec![LodLevel { distance: 30., model: "tree_low.model".into() }], hide: Some(120.) }` on the entity |
 | Fade a tree between camera and player | `Opacity(0.3)` on the entity from `Game::present`: a dithered fade, no sorting, never in a save or pin |
+| Walk cycles on streamed models | `animation::ShownClips::clip("run", metres / stride)` on the entity from `Game::present`: any arrived model, drawn only ([engine](engine/README.md#movement-animation-and-sound)) |
 | A first-person weapon | Add `ViewModel` to each part; it draws in front of the world and casts no shadow |
 | Contact shadows in creases | `w.insert_resource(AmbientOcclusion::default())` turns on SSAO (off by default) |
 | Lighting from a photographed sky | `w.insert_resource(EnvironmentMap::new("sky.tex"))` with the equirect in `Game::ASSETS` |
@@ -613,7 +614,10 @@ Put everything else the game shows in `Game::STREAMED`: those are fetched from t
 start, after `ASSETS`, but Play does not wait for them; each draws as it lands and
 stays resident. Simulation cannot read a streamed asset (`w.model` is None), so
 load order never reaches the hash; a save refuses only while a shown one is in
-flight. A model a tick animates or reads belongs in `ASSETS`. Streamed names are
+flight. A model whose animation a tick reads (root motion, markers, sockets it
+queries) belongs in `ASSETS`. A streamed model, or one loaded on sight, animates
+from `Game::present` instead: `animation::ShownClips` names clips at times derived from
+saved causes, and draws once the model lands (below). Streamed names are
 models and textures (sounds are not streamed yet), and never also in `ASSETS`.
 Models and sprites need the asset-capable module; sounds and untextured emitters do
 not. See [the audio executor](audio/README.md) and
@@ -629,6 +633,11 @@ saves check its reconstructed identity rather than storing render vertices. See
 Animation order is explicit: `animation::step` → apply root motion → query sockets.
 `SocketFollow` attaches to a joint without changing the saved local transform.
 See [the skinned example](games/skinned-fixture/logic/src/lib.rs).
+Animation nothing simulated reads — a soldier's run, a survivor's idle — can be
+presentation: `p.insert(e, animation::ShownClips::clip("walk", walked / stride)
+.in_place("root"))` in `Game::present` plays on any model that has arrived, its
+props on sockets following the drawn rig, and it never enters a hash, save or pin
+([the streamed fox](games/skinned-fixture/logic/tests/streamed.rs)).
 
 `Placed::child("sign")` attaches the direct Contract child with `testId="sign"` to
 a world plane. The name survives reordering; duplicate names or owners refuse.
