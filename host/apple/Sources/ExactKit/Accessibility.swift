@@ -84,7 +84,7 @@ extension NodeView {
     }
     static let ariaAttributes = ["AXInvalid", "AXHasPopup", "AXPopupValue", "AXARIACurrent"]
     var accessibilityVisible: Bool {
-        guard paragraphOwner.window != nil, !inert else { return false }
+        guard paragraphOwner.window != nil, !inert, !cssVisibilityHidden else { return false }
         #if os(macOS)
         var ancestor: NSView? = paragraphOwner
         #else

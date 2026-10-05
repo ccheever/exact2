@@ -2,7 +2,7 @@
 use super::{Painter, Shape};
 use crate::text::markup::{STRIKE, UNDERLINE};
 use crate::text::{Paragraph, RunPaint};
-use exact_kernel::{Kernel, TextDecorationLine};
+use exact_kernel::{Kernel, TextDecorationLine, ViewId};
 use tiny_skia::Transform;
 
 impl Painter {
@@ -13,6 +13,7 @@ impl Painter {
         palette: &[RunPaint],
         origin: (f32, f32),
         ts: Transform,
+        reveal: Option<ViewId>,
     ) {
         let flags: Vec<_> = palette
             .iter()
@@ -23,6 +24,11 @@ impl Painter {
                     let Some(node) = kernel.node(id) else {
                         break;
                     };
+                    // A hidden element's decoration is its own paint.
+                    if !super::paints(kernel, id, reveal) {
+                        current = node.parent;
+                        continue;
+                    }
                     match node.style.text_decoration_line {
                         TextDecorationLine::Underline => underline = true,
                         TextDecorationLine::LineThrough => strike = true,

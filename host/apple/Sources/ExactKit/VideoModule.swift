@@ -159,6 +159,8 @@ final class VideoView {
         guard let owner, let platformView else { return }
         Self.layout(platformView, in: owner)
     }
+    /// CSS `visibility` hides the player's own view, not the node's children.
+    func applyCssHidden(_ hidden: Bool) { platformView?.isHidden = hidden }
     static func layout(_ view: MediaPlatformView, in owner: NodeView) {
         let content = owner.contentBox()
         view.frame = content

@@ -497,7 +497,9 @@ impl<D: DataSource> Presenter<D> {
             return true;
         }
         self.host.kernel().node(id).is_some_and(|n| {
-            !disabled_control(&n)
+            n.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility)
+                == exact_kernel::Visibility::Visible
+                && !disabled_control(&n)
                 && (n.props.get(PropId::TabIndex).is_some()
                     || n.props.str(PropId::Action).is_some()
                     || n.node_type == NodeType::TextInput

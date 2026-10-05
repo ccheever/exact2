@@ -63,7 +63,7 @@ impl Painter {
             return;
         };
         let mut palette = Vec::new();
-        text_palette(kernel, node, self.dark, &mut palette);
+        text_palette(kernel, node, self.dark, walk.reveal, &mut palette);
         presented_text_colors(walk, node, &paragraph, &mut palette);
         walk.text.insert(node.key, paragraph.clone());
         // The canvas recorder leases the same paragraph the paint drew.
@@ -76,15 +76,16 @@ impl Painter {
             .flatten()
             .unwrap_or_else(|| paragraph.clone());
         let mut backgrounds = Vec::new();
-        text_backgrounds(kernel, node, None, self.dark, &mut backgrounds);
+        text_backgrounds(kernel, node, None, self.dark, walk.reveal, &mut backgrounds);
+        let reveal = walk.reveal;
         let at = |painter: &mut Self, origin: (f32, f32)| {
             // Inline backgrounds, under the glyphs, per line fragment.
             for (r, color) in shown.run_backgrounds(&backgrounds) {
                 let shape = Shape::rect((origin.0 + r.0, origin.1 + r.1, r.2, r.3));
                 painter.backend.fill(&shape, color, ts);
             }
-            painter.text_decorations(kernel, &shown, &palette, origin, ts);
-            painter.text_paint(node, kernel, &shown, &palette, origin, rect, ts);
+            painter.text_decorations(kernel, &shown, &palette, origin, ts, reveal);
+            painter.text_paint(node, kernel, &shown, &palette, origin, rect, ts, reveal);
         };
         if frags.is_empty() {
             return at(self, (content.0, content.1));

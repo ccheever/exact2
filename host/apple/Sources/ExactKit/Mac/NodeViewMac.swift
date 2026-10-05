@@ -82,7 +82,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             // Writing back "hidden" that only CSS's `display: none` made is not
             // the host's word (a save of `isHidden` restored; review B1): a
             // projection that means it hides again on its next pass.
-            let css = style["display"]?.string == "none" || style["visibility"]?.string == "hidden" // CSS visibility too (LLP 1094 D6)
+            let css = style["display"]?.string == "none"
             if !(newValue && css && !hostHidden && super.isHidden) { hostHidden = newValue }
             super.isHidden = hostHidden || css
         }
@@ -207,7 +207,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// never a Tab stop on the web. An explicit `tabindex` makes any box
     /// focusable, and a Tab stop only when ≥ 0 (LLP 1088 D7.3).
     override var acceptsFirstResponder: Bool {
-        if formDisabled || inert || isHiddenOrHasHiddenAncestor { return false }
+        if formDisabled || inert || isHiddenOrHasHiddenAncestor || cssVisibilityHidden { return false }
         if field != nil || textArea != nil { return false }
         return props["semanticTag"] == "dialog" || isParagraph || explicitTabIndex != nil || tabbable || isRadio
     }
@@ -370,7 +370,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// `aria-hidden` takes the node and its subtree off the tree, as the
     /// web's does (onboarding F16: a checkbox's visible label stayed exposed).
     override func isAccessibilityElement() -> Bool {
-        props["accessibilityElementsHidden"] != "true" && super.isAccessibilityElement()
+        !cssVisibilityHidden && props["accessibilityElementsHidden"] != "true" && super.isAccessibilityElement()
     }
     override func accessibilityChildren() -> [Any]? {
         if props["accessibilityElementsHidden"] == "true" { return [] }
@@ -676,19 +676,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true, let point = spaceHit(point) else { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
         if !fragmentHit(convert(point, from: superview)) { return nil }
-        if isSurfaceControl, bounds.contains(convert(point, from: superview)) { return self }
+        if isSurfaceControl, !cssVisibilityHidden, bounds.contains(convert(point, from: superview)) { return self }
         func ordinary() -> NSView? {
             let found = raisedHit(super.hitTest(point), point) ?? overflowHit(point)
             let hit = found != nil && found === overlay ? self : found
-            // CSS `pointer-events: none`: the box is never the target, nor
-            // are its own platform views — a native module's (paint F9), a
-            // field's — so the click goes to what is under it, as on iOS. A
-            // descendant node that sets `auto` again still takes it.
-            if let hit, style["pointer_events"]?.string == "none" {
-                var owner: NSView? = hit
-                while let v = owner, !(v is NodeView) { owner = v.superview }
-                if owner === self { return nil }
-            }
+            // `pointer-events: none`, and this box's own hit when it is
+            // `visibility: hidden` (`CssVisibility.swift`). A descendant
+            // node that computes `visible` still takes the click.
+            if let hit, refusesOwnHit(hit, local: convert(point, from: superview)) { return nil }
             return hit
         }
         guard let overlay, let sup = superview else { return ordinary() }
@@ -712,7 +707,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         // Missed by every child: the canvas itself, unless it lets the
         // pointer through (`pointer-events: none`, as `ordinary` says).
-        return style["pointer_events"]?.string == "none" ? nil : self
+        return refusesOwnHit(self, local: inCanvas) ? nil : self
     }
 
     /// CSS visible overflow is hit where it paints, as on iOS: AppKit
@@ -1029,12 +1024,12 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     func applyStyle(_ s: NodeStyle) {
-        defer { video?.update(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
+        defer { video?.update(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
         layerPaintCache = nil
         let origin = style["transform_origin"]
         let old = style
         style = s
-        if old["display"] != s["display"] || old["visibility"] != s["visibility"] { isHidden = hostHidden }
+        if old["display"] != s["display"] { isHidden = hostHidden }
         if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
@@ -1297,30 +1292,30 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // batch — no image, no timer, no motion — would never load it
         // (found by the readback fixture, LLP 1014).
         if presenter?.views[id] === self { firstDraw() }
-        if let ctx = NSGraphicsContext.current?.cgContext { drawCapturedShadow(ctx) }
+        if !cssVisibilityHidden, let ctx = NSGraphicsContext.current?.cgContext { drawCapturedShadow(ctx) }
         // What the layer shows (`BoxLayerMac.swift`) is not painted again,
         // nor into a capture where the capture shows the layer's paint as
         // the window does (`captureShowsLayerPaint`).
         let layerPaint = layerBoxEligible && (!Capture.capturing || captureShowsLayerPaint)
         if layerPaint, !Capture.capturing { applyLayerPaint() }
-        let paintsBox = hasBoxPaint && (!layerPaint || boxNeedsDraw)
+        let paintsBox = hasBoxPaint && (!layerPaint || boxNeedsDraw) && !cssVisibilityHidden
         let rounded = cornerRadii(in: bounds).contains { $0 > 0 }
         // The box's outline only where something is painted through it.
         lazy var path = roundedPath(in: bounds)
         // A layout transition's size shows the surface on its own layer.
         if paintsBox { drawBackground(path, rounded: rounded) }
-        if let ctx = NSGraphicsContext.current?.cgContext { drawCapturedInsetShadow(ctx) }
+        if !cssVisibilityHidden, let ctx = NSGraphicsContext.current?.cgContext { drawCapturedInsetShadow(ctx) }
         // The host sends each side's colour (`style.rs`), never a uniform
         // one: each side in its colour, joined as the web joins them.
         let uniform = number("border_width")
-        if paintsBox, let ctx = NSGraphicsContext.current?.cgContext, surface == nil {
+        if paintsBox, !cssVisibilityHidden, let ctx = NSGraphicsContext.current?.cgContext, surface == nil {
             let widths = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
             let top = color("border_color_top", .clear)
             let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
             let radii = BorderPaint.radii(style, in: bounds)
             BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, shape: CornerShape(style["corner_shape"]))
         }
-        if kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, !(layerBoxEligible && !Capture.capturing && imageLayer != nil), let bitmap = raster?.image {
+        if !cssVisibilityHidden, kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, !(layerBoxEligible && !Capture.capturing && imageLayer != nil), let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
             // and padding), clipped by the border box's radius: `fill`
             // stretches, `contain`/`cover` keep the ratio, `none` is the
@@ -1354,7 +1349,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 drawParagraphFragments(ctx, paragraph: paragraph, spec: spec, dirty: textDirty)
             }
         }
-        if Capture.capturing, let picture = Capture.web[id] {
+        if !cssVisibilityHidden, Capture.capturing, let picture = Capture.web[id] {
             // Remote WebKit layers supply their own picture for this capture
             // turn, at the node's normal hierarchy position (@ref LLP 1020 D4).
             picture.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)

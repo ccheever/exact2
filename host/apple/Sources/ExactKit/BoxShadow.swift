@@ -192,6 +192,11 @@ extension NodeView {
     /// The casters onto the layer: the outer ones at its bottom, cast from
     /// the border box; the inset ones over the box's paint; or gone.
     func applyShadow(outline: CGPath) {
+        if cssVisibilityHidden {
+            shadowCaster?.removeFromSuperlayer(); shadowCaster = nil
+            insetCaster?.removeFromSuperlayer(); insetCaster = nil
+            return
+        }
         #if os(iOS) || os(tvOS)
         let host: CALayer? = layer
         #else

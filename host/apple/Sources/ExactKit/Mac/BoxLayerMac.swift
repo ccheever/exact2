@@ -148,7 +148,7 @@ extension NodeView {
         guard let layer else { return }
         let onLayer = !p.drawn
         let away = surface != nil
-        let border = !onLayer || away ? nil : p.edges ? p.sideColor : p.widths[0] > 0 ? p.colors[0] : nil
+        let border = !onLayer || away || cssVisibilityHidden ? nil : p.edges ? p.sideColor : p.widths[0] > 0 ? p.colors[0] : nil
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         if let box = clipBox?.layer {
@@ -166,7 +166,7 @@ extension NodeView {
         if flightLook == nil, layer.cornerRadius != layerRadius { layer.cornerRadius = layerRadius }
         if layerRadius > 0, layer.maskedCorners != p.corners { layer.maskedCorners = p.corners }
         if layer.cornerCurve != p.curve { layer.cornerCurve = p.curve }
-        let fill = onLayer && !away ? p.fill : nil
+        let fill = onLayer && !away && !cssVisibilityHidden ? p.fill : nil
         let fillsSublayer = fill != nil && p.radius > 0 && layerRadius == 0
         let bg = fillsSublayer ? nil : fill
         if layer.backgroundColor != bg { layer.backgroundColor = bg }
@@ -229,7 +229,7 @@ extension NodeView {
     /// layer holds, with the box's one radius; a box `draw(_:)` paints
     /// paints its gradient there instead.
     private func applyGradientLayer(_ p: BoxPlan) {
-        guard let layer, layerBoxEligible, !(hasBoxPaint && p.drawn), surface == nil, let gradient = Gradient(style["background_image"]), !gradient.isConic else {
+        guard let layer, layerBoxEligible, !(hasBoxPaint && p.drawn), surface == nil, !cssVisibilityHidden, let gradient = Gradient(style["background_image"]), !gradient.isConic else {
             boxGradient?.removeFromSuperlayer(); boxGradient = nil; return
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -294,6 +294,7 @@ extension NodeView {
 
     /// The image's pixels onto a sublayer, or none (`draw(_:)` paints them).
     func applyImageLayer() {
+        if cssVisibilityHidden { imageLayer?.removeFromSuperlayer(); imageLayer = nil; return }
         if let look = flightLook, let layer, kind == "image", symbolView == nil, style["tint_color"] == nil, let bitmap = raster?.image ?? look.stand?.image {
             // Flying (LLP 1013.000 D4): the whole image where the flight
             // puts it; the view's own bounds and radius clip it.

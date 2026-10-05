@@ -555,11 +555,6 @@ box was a containing block:
   This includes context-preview structural recipients (side/trailing siblings,
   repeated flow roots and the source scroll content), and Runner-generated
   row wrappers in a list with `reorderdrop` (LLP 1074 D1).
-- **`visibility: hidden` hides a box's subtree on Apple and Linux** (LLP
-  1094 stage 4–5). CSS shows a descendant that sets its own `visible`;
-  `NSView`/`UIView.isHidden` and the Linux painter hide the whole subtree,
-  as `display: none` does there, while the box keeps its layout. The web is
-  CSS's.
 - **The kernel paints in tree order.** A page paints its positioned boxes and
   stacking contexts after its in-flow boxes, so a web host makes a static box
   that follows one of those in tree order `isolation: isolate`

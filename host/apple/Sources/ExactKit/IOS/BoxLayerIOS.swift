@@ -56,7 +56,7 @@ extension NodeView {
     /// canvas's capture (`render(in:)`) drops masks and would show the tint's
     /// whole rectangle, so the template is `draw(_:)`'s, from the same pixels.
     func applyImageLayer() {
-        guard kind == "image", symbolView == nil, style["tint_color"] == nil, let bitmap = raster?.image ?? flightLook?.stand?.image else {
+        guard !cssVisibilityHidden, kind == "image", symbolView == nil, style["tint_color"] == nil, let bitmap = raster?.image ?? flightLook?.stand?.image else {
             imageLayer?.removeFromSuperlayer(); imageLayer = nil; return
         }
         if let look = flightLook {
@@ -125,7 +125,7 @@ extension NodeView {
     /// unless it is `background-attachment: fixed` (`gradientLayered`).
     func applyGradientLayer() {
         let fixed = gradientLayered
-        guard !drawsPaint || fixed, surface == nil, let gradient = Gradient(style["background_image"]), !gradient.isConic else {
+        guard !cssVisibilityHidden, !drawsPaint || fixed, surface == nil, let gradient = Gradient(style["background_image"]), !gradient.isConic else {
             boxGradient?.removeFromSuperlayer(); boxGradient = nil
             presenter?.fixedGradients.remove(self)
             return
@@ -239,7 +239,7 @@ extension NodeView {
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
         for (r, mask) in zip(radii, masks) where r > 0 { corners.insert(mask) }
         let cornerRadius = onLayer && oneRadius && (shape == nil || continuous) ? radius : 0
-        let border = !onLayer || away ? nil : edges ? sideColor : width > 0 ? colors[0] : nil
+        let border = !onLayer || away || cssVisibilityHidden ? nil : edges ? sideColor : width > 0 ? colors[0] : nil
         applyShadow(outline: roundedPath(in: bounds).cgPath)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -250,7 +250,7 @@ extension NodeView {
         }
         if layer.cornerCurve != curve { layer.cornerCurve = curve }
         // A vibrant fill is its vibrancy view's (`VibrancyIOS.swift`).
-        let bg = onLayer && !away && (vibrancyView == nil || isParagraph) ? fill : nil
+        let bg = onLayer && !away && !cssVisibilityHidden && (vibrancyView == nil || isParagraph) ? fill : nil
         if layer.backgroundColor != bg { layer.backgroundColor = bg }
         // A flight interpolates the radius itself (LLP 1013.000 D4).
         if flightLook == nil, layer.cornerRadius != cornerRadius { layer.cornerRadius = cornerRadius }

@@ -900,15 +900,14 @@ impl Painter {
             let (ox, oy) = effective_overflow(&node);
             ox != Overflow::Visible || oy != Overflow::Visible
         };
-        // CSS `visibility` (inherited) hides a box from paint and from hits;
-        // its subtree paints through `Unpainted`, so a descendant's own
-        // `visible` is not honoured under a hidden one (LLP 1001's declared
-        // deviation, as Apple's `isHidden`).
+        // CSS `visibility` is inherited and per element: a hidden box keeps
+        // its geometry, paints nothing of its own, and is not a hit. A
+        // descendant that computes `visible` still paints and is hit.
+        // `opacity: 0` is the one that blanks the group. A ghost asks
+        // `revealed` (LLP 1094): the wrapper's inherited hidden shows, and
+        // a node that sets its own hidden does not.
         let inherited = node.computed_style(StyleMask::INHERITED);
-        let visible = match walk.reveal {
-            Some(root) => revealed(walk.scene.kernel, id, root),
-            None => inherited.visibility == exact_kernel::Visibility::Visible,
-        };
+        let visible = paints(walk.scene.kernel, id, walk.reveal);
         walk.boxes.push(PaintedBox {
             id,
             pointer_hit: inherited.pointer_events != exact_kernel::PointerEvents::None && visible,
@@ -926,7 +925,8 @@ impl Painter {
         };
         // CSS opacity is paint only: a transparent subtree is still hit (the
         // walk records its boxes) and draws through a backend that draws nothing.
-        let drawn = (opacity <= 0.0 || !visible)
+        // Visibility is not that: only this box's own paint is skipped.
+        let drawn = (opacity <= 0.0)
             .then(|| std::mem::replace(&mut self.backend, Box::new(layer::Unpainted)));
         if drawn.is_none() && opacity < 1.0 {
             self.backend.push_opacity(opacity);
@@ -968,6 +968,7 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
+        let paints_self = paints(walk.scene.kernel, node.id, walk.reveal);
         let shown = (walk.scene.presented)(node.id);
         // Paint motion's values over the captured box (LLP 1055.000 D6,
         // LLP 1062 D5): background, border sides and shadow.
@@ -976,12 +977,19 @@ impl Painter {
         let geometry = paint.geometry(rect);
         // @ref LLP 1063 — a layout transition's size is the surface's alone.
         let surface = paint.geometry(shown.surface(rect));
-        paint.paint(self.backend.as_mut(), &surface, ts);
-        self.column_rules(walk.scene.kernel, node, rect, ts);
+        // A hidden box paints none of its own chrome. Children still do,
+        // and a text node still walks its runs so a visible inline paints.
+        if paints_self {
+            paint.paint(self.backend.as_mut(), &surface, ts);
+            self.column_rules(walk.scene.kernel, node, rect, ts);
+        }
         let outer = geometry.outer;
         let content = geometry.content;
         let s = node.style;
         match node.node_type {
+            NodeType::Text => self.text_node(walk, node, &geometry, rect, ts),
+            // The rest is this element's own paint (its picture, field, or control).
+            _ if !paints_self => {}
             // @ref LLP 1056 D7 — a 2D canvas's kept bitmap fills its content box.
             NodeType::Canvas => {
                 self.row_refuse();
@@ -1016,7 +1024,6 @@ impl Painter {
                     self.backend.slot_end();
                 }
             }
-            NodeType::Text => self.text_node(walk, node, &geometry, rect, ts),
             NodeType::TextInput => {
                 self.row_refuse();
                 let value = node.props.str(PropId::Value).unwrap_or("");
@@ -1340,6 +1347,19 @@ pub const POINTER: [(f32, f32); 7] = [
 
 #[cfg(test)]
 mod paragraph_tests;
+
+/// Whether `id` paints, is hit, and is exposed. In a ghost, [`revealed`];
+/// otherwise the computed `visibility` (inherited). A missing node does not
+/// veto a caller that already has nothing to draw.
+pub(crate) fn paints(kernel: &Kernel, id: ViewId, reveal: Option<ViewId>) -> bool {
+    match reveal {
+        Some(root) => revealed(kernel, id, root),
+        None => kernel.node(id).is_none_or(|n| {
+            n.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility)
+                == exact_kernel::Visibility::Visible
+        }),
+    }
+}
 
 /// Whether `id` shows in the ghost of `root`: the nearest `visibility` set
 /// on it or an ancestor below the ghost's root decides, as in the web's

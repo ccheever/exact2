@@ -11,17 +11,25 @@ pub(crate) fn text_palette(
     kernel: &Kernel,
     node: &NodeRef<'_>,
     dark: bool,
+    reveal: Option<exact_kernel::ViewId>,
     out: &mut Vec<RunPaint>,
 ) {
     if node.props.str(PropId::Text).is_some() {
+        // A hidden run keeps its advance and paints no glyphs. The ghost's
+        // `reveal` is `revealed`, so a label the wrapper hid still draws.
+        let color = if super::paints(kernel, node.id, reveal) {
+            rgba(node.text_color().resolve(dark))
+        } else {
+            [0, 0, 0, 0]
+        };
         out.push(RunPaint {
-            color: rgba(node.text_color().resolve(dark)),
+            color,
             source: node.id,
         });
     } else {
         for child in node.children() {
             if let Some(child) = kernel.node(child).filter(|c| c.node_type == NodeType::Text) {
-                text_palette(kernel, &child, dark, out);
+                text_palette(kernel, &child, dark, reveal, out);
             }
         }
     }
@@ -36,6 +44,7 @@ pub(super) fn text_backgrounds(
     node: &NodeRef<'_>,
     inherited: Option<[u8; 4]>,
     dark: bool,
+    reveal: Option<exact_kernel::ViewId>,
     out: &mut Vec<Option<[u8; 4]>>,
 ) {
     let own = |n: &NodeRef<'_>| {
@@ -58,8 +67,15 @@ pub(super) fn text_backgrounds(
     } else {
         for child in node.children() {
             if let Some(child) = kernel.node(child).filter(|c| c.node_type == NodeType::Text) {
-                let background = own(&child).or(inherited);
-                text_backgrounds(kernel, &child, background, dark, out);
+                // A hidden box paints no background of its own, and does not
+                // pass that background to a descendant. A visible ancestor's
+                // background still covers the run.
+                let background = if super::paints(kernel, child.id, reveal) {
+                    own(&child).or(inherited)
+                } else {
+                    inherited
+                };
+                text_backgrounds(kernel, &child, background, dark, reveal, out);
             }
         }
     }
@@ -112,5 +128,12 @@ pub(super) fn presented_text_colors(
             }
             paint
         }));
+    }
+    // After presented colours and Markdown's expansion: a hidden run's ink
+    // stays clear, including a colour animation on that run.
+    for run in palette.iter_mut() {
+        if !super::paints(walk.scene.kernel, run.source, walk.reveal) {
+            run.color = [0, 0, 0, 0];
+        }
     }
 }

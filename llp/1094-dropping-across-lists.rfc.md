@@ -617,7 +617,8 @@ each such point is listed here.
     `ReorderGroup.swift`.
   - **Visibility.** A box with `visibility: hidden` now hides on Apple, as
     `display: none` does; Apple had ignored the row. Its subtree hides with
-    it, a declared deviation in LLP 1001.
+    it, a declared deviation in LLP 1001. Superseded 2026-10-05; see the
+    note below.
   - **Mouse.** A grouped mouse drag takes its drags from the window, since a
     hidden grip gets no more of its contact. The macOS agent now sends its
     contact through `NSApp.sendEvent`.
@@ -634,7 +635,7 @@ each such point is listed here.
   - **The ghost** is the row's subtree painted again rather than a
     snapshot, so a `gone` ending cannot fade it.
   - **Visibility.** The painter now skips `visibility: hidden`, with the same
-    subtree deviation as Apple.
+    subtree deviation as Apple. Superseded 2026-10-05; see the note below.
   - **Escape** cancels a ghost drag whatever has the focus.
 - **Tests.** Runner: `contract/cli/tests/it/reorder_group.rs` (12), the
   geometry test of `elementFromPoint`, and the parser's `drag to`.
@@ -658,6 +659,17 @@ each such point is listed here.
   The visual-centre recipe stands, now without adding a pan delta when the
   dragged node itself carries the `translate`. D11's second half
   (`clientX`/`clientY`) is unchanged.
+- **Note, 2026-10-05: CSS visibility is per element.** The stage 4 and
+  stage 5 bullets above hid a `visibility: hidden` box's whole subtree
+  (`NSView`/`UIView.isHidden`, and the Linux painter skipping the walk),
+  and LLP 1001 recorded that as a deviation. That deviation is removed. A
+  hidden element keeps its geometry and paints, hits and exposes nothing of
+  its own; a descendant that computes `visible` still paints, is hit and
+  stays accessible. `display: none` still removes the subtree. Grouped drag
+  is unchanged: the wrapper is `visibility: hidden`, the ghost paints
+  through `revealed` (the wrapper's inherited hidden shows, and a node that
+  sets its own hidden does not), and the window monitor still carries the
+  mouse contact.
 
 ## 7. Deferred, with preconditions
 

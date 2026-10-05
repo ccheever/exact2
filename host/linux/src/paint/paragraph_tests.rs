@@ -124,8 +124,8 @@ fn styled_paragraph_metrics_and_cpu_gpu_glyph_batches_agree() {
         assert_eq!(spec.runs[1].size, 18.0);
         let mut light = Vec::new();
         let mut dark = Vec::new();
-        text_palette(kernel, &node, false, &mut light);
-        text_palette(kernel, &node, true, &mut dark);
+        text_palette(kernel, &node, false, None, &mut light);
+        text_palette(kernel, &node, true, None, &mut dark);
         assert_eq!(light.len(), canonical.len());
         assert_eq!(dark.len(), canonical.len());
         let leaf = kernel.node(light[1].source).unwrap();

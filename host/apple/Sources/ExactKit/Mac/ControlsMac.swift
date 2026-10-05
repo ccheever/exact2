@@ -85,6 +85,7 @@ final class ControlHost: NSObject {
             }
             let mount = owner.controlMount
             if control.superview !== mount { mount.addSubview(control) }
+            control.isHidden = owner.cssVisibilityHidden
             let accent = owner.channels("accent_color").map { TextEngine.color($0) }
             if let b = control as? NativeButtonMac {
                 configureNative(b, owner, accent: accent)

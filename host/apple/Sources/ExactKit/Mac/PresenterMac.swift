@@ -1224,7 +1224,7 @@ final class Presenter {
     /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is
     /// one by kind; an explicit negative never, though it still takes a click.
     static func tabbable(_ v: NodeView) -> Bool {
-        if v.formDisabled { return false }
+        if v.formDisabled || v.cssVisibilityHidden { return false }
         if let index = v.explicitTabIndex, index < 0 { return false }
         if v.field != nil || v.textArea != nil { return true }
         if v.kind == "native", v.presenter?.session?.natives.focusTarget(v) != nil { return true }

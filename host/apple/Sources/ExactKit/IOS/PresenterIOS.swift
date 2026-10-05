@@ -464,7 +464,7 @@ final class Presenter {
     /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is one
     /// by kind; an explicit negative never, though a tap still focuses it.
     private static func tabbable(_ v: NodeView) -> Bool {
-        if v.formDisabled || v.bounds.width == 0 || v.bounds.height == 0 { return false }
+        if v.formDisabled || v.cssVisibilityHidden || v.bounds.width == 0 || v.bounds.height == 0 { return false }
         if let index = v.explicitTabIndex, index < 0 { return false }
         // A radio group is one stop (x2apps survey #2).
         return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder && (!v.isRadio || v.radioTabStop)

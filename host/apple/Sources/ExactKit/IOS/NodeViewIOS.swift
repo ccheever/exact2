@@ -65,7 +65,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             // Writing back "hidden" that only CSS's `display: none` made is not
             // the host's word (a save of `isHidden` restored; review B1): a
             // projection that means it hides again on its next pass.
-            let css = style["display"]?.string == "none" || style["visibility"]?.string == "hidden" // CSS visibility too (LLP 1094 D6)
+            let css = style["display"]?.string == "none"
             if !(newValue && css && !hostHidden && super.isHidden) { hostHidden = newValue }
             super.isHidden = hostHidden || css
         }
@@ -293,9 +293,15 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// hears these. Keys come from a hardware keyboard (`pressesBegan`).
     /// UIKit's focus search finds what UIKit can focus (`FocusSearch`).
     override func didAddSubview(_ subview: UIView) { super.didAddSubview(subview); FocusSearch.joined(subview) }
-    override var canBecomeFirstResponder: Bool { !formDisabled && !inert && field == nil && textArea == nil && (kind == "button" || isNativeButton || isRadio || explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents)) }
+    /// A hidden element is not exposed. Children stay in the tree: this is
+    /// not `accessibilityElementsHidden`, which would hide them too.
+    override var isAccessibilityElement: Bool {
+        get { !cssVisibilityHidden && super.isAccessibilityElement }
+        set { super.isAccessibilityElement = newValue }
+    }
+    override var canBecomeFirstResponder: Bool { !formDisabled && !inert && !cssVisibilityHidden && !isHidden && field == nil && textArea == nil && (kind == "button" || isNativeButton || isRadio || explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents)) }
     override func becomeFirstResponder() -> Bool {
-        guard !formDisabled, !inert else { return false }
+        guard !formDisabled, !inert, !cssVisibilityHidden else { return false }
         let ok = super.becomeFirstResponder()
         if ok { presenter?.collections.pinsChanged() }
         if ok, handlers.contains("focus"), presenter?.menus.focus.quiet != true { presenter?.focus(id) } // a menu's set-aside focus returns quietly (MenuFocusIOS)
@@ -739,7 +745,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if let clipPath, !clipPath.contains(point, using: clipRule) { return nil }
         if !fragmentHit(point) { return nil }
         if props["swipeIndicator"] == "true" { return nil }
-        if isSurfaceControl, !inert, !isHidden, isUserInteractionEnabled, bounds.contains(point) { return self }
+        if isSurfaceControl, !inert, !isHidden, !cssVisibilityHidden, isUserInteractionEnabled, bounds.contains(point) { return self }
         // A touch landing on a native swipe row: its cell mounts now, before
         // UIKit gathers the touch's recognizers, so the cell's swipe sees it.
         if event?.type == .touches, props["swipeContent"] != nil, !isHidden, isUserInteractionEnabled, bounds.contains(point) {
@@ -757,7 +763,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             let outsideY = point.y < bounds.minY || point.y > bounds.maxY
             if outsideX && (style["overflow_x"]?.string ?? "visible") != "visible" { return nil }
             if outsideY && (style["overflow_y"]?.string ?? "visible") != "visible" { return nil }
-            let passesThrough = style["pointer_events"]?.string == "none"
+            let passesThrough = style["pointer_events"]?.string == "none" || cssVisibilityHidden && !inlineRunShows(at: point)
             if let hit = NodeView.hitChildren(in: self, at: point, with: event, visit: { child in
                 if child === (self.glassSlot ?? self.materialView), Materials.glass(self.materialKind) || self.blurHostsChildren, let contentView = self.materialView?.contentView {
                     // The effect's UIKit bounds check must not hide authored
@@ -805,7 +811,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
         // Missed by every child: the canvas itself, unless it lets the
         // touch through (`pointer-events: none`, as `ordinary` says).
-        return style["pointer_events"]?.string == "none" ? nil : self
+        return style["pointer_events"]?.string == "none" || cssVisibilityHidden ? nil : self
     }
 
 
@@ -1189,11 +1195,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
     func applyStyle(_ s: NodeStyle) {
-        defer { video?.update(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
+        defer { video?.update(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
         let origin = style["transform_origin"]
         let old = style
         style = s
-        if old["display"] != s["display"] || old["visibility"] != s["visibility"] { isHidden = hostHidden }
+        if old["display"] != s["display"] { isHidden = hostHidden }
         updateSymbol()
         (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
         applyBoxMask()
@@ -1342,7 +1348,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func draw(_ rect: CGRect) {
         repaintThrough()
         guard let ctx = UIGraphicsGetCurrentContext() else { return }
-        if Capture.capturing, kind == "canvas", let picture = canvases?.picture(of: self) {
+        if !cssVisibilityHidden, Capture.capturing, kind == "canvas", let picture = canvases?.picture(of: self) {
             // A canvas nested under a canvas painted through its surface: its
             // picture into the ancestor's capture (LLP 1014); its own Metal
             // layer is not seen there.
@@ -1356,8 +1362,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let uniform = number("border_width")
         // A box Core Animation can say is the layer's (`applyBoxLayer`);
         // the background within its `background-clip` (LLP 1077 D6).
-        paintBackground(ctx, border: path.cgPath, color: boxDrawn)
-        if boxDrawn {
+        paintBackground(ctx, border: path.cgPath, color: boxDrawn && !cssVisibilityHidden)
+        if boxDrawn, !cssVisibilityHidden {
             // Sides that differ in colour or width, or a radius the layer
             // cannot say: each side in its colour, joined as the web joins
             // them (`BorderPaint`).
@@ -1367,7 +1373,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             let radii = BorderPaint.radii(style, in: bounds)
             BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, shape: CornerShape(style["corner_shape"]))
         }
-        if kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, let bitmap = raster?.image {
+        if !cssVisibilityHidden, kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
             // and padding), clipped by the border box's radius: `fill`
             // stretches, `contain`/`cover` keep the ratio, `none` is the
@@ -1404,7 +1410,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                     TextEngine.draw(paragraph, spec: spec, in: box, context: ctx, dirty: rect.offsetBy(dx: -at.x, dy: -at.y)) } }
             }
         }
-        if Capture.capturing, let picture = Capture.web[id] {
+        if !cssVisibilityHidden, Capture.capturing, let picture = Capture.web[id] {
             // A capture that populated an arm snapshot draws that one WebKit
             // source at the node's hierarchy position (@ref LLP 1020 D4).
             picture.draw(in: bounds)

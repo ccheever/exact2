@@ -56,7 +56,7 @@ impl<D: DataSource> Presenter<D> {
             return Some(shown.href.clone()).filter(|h| !h.is_empty());
         }
         let mut palette = Vec::new();
-        crate::paint::inline::text_palette(kernel, &node, false, &mut palette);
+        crate::paint::inline::text_palette(kernel, &node, false, None, &mut palette);
         let mut at = palette.get(run).map(|p| p.source);
         while let Some(leaf) = at.filter(|leaf| *leaf != id) {
             let leaf = kernel.node(leaf)?;

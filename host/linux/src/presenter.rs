@@ -91,6 +91,10 @@ mod swipe_tests;
 #[path = "presenter/events_tests.rs"]
 mod events_tests;
 
+#[cfg(test)]
+#[path = "presenter/visibility_tests.rs"]
+mod visibility_tests;
+
 use painter::{cpu_info, open_backend};
 pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
 

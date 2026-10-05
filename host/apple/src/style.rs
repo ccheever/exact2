@@ -753,10 +753,14 @@ pub fn style_json_presented(
         // passes the pointer through wherever it paints, translated out of
         // its parent's box included (feed's toast, x2apps repro
         // pointer-events-inherit-translate).
+        // `visibility` too: a hidden ancestor keeps a descendant's own
+        // `visible`, and one that does not set it inherits `hidden`. The
+        // initial `visible` stays unmarked and is not sent.
         StyleMask::of(StyleId::TextColor)
             .union(StyleMask::of(StyleId::Direction))
             .union(StyleMask::of(StyleId::Cursor))
             .union(StyleMask::of(StyleId::PointerEvents))
+            .union(StyleMask::of(StyleId::Visibility))
     };
     let mut computed = node.computed_style(rows);
     computed.mask.set(StyleId::TextColor);
@@ -1067,6 +1071,70 @@ mod flow_tests {
         assert_eq!(placed["position_area"], "top", "{placed}");
         assert_eq!(placed["margin_bottom"], 12, "{placed}");
         assert_eq!(placed["margin_left"], "auto", "{placed}");
+    }
+
+    /// CSS `visibility` is inherited. A box that does not set it still
+    /// receives the computed value, so the presenter can hide that box's
+    /// own paint without hiding a sibling that sets `visible`.
+    #[test]
+    fn a_box_inherits_visibility() {
+        use exact_kernel::{Kernel, MonospaceMeasurer, Op};
+        let mut kernel = Kernel::new(Box::new(MonospaceMeasurer::default()));
+        let mut hidden = StyleProps::default();
+        hidden
+            .set_dynamic(StyleId::Visibility, &StyleValue::Text("hidden".into()))
+            .unwrap();
+        let mut shown = StyleProps::default();
+        shown
+            .set_dynamic(StyleId::Visibility, &StyleValue::Text("visible".into()))
+            .unwrap();
+        kernel
+            .apply(
+                0,
+                1,
+                &[
+                    Op::CreateView {
+                        id: 1,
+                        node_type: NodeType::View,
+                    },
+                    Op::CreateView {
+                        id: 2,
+                        node_type: NodeType::View,
+                    },
+                    Op::CreateView {
+                        id: 3,
+                        node_type: NodeType::View,
+                    },
+                    Op::CreateView {
+                        id: 4,
+                        node_type: NodeType::View,
+                    },
+                    Op::SetStyle {
+                        id: 1,
+                        patch: Box::new(hidden),
+                    },
+                    Op::SetStyle {
+                        id: 2,
+                        patch: Box::new(shown),
+                    },
+                    Op::SetChildren {
+                        id: 1,
+                        children: vec![2, 3],
+                    },
+                ],
+            )
+            .unwrap();
+        let json = |id: u32| -> serde_json::Value {
+            serde_json::from_str(&style_json_for(&kernel.node(id).unwrap(), &Env::default()).0)
+                .unwrap()
+        };
+        assert_eq!(json(1)["visibility"], "hidden");
+        assert_eq!(json(2)["visibility"], "visible");
+        assert_eq!(json(3)["visibility"], "hidden");
+        assert!(
+            json(4).get("visibility").is_none(),
+            "initial visible is not sent"
+        );
     }
 
     /// Quarters are written as `{n}` writes them.

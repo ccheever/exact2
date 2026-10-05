@@ -60,9 +60,9 @@ final class MouseReorder {
             guard hypot(point.x - origin.x, point.y - origin.y) > Gesture.slop else { return false }
             guard ReorderGroupHold(candidate, point: origin, ghost: true) != nil else { self.candidate = nil; return false }
             grouped = true
-            // The row (and the grip in it) hides while the ghost stands for
-            // it, and AppKit sends a hidden view no more of the contact: the
-            // window's own events carry it until the button lifts.
+            // The row's visibility is hidden, so it is not a hit target. The
+            // window's own events still carry the drag until the button
+            // lifts: returning nil swallows them before a view sees them.
             contact = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
                 guard let self, grouped else { return event }
                 if event.type == .leftMouseUp { _ = up(event) } else { presenter.reorderGroup?.move(event.locationInWindow) }
