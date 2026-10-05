@@ -1098,3 +1098,100 @@ fn the_clock_in_a_data_module_is_refused_at_build_by_file_and_line() {
         producer.bake(&f.0, None).err()
     );
 }
+
+/// LLP 1091.001: a native producer keeps package identity without symlink privilege.
+#[cfg(windows)]
+#[test]
+fn windows_imported_packages_keep_identity_through_real_bakes() {
+    // No stub-engine skip: bake must succeed through real Hermes below.
+    let f = Fixture::new();
+    let package = f.0.join("node_modules/.packages/café # 雪");
+    std::fs::create_dir_all(package.join("src")).unwrap();
+    std::fs::create_dir_all(package.join(".hidden")).unwrap();
+    let inputs = [
+        (
+            package.join("package.json"),
+            r#"{"name":"fixture-ui","version":"1.0.0","exports":"./src/card.contract"}"#,
+        ),
+        (
+            package.join(".hidden/pad.contract"),
+            "style Pad\n  padding-top=10\n",
+        ),
+        (
+            package.join("src/card.contract"),
+            "use Pad from \"../.hidden/pad.contract\"\ncomponent Card\n  view\n    column class=Pad\n      text \"from package\"\n",
+        ),
+    ];
+    for (path, text) in &inputs {
+        std::fs::write(path, text).unwrap();
+    }
+    // These are the app's installed aliases, before the producer creates its stage.
+    let linked = exact_bake::bun()
+        .args([
+            "-e",
+            "const fs=require('node:fs'),p=require('node:path'); const root=fs.realpathSync.native(process.argv[1]),app=process.argv[2]; for(const name of ['ui','@survey/ui']){const link=p.join(app,'node_modules',name);fs.mkdirSync(p.dirname(link),{recursive:true});fs.symlinkSync(root,link,'junction');}",
+        ])
+        .arg(&package)
+        .arg(&f.0)
+        .output()
+        .unwrap();
+    assert!(
+        linked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&linked.stderr)
+    );
+    let contract = format!(
+        "use Card as First from \"ui\"\nuse Card as Second from \"@survey/ui\"\n{}",
+        CONTRACT.replace(
+            "      text message",
+            "      First()\n      Second()\n      text message"
+        )
+    );
+    f.write("app.contract", &contract);
+    contract::compile_path(&f.0.join("app.contract")).unwrap();
+    let graph = contract::source_graph(&f.0.join("app.contract"));
+    assert!(graph.errors.is_empty());
+    assert_eq!(graph.packages.len(), 2);
+    let canonical = package.canonicalize().unwrap();
+    assert!(graph.packages.iter().all(|p| p.root == canonical));
+    let card = package.join("src/card.contract").canonicalize().unwrap();
+    assert_eq!(graph.sources.iter().filter(|s| s.path == card).count(), 1);
+
+    let first = f.bake();
+    let candidate = paired(&first);
+    let live = Runner::boot(
+        candidate.plan,
+        candidate.module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("old: 0")));
+    let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
+    let resident = producer.bake(&f.0, None).unwrap();
+    let again = producer.bake(&f.0, None).unwrap();
+    assert_eq!(resident.plan, first.plan);
+    assert_eq!(again.receipt, resident.receipt);
+    let map: Json = serde_json::from_str(resident.source_map.as_ref().unwrap()).unwrap();
+    let nodes: Vec<_> = map["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|node| node["component"] == "Card")
+        .collect();
+    assert!(!nodes.is_empty());
+    for node in nodes {
+        assert_eq!(node["file"], card.to_str().unwrap());
+    }
+    for (path, text) in inputs {
+        assert_eq!(std::fs::read_to_string(path).unwrap(), text);
+    }
+    for (name, text) in [
+        ("app.contract", contract.as_str()),
+        ("app.ts", SOURCE),
+        ("logic.ts", "export const prefix = 'old: ';\n"),
+    ] {
+        assert_eq!(std::fs::read_to_string(f.0.join(name)).unwrap(), text);
+    }
+}
