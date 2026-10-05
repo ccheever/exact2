@@ -36,6 +36,9 @@ struct Abi {
     output_error: std::cell::RefCell<Option<String>>,
     rendered: bool,
     shaders: shaders::Pack,
+    /// Each symbol's address, looked up once: an animated canvas calls a
+    /// handful every frame, and `dlsym` walks the library's hash table.
+    symbols: std::cell::RefCell<std::collections::HashMap<&'static [u8], usize>>,
 }
 impl Abi {
     fn open(compat: &Value, artifact: &str) -> Result<Self, String> {
@@ -81,6 +84,7 @@ impl Abi {
             output_error: Default::default(),
             shaders: Default::default(),
             rendered: std::env::var("EXACT_GPU_RENDER").as_deref() == Ok("1"),
+            symbols: Default::default(),
         };
         unsafe {
             for name in [
@@ -137,8 +141,19 @@ impl Abi {
         Ok(abi)
     }
     // SAFETY: all callers supply the signature declared by gpu/src/native.rs.
-    unsafe fn symbol<T: Copy>(&self, name: &[u8]) -> T {
-        *unsafe { self.library.get::<T>(name) }.expect("validated module ABI")
+    unsafe fn symbol<T: Copy>(&self, name: &'static [u8]) -> T {
+        const { assert!(std::mem::size_of::<T>() == std::mem::size_of::<usize>()) };
+        let cached = self.symbols.borrow().get(name).copied();
+        let address = cached.unwrap_or_else(|| {
+            let address =
+                *unsafe { self.library.get::<usize>(name) }.expect("validated module ABI");
+            self.symbols.borrow_mut().insert(name, address);
+            address
+        });
+        // SAFETY: a function pointer of the library, which outlives `self`'s
+        // calls; `T` is pointer-sized (checked above) and the caller's
+        // declared signature for it.
+        unsafe { std::mem::transmute_copy::<usize, T>(&address) }
     }
     fn lifecycle(&self, id: u32, code: u32) {
         if self.rendered {
@@ -167,10 +182,10 @@ impl Abi {
             std::slice::from_raw_parts(ptr, len as usize).to_vec()
         })
     }
-    fn read(&self, name: &[u8], id: u32) -> Option<Vec<u8>> {
+    fn read(&self, name: &'static [u8], id: u32) -> Option<Vec<u8>> {
         self.read_bounded(name, id, LIMIT)
     }
-    fn read_bounded(&self, name: &[u8], id: u32, limit: usize) -> Option<Vec<u8>> {
+    fn read_bounded(&self, name: &'static [u8], id: u32, limit: usize) -> Option<Vec<u8>> {
         let length = unsafe { self.symbol::<Read>(name)(id) };
         if name == b"gpu_carry" && length == u32::MAX - 1 {
             return None;
@@ -184,7 +199,7 @@ impl Abi {
         }
         self.bytes(length)
     }
-    fn text(&self, name: &[u8], id: u32, text: &str) -> u32 {
+    fn text(&self, name: &'static [u8], id: u32, text: &str) -> u32 {
         unsafe { self.symbol::<Text>(name)(id, text.as_ptr(), text.len()) }
     }
     fn error(&self) -> Option<String> {

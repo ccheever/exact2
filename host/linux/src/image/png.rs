@@ -21,6 +21,20 @@ pub(super) struct Header {
 const JPEG: u8 = 0xFF;
 
 impl Header {
+    /// Whether [`DecodePlan::new`] snaps this source's decode to a
+    /// power-of-two subsample (Android's platform decoder): a request for it
+    /// is then the size wanted, not a size rounded up to a bucket, which
+    /// could push it past a subsample to the full size (heavy's 1600×900
+    /// photos in a 433-pixel square: an 896-pixel bucket, so a full decode
+    /// where a half-size one covers it).
+    pub(super) fn snaps(&self) -> bool {
+        // Read once: a plan is made at every poll, for every picture.
+        static EXACT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        cfg!(target_os = "android")
+            && self.color == JPEG
+            && !*EXACT.get_or_init(|| std::env::var_os("EXACT_EXACT_DECODE").is_some())
+    }
+
     /// A JPEG's, GIF's or WebP's header: decoded as 8-bit RGBA by the platform
     /// (a GIF's or WebP's first frame).
     pub(super) fn jpeg(metadata: Metadata) -> Header {
@@ -140,7 +154,12 @@ fn crc(bytes: &[u8]) -> u32 {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct DecodePlan {
     pub header: Header,
+    /// The picture's pixels, as cached and charged.
     pub pixels: PixelSize,
+    /// What the decoder makes before they are resampled to `pixels` (a
+    /// platform decode's power-of-two subsample); `pixels` otherwise.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub decode: PixelSize,
     pub cost: DecodeCost,
 }
 impl DecodePlan {
@@ -176,11 +195,14 @@ impl DecodePlan {
         };
         // Android's platform decoder subsamples a JPEG by powers of two in the
         // DCT and then resamples to an exact size at full quality, which costs
-        // more than the decode: plan the largest power-of-two subsample that
-        // still covers the request, as an image loader's inexact decode does,
-        // and let the GPU scale it where it is drawn.
-        #[cfg(target_os = "android")]
-        let pixels = if header.color == JPEG && std::env::var_os("EXACT_EXACT_DECODE").is_none() {
+        // more than the decode: decode the largest power-of-two subsample that
+        // still covers the request, as an image loader's inexact decode does.
+        // Kept as decoded when that is near the request; otherwise resampled
+        // to it here (bilinear, a ratio under 2), as an image loader scales its
+        // bitmap to the view: a cached picture two to four times the size it
+        // shows at made the cache hold that many fewer, and the list decode
+        // them again (heavy: 309 decodes a fling against Views' 132).
+        let (pixels, decode, scratch) = if header.snaps() {
             let mut s = 1u32;
             while natural.width.div_ceil(s * 2) >= pixels.0
                 && natural.height.div_ceil(s * 2) >= pixels.1
@@ -188,9 +210,21 @@ impl DecodePlan {
             {
                 s *= 2;
             }
-            (natural.width.div_ceil(s), natural.height.div_ceil(s))
+            let decode = (natural.width.div_ceil(s), natural.height.div_ceil(s));
+            let near = u64::from(decode.0) * u64::from(decode.1) * 10
+                <= u64::from(pixels.0) * u64::from(pixels.1) * 13;
+            if near || std::env::var_os("EXACT_NO_RESAMPLE").is_some() {
+                (decode, decode, scratch)
+            } else {
+                let buffer = u64::from(decode.0) * 4 * u64::from(decode.1);
+                (
+                    pixels,
+                    decode,
+                    scratch.checked_add(buffer).ok_or(Refusal::Overflow)?,
+                )
+            }
         } else {
-            pixels
+            (pixels, pixels, scratch)
         };
         let cost = DecodeCost::checked(u64::from(pixels.0) * 4, pixels.1, scratch, 0)?;
         if cost.peak()? > SESSION_BYTES {
@@ -201,6 +235,10 @@ impl DecodePlan {
             pixels: PixelSize {
                 width: pixels.0,
                 height: pixels.1,
+            },
+            decode: PixelSize {
+                width: decode.0,
+                height: decode.1,
             },
             cost,
         })

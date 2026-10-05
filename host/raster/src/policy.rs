@@ -169,20 +169,27 @@ impl SessionState {
                 .filter(|id| !self.entries.values().any(|e| e.id == **id))
                 .count()
     }
+    fn is_cold(e: &Entry) -> bool {
+        e.requests.is_empty()
+            && matches!(
+                &e.phase,
+                Phase::Ready {
+                    image,
+                    delivery: false,
+                } if image.output.pins() == 0
+            )
+    }
+    /// How many entries are cold, without gathering and sorting them: a
+    /// request and a cancel check the limit, and a list's every new and
+    /// departing picture makes one.
+    fn cold_count(&self) -> usize {
+        self.entries.values().filter(|e| Self::is_cold(e)).count()
+    }
     fn cold_keys(&self) -> Vec<RasterKey> {
         let mut cold: Vec<_> = self
             .entries
             .iter()
-            .filter(|(_, e)| {
-                e.requests.is_empty()
-                    && matches!(
-                        &e.phase,
-                        Phase::Ready {
-                            image,
-                            delivery: false,
-                        } if image.output.pins() == 0
-                    )
-            })
+            .filter(|(_, e)| Self::is_cold(e))
             .map(|(key, entry)| (entry.touched, *key))
             .collect();
         cold.sort_unstable();
@@ -573,6 +580,52 @@ impl RasterSession {
         self.owner.gate.inner.wake.notify();
         Ok(id)
     }
+    /// The smallest picture of `source` (this `generation` and `variant`)
+    /// decoded or being decoded that covers `at_least` and has at most
+    /// `max_pixels` pixels: a view that asks for it shares that one instead
+    /// of decoding the source again at a size of its own (a list shows one
+    /// photo at several sizes, and each size was a decode and a charge).
+    pub fn covering(
+        &self,
+        source: u64,
+        generation: u64,
+        variant: u32,
+        at_least: PixelSize,
+        max_pixels: u64,
+    ) -> Option<PixelSize> {
+        let state = self.owner.gate.inner.state.lock().unwrap();
+        let session = state.sessions.get(&self.id())?;
+        let from = RasterKey {
+            source,
+            generation,
+            pixels: PixelSize {
+                width: 0,
+                height: 0,
+            },
+            variant: 0,
+        };
+        let to = RasterKey {
+            source,
+            generation,
+            pixels: PixelSize {
+                width: u32::MAX,
+                height: u32::MAX,
+            },
+            variant: u32::MAX,
+        };
+        session
+            .entries
+            .range(from..=to)
+            .filter(|(key, entry)| {
+                key.variant == variant
+                    && key.pixels.width >= at_least.width
+                    && key.pixels.height >= at_least.height
+                    && u64::from(key.pixels.width) * u64::from(key.pixels.height) <= max_pixels
+                    && matches!(entry.phase, Phase::Ready { .. } | Phase::Decoding(_))
+            })
+            .map(|(key, _)| key.pixels)
+            .min_by_key(|p| u64::from(p.width) * u64::from(p.height))
+    }
     pub fn status(&self, request: RequestId) -> Option<RequestStatus> {
         let state = self.owner.gate.inner.state.lock().unwrap();
         let session = state.sessions.get(&self.id())?;
@@ -758,7 +811,7 @@ impl RasterSession {
             stats.delivery_cells = s.cells;
             stats.pending_jobs = s.pending();
             stats.subscribers = s.requests.len();
-            stats.cold_entries = s.cold_keys().len();
+            stats.cold_entries = s.cold_count();
             stats.dedup_hits = s.dedup_hits;
             stats.cancelled = s.cancelled;
             stats.evicted = s.evicted;
@@ -983,6 +1036,9 @@ fn cancel_request(s: &mut SessionState, request: RequestId, garbage: &mut Vec<Ar
     true
 }
 fn enforce_cold_limit(s: &mut SessionState, garbage: &mut Vec<Arc<Image>>) {
+    if s.cold_count() <= COLD_ENTRIES {
+        return;
+    }
     let cold = s.cold_keys();
     let excess = cold.len().saturating_sub(COLD_ENTRIES);
     for key in cold.into_iter().take(excess) {

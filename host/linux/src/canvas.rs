@@ -976,11 +976,14 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let started = std::time::Instant::now();
         let origin_ns = monotonic_ns();
         std::env::set_var("EXACT_PAINTER", "canvas");
-        // Eight viewports of decoded pictures, Apple's rule: the reader's copy
-        // is a GPU buffer (no heap copy, no upload), and a picture decoded
-        // again costs more than the memory it holds.
+        // Twelve viewports of decoded pictures: the reader's copy is a GPU
+        // buffer (no heap copy, no upload), a picture decoded again costs
+        // more than the memory it holds, and pictures are kept at the size
+        // they show at (`image::png_decode::DecodePlan`), so twelve hold what
+        // a fling through heavy's photos comes back to (Pixel 10 Pro XL, 24k
+        // px/s: CPU -9% against eight, end PSS 530 MB against 495; Views 485).
         if std::env::var_os("EXACT_IMAGE_VIEWPORTS").is_none() {
-            std::env::set_var("EXACT_IMAGE_VIEWPORTS", "8");
+            std::env::set_var("EXACT_IMAGE_VIEWPORTS", "12");
         }
         std::env::set_var("EXACT_SCALE", scale.to_string());
         let viewport = (size.0 as f32 / scale, size.1 as f32 / scale);

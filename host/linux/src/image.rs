@@ -380,6 +380,18 @@ impl Images {
                         continue;
                     }
                 };
+                // A picture of this source already decoded (or decoding) a
+                // little larger serves this view too: no second decode, no
+                // second charge.
+                let wanted = u64::from(decode.pixels.width) * u64::from(decode.pixels.height);
+                let decode = self
+                    .backend
+                    .session
+                    .covering(source, self.generation, 1, decode.pixels, wanted * 5 / 2)
+                    .filter(|p| *p != decode.pixels)
+                    .and_then(|p| png_decode::DecodePlan::new(header, (p.width, p.height)).ok())
+                    .filter(|p| p.peak_bytes() <= admission_budget)
+                    .unwrap_or(decode);
                 let demand = Demand {
                     view: view.key,
                     key: RasterKey {
@@ -560,10 +572,13 @@ fn plan(
     }
     .min(2048. / natural.width.max(natural.height) as f32);
     let longest = natural.width.max(natural.height);
-    let bucket = ((longest as f32 * scale).ceil().max(1.) as u32)
-        .div_ceil(128)
-        .saturating_mul(128)
-        .min(longest);
+    let wanted = (longest as f32 * scale).ceil().max(1.) as u32;
+    let bucket = if header.snaps() {
+        wanted.div_ceil(32).saturating_mul(32)
+    } else {
+        wanted.div_ceil(128).saturating_mul(128)
+    }
+    .min(longest);
     let mut pixels = (
         (u64::from(natural.width) * u64::from(bucket)).div_ceil(u64::from(longest)) as u32,
         (u64::from(natural.height) * u64::from(bucket)).div_ceil(u64::from(longest)) as u32,
@@ -586,6 +601,9 @@ fn resize_changes_decode(
     previous: (f32, f32),
     next: (f32, f32),
 ) -> bool {
+    if previous == next {
+        return false;
+    }
     let (Ok(before), Ok(after)) = (
         plan(header, previous, SESSION_BYTES),
         plan(header, next, SESSION_BYTES),
