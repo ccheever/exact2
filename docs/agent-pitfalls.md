@@ -160,6 +160,14 @@ guide's rules don't make obvious.
   changes the bound value and redraws the field. (Authoring bench, LLP 1087, t2-todo:
   two builders, about 10 minutes each, 2026-10-04.)
 
+- **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
+  is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats
+  a touch as the finger leaving clears the hover the next assertion still wants.
+  Fix: on touch-up, end the drag and leave the hover, or write `mouse` for the
+  left button. iOS refuses `mouse`; macOS and Linux drag with the mouse anyway
+  ([authored tests](contract-grammar.md#authored-tests)). (Stocks diary: the chart
+  readout unmounted, about 10 minutes, 2026-10-04.)
+
 - **A `pan` hears nothing from a finger on the web.** A drag with
   `tap <id> drag dx dy` (or a real touch) moves nothing and logs nothing. Cause:
   without `touch-action="none"` on the pan's box the browser takes the touch for

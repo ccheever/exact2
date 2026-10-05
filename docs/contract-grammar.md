@@ -38,10 +38,11 @@ a `keyframes` or `font` block, and a component need at least one entry.
 - A name starts with `[A-Za-z_]`, followed by ASCII alphanumerics/underscores or
   a hyphen immediately followed by an ASCII letter. Thus `font-size` is a name,
   `a-b` is a name, and `a - b` is subtraction.
-- Number tokens begin with a digit and contain decimal digits and dots; numeric
-  parsing rejects invalid spellings. Use `12` and `12.5`. Negative values are
-  unary minus applied to a number. Exponents, separators, and leading-dot
-  numbers are not supported forms. Units belong in quoted strings.
+- Number tokens begin with a digit. A dot is part of the number only when a
+  digit follows (`12`, `12.5`), so `rows.0.steps` is a list index and then a
+  field. Numeric parsing rejects invalid spellings. Negative values are unary
+  minus applied to a number. Exponents, separators, leading-dot numbers, and a
+  trailing dot are not supported forms. Units belong in quoted strings.
 - Strings use `"…"`. Escapes accepted by the ordinary string lexer are `\n`,
   `\t`, `\"`, `\\`, ``\` ``, and `\$`. Single quotes are not delimiters.
 - Templates use backticks and `${expression}`. Interpolation scanning balances
@@ -309,12 +310,16 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "locale" STRING NL                   (* a BCP 47 tag, "fr-FR" *)
               | "seed" NUMBER NL                     (* 0 through 2^53 - 1 *)
               | "before" "data" NL ;                 (* the first step does not wait for data *)
-step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu" | "into" STRING
+step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
+                  | "pinch" NUMBER [ "at" NUMBER NUMBER ]
+                  | "into" STRING
                   | "modifiers" STRING ] NL
               | "tap" STRING "drag" [ "-" ] NUMBER [ "-" ] NUMBER
                   { ( "press" | "over" | "hold" ) NUMBER
-                  | "from" NUMBER NUMBER | "mouse" } NL
-              | "type" STRING ( STRING [ "append" ] | "key" STRING
+                  | "from" NUMBER NUMBER | "mouse" }
+                  [ "during" { STRING } ] NL
+              | "type" STRING ( STRING [ "append" ]
+                  | "key" STRING [ "down" | "up" | "for" NUMBER ]
                   | "copy" | "cut" | "paste" STRING ) NL
               | "pick" STRING ( STRING { STRING } | "cancel" ) NL
               | "clock" ( "settle" | "data" | [ "+" ] NUMBER [ "real" ] ) NL
@@ -324,8 +329,8 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu" | "into" STR
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
               | "expect" "text" STRING "==" STRING NL
-              | "expect" "state" IDENT { "." IDENT } "==" test-value NL ;
-test-value    = NUMBER | STRING | "true" | "false" | "none" | "[" "]" ;
+              | "expect" "state" IDENT { "." ( IDENT | NUMBER ) } "==" test-value NL ;
+test-value    = [ "-" ] NUMBER | STRING | "true" | "false" | "none" | "[" "]" ;
 ```
 
 Targets are driver test ids. Each test is a session of its own, opened with its
@@ -344,13 +349,21 @@ iOS); `mouse` makes it the left button on the web, with the page's pointer
 `fine`, so a desktop path is what runs (iOS refuses it; macOS and Linux drag
 with the mouse anyway). A finger's drag the browser takes to scroll an
 ancestor ends in `panrelease` and a `pan cancelled` journal line naming the
-`touch-action` that keeps it.
+`touch-action` that keeps it. `during "op" …` is last: each quoted op is a read
+(`tree`, `layout`, `state`, `logs`, `screenshot`) or `clock`, run while the finger
+is down, after the move and before the hold. `press` and `hold` advance the
+virtual clock by those milliseconds (a game's ticks), except under
+`--timing platform`, where the platform's own clock owns the gesture.
+`tap "id" pinch <scale> [at x y]` is the driver's pinch: `scale` greater than 0,
+about the node's middle or about `at` in its box.
 `tap "id" dblclick` and `contextmenu` are the driver's forms of the same names
 (no Linux carrier double-clicks). `tap "list" into "key"` brings a virtualized
 list's row into view by its key, so a row outside the rendered window can be
 tapped by its own id on the next step. `type "id" "text"` sets the field's
 value, as Playwright's `fill`; `append` adds the text after the value the tree
-shows (a prefilled reply). `reload` restarts the app on the store it had: the
+shows (a prefilled reply). `type "id" key "Name"` presses the key;
+`down` and `up` are the two halves, and `for <ms>` holds it that long on the
+virtual clock (`down` or `up` together with `for` is refused). `reload` restarts the app on the store it had: the
 web page loads again in the same profile, a native app relaunches on the same
 scratch store. Its state starts over and the clock is 0 again; what the app
 stored is what it reads, so persistence is testable. `close` presses the
@@ -373,13 +386,11 @@ to a motion's end.
 `expect text` reads the node's text, else a control's value (a `select`'s chosen
 value, not its options), else its descendants' text in order (a button's label),
 else a field's value. `expect state name.field` reads a field of a record at any
-depth; a missing field fails naming the fields there. `expect state` is deliberately restricted to the
-parser's literal cases, not arbitrary expressions or record comparisons. The
-parser currently treats unary minus as an expression rather than a number
-literal in this particular form. Use the interactive state inspection when a
-value lies outside the assertion language. The test compiler emits steps as JSON;
-the agent driver executes them. The nine-operation interactive API is larger
-than this test-file grammar.
+depth, and `name.0` a list index (a whole number from 0); a missing field fails
+naming the fields there. The value is a number, including a negative (`== -3`),
+a string, a bool, `none`, or `[]` — not an expression (`-1 + 2` is refused).
+The test compiler emits steps as JSON; the agent driver executes them. The
+nine-operation interactive API is larger than this test-file grammar.
 
 ## Standard functions and intrinsics
 

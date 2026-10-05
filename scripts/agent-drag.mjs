@@ -2,6 +2,31 @@
 // the viewport, and the route to the touch runner (`host/apple/touches.mjs`)
 // or to the carrier's own contact phases. `agent.mjs` calls it from `tap`.
 import { DRAG_BOUNDS } from '../host/apple/touches.mjs';
+import { layoutArgs } from './agent-inspect.mjs';
+
+/** A drag's `during` op is a read or the clock, not a second finger (drums R8).
+ * A filmed screenshot (`over … every`) loops on the clock. The test parser
+ * checks the same set. */
+export function duringAllowed(op) {
+  const w = String(op).trim().split(/\s+/);
+  return ['tree', 'layout', 'state', 'logs', 'screenshot', 'clock'].includes(w[0]) && !(w[0] === 'screenshot' && w[2] === 'over');
+}
+
+/** Run one allowed `during` op on the session. The reply is the op's. */
+export async function duringOp(s, op) {
+  if (!duringAllowed(op)) throw new Error(`tap … drag … during: ${JSON.stringify(op)} is not a read or the clock`);
+  const args = String(op).trim().split(/\s+/), word = args[0];
+  if (word === 'clock') return s.clock(args.slice(1).join(' ') || 'settle');
+  if (word === 'logs') return s.logs();
+  if (word === 'tree') return args[1] === '--ax' ? s.tree(args[2], { ax: true }) : s.tree(args[1], args[2] === 'under' ? args[3] : undefined);
+  if (word === 'layout') return s.layout(...layoutArgs(args.slice(1)));
+  if (word === 'screenshot') return s.screenshot(args[1] ?? 'screenshot.png', args[3] === 'save' ? args[2] : args[2] === 'window', args[3]);
+  return s.state(args[1], args[2] === 'under' ? args[3] : undefined, args[2] === 'pose', args[2] === 'busy', {
+    ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}),
+    ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}),
+    ...(args.includes('resources') ? { resources: true } : {}),
+  });
+}
 
 /**
  * `tap <target> drag …` (LLP 1080.000 §11): one whole gesture from `from`
@@ -61,7 +86,10 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
       const { phase: _, ...refused } = down;
       return s.tagged({ ...refused, drag: said, reason: `${down.reason ?? 'no held contact'}; a real drag is --touch platform's (LLP 1080.000 §11)` });
     }
-    if (press) await phase('hold', { ms: press });
+    // press and hold seek the virtual clock (platformer R7). `virtual` tells
+    // web and macOS to skip the wall sleep; Linux already seeks and reports `clock`.
+    const seek = timing !== 'platform' ? { virtual: true } : {};
+    if (press) await phase('hold', { ms: press, ...seek });
     if (moves) await phase('move', { dx, dy, ms: over });
     // The ops run where the finger has moved to, each bounded by the gesture's own bound.
     for (const op of during) {
@@ -71,7 +99,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
       running.catch(() => {});
       try { done.push(await Promise.race([running, late])); } finally { clearTimeout(timer); }
     }
-    if (hold) await phase('hold', { ms: hold });
+    if (hold) await phase('hold', { ms: hold, ...seek });
     up = await phase('up');
   } catch (error) {
     // Never leave the finger down: cancel, else lift (AppKit has no cancel). If neither is confirmed the contact stays recorded, and says so.

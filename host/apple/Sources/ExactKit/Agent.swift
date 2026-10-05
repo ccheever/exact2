@@ -43,6 +43,10 @@ public final class Agent {
             guard let fragment = fragments.first(where: { viewport.contains(CGPoint(x: $0.midX, y: $0.midY)) }) ?? fragments.first else { return nil }
             bounds = fragment
         } else { bounds = box(node) }
+        // `at` is target-relative (a mouse click, a context menu). `x`/`y` are viewport points.
+        if let at = request["at"] as? [Double], at.count == 2, at.allSatisfy(\.isFinite) {
+            return CGPoint(x: bounds.minX + at[0], y: bounds.minY + at[1])
+        }
         return CGPoint(x: request["x"] as? Double ?? bounds.midX, y: request["y"] as? Double ?? bounds.midY)
     }
 

@@ -299,19 +299,29 @@ export function gitIgnored(dir, keep = []) {
 }
 
 // What an agent leaves in an app as it works — a screenshot, a log, notes, a
-// saved world — and the trees a build takes files from (the bake's assets and
-// deck, a game's art and logic, a native module's scripts, the host crates,
-// fonts and strings). A build reads more than the bake captures, so the rule
-// names the outputs and leaves everything else an input.
-const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world)$/i;
+// saved world, an export — and the trees a build takes files from (the bake's
+// assets and deck, a game's art and logic, a native module's scripts, the host
+// crates, fonts and strings). A build reads more than the bake captures, so the
+// rule names the outputs and leaves everything else an input.
+const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world|csv|tsv)$/i;
 const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|ios|macos|linux)(\/|$)/;
+// An agent's own tree (notes: shots/, tools/; platformer: drive.sh, tools/*.ops)
+// and a test file are never inputs, even when the name looks like a source.
+const AGENT_TREE = /^(shots|tools|repros)(\/|$)/;
+const TEST_FILE = /(^|\/)[^/]*\.test\.(?:m?js|ts|rs|contract)$/;
+// A shell or op-list helper outside the trees a build actually reads. A `.js`
+// or `.mjs` file counts: `app.ts` may import one (a game's own scripts are
+// `gameNonInput`'s), and a stale build run as fresh is worse than a rebuild.
+const HELPER = /\.(?:sh|ops)$/;
+const SCRIPT_TREE = /^(logic|data|gpu|presentation|art|assets|deck|modules)(\/|$)/;
 /** A skip for an app's own files that no build reads. A file a build can
  * read always counts, ignored by Git or not: what the bake captures, anything
  * in an input tree, under `keep` (declared shader roots) or in one of the
  * app's Rust crates (which can `include_bytes!` any file beside them), and
- * what `app.json` names (an icon). Of the rest, a gitignored file or a
- * picture, log, note or saved world is not an input: a screenshot saved into
- * the app is not a change to it. */
+ * what `app.json` names (an icon). Shots, tools, repros and test files never
+ * count (LLP 1012: a drive refuses a stale build, not an agent's notes). Of
+ * the rest, a helper script outside a script tree, a gitignored file, or a
+ * picture, log, note, export or saved world is not an input. */
 export function notBuildInput(dir, keep = []) {
   const ignored = gitIgnored(dir, keep);
   const under = (path, roots) => roots.some(p => path === p || path.startsWith(p + '/'));
@@ -322,7 +332,9 @@ export function notBuildInput(dir, keep = []) {
   };
   return path => {
     const rel = relative(dir, path);
+    if ((AGENT_TREE.test(rel) && !under(path, keep)) || TEST_FILE.test(rel)) return true;
     if (BUILD_SOURCE.test(rel) || INPUT_TREE.test(rel) || under(path, keep) || inCrate(path) || manifest.includes(rel)) return false;
+    if (HELPER.test(rel) && !SCRIPT_TREE.test(rel)) return true;
     return OUTPUT.test(rel) || ignored(path);
   };
 }
@@ -332,11 +344,15 @@ export function receiptChanges(receipt, app) {
   if (!existsSync(receipt)) return [];
   const { build, target } = JSON.parse(readFileSync(receipt, 'utf8')), since = statSync(receipt).mtimeMs;
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
-  const own = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path));
+  // A game's proof, pins and helper scripts are not native inputs either
+  // (game/proof.mjs shares gameNonInput). A non-game keeps every real source.
+  const game = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
+  const skip = path => ignored(path) || game(path);
+  const own = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || skip(path));
   // Platform-local modules live under the host crate directory skipped above,
   // but their separate dylib's sources are absent from the binary receipt.
   const platform = target.includes('-ios') ? 'ios' : 'macos';
-  own.push(...newerThan(since, [moduleDirectory(app.dir, platform)], ignored));
+  own.push(...newerThan(since, [moduleDirectory(app.dir, platform)], skip));
   // The receipt names what the binary links, not what built it: the Rust
   // archive's own dep-info also names its build script's (the compiler, the bake).
   const archive = `lib${app.crate(platform).replace(/-/g, '_')}.d`;
@@ -350,12 +366,14 @@ export function receiptChanges(receipt, app) {
  * Both are build inputs and both refuse a drive; the split makes diagnostics
  * and tests able to say which side changed without weakening that rule. */
 /** Whether a path inside a game (relative to its directory) is not a build input:
- * its proof, pins, documents, tests, and helper scripts outside the built trees.
- * The proof's input digest (game/proof.mjs) and the web staleness check share it. */
+ * its proof, pins, documents, tests, shots, tools, repros, and helper scripts
+ * outside the built trees. The proof's input digest (game/proof.mjs), the web
+ * staleness check and a game's native receipt share it. */
 export function gameNonInput(path) {
   path = path.replaceAll('\\', '/');
-  return /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.md)$/.test(path)
-    || (/\.m?js$/.test(path) && !/^(logic|data|gpu|presentation|art|assets|deck)\//.test(path));
+  return /^(shots|tools|repros)\//.test(path)
+    || /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.(?:mjs|js|ts|rs|contract)|[^/]*\.md)$/.test(path)
+    || (/\.(?:m?js|sh|ops)$/.test(path) && !/^(logic|data|gpu|presentation|art|assets|deck)\//.test(path));
 }
 export function webChanges(dist, app) {
   const marker = resolve(dist, '.exact-build.json');

@@ -569,10 +569,19 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
     await expect(session.pointer('up')).rejects.toThrow('firefox up unsupported:');
     await expect(session.tap('touch', {pinch:1.2})).rejects.toThrow('firefox pinch unsupported:');
     expect(JSON.stringify((await session.state()).slots)).toBe(beforeRefusals);
+    // A mouse drag is a real button, twice, so the first lift cleared the contact (drums R13).
+    const dragged = await session.tap('touch', { drag: { dx: 20, dy: 0, mouse: true, over: 16 } });
+    expect(dragged.delivery).toBe('platform');
+    expect(dragged.drag.mouse).toBe(true);
+    await session.tap('touch', { drag: { dx: -20, dy: 0, mouse: true, over: 16 } });
+    await session.carrier.evaluate(`(() => { window.__exactShift = null; addEventListener('pointerdown', (e) => { window.__exactShift = e.shiftKey; }, { capture: true, once: true }); })()`);
+    await session.tap('press', { modifiers: 'Shift' });
+    expect(await session.carrier.evaluate('window.__exactShift')).toBe(true);
     await session.tap('scroll', {wheel:[0,120]});
     const state = (await session.state()).slots;
     expect(state.presses).toBeGreaterThan(0);
     expect(state.words).toBe('hia');
+    await session.type('root', { key: ' ' }); // the column takes no focus; the key is still pressed (drums R13)
     expect((await session.layout()).nodes.find(node => node.testId === 'scroll').sy).toBeGreaterThan(0);
     expect((await session.clock('+25')).clock).toBe(25);
     expect((await session.prefer({'prefers-color-scheme':'dark'})).media['prefers-color-scheme']).toBe('dark');

@@ -63,6 +63,49 @@ enum KeyCodes {
     static func modifier(_ code: String) -> Bool {
         ["Shift", "Control", "Alt", "Meta"].contains { code == $0 + "Left" || code == $0 + "Right" }
     }
+    /// The US punctuation `cdpKey` accepts as a key, by the character it
+    /// types, a shifted one on its key as Linux's `driver_key` has it (`!` is
+    /// Digit1); the character is what the key types and what `key` hears.
+    private static let punctuation = ["-": "Minus", "=": "Equal", "[": "BracketLeft", "]": "BracketRight",
+                                      "\\": "Backslash", ";": "Semicolon", "'": "Quote", "`": "Backquote",
+                                      ",": "Comma", ".": "Period", "/": "Slash", "+": "Equal",
+                                      "_": "Minus", "{": "BracketLeft", "}": "BracketRight", "|": "Backslash",
+                                      ":": "Semicolon", "\"": "Quote", "~": "Backquote", "<": "Comma", ">": "Period",
+                                      "?": "Slash", "!": "Digit1", "@": "Digit2", "#": "Digit3", "$": "Digit4",
+                                      "%": "Digit5", "^": "Digit6", "&": "Digit7", "*": "Digit8", "(": "Digit9", ")": "Digit0"]
+    /// A driver's key name as its `KeyboardEvent.code`. One vocabulary on
+    /// every host (scripts/agent-keys.mjs `cdpKey`): `p` and `KeyP` are the
+    /// same key, `7` and `Digit7` too, and `End` is a named key, not the
+    /// letters e-n-d (notes mac-agent-named-keys, platformer canvas-keys).
+    static func codeName(_ name: String) -> String {
+        if ["Shift", "Control", "Alt", "Meta"].contains(name) { return name + "Left" }
+        if name.count == 1, let c = name.first, c.isASCII, c.isLetter { return "Key" + name.uppercased() }
+        if name.count == 1, let c = name.first, c.isASCII, c.isNumber { return "Digit" + name }
+        if name == " " { return "Space" }
+        return punctuation[name] ?? name
+    }
+    /// What an agent key types. A named key is its AppKit function character
+    /// so a field moves the caret instead of inserting the key's name; a
+    /// letter keeps the case the driver named; a lone modifier types nothing.
+    static func eventText(code: String, raw: String, lone: Bool) -> String {
+        if lone { return "" }
+        if let text = functionCharacter(code) { return text }
+        if raw.count == 1, raw != " " { return raw }
+        return key(code)
+    }
+    /// AppKit's function-key characters (NSUpArrowFunctionKey is U+F700,
+    /// NSF1FunctionKey U+F704, NSHomeFunctionKey U+F729).
+    static func functionCharacter(_ code: String) -> String? {
+        let named = ["ArrowUp": "\u{F700}", "ArrowDown": "\u{F701}", "ArrowLeft": "\u{F702}", "ArrowRight": "\u{F703}",
+                     "Insert": "\u{F727}", "Delete": "\u{F728}", "Home": "\u{F729}", "End": "\u{F72B}",
+                     "PageUp": "\u{F72C}", "PageDown": "\u{F72D}", "Enter": "\r", "NumpadEnter": "\r",
+                     "Escape": "\u{1b}", "Tab": "\t", "Backspace": "\u{7f}", "Space": " ", "CapsLock": ""]
+        if let text = named[code] { return text }
+        if code.hasPrefix("F"), let n = Int(code.dropFirst()), (1...35).contains(n) {
+            return String(UnicodeScalar(0xF703 + n)!)
+        }
+        return nil
+    }
     /// A driver's chord (`Shift+Enter`, `Meta+s`, `+`, `Shift++`) as
     /// `Event::key` reads one: the modifiers' chord prefix, and the key.
     static func split(_ chord: String) -> (held: String, key: String) {
@@ -76,8 +119,7 @@ enum KeyCodes {
         return (self.held(shift: held.contains("Shift"), control: held.contains("Control"), alt: held.contains("Alt"), meta: held.contains("Meta")), String(rest))
     }
     static func device(_ name: String) -> (code: String, key: String)? {
-        var code = name
-        if ["Shift", "Control", "Alt", "Meta"].contains(name) { code += "Left" }
+        let code = codeName(name)
         let known = (4...100).map(hid) + (224...231).map(hid)
         guard code != "Unidentified", known.contains(code) else { return nil }
         return (code, key(code))

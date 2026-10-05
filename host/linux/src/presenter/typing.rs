@@ -110,6 +110,23 @@ impl<D: DataSource> Presenter<D> {
                 return Err(e);
             }
         }
+        // A paste is Ctrl+V first. A `key` handler that preventDefault()s
+        // that chord keeps the clipboard event from landing (drums: the
+        // driver's paste skipped the key and hid that bug). Copy and cut
+        // stay the clipboard event alone.
+        if kind == EventKind::Paste {
+            self.hold_modifier("ControlLeft", true);
+            let (error, prevented) = self.key_event("v", now);
+            self.hold_modifier("ControlLeft", false);
+            if let Some(e) = error {
+                return Err(e);
+            }
+            if prevented {
+                return Ok(format!(
+                    "{{\"typed\":{id},\"clipboard\":\"{edit}\",\"delivery\":\"recognized\"}}"
+                ));
+            }
+        }
         let text = if kind == EventKind::Paste { text } else { "" };
         let error = self
             .host

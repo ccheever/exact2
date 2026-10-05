@@ -193,6 +193,8 @@ impl Parser {
                     let dy = self.step_number("the drag's dy in points")?;
                     let (mut press, mut over, mut hold) = (None, None, None);
                     let (mut from, mut mouse) = (None, false);
+                    // Quoted reads or `clock`, last, while the finger is down (drums R8).
+                    let mut during = Vec::new();
                     while let TokenKind::Ident(w) = self.peek_kind().clone() {
                         let twice = match w.as_str() {
                             "from" => from.is_some(),
@@ -216,6 +218,32 @@ impl Parser {
                             let y = self.step_number("the start's y in the node's box")?;
                             from = Some((x, y));
                             continue;
+                        }
+                        if w == "during" {
+                            self.next();
+                            while let TokenKind::Str(op) = self.peek_kind().clone() {
+                                self.next();
+                                if !during_read(&op) {
+                                    return self.err(
+                                        "syntax-expected-step",
+                                        format!("`during` {op:?} is not a read or the clock (tree, layout, state, logs, screenshot, clock)"),
+                                    );
+                                }
+                                during.push(op);
+                            }
+                            if during.is_empty() {
+                                return self.err(
+                                    "syntax-expected-step",
+                                    "`during` takes a quoted op, as during \"clock +500\", and it is the last option",
+                                );
+                            }
+                            if !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
+                                return self.err(
+                                    "syntax-expected-step",
+                                    "`during` is the last option of a drag",
+                                );
+                            }
+                            break;
                         }
                         let slot = match w.as_str() {
                             "press" => &mut press,
@@ -242,16 +270,37 @@ impl Parser {
                         press,
                         over,
                         hold,
+                        during,
                         span,
                     });
                 }
                 let form = match self.peek_kind().clone() {
-                    TokenKind::Ident(w) if w == "hover" || w == "dblclick" || w == "contextmenu" || w == "into" => {
+                    TokenKind::Ident(w) if w == "hover" || w == "dblclick" || w == "contextmenu" || w == "into" || w == "pinch" => {
                         self.next();
                         match w.as_str() {
                             "hover" => TapForm::Hover,
                             "dblclick" => TapForm::Dblclick,
                             "contextmenu" => TapForm::Contextmenu,
+                            "pinch" => {
+                                // `tap "id" pinch <scale> [at x y]` (stocks: the agent op, refused as a newline).
+                                let scale = self.step_number("the pinch's scale, a number greater than 0")?;
+                                if !scale.is_finite() || scale <= 0.0 {
+                                    return self.err(
+                                        "syntax-expected-step",
+                                        "`pinch` takes a scale greater than 0",
+                                    );
+                                }
+                                let at = if self.at_ident("at") {
+                                    self.next();
+                                    Some((
+                                        self.step_number("the pinch's x in the node's box")?,
+                                        self.step_number("the pinch's y in the node's box")?,
+                                    ))
+                                } else {
+                                    None
+                                };
+                                TapForm::Pinch { scale, at }
+                            }
                             _ => TapForm::Into(self.str_lit("the row's key")?),
                         }
                     }
@@ -275,7 +324,37 @@ impl Parser {
                 if self.at_ident("key") {
                     self.next();
                     let key = self.str_lit("the key's name")?;
-                    Step::Key { target, key, span }
+                    // `down` / `up` / `for <ms>`: one of them, on the virtual clock (platformer R7).
+                    let (mut phase, mut duration) = (None, None);
+                    if self.at_ident("down") || self.at_ident("up") {
+                        phase = Some(if self.at_ident("down") { "down" } else { "up" }.to_string());
+                        self.next();
+                    } else if self.at_ident("for") {
+                        self.next();
+                        let ms = self.step_number("milliseconds the key stays down")?;
+                        if !ms.is_finite() || ms < 0.0 {
+                            return self.err(
+                                "syntax-expected-step",
+                                "`for` takes a nonnegative number of milliseconds",
+                            );
+                        }
+                        duration = Some(ms);
+                    }
+                    if (phase.is_some() && self.at_ident("for"))
+                        || (duration.is_some() && (self.at_ident("down") || self.at_ident("up")))
+                    {
+                        return self.err(
+                            "syntax-expected-step",
+                            "`key` takes `down`, `up`, or `for <ms>`, not both",
+                        );
+                    }
+                    Step::Key {
+                        target,
+                        key,
+                        phase,
+                        duration,
+                        span,
+                    }
                 } else if self.at_ident("copy") || self.at_ident("cut") || self.at_ident("paste") {
                     let edit = if self.at_ident("copy") { "copy" } else if self.at_ident("cut") { "cut" } else { "paste" };
                     self.next();
@@ -491,13 +570,37 @@ impl Parser {
                     }
                     "state" => {
                         let (mut name, _) = self.ident()?;
-                        // A field of a record, at any depth (feed F10).
+                        // A field, or a list index (`rows.0`), at any depth (feed F10, drums R7).
                         while self.eat_punct(".") {
                             name.push('.');
-                            name.push_str(&self.ident()?.0);
+                            match self.peek_kind().clone() {
+                                TokenKind::Number(n)
+                                    if n.fract() == 0.0 && (0.0..=u32::MAX as f64).contains(&n) =>
+                                {
+                                    self.next();
+                                    name.push_str(&format!("{}", n as u64));
+                                }
+                                TokenKind::Ident(_) => name.push_str(&self.ident()?.0),
+                                other => {
+                                    return self.err(
+                                        "syntax-expected-name",
+                                        format!(
+                                            "expected a field or a list index after `.`, found {}",
+                                            describe(&other)
+                                        ),
+                                    );
+                                }
+                            }
                         }
                         self.expect_punct("==")?;
-                        let value = self.expr()?;
+                        // `-3` is a number (drums R7). Other expressions stay refused.
+                        let value = match self.expr()? {
+                            Expr::Unary(UnOp::Neg, inner, span) if matches!(*inner, Expr::Number(..)) => {
+                                let Expr::Number(n, _) = *inner else { unreachable!() };
+                                Expr::Number(-n, span)
+                            }
+                            other => other,
+                        };
                         let empty = matches!(&value, Expr::List(items, _) if items.is_empty());
                         if !empty
                             && !matches!(
@@ -534,6 +637,19 @@ impl Parser {
         self.newline()?;
         Ok(step)
     }
+}
+
+/// A drag's `during` op is a read or the clock, not a second finger (drums R8).
+/// A filmed screenshot (`over … every`) loops on the clock.
+fn during_read(op: &str) -> bool {
+    let mut words = op.split_whitespace();
+    let Some(head) = words.next() else {
+        return false;
+    };
+    matches!(
+        head,
+        "tree" | "layout" | "state" | "logs" | "screenshot" | "clock"
+    ) && !(head == "screenshot" && words.nth(1) == Some("over"))
 }
 
 /// The words of a test's launch lines, which a test file may also write at

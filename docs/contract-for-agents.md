@@ -126,8 +126,13 @@ nothing): the window asks its `beforeunload` first, and the reply says
 "Leave site?" is answered "Stay"). macOS and the web; iOS and Linux refuse it.
 `--storage <name>` keeps a named scratch store between drives on every host (on
 the web, a kept browser profile served on one port per name); without it a web
-drive is a fresh profile, so its storage ends with the drive. To show what
-survives a restart on any host, use an authored test's `reload` step (below).
+drive is a fresh profile, so its storage ends with the drive. That store includes
+a data module's `secret.keep`: files in the named scratch tree on Apple and Linux,
+and the page's `localStorage` on the web (the JS host always; the wasm page when
+the drive names a store). A nameless drive keeps those secrets in memory only.
+Firefox and WebKit open a fresh browser each drive, so a name there lasts for
+the drive, including its `reload`. To show what survives a restart on any host,
+use an authored test's `reload` step (below).
 
 Inside the exact2 checkout, for Caltrain:
 
@@ -739,7 +744,8 @@ geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: p
 plan site, evaluations, unchanged results, instances created and retired), and
 screenshots for rendered output. Logs name refused operations and data errors.
 For a game canvas, JavaScript `s.tap("world", {mouse:true, at:[x,y]})` sends one
-primary mouse click on web, Windows, and Linux. `{contextmenu:true, at:[x,y]}`
+primary mouse click on web, macOS, Windows, and Linux (on macOS any node takes
+it, so a click can land on a link inside a paragraph). `{contextmenu:true, at:[x,y]}`
 sends a right-click. Coordinates are relative to the target's top-left; omit
 `at` for its center. Both refuse invalid, covered, or offscreen points and held
 contacts. The CLI forms are `tap world mouse` and `tap world contextmenu`, or use
@@ -801,23 +807,30 @@ the driver's 2026-01-01 UTC. The steps are `tap "id" [hover|dblclick|contextmenu
 `tap "id" modifiers "Shift+Meta"` (a press with keys held),
 `tap "list" into "key"` (a virtualized list's row brought into view by its key,
 so the next step can tap a row outside the rendered window),
-`tap "id" drag dx dy [from x y] [mouse] [press ms] [over ms] [hold ms]`,
+`tap "id" pinch <scale> [at x y]` (two fingers; `scale` greater than 0),
+`tap "id" drag dx dy [from x y] [mouse] [press ms] [over ms] [hold ms] [during "op" …]`
+(a finger, `pointerType` touch, where the carrier has one, unless `mouse` names the left button; `during`
+is last: quoted reads or `clock` while that contact is down, after the move and
+before the hold; `press` and `hold` advance the virtual clock, except under
+`--timing platform`),
 `type "id" "text"` (sets the value), `type "id" "text" append` (after the value
-the tree shows, as typing after a prefill), or `type "id" key "Name"`,
-`type "id" paste "text"`, `type "id" copy`, `type "id" cut`, `pick "id" "path"…` or
+the tree shows, as typing after a prefill), or `type "id" key "Name"`
+(`down`, `up`, or `for <ms>` on the virtual clock),
+`type "id" paste "text"` (⌘V on macOS, Ctrl+V elsewhere, then the paste; a `key` handler that `preventDefault()`s that chord keeps it from landing), `type "id" copy`, `type "id" cut`, `pick "id" "path"…` or
 `pick "id" cancel` (a held picker or export, by its node or capability as
 above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
 what is in flight lands, with each answer's `then`, the clock unmoved), `resize
 800x600` (the window, mid-test), `reload`
-(the app restarts on the store it had, its state and clock starting over, so a
-test shows what persists), `close` (the window's close button, as ⌘W: a
-`beforeunload` that calls `preventDefault()` keeps it open and the test goes on
-to the app's "Save changes?"; macOS and the web),
+(the app restarts on the store it had, including a `secret.keep`, its state and
+clock starting over, so a test shows what persists), `close` (the window's close
+button, as ⌘W: a `beforeunload` that calls `preventDefault()` keeps it open and
+the test goes on to the app's "Save changes?"; macOS and the web),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text; a control's value, so a `select` reads its chosen value, not its
 options; else its descendants' — a button's label — else a field's value), and
 `expect state name == <number|string|bool|none|[]>`, where `name` may go on into
-a record's fields (`board.active.present`). A failed expect with no input before
+a record's fields (`board.active.present`) or a list index (`rows.0`), and the
+number may be negative (`== -3`). A failed expect with no input before
 it names the requests still in flight (the boot's own, or what a `clock +N` left
 on real time). An input step ends with what it settled: an answer the data
 module gave in the input's turn, and its mutation's `then`, are there for the

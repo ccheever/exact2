@@ -64,6 +64,49 @@ export function cdpKey(chord) {
   return { code, key, vk, modifiers, text, location };
 }
 
+/** The chord a real paste sends: ⌘V on macOS, Ctrl+V elsewhere. */
+export function pasteChord() {
+  return process.platform === 'darwin' ? 'Meta+v' : 'Control+v';
+}
+
+/** `type <id> copy|cut|paste`. Paste sends [`pasteChord`] first and lands
+ * the clipboard event only when that keydown was not prevented (drums: skipping
+ * the chord hid a `key` handler whose preventDefault blocked a real paste).
+ * Copy and cut stay the clipboard event. `keyDown`/`keyUp` default to CDP. */
+export async function deliverClipboard({ id, opts, evaluate, ask, call, keyDown, keyUp, insertText }) {
+  const f = await ask({ op: 'focus', id, select: false });
+  if (f.error) throw new Error(f.error);
+  // Firefox builds a synthetic paste's clipboardData from its own `dataType`
+  // and `data` and ignores `clipboardData`, so its paste carried no text.
+  const send = async () => {
+    const heard = await evaluate(`(() => { const el = document.activeElement?.closest?.('[data-view]') ? document.activeElement : exact.views.get(${id}), dt = new DataTransfer(); if (${JSON.stringify(opts.clipboard)} === 'paste') dt.setData('text/plain', ${JSON.stringify(opts.text ?? '')}); const ev = new ClipboardEvent(${JSON.stringify(opts.clipboard)}, { clipboardData: dt, ...(${JSON.stringify(opts.clipboard)} === 'paste' ? { dataType: 'text/plain', data: ${JSON.stringify(opts.text ?? '')} } : {}), bubbles: true, cancelable: true }); el.dispatchEvent(ev); return { editable: el.matches('input, textarea, [contenteditable]'), prevented: ev.defaultPrevented }; })()`);
+    if (opts.clipboard === 'paste' && heard.editable && !heard.prevented) await (insertText ?? (text => call('Input.insertText', { text })))(opts.text ?? '');
+  };
+  if (opts.clipboard !== 'paste') { await send(); return; }
+  const chord = cdpKey(pasteChord());
+  const down = keyDown ?? (() => call('Input.dispatchKeyEvent', { type: 'keyDown', key: chord.key, code: chord.code, windowsVirtualKeyCode: chord.vk, modifiers: chord.modifiers, location: chord.location }));
+  const up = keyUp ?? (() => call('Input.dispatchKeyEvent', { type: 'keyUp', key: chord.key, code: chord.code, windowsVirtualKeyCode: chord.vk, modifiers: chord.modifiers, location: chord.location }));
+  // Bubble, so it runs after the target's key handler has preventDefaulted.
+  // The contract's stopPropagation marks the event; it does not stop the DOM
+  // event, so this still sees a prevented chord (host/web/glue.js, host/web-js/rt.js).
+  // The chord is also the browser's own paste where it is one (Ctrl+V in Chrome
+  // off the Mac, WebKit's paste: command, Firefox): a trusted paste of the real
+  // clipboard, which the app would hear beside the driver's (WebKit heard two,
+  // Firefox only the empty one). It is stopped before any listener; the driver's
+  // paste carries the text.
+  await evaluate(`(() => { window.__exactPasteKey = null; addEventListener('keydown', window.__exactPasteHear = (e) => { window.__exactPasteKey = e.defaultPrevented; }); addEventListener('paste', window.__exactPasteMute = (e) => { if (e.isTrusted) { e.preventDefault(); e.stopImmediatePropagation(); } }, true); })()`);
+  let held = false;
+  try {
+    await down();
+    held = true;
+    if (await evaluate('window.__exactPasteKey !== true')) await send();
+  } finally {
+    // A throw from the paste event must still release the chord.
+    if (held) await up().catch(() => {});
+    await evaluate(`(() => { removeEventListener('keydown', window.__exactPasteHear); removeEventListener('paste', window.__exactPasteMute, true); window.__exactPasteHear = window.__exactPasteMute = window.__exactPasteKey = null; })()`).catch(() => {});
+  }
+}
+
 /** Browser-owned key release carries device identity, never a canvas lookup. */
 export async function browserKey({id, opts, evaluate, ask, call, frame}) {
   if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
@@ -160,6 +203,30 @@ export function mouseContact() {
       return r;
     },
   };
+}
+
+/** The CLI `type` line. Key, copy and cut stay whitespace-split.
+ * Typed text and a paste's text keep their tail: real newlines stay, and `\\n` `\\t` `\\r`
+ * `\\\\` decode, as does a JSON string around the tail. `hello for 100`
+ * stays text (notes: a newline was flattened to a space). */
+export function typeCommand(line) {
+  const body = String(line).trim().replace(/^type(?:\s+|$)/, '');
+  const matched = /^(?:"((?:[^"\\]|\\.)*)"|(\S+))(?:\s+([\s\S]*))?$/.exec(body);
+  if (!matched) throw new Error('type needs a target');
+  const target = matched[1] != null ? JSON.parse(`"${matched[1]}"`) : matched[2];
+  const rest = matched[3] ?? '';
+  const head = /^\S+/.exec(rest)?.[0];
+  // A paste's text is a tail as typed text is: its newlines are the clipboard's.
+  const pasted = /^paste\s+([\s\S]*\S[\s\S]*)$/.exec(rest);
+  if (pasted) return [target, { clipboard: 'paste', text: decodeTypeText(pasted[1]) }];
+  if (head === 'key' || head === 'copy' || head === 'cut' || head === 'paste') return typeArguments([target, ...rest.trim().split(/\s+/)]);
+  return [target, decodeTypeText(rest)];
+}
+function decodeTypeText(text) {
+  if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
+    try { return JSON.parse(text); } catch { /* a quote in the text, not a JSON string */ }
+  }
+  return text.replace(/\\([ntr\\])/g, (_, c) => ({ n: '\n', t: '\t', r: '\r', '\\': '\\' }[c]));
 }
 
 export function typeArguments(args) {

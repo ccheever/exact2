@@ -38,7 +38,8 @@ fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<Strin
         "move" => &[
             "op", "session", "phase", "x", "y", "dx", "dy", "ms", "mouse",
         ],
-        "hold" => &["op", "session", "phase", "ms", "mouse"],
+        // `virtual` is the driver's flag that it will not also seek (platformer R7).
+        "hold" => &["op", "session", "phase", "ms", "mouse", "virtual"],
         "up" | "cancel" => &["op", "session", "phase", "mouse"],
         _ => return Err("unknown contact phase".into()),
     };
@@ -144,6 +145,7 @@ fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<Strin
 fn reply<D: DataSource>(p: &Presenter<D>, phase: &str, at: Option<(f32, f32)>) -> String {
     serde_json::json!({
         "phase": phase, "contact": p.contact_position().is_some(), "at": at,
+        "clock": p.host().now(),
         "delivery": "presenter", "carrier": "linux", "mode": "headless",
         "native": "Presenter.pointer_*", "timing": "seekable; physical delivery unobserved"
     })

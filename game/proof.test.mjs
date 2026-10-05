@@ -11,7 +11,7 @@ import {tmpdir} from 'node:os';
 import {agreePins, nativeProofHost, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
 import {proofCommand, worldObservations, pinRevision} from './proof.mjs';
 import {comparePlacement} from './games/placement-fixture/proof.mjs';
-import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, clockSpan} from '../scripts/agent.mjs';
+import {typeArguments, typeCommand, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, clockSpan} from '../scripts/agent.mjs';
 
 test('external app sources and assets include every extension while outputs stay excluded', () => {
   const directory = mkdtempSync(resolve(tmpdir(), 'external-proof-inputs-'));
@@ -78,6 +78,13 @@ test('CLI held key syntax cannot capture an ordinary text suffix', () => {
   expect(typeArguments(['world','key','KeyW','for','1500'])).toEqual(['world',{key:'KeyW',for:1500}]);
   expect(typeArguments(['editor','hello','for','100'])).toEqual(['editor','hello for 100']);
   expect(typeArguments(['world','KeyW','for','100'])).toEqual(['world','KeyW for 100']);
+  expect(typeCommand('type editor hello for 100')).toEqual(['editor','hello for 100']);
+  expect(typeCommand('type editor key End for 40')).toEqual(['editor',{key:'End',for:40}]);
+  expect(typeCommand('type editor hello\\n\\nbody')).toEqual(['editor','hello\n\nbody']);
+  expect(typeCommand('type editor # A\n\nbody')).toEqual(['editor','# A\n\nbody']);
+  expect(typeCommand('type editor "a\\nb"')).toEqual(['editor','a\nb']);
+  expect(typeCommand('type "the note" hello')).toEqual(['the note','hello']);
+  expect([typeCommand('type editor paste a\\nb c'),typeCommand('type editor copy')]).toEqual([['editor',{clipboard:'paste',text:'a\nb c'}],['editor',{clipboard:'copy'}]]);
 });
 test('proof receipts bind the web manifest and the actual app executable', () => {
   const dir=mkdtempSync(resolve(tmpdir(),'g1b-receipt-')), bundle=resolve(dir,'Game.app');
@@ -927,9 +934,9 @@ test('R13 output names nested in logic remain proof inputs and change the hash',
 
 test('a game\'s helper scripts are not proof inputs; its build inputs are', async () => {
   const {proofInputExcluded}=await import('./proof.mjs');
-  for(const file of ['bench.mjs','live.mjs','jev-proxy.mjs','tools/probe.js','proof.mjs','pins.json','README.md'])
+  for(const file of ['bench.mjs','live.mjs','jev-proxy.mjs','tools/probe.js','tools/levels.ops','proof.mjs','pins.json','README.md','drive.sh','shots/exported.json','repros/bug.contract','app.test.contract','logic/src/foo.test.rs'])
     expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(true);
-  for(const file of ['logic/src/lib.rs','logic/build.mjs','data/src/lib.rs','gpu/shaders/sky.wgsl','assets/x.js','app.contract','app.json','island.level.json','Cargo.toml','Cargo.lock'])
+  for(const file of ['logic/src/lib.rs','logic/build.mjs','data/src/lib.rs','gpu/shaders/sky.wgsl','assets/x.js','presentation/view.mjs','app.contract','app.json','island.level.json','Cargo.toml','Cargo.lock'])
     expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(false);
   // Shared SDK scripts stay inputs: the web glue is JavaScript.
   expect(proofInputExcluded('host/web/gpu-glue.js','forest')).toBe(false);

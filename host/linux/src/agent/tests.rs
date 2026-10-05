@@ -904,6 +904,93 @@ fn the_clipboard_events_reach_the_nearest_handler() {
     assert!(reply.contains("no cut handler"), "{reply}");
 }
 
+/// A paste is Ctrl+V first. A `key` handler that `preventDefault()`s that
+/// chord keeps the clipboard event from landing; one that does not still
+/// hears the key and the paste. Copy stays the clipboard event alone
+/// (drums R15: the driver's paste skipped the key and hid that bug).
+#[test]
+fn a_paste_is_ctrl_v_and_a_prevented_chord_skips_the_clipboard() {
+    let head = r#"component App
+  state log = ""
+  action keyed(k: string, e: KeyboardEvent)
+    log = `${log}key:${k}:${e.ctrlKey};`
+"#;
+    let tail = r#"  action pasted(e: ClipboardEvent)
+    log = `${log}paste:${e.text};`
+  action copied
+    log = `${log}copy;`
+  view
+    column width=300
+      box key=keyed paste=pasted copy=copied testId="cell" width=80 height=24
+      text log testId="log" height=20
+"#;
+    let text_of = |p: &Presenter<NoData>| {
+        let k = p.host().kernel();
+        let log = k.node_by_key(k.find_by_test_id("log")[0]).unwrap().id;
+        k.node(log)
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap()
+            .to_string()
+    };
+    for prevent in [false, true] {
+        let guard = if prevent {
+            "    if k == \"v\" and e.ctrlKey\n      preventDefault()\n"
+        } else {
+            ""
+        };
+        let plan = contract::compile(&format!("{head}{guard}{tail}")).unwrap();
+        let (mut p, boot_error) = Presenter::boot_with(
+            &plan.encode(),
+            NoData,
+            (300.0, 300.0),
+            1.0,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(boot_error.is_none(), "{boot_error:?}");
+        let k = p.host().kernel();
+        let cell = k.node_by_key(k.find_by_test_id("cell")[0]).unwrap().id;
+        let reply = handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{cell},"clipboard":"paste","text":"secret"}}"#),
+        );
+        assert!(reply.contains("\"clipboard\":\"paste\""), "{reply}");
+        assert!(!reply.contains("error"), "{reply}");
+        let log = text_of(&p);
+        assert!(
+            log.starts_with("key:v:true;"),
+            "prevent={prevent} the chord was not delivered: {log}"
+        );
+        if prevent {
+            assert!(
+                !log.contains("paste:") && !log.contains("secret"),
+                "a prevented chord still pasted: {log}"
+            );
+        } else {
+            assert_eq!(log, "key:v:true;paste:secret;");
+        }
+        handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{cell},"clipboard":"copy"}}"#),
+        );
+        let log = text_of(&p);
+        assert!(
+            log.ends_with("copy;") && log.matches("key:").count() == 1,
+            "copy sent a key or dropped the chord: {log}"
+        );
+        let reply = handle(&mut p, &format!(r#"{{"op":"type","id":{cell},"key":"a"}}"#));
+        assert!(!reply.contains("error"), "{reply}");
+        let log = text_of(&p);
+        assert!(
+            log.ends_with("key:a:false;"),
+            "Ctrl stayed down after the paste: {log}"
+        );
+    }
+}
+
 /// Gallery F20: `tap <id> modifiers Shift+Meta` presses with the keys held,
 /// which the action's `MouseEvent` reports; the keys are released after.
 #[test]
@@ -1021,17 +1108,49 @@ fn a_mouse_contact_goes_down_holds_and_lifts() {
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
     let (pad, log) = (id(&p, "pad"), id(&p, "log"));
-    for line in [
-        format!(r#"{{"op":"tap","phase":"down","id":{pad},"x":20,"y":20,"mouse":true}}"#),
-        r#"{"op":"tap","phase":"hold","ms":32,"mouse":true}"#.to_string(),
-        r#"{"op":"tap","phase":"up","mouse":true}"#.to_string(),
-    ] {
-        let reply = handle(&mut p, &line);
-        assert!(!reply.contains("\"error\""), "{line}: {reply}");
-    }
+    let down = handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","phase":"down","id":{pad},"x":20,"y":20,"mouse":true}}"#),
+    );
+    assert!(!down.contains("\"error\""), "{down}");
+    // A hold seeks the presenter clock and reports it, so the driver does not seek again (platformer R7).
+    let before = p.host().now();
+    let held = handle(
+        &mut p,
+        r#"{"op":"tap","phase":"hold","ms":32,"mouse":true,"virtual":true}"#,
+    );
+    assert!(!held.contains("\"error\""), "{held}");
+    let held: serde_json::Value = serde_json::from_str(&held).unwrap();
+    assert_eq!(held["clock"].as_f64(), Some(before + 32.0), "{held}");
+    let up = handle(&mut p, r#"{"op":"tap","phase":"up","mouse":true}"#);
+    assert!(!up.contains("\"error\""), "{up}");
     let k = p.host().kernel();
     assert_eq!(
         k.node(log).unwrap().props.str(exact_kernel::PropId::Text),
         Some("down:mouse;up:mouse;")
     );
+}
+
+#[test]
+fn driver_key_uses_the_web_vocabulary() {
+    assert_eq!(driver_key("p"), Some(("KeyP", "p")));
+    assert_eq!(driver_key("P"), Some(("KeyP", "P")));
+    assert_eq!(driver_key("KeyP"), Some(("KeyP", "p")));
+    assert_eq!(driver_key("7"), Some(("Digit7", "7")));
+    assert_eq!(driver_key("Digit7"), Some(("Digit7", "7")));
+    assert_eq!(driver_key("End"), Some(("End", "End")));
+    assert_eq!(driver_key("Home"), Some(("Home", "Home")));
+    assert_eq!(driver_key("Delete"), Some(("Delete", "Delete")));
+    assert_eq!(driver_key(" "), Some(("Space", " ")));
+    assert_eq!(driver_key("Space"), Some(("Space", " ")));
+    assert_eq!(driver_key("-"), Some(("Minus", "-")));
+    assert_eq!(driver_key("+"), Some(("Equal", "+")));
+    assert_eq!(driver_key("!"), Some(("Digit1", "!")));
+    assert_eq!(driver_key("F1"), Some(("F1", "F1")));
+    assert_eq!(driver_key("F12"), Some(("F12", "F12")));
+    assert_eq!(driver_key("F24"), Some(("F24", "F24")));
+    assert_eq!(driver_key("Shift"), Some(("ShiftLeft", "Shift")));
+    assert_eq!(driver_key("ArrowLeft"), Some(("ArrowLeft", "ArrowLeft")));
+    assert_eq!(driver_key("Nope"), None);
+    assert_eq!(driver_key("Endd"), None);
 }

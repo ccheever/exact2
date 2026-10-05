@@ -410,7 +410,9 @@ extension Agent {
         case "hold":
             guard let p = contact else { return ["error": "no contact is down"] }
             let ms = max(0, req["ms"] as? Double ?? 0)
-            if ms > 0 { RunLoop.main.run(until: Date(timeIntervalSinceNow: ms / 1000)) }
+            // A test drag's hold is virtual time (platformer R7): the driver seeks
+            // the clock, so the run loop does not sleep the gesture out.
+            if ms > 0, req["virtual"] as? Bool != true { RunLoop.main.run(until: Date(timeIntervalSinceNow: ms / 1000)) }
             contactClock += ms / 1000
             return ["phase": "hold", "at": at(p), "delivery": "platform"]
         case "up":
@@ -442,7 +444,7 @@ extension Agent {
                 return ["error": "tap #\(node.id): its middle is outside the viewport; scroll it into view first"]
             }
         }
-        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil,
+        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["mouse"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
             guard node.window != nil, !node.inert, !node.disabled else { return ["error": "inline node #\(id) is unavailable"] }
             if req["hover"] as? Bool == true {
@@ -454,7 +456,7 @@ extension Agent {
 
         if let phase = req["phase"] as? String { return contact(phase, req) }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
-           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil,
            let activated = presenter.toolbar.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "NSToolbarItem"]
                 : ["error": "native toolbar item #\(id) is unavailable"]
@@ -463,13 +465,13 @@ extension Agent {
             return ["error": "native toolbar geometry is system-owned; only button host activation is supported"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
-           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil,
            let activated = presenter.controls.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "control"]
                 : ["error": "control #\(id) is disabled, inert or not shown"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
-           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil,
            let activated = presenter.segments.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "segmented-control"]
                 : ["error": "native segment #\(id) is unavailable"]
@@ -478,10 +480,17 @@ extension Agent {
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         let b = box(v)
         // The middle of the box as seen — through a surface's placement when
-        // there is one (LLP 1014 D5) — as a point in the window.
+        // there is one (LLP 1014 D5) — as a point in the window. `at` is a
+        // point in the view (a mouse click, a context menu), the same
+        // conversion a pinch uses; the reply names that point, not the middle.
         let clip = presenter.viewport.contentView
-        let p = clip.convert(NSPoint(x: (req["x"] as? Double ?? b.midX) + clip.bounds.origin.x, y: (req["y"] as? Double ?? b.midY) + clip.bounds.origin.y), to: nil)
-        let at = [Agent.r2(b.midX), Agent.r2(b.midY)]
+        let localAt: CGPoint? = {
+            guard let raw = req["at"] as? [Double], raw.count == 2, raw.allSatisfy(\.isFinite) else { return nil }
+            return CGPoint(x: raw[0], y: raw[1])
+        }()
+        if req["at"] != nil, localAt == nil { return ["error": "at needs two finite numbers"] }
+        let p = localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? b.midX) + clip.bounds.origin.x, y: (req["y"] as? Double ?? b.midY) + clip.bounds.origin.y), to: nil)
+        let at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(b.midX), Agent.r2(b.midY)]
         if req["wheel"] == nil,
            !clip.bounds.contains(clip.convert(p, from: nil)) {
             return ["error": "tap #\(v.id): its middle is outside the viewport; scroll it into view first"]
@@ -664,7 +673,10 @@ extension Agent {
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
         if v.kind == "native", req["key"] == nil { return nativeType(v, req) }
-        if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
+        // A canvas key takes the same path as a real keyDown: shortcuts and
+        // `key` handlers, then the event, which forwards to the surface.
+        // canvasType sent the surface only, so Escape and KeyP never reached
+        // Contract (platformer repro canvas-keys-macos).
         if req["key"] == nil, let reply = presenter.controls.type(v, req["text"] as? String ?? "") { return reply }
         if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
@@ -678,6 +690,9 @@ extension Agent {
             let parts = normalized.split(separator: "+").map(String.init)
             let rawKey = parts.last ?? chord
             let device = KeyCodes.device(rawKey)
+            // An unknown name is a refusal, not text: typing "End" inserted
+            // the letters e-n-d (notes repro mac-agent-named-keys).
+            if device == nil, rawKey != "Plus" { return ["error": "key: unsupported key \(rawKey)"] }
             let key = device?.key ?? rawKey
             var modifiers: NSEvent.ModifierFlags = []
             for modifier in parts.dropLast() {
@@ -736,25 +751,15 @@ extension Agent {
             // A target that takes no focus leaves it where it is, as the web's
             // `focus()` on one does: the key goes to whatever holds the focus,
             // or to the page's shortcuts when nothing does (pomodoro F5).
-            let (chars, code): (String, UInt16) = {
-                switch key {
-                case "Plus": return ("+", 24)
-                case "Space": return (" ", 49)
-                case "c": return (key, 8)
-                case "o": return (key, 31)
-                case "Enter": return ("\r", 36)
-                case "Escape": return ("\u{1b}", 53)
-                case "Tab": return ("\t", 48)
-                case "Backspace": return ("\u{7f}", 51)
-                case "ArrowUp": return ("\u{F700}", 126)
-                case "ArrowDown": return ("\u{F701}", 125)
-                case "ArrowLeft": return ("\u{F702}", 123)
-                case "ArrowRight": return ("\u{F703}", 124)
-                default:
-                    let code = device.flatMap { device in KeyCodes.mac.first(where: { $0.value == device.code })?.key }
-                    return (lone ? "" : key, UInt16(code ?? 0))
-                }
-            }()
+            let chars: String
+            let code: UInt16
+            if rawKey == "Plus" {
+                (chars, code) = ("+", 24)
+            } else if let device, let mac = KeyCodes.mac.first(where: { $0.value == device.code })?.key {
+                (chars, code) = (KeyCodes.eventText(code: device.code, raw: rawKey, lone: lone), UInt16(mac))
+            } else {
+                return ["error": "key: unsupported key \(rawKey)"]
+            }
             let t = ProcessInfo.processInfo.systemUptime
             // Both character fields preserve Shift. AppKit interprets a
             // Shift-Tab as BackTab (U+0019), not a forward Tab with flags.

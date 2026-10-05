@@ -6,9 +6,11 @@
 //!
 //! Agent mode (`EXACT_AGENT=1`, LLP 1012) gets memory stores unless
 //! `EXACT_STORE=real` says otherwise: a scripted drive starts from nothing
-//! and leaves nothing in a developer's keychain. `EXACT_STORE=memory` asks
-//! for the same memory stores outside agent mode — a test that needs the real
-//! filesystem and database but must not raise the keychain's prompt.
+//! and leaves nothing in a developer's keychain. A drive that names a scratch
+//! store (`EXACT_AGENT_STORAGE`) keeps secrets in that tree instead, so a
+//! reload reads them back (platformer R10). `EXACT_STORE=memory` asks for
+//! memory stores outside agent mode — a test that needs the real filesystem
+//! and database but must not raise the keychain's prompt.
 
 use exact_runner::{Store, StoreWrite};
 use ibex2::boundary::HostError;
@@ -21,15 +23,29 @@ const KEPT: &str = "exact.kept";
 
 /// The app's bindings from its grants (LLP 1016 D6), and the scope the
 /// runner keeps answers in. Grants that do not parse are the error, which
-/// the host journals; every request is then refused, naming it.
+/// the host journals; every request is then refused, naming it. An empty
+/// app id, as a test that stands a platform store in, stays in memory.
 pub fn endow(grants: &str) -> Result<Bindings, String> {
+    endow_for(grants, "")
+}
+
+/// [`endow`] for `app_id`. A named agent drive keeps `secret.keep` in its
+/// scratch tree (files, not the Keychain).
+pub fn endow_for(grants: &str, app_id: &str) -> Result<Bindings, String> {
     let mut host = Host::new();
     let agent = std::env::var_os("EXACT_AGENT").is_some();
     let store = std::env::var("EXACT_STORE").unwrap_or_default();
     if (agent && store != "real") || store == "memory" {
-        host = host
-            .with_secret_store(Box::new(ibex2::secrets::MemoryStore::new()))
-            .with_kv_store(Box::new(ibex2::kv::MemoryStore::new()));
+        host = match crate::picker::agent_secret_root(app_id) {
+            Some(root) => host
+                .with_secret_store(Box::new(ibex2::secrets::FileStore::new(
+                    root.join("secrets"),
+                )))
+                .with_kv_store(Box::new(ibex2::kv::FileStore::new(root.join("kv")))),
+            None => host
+                .with_secret_store(Box::new(ibex2::secrets::MemoryStore::new()))
+                .with_kv_store(Box::new(ibex2::kv::MemoryStore::new())),
+        };
     }
     #[cfg(test)]
     if let Some(secrets) = PLATFORM.with(|p| p.borrow().clone()) {
@@ -38,6 +54,21 @@ pub fn endow(grants: &str) -> Result<Bindings, String> {
             .with_kv_store(Box::new(ibex2::kv::MemoryStore::new()));
     }
     endow_in(host, grants)
+}
+
+/// [`endow_for`] for a boot. One that reads the store (`fresh`, not a
+/// reload carrying memory) first empties a fresh drive's scratch tree, once
+/// a process and before anything is written there (`picker::empty_fresh_tree`).
+pub fn endow_bound(grants: &str, app_id: &str, fresh: bool) -> (Option<Bindings>, Option<String>) {
+    if fresh {
+        if let Err(e) = crate::picker::empty_fresh_tree(app_id) {
+            return (None, Some(format!("{e:?}")));
+        }
+    }
+    match endow_for(grants, app_id) {
+        Ok(b) => (Some(b), None),
+        Err(e) => (None, Some(e)),
+    }
 }
 
 #[cfg(test)]
@@ -169,5 +200,82 @@ mod tests {
             error.contains("line 2") && error.contains("jwtToken"),
             "{error}"
         );
+    }
+
+    /// A named agent drive keeps `secret.keep` in its scratch tree, and a
+    /// fresh launch reads nothing back (platformer R10). A child, so the
+    /// environment stays off this process.
+    #[test]
+    fn named_agent_storage_keeps_a_secret_across_a_relaunch() {
+        const CHILD: &str = "EXACT_APPLE_SECRET_KEEP_TEST";
+        if std::env::var_os(CHILD).is_none() {
+            let home =
+                std::env::temp_dir().join(format!("exact-apple-secrets-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&home);
+            std::fs::create_dir_all(&home).unwrap();
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "store::tests::named_agent_storage_keeps_a_secret_across_a_relaunch",
+                ])
+                .env(CHILD, "1")
+                .env("HOME", &home)
+                .env("EXACT_AGENT", "1")
+                .env("EXACT_AGENT_STORAGE", "s1")
+                .env_remove("EXACT_AGENT_STORAGE_FRESH")
+                .env_remove("EXACT_STORE")
+                .output()
+                .unwrap();
+            let _ = std::fs::remove_dir_all(&home);
+            assert!(
+                output.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let app = "test.exact.keep";
+        let grants = "secret.keep platformer.best";
+        let launch = || endow_for(grants, app).unwrap();
+        let write = |name: &str, value: Option<&str>| StoreWrite {
+            name: name.into(),
+            value: value.map(str::to_string),
+        };
+        let first = Platform::of(&launch());
+        first
+            .write(&write("platformer.best", Some("22050")))
+            .unwrap();
+        first.write(&write("exact.kept.score", Some("9"))).unwrap();
+        let again = snapshot_of(Some(&launch()));
+        assert!(
+            again.contains(&("platformer.best".into(), "22050".into())),
+            "{again:?}"
+        );
+        assert!(
+            again.contains(&("exact.kept.score".into(), "9".into())),
+            "{again:?}"
+        );
+        let file = crate::picker::agent_secret_root(app)
+            .unwrap()
+            .join("secrets")
+            .join("platformer.best");
+        assert!(file.is_file(), "{}", file.display());
+        // An empty app id is the test stand-in: memory, and a new endow
+        // does not see the write or touch the scratch file.
+        let memory = endow_for(grants, "").unwrap();
+        Platform::of(&memory)
+            .write(&write("platformer.best", Some("nope")))
+            .unwrap();
+        assert!(snapshot_of(Some(&endow_for(grants, "").unwrap())).is_empty());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "22050");
+        std::env::set_var("EXACT_AGENT_STORAGE_FRESH", "1");
+        let (fresh, err) = endow_bound(grants, app, true);
+        assert!(err.is_none(), "{err:?}");
+        assert!(
+            snapshot_of(fresh.as_ref()).is_empty(),
+            "a fresh launch reads nothing"
+        );
+        assert!(!file.exists());
     }
 }

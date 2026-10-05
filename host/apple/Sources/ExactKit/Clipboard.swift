@@ -81,6 +81,12 @@ extension Agent {
         #else
         if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
         #endif
+        // A paste is ⌘V first. A `key` handler that preventDefault()s that
+        // chord keeps the clipboard event from landing (drums: the driver's
+        // paste skipped the key and hid that bug). Copy and cut stay the event.
+        if edit == "paste", v.presenter?.keyDown(at: v, "v", held: "Meta+") == true {
+            return ["typed": Int(v.id), "clipboard": edit, "delivery": "recognized"]
+        }
         v.clipboard(action, text: text ?? "")
         return ["typed": Int(v.id), "clipboard": edit, "delivery": "recognized"]
     }

@@ -735,7 +735,10 @@ extension Agent {
             // A chord's modifiers ride with its key; with Control or Command
             // held a key types nothing, as a keyboard's shortcut does not.
             let (held, bare) = KeyCodes.split(key)
-            let name = KeyCodes.device(bare)?.key ?? (bare == "Space" ? " " : bare)
+            // The same names as the web. A letter keeps the case the driver
+            // named (`P` is "P"); an unknown name is refused, not inserted.
+            guard let device = KeyCodes.device(bare) else { return ["error": "key: unsupported key \(bare)"] }
+            let name = bare.count == 1 && bare != " " ? bare : device.key
             let types = name.count == 1 && !held.contains("Control+") && !held.contains("Meta+")
             if let f = v.textArea { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
             else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
@@ -751,11 +754,13 @@ extension Agent {
             #endif
             if req["phase"] as? String != "up", !presenter.keyDown(at: focus, name, held: held), let focus {
                 if let f = focus.textArea {
-                    if name == "Enter" { f.insertText("\n") } else if name == "Backspace" { f.deleteBackward() } else if types { f.insertText(name) }
+                    if name == "Enter" { f.insertText("\n") } else if name == "Backspace" { f.deleteBackward() }
+                    else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }
                     pendingTextReveal = f as? TextArea
                 } else if let f = focus.field as? TextField {
                     f.heard = name
-                    if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = focus.textFieldShouldReturn(f) } else if types { f.insertText(name) }
+                    if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = focus.textFieldShouldReturn(f) }
+                    else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }
                     f.heard = nil
                 } else if focus.handlers.contains("press"), name == "Enter" || name == " " { presenter.press(focus.id) }
             }
@@ -776,6 +781,28 @@ extension Agent {
         f.selectAll(nil)
         f.insertText(text)
         return ["typed": Int(v.id), "value": f.text ?? ""]
+    }
+
+    /// A hardware keyboard's caret keys in a field, which UIKit performs and
+    /// a driver's key does not: ArrowLeft and ArrowRight move the caret (or
+    /// collapse a selection to that side), Delete removes what follows it —
+    /// through `deleteBackward`, as Backspace does, so the field hears one
+    /// edit. The web's names and defaults (`type <field> key Delete`).
+    static func caretKey(_ name: String, in field: UIKeyInput & UITextInput) -> Bool {
+        guard ["ArrowLeft", "ArrowRight", "Delete"].contains(name), let range = field.selectedTextRange else { return false }
+        if name == "Delete" {
+            if range.isEmpty {
+                guard let next = field.position(from: range.end, offset: 1) else { return true }
+                field.selectedTextRange = field.textRange(from: next, to: next)
+            }
+            field.deleteBackward()
+            return true
+        }
+        let left = name == "ArrowLeft"
+        let edge = left ? range.start : range.end
+        let to = range.isEmpty ? field.position(from: edge, offset: left ? -1 : 1) ?? edge : edge
+        field.selectedTextRange = field.textRange(from: to, to: to)
+        return true
     }
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
