@@ -39,6 +39,9 @@ macro_rules! canvas_jni {
                 static LAST: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
                 /// A move of the last stream (op 22), read at once; LAST stays drawn.
                 static MOVE: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+                /// What the reader draws: the last stream's drawing, without its
+                /// definitions (`None` after a move, or unknown).
+                static DRAWN: RefCell<Option<Vec<u32>>> = const { RefCell::new(None) };
             }
 
             fn with<T>(f: impl FnOnce(&mut Host) -> T) -> Option<T> {
@@ -197,6 +200,7 @@ macro_rules! canvas_jni {
                 };
                 let new = (**env).NewDirectByteBuffer.expect("jni");
                 if ops.first() == Some(&22) {
+                    DRAWN.with(|d| *d.borrow_mut() = None);
                     return MOVE.with(|m| {
                         let mut m = m.borrow_mut();
                         *m = ops;
@@ -207,6 +211,18 @@ macro_rules! canvas_jni {
                     let mut last = last.borrow_mut();
                     // The same stream draws the same pixels: no new frame for Android.
                     if *last == ops {
+                        return std::ptr::null_mut();
+                    }
+                    // What the reader draws already, with nothing to define (a
+                    // touch down after a stream that defined rows): no frame.
+                    let now = $crate::canvas::drawing(&ops);
+                    let same = DRAWN.with(|d| {
+                        let mut d = d.borrow_mut();
+                        let same = matches!((&now, &*d), (Some((n, false)), Some(o)) if n == o);
+                        *d = now.map(|(n, _)| n);
+                        same
+                    });
+                    if same {
                         return std::ptr::null_mut();
                     }
                     *last = ops;

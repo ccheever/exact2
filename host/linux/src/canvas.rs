@@ -135,8 +135,11 @@ pub use jni_sys;
 mod picture;
 #[path = "canvas/shadow.rs"]
 mod shadow;
+#[path = "canvas/stream.rs"]
+mod stream;
 pub use picture::Picture;
 use picture::WeakPicture;
+pub use stream::drawing;
 
 thread_local! {
     /// The last finished recording and the pictures it introduced.
