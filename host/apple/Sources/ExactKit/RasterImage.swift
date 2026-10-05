@@ -321,7 +321,10 @@ final class RasterImage: @unchecked Sendable {
                 thumbnail = sdr
             }
             let (staging, overflow) = thumbnail.bytesPerRow.multipliedReportingOverflow(by: thumbnail.height)
-            guard !overflow, thumbnail.width <= plan.width, thumbnail.height <= plan.height,
+            // ImageIO may round a reduced side up by a pixel (macOS 27's HDR
+            // decode of a 256×64 PQ HEIC at 100 is 100×26, the plan 100×25);
+            // the staging bound below still holds it to the reservation.
+            guard !overflow, thumbnail.width <= plan.width + 1, thumbnail.height <= plan.height + 1,
                   staging <= plan.scratchBytes else { throw RasterFailure.reservation }
             // The reservation is charged whole: ImageIO's rows are never wider.
             guard var image = normalized(thumbnail, plan: plan) else { throw RasterFailure.decode }
@@ -380,8 +383,11 @@ final class RasterImage: @unchecked Sendable {
         // An HDR decode in a BT.2100 space is kept as ImageIO made it: Core
         // Animation tone-maps that to the layer's range, which it doesn't do
         // for extended linear content (LLP 1100 D5, D8).
+        // ImageIO's one-pixel rounding (`decode`) keeps it so too, within the
+        // resident charge: drawing it to the plan's size would make it extended linear.
         if plan.variant == RasterVariant.hdr, let source = thumbnail.colorSpace, CGColorSpaceUsesITUR_2100TF(source),
-           thumbnail.width <= plan.width, thumbnail.height <= plan.height { return thumbnail }
+           thumbnail.width <= plan.width + 1, thumbnail.height <= plan.height + 1,
+           thumbnail.bytesPerRow * thumbnail.height <= plan.outputBytes { return thumbnail }
         let space = storageSpace(thumbnail.colorSpace, plan: plan)
         if isAdoptable(thumbnail, plan: plan, space: space) { return thumbnail }
         let bitmap = plan.deep
