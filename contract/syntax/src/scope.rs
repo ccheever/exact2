@@ -623,15 +623,15 @@ impl Rewriter<'_> {
             // renamed keyframes, no rename is right, so the compile is
             // refused (LLP 1091 §20).
             let name = if shorthand {
-                let readings = readings(&tokens, HOLE);
+                let roles = literal_roles(&tokens, HOLE);
                 let mut name = None;
                 for (i, &(at, t)) in tokens.iter().enumerate() {
                     if t.contains(HOLE) {
                         continue;
                     }
-                    let named = |r: &Vec<bool>| r[i];
-                    let all = !readings.is_empty() && readings.iter().all(named);
-                    let some = readings.iter().any(named);
+                    let (can_name, can_other) = roles[i];
+                    let all = can_name && !can_other;
+                    let some = can_name && can_other;
                     if all {
                         name = Some((at, t));
                     } else if some {
@@ -842,7 +842,7 @@ enum Part<'a> {
 }
 
 /// One animation's slots, filled in the order `motion` fills them.
-#[derive(Default)]
+#[derive(Default, Clone, PartialEq, Eq, Hash)]
 struct Shorthand {
     named: bool,
     times: u32,
@@ -943,13 +943,14 @@ const ROLES: [Role; 7] = [
     Role::Name,
 ];
 
-/// Every reading of one animation's parts `motion` would accept, each as
-/// which parts are the name. A computed part (holding `hole`) whose text
-/// says its slot fills it; any other may be any; past three such parts the
-/// readings are too many to try and none is returned, so nothing is renamed
-/// and an ambiguity cannot be ruled out — every literal reads as possibly
-/// the name.
-fn readings(tokens: &[(usize, &str)], hole: char) -> Vec<Vec<bool>> {
+/// For each literal part of one animation, whether some reading `motion`
+/// would accept takes it as the name, and whether some takes it as anything
+/// else. A computed part (holding `hole`) whose text says its kind is that
+/// kind; any other may be any kind of value, or empty (no part at all). Read
+/// exactly, at any length, by the slots each prefix can leave filled: those
+/// reachable from the start, and those from which the rest still reads.
+fn literal_roles(tokens: &[(usize, &str)], hole: char) -> Vec<(bool, bool)> {
+    use std::collections::HashSet;
     let known = |t: &str| {
         if ["cubic-bezier(", "steps(", "linear(", "spring("]
             .iter()
@@ -962,58 +963,80 @@ fn readings(tokens: &[(usize, &str)], hole: char) -> Vec<Vec<bool>> {
             None
         }
     };
-    let unknown: Vec<usize> = (0..tokens.len())
-        .filter(|&i| tokens[i].1.contains(hole) && known(tokens[i].1).is_none())
-        .collect();
-    if unknown.len() > 3 {
-        // Any literal may be the name: one reading with every literal named
-        // and one with none makes each "some but not all".
-        return vec![
-            tokens.iter().map(|(_, t)| !t.contains(hole)).collect(),
-            vec![false; tokens.len()],
-        ];
-    }
-    let mut out = Vec::new();
-    let mut choice = vec![0usize; unknown.len()];
-    loop {
-        let mut slots = Shorthand::default();
-        let mut named = vec![false; tokens.len()];
-        let mut valid = true;
-        for (i, &(_, t)) in tokens.iter().enumerate() {
-            let outcome = if t.contains(hole) {
-                let role = match unknown.iter().position(|&u| u == i) {
-                    Some(k) => ROLES[choice[k]],
-                    None => known(t).unwrap_or(Role::Name),
-                };
-                slots.fill(role).map(|_| false)
-            } else {
-                slots.take(t)
-            };
-            match outcome {
-                Some(is_name) => named[i] = is_name,
-                None => {
-                    valid = false;
-                    break;
+    // The slots after `token` from `state`, each with whether it was the
+    // name: one for a literal, one per kind for an unknown computed part.
+    let step = |state: &Shorthand, token: &str| -> Vec<(Shorthand, bool)> {
+        let mut out = Vec::new();
+        if !token.contains(hole) {
+            let mut next = state.clone();
+            if let Some(named) = next.take(token) {
+                out.push((next, named));
+            }
+            return out;
+        }
+        match known(token) {
+            Some(role) => {
+                let mut next = state.clone();
+                if next.fill(role).is_some() {
+                    out.push((next, false));
+                }
+            }
+            None => {
+                // Empty: the value adds no part.
+                out.push((state.clone(), false));
+                for role in ROLES {
+                    let mut next = state.clone();
+                    if let Some(named) = next.fill(role) {
+                        out.push((next, named));
+                    }
                 }
             }
         }
-        if valid {
-            out.push(named);
-        }
-        // The next combination of roles for the unknown parts.
-        let mut k = 0;
-        loop {
-            if k == choice.len() {
-                return out;
-            }
-            choice[k] += 1;
-            if choice[k] < ROLES.len() {
-                break;
-            }
-            choice[k] = 0;
-            k += 1;
-        }
+        out
+    };
+    let n = tokens.len();
+    let mut forward: Vec<HashSet<Shorthand>> = vec![HashSet::new(); n + 1];
+    forward[0].insert(Shorthand::default());
+    for i in 0..n {
+        let next: HashSet<Shorthand> = forward[i]
+            .iter()
+            .flat_map(|s| step(s, tokens[i].1).into_iter().map(|(t, _)| t))
+            .collect();
+        forward[i + 1] = next;
     }
+    // Any slots at the end read: an animation with no name is dropped by
+    // `motion`, not refused.
+    let mut alive: Vec<HashSet<Shorthand>> = vec![HashSet::new(); n + 1];
+    alive[n] = forward[n].clone();
+    for i in (0..n).rev() {
+        let keep: HashSet<Shorthand> = forward[i]
+            .iter()
+            .filter(|s| {
+                step(s, tokens[i].1)
+                    .iter()
+                    .any(|(t, _)| alive[i + 1].contains(t))
+            })
+            .cloned()
+            .collect();
+        alive[i] = keep;
+    }
+    (0..n)
+        .map(|i| {
+            let mut roles = (false, false);
+            for s in &alive[i] {
+                for (t, named) in step(s, tokens[i].1) {
+                    if alive[i + 1].contains(&t) {
+                        if named {
+                            roles.0 = true;
+                        } else {
+                            roles.1 = true;
+                        }
+                    }
+                }
+            }
+            roles
+        })
+        .collect()
 }
 
 /// `motion`'s `is_name`: a CSS custom-ident or a quoted string, not a

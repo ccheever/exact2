@@ -447,6 +447,7 @@ stage 1 lands, and stage 2 waits on them.
 - r11 (2026-10-05): round 9 (§18).
 - r12 (2026-10-05): round 10 (§19).
 - r13 (2026-10-05): round 11 (§20).
+- r14 (2026-10-05): round 12 (§22).
 
 ## 9. Review dispositions (round 1)
 
@@ -803,3 +804,15 @@ of 20 compile after it; the other three stop at refusals that are not
 scope (a `fn indexOf` that now shadows the roster's, LLP 1088 §9.1's note;
 an `alertdialog` and a surface attribute LLP 1021 and its siblings
 refuse). Mail, recipes, flashcards and feed pass their web tests after it.
+
+## 22. Code review round 12 dispositions
+
+Round 12 (`llp/reviews/code-2026-10-05-1091-r12.{astra,grok}.md`): both UNSOUND, with three findings
+between them. Every finding is taken; every plan stays byte-identical.
+
+| Finding | Fix |
+|---|---|
+| Grok 1 / Astra 2: past three unknown computed parts, round 11 called every literal ambiguous, refusing names `motion` always reads as names (quoted ones too) | The reading is exact at any length: the slots each prefix can leave filled, forward from the start and back from the end, decide for each literal whether some accepted reading names it and whether some does not. No cutoff |
+| Astra 1: an empty interpolation was made to fill a slot, so a full shorthand had no reading and its name went unrenamed | An unknown computed part may also be empty, filling nothing |
+| Astra 3 / Grok 2: a consulted path kept `..`, so the watchers, which fold it, missed a hidden link | Consulted paths fold `.` and `..` as written, as a watcher names the file |
+

@@ -877,3 +877,58 @@ fn a_shape_named_action_never_takes_another_files_bare_action() {
     );
     contract::compile_path(&root).unwrap();
 }
+
+// Round 12 (Astra, Grok, 2026-10-05).
+
+#[test]
+fn an_empty_value_fills_no_slot() {
+    let dir = Dir::new("empty-value");
+    dir.write(
+        "ui.contract",
+        "keyframes pulse\n  to opacity=0\ncomponent Card\n  state extra = \"\"\n  view\n    view animation=`pulse 1s 0s linear 1 normal both running ${extra}`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes pulse\n  to opacity=1\ncomponent App\n  view\n    Card()\n",
+    );
+    let text = plan(&root);
+    assert!(text.contains("pulse__ui 1s 0s linear"), "{text}");
+}
+
+#[test]
+fn many_computed_parts_are_read_exactly() {
+    let dir = Dir::new("many-computed");
+    dir.write(
+        "ui.contract",
+        "keyframes spin\n  to opacity=0\nkeyframes linear\n  to opacity=0\ncomponent Card\n  state a = \"1s\"\n  state b = \"0s\"\n  state c = \"ease\"\n  state d = \"infinite\"\n  view\n    column\n      view animation=`spin ${a} ${b} ${c} ${d}`\n      view animation=`'spin' ${a} ${b} ${c} ${d}`\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./ui.contract\"\nkeyframes spin\n  to opacity=1\ncomponent App\n  view\n    Card()\n",
+    );
+    let text = plan(&root);
+    assert!(text.contains("spin__ui "), "{text}");
+    assert!(text.contains("'spin__ui' "), "{text}");
+}
+
+#[test]
+fn a_dot_dot_path_is_watched_as_a_watcher_names_it() {
+    let dir = Dir::new("dotdot-watch");
+    dir.write("pages/keep.txt", "");
+    dir.write(
+        ".parts/entry.contract",
+        "component Card\n  view\n    text \"c\"\n",
+    );
+    let root = dir.write(
+        "app.contract",
+        "use Card from \"./pages/../.parts/entry.contract\"\ncomponent App\n  view\n    Card()\n",
+    );
+    let graph = contract::source_graph(&root);
+    assert!(
+        graph
+            .consulted
+            .contains(&dir.0.join(".parts/entry.contract")),
+        "{:?}",
+        graph.consulted
+    );
+}
