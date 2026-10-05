@@ -105,7 +105,8 @@ and second Escape cancels selection (`/tmp/messages-modal-confirmation/`).
 
 **Symbols** (LLP 1035.004, 2026-09-10) remain `img` leaves. The Rust host
 supplies the schema-generated `data-symbol-path` and decorative `alt=""`, unless the
-author named the image (`alt`, `aria-label`; 2026-10-04), whose name it keeps.
+author named the image (`alt`, `aria-label`; 2026-10-04), whose name it keeps; the JS
+target's symbol hook keeps it too.
 The glue intercepts `symbol:` sources without a network request, supplies a
 transparent SVG sized from computed `font-size`, and paints the generated path
 as a CSS mask. Font weight changes its stroke; `tint-color` supplies its colour
